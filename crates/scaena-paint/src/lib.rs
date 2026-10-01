@@ -637,6 +637,14 @@ pub mod gpu {
                     rgba.extend_from_slice(&line[..row as usize]);
                 }
                 buffer.unmap();
+                // vello unpremultiplies as rgb / max(a, 1e-6), so a sliver of coverage below
+                // 1/255 reads back as alpha 0 with leftover colour (Metal leaves [2, 1, 1, 0]
+                // beside pixel-aligned edges). Fully transparent is fully transparent.
+                for px in rgba.as_chunks_mut::<4>().0 {
+                    if px[3] == 0 {
+                        *px = [0; 4];
+                    }
+                }
                 Ok(Raster { width, height, rgba })
             }
         }
