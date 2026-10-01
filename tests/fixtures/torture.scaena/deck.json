@@ -1,0 +1,974 @@
+{
+  "scaena": "0.1",
+  "meta": {
+    "title": "Typography torture deck",
+    "author": "Scaena",
+    "created": "2026-10-01T00:00:00Z",
+    "lang": "en-US",
+    "description": "PLAN 0.2 / SPEC §15 benchmark B4. One state per case; README.md says which are kill criteria."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf",
+      "axes": {
+        "wdth": [
+          50,
+          150
+        ],
+        "opsz": [
+          8,
+          144
+        ],
+        "wght": [
+          100,
+          900
+        ],
+        "GRAD": [
+          -50,
+          100
+        ]
+      }
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf",
+      "axes": {
+        "wght": [
+          400,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Hebrew",
+      "file": "fonts/NotoSansHebrew-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "wdth": [
+          62.5,
+          100
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Arabic",
+      "file": "fonts/NotoSansArabic-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "wdth": [
+          62.5,
+          100
+        ]
+      }
+    },
+    {
+      "family": "Noto Color Emoji",
+      "file": "fonts/NotoColorEmoji-COLRv1.ttf"
+    }
+  ],
+  "data": {
+    "bars": {
+      "source": "data/bars.csv",
+      "schema": {
+        "label": "string",
+        "value": "number"
+      }
+    }
+  },
+  "nodes": {
+    "case": {
+      "type": "text",
+      "role": "label",
+      "text": "Typography torture deck",
+      "semantic": "navigation",
+      "at": {
+        "in": "case"
+      }
+    },
+    "axes-wght-100": {
+      "type": "text",
+      "role": "wght-100",
+      "text": "Hamburgefonstiv · wght 100",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "axes-wght-900": {
+      "type": "text",
+      "role": "wght-900",
+      "text": "Hamburgefonstiv · wght 900",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "axes-wdth-50": {
+      "type": "text",
+      "role": "wdth-50",
+      "text": "Hamburgefonstiv · wdth 50",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "axes-wdth-150": {
+      "type": "text",
+      "role": "wdth-150",
+      "text": "Hamburgefonstiv · wdth 150",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "axes-opsz-8": {
+      "type": "text",
+      "role": "opsz-8",
+      "text": "Hamburgefonstiv · opsz 8",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 6
+      }
+    },
+    "axes-opsz-144": {
+      "type": "text",
+      "role": "opsz-144",
+      "text": "Hamburgefonstiv · opsz 144",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 7
+      }
+    },
+    "liga-on": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "office affluent fjord flight",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "liga-off": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "office affluent fjord flight",
+      "features": {
+        "liga": false
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "dlig-on": {
+      "type": "text",
+      "role": "dlig",
+      "text": "The strict act of attaching chickens, often.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "dlig-off": {
+      "type": "text",
+      "role": "garamond",
+      "text": "The strict act of attaching chickens, often.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "kern-on": {
+      "type": "text",
+      "role": "kern",
+      "text": "AVATAR To LT Wa Yo ff fi",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "kern-off": {
+      "type": "text",
+      "role": "kern",
+      "text": "AVATAR To LT Wa Yo ff fi",
+      "features": {
+        "kern": false
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "num-tab-lin": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "tabular-lining",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "num-tab-old": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "tabular-oldstyle",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "num-pro-lin": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "proportional-lining",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "num-pro-old": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "proportional-oldstyle",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "accents-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ærøskøbing · Łódź · Dvořák · São Tomé · façade",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "accents-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "naïve · Œuvre · Ðorđe · Przędzalnia · İzmir",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "accents-3": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ångström · Gödel · Şişli · Čeština · Žižkov",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "combining-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Tiếng Việt · Amélie · näive",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "combining-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ångström · q̃ x́ ǰ",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "punct-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "“Smart” ‘quotes’ — an em dash",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "punct-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "1914–1918, an en dash; wait for it…",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "mixed-line": {
+      "type": "text",
+      "role": "run-regular",
+      "runs": [
+        {
+          "text": "Thin ",
+          "role": "run-thin"
+        },
+        {
+          "text": "Regular ",
+          "role": "run-regular"
+        },
+        {
+          "text": "Black ",
+          "role": "run-black"
+        },
+        {
+          "text": "Big ",
+          "role": "run-big"
+        },
+        {
+          "text": "small",
+          "role": "run-small"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "track-tight": {
+      "type": "text",
+      "role": "tight",
+      "text": "Tightly tracked display",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "track-loose": {
+      "type": "text",
+      "role": "loose",
+      "text": "LOOSELY TRACKED LABEL",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "hanging-quote": {
+      "type": "text",
+      "role": "hanging",
+      "text": "“Typography is the product.” Tall Ts, Vs and Ws start lines here; ‘quoted’ openings hang into the margin, and lines end with a hyphen-ated word.",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "balance-head": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue doubled while the product mix shifted",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "pretty-para": {
+      "type": "text",
+      "role": "body",
+      "text": "Greedy line breaking fills each line as far as it can. What remains falls to the last line, and so a single short word ends up alone at the bottom of the block, where it reads like a mistake.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "wrap-word": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Donaudampfschifffahrtsgesellschaftskapitänsmütze is one word.",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "wrap-link": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Specs at https://scaena.dev/docs/spec/typography/line-breaking?case=url&wrap=true#torture",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "wrap-narrow-col": {
+      "type": "text",
+      "role": "narrow",
+      "text": "Narrow measures make every line break a decision, and most of them are bad ones.",
+      "at": {
+        "col": [
+          1,
+          2
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "emoji-line": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "Ship it 🚀 🙂 👩🏽‍💻 🇺🇸 ❤️",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "bidi-he-line": {
+      "type": "text",
+      "role": "bidi-he",
+      "text": "שלום Scaena! הגרסה 0.1 מוכנה.",
+      "lang": "he",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "bidi-ar-line": {
+      "type": "text",
+      "role": "bidi-ar",
+      "text": "مرحبا Scaena! الإصدار 0.1 جاهز.",
+      "lang": "ar",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "fallback-run": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Alpha α, omega ω, shalom שלום, one run.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@bars",
+      "x": {
+        "field": "label",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "value",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "key": "label",
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Six bars from Q1 2025 to Q2 2026; the last is the tallest.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "mesh-bg": {
+      "type": "shader",
+      "kind": "mesh",
+      "seed": 7,
+      "palette": "torture",
+      "params": {
+        "points": 5,
+        "drift": 0.12,
+        "softness": 0.85,
+        "grain": 0.035
+      },
+      "z": -100,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "axes",
+      "name": "Variable axes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "01 · Variable axes: wght, wdth, opsz · kill"
+        },
+        "axes-wght-100": {},
+        "axes-wght-900": {},
+        "axes-wdth-50": {},
+        "axes-wdth-150": {},
+        "axes-opsz-8": {},
+        "axes-opsz-144": {}
+      },
+      "notes": "Pass: each pair differs only on its axis. wght 100 vs 900 changes stroke weight; wdth 50 vs 150 changes set width; opsz 8 vs 144 at the same 64 cu size changes contrast and spacing (gate 0 criterion 2: opsz and wdth demonstrably change glyph shapes)."
+    },
+    {
+      "id": "liga",
+      "name": "Standard ligatures",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "02 · Standard ligatures (liga) · kill"
+        },
+        "liga-on": {},
+        "liga-off": {}
+      },
+      "notes": "Pass: the top line uses the ffi, ffl, fj and fl ligature glyphs; the bottom line (liga off) shows the same letters unjoined. Same font, same size."
+    },
+    {
+      "id": "dlig",
+      "name": "Discretionary ligatures",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "03 · Discretionary ligatures (dlig) · catalogue"
+        },
+        "dlig-on": {},
+        "dlig-off": {}
+      },
+      "notes": "Catalogue: EB Garamond with dlig on (top) forms Th, st, ct, tt, ch, ck and ft ligatures; the control line below has dlig off."
+    },
+    {
+      "id": "kern",
+      "name": "Kerning",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "04 · Kerning-sensitive pairs · kill"
+        },
+        "kern-on": {},
+        "kern-off": {}
+      },
+      "notes": "Pass: AV, To, LT, Wa and Yo close up in the top line (GPOS kern, -55 to -75 units/em in Roboto Serif) and sit loose in the bottom line with kern off."
+    },
+    {
+      "id": "numerals",
+      "name": "Numeral styles",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "05 · Numerals: tabular/proportional × lining/oldstyle · kill"
+        },
+        "num-tab-lin": {},
+        "num-tab-old": {},
+        "num-pro-lin": {},
+        "num-pro-old": {}
+      },
+      "notes": "Pass: in the tabular lines 1111 and 0000 are the same width; in the proportional lines 1111 is narrower. Oldstyle lines have ascending and descending figures (3, 4, 5, 7, 9 drop below the baseline); lining lines do not."
+    },
+    {
+      "id": "accents",
+      "name": "Accented Latin",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "06 · Accented Latin · kill"
+        },
+        "accents-1": {},
+        "accents-2": {},
+        "accents-3": {}
+      },
+      "notes": "Pass: every precomposed letter renders from Roboto Serif (no fallback, no .notdef), with accents correctly placed on capitals and lowercase."
+    },
+    {
+      "id": "combining",
+      "name": "Combining marks",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "07 · Combining marks (decomposed) · catalogue"
+        },
+        "combining-1": {},
+        "combining-2": {}
+      },
+      "notes": "Catalogue: decomposed sequences (NFD) shape to the same appearance as precomposed letters; stacked marks (ế, ệ) do not collide; marks on bases with no precomposed form (q̃, x́) are positioned by GPOS mark attachment."
+    },
+    {
+      "id": "punctuation",
+      "name": "Punctuation",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "08 · Smart quotes, dashes, ellipsis · recorded"
+        },
+        "punct-1": {},
+        "punct-2": {}
+      },
+      "notes": "Recorded: curly quotes, em and en dashes and the ellipsis come from the font (no straight-quote or three-period substitutes)."
+    },
+    {
+      "id": "mixed",
+      "name": "Mixed weights and sizes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "09 · Mixed weights and sizes in one line · kill"
+        },
+        "mixed-line": {}
+      },
+      "notes": "Pass: one line, five runs, one shared baseline; weights 100/400/900 at 56 cu, then 112 cu and 28 cu runs. Line height follows the tallest run."
+    },
+    {
+      "id": "tracking",
+      "name": "Tracking extremes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "10 · Tracking: -0.08 em and +0.40 em · kill"
+        },
+        "track-tight": {},
+        "track-loose": {}
+      },
+      "notes": "Pass: the top line is set 0.08 em tighter than default (letters nearly touching, none overlapping on this face); the bottom line is spaced 0.40 em. Tracking adds after every glyph; it must not break ligature or kerning shaping."
+    },
+    {
+      "id": "hanging",
+      "name": "Hanging punctuation and optical margins",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "11 · Hanging punctuation, optical margins · recorded"
+        },
+        "hanging-quote": {}
+      },
+      "notes": "Recorded: opening quotes hang outside the text edge; T, V, W and A at line starts are optically aligned. Phase 0 records behaviour (PLAN 1.8 implements both)."
+    },
+    {
+      "id": "balance",
+      "name": "Balanced headline",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "12 · Balanced two-line headline · kill"
+        },
+        "balance-head": {}
+      },
+      "notes": "Pass: two lines of similar length (e.g. \"Revenue doubled while the / product mix shifted\"). Greedy breaking at this width gives 1642 cu + 521 cu; balance must fix that."
+    },
+    {
+      "id": "pretty",
+      "name": "Pretty paragraph, bait widow",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "13 · Pretty paragraph with a bait widow · kill"
+        },
+        "pretty-para": {}
+      },
+      "notes": "Pass: the last line carries at least two words (role minLastLineWords: 2). Greedy breaking at this width strands \"mistake.\" alone on line 3, robustly (±15 cu of measurement drift still strands it)."
+    },
+    {
+      "id": "wrap-longword",
+      "name": "Unbreakable word",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "14 · Wrap: one long unbreakable word · recorded"
+        },
+        "wrap-word": {}
+      },
+      "notes": "Recorded: the compound is wider than its 852 cu box. Record what happens: overflow (E100), emergency break, or clip. Nothing may draw outside the box silently."
+    },
+    {
+      "id": "wrap-url",
+      "name": "URL",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "15 · Wrap: a URL · recorded"
+        },
+        "wrap-link": {}
+      },
+      "notes": "Recorded: a URL wider than its box. Record where it breaks (after / ? & # are acceptable break points) and whether any break happens inside a path segment."
+    },
+    {
+      "id": "wrap-narrow",
+      "name": "Narrow measure",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "16 · Wrap: narrow measure · recorded"
+        },
+        "wrap-narrow-col": {}
+      },
+      "notes": "Recorded: a 268 cu column at 32 cu. Expect ragged short lines; record raggedness and any overflow."
+    },
+    {
+      "id": "emoji",
+      "name": "Emoji",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "17 · Emoji: COLRv1, ZWJ, skin tone, flag · catalogue"
+        },
+        "emoji-line": {}
+      },
+      "notes": "Catalogue: color glyphs from Noto Color Emoji (COLRv1 only; the SVG table is stripped). The ZWJ sequence and the skin tone form one glyph; VS16 is invisible. Trap: EB Garamond, earlier in the fallback chain, maps the regional indicator letters, so per-codepoint fallback draws 🇺🇸 as two monochrome Garamond letters. Fallback must be per cluster and honour default emoji presentation (UTS #51): one color flag."
+    },
+    {
+      "id": "bidi-hebrew",
+      "name": "Bidi: Hebrew",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "18 · Bidi: Hebrew with inline Latin · catalogue"
+        },
+        "bidi-he-line": {}
+      },
+      "notes": "Catalogue: right-to-left paragraph; \"Scaena\" and \"0.1\" stay left-to-right inside it; the final period sits at the left end. Glyphs from Noto Sans Hebrew (its own Latin)."
+    },
+    {
+      "id": "bidi-arabic",
+      "name": "Bidi: Arabic",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "19 · Bidi: Arabic with inline Latin · catalogue"
+        },
+        "bidi-ar-line": {}
+      },
+      "notes": "Catalogue: right-to-left with joined Arabic letterforms (initial/medial/final shapes) and the lam-alef ligature in الإصدار; Latin and digits stay left-to-right."
+    },
+    {
+      "id": "fallback",
+      "name": "Bundle-internal fallback",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "20 · Fallback within one run: 3 fonts · kill"
+        },
+        "fallback-run": {}
+      },
+      "notes": "Pass: a single run in Roboto Serif. α and ω (absent from Roboto Serif) fall back to EB Garamond, the Hebrew word to Noto Sans Hebrew, following the theme family fallback order. No system font, no .notdef."
+    },
+    {
+      "id": "chart",
+      "name": "Bar chart",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "21 · Bar chart, six bars · recorded"
+        },
+        "bars": {}
+      },
+      "notes": "Recorded here; gated by PLAN 0.10 (bar to line morph). Six bars keyed by label, theme categorical palette, tabular-lining value labels."
+    },
+    {
+      "id": "mesh",
+      "name": "Mesh background",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "22 · Mesh background · recorded"
+        },
+        "mesh-bg": {}
+      },
+      "notes": "Recorded here; gated by PLAN 0.11 (CPU/GPU parity within tolerance). Seeded mesh gradient, full bleed, under the case label."
+    }
+  ]
+}

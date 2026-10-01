@@ -31,5 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema
+      - run: pip install jsonschema fonttools==4.66.1
       - run: python3 scripts/validate_schema.py .
+      # Every character in the torture deck resolves through its role's bundle-font fallback chain (PLAN 0.2).
+      - run: python3 scripts/build_torture_fonts.py --check

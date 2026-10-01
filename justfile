@@ -22,9 +22,15 @@ test:
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
 
-# Validate docs/examples against docs/schema (needs python3 + jsonschema; `pip install jsonschema`).
+# Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
+# (needs python3; `pip install jsonschema fonttools==4.66.1`).
 schema:
     python3 scripts/validate_schema.py .
+    python3 scripts/build_torture_fonts.py --check
+
+# Rebuild the torture deck's subset fonts from pinned upstream files (network; PLAN 0.2).
+torture-fonts *ARGS:
+    python3 scripts/build_torture_fonts.py {{ARGS}}
 
 # Run the CLI: `just cli lint docs/examples/revenue.deck.json`
 cli *ARGS:

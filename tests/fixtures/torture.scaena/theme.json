@@ -1,0 +1,667 @@
+{
+  "scaena-theme": "0.1",
+  "name": "Torture",
+  "description": "Fixture theme for the typography torture deck (PLAN 0.2). Every case-specific typographic setting lives here as a role, so the deck itself references roles only.",
+  "tokens": {
+    "color": {
+      "ink": "#16140F",
+      "paper": "#FBFAF6",
+      "paper-2": "#F1EEE6",
+      "accent": "#C2410C",
+      "muted": "#6B675E",
+      "line": "#DAD5C9"
+    },
+    "roles": {
+      "surface": "paper",
+      "surface-2": "paper-2",
+      "onSurface": "ink",
+      "onSurfaceMuted": "muted",
+      "accent": "accent",
+      "onAccent": "paper",
+      "line": "line"
+    },
+    "data": {
+      "categorical": [
+        "#C2410C",
+        "#0F766E",
+        "#4338CA",
+        "#A16207",
+        "#BE185D",
+        "#15803D"
+      ],
+      "sequential": [
+        "#F1EEE6",
+        "#F5C451",
+        "#E07A3F",
+        "#C2410C",
+        "#7C2D12"
+      ],
+      "diverging": [
+        "#0F766E",
+        "#F1EEE6",
+        "#C2410C"
+      ]
+    },
+    "space": {
+      "unit": 8,
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ]
+    },
+    "radius": {
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        32
+      ]
+    },
+    "stroke": {
+      "hairline": 1,
+      "thin": 2,
+      "thick": 4
+    }
+  },
+  "type": {
+    "families": {
+      "serif": {
+        "family": "Roboto Serif",
+        "file": "fonts/RobotoSerif-VF.ttf",
+        "axes": {
+          "wdth": [
+            50,
+            150
+          ],
+          "opsz": [
+            8,
+            144
+          ],
+          "wght": [
+            100,
+            900
+          ],
+          "GRAD": [
+            -50,
+            100
+          ]
+        },
+        "fallback": [
+          "garamond",
+          "hebrew",
+          "arabic",
+          "emoji"
+        ]
+      },
+      "garamond": {
+        "family": "EB Garamond",
+        "file": "fonts/EBGaramond-VF.ttf",
+        "axes": {
+          "wght": [
+            400,
+            800
+          ]
+        },
+        "fallback": [
+          "serif",
+          "hebrew",
+          "arabic",
+          "emoji"
+        ]
+      },
+      "hebrew": {
+        "family": "Noto Sans Hebrew",
+        "file": "fonts/NotoSansHebrew-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "wdth": [
+            62.5,
+            100
+          ]
+        },
+        "fallback": [
+          "serif",
+          "emoji"
+        ]
+      },
+      "arabic": {
+        "family": "Noto Sans Arabic",
+        "file": "fonts/NotoSansArabic-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "wdth": [
+            62.5,
+            100
+          ]
+        },
+        "fallback": [
+          "serif",
+          "emoji"
+        ]
+      },
+      "emoji": {
+        "family": "Noto Color Emoji",
+        "file": "fonts/NotoColorEmoji-COLRv1.ttf"
+      }
+    },
+    "scale": {
+      "ratio": 1.25,
+      "base": 32
+    },
+    "roles": {
+      "display": {
+        "family": "serif",
+        "size": 144,
+        "weight": 600,
+        "leading": 0.95,
+        "tracking": -0.02,
+        "opsz": 144,
+        "wrap": "balance",
+        "box": "cap",
+        "maxLines": 2,
+        "minLastLineWords": 1,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "headline": {
+        "family": "serif",
+        "size": 96,
+        "weight": 600,
+        "leading": 1.0,
+        "tracking": -0.015,
+        "opsz": 96,
+        "wrap": "balance",
+        "box": "cap",
+        "maxLines": 2,
+        "minLastLineWords": 1
+      },
+      "body": {
+        "family": "serif",
+        "size": 40,
+        "weight": 400,
+        "leading": 1.35,
+        "opsz": 40,
+        "wrap": "pretty",
+        "box": "line",
+        "minLastLineWords": 2
+      },
+      "caption": {
+        "family": "serif",
+        "size": 24,
+        "weight": 400,
+        "leading": 1.3,
+        "opsz": 24,
+        "wrap": "pretty",
+        "box": "line",
+        "color": "onSurfaceMuted"
+      },
+      "label": {
+        "family": "serif",
+        "size": 22,
+        "weight": 600,
+        "leading": 1.2,
+        "tracking": 0.04,
+        "opsz": 22,
+        "wrap": "greedy",
+        "box": "cap",
+        "color": "onSurfaceMuted"
+      },
+      "numeral": {
+        "family": "serif",
+        "size": 72,
+        "weight": 500,
+        "leading": 1.0,
+        "opsz": 72,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining"
+      },
+      "specimen": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 64,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "specimen-lg": {
+        "family": "serif",
+        "size": 96,
+        "weight": 400,
+        "leading": 1.1,
+        "opsz": 96,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "wght-100": {
+        "family": "serif",
+        "size": 64,
+        "weight": 100,
+        "leading": 1.15,
+        "opsz": 64,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "wght-900": {
+        "family": "serif",
+        "size": 64,
+        "weight": 900,
+        "leading": 1.15,
+        "opsz": 64,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "wdth-50": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 64,
+        "axes": {
+          "wdth": 50
+        },
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "wdth-150": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 64,
+        "axes": {
+          "wdth": 150
+        },
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "opsz-8": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 8,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "opsz-144": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 144,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "garamond": {
+        "family": "garamond",
+        "size": 72,
+        "weight": 400,
+        "leading": 1.15,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "dlig": {
+        "family": "garamond",
+        "size": 72,
+        "weight": 400,
+        "leading": 1.15,
+        "features": {
+          "dlig": true
+        },
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "kern": {
+        "family": "serif",
+        "size": 112,
+        "weight": 500,
+        "leading": 1.05,
+        "opsz": 112,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "figures": {
+        "family": "serif",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 64,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "run-thin": {
+        "family": "serif",
+        "size": 56,
+        "weight": 100,
+        "leading": 1.15,
+        "opsz": 56,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "run-regular": {
+        "family": "serif",
+        "size": 56,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 56,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "run-black": {
+        "family": "serif",
+        "size": 56,
+        "weight": 900,
+        "leading": 1.15,
+        "opsz": 56,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "run-big": {
+        "family": "serif",
+        "size": 112,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 112,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "run-small": {
+        "family": "serif",
+        "size": 28,
+        "weight": 400,
+        "leading": 1.15,
+        "opsz": 28,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "tight": {
+        "family": "serif",
+        "size": 96,
+        "weight": 700,
+        "leading": 1.0,
+        "tracking": -0.08,
+        "opsz": 96,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "loose": {
+        "family": "serif",
+        "size": 56,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0.4,
+        "opsz": 56,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "hanging": {
+        "family": "serif",
+        "size": 56,
+        "weight": 400,
+        "leading": 1.2,
+        "opsz": 56,
+        "wrap": "greedy",
+        "box": "line",
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "narrow": {
+        "family": "serif",
+        "size": 32,
+        "weight": 400,
+        "leading": 1.3,
+        "opsz": 32,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "bidi-he": {
+        "family": "hebrew",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.3,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "bidi-ar": {
+        "family": "arabic",
+        "size": 64,
+        "weight": 400,
+        "leading": 1.5,
+        "wrap": "greedy",
+        "box": "line"
+      }
+    }
+  },
+  "grid": {
+    "columns": 12,
+    "rows": 8,
+    "gutter": 24,
+    "margin": 96,
+    "baseline": 8
+  },
+  "layouts": {
+    "title": {
+      "description": "Opening title.",
+      "slots": {
+        "title": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            3,
+            5
+          ],
+          "role": "display",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "subtitle": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 6,
+          "role": "body"
+        }
+      }
+    },
+    "full": {
+      "description": "One thing, full bleed to the grid.",
+      "slots": {
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            8
+          ]
+        },
+        "header": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline"
+        },
+        "footer": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 8,
+          "role": "caption"
+        }
+      }
+    },
+    "specimen": {
+      "description": "A case label on row 1; specimens placed on grid rows 2-8.",
+      "slots": {
+        "case": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "label",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            2,
+            8
+          ]
+        }
+      }
+    }
+  },
+  "motion": {
+    "durations": {
+      "fast": 180,
+      "standard": 420,
+      "slow": 800
+    },
+    "easings": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "in": [
+        0.4,
+        0,
+        1,
+        1
+      ],
+      "out": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "linear": [
+        0,
+        0,
+        1,
+        1
+      ]
+    },
+    "springs": {
+      "snappy": {
+        "stiffness": 420,
+        "damping": 34,
+        "mass": 1
+      },
+      "gentle": {
+        "stiffness": 170,
+        "damping": 26,
+        "mass": 1
+      }
+    },
+    "presets": {
+      "fade": {
+        "from": {
+          "opacity": 0
+        },
+        "duration": "standard",
+        "ease": "out"
+      },
+      "rise": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              24
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out"
+      },
+      "grow": {
+        "from": {
+          "transform": {
+            "scale": [
+              1,
+              0
+            ],
+            "anchor": [
+              0.5,
+              1
+            ]
+          }
+        },
+        "spring": "snappy",
+        "split": "marks",
+        "stagger": 40
+      }
+    },
+    "maxConcurrent": 12,
+    "maxBuild": 2500
+  },
+  "shaders": {
+    "palettes": {
+      "torture": [
+        "#0F766E",
+        "#4338CA",
+        "#C2410C",
+        "#F5C451"
+      ]
+    }
+  },
+  "charts": {
+    "axis": {
+      "role": "label",
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "gridlines": {
+      "stroke": "hairline",
+      "color": "line",
+      "opacity": 0.6
+    },
+    "label": {
+      "role": "label"
+    },
+    "strokeWidth": "thin",
+    "cornerRadius": 2,
+    "barGap": 0.28
+  },
+  "density": {
+    "maxWordsPerState": 60
+  }
+}

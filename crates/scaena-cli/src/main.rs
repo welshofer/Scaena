@@ -289,8 +289,31 @@ fn summarize(props: &scaena_core::document::Props) -> String {
                 serde_json::Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            parts.push(format!("{key}={}", if s.len() > 32 { format!("{}…", &s[..32]) } else { s }));
+            parts.push(format!("{key}={}", truncate(&s, 32)));
         }
     }
     parts.join("  ")
+}
+
+/// The first `max` characters of `s`, with an ellipsis when cut. Counts chars, not
+/// bytes: a byte offset can land inside a multi-byte character and panic (the
+/// torture deck's accented-Latin state did exactly that).
+fn truncate(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_counts_chars_not_bytes() {
+        assert_eq!(truncate("Ærøskøbing · Łódź", 5), "Ærøsk…");
+        assert_eq!(truncate("שלום Scaena", 4), "שלום…");
+        assert_eq!(truncate("exactly", 7), "exactly");
+        assert_eq!(truncate("", 3), "");
+    }
 }

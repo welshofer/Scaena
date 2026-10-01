@@ -1,0 +1,63 @@
+# Typography torture deck (PLAN 0.2, benchmark B4)
+
+Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the painters fail now, not in month five. Each case is its own state, so the parity harness (PLAN 0.9) reports per case.
+
+```
+torture.scaena/
+  deck.json        22 states, mode: absolute, layout: specimen
+  theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
+  data/bars.csv    six rows for the bar chart
+  fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
+```
+
+## Fonts
+
+| Family key | Font | Covers |
+|---|---|---|
+| `serif` | Roboto Serif (variable: `wdth` 50–150, `opsz` 8–144, `wght` 100–900, `GRAD`) | PLAN role: variable `wght`+`opsz`+`wdth`. Also `liga`, `kern`, `tnum`/`pnum`/`lnum`/`onum`, combining marks. |
+| `garamond` | EB Garamond (variable `wght` 400–800) | PLAN role: discretionary ligatures (`dlig`: Th st ct ch ck ft tt). Also Greek, so it is the first fallback for Roboto Serif. |
+| `hebrew` | Noto Sans Hebrew | PLAN role: fallback for a script the first two lack. |
+| `arabic` | Noto Sans Arabic | Catalogue only: the Arabic bidi line. |
+| `emoji` | Noto Color Emoji, COLRv1 only (`SVG ` table stripped) | Catalogue only: emoji. |
+
+Fallback order (theme `type.families.*.fallback`): `serif` → `garamond` → `hebrew` → `arabic` → `emoji`. All five carry OS/2 v4 cap-height and x-height (ADR-0004 finding 3). Fonts are subsets built by `just torture-fonts` from google/fonts at a pinned commit, sha256-verified, deterministic; `just schema` checks that every character of every text node resolves through its role's chain and that each case uses only the fonts it is meant to test.
+
+## Cases
+
+Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, rasters within tolerance across painters). **catalogue** = recorded with pass/fail and a note, not gating. **recorded** = listed in PLAN 0.2 without a class; reported like catalogue (chart and mesh are gated by PLAN 0.10 and 0.11).
+
+| # | State | Case | Class | Pass when |
+|---|---|---|---|---|
+| 01 | `axes` | Variable axes | kill | wght 100/900, wdth 50/150, opsz 8/144 each change glyph shapes at fixed size (gate 0 criterion 2). |
+| 02 | `liga` | Standard ligatures | kill | ffi ffl fj fl ligate; the `liga: false` control line does not. |
+| 03 | `dlig` | Discretionary ligatures | catalogue | Th st ct tt ch ck ft ligate with `dlig`; the control line does not. |
+| 04 | `kern` | Kerning-sensitive pairs | kill | AV To LT Wa Yo close up; the `kern: false` control line does not. |
+| 05 | `numerals` | Numeral styles | kill | Tabular lines: 1111 = 0000 in width. Oldstyle lines: 3 4 5 7 9 descend. |
+| 06 | `accents` | Accented Latin | kill | Every precomposed letter from Roboto Serif; no fallback, no `.notdef`. |
+| 07 | `combining` | Combining marks (NFD) | catalogue | Same look as precomposed; stacked marks (ế ệ) do not collide; q̃ x́ positioned by GPOS. |
+| 08 | `punctuation` | Quotes, dashes, ellipsis | recorded | Curly quotes, em/en dashes, ellipsis from the font. |
+| 09 | `mixed` | Mixed weights and sizes, one line | kill | Five runs (100/400/900 at 56, then 112 and 28) on one baseline. |
+| 10 | `tracking` | Tracking −0.08 em / +0.40 em | kill | Spacing applied per glyph without breaking shaping. |
+| 11 | `hanging` | Hanging punctuation, optical margins | recorded | Opening quotes hang; T V W A optically aligned (implemented in PLAN 1.8). |
+| 12 | `balance` | Balanced two-line headline | kill | Two lines of similar length. Greedy gives 1642 + 521 cu at this width. |
+| 13 | `pretty` | Pretty paragraph, bait widow | kill | Last line has ≥ 2 words. Greedy strands "mistake." alone, even with ±15 cu of measurement drift. |
+| 14 | `wrap-longword` | One unbreakable word | recorded | Overflow is reported (E100) or handled by a declared policy; nothing escapes its box silently. |
+| 15 | `wrap-url` | A URL | recorded | Breaks only at `/ ? & #`-style opportunities. |
+| 16 | `wrap-narrow` | Narrow measure (268 cu) | recorded | Raggedness and any overflow recorded. |
+| 17 | `emoji` | Emoji: COLRv1, ZWJ, skin tone, flag, VS16 | catalogue | One glyph per sequence, in color. Trap: EB Garamond maps the regional indicators, so per-codepoint fallback draws 🇺🇸 as two monochrome letters; fallback must be per cluster and honour default emoji presentation (UTS #51). |
+| 18 | `bidi-hebrew` | Hebrew with inline Latin | catalogue | RTL paragraph; "Scaena" and "0.1" stay LTR; period at the left end. |
+| 19 | `bidi-arabic` | Arabic with inline Latin | catalogue | Joined letterforms, lam-alef ligature, LTR islands. |
+| 20 | `fallback` | Fallback within one run | kill | One run, three fonts: α ω from EB Garamond, Hebrew from Noto Sans Hebrew; no system font. |
+| 21 | `chart` | Bar chart, six bars | recorded | Gated by PLAN 0.10 (bar → line morph). |
+| 22 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
+
+Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
+
+## How the baits were made
+
+`balance` and `pretty` only test anything if greedy breaking actually fails on them. Both strings were chosen by shaping with HarfBuzz 14.5 (uharfbuzz) on these exact fonts, axes, and tracking, then breaking greedily at the slot width (1728 cu, columns 1–12) and at ±8 and ±15 cu around it. Every offset reproduces the failure, so small width differences between HarfBuzz and `harfrust`/`parley` cannot quietly defuse a kill case.
+
+## Not yet
+
+- No `manifest.json`, and fonts use readable names rather than `fonts/<family>-<hash>` (SPEC §3.1): bundle I/O arrives in PLAN 1.4. The example deck follows the same convention.
+- The deck has no spine; W401 does not apply.

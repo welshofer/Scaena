@@ -55,7 +55,7 @@ apps/mac/              SwiftUI client                                           
 ```
 just check          # fmt + clippy -D warnings (all features) + test + schema validation + wasm32 clippy; mirrors CI
 just test           # cargo test --workspace
-just schema         # validate docs/examples against docs/schema (python jsonschema)
+just schema         # validate docs/examples + tests/fixtures against docs/schema; torture-deck font coverage (python jsonschema, fonttools)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
 just example        # validate/lint/inspect the example deck
 just spike          # (Phase 0) run the parity harness once it exists
