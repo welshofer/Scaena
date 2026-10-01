@@ -462,27 +462,33 @@ Design notes:
 
 ## 6. Display list
 
-A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). JSON for tests and tooling; a compact binary encoding (postcard) for runtime.
+A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). One type (`scaena_core::displaylist::DisplayList`), two encodings: JSON for tests and tooling, postcard for runtime. Coordinates are canvas units, `f32`.
 
 ```jsonc
-{ "dl": 1, "viewport": [1920, 1080], "ops": [
-  { "op": "layer", "opacity": 1.0, "blend": "normal", "clip": null, "ops": [ ... ] },
-  { "op": "transform", "m": [1,0,0,1,0,0] },
-  { "op": "fill",   "path": "M0 0 H1920 V1080 Z", "paint": { "solid": "#101014" } },
-  { "op": "shader", "kind": "mesh", "seed": 7, "params": {...}, "t": 0.25, "rect": [0,0,1920,1080] },
-  { "op": "glyphs", "font": "f0", "size": 128, "color": "#F2F2EA", "glyphs": [[gid, x, y], ...], "axes": { "wght": 650 } },
-  { "op": "image",  "asset": "sha256:...", "src": [0,0,w,h], "dst": [x,y,w,h], "quality": "high" },
-  { "op": "stroke", "path": "...", "paint": {...}, "width": 2, "cap": "round", "join": "round", "dash": null },
-  { "op": "gradient", "...": "..." }
+{ "dl": 1, "viewport": [1920, 1080],
+  "fonts": [ { "id": "fonts/RobotoSerif-VF.ttf", "index": 0 } ],     // bundle font ids, first-use order
+  "ops": [
+    { "fill":   { "path": "M0 0L1920 0L1920 1080L0 1080Z", "rule": "nonzero", "paint": { "solid": "#101014FF" } } },
+    { "shader": { "kind": "mesh", "seed": 7, "t": 0.25, "rect": [0, 0, 1920, 1080],
+                  "palette": ["#1B1430FF", "#3A1F4FFF", "#B0452CFF", "#FF6A3DFF"], "params": { "drift": 0.12, "points": 5 } } },
+    { "layer":  { "node": "title", "transform": [1, 0, 0, 1, 0, 0], "opacity": 1, "blend": "normal", "clip": null, "ops": [
+      { "glyphs": { "font": 0, "size": 128, "coords": [0, 8192, -4096], "paint": { "solid": "#F2F0E9FF" },
+                    "glyphs": [[38, 96, 300], [72, 131.5, 300]] } }
+    ] } },
+    { "image":  { "asset": "sha256:...", "src": [0, 0, 640, 480], "dst": [96, 96, 640, 480], "quality": "high" } },
+    { "stroke": { "path": "M0 0L10 0", "paint": { "linear": { "start": [0, 0], "end": [10, 0], "stops": [[0, "#FF6A3DFF"], [1, "#FF6A3D00"]] } },
+                  "width": 2, "cap": "round", "join": "round", "miterLimit": 4, "dash": [], "dashOffset": 0 } }
 ] }
 ```
 
 Rules:
+- Ops are stateless and in paint order: later ops draw over earlier ones. A `layer` scopes `transform`, `clip`, `opacity`, and `blend` for its children and names the scene `node` it draws; painters isolate it only when they must (opacity below 1, a blend other than normal, or a clip). Nodes are drawn in ascending `z`, ties in scene-graph order (`paint_order`), so op order is a pure function of the document.
 - Coordinates are in canvas units with the viewport transform applied by the painter.
-- Fonts are referenced by bundle font ID; painters receive the subset bytes once.
+- Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
 - Shader ops carry parameters, not pixels; a painter either runs the WGSL or the CPU reference.
-- The display list is the unit of golden testing (§14).
+- In JSON, colors are `#RRGGBBAA` (sRGB, straight alpha) and paths are absolute SVG path data (`M L Q C Z`); in postcard they are four bytes and an element list. Every number is finite: the encoders refuse NaN and infinities rather than writing `null`.
+- The display list is the unit of golden testing (§14). Goldens are written with `to_golden_json` (one op per line, one glyph per line, so a diff reads as "this op changed" or "this glyph moved") after `quantize` (§13).
 
 **Painters:** `vello` (GPU via wgpu — WebGPU, Metal, Vulkan, DX12), `vello_cpu` (headless, CI, agents, export), `pdf` (krilla: vector paths, real text with embedded subsets, shaders as images), `svg` (static frames), `png` (via vello_cpu), `video` (PNG/raw frame sequence piped to ffmpeg; frame `n` at `t = n / fps` over the global timeline).
 
@@ -693,7 +699,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 1. No wall clock in the engine. `t` is an input.
 2. All randomness is seeded from the document (`seed` fields) and the node id.
 3. Fonts come from the bundle only; system font discovery is not compiled into the engine. Shaping is `harfrust` via `parley`, font reading is `skrifa`; the same bytes produce the same glyph runs on every platform.
-4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding to 1/64 cu. (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
+4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
 5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
 
