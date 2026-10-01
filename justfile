@@ -30,9 +30,9 @@ bless:
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     rm -rf tests/golden/torture/actual
 
-# The engine and both painters must keep compiling for the browser (PLAN 0.1, 0.8).
+# The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
 # (needs python3; `pip install jsonschema fonttools==4.66.1`).
@@ -58,9 +58,16 @@ example:
 spike:
     @echo "PLAN 0.9: cargo test -p scaena-paint --features gpu -- parity" && cargo test -p scaena-paint -- parity
 
-# Build the WASM engine (PLAN 0.8).
+# Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8).
+# Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm --target wasm32-unknown-unknown --release
+    cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+    wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+
+# The WebGPU page in headless Chromium: WASM display lists hash to the native digests and
+# every torture state paints (PLAN 0.8). Needs Node and Playwright with its Chromium.
+wasm-smoke: wasm
+    node crates/scaena-wasm/www/smoke.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

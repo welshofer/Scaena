@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- PLAN 0.8: the engine as WASM, painting a bundle with vello on WebGPU.
+     `just wasm` builds www/pkg; serve the repository root and open this page, e.g.
+     /crates/scaena-wasm/www/?bundle=/tests/fixtures/torture.scaena -->
+<meta charset="utf-8">
+<title>Scaena · WebGPU spike</title>
+<style>
+  body { margin: 0; background: #1d1c1a; color: #ddd; font: 14px system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: auto; }
+  p { margin: 8px 12px; }
+</style>
+<canvas id="stage"></canvas>
+<p><select id="state"></select> <span id="status">loading…</span></p>
+<script type="module">
+  import init, { Player, Canvas } from "./pkg/scaena_wasm.js";
+  const status = document.getElementById("status");
+  try {
+    await init();
+    const bundle = new URLSearchParams(location.search).get("bundle") ?? "../../../tests/fixtures/torture.scaena";
+    const get = async (path) => {
+      const r = await fetch(`${bundle}/${path}`);
+      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+      return r;
+    };
+    const deckJson = await (await get("deck.json")).text();
+    const deck = JSON.parse(deckJson);
+    const player = new Player(deckJson, await (await get(deck.theme)).text());
+    for (const font of deck.fonts) player.addFont(font.file, new Uint8Array(await (await get(font.file)).arrayBuffer()));
+    const stage = document.getElementById("stage");
+    [stage.width, stage.height] = [deck.canvas.width, deck.canvas.height];
+    const canvas = await Canvas.attach(stage);
+    const select = document.getElementById("state");
+    for (const id of player.states()) select.add(new Option(id, id));
+    const show = () => {
+      try { player.paint(canvas, select.value, Infinity); status.textContent = `${select.value} · ${canvas.adapter}`; }
+      catch (e) { status.textContent = `${select.value}: ${e.message}`; }
+    };
+    select.onchange = show;
+    show();
+    window.scaena = { player, canvas, select, show, firstFrameMs: performance.now() };
+  } catch (e) {
+    status.textContent = `error: ${e.message ?? e}`;
+  }
+</script>

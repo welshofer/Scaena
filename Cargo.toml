@@ -81,8 +81,10 @@ loro = "1.16"
 # agent surface
 rmcp = "3.5"
 
-# wasm / ffi
+# wasm / ffi (versions as Cargo.lock already resolves them through wgpu)
 wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+web-sys = "0.3.106"
 
 [profile.release]
 lto = "fat"

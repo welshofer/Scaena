@@ -1399,6 +1399,13 @@ name = "scaena-wasm"
 version = "0.1.0"
 dependencies = [
  "scaena-core",
+ "scaena-engine",
+ "scaena-paint",
+ "thiserror",
+ "vello",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

@@ -31,8 +31,28 @@ jobs:
       - run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
-      # The engine and both painters must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
+      # must keep compiling for the browser (PLAN 0.1, 0.8).
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+  wasm:
+    # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
+    # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The CLI must match the wasm-bindgen version in Cargo.lock.
+      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
+      - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: node crates/scaena-wasm/www/smoke.mjs
   schema:
     runs-on: ubuntu-latest
     steps:

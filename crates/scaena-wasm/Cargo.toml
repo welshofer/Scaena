@@ -11,6 +11,19 @@ authors.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["gpu"]
+# Paint with vello on WebGPU (PLAN 0.8). Without it the module is the engine alone:
+# `frame()` returns display lists, and the page paints them some other way.
+gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures"]
+
 [dependencies]
 scaena-core.workspace = true
-# Phase 0 adds: wasm-bindgen, scaena-engine, scaena-paint (gpu via wgpu/WebGPU).
+scaena-engine.workspace = true
+# Not the workspace entry: the browser build leaves out the CPU painter (`cpu`).
+scaena-paint = { path = "../scaena-paint", default-features = false }
+thiserror.workspace = true
+wasm-bindgen.workspace = true
+vello = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "console"] }

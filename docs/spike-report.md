@@ -121,3 +121,30 @@ All in ms. Warm single-threaded paint is 11.2 ms per frame (table above), alread
 - **A hole the tolerance missed.** The first GPU raster of `combining` had a near-white gap, 231/255 from the CPU, where the caron overlaps the j's dot. vello fills a whole glyph run as one path, and Roboto Serif draws the j's dot clockwise and the combining caron counter-clockwise, so their windings cancelled. `GpuPainter` now draws one run per glyph, as vello_cpu does, and `combining`'s worst pixel fell to 33/255 (ADR-0004 finding 6). The torture test passed while the hole was there: it sat on a glyph edge, inside the edge mask. SPEC §13.5 now also fails any pixel that differs by half the channel range or more. The hole does, anti-aliasing (≤ 63) does not, and a mutation that restores one run per op fails the test.
 - **And a shaping flaw the 0.6 review missed.** The same crop shows the caron sitting on the j's dot in both painters. Roboto Serif has no precomposed ǰ (U+01F0) to compose to, and nothing in its GSUB swaps in the dotless j it carries. The combining-marks catalogue row above now says *partial*, pinned by `catalogue_j_with_caron_keeps_its_dot_because_the_font_cannot_drop_it`.
 - **Timings** are lavapipe's, a CPU emulating a GPU, so they say nothing about the SPEC §15 GPU budget (≤ 6 ms per 1080p frame); that needs a real GPU (gate 0 criterion 6 names an M-series Mac). Cold `scaena render --painter gpu`, release, 21 states: renderer start-up (adapter, device, vello pipelines) 193–263 ms, paint 136–340 ms, total median 430 ms. The very first render in a fresh container took 2.5 s to paint: lavapipe compiles vello's pipelines on first use and caches them on disk (`MESA_SHADER_CACHE_DISABLE=true` brings the 2.5 s back every time).
+
+## 0.8 WebGPU page
+
+`scaena-wasm` exports two things.
+- `Player`: deck, theme, and fonts in; `frame(state, t)` returns the postcard display list.
+- `Canvas`: `attach(canvas)` sets up the WebGPU device, the vello renderer, and a storage-texture target blitted to the canvas. `player.paint(canvas, state, t)` draws through `scaena_paint::gpu::scene`, the scene the native GPU painter renders.
+
+`crates/scaena-wasm/www/index.html` (43 lines) loads a bundle and offers a state picker. `www/smoke.mjs` checks every torture state in headless Chromium through Playwright; it runs as `just wasm-smoke` and as a CI job.
+
+- **The engine is bit-identical in WASM.** All 21 text states' display lists, built in the browser, hash to the native digests (`raw.fnv1a`, FNV-1a over unquantized postcard bytes). x86-64 Linux, arm64 macOS, and wasm32 produce the same bytes, and CI rechecks on every push.
+- **WebGPU paints every state.** Read back from the canvas, every frame is opaque and has ink on it. Against the CPU goldens all 21 pass SPEC §13.5. The worst step is 64/255, and `emoji` has 115 pixels over ΔE 1 (at most 1.49). That is within a pixel of native lavapipe's numbers, here on Chromium's SwiftShader. 0.9 turns this into the parity harness.
+- **Size** (wasm-bindgen output, no fonts; the gate 0 budget is ≤ 3.0 MB gzip):
+
+| Module | opt-level | Raw | gzip -9 | brotli 11 |
+|---|---|---|---|---|
+| engine + vello + wgpu (WebGPU) | 3 (release) | 3.18 MB | 1.04 MB | 0.74 MB |
+| same | `s` | 2.99 MB | 0.92 MB | 0.67 MB |
+| same | `z` | 2.86 MB | 0.87 MB | 0.64 MB |
+| engine alone (`--no-default-features`) | 3 | 1.47 MB | 0.53 MB | 0.40 MB |
+| engine alone | `z` | 1.22 MB | 0.43 MB | 0.34 MB |
+
+  The JS glue adds 67 KB raw, 10 KB gzipped. `wasm-opt -Oz` (binaryen 132) cuts the raw size by 8–11% but grows the gzip and brotli payloads by up to 4%: it removes redundancy the compressor was already exploiting. So the build ships without it, and PLAN's risk register no longer counts on it. The levers are opt-level and leaving painters out of a module.
+- **Timings** (headless Chromium, this 4-vCPU container, SwiftShader):
+  - The first frame is submitted 202 ms after navigation. That covers fetching the module and five fonts, compiling, WebGPU and vello pipeline setup, layout, and paint. SPEC §15's cold-start budget is 500 ms, on B1.
+  - `frame()` in WASM takes 0.9–3.6 ms per state (median 1.3), about 2–4× native.
+- **A headless WebGPU trap.** Chromium's headless shell grants a WebGPU adapter by default but leaves WebGPU canvases blank. Even a pure-JS clear reads back transparent, with only "A valid external Instance reference no longer exists" in the console. With `--enable-features=Vulkan --use-vulkan=swiftshader --use-angle=swiftshader --enable-unsafe-swiftshader` the canvas presents. The first smoke check passed on blank canvases because it trusted "no exception". It now reads every frame back and requires opaque pixels with ink on them, and the page sends GPU errors and panics to the console instead of dropping them.
+- **Not yet:** Firefox and Safari (PLAN 2.1); the `vello_cpu` → `ImageBitmap` fallback where WebGPU is missing (SPEC §9.2); running in a Worker on an `OffscreenCanvas` (PLAN 2.1).
