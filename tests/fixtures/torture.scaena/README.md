@@ -4,7 +4,7 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        23 states, mode: absolute, layout: specimen
+  deck.json        24 states, mode: absolute (but `chart-line`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six rows for the bar chart
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
@@ -24,7 +24,7 @@ Fallback order (theme `type.families.*.fallback`): `serif` → `garamond` → `h
 
 ## Cases
 
-Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, rasters within tolerance across painters). **catalogue** = recorded with pass/fail and a note, not gating. **recorded** = listed in PLAN 0.2 without a class; reported like catalogue (chart and mesh are gated by PLAN 0.10 and 0.11).
+Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, rasters within tolerance across painters). **catalogue** = recorded with pass/fail and a note, not gating. **recorded** = listed in PLAN 0.2 without a class; reported like catalogue (the morph is gate 0 criterion 3; mesh is gated by PLAN 0.11).
 
 | # | State | Case | Class | Pass when |
 |---|---|---|---|---|
@@ -49,8 +49,9 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 19 | `bidi-arabic` | Arabic with inline Latin | catalogue | Joined letterforms, lam-alef ligature, LTR islands. |
 | 20 | `fallback` | Fallback within one run | kill | One run, three fonts: α ω from EB Garamond, Hebrew from Noto Sans Hebrew; no system font. |
 | 21 | `anchors` | Cap, baseline, x-height alignment across 112 / 64 / 28 cu | recorded (added with PLAN 0.5) | Cap tops share the cell top (210 cu), baselines the cell bottom (642 cu), x-height tops of `axe` 780 cu. One line per specimen; the rows do not touch. |
-| 22 | `chart` | Bar chart, six bars | recorded | Gated by PLAN 0.10 (bar → line morph). |
-| 23 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
+| 22 | `chart` | Bar chart, six bars | recorded | Six bars keyed by label in the first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. |
+| 23 | `chart-line` | Bar to line morph | recorded (gate 0 criterion 3) | The transition from `chart` (420 ms) morphs each bar into its point by label while the line fades in. t = 0 and t = 420 ms are the two states at rest exactly; the frames at 0.25 and 0.5 have goldens (`chart-line@0.25`, `chart-line@0.5`), and no frame lays anything out. |
+| 24 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

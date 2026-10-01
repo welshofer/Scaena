@@ -26,16 +26,23 @@
     const deck = JSON.parse(deckJson);
     const player = new Player(deckJson, await (await get(deck.theme)).text());
     for (const font of deck.fonts) player.addFont(font.file, new Uint8Array(await (await get(font.file)).arrayBuffer()));
+    for (const { source } of Object.values(deck.data ?? {}))
+      if (typeof source === "string") player.addData(source, new Uint8Array(await (await get(source)).arrayBuffer()));
     const stage = document.getElementById("stage");
     [stage.width, stage.height] = [deck.canvas.width, deck.canvas.height];
     const canvas = await Canvas.attach(stage);
     const select = document.getElementById("state");
     for (const id of player.states()) select.add(new Option(id, id));
-    const show = () => {
-      try { player.paint(canvas, select.value, Infinity); status.textContent = `${select.value} · ${canvas.adapter}`; }
+    const show = (t = Infinity) => {
+      try { player.paint(canvas, select.value, t); status.textContent = `${select.value} · ${canvas.adapter}`; }
       catch (e) { status.textContent = `${select.value}: ${e.message}`; }
     };
-    select.onchange = show;
+    // Choosing a state plays the transition into it, then rests.
+    select.onchange = () => {
+      const [state, d, start] = [select.value, player.duration(select.value), performance.now()];
+      const tick = (now) => { if (select.value !== state) return; show(now - start); if (now - start < d) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    };
     show();
     window.scaena = { player, canvas, select, show, firstFrameMs: performance.now() };
   } catch (e) {

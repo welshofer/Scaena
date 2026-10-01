@@ -1335,6 +1335,7 @@ dependencies = [
  "fontique",
  "indexmap",
  "kurbo",
+ "libm",
  "parley",
  "peniko",
  "scaena-core",

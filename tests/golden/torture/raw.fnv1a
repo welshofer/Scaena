@@ -19,3 +19,7 @@ bidi-hebrew dd4d165a71cfc922
 bidi-arabic 38c0a63b2930f5f4
 fallback 525791804a72753e
 anchors b0ccf281ae78a5f0
+chart 67262ff200d2adeb
+chart-line f56cf205a3a35043
+chart-line@0.25 bfd44df9b7bc4907
+chart-line@0.5 d3ebf408b1ddafbc

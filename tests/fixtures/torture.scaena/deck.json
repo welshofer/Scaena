@@ -1138,7 +1138,24 @@
         },
         "bars": {}
       },
-      "notes": "Recorded here; gated by PLAN 0.10 (bar to line morph). Six bars keyed by label, theme categorical palette, tabular-lining value labels."
+      "notes": "Pass: six bars keyed by label in the theme's first categorical color, square on a hairline baseline and rounded by the theme's corner radius at the top; value labels above them and quarter labels below, in the label role with tabular lining figures."
+    },
+    {
+      "id": "chart-line",
+      "name": "Bar to line morph",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "23 · Bar to line morph · recorded"
+        },
+        "bars": {
+          "kind": "line"
+        }
+      },
+      "notes": "Pass: the same six values as a line through points, labels above the points. In the transition from `chart` (420 ms, standard easing), each bar shrinks into its point, matched by label; the line fades in through the points, and the case label cross-fades. The frame at t = 0 is `chart` at rest and the frame at t = 420 is this state at rest, exactly; frames between sample the two layouts and lay nothing out (gate 0 criterion 3)."
     },
     {
       "id": "mesh",
@@ -1147,7 +1164,7 @@
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "23 · Mesh background · recorded"
+          "text": "24 · Mesh background · recorded"
         },
         "mesh-bg": {}
       },

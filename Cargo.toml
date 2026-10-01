@@ -61,6 +61,9 @@ skrifa   = { version = "0.44.0", default-features = false, features = ["std"] } 
 taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
+# Pure-Rust cbrt/pow for color interpolation: the same bits on every platform, unlike the platform
+# math library behind f32::cbrt and f32::powf (SPEC §13). Already in the graph through the painters.
+libm     = "0.2.16"
 
 # painters
 vello     = "0.10.0"

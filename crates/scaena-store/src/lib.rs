@@ -69,6 +69,20 @@ impl Bundle {
         self.deck.fonts.iter().map(|f| Ok((f.file.clone(), read(&f.file)?))).collect()
     }
 
+    /// The files the deck's data sources name (`data.*.source` strings), as (bundle
+    /// path, bytes), in deck order; inline sources need no file.
+    pub fn read_data(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
+        let mut out = Vec::new();
+        for source in self.deck.data.values() {
+            if let serde_json::Value::String(rel) = &source.source {
+                let path = self.path(rel)?;
+                let bytes = std::fs::read(&path).map_err(|source| StoreError::Read { path, source })?;
+                out.push((rel.clone(), bytes));
+            }
+        }
+        Ok(out)
+    }
+
     /// Write `deck.json` back (canonical pretty JSON). CRDT history: PLAN 1.23.
     pub fn save(&self) -> Result<(), StoreError> {
         std::fs::write(self.root.join("deck.json"), self.deck.to_json()?)?;

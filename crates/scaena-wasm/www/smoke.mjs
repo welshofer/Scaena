@@ -57,20 +57,24 @@ try {
   console.log(`adapter: ${adapter}; first frame ${firstFrame.toFixed(0)} ms after navigation (fetch, compile, fonts, WebGPU, paint)`);
   const frameMs = [];
   await mkdir(out, { recursive: true });
-  for (const [state, digest] of expected) {
-    const [got, ms] = await page.evaluate((s) => {
+  for (const [name, digest] of expected) {
+    // `state` at rest, or `state@fraction`: that fraction of the transition into it.
+    const [state, at] = name.split("@");
+    const [got, ms] = await page.evaluate(([s, at]) => {
+      const player = window.scaena.player;
+      const t = at === undefined ? Infinity : Number(at) * player.duration(s);
       const start = performance.now();
-      const bytes = window.scaena.player.frame(s, Infinity);
+      const bytes = player.frame(s, t);
       const ms = performance.now() - start;
       let h = 0xcbf29ce484222325n;
       for (const b of bytes) h = BigInt.asUintN(64, (h ^ BigInt(b)) * 0x100000001b3n);
       return [h.toString(16).padStart(16, "0"), ms];
-    }, state);
+    }, [state, at]);
     frameMs.push(ms);
     // Paint, then read the canvas back in the same task, before the browser presents it.
-    const shot = await page.evaluate((s) => {
+    const shot = await page.evaluate(([s, at]) => {
       window.scaena.select.value = s;
-      window.scaena.show();
+      window.scaena.show(at === undefined ? Infinity : Number(at) * window.scaena.player.duration(s));
       const stage = document.getElementById("stage");
       const copy = Object.assign(document.createElement("canvas"), { width: stage.width, height: stage.height });
       const ctx = copy.getContext("2d", { willReadFrequently: true });
@@ -83,15 +87,15 @@ try {
       }
       const status = document.getElementById("status").textContent;
       return { status, opaque, ink, pixels: px.length / 4, png: copy.toDataURL("image/png") };
-    }, state);
-    await writeFile(join(out, `${state}.png`), Buffer.from(shot.png.split(",")[1], "base64"));
+    }, [state, at]);
+    await writeFile(join(out, `${name}.png`), Buffer.from(shot.png.split(",")[1], "base64"));
     const painted = shot.status.startsWith(`${state} · `) && shot.opaque === shot.pixels && shot.ink > 0;
     const ok = got === digest && painted;
     console.log(
-      `${ok ? "ok  " : "FAIL"} ${state}: digest ${got}${got === digest ? "" : ` (native ${digest})`}; ` +
+      `${ok ? "ok  " : "FAIL"} ${name}: digest ${got}${got === digest ? "" : ` (native ${digest})`}; ` +
         `${shot.status}; ${shot.ink} ink px, ${shot.pixels - shot.opaque} not opaque; frame() ${ms.toFixed(1)} ms`,
     );
-    if (!ok) failures.push(state);
+    if (!ok) failures.push(name);
   }
   frameMs.sort((a, b) => a - b);
   console.log(`frame() in WASM: min ${frameMs[0].toFixed(1)}, median ${frameMs[frameMs.length >> 1].toFixed(1)}, max ${frameMs.at(-1).toFixed(1)} ms`);

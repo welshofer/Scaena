@@ -14,4 +14,6 @@ pub enum EngineError {
     Font(String),
     #[error("layout: {0}")]
     Layout(String),
+    #[error("data: {0}")]
+    Data(String),
 }

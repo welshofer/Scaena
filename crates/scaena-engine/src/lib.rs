@@ -7,12 +7,15 @@
 //! → resolve timeline → sample(t) → display list
 //! ```
 //!
-//! Status (PLAN 0.4): text nodes lay out on the theme grid with parley over bundle
-//! fonts only, and `Engine::frame` emits their display list at rest. Charts (0.10),
-//! shaders (0.11), sampling (0.10/1.12), and containers (1.7) are still to come.
-//! Nothing here may read a clock, system fonts, or the filesystem (SPEC §13).
+//! Status (PLAN 0.10): text nodes lay out on the theme grid with parley over bundle
+//! fonts only; `bar` and `line` charts compile to keyed marks from data files the
+//! caller hands over; each snapshot lays out once into a [`sample::Scene`], and a
+//! [`sample::Transition`] samples two of them (frames never lay out). Shaders (0.11),
+//! choreography (1.11), and containers (1.7) are still to come. Nothing here may
+//! read a clock, system fonts, or the filesystem (SPEC §13).
 
 pub mod charts;
+pub mod data;
 pub mod error;
 pub mod fonts;
 pub mod layout;

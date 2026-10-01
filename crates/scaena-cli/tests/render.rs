@@ -88,9 +88,34 @@ fn size_scales_uniformly_and_json_reports_the_stages() {
     }
 }
 
+/// `--t` reaches the sampler: a quarter of the 420 ms bar → line transition is the
+/// `chart-line@0.25` golden (PLAN 0.10).
+#[test]
+fn t_renders_a_frame_inside_the_transition() {
+    let dir = scratch("morph");
+    let (png, dl) = (dir.join("morph.png"), dir.join("morph.dl.json"));
+    let out = scaena(&[
+        "render",
+        BUNDLE,
+        "--state",
+        "chart-line",
+        "--t",
+        "105",
+        "--out",
+        png.to_str().unwrap(),
+        "--display-list",
+        dl.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let mut list = DisplayList::from_json(&std::fs::read_to_string(&dl).unwrap()).unwrap();
+    quantize(&mut list);
+    let golden = std::fs::read_to_string(format!("{GOLDEN}/chart-line@0.25.dl.json")).unwrap();
+    assert_eq!(list.to_golden_json().unwrap(), golden);
+}
+
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
-    let mut cases = vec![(vec!["--state", "chart"], "PLAN 0.10"), (vec!["--state", "mesh"], "PLAN 0.11")];
+    let mut cases = vec![(vec!["--state", "mesh"], "PLAN 0.11")];
     // Without the `gpu` feature the GPU painter is not compiled in.
     if cfg!(not(feature = "gpu")) {
         cases.push((vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));

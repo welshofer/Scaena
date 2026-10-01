@@ -270,6 +270,14 @@ Rules:
 - Label collision is lint **W310**; the engine MAY auto-resolve with `labels.collide: "hide" | "nudge"`.
 - Number/date formatting uses a d3-format / ICU-compatible subset defined in `docs/spec/format.md` (Phase 1).
 
+**Phase 0 compile (PLAN 0.10).** `bar` and `line` with one series on an ordinal `x`.
+- **Marks.** Every datum is a mark keyed by `key` (default: the `x` field), in the theme's first `data.categorical` color. A bar is `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end. A line's point is a circle three times the line's stroke width (`charts.strokeWidth`) in radius, and the line runs through the points in data order. Both are rounded rectangles with one radius for the top corners and one for the bottom, so a change of kind interpolates six numbers per mark.
+- **Scale.** `y` runs from `domain[0]` (else `min(0, data)`) to `domain[1]` (else the data maximum). Bars and points share the scale and the plot, which leaves room above for value labels and a point's radius.
+- **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each mark (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures. Without a `format`, integers print bare and other numbers in shortest round-trip form.
+- **Later.** Multiple series, color encodings, legends, `axes` settings, `format`, and `transform` return NotImplemented until PLAN 1.9.
+
+Open (PLAN 1.1): the chart `axes` object above collides in the schema with text `axes` (variable-font axes, numbers only) in `NodeProps`, so a chart cannot declare axes settings until node props are typed per node type.
+
 ### 3.8 Shader nodes
 
 ```jsonc
@@ -314,9 +322,14 @@ Requirements:
 
 **State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
 
+- A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
+- The transition into a state starts from the state before it in the cue list, what was on screen, whichever state it tracks `from`. Into the first state, every node enters.
+- `t ≤ 0` is the previous state at rest and `t ≥ duration` this state at rest, exactly.
+- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key. A node only in the target fades in, and one only in the source fades out; presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
+
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). Charts reference `@name` and MAY apply a transform pipeline (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types `number`, `string`, and `boolean` parse in Phase 0; `date` and `parse` arrive in PLAN 1.9. Charts reference `@name` and MAY apply a transform pipeline (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
 
 ### 3.11 Spine
 
@@ -455,7 +468,7 @@ Stages are pure and cached:
 
 Design notes:
 - Interpolating resolved geometry (post-layout) is what makes morphs cheap and deterministic; text morph interpolates word boxes and cross-fades glyph runs, chart morph interpolates mark geometry.
-- Layout is per-snapshot, not per-frame. Frames only sample.
+- Layout is per-snapshot, not per-frame. Frames only sample. In code (PLAN 0.10), `Engine::transition` lays out a state and the one before it once, and `Transition::frame(t)` samples them. It holds no fonts or layout engine, so it cannot lay out.
 - Multiple `formats` re-run layout with a different template set; the spine and nodes are shared.
 - The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, viewport) -> DisplayList`, `lint`, `patch`.
 
@@ -705,6 +718,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
 5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask; and no pixel anywhere, edges included, differs by half the channel range (128/255) or more, so a hole or a misplaced glyph cannot hide in the mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
+7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Springs (`scaena_core::timeline::Spring`) still call `std` and must move to `libm` before they drive frames (PLAN 1.11).
 
 ---
 
@@ -758,6 +772,7 @@ Notes: the cold PNG budget and the video budgets are different workloads and are
 5. Direct-manipulation editing model and how it expresses patches in template-managed layouts.
 6. Multiple formats: how much per-format override is allowed before it's a second deck?
 7. Collaboration conflict UX when it arrives.
+8. A very large font catalog (Jay, 2026-10-01). Proposal: a local, content-addressed font store with a searchable index (family, styles, axes, script coverage, license), filled on demand from catalog sources. Editors and agents pick from it (`scaena fonts search | add`, and the same over MCP), and saving subsets the chosen faces into the bundle. The render path is unchanged, bundle fonts only (§13), so the catalog's size never reaches layout or painting. Open: which sources, licensing (Q3), offline use, and drawing script fallback chains from the catalog.
 
 ---
 

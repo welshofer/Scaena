@@ -4,6 +4,7 @@
 //!     cargo run --release -p scaena-engine --example torture_timing
 
 use scaena_core::Deck;
+use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
@@ -15,8 +16,13 @@ fn main() {
     let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let fonts: Vec<(String, Vec<u8>)> = deck.fonts.iter().map(|f| (f.file.clone(), read(&f.file))).collect();
-    let states: Vec<String> =
-        deck.states.iter().map(|s| s.id.clone()).filter(|s| s != "chart" && s != "mesh").collect();
+    let states: Vec<String> = deck.states.iter().map(|s| s.id.clone()).filter(|s| s != "mesh").collect();
+    let mut data = DataFiles::new();
+    for source in deck.data.values() {
+        if let Some(path) = source.source.as_str() {
+            data.insert(path, read(path));
+        }
+    }
 
     let t = Instant::now();
     let mut bundle_fonts = BundleFonts::new();
@@ -25,7 +31,7 @@ fn main() {
     }
     let register = t.elapsed();
     let mut engine = Engine::new(bundle_fonts);
-    let req = |state| FrameRequest { deck: &deck, theme: &theme, state, t_ms: f64::INFINITY };
+    let req = |state| FrameRequest { deck: &deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY };
 
     // Cold: first frame of each state on a fresh engine (parley's shaping caches empty).
     let mut cold = Vec::new();
@@ -69,4 +75,23 @@ fn main() {
         ms(warm_all) / states.len() as f64
     );
     println!("postcard encode, `pretty` state: {:.1} µs, {} bytes", encode.0.as_secs_f64() * 1e6, encode.1);
+
+    // The bar → line transition (PLAN 0.10): laid out once, then every frame samples.
+    let t = Instant::now();
+    let transition = engine.transition(&deck, &theme, &data, "chart-line").unwrap();
+    let build = t.elapsed();
+    const FRAMES: u32 = 2000;
+    let d = transition.duration_ms();
+    let t = Instant::now();
+    for i in 0..FRAMES {
+        std::hint::black_box(transition.frame(d * f64::from(i) / f64::from(FRAMES)));
+    }
+    let sample = t.elapsed() / FRAMES;
+    let mid = transition.frame(0.5 * d).to_postcard().unwrap().len();
+    println!(
+        "bar → line transition: laid out once in {:.2} ms; a frame samples in {:.1} µs ({FRAMES} frames over {d} ms; \
+         mid-frame postcard {mid} bytes)",
+        ms(build),
+        sample.as_secs_f64() * 1e6
+    );
 }

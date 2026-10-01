@@ -10,7 +10,8 @@
 //!   upstream change shows up as a test to update, not a silent shift.
 
 use scaena_core::Deck;
-use scaena_core::displaylist::{DisplayList, Glyph, Op, quantize};
+use scaena_core::displaylist::{DisplayList, Glyph, Op, Paint, PathEl, quantize};
+use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::{Span, TextEngine, TextLayout, TextSpec};
 use scaena_engine::theme::{Theme, Wrap};
@@ -19,8 +20,12 @@ use std::collections::BTreeSet;
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
 const GOLDEN: &str = "../../tests/golden/torture";
-/// States whose node types arrive later: charts (PLAN 0.10) and shaders (PLAN 0.11).
-const LATER: [(&str, &str); 2] = [("chart", "PLAN 0.10"), ("mesh", "PLAN 0.11")];
+/// States whose node types arrive later: shaders (PLAN 0.11).
+const LATER: [(&str, &str); 1] = [("mesh", "PLAN 0.11")];
+/// Frames inside a transition, as (state, fraction of its duration). PLAN 0.10 renders
+/// the bar → line morph at t = 0, 0.25, 0.5, and 1 of the transition; 0 and 1 are the
+/// two states at rest (asserted below), so the middle two get goldens of their own.
+const MORPH: [(&str, f64); 2] = [("chart-line", 0.25), ("chart-line", 0.5)];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -29,6 +34,7 @@ const EMOJI: &str = "fonts/NotoColorEmoji-COLRv1.ttf";
 struct Fixture {
     deck: Deck,
     theme: Theme,
+    data: DataFiles,
     engine: Engine,
 }
 
@@ -42,7 +48,12 @@ fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: 
     theme_edit(&mut theme.raw);
     let fonts = bundle_fonts(&deck, reverse_fonts);
     fonts.check_theme(&theme).unwrap();
-    Fixture { deck, theme, engine: Engine::new(fonts) }
+    let mut data = DataFiles::new();
+    for source in deck.data.values() {
+        let path = source.source.as_str().unwrap();
+        data.insert(path, read(path));
+    }
+    Fixture { deck, theme, data, engine: Engine::new(fonts) }
 }
 
 fn bundle_fonts(deck: &Deck, reverse: bool) -> BundleFonts {
@@ -63,12 +74,35 @@ fn fixture() -> Fixture {
 
 impl Fixture {
     fn frame(&mut self, state: &str) -> Result<DisplayList, EngineError> {
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms: f64::INFINITY };
+        self.frame_at(state, f64::INFINITY)
+    }
+
+    fn frame_at(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, EngineError> {
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
         Ok(self.engine.frame(&req)?.display_list)
     }
 
+    fn duration(&self, state: &str) -> f64 {
+        scaena_engine::render::timing(&self.deck, &self.theme, state).unwrap().duration_ms
+    }
+
+    /// Every golden frame as (name, state, t_ms): each state at rest under its own
+    /// name, then the transition frames in [`MORPH`] as `state@fraction`.
+    fn golden_frames(&self) -> Vec<(String, String, f64)> {
+        let mut out: Vec<(String, String, f64)> = self
+            .states()
+            .into_iter()
+            .filter(|s| !LATER.iter().any(|(later, _)| later == s))
+            .map(|s| (s.clone(), s, f64::INFINITY))
+            .collect();
+        for (state, at) in MORPH {
+            out.push((format!("{state}@{at}"), state.to_string(), at * self.duration(state)));
+        }
+        out
+    }
+
     fn placed(&mut self, state: &str, node: &str) -> PlacedText {
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms: f64::INFINITY };
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY };
         self.engine.text_layout(&req, node).unwrap()
     }
 
@@ -134,21 +168,18 @@ fn display_lists_match_goldens() {
     let mut fx = fixture();
     let bless = std::env::var_os("SCAENA_BLESS").is_some();
     let mut changed = Vec::new();
-    for state in fx.states() {
-        if LATER.iter().any(|(s, _)| *s == state) {
-            continue;
-        }
-        let mut dl = fx.frame(&state).unwrap_or_else(|e| panic!("{state}: {e}"));
+    for (name, state, t_ms) in fx.golden_frames() {
+        let mut dl = fx.frame_at(&state, t_ms).unwrap_or_else(|e| panic!("{name}: {e}"));
         quantize(&mut dl);
         let json = dl.to_golden_json().unwrap();
-        let path = format!("{GOLDEN}/{state}.dl.json");
+        let path = format!("{GOLDEN}/{name}.dl.json");
         if bless {
             std::fs::create_dir_all(GOLDEN).unwrap();
             std::fs::write(&path, &json).unwrap();
         } else if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
             std::fs::create_dir_all(format!("{GOLDEN}/actual")).unwrap();
-            std::fs::write(format!("{GOLDEN}/actual/{state}.dl.json"), &json).unwrap();
-            changed.push(state);
+            std::fs::write(format!("{GOLDEN}/actual/{name}.dl.json"), &json).unwrap();
+            changed.push(name);
         }
     }
     assert!(
@@ -172,12 +203,9 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 fn raw_display_lists_are_bit_identical_across_platforms() {
     let mut fx = fixture();
     let mut digests = String::new();
-    for state in fx.states() {
-        if LATER.iter().any(|(s, _)| *s == state) {
-            continue;
-        }
-        let bytes = fx.frame(&state).unwrap().to_postcard().unwrap();
-        digests.push_str(&format!("{state} {:016x}\n", fnv1a(&bytes)));
+    for (name, state, t_ms) in fx.golden_frames() {
+        let bytes = fx.frame_at(&state, t_ms).unwrap().to_postcard().unwrap();
+        digests.push_str(&format!("{name} {:016x}\n", fnv1a(&bytes)));
     }
     let path = format!("{GOLDEN}/raw.fnv1a");
     if std::env::var_os("SCAENA_BLESS").is_some() {
@@ -194,16 +222,17 @@ fn raw_display_lists_are_bit_identical_across_platforms() {
 #[test]
 fn frames_are_deterministic_across_engines_and_font_order() {
     let (mut a, mut b) = (fixture(), fixture_with(|_| {}, true));
-    for state in a.states() {
-        if LATER.iter().any(|(s, _)| *s == state) {
-            continue;
-        }
-        let first = a.frame(&state).unwrap().to_postcard().unwrap();
-        assert_eq!(a.frame(&state).unwrap().to_postcard().unwrap(), first, "{state}: same engine, second frame");
+    for (name, state, t_ms) in a.golden_frames() {
+        let first = a.frame_at(&state, t_ms).unwrap().to_postcard().unwrap();
         assert_eq!(
-            b.frame(&state).unwrap().to_postcard().unwrap(),
+            a.frame_at(&state, t_ms).unwrap().to_postcard().unwrap(),
             first,
-            "{state}: fonts registered in reverse order"
+            "{name}: same engine, second frame"
+        );
+        assert_eq!(
+            b.frame_at(&state, t_ms).unwrap().to_postcard().unwrap(),
+            first,
+            "{name}: fonts registered in reverse order"
         );
     }
 }
@@ -427,6 +456,96 @@ fn a_right_to_left_line_hangs_its_opening_quote_past_the_right_edge() {
     assert!(layout.lines[0].hang > 0.0);
     let right = layout.runs.iter().flat_map(|r| &r.glyphs).map(|g| g.x).fold(f32::MIN, f32::max);
     assert!((right - measure).abs() < 1e-3, "rightmost glyph at {right}, measure {measure}");
+}
+
+// --- the bar → line morph (PLAN 0.10, gate 0 criterion 3) ------------------------
+
+/// The `bars` layer's fills as boxes `[x0, y0, x1, y1]`, and its strokes as
+/// (path elements, paint alpha), in paint order.
+fn chart_parts(dl: &DisplayList) -> (Vec<[f32; 4]>, Vec<(usize, u8)>) {
+    let ops = dl
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            Op::Layer { node: Some(n), ops, .. } if n == "bars" => Some(ops),
+            _ => None,
+        })
+        .expect("a `bars` layer");
+    let (mut fills, mut strokes) = (Vec::new(), Vec::new());
+    for op in ops {
+        match op {
+            Op::Fill { path, .. } => {
+                let pts = path.0.iter().flat_map(|el| match *el {
+                    PathEl::MoveTo(p) | PathEl::LineTo(p) => vec![p],
+                    PathEl::QuadTo(a, b) => vec![a, b],
+                    PathEl::CurveTo(a, b, c) => vec![a, b, c],
+                    PathEl::Close => vec![],
+                });
+                fills.push(pts.fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, [x, y]| {
+                    [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)]
+                }));
+            }
+            Op::Stroke { path, paint: Paint::Solid(c), .. } => strokes.push((path.0.len(), c.0[3])),
+            _ => {}
+        }
+    }
+    (fills, strokes)
+}
+
+#[test]
+fn bar_to_line_morph_starts_and_ends_exactly_at_rest() {
+    let mut fx = fixture();
+    let d = fx.duration("chart-line");
+    assert_eq!(d, 420.0, "theme `standard`");
+    let bars = fx.frame("chart").unwrap().to_postcard().unwrap();
+    let line = fx.frame("chart-line").unwrap().to_postcard().unwrap();
+    assert_eq!(fx.frame_at("chart-line", 0.0).unwrap().to_postcard().unwrap(), bars, "t = 0 is `chart` at rest");
+    assert_eq!(fx.frame_at("chart-line", d).unwrap().to_postcard().unwrap(), line, "t = d is `chart-line` at rest");
+    for t in [1.0, 0.5 * d, d - 1.0] {
+        let mid = fx.frame_at("chart-line", t).unwrap().to_postcard().unwrap();
+        assert!(mid != bars && mid != line, "t = {t} lies between the two states");
+    }
+    // A state without `transition` cuts: at rest from its first frame.
+    assert_eq!(fx.frame_at("liga", 0.0).unwrap(), fx.frame("liga").unwrap());
+}
+
+#[test]
+fn bars_morph_into_points_by_key_while_the_line_fades_in() {
+    let mut fx = fixture();
+    let timing = scaena_engine::render::timing(&fx.deck, &fx.theme, "chart-line").unwrap();
+    let (bars, _) = chart_parts(&fx.frame("chart").unwrap());
+    let (points, _) = chart_parts(&fx.frame("chart-line").unwrap());
+    assert_eq!((bars.len(), points.len()), (6, 6));
+    for at in [0.25, 0.5] {
+        let t = at * timing.duration_ms;
+        let p = timing.progress(t) as f32;
+        let dl = fx.frame_at("chart-line", t).unwrap();
+        let (marks, strokes) = chart_parts(&dl);
+        for (k, mark) in marks.iter().enumerate() {
+            for c in 0..4 {
+                let want = bars[k][c] * (1.0 - p) + points[k][c] * p;
+                assert!((mark[c] - want).abs() < 1e-3, "{at}: mark {k} edge {c}: {} vs {want}", mark[c]);
+            }
+        }
+        // The baseline stays; the line through the six points fades in with the progress.
+        assert_eq!(strokes, [(2, 255), (6, (255.0 * p).round() as u8)], "{at}");
+        // The case label changed, so it cross-fades: two layers for one node.
+        let case = dl.ops.iter().filter(|op| matches!(op, Op::Layer { node: Some(n), .. } if n == "case")).count();
+        assert_eq!(case, 2, "{at}");
+    }
+}
+
+/// Gate 0 criterion 3: frames sample. One `Transition` is laid out once and draws
+/// every frame; `Transition::frame` takes `&self` and holds no fonts or layout engine,
+/// so it cannot lay out. Its frames are the ones `Engine::frame` returns.
+#[test]
+fn one_transition_samples_every_frame_engine_frame_returns() {
+    let mut fx = fixture();
+    let transition = fx.engine.transition(&fx.deck, &fx.theme, &fx.data, "chart-line").unwrap();
+    let d = transition.duration_ms();
+    for at in [0.0, 0.25, 0.5, 1.0] {
+        assert_eq!(transition.frame(at * d), fx.frame_at("chart-line", at * d).unwrap(), "t = {at} of {d} ms");
+    }
 }
 
 // --- alignment (PLAN 0.5) -----------------------------------------------------------

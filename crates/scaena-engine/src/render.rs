@@ -1,16 +1,21 @@
 //! `Engine::frame(request) -> DisplayList`: the engine's one public entry point.
 //!
-//! Phase 0 renders a state at rest: the theme surface, then one layer per visible
-//! node in paint order (`z`, then scene-graph order). Text nodes are laid out on the
-//! theme grid; other node types return `NotImplemented` naming the PLAN task that
-//! adds them, rather than drawing a placeholder a golden would freeze.
+//! A frame draws the theme surface, then one layer per visible node in paint order
+//! (`z`, then scene-graph order). Each snapshot is laid out once into a [`Scene`]
+//! (text on the theme grid, charts compiled to marks); a frame inside a transition
+//! samples the two scenes through a [`Transition`] and lays nothing out (SPEC §5).
+//! Node types that arrive later return `NotImplemented` naming their PLAN task,
+//! rather than drawing a placeholder a golden would freeze.
 
 use crate::EngineError;
+use crate::charts::{self, Ctx};
+use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::layout::{AlignX, AlignY, Grid};
+use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
 use crate::text::{Span, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
-use scaena_core::displaylist::{Blend, Color, DisplayList, FillRule, Op, Paint, Path, Rect, paint_order};
+use scaena_core::displaylist::{Color, DisplayList, Rect, paint_order};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
@@ -19,9 +24,11 @@ use serde_json::Value;
 pub struct FrameRequest<'a> {
     pub deck: &'a Deck,
     pub theme: &'a Theme,
+    /// The bundle's data files, which charts read (SPEC §3.10).
+    pub data: &'a DataFiles,
     pub state: &'a str,
-    /// Milliseconds since the start of the transition into `state`. Phase 0 renders
-    /// every state at rest; sampling arrives with PLAN 0.10 / 1.12.
+    /// Milliseconds since the start of the transition into `state`; at or past its
+    /// duration (`f64::INFINITY` always is), the state at rest.
     pub t_ms: f64,
 }
 
@@ -29,7 +36,7 @@ pub struct FrameRequest<'a> {
 pub struct Frame {
     /// In canvas units; `viewport` is the canvas size, and painters scale to their output.
     pub display_list: DisplayList,
-    /// Total transition + choreography duration for this state, ms (PLAN 1.11; 0 until then).
+    /// The transition into this state, ms; choreography adds to it in PLAN 1.11.
     pub duration_ms: f64,
 }
 
@@ -45,45 +52,75 @@ impl Engine {
     }
 
     /// Render one frame. Deterministic: same inputs → identical display list (SPEC §13).
+    /// At rest it lays out the state alone; inside a transition it lays out the state
+    /// and the one before it, then samples. To draw many frames of one transition,
+    /// build it once with [`Engine::transition`].
     pub fn frame(&mut self, req: &FrameRequest) -> Result<Frame, EngineError> {
         let snapshots = scaena_core::resolve_states(req.deck)?;
-        let snap = find_state(&snapshots, req.state)?;
-        let canvas = canvas(req.deck);
-        let grid = Grid::from_theme(req.theme, canvas)?;
+        let i = state_index(&snapshots, req.state)?;
+        let timing = Timing::parse(req.theme, req.deck.states[i].transition.as_ref())?;
+        let display_list = if timing.progress(req.t_ms) >= 1.0 {
+            self.scene(req.deck, req.theme, req.data, &snapshots[i])?.draw()
+        } else {
+            self.transition_at(req.deck, req.theme, req.data, &snapshots, i, timing)?.frame(req.t_ms)
+        };
+        Ok(Frame { display_list, duration_ms: timing.duration_ms })
+    }
 
-        let mut dl = DisplayList::new(canvas);
-        dl.ops.push(Op::Fill {
-            path: Path::rect([0.0, 0.0, canvas[0], canvas[1]]),
-            rule: FillRule::NonZero,
-            paint: Paint::Solid(theme_color(req.theme, "surface")?),
-        });
+    /// The transition into `state`: it and the state before it in the cue list (what
+    /// was on screen), each laid out once. [`Transition::frame`] then samples any
+    /// time without layout.
+    pub fn transition(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        state: &str,
+    ) -> Result<Transition, EngineError> {
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let i = state_index(&snapshots, state)?;
+        let timing = Timing::parse(theme, deck.states[i].transition.as_ref())?;
+        self.transition_at(deck, theme, data, &snapshots, i, timing)
+    }
+
+    fn transition_at(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        snapshots: &[Snapshot],
+        i: usize,
+        timing: Timing,
+    ) -> Result<Transition, EngineError> {
+        let to = self.scene(deck, theme, data, &snapshots[i])?;
+        let from = match i.checked_sub(1) {
+            Some(prev) if timing.duration_ms > 0.0 => Some(self.scene(deck, theme, data, &snapshots[prev])?),
+            _ => None,
+        };
+        Ok(Transition::new(from, to, timing))
+    }
+
+    /// One snapshot, laid out: every visible node in paint order.
+    pub fn scene(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        snap: &Snapshot,
+    ) -> Result<Scene, EngineError> {
+        let canvas = canvas(deck);
+        let grid = Grid::from_theme(theme, canvas)?;
+        let mut nodes = Vec::with_capacity(snap.nodes.len());
         for id in paint_order(snap) {
             let props = &snap.nodes[id];
-            match req.deck.nodes[id].node_type {
-                NodeType::Text => {
-                    let placed = self.layout_text_node(req, &grid, snap, id)?;
-                    let mut ops = Vec::with_capacity(placed.text.runs.len());
-                    for run in placed.text.runs {
-                        let font = dl.font(run.font);
-                        ops.push(Op::Glyphs {
-                            font,
-                            size: run.size,
-                            coords: run.coords,
-                            paint: Paint::Solid(run.color),
-                            glyphs: run.glyphs,
-                        });
-                    }
-                    dl.ops.push(Op::Layer {
-                        node: Some(id.to_string()),
-                        transform: [1.0, 0.0, 0.0, 1.0, placed.origin[0], placed.origin[1]],
-                        opacity: props.get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32,
-                        blend: Blend::Normal,
-                        clip: None,
-                        ops,
-                    });
-                }
+            let content = match deck.nodes[id].node_type {
+                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, &grid, snap, id)?),
                 NodeType::Chart => {
-                    return Err(EngineError::NotImplemented("chart nodes — PLAN 0.10 (bar → line), 1.9"));
+                    let cell =
+                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
+                    let mut cx = Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data };
+                    let chart = charts::compile(&mut cx, props, [cell[2], cell[3]]).map_err(|e| in_node(id, e))?;
+                    Content::Chart { cell, chart }
                 }
                 NodeType::Shader => return Err(EngineError::NotImplemented("shader nodes — PLAN 0.11 (mesh), 1.10")),
                 NodeType::Shape | NodeType::Image => {
@@ -92,26 +129,35 @@ impl Engine {
                 NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group => {
                     return Err(EngineError::NotImplemented("container nodes — PLAN 1.7"));
                 }
-            }
+            };
+            nodes.push(SceneNode {
+                id: id.to_string(),
+                z: props.get("z").and_then(Value::as_i64).unwrap_or(0),
+                order: deck.nodes.get_index_of(id).expect("snapshot nodes are deck nodes"),
+                opacity: props.get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32,
+                policy: Policy::parse(props.get("transition")).map_err(|e| in_node(id, e))?,
+                content,
+            });
         }
-        Ok(Frame { display_list: dl, duration_ms: 0.0 })
+        Ok(Scene { state: snap.state_id.clone(), canvas, surface: theme_color(theme, "surface")?, nodes })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what
     /// layout-level lints (E100 overflow, W200 widows) read.
     pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<PlacedText, EngineError> {
         let snapshots = scaena_core::resolve_states(req.deck)?;
-        let snap = find_state(&snapshots, req.state)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
         if !snap.nodes.contains_key(node) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
         let grid = Grid::from_theme(req.theme, canvas(req.deck))?;
-        self.layout_text_node(req, &grid, snap, node)
+        self.layout_text_node(req.deck, req.theme, &grid, snap, node)
     }
 
     fn layout_text_node(
         &mut self,
-        req: &FrameRequest,
+        deck: &Deck,
+        theme: &Theme,
         grid: &Grid,
         snap: &Snapshot,
         id: &str,
@@ -119,22 +165,22 @@ impl Engine {
         let props = &snap.nodes[id];
         let template = snap.layout.as_deref();
         let at = props.get("at");
-        let cell = grid.place(req.theme, template, at).map_err(|e| in_node(id, e))?;
-        let spec = text_spec(req.deck, props, Grid::slot_role(req.theme, template, at)).map_err(|e| in_node(id, e))?;
-        let text = self.text.layout(&mut self.fonts, req.theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
+        let cell = grid.place(theme, template, at).map_err(|e| in_node(id, e))?;
+        let spec = text_spec(deck, props, Grid::slot_role(theme, template, at)).map_err(|e| in_node(id, e))?;
+        let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
         if text.synthesized {
             return Err(EngineError::Font(format!(
                 "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
                  use a weight or style the family provides"
             )));
         }
-        let (align_x, align_y) = Grid::alignment(req.theme, template, props).map_err(|e| in_node(id, e))?;
+        let (align_x, align_y) = Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?;
         if matches!(align_x, AlignX::Center | AlignX::End) {
             return Err(EngineError::NotImplemented("centered and end-aligned text — PLAN 1.8"));
         }
         let trim = match typed_prop::<TextBox>(props, "box")? {
             Some(trim) => trim,
-            None => req.theme.text_role(&spec.role)?.text_box,
+            None => theme.text_role(&spec.role)?.text_box,
         };
         let origin = [cell[0], text_top(cell, align_y, &text, trim)];
         Ok(PlacedText { cell, origin, text })
@@ -171,8 +217,14 @@ fn text_top(cell: Rect, align: AlignY, text: &TextLayout, trim: TextBox) -> f32 
     }
 }
 
-fn find_state<'a>(snapshots: &'a [Snapshot], state: &str) -> Result<&'a Snapshot, EngineError> {
-    snapshots.iter().find(|s| s.state_id == state).ok_or_else(|| EngineError::UnknownState(state.to_string()))
+fn state_index(snapshots: &[Snapshot], state: &str) -> Result<usize, EngineError> {
+    snapshots.iter().position(|s| s.state_id == state).ok_or_else(|| EngineError::UnknownState(state.to_string()))
+}
+
+/// The transition into `state`, without laying anything out (SPEC §3.9).
+pub fn timing(deck: &Deck, theme: &Theme, state: &str) -> Result<Timing, EngineError> {
+    let s = deck.states.iter().find(|s| s.id == state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+    Timing::parse(theme, s.transition.as_ref())
 }
 
 fn canvas(deck: &Deck) -> [f32; 2] {
@@ -184,6 +236,7 @@ fn in_node(id: &str, e: EngineError) -> EngineError {
         EngineError::Layout(m) => EngineError::Layout(format!("node `{id}`: {m}")),
         EngineError::Theme(m) => EngineError::Theme(format!("node `{id}`: {m}")),
         EngineError::Font(m) => EngineError::Font(format!("node `{id}`: {m}")),
+        EngineError::Data(m) => EngineError::Data(format!("node `{id}`: {m}")),
         other => other,
     }
 }

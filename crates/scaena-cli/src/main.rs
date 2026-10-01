@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
+use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest};
@@ -291,6 +292,10 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let b = open(&bundle)?;
     let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
     let files = b.read_fonts()?;
+    let mut data = DataFiles::new();
+    for (path, bytes) in b.read_data()? {
+        data.insert(path, bytes);
+    }
     let load = lap();
 
     let mut fonts = BundleFonts::new();
@@ -302,7 +307,7 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     fonts.check_theme(&theme)?;
     let register = lap();
 
-    let req = FrameRequest { deck: &b.deck, theme: &theme, state, t_ms: t.unwrap_or(f64::INFINITY) };
+    let req = FrameRequest { deck: &b.deck, theme: &theme, data: &data, state, t_ms: t.unwrap_or(f64::INFINITY) };
     let frame = match Engine::new(fonts).frame(&req) {
         Err(e @ EngineError::NotImplemented(_)) => return unimplemented(e),
         frame => frame?,

@@ -1,7 +1,8 @@
 //! # scaena-wasm
 //!
 //! The engine in the browser (PLAN 0.8; SPEC §9.2 grows this into the player). A page
-//! hands over a bundle's `deck.json`, theme, and fonts, then asks for frames:
+//! hands over a bundle's `deck.json`, theme, fonts, and data files, then asks for
+//! frames:
 //!
 //! - [`Player::frame`] returns a state's display list, postcard-encoded (SPEC §6).
 //!   Native and WASM builds of the engine must produce the same bytes; the smoke
@@ -13,7 +14,9 @@
 
 use scaena_core::Deck;
 use scaena_core::displaylist::DisplayList;
+use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
+use scaena_engine::sample::Transition;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest};
 use scaena_paint::{FontStore, PaintError};
@@ -31,14 +34,17 @@ pub enum Error {
     FontAfterFrame,
 }
 
-/// One bundle's engine: the deck, its theme and fonts, and the layout engine built
-/// from them on the first frame.
+/// One bundle's engine: the deck, its theme, fonts, and data files, and the layout
+/// engine built from them on the first frame.
 pub struct Session {
     deck: Deck,
     theme: Theme,
+    data: DataFiles,
     /// Fonts registered so far; the engine takes them on the first frame.
     pending: Option<BundleFonts>,
     engine: Option<Engine>,
+    /// The transition last sampled, so the frames of one transition lay out once.
+    transition: Option<(String, Transition)>,
     /// The same fonts, as painters read them.
     store: FontStore,
 }
@@ -48,8 +54,10 @@ impl Session {
         Ok(Self {
             deck: Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?,
             theme: Theme::from_json(theme_json)?,
+            data: DataFiles::new(),
             pending: Some(BundleFonts::new()),
             engine: None,
+            transition: None,
             store: FontStore::new(),
         })
     }
@@ -63,11 +71,24 @@ impl Session {
         Ok(())
     }
 
+    /// Register a data file under its bundle path, as the deck's `data.*.source` names it.
+    pub fn add_data(&mut self, path: &str, bytes: Vec<u8>) {
+        self.data.insert(path, bytes);
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
     }
 
+    /// The transition into `state`, ms; 0 when it cuts.
+    pub fn duration(&self, state: &str) -> Result<f64, Error> {
+        Ok(scaena_engine::render::timing(&self.deck, &self.theme, state)?.duration_ms)
+    }
+
     /// The display list for `state`, `t_ms` into its transition (`f64::INFINITY`: at rest).
+    /// At rest, the state laid out alone. Inside its transition, a sample of the
+    /// transition, which is laid out on the first such frame and kept: the frames
+    /// of one transition lay out once (SPEC §5).
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
         if self.engine.is_none() {
             let fonts = self.pending.take().ok_or(Error::FontAfterFrame)?;
@@ -75,8 +96,16 @@ impl Session {
             self.engine = Some(Engine::new(fonts));
         }
         let engine = self.engine.as_mut().expect("built above");
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms };
-        Ok(engine.frame(&req)?.display_list)
+        if scaena_engine::render::timing(&self.deck, &self.theme, state)?.progress(t_ms) >= 1.0 {
+            let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
+            return Ok(engine.frame(&req)?.display_list);
+        }
+        let cached = self.transition.as_ref().is_some_and(|(s, _)| s == state);
+        if !cached {
+            let transition = engine.transition(&self.deck, &self.theme, &self.data, state)?;
+            self.transition = Some((state.to_string(), transition));
+        }
+        Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
     }
 
     pub fn fonts(&self) -> &FontStore {
@@ -104,8 +133,18 @@ impl Player {
         self.0.add_font(id, bytes).map_err(js)
     }
 
+    #[wasm_bindgen(js_name = addData)]
+    pub fn add_data(&mut self, path: &str, bytes: Vec<u8>) {
+        self.0.add_data(path, bytes);
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
+    }
+
+    /// The transition into `state`, ms; 0 when it cuts.
+    pub fn duration(&self, state: &str) -> Result<f64, JsError> {
+        self.0.duration(state).map_err(js)
     }
 
     /// The display list for `state` at `t_ms` (`Infinity`: at rest), postcard-encoded.
@@ -276,6 +315,7 @@ mod tests {
             let id = format!("fonts/{f}");
             s.add_font(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap()).unwrap();
         }
+        s.add_data("data/bars.csv", std::fs::read(format!("{BUNDLE}/data/bars.csv")).unwrap());
         s
     }
 
@@ -291,9 +331,14 @@ mod tests {
         let mut s = torture();
         let expected = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();
         for line in expected.lines() {
-            let (state, digest) = line.split_once(' ').unwrap();
-            let bytes = s.frame(state, f64::INFINITY).unwrap().to_postcard().unwrap();
-            assert_eq!(format!("{:016x}", fnv1a(&bytes)), digest, "{state}");
+            let (name, digest) = line.split_once(' ').unwrap();
+            // `state` at rest, or `state@fraction` of the transition into it.
+            let (state, t) = match name.split_once('@') {
+                Some((state, at)) => (state, at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
+                None => (name, f64::INFINITY),
+            };
+            let bytes = s.frame(state, t).unwrap().to_postcard().unwrap();
+            assert_eq!(format!("{:016x}", fnv1a(&bytes)), digest, "{name}");
         }
     }
 
@@ -303,6 +348,6 @@ mod tests {
         s.frame("axes", f64::INFINITY).unwrap();
         let err = s.add_font("fonts/late.ttf", vec![]).unwrap_err();
         assert!(matches!(err, Error::FontAfterFrame), "{err}");
-        assert_eq!(s.states().len(), 23);
+        assert_eq!(s.states().len(), 24);
     }
 }
