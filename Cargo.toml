@@ -25,7 +25,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
 license = "UNLICENSED"
-repository = "https://github.com/welshofer/scaena"
+repository = "https://github.com/welshofer/Scaena"
 authors = ["Jay Welshofer"]
 
 [workspace.dependencies]
