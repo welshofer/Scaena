@@ -630,8 +630,12 @@ pub mod gpu {
                 buffer.map_async(wgpu::MapMode::Read, .., move |mapped| {
                     let _ = tx.send(mapped);
                 });
-                self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(gpu)?;
-                rx.recv().map_err(|_| PaintError::Gpu("readback callback never ran".into()))?.map_err(gpu)?;
+                // Bounded: a GPU that never finishes is an error to report, not a hang.
+                let wait = wgpu::PollType::Wait { submission_index: None, timeout: Some(GPU_TIMEOUT) };
+                self.device.poll(wait).map_err(gpu)?;
+                rx.recv_timeout(GPU_TIMEOUT)
+                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
+                    .map_err(gpu)?;
                 let mut rgba = Vec::with_capacity(row as usize * height as usize);
                 for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
                     rgba.extend_from_slice(&line[..row as usize]);
@@ -648,6 +652,9 @@ pub mod gpu {
                 Ok(Raster { width, height, rgba })
             }
         }
+
+        /// The longest the painter waits for one frame's work and readback.
+        const GPU_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
         fn gpu(e: impl std::fmt::Display) -> PaintError {
             PaintError::Gpu(e.to_string())
