@@ -75,7 +75,7 @@ A transition is the interpolation between two resolved snapshots over a duration
 - present only in the target → **enter** (preset or explicit keyframes)
 - present only in the source → **exit**
 
-Text morphs at word granularity (shared words move, others cross-fade). Charts morph at mark granularity (marks matched by data key; kind changes interpolate mark geometry). Shader nodes interpolate uniforms.
+Text morphs at word granularity (shared words move, others cross-fade). Charts move their data at mark granularity: marks match by data key and interpolate, so values animate in, the next period arrives, and growth shows. A change of chart kind morphs only between kinds that draw the same marks (bars that regroup, `bar` ↔ `stackedBar`); any other change of kind cross-fades. Shader nodes interpolate uniforms.
 
 ### 2.4 Time
 
@@ -156,7 +156,7 @@ Every node: `{ "type", "id" (implicit from key), "name"?, "alt"?, "semantic"?, "
 | `frame` | layout container (absolute) | `children` (+ child `rect`) |
 | `group` | transform-only grouping | `children` |
 
-Deferred node types (not in v1 schema): `video`, `audio`, `table`, `code`, `embed`.
+Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`. `table` arrives with the chart and table sprint (PLAN 1.9) and joins the schema there.
 
 Common animatable properties: `opacity`, `transform` (`translate`, `rotate`, `scale`, `skew`, `anchor`), `fill`, `stroke`, `blur`, `clip`, `blend`, `shadow`, plus type-specific ones (text content/style, chart data/encodings, shader uniforms).
 
@@ -265,16 +265,18 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
 Rules:
 - **Kinds are normative here.** v1 ships exactly `bar`, `stackedBar`, `line`, `area`, `scatter`, `dot`, `donut` (PLAN 1.9); the schema enum matches. `slope`, `waffle`, `range`, `heatmap` are deferred and unscheduled; adding one is a schema change plus a PLAN task.
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
-- Marks are matched by `key` across states; a change of `kind` interpolates mark geometry (bar → point → line). Axis rescaling animates.
-- Data updates interpolate values by key; added/removed keys enter/exit with the chart's presets.
+- Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
+- A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
 - Label collision is lint **W310**; the engine MAY auto-resolve with `labels.collide: "hide" | "nudge"`.
 - Number/date formatting uses a d3-format / ICU-compatible subset defined in `docs/spec/format.md` (Phase 1).
 
-**Phase 0 compile (PLAN 0.10).** `bar` and `line` with one series on an ordinal `x`.
-- **Marks.** Every datum is a mark keyed by `key` (default: the `x` field), in the theme's first `data.categorical` color. A bar is `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end. A line's point is a circle three times the line's stroke width (`charts.strokeWidth`) in radius, and the line runs through the points in data order. Both are rounded rectangles with one radius for the top corners and one for the bottom, so a change of kind interpolates six numbers per mark.
-- **Scale.** `y` runs from `domain[0]` (else `min(0, data)`) to `domain[1]` (else the data maximum). Bars and points share the scale and the plot, which leaves room above for value labels and a point's radius.
-- **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each mark (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures. Without a `format`, integers print bare and other numbers in shortest round-trip form.
-- **Later.** Multiple series, color encodings, legends, `axes` settings, `format`, and `transform` return NotImplemented until PLAN 1.9.
+**Phase 0 compile (PLAN 0.10).** `bar` with one series on an ordinal `x`.
+- **Marks.** Every datum is a bar keyed by `key` (default: the `x` field), in the theme's first `data.categorical` color, `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end.
+- **Scale.** `y` runs from `domain[0]` (else `min(0, data)`) to `domain[1]` (else the data maximum). The plot leaves room above the bars for value labels.
+- **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each bar (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures. Without a `format`, integers print bare and other numbers in shortest round-trip form.
+- **Clip.** A chart clips at its cell's sides, so bars that ride out of a scrolling window pass under them. Vertically it draws on the whole canvas, so a figure that overshoots the cap height keeps its top.
+- **Motion.** A matched bar interpolates its shape. A new key grows from the baseline and a removed one shrinks onto it, each moving with its nearest matched neighbor (the earlier on a tie), so a window that advances a period scrolls. A value label rides its bar and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
+- **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, `format`, and `transform` return NotImplemented until the chart and table sprint (PLAN 1.9).
 
 Open (PLAN 1.1): the chart `axes` object above collides in the schema with text `axes` (variable-font axes, numbers only) in `NodeProps`, so a chart cannot declare axes settings until node props are typed per node type.
 
@@ -325,7 +327,7 @@ Requirements:
 - A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
 - The transition into a state starts from the state before it in the cue list, what was on screen, whichever state it tracks `from`. Into the first state, every node enters.
 - `t ≤ 0` is the previous state at rest and `t ≥ duration` this state at rest, exactly.
-- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key. A node only in the target fades in, and one only in the source fades out; presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
+- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
 
 ### 3.10 Data sources
 

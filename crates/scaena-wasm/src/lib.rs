@@ -315,7 +315,9 @@ mod tests {
             let id = format!("fonts/{f}");
             s.add_font(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap()).unwrap();
         }
-        s.add_data("data/bars.csv", std::fs::read(format!("{BUNDLE}/data/bars.csv")).unwrap());
+        for path in ["data/bars.csv", "data/bars-next.csv"] {
+            s.add_data(path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
+        }
         s
     }
 
@@ -348,6 +350,6 @@ mod tests {
         s.frame("axes", f64::INFINITY).unwrap();
         let err = s.add_font("fonts/late.ttf", vec![]).unwrap_err();
         assert!(matches!(err, Error::FontAfterFrame), "{err}");
-        assert_eq!(s.states().len(), 24);
+        assert_eq!(s.states().len(), 25);
     }
 }

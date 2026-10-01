@@ -4,9 +4,9 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        24 states, mode: absolute (but `chart-line`), layout: specimen
+  deck.json        25 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
-  data/bars.csv    six rows for the bar chart
+  data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
 ```
 
@@ -49,9 +49,8 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 19 | `bidi-arabic` | Arabic with inline Latin | catalogue | Joined letterforms, lam-alef ligature, LTR islands. |
 | 20 | `fallback` | Fallback within one run | kill | One run, three fonts: α ω from EB Garamond, Hebrew from Noto Sans Hebrew; no system font. |
 | 21 | `anchors` | Cap, baseline, x-height alignment across 112 / 64 / 28 cu | recorded (added with PLAN 0.5) | Cap tops share the cell top (210 cu), baselines the cell bottom (642 cu), x-height tops of `axe` 780 cu. One line per specimen; the rows do not touch. |
-| 22 | `chart` | Bar chart, six bars | recorded | Six bars keyed by label in the first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. |
-| 23 | `chart-line` | Bar to line morph | recorded (gate 0 criterion 3) | The transition from `chart` (420 ms) morphs each bar into its point by label while the line fades in. t = 0 and t = 420 ms are the two states at rest exactly; the frames at 0.25 and 0.5 have goldens (`chart-line@0.25`, `chart-line@0.5`), and no frame lays anything out. |
-| 24 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
+| 22 | `chart-intro` → `chart` → `chart-next` | Bar chart: values in, then the next quarter | recorded (gate 0 criterion 3) | At rest, six bars keyed by label in the first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. Into `chart` (420 ms), the bars grow from the baseline and their labels count up. Into `chart-next`, the window scrolls a quarter by key: 2025-Q1 rides out under the left edge, 2026-Q3 rides in from the right, the rest slide and rescale. Each transition is its two states at rest exactly at t = 0 and 420 ms; the frames at 0.25 and 0.5 have goldens (`chart@0.25`, `chart-next@0.5`, …), and no frame lays anything out. |
+| 23 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

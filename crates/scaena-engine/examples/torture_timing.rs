@@ -76,9 +76,9 @@ fn main() {
     );
     println!("postcard encode, `pretty` state: {:.1} µs, {} bytes", encode.0.as_secs_f64() * 1e6, encode.1);
 
-    // The bar → line transition (PLAN 0.10): laid out once, then every frame samples.
+    // The next quarter (PLAN 0.10): laid out once, then every frame samples.
     let t = Instant::now();
-    let transition = engine.transition(&deck, &theme, &data, "chart-line").unwrap();
+    let transition = engine.transition(&deck, &theme, &data, "chart-next").unwrap();
     let build = t.elapsed();
     const FRAMES: u32 = 2000;
     let d = transition.duration_ms();
@@ -89,7 +89,7 @@ fn main() {
     let sample = t.elapsed() / FRAMES;
     let mid = transition.frame(0.5 * d).to_postcard().unwrap().len();
     println!(
-        "bar → line transition: laid out once in {:.2} ms; a frame samples in {:.1} µs ({FRAMES} frames over {d} ms; \
+        "next-quarter transition: laid out once in {:.2} ms; a frame samples in {:.1} µs ({FRAMES} frames over {d} ms; \
          mid-frame postcard {mid} bytes)",
         ms(build),
         sample.as_secs_f64() * 1e6

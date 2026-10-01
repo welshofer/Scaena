@@ -88,8 +88,8 @@ fn size_scales_uniformly_and_json_reports_the_stages() {
     }
 }
 
-/// `--t` reaches the sampler: a quarter of the 420 ms bar → line transition is the
-/// `chart-line@0.25` golden (PLAN 0.10).
+/// `--t` reaches the sampler: a quarter of the 420 ms transition to the next quarter
+/// is the `chart-next@0.25` golden (PLAN 0.10).
 #[test]
 fn t_renders_a_frame_inside_the_transition() {
     let dir = scratch("morph");
@@ -98,7 +98,7 @@ fn t_renders_a_frame_inside_the_transition() {
         "render",
         BUNDLE,
         "--state",
-        "chart-line",
+        "chart-next",
         "--t",
         "105",
         "--out",
@@ -109,7 +109,7 @@ fn t_renders_a_frame_inside_the_transition() {
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     let mut list = DisplayList::from_json(&std::fs::read_to_string(&dl).unwrap()).unwrap();
     quantize(&mut list);
-    let golden = std::fs::read_to_string(format!("{GOLDEN}/chart-line@0.25.dl.json")).unwrap();
+    let golden = std::fs::read_to_string(format!("{GOLDEN}/chart-next@0.25.dl.json")).unwrap();
     assert_eq!(list.to_golden_json().unwrap(), golden);
 }
 

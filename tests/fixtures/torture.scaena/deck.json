@@ -86,6 +86,13 @@
         "label": "string",
         "value": "number"
       }
+    },
+    "bars-next": {
+      "source": "data/bars-next.csv",
+      "schema": {
+        "label": "string",
+        "value": "number"
+      }
     }
   },
   "nodes": {
@@ -1128,34 +1135,46 @@
       "notes": "Recorded (PLAN 0.5): across 112, 64 and 28 cu, the first row's cap tops share one line (the cell top, 210 cu); the second row's baselines share one line (the cell bottom, 642 cu); the tops of the third row's x-height letters (a x e) share one line (780 cu). Every specimen is one line, and the rows do not touch. Cap height and x-height come from each font's OS/2 table, not glyph bounds."
     },
     {
-      "id": "chart",
-      "name": "Bar chart",
+      "id": "chart-intro",
+      "name": "Bar chart, before its values",
+      "slide": "chart",
       "mode": "absolute",
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "22 · Bar chart, six bars · recorded"
-        },
-        "bars": {}
+          "text": "22 · Bar chart: values in, then the next quarter · recorded"
+        }
       },
-      "notes": "Pass: six bars keyed by label in the theme's first categorical color, square on a hairline baseline and rounded by the theme's corner radius at the top; value labels above them and quarter labels below, in the label role with tabular lining figures."
+      "notes": "The slide before its chart: only the case label. The next state builds the chart in."
     },
     {
-      "id": "chart-line",
-      "name": "Bar to line morph",
+      "id": "chart",
+      "name": "Bar chart: values animate in",
+      "slide": "chart",
       "transition": {
         "duration": "standard",
         "ease": "standard"
       },
       "props": {
-        "case": {
-          "text": "23 · Bar to line morph · recorded"
-        },
+        "bars": {}
+      },
+      "notes": "Pass at rest: six bars keyed by label in the theme's first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. Pass in the transition from `chart-intro` (420 ms): every bar grows from the baseline while its label rides its top, counts up from 0, and fades in; the quarter labels and the baseline fade in. t = 0 is `chart-intro` at rest and t = 420 ms this state at rest, exactly."
+    },
+    {
+      "id": "chart-next",
+      "name": "Next quarter",
+      "slide": "chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
         "bars": {
-          "kind": "line"
+          "data": "@bars-next",
+          "alt": "Six bars from Q2 2025 to Q3 2026; the last is the tallest."
         }
       },
-      "notes": "Pass: the same six values as a line through points, labels above the points. In the transition from `chart` (420 ms, standard easing), each bar shrinks into its point, matched by label; the line fades in through the points, and the case label cross-fades. The frame at t = 0 is `chart` at rest and the frame at t = 420 is this state at rest, exactly; frames between sample the two layouts and lay nothing out (gate 0 criterion 3)."
+      "notes": "Pass: the next quarter arrives and the window scrolls. Matched by label, 2025-Q2 to 2026-Q2 slide one band left and rescale to the new maximum (38). 2025-Q1 rides out with 2025-Q2 under the chart's left edge, shrinking onto the baseline as its label counts down to 0 and fades; 2026-Q3 rides in with 2026-Q2 from past the right edge, growing from the baseline as its label counts up to 38. Nothing overlaps; the chart clips at its sides only. Frames sample the two layouts and lay nothing out (gate 0 criterion 3)."
     },
     {
       "id": "mesh",
@@ -1164,7 +1183,7 @@
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "24 · Mesh background · recorded"
+          "text": "23 · Mesh background · recorded"
         },
         "mesh-bg": {}
       },

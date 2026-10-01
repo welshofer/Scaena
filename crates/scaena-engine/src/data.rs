@@ -53,6 +53,23 @@ pub fn format_number(n: f64) -> String {
     if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") }
 }
 
+/// How many decimal places [`format_number`] shows for `n`.
+pub fn decimals(n: f64) -> usize {
+    let s = format_number(n);
+    s.find('.').map_or(0, |dot| s.len() - dot - 1)
+}
+
+/// `n` rounded to `places` decimals, as a counting label shows it: an integer when
+/// `places` is 0, and no sign on a value that rounds to zero. Fixed-precision
+/// formatting is correctly rounded, so it reads the same on every platform.
+pub fn format_fixed(n: f64, places: usize) -> String {
+    let s = if places == 0 { format!("{}", n.round() as i64) } else { format!("{n:.places$}") };
+    match s.strip_prefix('-') {
+        Some(zero) if zero.bytes().all(|b| b == b'0' || b == b'.') => zero.to_string(),
+        _ => s,
+    }
+}
+
 /// Rows of a source, columns in source order.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Table {
@@ -227,5 +244,11 @@ mod tests {
         assert_eq!(format_number(-3.0), "-3");
         assert_eq!(format_number(1.25), "1.25");
         assert_eq!(format_number(0.1 + 0.2), "0.30000000000000004");
+        assert_eq!((decimals(24.0), decimals(1.25), decimals(-0.5)), (0, 2, 1));
+        assert_eq!(
+            (format_fixed(18.5, 0), format_fixed(-0.4, 0), format_fixed(1.005, 1)),
+            ("19".into(), "0".into(), "1.0".into())
+        );
+        assert_eq!((format_fixed(-0.04, 1), format_fixed(-0.06, 1)), ("0.0".into(), "-0.1".into()));
     }
 }

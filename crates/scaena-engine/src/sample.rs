@@ -9,18 +9,25 @@
 //!
 //! Phase 0 rules (PLAN 0.10; the rest of SPEC §3.9 is PLAN 1.11–1.12):
 //! - Nodes match by id. Text whose layout is unchanged moves; changed text
-//!   cross-fades (word-level text morphs are PLAN 1.12). A chart's marks, lines, and
-//!   labels match by key and interpolate, so a change of kind morphs bars into points.
-//! - A node only in the target fades in; one only in the source fades out.
+//!   cross-fades (word-level text morphs are PLAN 1.12).
+//! - Charts move data. Marks match by key and interpolate: a corrected figure, the
+//!   next month's values, the axis rescaling. A key that appears grows from the
+//!   baseline and one that disappears shrinks onto it, each riding along with its
+//!   nearest matched neighbor, so a window that advances a period scrolls: the oldest
+//!   bar leaves under one side of the chart's cell as the newest arrives from the
+//!   other. Value labels ride their marks and count through the numbers. A chart that
+//!   enters grows its values in; one that exits shrinks them out.
+//! - Any other node only in the target fades in; one only in the source fades out.
 //! - Numbers interpolate linearly; colors in Oklab (SPEC §3.9), through `libm`, whose
 //!   pure-Rust math gives the same bits on every platform.
 //! - At `t ≤ 0` the frame is the source scene at rest, and at `t ≥ duration` the
 //!   target at rest, exactly: both ends draw a scene, not an interpolation.
 
 use crate::EngineError;
-use crate::charts::{ChartLayout, Label, RoundRect, Rule, Series, lerp};
+use crate::charts::{ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
+use crate::data;
 use crate::render::PlacedText;
-use crate::text::TextLayout;
+use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
 use scaena_core::timeline::CubicBezier;
@@ -105,18 +112,17 @@ impl SceneNode {
     /// This node's layer at `opacity`.
     fn draw(&self, dl: &mut DisplayList, opacity: f32) -> Op {
         match &self.content {
-            Content::Text(placed) => layer(Some(&self.id), placed.origin, opacity, text_ops(dl, &placed.text)),
+            Content::Text(placed) => layer(Some(&self.id), placed.origin, opacity, text_ops(dl, &placed.text.runs)),
             Content::Chart { cell, chart } => {
                 let mut ops = Vec::new();
                 if let Some(rule) = &chart.baseline {
                     ops.push(rule_op(rule, 1.0));
                 }
-                ops.extend(chart.series.iter().map(|s| series_op(s, 1.0)));
                 ops.extend(chart.marks.iter().map(|m| mark_op(m.shape, m.color, 1.0)));
                 for label in chart.ticks.iter().chain(&chart.labels) {
-                    ops.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text)));
+                    ops.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
                 }
-                layer(Some(&self.id), [cell[0], cell[1]], opacity, ops)
+                chart_layer(&self.id, [cell[0], cell[1]], cell[2], dl.viewport[1], opacity, ops)
             }
         }
     }
@@ -202,17 +208,26 @@ enum Track {
     Crossfade { from: usize, to: usize },
     /// Policy `cut`: the target from the first frame.
     Cut(usize),
-    /// A chart in both: its parts match by key.
-    Chart { from: usize, to: usize, plan: ChartPlan },
+    /// A chart: its parts match by key. With one side missing, the chart enters
+    /// (grows its values in) or exits (shrinks them out).
+    Chart { from: Option<usize>, to: Option<usize>, plan: ChartPlan },
 }
 
+/// How a chart's parts get from one snapshot to the next, matched by key.
 #[derive(Debug, Clone, PartialEq, Default)]
 struct ChartPlan {
-    baseline: Option<Pair>,
-    series: Vec<Pair>,
-    marks: Vec<Pair>,
-    ticks: Vec<Pair>,
-    labels: Vec<Pair>,
+    baseline: Pair,
+    /// Each mark with its key's value labels on either side.
+    marks: Vec<(Keyed, Pair)>,
+    ticks: Vec<Keyed>,
+}
+
+/// A keyed chart part on either side and, for a part on one side only, the nearest
+/// part on both that it rides along with, as indices in the source and the target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Keyed {
+    pair: Pair,
+    ride: Option<(usize, usize)>,
 }
 
 /// Two laid-out snapshots and the plan between them. Frames sample it; nothing here
@@ -234,19 +249,30 @@ impl Transition {
         for (i, a) in source.iter().enumerate() {
             let partner = to.nodes.iter().position(|b| b.id == a.id).filter(|_| timing.matched);
             if partner.is_none() {
-                tracks.push((a.z, a.order, Track::Exit(i)));
+                let track = match &a.content {
+                    Content::Chart { chart, .. } => {
+                        Track::Chart { from: Some(i), to: None, plan: ChartPlan::new(Some(chart), None) }
+                    }
+                    Content::Text(_) => Track::Exit(i),
+                };
+                tracks.push((a.z, a.order, track));
             }
         }
         for (j, b) in to.nodes.iter().enumerate() {
             let partner = source.iter().position(|a| a.id == b.id).filter(|_| timing.matched);
             let track = match (partner, b.policy) {
-                (None, _) => Track::Enter(j),
+                (None, _) => match &b.content {
+                    Content::Chart { chart, .. } => {
+                        Track::Chart { from: None, to: Some(j), plan: ChartPlan::new(None, Some(chart)) }
+                    }
+                    Content::Text(_) => Track::Enter(j),
+                },
                 (Some(_), Policy::Cut) => Track::Cut(j),
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) => {
-                        Track::Chart { from: i, to: j, plan: ChartPlan::new(x, y) }
+                        Track::Chart { from: Some(i), to: Some(j), plan: ChartPlan::new(Some(x), Some(y)) }
                     }
                     _ => Track::Crossfade { from: i, to: j },
                 },
@@ -290,24 +316,37 @@ impl Transition {
                     };
                     let origin = lerp2(a.origin, b.origin, p);
                     let opacity = lerp(from[*i].opacity, to[*j].opacity, p);
-                    let op = layer(Some(&to[*j].id), origin, opacity, text_ops(&mut dl, &b.text));
+                    let op = layer(Some(&to[*j].id), origin, opacity, text_ops(&mut dl, &b.text.runs));
                     dl.ops.push(op);
                 }
                 Track::Chart { from: i, to: j, plan } => {
-                    let (Content::Chart { cell: ca, chart: a }, Content::Chart { cell: cb, chart: b }) =
-                        (&from[*i].content, &to[*j].content)
-                    else {
-                        unreachable!("Chart tracks pair charts");
+                    let (a, b) = (chart(i.map(|i| &from[i])), chart(j.map(|j| &to[j])));
+                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p);
+                    let (id, origin, width, opacity) = match (a, b) {
+                        (Some((x, ca, _)), Some((y, cb, _))) => (
+                            &y.id,
+                            lerp2([ca[0], ca[1]], [cb[0], cb[1]], p),
+                            lerp(ca[2], cb[2], p),
+                            lerp(x.opacity, y.opacity, p),
+                        ),
+                        (Some((n, c, _)), None) | (None, Some((n, c, _))) => (&n.id, [c[0], c[1]], c[2], n.opacity),
+                        (None, None) => unreachable!("a chart track has a side"),
                     };
-                    let ops = plan.sample(&mut dl, a, b, p);
-                    let origin = lerp2([ca[0], ca[1]], [cb[0], cb[1]], p);
-                    let opacity = lerp(from[*i].opacity, to[*j].opacity, p);
-                    dl.ops.push(layer(Some(&to[*j].id), origin, opacity, ops));
+                    let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
+                    dl.ops.push(op);
                 }
             }
         }
         dl
     }
+}
+
+/// A chart track's node on one side, with its cell and layout.
+fn chart(node: Option<&SceneNode>) -> Option<(&SceneNode, Rect, &ChartLayout)> {
+    node.map(|n| match &n.content {
+        Content::Chart { cell, chart } => (n, *cell, chart),
+        Content::Text(_) => unreachable!("Chart tracks pair charts"),
+    })
 }
 
 fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32) {
@@ -316,96 +355,150 @@ fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32) {
 }
 
 impl ChartPlan {
-    fn new(a: &ChartLayout, b: &ChartLayout) -> ChartPlan {
-        let baseline = match (&a.baseline, &b.baseline) {
-            (None, None) => None,
-            (x, y) => Some((x.as_ref().map(|_| 0), y.as_ref().map(|_| 0))),
+    fn new(a: Option<&ChartLayout>, b: Option<&ChartLayout>) -> ChartPlan {
+        // The value label for mark `i` of chart `c`, found by the mark's key.
+        let label = |c: Option<&ChartLayout>, i: Option<usize>| {
+            let c = c?;
+            let key = &c.marks[i?].key;
+            c.labels.iter().position(|l| &l.key == key)
         };
         ChartPlan {
-            baseline,
-            series: pair(&a.series, &b.series, |s| &s.key),
-            marks: pair(&a.marks, &b.marks, |m| &m.key),
-            ticks: pair(&a.ticks, &b.ticks, |l| &l.key),
-            labels: pair(&a.labels, &b.labels, |l| &l.key),
+            baseline: (a.and_then(|c| c.baseline.as_ref()).map(|_| 0), b.and_then(|c| c.baseline.as_ref()).map(|_| 0)),
+            marks: rides(pair(marks_of(a), marks_of(b), |m| &m.key))
+                .into_iter()
+                .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
+                .collect(),
+            ticks: rides(pair(ticks_of(a), ticks_of(b), |l| &l.key)),
         }
     }
 
     /// The chart's ops `p` of the way from `a` to `b`, in the order a chart at rest
-    /// draws them.
-    fn sample(&self, dl: &mut DisplayList, a: &ChartLayout, b: &ChartLayout, p: f32) -> Vec<Op> {
+    /// draws them: baseline, marks, category labels, value labels.
+    fn sample(&self, dl: &mut DisplayList, a: Option<&ChartLayout>, b: Option<&ChartLayout>, p: f32) -> Vec<Op> {
         let mut ops = Vec::new();
-        if let Some(pair) = self.baseline {
-            let (x, y) = (a.baseline.as_ref(), b.baseline.as_ref());
-            match (pair, x, y) {
-                ((Some(_), Some(_)), Some(x), Some(y)) => ops.push(rule_op(
-                    &Rule {
-                        from: lerp2(x.from, y.from, p),
-                        to: lerp2(x.to, y.to, p),
-                        width: lerp(x.width, y.width, p),
-                        color: mix(x.color, y.color, p),
-                    },
-                    1.0,
-                )),
-                (_, Some(x), None) => ops.push(rule_op(x, 1.0 - p)),
-                (_, None, Some(y)) => ops.push(rule_op(y, p)),
-                _ => {}
+        match (a.and_then(|c| c.baseline.as_ref()), b.and_then(|c| c.baseline.as_ref())) {
+            (Some(x), Some(y)) => ops.push(rule_op(
+                &Rule {
+                    from: lerp2(x.from, y.from, p),
+                    to: lerp2(x.to, y.to, p),
+                    width: lerp(x.width, y.width, p),
+                    color: mix(x.color, y.color, p),
+                },
+                1.0,
+            )),
+            (Some(x), None) => ops.push(rule_op(x, 1.0 - p)),
+            (None, Some(y)) => ops.push(rule_op(y, p)),
+            (None, None) => {}
+        }
+        // Marks: a matched key interpolates. A new one grows from the baseline where the
+        // transition starts, and a removed one shrinks onto it where the transition
+        // ends, each moving as far as the neighbor it rides with.
+        let (ma, mb) = (marks_of(a), marks_of(b));
+        let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
+        let mut shapes = Vec::with_capacity(self.marks.len());
+        for &(Keyed { pair: (i, j), ride }, _) in &self.marks {
+            let dx = ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
+            let (shape, color) = match (i, j) {
+                (Some(i), Some(j)) => (RoundRect::lerp(ma[i].shape, mb[j].shape, p), mix(ma[i].color, mb[j].color, p)),
+                (Some(i), None) => {
+                    (RoundRect::lerp(ma[i].shape, ma[i].shape.shifted(dx).collapsed(base_b), p), ma[i].color)
+                }
+                (None, Some(j)) => {
+                    (RoundRect::lerp(mb[j].shape.shifted(-dx).collapsed(base_a), mb[j].shape, p), mb[j].color)
+                }
+                (None, None) => unreachable!("a pair has a side"),
+            };
+            ops.push(mark_op(shape, color, 1.0));
+            shapes.push(shape);
+        }
+        // Category labels move; a new or removed one rides along and fades.
+        let (ta, tb) = (ticks_of(a), ticks_of(b));
+        for &Keyed { pair: (i, j), ride } in &self.ticks {
+            let d = ride.map_or([0.0, 0.0], |(ri, rj)| {
+                [tb[rj].origin[0] - ta[ri].origin[0], tb[rj].origin[1] - ta[ri].origin[1]]
+            });
+            let mut tick =
+                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+            match (i.map(|i| &ta[i]), j.map(|j| &tb[j])) {
+                (Some(x), Some(y)) if x.text == y.text => tick(lerp2(x.origin, y.origin, p), 1.0, y),
+                (Some(x), Some(y)) => {
+                    tick(lerp2(x.origin, y.origin, p), 1.0 - p, x);
+                    tick(lerp2(x.origin, y.origin, p), p, y);
+                }
+                (Some(x), None) => tick(lerp2(x.origin, [x.origin[0] + d[0], x.origin[1] + d[1]], p), 1.0 - p, x),
+                (None, Some(y)) => tick(lerp2([y.origin[0] - d[0], y.origin[1] - d[1]], y.origin, p), p, y),
+                (None, None) => unreachable!("a pair has a side"),
             }
         }
-        for &pair in &self.series {
-            match pair {
-                (Some(i), Some(j)) if a.series[i].points.len() == b.series[j].points.len() => {
-                    let (x, y) = (&a.series[i], &b.series[j]);
-                    let points = x.points.iter().zip(&y.points).map(|(&u, &v)| lerp2(u, v, p)).collect();
-                    let s = Series {
-                        key: y.key.clone(),
-                        points,
-                        width: lerp(x.width, y.width, p),
-                        color: mix(x.color, y.color, p),
-                    };
-                    ops.push(series_op(&s, 1.0));
-                }
-                (i, j) => {
-                    ops.extend(i.map(|i| series_op(&a.series[i], 1.0 - p)));
-                    ops.extend(j.map(|j| series_op(&b.series[j], p)));
-                }
-            }
-        }
-        for &pair in &self.marks {
-            match pair {
-                (Some(i), Some(j)) => {
-                    let (x, y) = (&a.marks[i], &b.marks[j]);
-                    ops.push(mark_op(RoundRect::lerp(x.shape, y.shape, p), mix(x.color, y.color, p), 1.0));
-                }
-                (i, j) => {
-                    ops.extend(i.map(|i| mark_op(a.marks[i].shape, a.marks[i].color, 1.0 - p)));
-                    ops.extend(j.map(|j| mark_op(b.marks[j].shape, b.marks[j].color, p)));
-                }
-            }
-        }
-        for (pairs, xs, ys) in [(&self.ticks, &a.ticks, &b.ticks), (&self.labels, &a.labels, &b.labels)] {
-            for &pair in pairs {
-                sample_label(dl, &mut ops, pair.0.map(|i| &xs[i]), pair.1.map(|j| &ys[j]), p);
-            }
+        // Value labels ride their marks and count.
+        let numerals = b.and_then(|c| c.numerals.as_ref()).or_else(|| a.and_then(|c| c.numerals.as_ref()));
+        let (la, lb) = (a.map_or(&[][..], |c| &c.labels), b.map_or(&[][..], |c| &c.labels));
+        for (&(marks, (i, j)), shape) in self.marks.iter().zip(&shapes) {
+            value_label(dl, &mut ops, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
         }
         ops
     }
 }
 
-/// A label moves when its text is unchanged and cross-fades when it changed.
-fn sample_label(dl: &mut DisplayList, ops: &mut Vec<Op>, x: Option<&Label>, y: Option<&Label>, p: f32) {
-    match (x, y) {
-        (Some(x), Some(y)) if x.text == y.text => {
-            ops.push(layer(None, lerp2(x.origin, y.origin, p), 1.0, text_ops(dl, &y.text)));
-        }
-        (x, y) => {
-            if let Some(x) = x {
-                ops.push(layer(None, x.origin, 1.0 - p, text_ops(dl, &x.text)));
-            }
-            if let Some(y) = y {
-                ops.push(layer(None, y.origin, p, text_ops(dl, &y.text)));
-            }
-        }
+fn marks_of(c: Option<&ChartLayout>) -> &[Mark] {
+    c.map_or(&[], |c| &c.marks)
+}
+
+fn ticks_of(c: Option<&ChartLayout>) -> &[Label] {
+    c.map_or(&[], |c| &c.ticks)
+}
+
+/// A value label on its mark (`shape`, already interpolated). Unchanged text rides
+/// along; a changed number counts from the old value to the new, spelled from the
+/// shaped figures. A mark that grows in counts up from 0 as its label fades in, and one
+/// that shrinks out counts down to 0 as its label fades out. Text the figures cannot
+/// spell cross-fades instead.
+fn value_label(
+    dl: &mut DisplayList,
+    ops: &mut Vec<Op>,
+    (x, y): (Option<&Label>, Option<&Label>),
+    marks: Pair,
+    shape: &RoundRect,
+    numerals: Option<&Numerals>,
+    p: f32,
+) {
+    let ride = |l: &Label| l.value.expect("value labels carry their value");
+    let at = |text: &TextLayout, v: ValueLabel| {
+        let [cx, baseline] = v.anchor(shape);
+        [cx - 0.5 * text.width, baseline - text.lines.first().map_or(0.0, |l| l.baseline)]
+    };
+    if let (Some(x), Some(y)) = (x, y)
+        && x.text == y.text
+    {
+        ops.push(layer(None, at(&y.text, ride(y)), 1.0, text_ops(dl, &y.text.runs)));
+        return;
     }
+    let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
+    let end = y.map(|l| ride(l).value).or(marks.1.is_none().then_some(0.0));
+    if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
+        && let Some((runs, width)) = numerals.compose(&count(start, end, p))
+    {
+        let [cx, baseline] = ride(label).anchor(shape);
+        let alpha = match marks {
+            (None, _) => p,
+            (_, None) => 1.0 - p,
+            _ => 1.0,
+        };
+        ops.push(layer(None, [cx - 0.5 * width, baseline - numerals.baseline], alpha, text_ops(dl, &runs)));
+        return;
+    }
+    if let Some(x) = x {
+        ops.push(layer(None, at(&x.text, ride(x)), 1.0 - p, text_ops(dl, &x.text.runs)));
+    }
+    if let Some(y) = y {
+        ops.push(layer(None, at(&y.text, ride(y)), p, text_ops(dl, &y.text.runs)));
+    }
+}
+
+/// The number `p` of the way from `a` to `b`, to as many places as either shows.
+fn count(a: f64, b: f64, p: f32) -> String {
+    let places = data::decimals(a).max(data::decimals(b));
+    data::format_fixed(a + (b - a) * f64::from(p), places)
 }
 
 /// Match two keyed lists: items only in `a` first (they exit under the rest), then
@@ -423,8 +516,42 @@ fn pair<T>(a: &[T], b: &[T], key: impl Fn(&T) -> &String) -> Vec<Pair> {
     out
 }
 
+/// Each pair with what it rides along with: a part on one side only moves with its
+/// nearest neighbor on that side that is on both, the one before it on a tie.
+fn rides(pairs: Vec<Pair>) -> Vec<Keyed> {
+    let both: Vec<(usize, usize)> = pairs.iter().filter_map(|&(i, j)| Some((i?, j?))).collect();
+    let nearest = |at: usize, side: fn(&(usize, usize)) -> usize| {
+        both.iter().copied().min_by_key(|n| (side(n).abs_diff(at), side(n) > at))
+    };
+    pairs
+        .into_iter()
+        .map(|pair| {
+            let ride = match pair {
+                (Some(i), None) => nearest(i, |n| n.0),
+                (None, Some(j)) => nearest(j, |n| n.1),
+                _ => None,
+            };
+            Keyed { pair, ride }
+        })
+        .collect()
+}
+
 fn lerp2(a: Point, b: Point, p: f32) -> Point {
     [lerp(a[0], b[0], p), lerp(a[1], b[1], p)]
+}
+
+/// A chart's layer at `origin`, `width` across. It clips at the cell's sides, so
+/// marks riding in or out of the window pass under them, and spans the canvas top to
+/// bottom, so figures that overshoot the cap height keep their tops.
+fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity: f32, ops: Vec<Op>) -> Op {
+    Op::Layer {
+        node: Some(id.to_string()),
+        transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
+        opacity,
+        blend: Blend::Normal,
+        clip: Some(Path::rect([0.0, -origin[1], width, canvas_height])),
+        ops,
+    }
 }
 
 fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
@@ -438,9 +565,8 @@ fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     }
 }
 
-fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
-    text.runs
-        .iter()
+fn text_ops(dl: &mut DisplayList, runs: &[GlyphRun]) -> Vec<Op> {
+    runs.iter()
         .map(|run| Op::Glyphs {
             font: dl.font(run.font.clone()),
             size: run.size,
@@ -463,19 +589,6 @@ fn fade(color: Color, alpha: f32) -> Color {
 
 fn mark_op(shape: RoundRect, color: Color, alpha: f32) -> Op {
     Op::Fill { path: shape.path(), rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
-}
-
-fn series_op(series: &Series, alpha: f32) -> Op {
-    Op::Stroke {
-        path: series.path(),
-        paint: Paint::Solid(fade(series.color, alpha)),
-        width: series.width,
-        cap: Cap::Round,
-        join: Join::Round,
-        miter_limit: 4.0,
-        dash: Vec::new(),
-        dash_offset: 0.0,
-    }
 }
 
 fn rule_op(rule: &Rule, alpha: f32) -> Op {
@@ -571,5 +684,21 @@ mod tests {
     fn pairs_keep_exits_first_then_target_order() {
         let (a, b) = (vec!["x".to_string(), "y".into(), "z".into()], vec!["z".to_string(), "w".into(), "x".into()]);
         assert_eq!(pair(&a, &b, |s| s), [(Some(1), None), (Some(2), Some(0)), (None, Some(1)), (Some(0), Some(2))]);
+    }
+
+    #[test]
+    fn a_part_on_one_side_rides_with_its_nearest_matched_neighbor() {
+        let key = |s: &&str| s.to_string();
+        let names = |v: &[&str]| v.iter().map(key).collect::<Vec<_>>();
+        // A window that advances: the oldest rides with the next, the newest with the last.
+        let (a, b) = (names(&["q1", "q2", "q3"]), names(&["q2", "q3", "q4"]));
+        let with: Vec<_> = rides(pair(&a, &b, |s| s)).into_iter().map(|k| k.ride).collect();
+        assert_eq!(with, [Some((1, 0)), None, None, Some((2, 1))]);
+        // A removal between two matched neighbors rides with the one before it.
+        let (a, b) = (names(&["a", "b", "c"]), names(&["a", "c"]));
+        assert_eq!(rides(pair(&a, &b, |s| s))[0], Keyed { pair: (Some(1), None), ride: Some((0, 0)) });
+        // Nothing matched: nothing to ride with.
+        let (a, b) = (names(&["a"]), names(&["b"]));
+        assert!(rides(pair(&a, &b, |s| s)).iter().all(|k| k.ride.is_none()));
     }
 }

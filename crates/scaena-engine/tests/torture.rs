@@ -10,7 +10,7 @@
 //!   upstream change shows up as a test to update, not a silent shift.
 
 use scaena_core::Deck;
-use scaena_core::displaylist::{DisplayList, Glyph, Op, Paint, PathEl, quantize};
+use scaena_core::displaylist::{DisplayList, Glyph, Op, PathEl, quantize};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::{Span, TextEngine, TextLayout, TextSpec};
@@ -23,9 +23,10 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// States whose node types arrive later: shaders (PLAN 0.11).
 const LATER: [(&str, &str); 1] = [("mesh", "PLAN 0.11")];
 /// Frames inside a transition, as (state, fraction of its duration). PLAN 0.10 renders
-/// the bar → line morph at t = 0, 0.25, 0.5, and 1 of the transition; 0 and 1 are the
-/// two states at rest (asserted below), so the middle two get goldens of their own.
-const MORPH: [(&str, f64); 2] = [("chart-line", 0.25), ("chart-line", 0.5)];
+/// each chart transition at t = 0, 0.25, 0.5, and 1; 0 and 1 are the states at rest
+/// (asserted below), so the middle two get goldens of their own: the chart's values
+/// animating in, and the next quarter arriving.
+const MORPH: [(&str, f64); 4] = [("chart", 0.25), ("chart", 0.5), ("chart-next", 0.25), ("chart-next", 0.5)];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -458,11 +459,14 @@ fn a_right_to_left_line_hangs_its_opening_quote_past_the_right_edge() {
     assert!((right - measure).abs() < 1e-3, "rightmost glyph at {right}, measure {measure}");
 }
 
-// --- the bar → line morph (PLAN 0.10, gate 0 criterion 3) ------------------------
+// --- chart motion (PLAN 0.10, gate 0 criterion 3) ---------------------------------
 
-/// The `bars` layer's fills as boxes `[x0, y0, x1, y1]`, and its strokes as
-/// (path elements, paint alpha), in paint order.
-fn chart_parts(dl: &DisplayList) -> (Vec<[f32; 4]>, Vec<(usize, u8)>) {
+/// Fills as boxes `[x0, y0, x1, y1]`, and nested layers as (opacity, glyph ids).
+type ChartParts = (Vec<[f32; 4]>, Vec<(f32, Vec<u32>)>);
+
+/// The `bars` layer's fills and its nested layers (the category and value labels), in
+/// paint order.
+fn chart_parts(dl: &DisplayList) -> ChartParts {
     let ops = dl
         .ops
         .iter()
@@ -471,7 +475,7 @@ fn chart_parts(dl: &DisplayList) -> (Vec<[f32; 4]>, Vec<(usize, u8)>) {
             _ => None,
         })
         .expect("a `bars` layer");
-    let (mut fills, mut strokes) = (Vec::new(), Vec::new());
+    let (mut fills, mut labels) = (Vec::new(), Vec::new());
     for op in ops {
         match op {
             Op::Fill { path, .. } => {
@@ -485,53 +489,190 @@ fn chart_parts(dl: &DisplayList) -> (Vec<[f32; 4]>, Vec<(usize, u8)>) {
                     [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)]
                 }));
             }
-            Op::Stroke { path, paint: Paint::Solid(c), .. } => strokes.push((path.0.len(), c.0[3])),
+            Op::Layer { opacity, ops, .. } => {
+                let ids = ops.iter().flat_map(|op| match op {
+                    Op::Glyphs { glyphs, .. } => glyphs.iter().map(|g| g.id).collect(),
+                    _ => Vec::new(),
+                });
+                labels.push((*opacity, ids.collect()));
+            }
             _ => {}
         }
     }
-    (fills, strokes)
+    (fills, labels)
+}
+
+/// The bounding box `[x0, y0, x1, y1]` of the `bars` layer's clip, in the layer's space.
+fn chart_clip(dl: &DisplayList) -> [f32; 4] {
+    let clip = dl
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            Op::Layer { node: Some(n), clip, .. } if n == "bars" => clip.as_ref(),
+            _ => None,
+        })
+        .expect("the `bars` layer clips");
+    clip.0.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, el| match *el {
+        PathEl::MoveTo([x, y]) | PathEl::LineTo([x, y]) => [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)],
+        _ => b,
+    })
+}
+
+fn lerp_box(a: [f32; 4], b: [f32; 4], p: f32) -> [f32; 4] {
+    [0, 1, 2, 3].map(|c| a[c] * (1.0 - p) + b[c] * p)
+}
+
+fn assert_box(got: [f32; 4], want: [f32; 4], what: &str) {
+    for c in 0..4 {
+        assert!((got[c] - want[c]).abs() < 1e-3, "{what}: edge {c}: {} vs {}", got[c], want[c]);
+    }
+}
+
+/// The figures `state`'s chart counts with, as laid out for that state.
+fn numerals(fx: &mut Fixture, state: &str) -> scaena_engine::charts::Numerals {
+    let snapshots = scaena_core::resolve_states(&fx.deck).unwrap();
+    let snap = snapshots.iter().find(|s| s.state_id == state).unwrap();
+    let scene = fx.engine.scene(&fx.deck, &fx.theme, &fx.data, snap).unwrap();
+    scene
+        .nodes
+        .into_iter()
+        .find_map(|n| match n.content {
+            scaena_engine::sample::Content::Chart { chart, .. } => chart.numerals,
+            _ => None,
+        })
+        .expect("the chart shows values")
+}
+
+fn ids(runs: &[scaena_engine::text::GlyphRun]) -> Vec<u32> {
+    runs.iter().flat_map(|r| r.glyphs.iter().map(|g| g.id)).collect()
 }
 
 #[test]
-fn bar_to_line_morph_starts_and_ends_exactly_at_rest() {
+fn chart_transitions_start_and_end_exactly_at_rest() {
     let mut fx = fixture();
-    let d = fx.duration("chart-line");
-    assert_eq!(d, 420.0, "theme `standard`");
-    let bars = fx.frame("chart").unwrap().to_postcard().unwrap();
-    let line = fx.frame("chart-line").unwrap().to_postcard().unwrap();
-    assert_eq!(fx.frame_at("chart-line", 0.0).unwrap().to_postcard().unwrap(), bars, "t = 0 is `chart` at rest");
-    assert_eq!(fx.frame_at("chart-line", d).unwrap().to_postcard().unwrap(), line, "t = d is `chart-line` at rest");
-    for t in [1.0, 0.5 * d, d - 1.0] {
-        let mid = fx.frame_at("chart-line", t).unwrap().to_postcard().unwrap();
-        assert!(mid != bars && mid != line, "t = {t} lies between the two states");
+    for (state, before) in [("chart", "chart-intro"), ("chart-next", "chart")] {
+        let d = fx.duration(state);
+        assert_eq!(d, 420.0, "theme `standard`");
+        let from = fx.frame(before).unwrap().to_postcard().unwrap();
+        let to = fx.frame(state).unwrap().to_postcard().unwrap();
+        assert_eq!(fx.frame_at(state, 0.0).unwrap().to_postcard().unwrap(), from, "{state}: t = 0 is `{before}`");
+        assert_eq!(fx.frame_at(state, d).unwrap().to_postcard().unwrap(), to, "{state}: t = d is `{state}` at rest");
+        for t in [1.0, 0.5 * d, d - 1.0] {
+            let mid = fx.frame_at(state, t).unwrap().to_postcard().unwrap();
+            assert!(mid != from && mid != to, "{state}: t = {t} lies between");
+        }
     }
     // A state without `transition` cuts: at rest from its first frame.
     assert_eq!(fx.frame_at("liga", 0.0).unwrap(), fx.frame("liga").unwrap());
 }
 
+/// "Animating in values": the chart enters, every bar grows from the baseline, and
+/// every value label counts up from 0 on top of its bar as it fades in.
 #[test]
-fn bars_morph_into_points_by_key_while_the_line_fades_in() {
+fn values_animate_in_bars_grow_and_labels_count_up() {
     let mut fx = fixture();
-    let timing = scaena_engine::render::timing(&fx.deck, &fx.theme, "chart-line").unwrap();
+    let timing = scaena_engine::render::timing(&fx.deck, &fx.theme, "chart").unwrap();
     let (bars, _) = chart_parts(&fx.frame("chart").unwrap());
-    let (points, _) = chart_parts(&fx.frame("chart-line").unwrap());
-    assert_eq!((bars.len(), points.len()), (6, 6));
+    let base = bars[0][3];
+    let numerals = numerals(&mut fx, "chart");
+    let values = [12.0, 19.0, 7.0, 24.0, 16.0, 31.0];
     for at in [0.25, 0.5] {
-        let t = at * timing.duration_ms;
-        let p = timing.progress(t) as f32;
-        let dl = fx.frame_at("chart-line", t).unwrap();
-        let (marks, strokes) = chart_parts(&dl);
-        for (k, mark) in marks.iter().enumerate() {
-            for c in 0..4 {
-                let want = bars[k][c] * (1.0 - p) + points[k][c] * p;
-                assert!((mark[c] - want).abs() < 1e-3, "{at}: mark {k} edge {c}: {} vs {want}", mark[c]);
-            }
+        let p = timing.progress(at * timing.duration_ms) as f32;
+        let (fills, labels) = chart_parts(&fx.frame_at("chart", at * timing.duration_ms).unwrap());
+        for (k, (fill, bar)) in fills.iter().zip(&bars).enumerate() {
+            assert_box(*fill, lerp_box([bar[0], base, bar[2], base], *bar, p), &format!("{at}: bar {k}"));
         }
-        // The baseline stays; the line through the six points fades in with the progress.
-        assert_eq!(strokes, [(2, 255), (6, (255.0 * p).round() as u8)], "{at}");
-        // The case label changed, so it cross-fades: two layers for one node.
-        let case = dl.ops.iter().filter(|op| matches!(op, Op::Layer { node: Some(n), .. } if n == "case")).count();
-        assert_eq!(case, 2, "{at}");
+        // Six quarter labels fading in, then six value labels counting.
+        assert!(labels[..6].iter().all(|(o, _)| *o == p), "{at}: {:?}", &labels[..6]);
+        for (k, v) in values.iter().enumerate() {
+            let text = format!("{}", (v * f64::from(p)).round() as i64);
+            let (runs, _) = numerals.compose(&text).unwrap();
+            assert_eq!(labels[6 + k], (p, ids(&runs)), "{at}: value {k} reads {text}");
+        }
+    }
+}
+
+/// "One month to the next": the next quarter arrives and the window scrolls. Matched
+/// by key, the five quarters that stay slide one band left. 2025-Q1 rides out with its
+/// neighbor under the cell's left edge, shrinking onto the baseline as its label
+/// counts down and fades; 2026-Q3 rides in from the right, growing from the baseline
+/// as its label counts up and fades in. The chart clips at its cell's sides only.
+#[test]
+fn the_next_quarter_scrolls_the_window_by_key() {
+    let mut fx = fixture();
+    let timing = scaena_engine::render::timing(&fx.deck, &fx.theme, "chart-next").unwrap();
+    let rest = fx.frame("chart").unwrap();
+    let (old, _) = chart_parts(&rest);
+    let (new, _) = chart_parts(&fx.frame("chart-next").unwrap());
+    let numerals = numerals(&mut fx, "chart-next");
+    let clip = chart_clip(&rest);
+    assert_eq!((clip[0], clip[3] - clip[1]), (0.0, 1080.0), "the cell's left side; the canvas top to bottom");
+    assert!((clip[2] - old[5][2] - old[0][0]).abs() < 1e-3, "the cell's right side: {clip:?}");
+    let center = |b: [f32; 4]| 0.5 * (b[0] + b[2]);
+    for at in [0.25, 0.5] {
+        let p = timing.progress(at * timing.duration_ms) as f32;
+        let dl = fx.frame_at("chart-next", at * timing.duration_ms).unwrap();
+        assert_eq!(chart_clip(&dl), clip, "{at}: the same cell, the same clip");
+        let (fills, labels) = chart_parts(&dl);
+        assert_eq!(fills.len(), 7, "the leaving quarter, the five that stay, the arriving one");
+        let (gone, dx) = (old[0], center(new[0]) - center(old[1]));
+        assert!(gone[2] + dx <= clip[0], "2025-Q1 ends wholly past the left edge");
+        let base = new[0][3];
+        assert_box(fills[0], lerp_box(gone, [gone[0] + dx, base, gone[2] + dx, base], p), "2025-Q1 rides out");
+        for k in 0..5 {
+            assert_box(fills[1 + k], lerp_box(old[1 + k], new[k], p), &format!("quarter {k} moves by key"));
+        }
+        let (born, dx) = (new[5], center(new[4]) - center(old[5]));
+        assert!(born[0] - dx >= clip[2], "2026-Q3 starts wholly past the right edge");
+        let base = old[0][3];
+        assert_box(fills[6], lerp_box([born[0] - dx, base, born[2] - dx, base], born, p), "2026-Q3 rides in");
+        // Seven quarter labels (one leaving, one arriving), then seven value labels; the
+        // five that keep their value ride along unchanged.
+        let alphas: Vec<f32> = labels.iter().map(|l| l.0).collect();
+        assert_eq!(alphas[..7], [1.0 - p, 1.0, 1.0, 1.0, 1.0, 1.0, p], "{at}: quarter labels");
+        assert_eq!(alphas[7..], [1.0 - p, 1.0, 1.0, 1.0, 1.0, 1.0, p], "{at}: value labels");
+        let down = format!("{}", (12.0 + (0.0 - 12.0) * f64::from(p)).round() as i64);
+        let up = format!("{}", (38.0 * f64::from(p)).round() as i64);
+        assert_eq!(labels[7].1, ids(&numerals.compose(&down).unwrap().0), "{at}: 2025-Q1 counts down to {down}");
+        assert_eq!(labels[13].1, ids(&numerals.compose(&up).unwrap().0), "{at}: 2026-Q3 counts up to {up}");
+    }
+}
+
+/// Counting composes figures shaped once instead of shaping per frame. That holds only
+/// if tabular figures neither kern nor change in context beyond what the figures were
+/// shaped in: every number the deck could count through must spell with the glyphs
+/// shaping picks, within 1/1000 cu (advances measured between glyphs carry float
+/// noise; only frames inside a transition compose).
+#[test]
+fn counting_figures_spell_numbers_as_shaping_does() {
+    let mut fx = fixture();
+    let numerals = numerals(&mut fx, "chart");
+    let mut fonts = bundle_fonts(&fx.deck, false);
+    let mut engine = TextEngine::new();
+    let samples = ["-7", "0.5", "12.25", "1,024", "-0.75", "100.5", "-1,000.25", "38.0"];
+    for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
+        let span = Span { text: text.clone(), role: "label".into() };
+        let spec = TextSpec {
+            spans: vec![span],
+            role: "label".into(),
+            numeric: Some(scaena_engine::theme::Numeric::TabularLining),
+            ..TextSpec::default()
+        };
+        let shaped = engine.layout(&mut fonts, &fx.theme, &spec, f32::INFINITY).unwrap();
+        let (runs, width) = numerals.compose(&text).unwrap();
+        let glyphs = |runs: &[scaena_engine::text::GlyphRun]| -> Vec<Glyph> {
+            runs.iter().flat_map(|r| r.glyphs.iter().copied()).collect()
+        };
+        let (composed, want) = (glyphs(&runs), glyphs(&shaped.runs));
+        assert_eq!(
+            composed.iter().map(|g| g.id).collect::<Vec<_>>(),
+            want.iter().map(|g| g.id).collect::<Vec<_>>(),
+            "{text}"
+        );
+        for (c, w) in composed.iter().zip(&want) {
+            assert!((c.x - w.x).abs() < 1e-3 && c.y == w.y, "{text}: {c:?} vs {w:?}");
+        }
+        assert!((width - shaped.width).abs() < 1e-3, "{text}: {width} vs {}", shaped.width);
     }
 }
 
@@ -541,10 +682,10 @@ fn bars_morph_into_points_by_key_while_the_line_fades_in() {
 #[test]
 fn one_transition_samples_every_frame_engine_frame_returns() {
     let mut fx = fixture();
-    let transition = fx.engine.transition(&fx.deck, &fx.theme, &fx.data, "chart-line").unwrap();
+    let transition = fx.engine.transition(&fx.deck, &fx.theme, &fx.data, "chart-next").unwrap();
     let d = transition.duration_ms();
     for at in [0.0, 0.25, 0.5, 1.0] {
-        assert_eq!(transition.frame(at * d), fx.frame_at("chart-line", at * d).unwrap(), "t = {at} of {d} ms");
+        assert_eq!(transition.frame(at * d), fx.frame_at("chart-next", at * d).unwrap(), "t = {at} of {d} ms");
     }
 }
 

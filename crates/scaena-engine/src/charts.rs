@@ -1,42 +1,34 @@
 //! Charts → marks (SPEC §3.7). A chart spec never stores pixels; it compiles, once per
-//! snapshot, to marks keyed by data so a transition can morph mark by mark (SPEC §2.3).
+//! snapshot, to marks keyed by data, so a transition can carry each mark to its next
+//! value (SPEC §2.3): one period to the next, values animating in, growth.
 //!
-//! Phase 0 (PLAN 0.10) compiles `bar` and `line` with one series. Every data mark is a
-//! [`RoundRect`]: a bar is a rectangle square on the baseline and rounded by the
-//! theme's corner radius at its free end, and a line's point is a circle, a rounded
-//! rectangle whose radii are half its side. A change of kind then interpolates six
-//! numbers per mark. The other kinds, multiple series,
-//! color encodings, legends, axes settings, number formats, and data transforms are
-//! PLAN 1.9 and return `NotImplemented`.
+//! Phase 0 (PLAN 0.10) compiles bar charts with one series, which is enough to prove
+//! data motion on the timeline. Every other kind, multiple series, color encodings,
+//! legends, axes settings, number formats, and data transforms wait for the chart and
+//! table sprint (PLAN 1.9) and return `NotImplemented`.
 //!
-//! Geometry is relative to the chart's cell. It uses only `+ − × ÷`, never `sin` or
+//! Geometry is relative to the chart's cell and uses only `+ − × ÷`, never `sin` or
 //! `cos`, whose last bits differ between platform math libraries, so chart display
 //! lists stay bit-identical across platforms (SPEC §13).
 
 use crate::EngineError;
 use crate::data::{self, DataFiles, Datum};
 use crate::fonts::BundleFonts;
-use crate::text::{Span, TextEngine, TextLayout, TextSpec};
+use crate::text::{GlyphRun, Span, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme};
 use scaena_core::Deck;
-use scaena_core::displaylist::{Color, Path, PathEl};
+use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl};
 use scaena_core::document::Props;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
-/// A point's radius, in multiples of the line's stroke width.
-const POINT_RADIUS: f32 = 3.0;
+/// What a counting label is spelled from.
+const FIGURES: &str = "0123456789-.,";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChartKind {
-    Bar,
-    Line,
-}
-
-/// A rectangle with one radius for its top corners and one for its bottom corners: a
-/// bar (rounded only at its free end), or a point when both radii are half its side.
+/// A rectangle with one radius for its top corners and one for its bottom corners.
+/// A bar is square on its baseline and rounded at its free end.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundRect {
     pub x: f32,
@@ -58,6 +50,17 @@ impl RoundRect {
             top_radius: lerp(a.top_radius, b.top_radius, p),
             bottom_radius: lerp(a.bottom_radius, b.bottom_radius, p),
         }
+    }
+
+    /// The same bar with no height, on the baseline at `base`: where a new value grows
+    /// from and a removed one shrinks to.
+    pub fn collapsed(self, base: f32) -> RoundRect {
+        RoundRect { y: base, h: 0.0, top_radius: 0.0, bottom_radius: 0.0, ..self }
+    }
+
+    /// The same bar moved `dx` across.
+    pub fn shifted(self, dx: f32) -> RoundRect {
+        RoundRect { x: self.x + dx, ..self }
     }
 
     pub fn top(&self) -> f32 {
@@ -115,32 +118,33 @@ pub struct Mark {
     pub color: Color,
 }
 
-/// A line through one series' points, in data order.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Series {
-    pub key: String,
-    pub points: Vec<[f32; 2]>,
-    pub width: f32,
-    pub color: Color,
-}
-
-impl Series {
-    pub fn path(&self) -> Path {
-        let mut els = Vec::with_capacity(self.points.len());
-        for (i, &p) in self.points.iter().enumerate() {
-            els.push(if i == 0 { PathEl::MoveTo(p) } else { PathEl::LineTo(p) });
-        }
-        Path(els)
-    }
-}
-
-/// Text inside a chart: a value label (keyed like its mark) or a category label.
+/// Text inside a chart: a category label, or a value label riding its mark.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Label {
+    /// A category for a category label; the mark's key for a value label.
     pub key: String,
     /// The text's top-left corner, relative to the chart.
     pub origin: [f32; 2],
     pub text: TextLayout,
+    pub value: Option<ValueLabel>,
+}
+
+/// What a value label shows and where it rides on its mark.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValueLabel {
+    pub value: f64,
+    /// Under the mark (a negative bar) rather than over it.
+    pub below: bool,
+    /// From the mark's free end to the label's baseline.
+    pub offset: f32,
+}
+
+impl ValueLabel {
+    /// The label's anchor (center, baseline) on `shape`.
+    pub fn anchor(&self, shape: &RoundRect) -> [f32; 2] {
+        let end = if self.below { shape.bottom() } else { shape.top() };
+        [shape.center_x(), end + self.offset]
+    }
 }
 
 /// A straight hairline: the axis baseline.
@@ -152,18 +156,104 @@ pub struct Rule {
     pub color: Color,
 }
 
+/// The value labels' figures, shaped once per snapshot. Tabular figures share one
+/// advance and do not kern, so a number spelled from them glyph by glyph is the number
+/// shaped: a counting label is composed each frame without shaping (SPEC §5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Numerals {
+    figures: Vec<(char, Figure)>,
+    /// From the top of the text to its baseline.
+    pub baseline: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Figure {
+    font: FontRef,
+    size: f32,
+    coords: Vec<i16>,
+    color: Color,
+    id: u32,
+    advance: f32,
+}
+
+impl Numerals {
+    /// Shape the figures as they sit inside a number: the digits in a row, a separator
+    /// between two digits, the sign before one. Fonts substitute some of them in
+    /// context (Roboto Serif sets a tabular period between figures), so a figure
+    /// shaped alone can be the wrong glyph. `None` if a sample does not shape to one
+    /// glyph per character.
+    fn shape(mut set: impl FnMut(String) -> Result<TextLayout, EngineError>) -> Result<Option<Numerals>, EngineError> {
+        let mut figures = Vec::with_capacity(FIGURES.len());
+        let mut baseline = 0.0;
+        // (sample, which of its characters to take)
+        let samples = [("01234567890", 0..10), ("0.0", 1..2), ("0,0", 1..2), ("-0", 0..1)];
+        for (sample, take) in samples {
+            let text = set(sample.to_string())?;
+            let glyphs: Vec<(&GlyphRun, &Glyph)> =
+                text.runs.iter().flat_map(|r| r.glyphs.iter().map(move |g| (r, g))).collect();
+            if glyphs.len() != sample.chars().count() {
+                return Ok(None);
+            }
+            baseline = text.lines.first().map_or(0.0, |l| l.baseline);
+            for (i, c) in sample.chars().enumerate().skip(take.start).take(take.len()) {
+                let (run, glyph) = glyphs[i];
+                // Every taken figure has a figure after it, so its advance is the gap.
+                let advance = glyphs[i + 1].1.x - glyph.x;
+                let figure = Figure {
+                    font: run.font.clone(),
+                    size: run.size,
+                    coords: run.coords.clone(),
+                    color: run.color,
+                    id: glyph.id,
+                    advance,
+                };
+                figures.push((c, figure));
+            }
+        }
+        Ok(Some(Numerals { figures, baseline }))
+    }
+
+    /// `text` spelled from the figures, as glyph runs relative to the text's top-left
+    /// corner, and its advance. `None` if a character is not one of [`FIGURES`].
+    pub fn compose(&self, text: &str) -> Option<(Vec<GlyphRun>, f32)> {
+        let mut runs: Vec<GlyphRun> = Vec::new();
+        let mut x = 0.0;
+        for c in text.chars() {
+            let (_, f) = self.figures.iter().find(|(k, _)| *k == c)?;
+            let glyph = Glyph { id: f.id, x, y: self.baseline };
+            match runs.last_mut() {
+                Some(run) if run.font == f.font && run.size == f.size && run.coords == f.coords => {
+                    run.glyphs.push(glyph)
+                }
+                _ => runs.push(GlyphRun {
+                    font: f.font.clone(),
+                    size: f.size,
+                    coords: f.coords.clone(),
+                    color: f.color,
+                    glyphs: vec![glyph],
+                    line: 0,
+                }),
+            }
+            x += f.advance;
+        }
+        Some((runs, x))
+    }
+}
+
 /// A chart compiled for one snapshot, relative to its cell. Painted bottom to top:
-/// baseline, lines, marks, category labels, value labels.
+/// baseline, marks, category labels, value labels, clipped at the cell's sides.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
-    pub kind: ChartKind,
+    /// The baseline's y: where a new value grows from and a removed one shrinks to.
+    pub base: f32,
     pub baseline: Option<Rule>,
-    pub series: Vec<Series>,
     pub marks: Vec<Mark>,
     /// Category labels under the plot, keyed by category.
     pub ticks: Vec<Label>,
     /// Value labels, keyed like their marks.
     pub labels: Vec<Label>,
+    /// For counting the value labels; `None` without them.
+    pub numerals: Option<Numerals>,
 }
 
 /// What the compiler needs from the engine: text layout for the labels.
@@ -177,14 +267,13 @@ pub struct Ctx<'a> {
 
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
-    let kind = match props.get("kind").and_then(Value::as_str) {
-        Some("bar") => ChartKind::Bar,
-        Some("line") => ChartKind::Line,
-        Some("stackedBar" | "area" | "scatter" | "dot" | "donut") => {
-            return Err(EngineError::NotImplemented("chart kinds other than bar and line — PLAN 1.9"));
+    match props.get("kind").and_then(Value::as_str) {
+        Some("bar") => {}
+        Some("stackedBar" | "line" | "area" | "scatter" | "dot" | "donut") => {
+            return Err(EngineError::NotImplemented("chart kinds other than bar — PLAN 1.9 (chart and table sprint)"));
         }
         other => return Err(EngineError::Layout(format!("unknown chart kind {other:?}"))),
-    };
+    }
     for (key, task) in [
         ("series", "multi-series charts — PLAN 1.9"),
         ("color", "chart color encodings — PLAN 1.9"),
@@ -250,7 +339,6 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let hex = cx.theme.color(name).ok_or_else(|| EngineError::Theme(format!("unknown color `{name}`")))?;
         Color::from_hex(hex).map_err(|e| EngineError::Theme(e.to_string()))
     };
-    let line_width = stroke(style(&["strokeWidth"]).and_then(Value::as_str).unwrap_or("thin"))?;
     let axis_width = stroke(style(&["axis", "stroke"]).and_then(Value::as_str).unwrap_or("hairline"))?;
     let axis_color = color(style(&["axis", "color"]).and_then(Value::as_str).unwrap_or("onSurfaceMuted"))?;
     let corner = style(&["cornerRadius"]).and_then(Value::as_f64).unwrap_or(0.0) as f32;
@@ -293,13 +381,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     for (i, (_, v, _)) in rows.iter().enumerate() {
         values.push(if labelled(i)? { Some(set(data::format_number(*v), &label_role)?) } else { None });
     }
+    let numerals = match values.iter().any(Option::is_some) {
+        true => Numerals::shape(|c| set(c, &label_role))?,
+        false => None,
+    };
     let ticks: Vec<TextLayout> = rows.iter().map(|(c, ..)| set(c.clone(), &tick_role)).collect::<Result<_, _>>()?;
     // Cap height above the baseline; line-box height below the cap top.
     let cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| l.cap_height.unwrap_or(l.ascent));
     let below_cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| t.height - (l.baseline - cap(t)));
-    let radius = POINT_RADIUS * line_width;
     let label_room = values.iter().flatten().map(cap).fold(0.0_f32, f32::max);
-    let top = radius + if label_room > 0.0 { label_room + gap } else { 0.0 };
+    let top = if label_room > 0.0 { label_room + gap } else { 0.0 };
     let bottom = size[1] - gap - ticks.iter().map(below_cap).fold(0.0_f32, f32::max);
     if bottom - top <= 0.0 {
         return Err(EngineError::Layout(format!("chart cell {}×{} cu leaves no room to plot", size[0], size[1])));
@@ -316,51 +407,37 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let band = size[0] / rows.len() as f32;
 
     let mut out = ChartLayout {
-        kind,
+        base,
         baseline: Some(Rule { from: [0.0, base], to: [size[0], base], width: axis_width, color: axis_color }),
-        series: Vec::new(),
         marks: Vec::with_capacity(rows.len()),
         ticks: Vec::with_capacity(rows.len()),
         labels: Vec::new(),
+        numerals,
     };
-    let mut points = Vec::with_capacity(rows.len());
-    for (i, ((_, v, key), (value, tick))) in rows.iter().zip(values.into_iter().zip(ticks)).enumerate() {
+    for (i, ((category, v, key), (value, tick))) in rows.iter().zip(values.into_iter().zip(ticks)).enumerate() {
         let center = (i as f32 + 0.5) * band;
         let at = to_y(*v);
-        let shape = match kind {
-            ChartKind::Bar => {
-                // Square on the baseline, rounded at the free end.
-                let (w, top, bottom) = (band * (1.0 - bar_gap), at.min(base), at.max(base));
-                let r = corner.min(0.5 * w).min(bottom - top);
-                let (rt, rb) = if at <= base { (r, 0.0) } else { (0.0, r) };
-                RoundRect { x: center - 0.5 * w, y: top, w, h: bottom - top, top_radius: rt, bottom_radius: rb }
-            }
-            ChartKind::Line => RoundRect {
-                x: center - radius,
-                y: at - radius,
-                w: 2.0 * radius,
-                h: 2.0 * radius,
-                top_radius: radius,
-                bottom_radius: radius,
-            },
-        };
-        points.push([center, at]);
+        // Square on the baseline, rounded at the free end.
+        let (w, top, bottom) = (band * (1.0 - bar_gap), at.min(base), at.max(base));
+        let r = corner.min(0.5 * w).min(bottom - top);
+        let below = at > base;
+        let (top_radius, bottom_radius) = if below { (0.0, r) } else { (r, 0.0) };
+        let shape = RoundRect { x: center - 0.5 * w, y: top, w, h: bottom - top, top_radius, bottom_radius };
         if let Some(text) = value {
-            // Above the mark for values at or over the baseline, below it otherwise.
+            // Over the mark for values at or above the baseline, under it otherwise.
             let first = &text.lines[0];
-            let origin = if at <= base {
-                [center - 0.5 * text.width, shape.top() - gap - first.baseline]
+            let (origin, offset) = if below {
+                let origin = [center - 0.5 * text.width, shape.bottom() + gap - text.trimmed(TextBox::Cap).0];
+                (origin, origin[1] + first.baseline - shape.bottom())
             } else {
-                [center - 0.5 * text.width, shape.bottom() + gap - text.trimmed(TextBox::Cap).0]
+                ([center - 0.5 * text.width, shape.top() - gap - first.baseline], -gap)
             };
-            out.labels.push(Label { key: key.clone(), origin, text });
+            let value = Some(ValueLabel { value: *v, below, offset });
+            out.labels.push(Label { key: key.clone(), origin, text, value });
         }
         let origin = [center - 0.5 * tick.width, bottom + gap - tick.trimmed(TextBox::Cap).0];
-        out.ticks.push(Label { key: rows[i].0.clone(), origin, text: tick });
+        out.ticks.push(Label { key: category.clone(), origin, text: tick, value: None });
         out.marks.push(Mark { key: key.clone(), shape, color: ink });
-    }
-    if kind == ChartKind::Line {
-        out.series.push(Series { key: y_field, points, width: line_width, color: ink });
     }
     Ok(out)
 }
@@ -378,21 +455,18 @@ mod tests {
     }
 
     #[test]
-    fn a_circle_is_a_rounded_rect_with_half_side_radii() {
-        let dot = RoundRect { x: 10.0, y: 20.0, w: 12.0, h: 12.0, top_radius: 6.0, bottom_radius: 6.0 };
-        let path = dot.path();
-        assert_eq!(path.0.len(), 10);
-        // The straight runs between corners have zero length; the curves meet.
-        assert_eq!(path.0[0], PathEl::MoveTo([16.0, 20.0]));
-        assert_eq!(path.0[1], PathEl::LineTo([16.0, 20.0]));
-        assert_eq!(path.0[2], PathEl::CurveTo([16.0 + KAPPA * 6.0, 20.0], [22.0, 26.0 - KAPPA * 6.0], [22.0, 26.0]));
+    fn bars_round_their_free_end_and_collapse_onto_the_baseline() {
+        let bar = RoundRect { x: 0.0, y: 0.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0 };
+        let path = bar.path();
+        assert_eq!(path.0.len(), 8, "{path:?}");
+        assert!(path.0.contains(&PathEl::LineTo([10.0, 40.0])) && path.0.contains(&PathEl::LineTo([0.0, 40.0])));
         assert_eq!(
-            RoundRect { top_radius: 0.0, bottom_radius: 0.0, ..dot }.path(),
-            Path::rect([10.0, 20.0, 12.0, 12.0])
+            path.0[2],
+            PathEl::CurveTo([8.0 + KAPPA * 2.0, 0.0], [10.0, 2.0 - KAPPA * 2.0], [10.0, 2.0]),
+            "a quarter circle"
         );
-        // A bar: rounded on top, square at the base.
-        let bar = RoundRect { x: 0.0, y: 0.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0 }.path();
-        assert_eq!(bar.0.len(), 8, "{bar:?}");
-        assert!(bar.0.contains(&PathEl::LineTo([10.0, 40.0])) && bar.0.contains(&PathEl::LineTo([0.0, 40.0])));
+        let flat = bar.collapsed(40.0);
+        assert_eq!((flat.y, flat.h, flat.top_radius), (40.0, 0.0, 0.0));
+        assert_eq!(flat.path(), Path::rect([0.0, 40.0, 10.0, 0.0]));
     }
 }
