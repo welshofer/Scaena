@@ -31,12 +31,21 @@ jobs:
       - run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
+      # Diff images from the parity harness and any rejected golden (PLAN 0.9).
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diffs-${{ matrix.os }}
+          path: tests/golden/torture/actual/
+          if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
       - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
+    # PLAN 0.9: then the parity harness compares all three painters (vello_cpu goldens, vello on
+    # lavapipe, vello on WebGPU in the browser) on every state.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +62,19 @@ jobs:
       - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       - run: node crates/scaena-wasm/www/smoke.mjs
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
+        env:
+          SCAENA_REQUIRE_GPU: "1"
+          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity
+          path: |
+            tests/golden/torture/actual/
+            target/wasm-smoke/
+          if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest
     steps:

@@ -54,9 +54,11 @@ example:
     cargo run -q -p scaena-cli -- lint docs/examples/revenue.deck.json
     cargo run -q -p scaena-cli -- inspect docs/examples/revenue.deck.json
 
-# Phase 0: parity harness (exists once PLAN 0.9 lands).
-spike:
-    @echo "PLAN 0.9: cargo test -p scaena-paint --features gpu -- parity" && cargo test -p scaena-paint -- parity
+# The parity harness (PLAN 0.9): every torture state from vello_cpu (the goldens), vello on this
+# machine's GPU, and vello on WebGPU in headless Chromium, compared pairwise; diff images for
+# failing pairs land in tests/golden/torture/actual/.
+spike: wasm-smoke
+    SCAENA_WEB_PNGS={{justfile_directory()}}/target/wasm-smoke cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
 
 # Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).

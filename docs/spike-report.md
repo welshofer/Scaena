@@ -149,3 +149,22 @@ All in ms. Warm single-threaded paint is 11.2 ms per frame (table above), alread
   - `frame()` in WASM takes 0.9–3.6 ms per state (median 1.3), about 2–4× native.
 - **A headless WebGPU trap.** Chromium's headless shell grants a WebGPU adapter by default but leaves WebGPU canvases blank. Even a pure-JS clear reads back transparent, with only "A valid external Instance reference no longer exists" in the console. With `--enable-features=Vulkan --use-vulkan=swiftshader --use-angle=swiftshader --enable-unsafe-swiftshader` the canvas presents. The first smoke check passed on blank canvases because it trusted "no exception". It now reads every frame back and requires opaque pixels with ink on them, and the page sends GPU errors and panics to the console instead of dropping them.
 - **Not yet:** Firefox and Safari (PLAN 2.1); the `vello_cpu` → `ImageBitmap` fallback where WebGPU is missing (SPEC §9.2); running in a Worker on an `OffscreenCanvas` (PLAN 2.1).
+
+## 0.9 Parity harness
+
+`crates/scaena-paint/tests/parity.rs` compares every torture state across three painters, pairwise, with the SPEC §13.5 metric:
+- `cpu`: vello_cpu, the goldens;
+- `gpu`: vello on this machine's adapter;
+- `web`: vello on WebGPU in Chromium, read back by the 0.8 smoke check.
+
+A failing pair writes a diff image (`scaena_paint::diff::image`) beside the goldens, and CI uploads it as an artifact. The image shows the reference faded to grey, compared pixels over ΔE 1 in red, half-range steps in magenta, and tolerated differences in blue. `just spike` runs all three painters. CI runs `cpu`–`gpu` on Metal (macOS) and lavapipe (Linux) on every push, and all three pairs in the `wasm` job.
+
+Linux, with lavapipe as `gpu` and Chromium's SwiftShader as `web`: all 21 states pass every pair.
+
+| Pair | Max step (state) | Compared px over ΔE 1 | Why |
+|---|---|---|---|
+| cpu–gpu | 63 (`dlig`, `numerals`) | 114, all in `emoji` (ΔE ≤ 1.49) | different anti-aliasing; COLRv1 gradients |
+| cpu–web | 64 (`numerals`) | 115, all in `emoji` | as cpu–gpu |
+| gpu–web | 10–16 | 0 | the same vello shaders on two drivers |
+
+Pixels differ along the CPU/GPU line, not across platforms: two GPU drivers running vello agree within 16/255, while either one differs from vello_cpu by up to 64 at glyph edges. Mutation check: swapping one browser readback for another state's fails `liga` (27,056 pixels over ΔE 1, step 231) and writes the diff image.

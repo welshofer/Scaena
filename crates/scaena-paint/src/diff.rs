@@ -58,6 +58,67 @@ impl std::fmt::Display for Diff {
 }
 
 pub fn compare(a: &Raster, b: &Raster) -> Result<Diff, PaintError> {
+    let Analysis { pa, pb, mask } = analyze(a, b)?;
+    let mut diff = Diff { pixels: pa.len(), compared: 0, over: 0, max_delta_e: 0.0, max_channel: 0, differing: 0 };
+    for i in 0..pa.len() {
+        let channel = step(pa[i], pb[i]);
+        diff.max_channel = diff.max_channel.max(channel);
+        diff.differing += usize::from(channel > 0);
+        if mask[i] {
+            continue;
+        }
+        diff.compared += 1;
+        if channel > 0 {
+            let delta = delta_e(pa[i].to_le_bytes(), pb[i].to_le_bytes());
+            diff.max_delta_e = diff.max_delta_e.max(delta);
+            diff.over += usize::from(delta > MAX_DELTA_E);
+        }
+    }
+    Ok(diff)
+}
+
+/// A picture of where `b` departs from `a` (PLAN 0.9), at `a`'s size: `a` faded to light
+/// grey for context, then every differing pixel coloured by what the metric makes of it:
+/// blue for differences it tolerates (masked edges, or ΔE ≤ 1; deeper with the step),
+/// red for compared pixels over ΔE 1, magenta for any step of [`MAX_STEP`] or more.
+pub fn image(a: &Raster, b: &Raster) -> Result<Raster, PaintError> {
+    let Analysis { pa, pb, mask } = analyze(a, b)?;
+    let mut rgba = Vec::with_capacity(pa.len() * 4);
+    for i in 0..pa.len() {
+        let (p, q) = (pa[i].to_le_bytes(), pb[i].to_le_bytes());
+        let channel = step(pa[i], pb[i]);
+        let pixel = if channel >= MAX_STEP {
+            [255, 0, 255, 255]
+        } else if channel > 0 && !mask[i] && delta_e(p, q) > MAX_DELTA_E {
+            [255, 0, 0, 255]
+        } else {
+            // Luma of `a` over white, faded to a quarter of its contrast.
+            let alpha = u32::from(p[3]);
+            let over_white = |c: u8| (u32::from(c) * alpha + 255 * (255 - alpha)) / 255;
+            let luma = (2126 * over_white(p[0]) + 7152 * over_white(p[1]) + 722 * over_white(p[2])) / 10_000;
+            let grey = (255 - (255 - luma) / 4) as u8;
+            if channel == 0 {
+                [grey, grey, grey, 255]
+            } else {
+                // Tolerated difference: blue, reaching full depth at a step of 64.
+                let t = u32::from(channel.min(64)) * 4;
+                let mix = |from: u8, to: u32| ((u32::from(from) * (256 - t) + to * t) / 256) as u8;
+                [mix(grey, 40), mix(grey, 90), mix(grey, 255), 255]
+            }
+        };
+        rgba.extend_from_slice(&pixel);
+    }
+    Ok(Raster { width: a.width, height: a.height, rgba })
+}
+
+/// Both rasters packed, and the edge mask the ΔE rule leaves out.
+struct Analysis {
+    pa: Vec<u32>,
+    pb: Vec<u32>,
+    mask: Vec<bool>,
+}
+
+fn analyze(a: &Raster, b: &Raster) -> Result<Analysis, PaintError> {
     let (w, h) = (a.width as usize, a.height as usize);
     let n = w * h;
     if (a.width, a.height) != (b.width, b.height) || a.rgba.len() != n * 4 || b.rgba.len() != n * 4 {
@@ -89,22 +150,7 @@ pub fn compare(a: &Raster, b: &Raster) -> Result<Diff, PaintError> {
             }
         }
     }
-    let mut diff = Diff { pixels: n, compared: 0, over: 0, max_delta_e: 0.0, max_channel: 0, differing: 0 };
-    for i in 0..n {
-        let channel = step(pa[i], pb[i]);
-        diff.max_channel = diff.max_channel.max(channel);
-        diff.differing += usize::from(channel > 0);
-        if mask[i] {
-            continue;
-        }
-        diff.compared += 1;
-        if channel > 0 {
-            let delta = delta_e(pa[i].to_le_bytes(), pb[i].to_le_bytes());
-            diff.max_delta_e = diff.max_delta_e.max(delta);
-            diff.over += usize::from(delta > MAX_DELTA_E);
-        }
-    }
-    Ok(diff)
+    Ok(Analysis { pa, pb, mask })
 }
 
 /// One `u32` per pixel, so the common case (equal pixels) is a single comparison. A fully
@@ -213,6 +259,28 @@ mod tests {
         let d = compare(&a, &b).unwrap();
         assert_eq!((d.differing, d.max_channel), (0, 0), "{d}");
         assert!(d.passes(), "{d}");
+    }
+
+    #[test]
+    fn the_diff_image_colours_pixels_by_verdict() {
+        let a = flat(40, 40, [255, 255, 255, 255]);
+        let mut b = a.clone();
+        for y in 10..30 {
+            for x in 10..30 {
+                set(&mut b, x, y, [235, 235, 235, 255]); // over ΔE 1 inside: red; its rim: blue
+            }
+        }
+        set(&mut b, 2, 2, [0, 0, 0, 255]); // a full-range step: magenta
+        let img = image(&a, &b).unwrap();
+        assert_eq!(img.pixel(20, 20), [255, 0, 0, 255]);
+        assert_eq!(img.pixel(2, 2), [255, 0, 255, 255]);
+        let rim = img.pixel(10, 20);
+        assert!(rim[2] > rim[0] && rim[2] > rim[1], "masked edge difference is blue: {rim:?}");
+        assert_eq!(img.pixel(35, 35), [255, 255, 255, 255], "unchanged white stays faded white");
+        let mut black = flat(2, 2, [0, 0, 0, 255]);
+        assert_eq!(image(&black, &black).unwrap().pixel(0, 0), [192, 192, 192, 255], "black fades to light grey");
+        set(&mut black, 0, 0, [0, 0, 0, 0]);
+        assert!(image(&black, &flat(2, 3, [0; 4])).is_err());
     }
 
     #[test]
