@@ -35,10 +35,10 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 05 | `numerals` | Numeral styles | kill | Tabular lines: 1111 = 0000 in width. Oldstyle lines: 3 4 5 7 9 descend. |
 | 06 | `accents` | Accented Latin | kill | Every precomposed letter from Roboto Serif; no fallback, no `.notdef`. |
 | 07 | `combining` | Combining marks (NFD) | catalogue | Same look as precomposed; stacked marks (ế ệ) do not collide; q̃ x́ positioned by GPOS. |
-| 08 | `punctuation` | Quotes, dashes, ellipsis | recorded | Curly quotes, em/en dashes, ellipsis from the font. |
+| 08 | `punctuation` | Quotes, dashes, ellipsis | recorded | Curly quotes, em/en dashes, ellipsis from the font. The opening “ hangs (SPEC §3.5). |
 | 09 | `mixed` | Mixed weights and sizes, one line | kill | Five runs (100/400/900 at 56, then 112 and 28) on one baseline. |
 | 10 | `tracking` | Tracking −0.08 em / +0.40 em | kill | Spacing applied per glyph without breaking shaping. |
-| 11 | `hanging` | Hanging punctuation, optical margins | recorded | Opening quotes hang; T V W A optically aligned (implemented in PLAN 1.8). |
+| 11 | `hanging` | Hanging quotes, optical margins | kill (quotes; added on review after PLAN 0.9) · recorded (optical margins) | Every quote that opens a line hangs outside the text edge (the “ of line 1, the ‘ of line 3), with the next letter on the edge. Line 1 fits only because its quote is not measured (985 cu inside 998; 1009 with it). Recorded: T V W are not yet optically aligned, and line-end commas and periods do not hang (PLAN 1.8). |
 | 12 | `balance` | Balanced two-line headline | kill | Two lines of similar length. Greedy gives 1642 + 521 cu at this width. |
 | 13 | `pretty` | Pretty paragraph, bait widow | kill | Last line has ≥ 2 words. Greedy strands "mistake." alone, even with ±15 cu of measurement drift. |
 | 14 | `wrap-longword` | One unbreakable word | recorded | Overflow is reported (E100) or handled by a declared policy; nothing escapes its box silently. |

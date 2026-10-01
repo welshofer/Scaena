@@ -188,7 +188,8 @@ The engine MUST implement:
 - Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles).
 - Hyphenation by `lang` (optional, off by default for display roles).
 - Widow/orphan control: `minLastLineWords` (default 2 for body, 1 for display).
-- Hanging punctuation and optical margin alignment (`opticalMargins: true`), on by default for display roles.
+- Hanging quotes, always: a quotation mark that opens a line (Unicode `Quotation_Mark`, less the CJK corner brackets and fullwidth forms, whose spacing JLREQ governs) hangs outside the line's start edge, in every role. It is not a theme option. Breaking measures the line without it (CSS `hanging-punctuation`), so it takes nothing from the measure and the letter after it sits on the edge. Nothing hangs at a ragged edge; at an aligned end edge (end-aligned or justified text), closing quotes hang too.
+- Hanging punctuation beyond quotes (`hangingPunctuation`: stops, commas, hyphens, brackets) and optical margin alignment (`opticalMargins`), on by default for display roles.
 - Numeric styles: `tabular`/`proportional`, `lining`/`oldstyle`; charts default to tabular lining.
 - Vertical metrics by cap height and x-height from the font tables (not bounding boxes).
 - Text splitting for animation: `split: "lines" | "words" | "glyphs"`, exposing units to choreography (§3.9).

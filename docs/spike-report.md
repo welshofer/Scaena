@@ -44,6 +44,7 @@ Found before any rendering existed:
 | Tracking extremes | pass | The last glyph moves by exactly −7.68 · (n−1) and +22.4 · (n−1) cu; glyph ids unchanged. |
 | Balanced headline | pass | Greedy 1641.5 + 521.4 cu → balance 1076.7 + 1086.1 cu. |
 | Widow avoidance | pass | Greedy strands "mistake."; pretty ends on "a mistake." Three lines either way. |
+| Hanging quotes (added on review after 0.9) | pass | The quotes opening lines 1 and 3 of `hanging` sit at −advance, the next glyph at 0; line 1 fits only because its quote is not measured. See "Hanging quotes". |
 
 **Gap measured (greedy vs ours):** headline line ratio 0.32 → 0.99; paragraph lines 1699.6 / 1610.4 / 159.8 → 1616.8 / 1661.6 / 191.3 cu. parley's widths agree with the HarfBuzz measurements made for 0.2 within 0.5 cu (1641.5 vs 1642; 521.4 vs 521).
 
@@ -58,7 +59,7 @@ Found before any rendering existed:
 | Emoji | **fail** | 🚀 🙂 👩🏽‍💻 ❤️ are one COLRv1 glyph each, but 🇺🇸 is two EB Garamond glyphs. Root cause (parley 0.11 `shape/mod.rs`): an emoji cluster queries the style's own stack first and appends the generic Emoji family last; EB Garamond covers both regional indicators and wins. Fix options: segment default-emoji-presentation sequences in the engine (UTS #51; `icu_properties` is already in the graph) and give them an emoji-first stack, or upstream the same preference into parley. Proposed for PLAN 1.8. |
 | Bidi (Hebrew, Arabic) | pass, with a finding | Both paragraphs resolve RTL, right-aligned, with Latin and digits as LTR islands. parley reports 17.28 cu (one space) of `trailing_whitespace` on an RTL line that has none; alignment uses the full advance, so glyphs land correctly, but the line's width reads one space short. Upstream issue candidate. |
 
-**Recorded:** the URL breaks only after `/` and `?`, never inside a path segment. The unbreakable word overflows its 852 cu box by 748 cu, with no emergency break (E100's job, PLAN 1.15). The 268 cu column sets six ragged greedy lines. Hanging punctuation and optical margins are not implemented (PLAN 1.8).
+**Recorded:** the URL breaks only after `/` and `?`, never inside a path segment. The unbreakable word overflows its 852 cu box by 748 cu, with no emergency break (E100's job, PLAN 1.15). The 268 cu column sets six ragged greedy lines. Optical margins and hanging punctuation other than quotes are not implemented (PLAN 1.8). Quotes did not hang either; that was a failure, fixed after 0.9 ("Hanging quotes").
 
 **Cross-platform (gate 0 criterion 1, display-list half):** CI on arm64 macOS (`aarch64-apple-darwin`, PR #4) reproduced all 20 quantized goldens blessed on x86-64 Linux, byte for byte; the determinism test (fonts registered in reverse order) passed there too.
 
@@ -88,7 +89,7 @@ Text aligns in its cell by its trimmed box or by a typographic anchor (SPEC §3.
 `vello_cpu` paints display lists to PNG (`scaena_paint::cpu::CpuPainter`), and `scaena render --painter cpu` runs bundle → fonts → `Engine::frame` → painter → PNG, with `--display-list`, `--size`, and `--json` stage timings. States the engine or painter cannot draw yet exit 3, naming their PLAN task: chart (0.10), shader (0.11), `--painter gpu` (0.7).
 
 - **Golden rasters.** One 1920×1080 PNG per torture state under `tests/golden/torture/` (1.45 MB for 21; 36–131 KB each), painted from the golden display lists so the test covers the painter alone. Compared with the SPEC §13.5 metric (`scaena_paint::diff`: Oklab ΔE × 100 over white; edges, a 4-neighbor step over 8/255 in either raster, masked with a 1-px dilation), never byte for byte. The test runs in 3.2 s in a debug build. The first version took 49 s, nearly all of it in the comparison's per-pixel closures; packed pixels, one pass per neighbor pair (cross-checked against the old code on 1,286 raster pairs), and one worker per core fixed that.
-- **Visual review of all 21 rasters.** Every state draws what its notes predict, recorded failures included: the 🇺🇸 flag is two monochrome Garamond letters (0.4), the long compound overflows its 852 cu box by 748 cu silently (E100, PLAN 1.15), and nothing hangs yet (PLAN 1.8). The review caught a fixture bug that every test missed: in `anchors`, "xheight 112" wrapped in its four columns, and the x-height row's ascenders ran into the baseline row. The math was right; the picture was illegible. The baseline row now sits in rows 4–5 (baselines at 642 cu), and the x-height specimens are `axe 112 / 64 / 28`. The test now also asserts one line per specimen and that the rows' line boxes don't overlap. One flaw got past this review at full size and turned up in 0.7: the ǰ in `combining` (catalogue above).
+- **Visual review of all 21 rasters.** Every state draws what its notes predict, recorded failures included: the 🇺🇸 flag is two monochrome Garamond letters (0.4), the long compound overflows its 852 cu box by 748 cu silently (E100, PLAN 1.15), and the opening quote of `hanging` sits on the text edge. That last one was wrongly passed as recorded for PLAN 1.8. Jay failed it on review, since quotes always hang outside the margin; fixed after 0.9 ("Hanging quotes"). The review caught a fixture bug that every test missed: in `anchors`, "xheight 112" wrapped in its four columns, and the x-height row's ascenders ran into the baseline row. The math was right; the picture was illegible. The baseline row now sits in rows 4–5 (baselines at 642 cu), and the x-height specimens are `axe 112 / 64 / 28`. The test now also asserts one line per specimen and that the rows' line boxes don't overlap. One flaw got past this review at full size and turned up in 0.7: the ǰ in `combining` (catalogue above).
 - **What changes pixels** (21 frames, 1080p, against the AVX2 u8 goldens):
 
 | Variant | Identical frames | Pixels that differ | Max channel step | Max off-edge ΔE | Paint, ms/frame |
@@ -168,3 +169,20 @@ Linux, with lavapipe as `gpu` and Chromium's SwiftShader as `web`: all 21 states
 | gpu–web | 10–16 | 0 | the same vello shaders on two drivers |
 
 Pixels differ along the CPU/GPU line, not across platforms: two GPU drivers running vello agree within 16/255, while either one differs from vello_cpu by up to 64 at glyph edges. Mutation check: swapping one browser readback for another state's fails `liga` (27,056 pixels over ΔE 1, step 231) and writes the diff image.
+
+macOS CI on Metal ("Apple Paravirtual device", PR #9): cpu–gpu passes all 21 states with the same worst step per state as lavapipe (63 in `dlig` and `numerals`; 114 px over ΔE 1, all in `emoji`), and the NEON CPU rasters there are byte-identical to the AVX2 goldens. The CI `wasm` job ran all three pairs green on its first run.
+
+## Hanging quotes (review after 0.9)
+
+Jay's review of the `hanging` raster: the opening “ sat on the text edge. That is a failure, not a PLAN 1.8 item. Quotes always hang outside the margin, in every role. SPEC §3.5 now says so; the 0.6 review had passed it as recorded.
+
+- **What hangs.** A line's hang is the advance of the quotation marks that open it (Unicode `Quotation_Mark`, less the CJK corner brackets and fullwidth forms), set in the paragraph's direction so they sit on its start edge. A left-to-right line moves left by its hang. A right-to-left line is broken in a box its hang wider than the measure, and parley's start alignment puts the quote past the right edge (ADR-0004 finding 8).
+- **Breaking measures the line without it** (CSS `hanging-punctuation`). Greedy breaks line *k* at the measure plus its hang. A line's hang depends on where it starts, which depends on the lines above, so each pass reuses the hangs the previous one found. Line *k* breaks right once line *k* − 1 has, so the passes settle within one per line. Text where no quote opens a line breaks in one pass, exactly as before. `pretty` gives each line the measure plus its first segment's hang; `balance` bisects over the hang-aware greedy.
+- **The fixture now tests it.** The old `hanging` text never opened a later line with a quote, and it broke the same with or without hanging. The new text opens lines 1 and 3 with “ and ‘, and line 1 fits only because its quote is not measured: 985.3 cu inside a 998 cu measure, 1009.0 with the quote, at least 11 cu of margin either way. Its other lines start with V and W, for optical margins (recorded).
+- **Tests.**
+  - `kill_quotes_that_open_a_line_hang_outside_the_text_edge`, on the fixture: which lines hang; line 1's fit; the quote at −hang and the next glyph at 0; and `specimen`, a role with no hanging settings, hangs too.
+  - `every_breaking_measures_a_line_without_the_quote_it_hangs`: greedy, pretty, and balance each keep "‘quoted’ words" whole at a measure it fits only when hung.
+  - `a_right_to_left_line_hangs_its_opening_quote_past_the_right_edge`.
+  - Mutation-checked: with no quote recognized, or with breaking ignoring the hang, all three fail.
+- **Goldens.** Only `hanging` and `punctuation` moved, the only text nodes a quote opens. The other 19 states' display lists, digests, and rasters are unchanged. WASM display lists hash to the new digests, and all 21 states pass every painter pair (lavapipe, SwiftShader).
+- **Not yet (PLAN 1.8):** optical margins (T V W A); hanging stops, commas, hyphens, and brackets (`hangingPunctuation`); closing quotes at an aligned end edge, which arrive with end-aligned and justified text.

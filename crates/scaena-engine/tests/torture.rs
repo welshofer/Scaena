@@ -12,7 +12,7 @@
 use scaena_core::Deck;
 use scaena_core::displaylist::{DisplayList, Glyph, Op, quantize};
 use scaena_engine::fonts::BundleFonts;
-use scaena_engine::text::TextLayout;
+use scaena_engine::text::{Span, TextEngine, TextLayout, TextSpec};
 use scaena_engine::theme::{Theme, Wrap};
 use scaena_engine::{Engine, EngineError, FrameRequest, PlacedText};
 use std::collections::BTreeSet;
@@ -32,21 +32,29 @@ struct Fixture {
     engine: Engine,
 }
 
+fn read(path: &str) -> Vec<u8> {
+    std::fs::read(format!("{BUNDLE}/{path}")).unwrap()
+}
+
 fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: bool) -> Fixture {
-    let read = |path: &str| std::fs::read(format!("{BUNDLE}/{path}")).unwrap();
     let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
     let mut theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     theme_edit(&mut theme.raw);
+    let fonts = bundle_fonts(&deck, reverse_fonts);
+    fonts.check_theme(&theme).unwrap();
+    Fixture { deck, theme, engine: Engine::new(fonts) }
+}
+
+fn bundle_fonts(deck: &Deck, reverse: bool) -> BundleFonts {
     let mut fonts = BundleFonts::new();
     let mut files: Vec<&str> = deck.fonts.iter().map(|f| f.file.as_str()).collect();
-    if reverse_fonts {
+    if reverse {
         files.reverse();
     }
     for file in files {
         fonts.register(file, read(file)).unwrap();
     }
-    fonts.check_theme(&theme).unwrap();
-    Fixture { deck, theme, engine: Engine::new(fonts) }
+    fonts
 }
 
 fn fixture() -> Fixture {
@@ -103,6 +111,20 @@ fn fonts_used<'a>(dl: &'a DisplayList, node: &str) -> BTreeSet<&'a str> {
 
 fn line_words(layout: &TextLayout, text: &str, line: usize) -> usize {
     text[layout.lines[line].text.clone()].split_whitespace().count()
+}
+
+fn line_texts<'a>(layout: &TextLayout, text: &'a str) -> Vec<&'a str> {
+    layout.lines.iter().map(|l| &text[l.text.clone()]).collect()
+}
+
+/// `text` in the `specimen` role, which sets neither `hangingPunctuation` nor
+/// `opticalMargins`, broken by `wrap` at `width`, outside any deck.
+fn set(text: &str, wrap: Wrap, width: f32) -> TextLayout {
+    let fx = fixture();
+    let mut fonts = bundle_fonts(&fx.deck, false);
+    let span = Span { text: text.into(), role: "specimen".into() };
+    let spec = TextSpec { spans: vec![span], role: "specimen".into(), wrap: Some(wrap), ..TextSpec::default() };
+    TextEngine::new().layout(&mut fonts, &fx.theme, &spec, width).unwrap()
 }
 
 // --- goldens and determinism -----------------------------------------------------
@@ -198,7 +220,9 @@ fn later_node_types_say_which_plan_task_adds_them() {
 #[test]
 fn no_kill_case_draws_notdef() {
     let mut fx = fixture();
-    let kill = ["axes", "liga", "kern", "numerals", "accents", "mixed", "tracking", "balance", "pretty", "fallback"];
+    let kill = [
+        "axes", "liga", "kern", "numerals", "accents", "mixed", "tracking", "hanging", "balance", "pretty", "fallback",
+    ];
     for state in kill {
         let dl = fx.frame(state).unwrap();
         for op in &dl.ops {
@@ -336,11 +360,73 @@ fn kill_pretty_keeps_two_words_on_the_last_line_where_greedy_strands_one() {
     assert_eq!(line_words(&stranded, &text, stranded.lines.len() - 1), 1, "the bait still bites under greedy");
 }
 
+/// SPEC §3.5: a quotation mark that opens a line hangs outside the text edge, in every
+/// role, and the line is measured without it.
+#[test]
+fn kill_quotes_that_open_a_line_hang_outside_the_text_edge() {
+    let mut fx = fixture();
+    let text = fx.deck.nodes["hanging-quote"].props["text"].as_str().unwrap().to_string();
+    let p = fx.placed("hanging", "hanging-quote");
+    let lines = line_texts(&p.text, &text);
+    let hung: Vec<bool> = p.text.lines.iter().map(|l| l.hang > 0.0).collect();
+    assert_eq!(hung, [true, false, true, false, false], "{lines:?}");
+    let first = &p.text.lines[0];
+    assert!(
+        first.width <= p.cell[2] && first.width + first.hang > p.cell[2],
+        "fits only with its quote hung: {first:?}"
+    );
+    // A hung quote sits at -hang with the next letter on the edge; other lines start on it.
+    for (k, line) in p.text.lines.iter().enumerate() {
+        let mut xs: Vec<f32> =
+            p.text.runs.iter().filter(|r| r.line == k).flat_map(|r| r.glyphs.iter().map(|g| g.x)).collect();
+        xs.sort_by(f32::total_cmp);
+        let starts = if line.hang > 0.0 { vec![-line.hang, 0.0] } else { vec![0.0] };
+        assert_eq!(xs[..starts.len()], starts, "line {k}: {}", lines[k]);
+    }
+    // Not a role option: `specimen` sets neither `hangingPunctuation` nor `opticalMargins`.
+    let punct = fx.text("punctuation", "punct-1");
+    let left = punct.runs.iter().flat_map(|r| &r.glyphs).map(|g| g.x).fold(f32::INFINITY, f32::min);
+    assert!(punct.lines[0].hang > 0.0 && left == -punct.lines[0].hang, "{:?}", punct.lines[0]);
+}
+
 #[test]
 fn kill_fallback_within_one_run_uses_three_bundle_fonts() {
     let mut fx = fixture();
     let dl = fx.frame("fallback").unwrap();
     assert_eq!(fonts_used(&dl, "fallback-run"), BTreeSet::from([SERIF, GARAMOND, HEBREW]));
+}
+
+// --- hanging quotes (SPEC §3.5) -------------------------------------------------------
+
+/// Each breaking gives a line opened by a quote the measure plus the quote. At a measure
+/// the second line fits only that way, all three keep it whole; counting the quote would
+/// break it after `‘quoted’`.
+#[test]
+fn every_breaking_measures_a_line_without_the_quote_it_hangs() {
+    let alone = set("‘quoted’ words", Wrap::Greedy, 1e4);
+    let (inside, hang) = (alone.lines[0].width, alone.lines[0].hang);
+    assert!(hang > 0.0, "{:?}", alone.lines);
+    let measure = inside + 0.5 * hang;
+    let text = "Typography ‘quoted’ words";
+    for wrap in [Wrap::Greedy, Wrap::Pretty, Wrap::Balance] {
+        let layout = set(text, wrap, measure);
+        assert_eq!((layout.wrap, layout.fallback), (wrap, None));
+        assert_eq!(line_texts(&layout, text), ["Typography ", "‘quoted’ words"], "{wrap:?}");
+        assert_eq!(layout.lines[1].hang, hang, "{wrap:?}");
+        assert!(layout.lines.iter().all(|l| l.width <= measure), "{wrap:?}: {:?}", layout.lines);
+    }
+}
+
+/// Right to left, the start edge is the right one: the quote that opens the line starts
+/// where the measure ends.
+#[test]
+fn a_right_to_left_line_hangs_its_opening_quote_past_the_right_edge() {
+    let measure = 1000.0;
+    let layout = set("“שלום הגרסה מוכנה”", Wrap::Greedy, measure);
+    assert!(layout.rtl && layout.lines.len() == 1, "{:?}", layout.lines);
+    assert!(layout.lines[0].hang > 0.0);
+    let right = layout.runs.iter().flat_map(|r| &r.glyphs).map(|g| g.x).fold(f32::MIN, f32::max);
+    assert!((right - measure).abs() < 1e-3, "rightmost glyph at {right}, measure {measure}");
 }
 
 // --- alignment (PLAN 0.5) -----------------------------------------------------------

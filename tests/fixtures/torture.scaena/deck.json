@@ -468,7 +468,7 @@
     "hanging-quote": {
       "type": "text",
       "role": "hanging",
-      "text": "“Typography is the product.” Tall Ts, Vs and Ws start lines here; ‘quoted’ openings hang into the margin, and lines end with a hyphen-ated word.",
+      "text": "“Typography is the product itself.” Ts, Vs and Ws start lines; so does a ‘quoted’ opening, which hangs into the margin as far as the first quote. Ws and Vs align by eye.",
       "at": {
         "col": [
           1,
@@ -947,7 +947,7 @@
         "punct-1": {},
         "punct-2": {}
       },
-      "notes": "Recorded: curly quotes, em and en dashes and the ellipsis come from the font (no straight-quote or three-period substitutes)."
+      "notes": "Recorded: curly quotes, em and en dashes and the ellipsis come from the font (no straight-quote or three-period substitutes). The opening “ of the first line hangs outside the text edge, like every quote that opens a line (SPEC §3.5)."
     },
     {
       "id": "mixed",
@@ -983,11 +983,11 @@
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "11 · Hanging punctuation, optical margins · recorded"
+          "text": "11 · Hanging quotes · kill; optical margins · recorded"
         },
         "hanging-quote": {}
       },
-      "notes": "Recorded: opening quotes hang outside the text edge; T, V, W and A at line starts are optically aligned. Phase 0 records behaviour (PLAN 1.8 implements both)."
+      "notes": "Pass: every quotation mark that opens a line hangs outside the text edge, so the letter after it sits on the edge: the “ of line 1 and the ‘ of line 3, at x = −(quote advance). Line 1 fits the measure only because its quote is not counted (985 cu inside 998; 1009 with the quote). Recorded: T, V and W at line starts are not yet optically aligned, and the comma and period at line ends do not hang (PLAN 1.8)."
     },
     {
       "id": "balance",
