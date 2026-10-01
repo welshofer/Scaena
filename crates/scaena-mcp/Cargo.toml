@@ -1,0 +1,13 @@
+[package]
+name = "scaena-mcp"
+description = "MCP server exposing Scaena operations (rmcp). Phase 1, PLAN 1.17."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+# Phase 1 adds: rmcp, tokio, scaena-engine, scaena-export, scaena-store.

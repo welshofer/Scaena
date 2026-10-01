@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+/web/node_modules
+/web/dist
+/apps/mac/build
+/apps/mac/DerivedData
+*.scaena.zip
+/tests/**/actual/
+.DS_Store
+.env

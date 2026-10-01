@@ -1,0 +1,17 @@
+[package]
+name = "scaena-engine"
+description = "Scaena engine: theme cascade, layout, text, charts, shaders, timeline resolution, sampling, display-list generation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+thiserror.workspace = true
+# Phase 0 (PLAN 0.1) adds: parley, swash, fontique, taffy, peniko, kurbo — pinned in the workspace.

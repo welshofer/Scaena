@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(just:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python3 scripts/validate_schema.py:*)",
+      "Bash(rustup:*)",
+      "Bash(wasm-pack:*)",
+      "Bash(wasm-opt:*)"
+    ]
+  }
+}

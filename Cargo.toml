@@ -1,0 +1,92 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/scaena-core",
+  "crates/scaena-engine",
+  "crates/scaena-paint",
+  "crates/scaena-export",
+  "crates/scaena-store",
+  "crates/scaena-cli",
+  "crates/scaena-mcp",
+  "crates/scaena-wasm",
+  "crates/scaena-ffi",
+]
+default-members = [
+  "crates/scaena-core",
+  "crates/scaena-engine",
+  "crates/scaena-paint",
+  "crates/scaena-export",
+  "crates/scaena-store",
+  "crates/scaena-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "UNLICENSED"
+repository = "https://github.com/welshofer/scaena"
+authors = ["Jay Welshofer"]
+
+[workspace.dependencies]
+# internal
+scaena-core   = { path = "crates/scaena-core" }
+scaena-engine = { path = "crates/scaena-engine" }
+scaena-paint  = { path = "crates/scaena-paint" }
+scaena-export = { path = "crates/scaena-export" }
+scaena-store  = { path = "crates/scaena-store" }
+
+# serialization / schema
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+schemars   = "1.2"
+jsonschema = "0.58"
+indexmap   = { version = "2.14", features = ["serde"] }
+postcard   = { version = "1.1", features = ["alloc"] }
+
+# errors / diagnostics
+thiserror = "2.0"
+anyhow    = "1.0"
+miette    = { version = "7.6", features = ["fancy"] }
+
+# cli
+clap = { version = "4.6", features = ["derive"] }
+
+# text + layout + geometry (Linebender). Versions verified to resolve and compile together on 2026-10-01.
+parley   = "0.11.1"
+swash    = "0.2.10"
+fontique = "0.11.1"
+taffy    = "0.14.0"
+peniko   = "0.6.1"
+kurbo    = "0.13.1"
+
+# painters
+vello     = "0.10.0"
+vello_cpu = "0.2.0"
+# wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
+
+# export
+krilla = "0.8.2"
+png    = "0.18.1"
+image  = { version = "0.25", default-features = false, features = ["png"] }
+
+# data
+csv = "1.4"
+
+# store
+loro = "1.16"
+
+# agent surface
+rmcp = "3.5"
+
+# wasm / ffi
+wasm-bindgen = "0.2.129"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 1

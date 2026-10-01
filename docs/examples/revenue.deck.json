@@ -1,0 +1,314 @@
+{
+  "scaena": "0.1",
+  "meta": {
+    "title": "Q3 Review",
+    "author": "Jay",
+    "created": "2026-10-01T18:00:00Z",
+    "lang": "en-US",
+    "description": "Reference deck: one morph, one build, one shader background, one spine."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "formats": [
+    "16:9",
+    "9:16"
+  ],
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    }
+  ],
+  "data": {
+    "q3": {
+      "source": "data/q3-revenue.csv",
+      "schema": {
+        "quarter": "string",
+        "product": "string",
+        "revenue": "number",
+        "customers": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "open",
+        "title": "Open",
+        "beats": [
+          {
+            "id": "opening",
+            "claim": "This quarter changed the shape of the business.",
+            "states": [
+              "intro"
+            ],
+            "notes": "One beat. Let the title sit.",
+            "duration": 15
+          }
+        ]
+      },
+      {
+        "id": "growth",
+        "title": "Growth",
+        "beats": [
+          {
+            "id": "doubled",
+            "claim": "Revenue doubled year over year, and Pro drove it.",
+            "evidence": [
+              "@q3"
+            ],
+            "states": [
+              "revenue",
+              "mix"
+            ],
+            "notes": "Pause on the Q3 bar before the build. The mix shift is the point: Pro went from a fifth to a third.",
+            "duration": 60,
+            "media": {
+              "infographic": {
+                "priority": 1
+              },
+              "podcast": {
+                "script": "Revenue doubled, but the story is the mix: Pro grew three times faster than Core."
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "title": "Close",
+        "beats": [
+          {
+            "id": "thanks",
+            "claim": "Thank you.",
+            "states": [
+              "close"
+            ],
+            "duration": 5
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "bg": {
+      "type": "shader",
+      "kind": "mesh",
+      "seed": 7,
+      "palette": "dusk",
+      "params": {
+        "points": 5,
+        "drift": 0.12,
+        "softness": 0.85,
+        "grain": 0.035
+      },
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "title": {
+      "type": "text",
+      "role": "display",
+      "text": "Q3 Review",
+      "semantic": "navigation",
+      "at": {
+        "in": "title"
+      }
+    },
+    "subtitle": {
+      "type": "text",
+      "role": "title",
+      "text": "Growth, mix, and what we do next",
+      "semantic": "context",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "rev": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@q3",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f",
+        "domain": [
+          0,
+          null
+        ],
+        "title": "Revenue ($M)"
+      },
+      "series": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "color": {
+        "field": "product",
+        "type": "nominal",
+        "scale": "categorical"
+      },
+      "key": "product",
+      "labels": {
+        "show": "ends"
+      },
+      "legend": "top",
+      "alt": "Quarterly revenue by product, Q4 2025 through Q3 2026.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          6
+        ]
+      }
+    },
+    "note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Revenue in $M. Enterprise recognized on delivery.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "intro",
+      "layout": "title",
+      "props": {
+        "bg": {},
+        "title": {},
+        "subtitle": {}
+      },
+      "choreography": [
+        {
+          "target": "title",
+          "split": "words",
+          "enter": "words",
+          "timing": "with"
+        },
+        {
+          "target": "subtitle",
+          "enter": "rise",
+          "delay": 240
+        }
+      ],
+      "hold": 4000,
+      "notes": "Open on the title. Don't talk over the build."
+    },
+    {
+      "id": "revenue",
+      "layout": "full",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "remove": [
+        "subtitle"
+      ],
+      "props": {
+        "title": {
+          "text": "Revenue doubled",
+          "role": "headline",
+          "semantic": "claim",
+          "at": {
+            "in": "header"
+          }
+        },
+        "rev": {},
+        "note": {}
+      },
+      "choreography": [
+        {
+          "target": "rev",
+          "enter": {
+            "preset": "grow",
+            "stagger": 40,
+            "spring": "snappy"
+          },
+          "timing": "after"
+        },
+        {
+          "target": "note",
+          "enter": "fade",
+          "delay": 600
+        }
+      ],
+      "hold": 6000
+    },
+    {
+      "id": "mix",
+      "slide": "revenue",
+      "transition": "slow",
+      "props": {
+        "title": {
+          "text": "…and the mix shifted"
+        },
+        "rev": {
+          "kind": "stackedBar",
+          "legend": "right"
+        }
+      },
+      "hold": 6000,
+      "notes": "Same bars, stacked. Pro is the orange band growing quarter over quarter."
+    },
+    {
+      "id": "close",
+      "layout": "title",
+      "remove": [
+        "rev",
+        "note"
+      ],
+      "props": {
+        "title": {
+          "text": "Thank you",
+          "role": "display",
+          "semantic": "navigation",
+          "at": {
+            "in": "title"
+          }
+        }
+      },
+      "hold": 3000
+    }
+  ]
+}

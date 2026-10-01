@@ -1,0 +1,23 @@
+[package]
+name = "scaena-cli"
+description = "The `scaena` command-line tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "scaena"
+path = "src/main.rs"
+
+[dependencies]
+scaena-core.workspace = true
+scaena-engine.workspace = true
+scaena-paint.workspace = true
+scaena-export.workspace = true
+scaena-store.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

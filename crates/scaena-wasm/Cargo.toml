@@ -1,0 +1,16 @@
+[package]
+name = "scaena-wasm"
+description = "wasm-bindgen bindings for the Scaena engine (browser player/editor). Phase 0 task 0.8."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+scaena-core.workspace = true
+# Phase 0 adds: wasm-bindgen, scaena-engine, scaena-paint (gpu via wgpu/WebGPU).

@@ -1,0 +1,19 @@
+[package]
+name = "scaena-paint"
+description = "Scaena painters: vello (GPU) and vello_cpu (headless) consumers of the display list."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+thiserror.workspace = true
+# Phase 0 (PLAN 0.6/0.7) adds: vello_cpu, vello, png — pinned in the workspace.
+
+[features]
+default = ["cpu"]
+cpu = []
+gpu = []

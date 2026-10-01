@@ -1,0 +1,15 @@
+[package]
+name = "scaena-ffi"
+description = "C ABI (cbindgen) for the Scaena engine, consumed by the Swift client. Phase 3, PLAN 3.1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+scaena-core.workspace = true

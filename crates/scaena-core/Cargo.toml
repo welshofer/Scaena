@@ -1,0 +1,15 @@
+[package]
+name = "scaena-core"
+description = "Scaena document model, state tracking, timeline math, display list types, document-level lints."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+thiserror.workspace = true

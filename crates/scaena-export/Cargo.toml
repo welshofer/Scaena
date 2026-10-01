@@ -1,0 +1,18 @@
+[package]
+name = "scaena-export"
+description = "Scaena export projections: PDF (krilla), SVG, PNG, video (ffmpeg driver), single-file HTML, spine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+scaena-engine.workspace = true
+scaena-paint.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# Phase 1 (PLAN 1.20–1.22) adds: krilla, png, csv.
