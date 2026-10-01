@@ -678,8 +678,8 @@
           4
         ],
         "row": [
-          5,
-          6
+          4,
+          5
         ],
         "align": {
           "y": "baseline"
@@ -696,8 +696,8 @@
           8
         ],
         "row": [
-          5,
-          6
+          4,
+          5
         ],
         "align": {
           "y": "baseline"
@@ -714,8 +714,8 @@
           12
         ],
         "row": [
-          5,
-          6
+          4,
+          5
         ],
         "align": {
           "y": "baseline"
@@ -725,7 +725,7 @@
     "anchor-x-112": {
       "type": "text",
       "role": "run-big",
-      "text": "xheight 112",
+      "text": "axe 112",
       "at": {
         "col": [
           1,
@@ -743,7 +743,7 @@
     "anchor-x-64": {
       "type": "text",
       "role": "specimen",
-      "text": "xheight 64",
+      "text": "axe 64",
       "at": {
         "col": [
           5,
@@ -761,7 +761,7 @@
     "anchor-x-28": {
       "type": "text",
       "role": "run-small",
-      "text": "xheight 28",
+      "text": "axe 28",
       "at": {
         "col": [
           9,
@@ -1125,7 +1125,7 @@
         "anchor-x-64": {},
         "anchor-x-28": {}
       },
-      "notes": "Recorded (PLAN 0.5): across 112, 64 and 28 cu, the first row's cap tops share one line (the cell top, 210 cu); the second row's baselines share one line (the cell bottom, 756 cu); the third row's x-heights share one line (780 cu). Cap height and x-height come from each font's OS/2 table, not glyph bounds."
+      "notes": "Recorded (PLAN 0.5): across 112, 64 and 28 cu, the first row's cap tops share one line (the cell top, 210 cu); the second row's baselines share one line (the cell bottom, 642 cu); the tops of the third row's x-height letters (a x e) share one line (780 cu). Every specimen is one line, and the rows do not touch. Cap height and x-height come from each font's OS/2 table, not glyph bounds."
     },
     {
       "id": "chart",

@@ -18,6 +18,13 @@ clippy:
 test:
     cargo test --workspace --locked
 
+# Re-bless the torture goldens: display lists first, then the rasters painted from them. Only
+# after reviewing the diffs in tests/golden/**/actual/ (written by a failing `just test`).
+bless:
+    SCAENA_BLESS=1 cargo test -p scaena-engine --test torture --locked
+    SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
+    rm -rf tests/golden/torture/actual
+
 # The engine and both painters must keep compiling for the browser (PLAN 0.1, 0.8).
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
@@ -32,7 +39,7 @@ schema:
 torture-fonts *ARGS:
     python3 scripts/build_torture_fonts.py {{ARGS}}
 
-# Run the CLI: `just cli lint docs/examples/revenue.deck.json`
+# Run the CLI: `just cli render tests/fixtures/torture.scaena --state pretty --out pretty.png`
 cli *ARGS:
     cargo run -q -p scaena-cli -- {{ARGS}}
 

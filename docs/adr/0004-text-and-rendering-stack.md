@@ -1,6 +1,6 @@
 # ADR-0004: Text and rendering stack — parley/harfrust/fontique, taffy, vello, krilla
 
-**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses)
+**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured)
 
 ## Context
 
@@ -27,7 +27,7 @@ Every crate in the rows above that can change a glyph position or a pixel resolv
 **Feature choices** (workspace manifest):
 - `parley`, `fontique`: `default-features = false, features = ["std"]`. Their default `system` feature compiles in fontconfig / CoreText / DirectWrite discovery, which SPEC §13.3 forbids in the render path. The engine additionally builds its collection with `system_fonts: false` (`scaena_engine::fonts::bundle_font_context`), so feature unification from some other crate cannot reopen it. Negative control (one-off, Linux dev container with 59 installed font files): with `parley` defaults, `FontContext::new()` sees 33 system families, and `system_fonts: false` alone already sees 0. The committed test `fonts::tests::bundle_context_sees_no_system_fonts` asserts zero families and zero generic-family matches.
 - `taffy`: `std`, `taffy_tree`, `flexbox`, `grid` only. Block, float, `calc`, and content-size layout are CSS behaviour we do not use and WASM bytes we do not want.
-- `vello_cpu`: defaults (`std`, `png`, `text`, `u8_pipeline`). `multithreading` stays off until PLAN 0.6 shows multi-threaded output is bit-identical to single-threaded.
+- `vello_cpu`: defaults (`std`, `png`, `text`, `u8_pipeline`). `multithreading` stays off: PLAN 0.6 measured it bit-identical to single-threaded (63 of 63 torture paints, 0 pixels differ), but slower on text frames (13.9 vs 11.2 ms per 1080p frame on a 4-core x86-64 container, `num_threads` at its default of cores − 1), so it buys nothing yet. Revisit with the shader-heavy B3 bench. If feature unification turns it on, `RenderSettings::default()` makes `CpuPainter` multi-threaded; the measurement says that is harmless.
 - `vello`: defaults (`wgpu` with its default backends) until PLAN 0.8 trims for WASM size.
 - `skrifa` is declared in the workspace at `parley`'s minor for direct font-table access when code needs it (E120 coverage, a metrics fallback); no crate depends on it directly yet.
 - `swash` is not in the graph. `parley` stopped shaping with it; nothing else here needs it.
@@ -36,10 +36,11 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
 
 ## Findings that later tasks must act on
 
-1. **SIMD level is a raster input.** `vello_cpu::RenderSettings::default()` picks the level at runtime (`Level::try_detect()`: AVX2 on x86-64-v3, NEON on Apple silicon); upstream recommends the scalar `Level::fallback()` for reference images because levels can differ slightly. `fallback()` needs `fearless_simd`'s `force_support_fallback` feature. PLAN 0.6 decides the golden-raster level by measurement, not assumption.
-2. **u8 vs f32 pipeline.** `vello_cpu` defaults to `RenderMode::OptimizeSpeed` (u8/u16); `OptimizeQuality` (f32) needs the `f32_pipeline` feature. `vello` on the GPU computes in f32. PLAN 0.9 measures which CPU mode sits within the SPEC §13.5 tolerance of the GPU.
+1. **SIMD level is a raster input, but barely.** `vello_cpu::RenderSettings::default()` picks the level at runtime (`Level::try_detect()`: AVX2 on x86-64-v3, NEON on Apple silicon); upstream recommends the scalar `Level::fallback()` for reference images because levels can differ slightly (`fallback()` needs `fearless_simd`'s `force_support_fallback` feature; on a default x86-64 target `Level::baseline()` is already the scalar fallback). Measured in PLAN 0.6, u8 pipeline, 21 torture frames at 1080p: scalar vs AVX2 differ in 3 pixels in total, by 1/255. *Decision:* golden rasters are painted at `Level::new()` (the host's best) and compared with the SPEC §13.5 metric, never byte for byte, so no reference level and no extra feature. macOS CI (NEON) checks the x86-64-blessed goldens on every push and prints each state's delta.
+2. **u8 vs f32 pipeline.** `vello_cpu` defaults to `RenderMode::OptimizeSpeed` (u8/u16); `OptimizeQuality` (f32) needs the `f32_pipeline` feature. `vello` on the GPU computes in f32. Measured in PLAN 0.6 on the same 21 frames: f32 differs from u8 on about 6,800 anti-aliased edge pixels per frame, by at most 3/255 (largest off-edge ΔE 0.30, nothing over tolerance), and paints 65% slower (18.5 vs 11.2 ms). `CpuPainter` stays u8 and names its `RenderMode` explicitly. With only `u8_pipeline` compiled, vello_cpu ignores `RenderMode`; if feature unification compiles in `f32_pipeline`, the explicit mode keeps u8. PLAN 0.9 measures which CPU mode sits closer to the GPU.
 3. **Cap height and x-height come from OS/2.** `parley::RunMetrics` exposes `cap_height` / `x_height` as `Option<f32>` (absent below OS/2 v2). The torture-deck fonts (PLAN 0.2) must carry OS/2 v2+ metrics, or PLAN 0.5 needs a table-based fallback; SPEC §3.5 rules out bounding boxes.
 4. **`krilla` 0.8.2 declares `rust-version = 1.92`;** the workspace declares 1.90. Bump the workspace when PLAN 1.20 adds it.
+5. **Hinting defaults differ between the painters.** `glifo`'s glyph run builder (what `vello_cpu` draws text with) hints outlines unless told not to; `vello`'s does not. Glyph positions are final in the display list (SPEC §6), and hinting would let one painter move outlines that the other draws as laid out. So `CpuPainter` calls `.hint(false)`, and every painter draws unhinted.
 
 ## Alternatives
 

@@ -15,7 +15,7 @@ You are writing a Scaena document (`deck.json`, schema at `docs/schema/deck.sche
 4. **States as deltas.** One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`. Add `choreography` sparingly (one `enter` per new object; stagger lists and marks). Give every state a `hold` if the deck will be exported to video.
 5. **Lint loop.** `scaena validate <deck>` then `scaena lint <deck> --json`. Fix every error; take warnings seriously (W300/W301 mean you reached for pixels — use a role, slot, or token instead). Re-run until clean.
 6. **Inspect.** `scaena inspect <deck> --state <id>` to confirm tracking did what you meant; `scaena diff <deck> --from a --to b` to confirm a build changes only what it should.
-7. **Look** (once rendering exists): `scaena render <deck> --state <id> --out frame.png`, view the PNG, fix what is wrong, repeat.
+7. **Look:** `scaena render <deck> --state <id> --out frame.png`, view the PNG, fix what is wrong, repeat. Today this renders text nodes only; a state with any other node type (chart, shader, shape, image, group) or with centered or end-aligned text exits 3 naming the PLAN task that adds it, so check those states with `inspect` instead.
 8. Report: beats, states, lint summary, and anything you could not express without an override.
 
 ## Rules

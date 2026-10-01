@@ -77,8 +77,38 @@ Warm frames cost the same as cold ones because `frame()` lays out on every call;
 
 Text aligns in its cell by its trimmed box or by a typographic anchor (SPEC §3.4, now precise). `box: cap` trims from the first line's cap height to the last baseline; `y: cap` / `y: x-height` put the first line's cap or x-height on the cell's top edge; `y: baseline` puts the last baseline on the cell's bottom edge. Metrics come from OS/2 via parley's run metrics (cap 710 / 1000 × 96 cu = 68.16 cu, as the table says).
 
-- A new torture state, `anchors`, sets 112, 64, and 28 cu text in three rows aligned by cap, baseline, and x-height; every anchor lands within 0.001 cu of its line (210, 756, 780 cu). Test: `anchors_line_up_cap_heights_baselines_and_x_heights_across_sizes`.
+- A new torture state, `anchors`, sets 112, 64, and 28 cu text in three rows aligned by cap, baseline, and x-height; every anchor lands within 0.001 cu of its line (210, 642, 780 cu). Test: `anchors_line_up_cap_heights_baselines_and_x_heights_across_sizes`.
 - The golden diff for this task touched only layer transforms: the `case` label moved up 5.09 cu (its cap top now on the slot top) and the `box: cap` headline 12.62 cu. No glyph moved relative to its layer, which is the point of positioning glyphs in layer space.
 - Fixed on the way: the 0.4 `LineBox.top` was parley's `block_min_coord`, the top of the *ascent* box, which sits above the line box when leading is tighter than ascent + descent (−8.21 cu for the 96 cu headline). It is now the CSS line-box top.
-- Stricter determinism check: `raw_display_lists_are_bit_identical_across_platforms` digests the *unquantized* display lists (`tests/golden/torture/raw.fnv1a`, FNV-1a over postcard bytes) and gates on them. The contract only needs quantized equality; this shows whether quantization is margin or necessity, and catches platform-dependent float math before it crosses a rounding boundary. First arm64 result: PR #5's macOS job.
+- Stricter determinism check: `raw_display_lists_are_bit_identical_across_platforms` digests the *unquantized* display lists (`tests/golden/torture/raw.fnv1a`, FNV-1a over postcard bytes) and gates on them. The contract only needs quantized equality; this shows whether quantization is margin or necessity, and catches platform-dependent float math before it crosses a rounding boundary. First arm64 result (PR #5's macOS job, `aarch64-apple-darwin`): it passed, so the unquantized display lists of all 21 states are bit-identical on x86-64 Linux and arm64 macOS. So far quantization is margin, not necessity.
 - Not yet: centered and end-aligned text (`NotImplemented`, PLAN 1.8); a font without OS/2 cap height keeps its line edge (none in the torture deck).
+
+## 0.6 CPU painter
+
+`vello_cpu` paints display lists to PNG (`scaena_paint::cpu::CpuPainter`), and `scaena render --painter cpu` runs bundle → fonts → `Engine::frame` → painter → PNG, with `--display-list`, `--size`, and `--json` stage timings. States the engine or painter cannot draw yet exit 3, naming their PLAN task: chart (0.10), shader (0.11), `--painter gpu` (0.7).
+
+- **Golden rasters.** One 1920×1080 PNG per torture state under `tests/golden/torture/` (1.45 MB for 21; 36–131 KB each), painted from the golden display lists so the test covers the painter alone. Compared with the SPEC §13.5 metric (`scaena_paint::diff`: Oklab ΔE × 100 over white; edges, a 4-neighbor step over 8/255 in either raster, masked with a 1-px dilation), never byte for byte. The test runs in 3.2 s in a debug build. The first version took 49 s, nearly all of it in the comparison's per-pixel closures; packed pixels, one pass per neighbor pair (cross-checked against the old code on 1,286 raster pairs), and one worker per core fixed that.
+- **Visual review of all 21 rasters.** Every state draws what its notes predict, recorded failures included: the 🇺🇸 flag is two monochrome Garamond letters (0.4), the long compound overflows its 852 cu box by 748 cu silently (E100, PLAN 1.15), and nothing hangs yet (PLAN 1.8). The review caught a fixture bug that every test missed: in `anchors`, "xheight 112" wrapped in its four columns, and the x-height row's ascenders ran into the baseline row. The math was right; the picture was illegible. The baseline row now sits in rows 4–5 (baselines at 642 cu), and the x-height specimens are `axe 112 / 64 / 28`. The test now also asserts one line per specimen and that the rows' line boxes don't overlap.
+- **What changes pixels** (21 frames, 1080p, against the AVX2 u8 goldens):
+
+| Variant | Identical frames | Pixels that differ | Max channel step | Max off-edge ΔE | Paint, ms/frame |
+|---|---|---|---|---|---|
+| AVX2, u8, release build (the goldens were painted in debug) | 21 / 21 | 0 | 0 | 0 | 11.2 |
+| Scalar fallback, u8 | 18 / 21 | 3 in total | 1 | 0.00 | 12.6 |
+| u8, `multithreading` (3 workers) | 21 / 21 | 0 | 0 | 0 | 13.9 |
+| f32 pipeline (AVX2 or scalar) | 0 / 21 | ≈ 6,800 per frame | 3 | 0.30 | 18.5 |
+| Unquantized display list (what `render` paints) | 0 / 6 sampled | 4,900–16,000 per frame | 5 | 0.32 | — |
+
+  Nothing comes near the tolerance. The goldens stay at the host's best SIMD level with the u8 pipeline, single-threaded; ADR-0004 findings 1, 2, and 5 have the decisions. SPEC §13.4 says only comparisons round, so `render` paints the unquantized list, and its PNG sits within tolerance of the golden rather than on it. NEON is not measured here: macOS CI checks the x86-64-blessed goldens and prints each state's delta.
+- **Hinting.** glifo (vello_cpu's text) hints glyph outlines by default, and vello does not. `CpuPainter` turns hinting off so the two painters can agree (ADR-0004 finding 5).
+
+| Stage, cold `scaena render` (release, 21 states, 1080p) | Min | Median | Max | SPEC §15 |
+|---|---|---|---|---|
+| Read deck, theme, fonts | 1.4 | 1.7 | 3.4 | — |
+| Register fonts | 1.3 | 1.5 | 1.7 | — |
+| `Engine::frame` | 0.5 | 0.7 | 1.2 | ≤ 15 ms (B1, warm) |
+| Paint (first paint, cold caches) | 15.3 | 18.7 | 21.9 | ≤ 12 ms (B1, warm, 8 threads) |
+| PNG encode + write | 15.5 | 21.4 | 34.3 | — |
+| **Total** | **34.5** | **43.6** | **58.6** | **≤ 300 ms cold (B1)** |
+
+All in ms. Warm single-threaded paint is 11.2 ms per frame (table above), already inside the 8-thread budget on text frames, which is why `multithreading` stays off. PNG encoding at the default compression costs more than painting; if the video path (PLAN 1.21) needs the time back, that is where to take it. At 3840×2160 the `emoji` state paints in 85 ms and encodes in 70 ms, cold.

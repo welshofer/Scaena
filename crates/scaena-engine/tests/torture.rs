@@ -355,14 +355,23 @@ fn anchors(p: &PlacedText) -> (f32, f32, f32) {
 #[test]
 fn anchors_line_up_cap_heights_baselines_and_x_heights_across_sizes() {
     let mut fx = fixture();
+    // Canvas y extent of each row's line boxes: (min top, max bottom).
+    let mut rows = [(f32::INFINITY, f32::NEG_INFINITY); 3];
     for size in [112, 64, 28] {
-        let cap = anchors(&fx.placed("anchors", &format!("anchor-cap-{size}"))).0;
-        let base = anchors(&fx.placed("anchors", &format!("anchor-base-{size}"))).2;
-        let x = anchors(&fx.placed("anchors", &format!("anchor-x-{size}"))).1;
+        let placed = ["cap", "base", "x"].map(|row| fx.placed("anchors", &format!("anchor-{row}-{size}")));
+        let (cap, base, x) = (anchors(&placed[0]).0, anchors(&placed[1]).2, anchors(&placed[2]).1);
         assert!((cap - 210.0).abs() < 1e-3, "{size} cu cap top at {cap}");
-        assert!((base - 756.0).abs() < 1e-3, "{size} cu baseline at {base}");
+        assert!((base - 642.0).abs() < 1e-3, "{size} cu baseline at {base}");
         assert!((x - 780.0).abs() < 1e-3, "{size} cu x-height at {x}");
+        for (row, p) in rows.iter_mut().zip(&placed) {
+            // One line each, or the first-line and last-line anchors are different lines.
+            assert_eq!(p.text.lines.len(), 1, "{:?} wraps in its cell", p.text.lines);
+            let line = &p.text.lines[0];
+            *row = (row.0.min(p.origin[1] + line.top), row.1.max(p.origin[1] + line.top + line.height));
+        }
     }
+    // The rows do not touch, so the raster reads as three separate rows.
+    assert!(rows[0].1 < rows[1].0 && rows[1].1 < rows[2].0, "row line boxes overlap: {rows:?}");
 }
 
 #[test]

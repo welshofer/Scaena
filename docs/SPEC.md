@@ -515,6 +515,8 @@ scaena mcp                                            # stdio MCP server exposin
 
 All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
 
+`render` without `--t` renders the state at rest. `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
+
 ### 7.2 MCP tools
 
 Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`, `deck_inspect`, `deck_render` (returns image content + display-list digest), `deck_export`, `deck_diff`, `theme_apply`, `data_attach`, `spine_read`, `spine_update`. Each tool's input/output schema is generated from the Rust types (`schemars`) and shipped in `docs/schema/mcp/`. The MCP server also exposes **resources**: `scaena://schema/deck`, `scaena://schema/theme`, `scaena://lint/catalog`, and `scaena://examples/*`, so an agent can learn the format without docs.

@@ -5,9 +5,15 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
+use scaena_engine::fonts::BundleFonts;
+use scaena_engine::theme::Theme;
+use scaena_engine::{Engine, EngineError, FrameRequest};
+use scaena_paint::cpu::CpuPainter;
+use scaena_paint::{FontStore, PaintError, Painter};
 use scaena_store::Bundle;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Instant;
 
 #[derive(Parser)]
 #[command(
@@ -64,21 +70,25 @@ enum Cmd {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
-    /// Render one frame (PLAN 0.6+).
+    /// Render one state to a PNG, and optionally its display list.
     Render {
         bundle: PathBuf,
         #[arg(long)]
         state: String,
-        #[arg(long, default_value_t = 0.0)]
-        t: f64,
-        #[arg(long, default_value = "1920x1080")]
-        size: String,
+        /// Milliseconds into the transition into the state. Omitted: the state at rest.
+        #[arg(long)]
+        t: Option<f64>,
+        /// Output pixels, `WxH`, in the canvas's aspect ratio. Default: the canvas size.
+        #[arg(long)]
+        size: Option<String>,
+        /// PNG to write. Default: `<state>.png`.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Also write the display list as JSON (one op and one glyph per line).
         #[arg(long)]
         display_list: Option<PathBuf>,
-        #[arg(long, default_value = "cpu")]
-        painter: String,
+        #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
+        painter: PainterArg,
     },
     /// Export a projection: pdf|png|svg|mp4|webm|html|spine.
     Export {
@@ -112,6 +122,14 @@ enum Cmd {
     },
     /// MCP server on stdio (PLAN 1.17).
     Mcp,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum PainterArg {
+    /// `vello_cpu`: headless, deterministic per SIMD level (ADR-0004).
+    Cpu,
+    /// `vello` on `wgpu` (PLAN 0.7).
+    Gpu,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -241,7 +259,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
         }
         Cmd::Compile { .. } | Cmd::Decompile { .. } => not_yet("compile/decompile (DSL)", "1.5"),
-        Cmd::Render { .. } => not_yet("render", "0.3–0.10"),
+        Cmd::Render { bundle, state, t, size, out, display_list, painter } => {
+            if painter == PainterArg::Gpu {
+                return not_yet("render --painter gpu", "0.7");
+            }
+            render(&bundle, &state, t, size.as_deref(), out, display_list, cli.json)
+        }
         Cmd::Patch { .. } => not_yet("patch", "1.16"),
         Cmd::Theme { .. } => not_yet("theme --apply", "1.6"),
         Cmd::Serve { .. } => not_yet("serve", "2.x"),
@@ -249,7 +272,117 @@ fn run(cli: Cli) -> Result<ExitCode> {
     }
 }
 
-fn open(path: &std::path::Path) -> Result<Bundle> {
+/// `scaena render` with the CPU painter (PLAN 0.6): bundle fonts → `Engine::frame` →
+/// `vello_cpu` → PNG. Timings are wall clock in this client; the render path itself
+/// never reads a clock.
+fn render(
+    bundle: &Path,
+    state: &str,
+    t: Option<f64>,
+    size: Option<&str>,
+    out: Option<PathBuf>,
+    display_list: Option<PathBuf>,
+    json: bool,
+) -> Result<ExitCode> {
+    if let Some(t) = t.filter(|t| !t.is_finite() || *t < 0.0) {
+        anyhow::bail!("--t {t}: expected a finite, non-negative number of milliseconds");
+    }
+    let start = Instant::now();
+    let mut lap = {
+        let mut last = start;
+        move || {
+            let now = Instant::now();
+            let ms = (now - last).as_secs_f64() * 1e3;
+            last = now;
+            ms
+        }
+    };
+    let b = open(bundle)?;
+    let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
+    let files = b.read_fonts()?;
+    let load = lap();
+
+    let mut fonts = BundleFonts::new();
+    let mut store = FontStore::new();
+    for (id, bytes) in files {
+        store.insert(&id, bytes.clone());
+        fonts.register(&id, bytes)?;
+    }
+    fonts.check_theme(&theme)?;
+    let register = lap();
+
+    let req = FrameRequest { deck: &b.deck, theme: &theme, state, t_ms: t.unwrap_or(f64::INFINITY) };
+    let frame = match Engine::new(fonts).frame(&req) {
+        Err(e @ EngineError::NotImplemented(_)) => return unimplemented(e),
+        frame => frame?,
+    };
+    let dl = frame.display_list;
+    let layout = lap();
+    if let Some(path) = &display_list {
+        std::fs::write(path, dl.to_golden_json()?).with_context(|| format!("writing {}", path.display()))?;
+    }
+
+    let scale = match size {
+        Some(size) => scale_for(size, dl.viewport)?,
+        None => 1.0,
+    };
+    let raster = match CpuPainter::default().paint(&dl, &store, scale) {
+        Err(e @ PaintError::NotImplemented(_)) => return unimplemented(e),
+        raster => raster?,
+    };
+    let paint = lap();
+    let out = out.unwrap_or_else(|| PathBuf::from(format!("{state}.png")));
+    std::fs::write(&out, raster.to_png()?).with_context(|| format!("writing {}", out.display()))?;
+    let encode = lap();
+    let total = (Instant::now() - start).as_secs_f64() * 1e3;
+
+    if json {
+        let us = |ms: f64| (ms * 1e3).round() / 1e3;
+        let summary = serde_json::json!({
+            "state": state,
+            "t_ms": t,
+            "painter": "cpu",
+            "size": [raster.width, raster.height],
+            "out": out,
+            "display_list": display_list,
+            "ms": {
+                "load": us(load), "fonts": us(register), "frame": us(layout),
+                "paint": us(paint), "png": us(encode), "total": us(total),
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        println!(
+            "{} ({}×{}, cpu) in {total:.0} ms: load {load:.1} · fonts {register:.1} · frame {layout:.1} · paint {paint:.1} · png {encode:.1}",
+            out.display(),
+            raster.width,
+            raster.height,
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `WxH` → output pixels per canvas unit. The size must have the canvas's aspect ratio,
+/// to the nearest pixel: painters scale uniformly and never stretch.
+fn scale_for(size: &str, canvas: [f32; 2]) -> Result<f32> {
+    let parsed = size.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)));
+    let (w, h) = parsed
+        .filter(|&(w, h)| w > 0 && h > 0)
+        .with_context(|| format!("--size `{size}`: expected WxH, like 1920x1080"))?;
+    let scale = w as f32 / canvas[0];
+    if (canvas[1] * scale).round() != h as f32 {
+        anyhow::bail!("--size {w}x{h} does not have the canvas's aspect ratio ({}x{} cu)", canvas[0], canvas[1]);
+    }
+    Ok(scale)
+}
+
+/// Exit 3 for a path that a later PLAN task implements; the error names the task.
+fn unimplemented(e: impl std::fmt::Display) -> Result<ExitCode> {
+    eprintln!("error: {e}");
+    Ok(ExitCode::from(3))
+}
+
+fn open(path: &Path) -> Result<Bundle> {
     Bundle::open(path).with_context(|| format!("opening {}", path.display()))
 }
 

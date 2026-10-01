@@ -48,7 +48,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 18 | `bidi-hebrew` | Hebrew with inline Latin | catalogue | RTL paragraph; "Scaena" and "0.1" stay LTR; period at the left end. |
 | 19 | `bidi-arabic` | Arabic with inline Latin | catalogue | Joined letterforms, lam-alef ligature, LTR islands. |
 | 20 | `fallback` | Fallback within one run | kill | One run, three fonts: α ω from EB Garamond, Hebrew from Noto Sans Hebrew; no system font. |
-| 21 | `anchors` | Cap, baseline, x-height alignment across 112 / 64 / 28 cu | recorded (added with PLAN 0.5) | Cap tops share the cell top (210 cu), baselines the cell bottom (756 cu), x-heights 780 cu. |
+| 21 | `anchors` | Cap, baseline, x-height alignment across 112 / 64 / 28 cu | recorded (added with PLAN 0.5) | Cap tops share the cell top (210 cu), baselines the cell bottom (642 cu), x-height tops of `axe` 780 cu. One line per specimen; the rows do not touch. |
 | 22 | `chart` | Bar chart, six bars | recorded | Gated by PLAN 0.10 (bar → line morph). |
 | 23 | `mesh` | Mesh background | recorded | Gated by PLAN 0.11 (CPU/GPU shader parity). |
 
