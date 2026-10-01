@@ -12,6 +12,11 @@ authors.workspace = true
 name = "scaena"
 path = "src/main.rs"
 
+[features]
+# `scaena render --painter gpu`: vello on wgpu (PLAN 0.7). Off by default so the
+# everyday build does not compile wgpu.
+gpu = ["scaena-paint/gpu"]
+
 [dependencies]
 scaena-core.workspace = true
 scaena-engine.workspace = true

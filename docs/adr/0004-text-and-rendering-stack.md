@@ -1,6 +1,6 @@
 # ADR-0004: Text and rendering stack — parley/harfrust/fontique, taffy, vello, krilla
 
-**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured)
+**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings)
 
 ## Context
 
@@ -41,6 +41,8 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
 3. **Cap height and x-height come from OS/2.** `parley::RunMetrics` exposes `cap_height` / `x_height` as `Option<f32>` (absent below OS/2 v2). The torture-deck fonts (PLAN 0.2) must carry OS/2 v2+ metrics, or PLAN 0.5 needs a table-based fallback; SPEC §3.5 rules out bounding boxes.
 4. **`krilla` 0.8.2 declares `rust-version = 1.92`;** the workspace declares 1.90. Bump the workspace when PLAN 1.20 adds it.
 5. **Hinting defaults differ between the painters.** `glifo`'s glyph run builder (what `vello_cpu` draws text with) hints outlines unless told not to; `vello`'s does not. Glyph positions are final in the display list (SPEC §6), and hinting would let one painter move outlines that the other draws as laid out. So `CpuPainter` calls `.hint(false)`, and every painter draws unhinted.
+6. **`vello` fills a whole glyph run as one path.** Its encoder resolves a run into a single path holding every glyph's outline (`vello_encoding::resolve`: one `n_paths` per run), so overlapping glyphs share one nonzero winding count. glifo (vello_cpu's text) fills each glyph on its own: its `draw_glyphs` loops over the run. Where overlapping contours run in opposite directions the windings cancel: in the torture deck's `combining` state, Roboto Serif draws the j's dot clockwise and the combining caron counter-clockwise, and the first GPU raster had a hole where they overlap (one pixel 231/255 from the CPU's). *Decision:* `GpuPainter` draws one run per glyph, so each glyph is its own fill, as on the CPU. Overlaps are routine (marks on bases, tight tracking, cursive joins), so this applies to all text, not just this font.
+7. **The painters' anti-aliasing differs at edges, not inside.** Across the 21 torture frames (PLAN 0.7, lavapipe), vello's area coverage and vello_cpu's sparse-strip coverage disagree on 5,209–27,265 edge pixels per frame, by at most 63/255. Interiors match exactly, except for COLRv1 gradients in `emoji` (114 pixels, ΔE ≤ 1.49). A vertical edge at 0.75 coverage reads 191 on the CPU and 180 on the GPU. The finding-6 hole sat on a glyph edge, so SPEC §13.5's edge mask hid it, and the torture test passed. §13.5 now also fails any pixel that differs by half the channel range or more: anti-aliasing never comes close, and a hole or a misplaced glyph does.
 
 ## Alternatives
 

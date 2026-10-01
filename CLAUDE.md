@@ -53,20 +53,21 @@ apps/mac/              SwiftUI client                                           
 ## Commands
 
 ```
-just check          # fmt + clippy -D warnings (all features) + test + schema validation + wasm32 clippy; mirrors CI
+just check          # fmt + clippy -D warnings (all features) + test + test-gpu + schema validation + wasm32 clippy; mirrors CI
 just test           # cargo test --workspace
 just schema         # validate docs/examples + tests/fixtures against docs/schema; torture-deck font coverage (python jsonschema, fonttools)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
 just example        # validate/lint/inspect the example deck
+just test-gpu       # painter + CLI tests with vello on the GPU; skip without an adapter unless SCAENA_REQUIRE_GPU=1
 just bless          # re-bless golden display lists, then rasters; only after reviewing tests/golden/**/actual/
 just spike          # (Phase 0) run the parity harness once it exists
 ```
 
-The CLI today: `scaena validate | lint | inspect | diff | export --format spine` work, and `scaena render --painter cpu` renders states built from text nodes to PNG (other node types and `--painter gpu` exit 3 with their PLAN task). `export` (other formats), `compile`, `patch`, `theme`, `serve`, `mcp` exit 3 with their PLAN task.
+The CLI today: `scaena validate | lint | inspect | diff | export --format spine` work, and `scaena render` renders states built from text nodes to PNG, with `--painter cpu` (the default) or, in a CLI built with `--features gpu`, `--painter gpu`; other node types exit 3 with their PLAN task. `export` (other formats), `compile`, `patch`, `theme`, `serve`, `mcp` exit 3 with their PLAN task.
 
 ## Phase 0 in one paragraph
 
-Prove text parity, adversarially. The stack is pinned (PLAN 0.1): `parley` (shaping by `harfrust`, fonts read by `skrifa`), `fontique`, `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello`; versions, feature choices, and open findings are in ADR-0004. System fonts are compiled out: get a font context only from `scaena_engine::fonts::bundle_font_context`. Build the typography torture deck under `tests/fixtures/torture.scaena/` (PLAN 0.2 lists every case and which ones are kill criteria). `scaena render --state … --painter cpu` emits a PNG and a display list (PLAN 0.6; golden rasters in `tests/golden/torture/`). Next GPU, then WASM/WebGPU, then the parity harness, then one bar→line morph, then one mesh shader, then the authorability spike (PLAN 0.13 — it needs only today's CLI). Write `docs/spike-report.md` and log gate 0 in PLAN. If parity cannot be reached, follow the no-go path in PLAN §0 — do not quietly lower the bar.
+Prove text parity, adversarially. The stack is pinned (PLAN 0.1): `parley` (shaping by `harfrust`, fonts read by `skrifa`), `fontique`, `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello`; versions, feature choices, and open findings are in ADR-0004. System fonts are compiled out: get a font context only from `scaena_engine::fonts::bundle_font_context`. Build the typography torture deck under `tests/fixtures/torture.scaena/` (PLAN 0.2 lists every case and which ones are kill criteria). `scaena render --state … --painter cpu` emits a PNG and a display list (PLAN 0.6; golden rasters in `tests/golden/torture/`), and `--painter gpu` paints the same display list with vello (PLAN 0.7; draw glyphs one run per glyph, ADR-0004 finding 6). Next WASM/WebGPU, then the parity harness, then one bar→line morph, then one mesh shader, then the authorability spike (PLAN 0.13 — it needs only today's CLI). Write `docs/spike-report.md` and log gate 0 in PLAN. If parity cannot be reached, follow the no-go path in PLAN §0 — do not quietly lower the bar.
 
 ## Working with Jay
 

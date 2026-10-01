@@ -702,7 +702,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 2. All randomness is seeded from the document (`seed` fields) and the node id.
 3. Fonts come from the bundle only; system font discovery is not compiled into the engine. Shaping is `harfrust` via `parley`, font reading is `skrifa`; the same bytes produce the same glyph runs on every platform.
 4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
-5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask).
+5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask; and no pixel anywhere, edges included, differs by half the channel range (128/255) or more, so a hole or a misplaced glyph cannot hide in the mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
 
 ---

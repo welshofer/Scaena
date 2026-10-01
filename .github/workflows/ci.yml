@@ -22,9 +22,15 @@ jobs:
       # --locked: Cargo.lock is the pin for the text and rendering stack (ADR-0004).
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --locked --exclude scaena-paint
-      # The painter tests print each torture state's raster delta from the goldens (blessed on
-      # x86-64 AVX2), so every run records where this runner's SIMD path lands (ADR-0004).
-      - run: cargo test -p scaena-paint --locked -- --nocapture
+      # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
+      # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
+      # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
+      # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
+        env:
+          SCAENA_REQUIRE_GPU: "1"
       # The engine and both painters must keep compiling for the browser (PLAN 0.1, 0.8).
       - run: cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
   schema:

@@ -1340,6 +1340,7 @@ dependencies = [
  "scaena-core",
  "serde",
  "serde_json",
+ "skrifa",
  "taffy",
  "thiserror",
 ]

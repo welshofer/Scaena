@@ -9,6 +9,9 @@
 //!   channel, in either raster. The mask is the edges grown by one pixel. Masked
 //!   pixels are left out of the ΔE rule but still counted in `differing` and
 //!   `max_channel`, so a change inside the mask stays visible.
+//! - No pixel anywhere may step by [`MAX_STEP`] or more in a channel. The mask is
+//!   for anti-aliasing noise (at most 63/255 between the two painters on the
+//!   torture deck); a hole in a glyph sits on an edge too, and once hid in it.
 
 use crate::{PaintError, Raster};
 
@@ -18,6 +21,8 @@ pub const MAX_DELTA_E: f32 = 1.0;
 pub const MAX_OVER_FRACTION: f64 = 0.001;
 /// Channel step (of 255) between 4-neighbors that marks an edge.
 pub const EDGE_STEP: u8 = 8;
+/// No pixel, masked or not, may differ by this much (half the range) in any channel.
+pub const MAX_STEP: u8 = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Diff {
@@ -35,9 +40,10 @@ pub struct Diff {
 }
 
 impl Diff {
-    /// SPEC §13.5: ΔE ≤ 1.0 on at least 99.9% of the compared pixels.
+    /// SPEC §13.5: ΔE ≤ 1.0 on at least 99.9% of the compared pixels, and no pixel
+    /// anywhere steps by [`MAX_STEP`] or more.
     pub fn passes(&self) -> bool {
-        self.over as f64 <= MAX_OVER_FRACTION * self.compared as f64
+        self.over as f64 <= MAX_OVER_FRACTION * self.compared as f64 && self.max_channel < MAX_STEP
     }
 }
 
@@ -173,12 +179,18 @@ mod tests {
         let d = compare(&a, &b).unwrap();
         assert!(!d.passes(), "{d}");
         assert!(d.max_delta_e > 5.0, "{d}");
-        // One stray pixel reads as an edge in `b`, so the mask hides it from ΔE; the
-        // anywhere counters still see it.
+        // One stray pixel reads as an edge in `c`, so the mask hides it from ΔE, but a
+        // full-range step fails anyway: a hole cannot hide in the mask.
         let mut c = a.clone();
         set(&mut c, 20, 20, [0, 0, 0, 255]);
         let d = compare(&a, &c).unwrap();
         assert_eq!((d.over, d.differing, d.max_channel), (0, 1, 255), "{d}");
+        assert!(!d.passes(), "{d}");
+        // Edge noise below the step limit, like anti-aliasing differences, passes.
+        set(&mut c, 20, 20, [200, 200, 200, 255]);
+        let d = compare(&a, &c).unwrap();
+        assert_eq!((d.over, d.max_channel), (0, 55), "{d}");
+        assert!(d.passes(), "{d}");
     }
 
     #[test]

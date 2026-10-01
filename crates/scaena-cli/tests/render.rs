@@ -82,18 +82,20 @@ fn size_scales_uniformly_and_json_reports_the_stages() {
     assert_eq!(summary["state"], "balance");
     assert_eq!(summary["t_ms"], serde_json::Value::Null, "omitted --t renders the state at rest");
     assert_eq!(summary["size"], serde_json::json!([960, 540]));
-    for stage in ["load", "fonts", "frame", "paint", "png", "total"] {
+    assert_eq!((&summary["painter"], &summary["adapter"]), (&serde_json::json!("cpu"), &serde_json::Value::Null));
+    for stage in ["load", "fonts", "frame", "init", "paint", "png", "total"] {
         assert!(summary["ms"][stage].as_f64().is_some_and(|ms| ms >= 0.0), "{stage}: {summary}");
     }
 }
 
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
-    for (args, task) in [
-        (vec!["--state", "chart"], "PLAN 0.10"),
-        (vec!["--state", "mesh"], "PLAN 0.11"),
-        (vec!["--state", "axes", "--painter", "gpu"], "0.7"),
-    ] {
+    let mut cases = vec![(vec!["--state", "chart"], "PLAN 0.10"), (vec!["--state", "mesh"], "PLAN 0.11")];
+    // Without the `gpu` feature the GPU painter is not compiled in.
+    if cfg!(not(feature = "gpu")) {
+        cases.push((vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));
+    }
+    for (args, task) in cases {
         let dir = scratch(&format!("unimplemented-{}", args[1]));
         let png = dir.join("x.png");
         let out = scaena(&[&["render", BUNDLE, "--out", png.to_str().unwrap()], args.as_slice()].concat());
@@ -116,4 +118,28 @@ fn invalid_input_exits_2() {
         let out = scaena(&[&["render", BUNDLE], args.as_slice()].concat());
         assert_eq!(code(&out), 2, "{args:?}: {}", stderr(&out));
     }
+}
+
+/// With the `gpu` feature, `--painter gpu` paints the same display list with vello on
+/// the GPU, within tolerance of the CPU golden. On a machine with no adapter it skips,
+/// unless `SCAENA_REQUIRE_GPU` is set (CI sets it).
+#[cfg(feature = "gpu")]
+#[test]
+fn the_gpu_painter_renders_within_tolerance_of_the_cpu_golden() {
+    let dir = scratch("gpu");
+    let png = dir.join("pretty.png");
+    let out =
+        scaena(&["render", BUNDLE, "--state", "pretty", "--painter", "gpu", "--out", png.to_str().unwrap(), "--json"]);
+    if code(&out) == 2 && stderr(&out).contains("no adapter") && std::env::var_os("SCAENA_REQUIRE_GPU").is_none() {
+        eprintln!("skipping: {}", stderr(&out));
+        return;
+    }
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let summary: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(summary["painter"], "gpu");
+    assert!(summary["adapter"].is_string(), "{summary}");
+    let raster = Raster::from_png(&std::fs::read(&png).unwrap()).unwrap();
+    let golden = Raster::from_png(&std::fs::read(format!("{GOLDEN}/pretty.png")).unwrap()).unwrap();
+    let d = diff::compare(&golden, &raster).unwrap();
+    assert!(d.passes(), "{d}");
 }

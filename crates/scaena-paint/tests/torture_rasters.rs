@@ -85,3 +85,48 @@ fn rasters_match_goldens_within_spec_tolerance() {
     failures.sort();
     assert!(failures.is_empty(), "rasters outside SPEC §13.5 tolerance:\n{}", failures.join("\n"));
 }
+
+/// A GPU painter, or `None` with the reason printed on a machine without an adapter.
+/// `SCAENA_REQUIRE_GPU=1` (set in CI) makes a missing adapter a failure instead.
+#[cfg(feature = "gpu")]
+fn gpu_painter() -> Option<scaena_paint::gpu::GpuPainter> {
+    match scaena_paint::gpu::GpuPainter::new() {
+        Ok(p) => Some(p),
+        Err(e) if std::env::var_os("SCAENA_REQUIRE_GPU").is_none() => {
+            eprintln!("skipping: {e} (set SCAENA_REQUIRE_GPU=1 to fail instead)");
+            None
+        }
+        Err(e) => panic!("SCAENA_REQUIRE_GPU is set: {e}"),
+    }
+}
+
+/// PLAN 0.7: `vello` on the GPU paints the same display lists, judged against the CPU
+/// goldens by the same SPEC §13.5 metric. The goldens stay the CPU painter's (SPEC
+/// §13.6: export frames come from the CPU); a GPU raster outside tolerance is written
+/// to `actual/<state>.gpu.png`.
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_rasters_match_the_cpu_goldens_within_spec_tolerance() {
+    let Some(mut gpu) = gpu_painter() else { return };
+    let info = gpu.adapter();
+    println!("adapter: {} ({:?}, {:?})", info.name, info.backend, info.device_type);
+    let dls = goldens();
+    let store = fonts(&dls);
+    let mut failures = Vec::new();
+    for (state, dl) in &dls {
+        let raster = gpu.paint(dl, &store, 1.0).unwrap_or_else(|e| panic!("{state}: {e}"));
+        let golden = Raster::from_png(&std::fs::read(format!("{GOLDEN}/{state}.png")).unwrap()).unwrap();
+        let d = diff::compare(&golden, &raster).unwrap();
+        println!("gpu {state}: {d}");
+        if !d.passes() {
+            std::fs::create_dir_all(format!("{GOLDEN}/actual")).unwrap();
+            std::fs::write(format!("{GOLDEN}/actual/{state}.gpu.png"), raster.to_png().unwrap()).unwrap();
+            failures.push(format!("{state}: {d}"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "GPU rasters outside SPEC §13.5 tolerance of the CPU goldens:\n{}",
+        failures.join("\n")
+    );
+}

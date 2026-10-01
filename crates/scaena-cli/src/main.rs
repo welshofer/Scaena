@@ -3,7 +3,7 @@
 //! Exit codes: 0 ok · 1 lint errors · 2 invalid input · 3 internal/not implemented.
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::theme::Theme;
@@ -71,25 +71,7 @@ enum Cmd {
         out: Option<PathBuf>,
     },
     /// Render one state to a PNG, and optionally its display list.
-    Render {
-        bundle: PathBuf,
-        #[arg(long)]
-        state: String,
-        /// Milliseconds into the transition into the state. Omitted: the state at rest.
-        #[arg(long)]
-        t: Option<f64>,
-        /// Output pixels, `WxH`, in the canvas's aspect ratio. Default: the canvas size.
-        #[arg(long)]
-        size: Option<String>,
-        /// PNG to write. Default: `<state>.png`.
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Also write the display list as JSON (one op and one glyph per line).
-        #[arg(long)]
-        display_list: Option<PathBuf>,
-        #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
-        painter: PainterArg,
-    },
+    Render(RenderArgs),
     /// Export a projection: pdf|png|svg|mp4|webm|html|spine.
     Export {
         bundle: PathBuf,
@@ -124,11 +106,32 @@ enum Cmd {
     Mcp,
 }
 
+#[derive(Args)]
+struct RenderArgs {
+    bundle: PathBuf,
+    #[arg(long)]
+    state: String,
+    /// Milliseconds into the transition into the state. Omitted: the state at rest.
+    #[arg(long)]
+    t: Option<f64>,
+    /// Output pixels, `WxH`, in the canvas's aspect ratio. Default: the canvas size.
+    #[arg(long)]
+    size: Option<String>,
+    /// PNG to write. Default: `<state>.png`.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Also write the display list as JSON (one op and one glyph per line).
+    #[arg(long)]
+    display_list: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
+    painter: PainterArg,
+}
+
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum PainterArg {
     /// `vello_cpu`: headless, deterministic per SIMD level (ADR-0004).
     Cpu,
-    /// `vello` on `wgpu` (PLAN 0.7).
+    /// `vello` on `wgpu`, read back from the GPU (needs a CLI built with `--features gpu`).
     Gpu,
 }
 
@@ -259,12 +262,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
         }
         Cmd::Compile { .. } | Cmd::Decompile { .. } => not_yet("compile/decompile (DSL)", "1.5"),
-        Cmd::Render { bundle, state, t, size, out, display_list, painter } => {
-            if painter == PainterArg::Gpu {
-                return not_yet("render --painter gpu", "0.7");
-            }
-            render(&bundle, &state, t, size.as_deref(), out, display_list, cli.json)
-        }
+        Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { .. } => not_yet("patch", "1.16"),
         Cmd::Theme { .. } => not_yet("theme --apply", "1.6"),
         Cmd::Serve { .. } => not_yet("serve", "2.x"),
@@ -272,18 +270,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
     }
 }
 
-/// `scaena render` with the CPU painter (PLAN 0.6): bundle fonts → `Engine::frame` →
-/// `vello_cpu` → PNG. Timings are wall clock in this client; the render path itself
-/// never reads a clock.
-fn render(
-    bundle: &Path,
-    state: &str,
-    t: Option<f64>,
-    size: Option<&str>,
-    out: Option<PathBuf>,
-    display_list: Option<PathBuf>,
-    json: bool,
-) -> Result<ExitCode> {
+/// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG.
+/// Timings are wall clock in this client; the render path itself never reads a clock.
+fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
+    let RenderArgs { bundle, state, t, size, out, display_list, painter } = args;
+    let state = state.as_str();
     if let Some(t) = t.filter(|t| !t.is_finite() || *t < 0.0) {
         anyhow::bail!("--t {t}: expected a finite, non-negative number of milliseconds");
     }
@@ -297,7 +288,7 @@ fn render(
             ms
         }
     };
-    let b = open(bundle)?;
+    let b = open(&bundle)?;
     let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
     let files = b.read_fonts()?;
     let load = lap();
@@ -322,11 +313,27 @@ fn render(
         std::fs::write(path, dl.to_golden_json()?).with_context(|| format!("writing {}", path.display()))?;
     }
 
-    let scale = match size {
+    let scale = match size.as_deref() {
         Some(size) => scale_for(size, dl.viewport)?,
         None => 1.0,
     };
-    let raster = match CpuPainter::default().paint(&dl, &store, scale) {
+    // Built after the frame, so a state the engine cannot draw costs no GPU start-up.
+    let (mut painter, adapter): (Box<dyn Painter>, Option<String>) = match painter {
+        PainterArg::Cpu => (Box::new(CpuPainter::default()), None),
+        #[cfg(feature = "gpu")]
+        PainterArg::Gpu => {
+            let gpu = scaena_paint::gpu::GpuPainter::new()?;
+            let info = gpu.adapter();
+            let adapter = format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type);
+            (Box::new(gpu), Some(adapter))
+        }
+        #[cfg(not(feature = "gpu"))]
+        PainterArg::Gpu => {
+            return unimplemented("`--painter gpu` needs the CLI built with `--features gpu` (PLAN 0.7)");
+        }
+    };
+    let init = lap();
+    let raster = match painter.paint(&dl, &store, scale) {
         Err(e @ PaintError::NotImplemented(_)) => return unimplemented(e),
         raster => raster?,
     };
@@ -341,22 +348,24 @@ fn render(
         let summary = serde_json::json!({
             "state": state,
             "t_ms": t,
-            "painter": "cpu",
+            "painter": painter.name(),
+            "adapter": adapter,
             "size": [raster.width, raster.height],
             "out": out,
             "display_list": display_list,
             "ms": {
-                "load": us(load), "fonts": us(register), "frame": us(layout),
+                "load": us(load), "fonts": us(register), "frame": us(layout), "init": us(init),
                 "paint": us(paint), "png": us(encode), "total": us(total),
             },
         });
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         println!(
-            "{} ({}×{}, cpu) in {total:.0} ms: load {load:.1} · fonts {register:.1} · frame {layout:.1} · paint {paint:.1} · png {encode:.1}",
+            "{} ({}×{}, {}) in {total:.0} ms: load {load:.1} · fonts {register:.1} · frame {layout:.1} · init {init:.1} · paint {paint:.1} · png {encode:.1}",
             out.display(),
             raster.width,
             raster.height,
+            adapter.as_deref().unwrap_or(painter.name()),
         );
     }
     Ok(ExitCode::SUCCESS)

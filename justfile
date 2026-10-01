@@ -3,8 +3,8 @@
 default:
     @just --list
 
-# fmt + clippy (-D warnings, all features) + tests + schema + wasm32. Must be green before any commit; mirrors CI.
-check: fmt-check clippy test schema wasm-check
+# fmt + clippy (-D warnings, all features) + tests (CPU and GPU) + schema + wasm32. Must be green before any commit; mirrors CI.
+check: fmt-check clippy test test-gpu schema wasm-check
 
 fmt:
     cargo fmt --all
@@ -17,6 +17,11 @@ clippy:
 
 test:
     cargo test --workspace --locked
+
+# Painter and CLI tests with vello on the GPU (PLAN 0.7). Without an adapter they skip and say
+# so; SCAENA_REQUIRE_GPU=1 makes that a failure (CI sets it; Linux CI uses Mesa's lavapipe).
+test-gpu:
+    cargo test -p scaena-paint -p scaena-cli --features gpu --locked
 
 # Re-bless the torture goldens: display lists first, then the rasters painted from them. Only
 # after reviewing the diffs in tests/golden/**/actual/ (written by a failing `just test`).

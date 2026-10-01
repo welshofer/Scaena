@@ -417,6 +417,23 @@ fn catalogue_bidi_paragraphs_are_rtl_and_right_aligned() {
     }
 }
 
+/// Known flaw: `j` + U+030C keeps the j's dot under the caron. Roboto Serif has no
+/// precomposed ǰ (U+01F0) for the shaper to compose to, and no substitution of its
+/// dotless j before a top mark, so the mark lands on the dot. Both painters draw it the
+/// same way. See docs/spike-report.md (PLAN 0.4 catalogue, found in 0.7).
+#[test]
+fn catalogue_j_with_caron_keeps_its_dot_because_the_font_cannot_drop_it() {
+    use skrifa::MetadataProvider;
+    let mut fx = fixture();
+    let dl = fx.frame("combining").unwrap();
+    let serif = std::fs::read(format!("{BUNDLE}/{SERIF}")).unwrap();
+    let charmap = skrifa::FontRef::new(&serif).unwrap().charmap();
+    let gid = |c: char| charmap.map(c).unwrap().to_u32();
+    assert_eq!(charmap.map('\u{1F0}'), None, "the font now has a precomposed ǰ");
+    let ids: Vec<u32> = glyphs(&dl, "combining-2").iter().map(|g| g.id).collect();
+    assert!(ids.windows(2).any(|w| w == [gid('j'), gid('\u{30C}')]), "{ids:?}");
+}
+
 #[test]
 fn catalogue_combining_marks_shape_to_single_clusters() {
     let mut fx = fixture();
