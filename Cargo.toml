@@ -52,11 +52,13 @@ miette    = { version = "7.6", features = ["fancy"] }
 # cli
 clap = { version = "4.6", features = ["derive"] }
 
-# text + layout + geometry (Linebender). Versions verified to resolve and compile together on 2026-10-01.
-parley   = "0.11.1"
-swash    = "0.2.10"
-fontique = "0.11.1"
-taffy    = "0.14.0"
+# text + layout + geometry (Linebender). Resolved versions are recorded in ADR-0004; Cargo.lock is the pin
+# (CI runs --locked). parley 0.11 shapes with harfrust and reads fonts with skrifa; it does not use swash.
+# `system` is off for parley and fontique: the render path must not be able to see system fonts (SPEC §13.3).
+parley   = { version = "0.11.1", default-features = false, features = ["std"] }
+fontique = { version = "0.11.1", default-features = false, features = ["std"] }
+skrifa   = { version = "0.44.0", default-features = false, features = ["std"] } # same minor as parley/vello
+taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
 

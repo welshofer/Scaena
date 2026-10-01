@@ -184,7 +184,7 @@ Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = f
 Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
 
 The engine MUST implement:
-- Shaping via `swash` through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides.
+- Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
 - Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles).
 - Hyphenation by `lang` (optional, off by default for display roles).
 - Widow/orphan control: `minLastLineWords` (default 2 for body, 1 for display).
@@ -671,7 +671,7 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 ```
 crates/
   scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), document-level lints
-  scaena-engine   theme cascade, layout (taffy), text (parley/swash), charts→marks, shaders (CPU ref + WGSL), timeline resolution, sampling, display list
+  scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shaders (CPU ref + WGSL), timeline resolution, sampling, display list
   scaena-paint    painters: vello (gpu), vello_cpu (cpu)
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver), html, spine
   scaena-cli      `scaena` binary
@@ -692,7 +692,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 
 1. No wall clock in the engine. `t` is an input.
 2. All randomness is seeded from the document (`seed` fields) and the node id.
-3. Fonts come from the bundle only. Shaping is `swash`; the same bytes produce the same glyph runs on every platform.
+3. Fonts come from the bundle only; system font discovery is not compiled into the engine. Shaping is `harfrust` via `parley`, font reading is `skrifa`; the same bytes produce the same glyph runs on every platform.
 4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding to 1/64 cu. (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
 5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.

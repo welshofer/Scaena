@@ -53,7 +53,7 @@ apps/mac/              SwiftUI client                                           
 ## Commands
 
 ```
-just check          # fmt + clippy -D warnings + test + schema validation
+just check          # fmt + clippy -D warnings (all features) + test + schema validation + wasm32 clippy; mirrors CI
 just test           # cargo test --workspace
 just schema         # validate docs/examples against docs/schema (python jsonschema)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
@@ -65,7 +65,7 @@ The CLI today: `scaena validate | lint | inspect | diff | export --format spine`
 
 ## Phase 0 in one paragraph
 
-Prove text parity, adversarially. Add `parley`/`swash`/`fontique`/`taffy`/`peniko`/`kurbo`/`vello_cpu`/`vello` (versions already verified to resolve together — see `Cargo.toml` and ADR-0004). Build the typography torture deck under `tests/fixtures/torture.scaena/` (PLAN 0.2 lists every case and which ones are kill criteria). Make `scaena render --state … --painter cpu` emit a PNG and a display list. Then GPU, then WASM/WebGPU, then the parity harness, then one bar→line morph, then one mesh shader, then the authorability spike (PLAN 0.13 — it needs only today's CLI). Write `docs/spike-report.md` and log gate 0 in PLAN. If parity cannot be reached, follow the no-go path in PLAN §0 — do not quietly lower the bar.
+Prove text parity, adversarially. The stack is pinned (PLAN 0.1): `parley` (shaping by `harfrust`, fonts read by `skrifa`), `fontique`, `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello`; versions, feature choices, and open findings are in ADR-0004. System fonts are compiled out: get a font context only from `scaena_engine::fonts::bundle_font_context`. Build the typography torture deck under `tests/fixtures/torture.scaena/` (PLAN 0.2 lists every case and which ones are kill criteria). Make `scaena render --state … --painter cpu` emit a PNG and a display list. Then GPU, then WASM/WebGPU, then the parity harness, then one bar→line morph, then one mesh shader, then the authorability spike (PLAN 0.13 — it needs only today's CLI). Write `docs/spike-report.md` and log gate 0 in PLAN. If parity cannot be reached, follow the no-go path in PLAN §0 — do not quietly lower the bar.
 
 ## Working with Jay
 

@@ -17,8 +17,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ### Tasks
 
-- [ ] 0.1 Pin the stack: add `parley`, `swash`, `fontique` (bundle-only font source), `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello` to `scaena-engine`/`scaena-paint`. Confirm `cargo check` on macOS + Linux. Record versions in ADR-0004.
-- [ ] 0.2 **Typography torture deck** `tests/fixtures/torture.scaena/` (also benchmark B4). Phase 0 is adversarial: we want parley/swash to fail now, not in month five. Three fonts bundled (one variable with `wght`+`opsz`+`wdth`; one with discretionary ligatures; one as fallback for a script the first two lack). States covering: standard and discretionary ligatures; kerning-sensitive pairs (AV, To, LT, f-ligatures); tabular vs proportional and lining vs oldstyle numerals; accented Latin and combining marks; smart quotes, em/en dashes, ellipsis; mixed weights and sizes within one line; very tight and very loose tracking; hanging punctuation and optical margins; a two-line `balance` headline; a `pretty` paragraph with a bait widow; deliberately ugly wrap cases (one long unbreakable word, a URL, narrow measure); emoji; a Hebrew and an Arabic line with Latin inlined (bidi); mixed-font fallback within one run; a bar chart with 6 bars; a mesh background. Each case is its own state so the parity harness reports per case.
+- [x] 0.1 Pin the stack: add `parley`, `fontique` (bundle-only font source), `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello` to `scaena-engine`/`scaena-paint`. Confirm `cargo check` on macOS + Linux. Record versions in ADR-0004. *(Done: CI checks Linux + macOS, the `gpu` feature, and wasm32, all `--locked`. `swash` dropped — `parley` 0.11 shapes with `harfrust` and reads fonts with `skrifa`; versions, feature choices, and four findings for 0.2/0.5/0.6/0.9 are in ADR-0004.)*
+- [ ] 0.2 **Typography torture deck** `tests/fixtures/torture.scaena/` (also benchmark B4). Phase 0 is adversarial: we want parley/harfrust to fail now, not in month five. Three fonts bundled (one variable with `wght`+`opsz`+`wdth`; one with discretionary ligatures; one as fallback for a script the first two lack). States covering: standard and discretionary ligatures; kerning-sensitive pairs (AV, To, LT, f-ligatures); tabular vs proportional and lining vs oldstyle numerals; accented Latin and combining marks; smart quotes, em/en dashes, ellipsis; mixed weights and sizes within one line; very tight and very loose tracking; hanging punctuation and optical margins; a two-line `balance` headline; a `pretty` paragraph with a bait widow; deliberately ugly wrap cases (one long unbreakable word, a URL, narrow measure); emoji; a Hebrew and an Arabic line with Latin inlined (bidi); mixed-font fallback within one run; a bar chart with 6 bars; a mesh background. Each case is its own state so the parity harness reports per case.
   Kill criteria (must pass for gate 0): variable axes, standard ligatures, kerning, numeral styles, accented Latin, bundle-internal fallback, mixed weights, tracking extremes, balanced headline, widow avoidance. Catalogue only (recorded in the report, not gating): combining marks, emoji, bidi, discretionary ligatures.
 - [ ] 0.3 `DisplayList` type (SPEC §6) with JSON + postcard encodings and a stable ordering.
 - [ ] 0.4 Text layout: `parley` → glyph runs with final positions; OpenType features; `wrap: balance` for the headline, `wrap: pretty` for the paragraph (greedy fallback acceptable in spike, but measure the gap).
@@ -43,7 +43,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 6. Per-stage timings recorded against SPEC §15 for B1 (text) and B4 (torture); cold headless 1080p render ≤ 300 ms on an M-series Mac.
 7. Authorability spike (0.13) completed: all five edits validate and lint clean, patches are local, identity survives.
 
-**No-go path:** if text parity cannot be reached with `parley`/`swash`, the fallback is `rustybuzz` + a custom line breaker (ADR-0004 lists the trade). If GPU painting is the problem, ship CPU + WebGL fallback and revisit. If the whole display-list approach fails, that is a different product; stop and reconsider the Tauri/HTML path (ADR-0001 records why we didn't start there).
+**No-go path:** if text parity cannot be reached with `parley`/`harfrust`, the fallback is `harfrust` driven directly + our own line breaker (ADR-0004 lists the trade). If GPU painting is the problem, ship CPU + WebGL fallback and revisit. If the whole display-list approach fails, that is a different product; stop and reconsider the Tauri/HTML path (ADR-0001 records why we didn't start there).
 
 ---
 
@@ -167,7 +167,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 | Risk | Signal | Mitigation |
 |---|---|---|
-| Text parity across painters | Phase 0 task 0.9 | glyph positions in the display list; painters never shape; fallback to `rustybuzz` |
+| Text parity across painters | Phase 0 task 0.9 | glyph positions in the display list; painters never shape; fallback to `harfrust` + own line breaker |
 | `parley` line-breaking quality (`pretty`/`balance`) | 0.4 | own Knuth–Plass pass over parley's clusters if needed |
 | WebGPU availability/quality | 0.8 | CPU painter fallback; measure Firefox |
 | WASM size | 0.8 | feature-gate painters; `wasm-opt`; lazy-load shaders |

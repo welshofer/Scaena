@@ -13,6 +13,7 @@
 
 pub mod charts;
 pub mod error;
+pub mod fonts;
 pub mod layout;
 pub mod render;
 pub mod sample;

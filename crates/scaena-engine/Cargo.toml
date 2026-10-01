@@ -14,4 +14,9 @@ serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
 thiserror.workspace = true
-# Phase 0 (PLAN 0.1) adds: parley, swash, fontique, taffy, peniko, kurbo — pinned in the workspace.
+# Text, layout, geometry (PLAN 0.1, ADR-0004). Versions and feature choices live in the workspace manifest.
+parley.workspace = true
+fontique.workspace = true
+taffy.workspace = true
+peniko.workspace = true
+kurbo.workspace = true

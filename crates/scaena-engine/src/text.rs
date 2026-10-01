@@ -1,9 +1,9 @@
-//! Text layout (SPEC §3.5): shaping via `swash` through `parley`, line breaking
+//! Text layout (SPEC §3.5): shaping via `harfrust` through `parley`, line breaking
 //! (`greedy` / `pretty` / `balance`), cap-height boxes, hanging punctuation,
 //! optical margins, split units for animation.
 //!
-//! Phase 0 tasks 0.4–0.5. Fonts come from the bundle only (SPEC §13.3); the
-//! `fontique` collection is built from bundle bytes, never from the system.
+//! Phase 0 tasks 0.4–0.5. Fonts come from the bundle only (SPEC §13.3): the
+//! font context is [`crate::fonts::bundle_font_context`], never the system.
 //!
 //! Output is a list of glyph runs with final positions — the display list's
 //! `glyphs` op — so painters never shape.

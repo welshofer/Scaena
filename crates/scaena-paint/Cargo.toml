@@ -11,9 +11,14 @@ authors.workspace = true
 [dependencies]
 scaena-core.workspace = true
 thiserror.workspace = true
-# Phase 0 (PLAN 0.6/0.7) adds: vello_cpu, vello, png — pinned in the workspace.
+peniko.workspace = true
+kurbo.workspace = true
+vello_cpu = { workspace = true, optional = true }
+vello = { workspace = true, optional = true }
 
 [features]
 default = ["cpu"]
-cpu = []
-gpu = []
+# Headless, deterministic painter: CI, agents, export (PLAN 0.6).
+cpu = ["dep:vello_cpu"]
+# vello on wgpu: WebGPU in the browser, Metal on the Mac, Vulkan/GL on Linux (PLAN 0.7).
+gpu = ["dep:vello"]

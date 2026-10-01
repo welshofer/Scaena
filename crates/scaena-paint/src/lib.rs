@@ -51,6 +51,39 @@ pub mod cpu {
             Err(PaintError::NotImplemented("cpu painter — PLAN 0.6"))
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use vello_cpu::color::{AlphaColor, Srgb};
+        use vello_cpu::kurbo::Rect;
+        use vello_cpu::{Level, Pixmap, RenderContext, RenderSettings, Resources};
+
+        /// PLAN 0.1 smoke test: `vello_cpu` links and rasterizes. A pixel-aligned opaque
+        /// fill lands exactly, with nothing outside it, both at the architecture's
+        /// baseline SIMD level and at whatever level the host detects.
+        #[test]
+        fn vello_cpu_fills_pixel_aligned_rect_exactly() {
+            const ACCENT: [u8; 4] = [0xFF, 0x6A, 0x3D, 0xFF];
+            for level in [Level::baseline(), Level::new()] {
+                let mut ctx = RenderContext::new_with(4, 4, RenderSettings { level, ..Default::default() });
+                ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(ACCENT[0], ACCENT[1], ACCENT[2], ACCENT[3]));
+                ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
+                ctx.flush();
+                let mut pixmap = Pixmap::new(4, 4);
+                ctx.render(&mut pixmap, &mut Resources::new());
+                let px = |x: usize, y: usize| -> [u8; 4] {
+                    let i = (y * 4 + x) * 4;
+                    pixmap.data_as_u8_slice()[i..i + 4].try_into().unwrap()
+                };
+                for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    assert_eq!(px(x, y), ACCENT, "inside ({x},{y}) at {level:?}");
+                }
+                for (x, y) in [(2, 0), (0, 2), (2, 2), (3, 3)] {
+                    assert_eq!(px(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
+                }
+            }
+        }
+    }
 }
 
 #[cfg(feature = "gpu")]

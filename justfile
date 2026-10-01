@@ -3,8 +3,8 @@
 default:
     @just --list
 
-# fmt + clippy (-D warnings) + tests + schema validation. Must be green before any commit.
-check: fmt-check clippy test schema
+# fmt + clippy (-D warnings, all features) + tests + schema + wasm32. Must be green before any commit; mirrors CI.
+check: fmt-check clippy test schema wasm-check
 
 fmt:
     cargo fmt --all
@@ -13,10 +13,14 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 test:
-    cargo test --workspace
+    cargo test --workspace --locked
+
+# The engine and both painters must keep compiling for the browser (PLAN 0.1, 0.8).
+wasm-check:
+    cargo clippy -p scaena-engine -p scaena-paint --all-features --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate docs/examples against docs/schema (needs python3 + jsonschema; `pip install jsonschema`).
 schema:
@@ -40,6 +44,7 @@ spike:
 wasm:
     cargo build -p scaena-wasm --target wasm32-unknown-unknown --release
 
-# Regenerate the Cargo.lock-resolved versions table for ADR-0004.
+# Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:
-    cargo tree -p scaena-engine -p scaena-paint --depth 1 2>/dev/null || true
+    cargo tree --workspace --all-features -e normal --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
+    cargo tree --workspace --all-features -e normal -d --depth 0
