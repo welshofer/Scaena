@@ -130,7 +130,8 @@ pub enum Op {
     },
 }
 
-/// One positioned glyph: id plus absolute position in canvas units. Encoded as `[id, x, y]`.
+/// One positioned glyph: id plus position (canvas units, in its layer's coordinate space;
+/// y is the baseline). Encoded as `[id, x, y]`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(from = "(u32, f32, f32)", into = "(u32, f32, f32)")]
 pub struct Glyph {

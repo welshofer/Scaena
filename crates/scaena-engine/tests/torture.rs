@@ -1,0 +1,344 @@
+//! The typography torture deck (PLAN 0.2) through the engine (PLAN 0.4).
+//!
+//! - Golden display lists per state under `tests/golden/torture/` (quantized, golden
+//!   JSON layout). After a reviewed change: `SCAENA_BLESS=1 cargo test -p scaena-engine
+//!   --test torture`. On a mismatch the new output is written to `actual/` beside the
+//!   goldens (git-ignored) for diffing.
+//! - Determinism: fonts registered in a different order still give identical bytes.
+//! - One test per kill case asserting that the feature it names was applied.
+//! - Catalogue cases are characterized (pinned as observed, failures included), so an
+//!   upstream change shows up as a test to update, not a silent shift.
+
+use scaena_core::Deck;
+use scaena_core::displaylist::{DisplayList, Glyph, Op, quantize};
+use scaena_engine::fonts::BundleFonts;
+use scaena_engine::text::TextLayout;
+use scaena_engine::theme::{Theme, Wrap};
+use scaena_engine::{Engine, EngineError, FrameRequest};
+use std::collections::BTreeSet;
+
+const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
+const GOLDEN: &str = "../../tests/golden/torture";
+/// States whose node types arrive later: charts (PLAN 0.10) and shaders (PLAN 0.11).
+const LATER: [(&str, &str); 2] = [("chart", "PLAN 0.10"), ("mesh", "PLAN 0.11")];
+const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
+const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
+const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
+const EMOJI: &str = "fonts/NotoColorEmoji-COLRv1.ttf";
+
+struct Fixture {
+    deck: Deck,
+    theme: Theme,
+    engine: Engine,
+}
+
+fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: bool) -> Fixture {
+    let read = |path: &str| std::fs::read(format!("{BUNDLE}/{path}")).unwrap();
+    let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
+    let mut theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    theme_edit(&mut theme.raw);
+    let mut fonts = BundleFonts::new();
+    let mut files: Vec<&str> = deck.fonts.iter().map(|f| f.file.as_str()).collect();
+    if reverse_fonts {
+        files.reverse();
+    }
+    for file in files {
+        fonts.register(file, read(file)).unwrap();
+    }
+    fonts.check_theme(&theme).unwrap();
+    Fixture { deck, theme, engine: Engine::new(fonts) }
+}
+
+fn fixture() -> Fixture {
+    fixture_with(|_| {}, false)
+}
+
+impl Fixture {
+    fn frame(&mut self, state: &str) -> Result<DisplayList, EngineError> {
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms: f64::INFINITY };
+        Ok(self.engine.frame(&req)?.display_list)
+    }
+
+    fn text(&mut self, state: &str, node: &str) -> TextLayout {
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms: f64::INFINITY };
+        self.engine.text_layout(&req, node).unwrap().1
+    }
+
+    fn states(&self) -> Vec<String> {
+        self.deck.states.iter().map(|s| s.id.clone()).collect()
+    }
+}
+
+/// Glyph runs a node's layer draws: (font id, size, coords, glyphs).
+fn runs<'a>(dl: &'a DisplayList, node: &str) -> Vec<(&'a str, f32, &'a [i16], &'a [Glyph])> {
+    let ops = dl
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            Op::Layer { node: Some(n), ops, .. } if n == node => Some(ops),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no layer for `{node}`"));
+    ops.iter()
+        .map(|op| match op {
+            Op::Glyphs { font, size, coords, glyphs, .. } => {
+                (dl.fonts[*font as usize].id.as_str(), *size, coords.as_slice(), glyphs.as_slice())
+            }
+            other => panic!("unexpected op in a text layer: {other:?}"),
+        })
+        .collect()
+}
+
+fn glyphs(dl: &DisplayList, node: &str) -> Vec<Glyph> {
+    runs(dl, node).into_iter().flat_map(|(_, _, _, g)| g.iter().copied()).collect()
+}
+
+fn fonts_used<'a>(dl: &'a DisplayList, node: &str) -> BTreeSet<&'a str> {
+    runs(dl, node).into_iter().map(|(font, ..)| font).collect()
+}
+
+fn line_words(layout: &TextLayout, text: &str, line: usize) -> usize {
+    text[layout.lines[line].text.clone()].split_whitespace().count()
+}
+
+// --- goldens and determinism -----------------------------------------------------
+
+#[test]
+fn display_lists_match_goldens() {
+    let mut fx = fixture();
+    let bless = std::env::var_os("SCAENA_BLESS").is_some();
+    let mut changed = Vec::new();
+    for state in fx.states() {
+        if LATER.iter().any(|(s, _)| *s == state) {
+            continue;
+        }
+        let mut dl = fx.frame(&state).unwrap_or_else(|e| panic!("{state}: {e}"));
+        quantize(&mut dl);
+        let json = dl.to_golden_json().unwrap();
+        let path = format!("{GOLDEN}/{state}.dl.json");
+        if bless {
+            std::fs::create_dir_all(GOLDEN).unwrap();
+            std::fs::write(&path, &json).unwrap();
+        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
+            std::fs::create_dir_all(format!("{GOLDEN}/actual")).unwrap();
+            std::fs::write(format!("{GOLDEN}/actual/{state}.dl.json"), &json).unwrap();
+            changed.push(state);
+        }
+    }
+    assert!(
+        changed.is_empty(),
+        "display lists differ from tests/golden/torture for {changed:?}; new output is in tests/golden/torture/actual/. \
+         Review the diff, then bless with SCAENA_BLESS=1."
+    );
+}
+
+#[test]
+fn frames_are_deterministic_across_engines_and_font_order() {
+    let (mut a, mut b) = (fixture(), fixture_with(|_| {}, true));
+    for state in a.states() {
+        if LATER.iter().any(|(s, _)| *s == state) {
+            continue;
+        }
+        let first = a.frame(&state).unwrap().to_postcard().unwrap();
+        assert_eq!(a.frame(&state).unwrap().to_postcard().unwrap(), first, "{state}: same engine, second frame");
+        assert_eq!(
+            b.frame(&state).unwrap().to_postcard().unwrap(),
+            first,
+            "{state}: fonts registered in reverse order"
+        );
+    }
+}
+
+#[test]
+fn later_node_types_say_which_plan_task_adds_them() {
+    let mut fx = fixture();
+    for (state, task) in LATER {
+        let err = fx.frame(state).unwrap_err();
+        assert!(matches!(err, EngineError::NotImplemented(m) if m.contains(task)), "{state}: {err}");
+    }
+}
+
+#[test]
+fn no_kill_case_draws_notdef() {
+    let mut fx = fixture();
+    let kill = ["axes", "liga", "kern", "numerals", "accents", "mixed", "tracking", "balance", "pretty", "fallback"];
+    for state in kill {
+        let dl = fx.frame(state).unwrap();
+        for op in &dl.ops {
+            if let Op::Layer { node: Some(node), .. } = op {
+                assert!(glyphs(&dl, node).iter().all(|g| g.id != 0), "{state}/{node} draws .notdef");
+            }
+        }
+    }
+}
+
+// --- kill cases ------------------------------------------------------------------
+
+/// Roboto Serif's fvar order is wdth, opsz, wght, GRAD.
+#[test]
+fn kill_variable_axes_reach_the_instance() {
+    let mut fx = fixture();
+    let dl = fx.frame("axes").unwrap();
+    let coords = |node: &str| runs(&dl, node)[0].2.to_vec();
+    assert_eq!((coords("axes-wght-100")[2], coords("axes-wght-900")[2]), (-16384, 16384), "wght 100 / 900");
+    assert_eq!((coords("axes-wdth-50")[0], coords("axes-wdth-150")[0]), (-16384, 16384), "wdth 50 / 150");
+    assert_eq!((coords("axes-opsz-8")[1], coords("axes-opsz-144")[1]), (-16384, 16384), "opsz 8 / 144");
+    // Width follows wdth; opsz alone changes advances at a fixed size.
+    let mut width = |node: &str| fx.text("axes", node).width;
+    assert!(width("axes-wdth-50") < 0.75 * width("axes-wdth-150"));
+    assert_ne!(width("axes-opsz-8"), width("axes-opsz-144"));
+}
+
+#[test]
+fn kill_standard_ligatures_form_and_switch_off() {
+    let mut fx = fixture();
+    let dl = fx.frame("liga").unwrap();
+    let (on, off) = (glyphs(&dl, "liga-on"), glyphs(&dl, "liga-off"));
+    // office affluent fjord flight: ffi, ffl, fj, fl save 2 + 2 + 1 + 1 glyphs.
+    assert_eq!(off.len() - on.len(), 6, "on: {}, off: {}", on.len(), off.len());
+    let off_ids: BTreeSet<u32> = off.iter().map(|g| g.id).collect();
+    assert!(on.iter().any(|g| !off_ids.contains(&g.id)), "ligature glyphs appear only with liga on");
+}
+
+#[test]
+fn kill_kerning_closes_pairs_and_switches_off() {
+    let mut fx = fixture();
+    let dl = fx.frame("kern").unwrap();
+    let (on, off) = (glyphs(&dl, "kern-on"), glyphs(&dl, "kern-off"));
+    assert_eq!(on.iter().map(|g| g.id).collect::<Vec<_>>(), off.iter().map(|g| g.id).collect::<Vec<_>>());
+    // "AVATAR": A→V is the first kerned pair.
+    assert!(on[1].x - on[0].x < off[1].x - off[0].x - 3.0, "AV kerns tighter with kern on");
+    assert!(on.last().unwrap().x < off.last().unwrap().x - 20.0, "the whole line closes up");
+}
+
+#[test]
+fn kill_numeral_styles_switch_widths_and_forms() {
+    let mut fx = fixture();
+    let dl = fx.frame("numerals").unwrap();
+    // "1111 · 0000 · …": glyphs 0–3 are 1s, 7–10 are 0s, one glyph per character.
+    let widths = |node: &str| {
+        let g = glyphs(&dl, node);
+        (g[4].x - g[0].x, g[11].x - g[7].x, g[0].id)
+    };
+    let (tl, to, pl, po) = (widths("num-tab-lin"), widths("num-tab-old"), widths("num-pro-lin"), widths("num-pro-old"));
+    for (name, (ones, zeros, _)) in [("tabular lining", tl), ("tabular oldstyle", to)] {
+        assert!((ones - zeros).abs() < 1e-3, "{name}: 1111 = {ones}, 0000 = {zeros}");
+    }
+    for (name, (ones, zeros, _)) in [("proportional lining", pl), ("proportional oldstyle", po)] {
+        assert!(ones < zeros - 10.0, "{name}: 1111 = {ones} should be narrower than 0000 = {zeros}");
+    }
+    assert_ne!(tl.2, to.2, "oldstyle and lining 1 are different glyphs");
+    assert_ne!(pl.2, po.2, "oldstyle and lining 1 are different glyphs (proportional)");
+}
+
+#[test]
+fn kill_accented_latin_stays_in_the_primary_font() {
+    let mut fx = fixture();
+    let dl = fx.frame("accents").unwrap();
+    for node in ["accents-1", "accents-2", "accents-3"] {
+        assert_eq!(fonts_used(&dl, node), BTreeSet::from([SERIF]), "{node}");
+    }
+}
+
+#[test]
+fn kill_mixed_weights_and_sizes_share_one_baseline() {
+    let mut fx = fixture();
+    let dl = fx.frame("mixed").unwrap();
+    let all = runs(&dl, "mixed-line");
+    let baselines: BTreeSet<u32> = all.iter().flat_map(|r| r.3.iter().map(|g| g.y.to_bits())).collect();
+    assert_eq!(baselines.len(), 1, "one line, one baseline");
+    let sizes: BTreeSet<u32> = all.iter().map(|r| r.1 as u32).collect();
+    assert_eq!(sizes, BTreeSet::from([28, 56, 112]));
+    let weights: BTreeSet<i16> = all.iter().filter(|r| r.1 == 56.0).map(|r| r.2[2]).collect();
+    assert_eq!(weights.len(), 3, "thin, regular, and black instances: {weights:?}");
+}
+
+#[test]
+fn kill_tracking_extremes_space_every_glyph_without_reshaping() {
+    // Same deck with tracking zeroed in both roles is the control.
+    let mut fx = fixture();
+    let mut control = fixture_with(
+        |raw| {
+            raw["type"]["roles"]["tight"]["tracking"] = 0.0.into();
+            raw["type"]["roles"]["loose"]["tracking"] = 0.0.into();
+        },
+        false,
+    );
+    let (dl, base) = (fx.frame("tracking").unwrap(), control.frame("tracking").unwrap());
+    for (node, per_glyph) in [("track-tight", -0.08 * 96.0), ("track-loose", 0.4 * 56.0)] {
+        let (g, c) = (glyphs(&dl, node), glyphs(&base, node));
+        assert_eq!(g.iter().map(|g| g.id).collect::<Vec<_>>(), c.iter().map(|g| g.id).collect::<Vec<_>>(), "{node}");
+        let shift = g.last().unwrap().x - c.last().unwrap().x;
+        let expected = per_glyph * (g.len() - 1) as f32;
+        assert!((shift - expected).abs() < 0.05, "{node}: last glyph moved {shift}, expected {expected}");
+    }
+}
+
+#[test]
+fn kill_balance_evens_the_headline_that_greedy_leaves_ragged() {
+    let mut fx = fixture();
+    let balanced = fx.text("balance", "balance-head");
+    assert_eq!((balanced.wrap, balanced.lines.len()), (Wrap::Balance, 2));
+    let (a, b) = (balanced.lines[0].width, balanced.lines[1].width);
+    assert!(a.min(b) / a.max(b) > 0.9, "balanced lines {a} / {b}");
+    // The bait still bites: greedy at the same width leaves a short second line.
+    let mut greedy = fixture_with(|raw| raw["type"]["roles"]["headline"]["wrap"] = "greedy".into(), false);
+    let ragged = greedy.text("balance", "balance-head");
+    assert!(ragged.lines[1].width / ragged.lines[0].width < 0.4, "greedy {:?}", ragged.lines);
+}
+
+#[test]
+fn kill_pretty_keeps_two_words_on_the_last_line_where_greedy_strands_one() {
+    let mut fx = fixture();
+    let text = fx.deck.nodes["pretty-para"].props["text"].as_str().unwrap().to_string();
+    let pretty = fx.text("pretty", "pretty-para");
+    assert_eq!((pretty.wrap, pretty.fallback), (Wrap::Pretty, None));
+    assert!(line_words(&pretty, &text, pretty.lines.len() - 1) >= 2, "{:?}", pretty.lines);
+    let mut greedy = fixture_with(|raw| raw["type"]["roles"]["body"]["wrap"] = "greedy".into(), false);
+    let stranded = greedy.text("pretty", "pretty-para");
+    assert_eq!(line_words(&stranded, &text, stranded.lines.len() - 1), 1, "the bait still bites under greedy");
+}
+
+#[test]
+fn kill_fallback_within_one_run_uses_three_bundle_fonts() {
+    let mut fx = fixture();
+    let dl = fx.frame("fallback").unwrap();
+    assert_eq!(fonts_used(&dl, "fallback-run"), BTreeSet::from([SERIF, GARAMOND, HEBREW]));
+}
+
+// --- catalogue (characterized as observed) ----------------------------------------
+
+/// Known failure: EB Garamond maps the regional indicators and precedes the emoji font
+/// in the stack, and parley appends the emoji family last for emoji clusters, so the
+/// flag is drawn as two monochrome Garamond letters. Everything else reaches the
+/// color font. See docs/spike-report.md (PLAN 0.4, catalogue).
+#[test]
+fn catalogue_emoji_flag_falls_to_garamond_everything_else_is_color() {
+    let mut fx = fixture();
+    let dl = fx.frame("emoji").unwrap();
+    let by_font: Vec<(&str, usize)> = runs(&dl, "emoji-line").iter().map(|r| (r.0, r.3.len())).collect();
+    let emoji_glyphs: usize = by_font.iter().filter(|(f, _)| *f == EMOJI).map(|(_, n)| n).sum();
+    assert_eq!(emoji_glyphs, 4, "🚀 🙂 👩🏽‍💻 ❤️ as one color glyph each: {by_font:?}");
+    assert!(by_font.contains(&(GARAMOND, 2)), "🇺🇸 as two Garamond regional-indicator glyphs: {by_font:?}");
+}
+
+#[test]
+fn catalogue_bidi_paragraphs_are_rtl_and_right_aligned() {
+    let mut fx = fixture();
+    for (state, node) in [("bidi-hebrew", "bidi-he-line"), ("bidi-arabic", "bidi-ar-line")] {
+        let layout = fx.text(state, node);
+        assert!(layout.rtl, "{node}");
+        assert_eq!(layout.lines.len(), 1, "{node}");
+        let dl = fx.frame(state).unwrap();
+        let xs: Vec<f32> = glyphs(&dl, node).iter().map(|g| g.x).collect();
+        assert!(xs.iter().copied().fold(f32::MAX, f32::min) > 800.0, "{node} starts right of centre: {xs:?}");
+    }
+}
+
+#[test]
+fn catalogue_combining_marks_shape_to_single_clusters() {
+    let mut fx = fixture();
+    let dl = fx.frame("combining").unwrap();
+    assert_eq!(fonts_used(&dl, "combining-1"), BTreeSet::from([SERIF]));
+    assert!(glyphs(&dl, "combining-1").iter().all(|g| g.id != 0));
+}

@@ -58,6 +58,7 @@ just test           # cargo test --workspace
 just schema         # validate docs/examples + tests/fixtures against docs/schema; torture-deck font coverage (python jsonschema, fonttools)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
 just example        # validate/lint/inspect the example deck
+SCAENA_BLESS=1 just test   # re-bless golden display lists, only after reviewing tests/golden/**/actual/
 just spike          # (Phase 0) run the parity harness once it exists
 ```
 

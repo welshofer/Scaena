@@ -483,7 +483,7 @@ A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). 
 
 Rules:
 - Ops are stateless and in paint order: later ops draw over earlier ones. A `layer` scopes `transform`, `clip`, `opacity`, and `blend` for its children and names the scene `node` it draws; painters isolate it only when they must (opacity below 1, a blend other than normal, or a clip). Nodes are drawn in ascending `z`, ties in scene-graph order (`paint_order`), so op order is a pure function of the document.
-- Coordinates are in canvas units with the viewport transform applied by the painter.
+- Coordinates are in canvas units; `viewport` is the canvas extent, and painters map it to their output pixels. Glyph positions are in their layer's coordinate space (a text node's layer translates to its box), so moving a node changes one transform, not every glyph.
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
 - Shader ops carry parameters, not pixels; a painter either runs the WGSL or the CPU reference.
