@@ -614,6 +614,168 @@
         "row": 2
       }
     },
+    "anchor-cap-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "Cap 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-cap-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Cap 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-cap-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "Cap 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-base-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "Base 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          5,
+          6
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-base-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Base 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          5,
+          6
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-base-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "Base 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-x-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "xheight 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
+    "anchor-x-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "xheight 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
+    "anchor-x-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "xheight 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
     "bars": {
       "type": "chart",
       "kind": "bar",
@@ -945,13 +1107,34 @@
       "notes": "Pass: a single run in Roboto Serif. α and ω (absent from Roboto Serif) fall back to EB Garamond, the Hebrew word to Noto Sans Hebrew, following the theme family fallback order. No system font, no .notdef."
     },
     {
+      "id": "anchors",
+      "name": "Typographic anchors",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "21 · Anchors: cap, baseline, x-height across sizes · recorded"
+        },
+        "anchor-cap-112": {},
+        "anchor-cap-64": {},
+        "anchor-cap-28": {},
+        "anchor-base-112": {},
+        "anchor-base-64": {},
+        "anchor-base-28": {},
+        "anchor-x-112": {},
+        "anchor-x-64": {},
+        "anchor-x-28": {}
+      },
+      "notes": "Recorded (PLAN 0.5): across 112, 64 and 28 cu, the first row's cap tops share one line (the cell top, 210 cu); the second row's baselines share one line (the cell bottom, 756 cu); the third row's x-heights share one line (780 cu). Cap height and x-height come from each font's OS/2 table, not glyph bounds."
+    },
+    {
       "id": "chart",
       "name": "Bar chart",
       "mode": "absolute",
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "21 · Bar chart, six bars · recorded"
+          "text": "22 · Bar chart, six bars · recorded"
         },
         "bars": {}
       },
@@ -964,7 +1147,7 @@
       "layout": "specimen",
       "props": {
         "case": {
-          "text": "22 · Mesh background · recorded"
+          "text": "23 · Mesh background · recorded"
         },
         "mesh-bg": {}
       },

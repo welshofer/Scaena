@@ -7,9 +7,9 @@
 
 use crate::EngineError;
 use crate::fonts::BundleFonts;
-use crate::layout::Grid;
+use crate::layout::{AlignX, AlignY, Grid};
 use crate::text::{Span, TextEngine, TextLayout, TextSpec};
-use crate::theme::{Numeric, Theme, Wrap};
+use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Blend, Color, DisplayList, FillRule, Op, Paint, Path, Rect, paint_order};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::{Deck, Snapshot};
@@ -61,9 +61,9 @@ impl Engine {
             let props = &snap.nodes[id];
             match req.deck.nodes[id].node_type {
                 NodeType::Text => {
-                    let (rect, text) = self.layout_text_node(req, &grid, snap, id)?;
-                    let mut ops = Vec::with_capacity(text.runs.len());
-                    for run in text.runs {
+                    let placed = self.layout_text_node(req, &grid, snap, id)?;
+                    let mut ops = Vec::with_capacity(placed.text.runs.len());
+                    for run in placed.text.runs {
                         let font = dl.font(run.font);
                         ops.push(Op::Glyphs {
                             font,
@@ -75,7 +75,7 @@ impl Engine {
                     }
                     dl.ops.push(Op::Layer {
                         node: Some(id.to_string()),
-                        transform: [1.0, 0.0, 0.0, 1.0, rect[0], rect[1]],
+                        transform: [1.0, 0.0, 0.0, 1.0, placed.origin[0], placed.origin[1]],
                         opacity: props.get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32,
                         blend: Blend::Normal,
                         clip: None,
@@ -97,10 +97,9 @@ impl Engine {
         Ok(Frame { display_list: dl, duration_ms: 0.0 })
     }
 
-    /// One text node of a state, laid out on the grid: its box (canvas units) and its
-    /// text, positioned relative to the box. What `frame` draws, and what layout-level
-    /// lints (E100 overflow, W200 widows) read.
-    pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<(Rect, TextLayout), EngineError> {
+    /// One text node of a state, laid out and placed: what `frame` draws, and what
+    /// layout-level lints (E100 overflow, W200 widows) read.
+    pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<PlacedText, EngineError> {
         let snapshots = scaena_core::resolve_states(req.deck)?;
         let snap = find_state(&snapshots, req.state)?;
         if !snap.nodes.contains_key(node) {
@@ -116,20 +115,59 @@ impl Engine {
         grid: &Grid,
         snap: &Snapshot,
         id: &str,
-    ) -> Result<(Rect, TextLayout), EngineError> {
+    ) -> Result<PlacedText, EngineError> {
         let props = &snap.nodes[id];
         let template = snap.layout.as_deref();
         let at = props.get("at");
-        let rect = grid.place(req.theme, template, at).map_err(|e| in_node(id, e))?;
+        let cell = grid.place(req.theme, template, at).map_err(|e| in_node(id, e))?;
         let spec = text_spec(req.deck, props, Grid::slot_role(req.theme, template, at)).map_err(|e| in_node(id, e))?;
-        let text = self.text.layout(&mut self.fonts, req.theme, &spec, rect[2]).map_err(|e| in_node(id, e))?;
+        let text = self.text.layout(&mut self.fonts, req.theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
         if text.synthesized {
             return Err(EngineError::Font(format!(
                 "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
                  use a weight or style the family provides"
             )));
         }
-        Ok((rect, text))
+        let (align_x, align_y) = Grid::alignment(req.theme, template, props).map_err(|e| in_node(id, e))?;
+        if matches!(align_x, AlignX::Center | AlignX::End) {
+            return Err(EngineError::NotImplemented("centered and end-aligned text — PLAN 1.8"));
+        }
+        let trim = match typed_prop::<TextBox>(props, "box")? {
+            Some(trim) => trim,
+            None => req.theme.text_role(&spec.role)?.text_box,
+        };
+        let origin = [cell[0], text_top(cell, align_y, &text, trim)];
+        Ok(PlacedText { cell, origin, text })
+    }
+}
+
+/// A text node placed on the canvas.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedText {
+    /// The grid cell or slot it was given, canvas units.
+    pub cell: Rect,
+    /// Where the text's top-left corner (paragraph top, line start) lands, canvas units.
+    pub origin: [f32; 2],
+    /// Laid out relative to `origin`.
+    pub text: TextLayout,
+}
+
+/// Canvas y of the paragraph top, so the text's anchor sits where its alignment says
+/// (SPEC §3.4). `start`, `center`, and `end` align the trimmed box; `cap` and
+/// `x-height` put the first line's cap or x-height on the cell's top edge; `baseline`
+/// puts the last line's baseline on the cell's bottom edge.
+fn text_top(cell: Rect, align: AlignY, text: &TextLayout, trim: TextBox) -> f32 {
+    let (top, bottom) = text.trimmed(trim);
+    let (cell_top, cell_bottom) = (cell[1], cell[1] + cell[3]);
+    let first = text.lines.first();
+    let above_baseline = |metric: Option<f32>| first.map_or(0.0, |l| metric.map_or(0.0, |m| l.baseline - m));
+    match align {
+        AlignY::Start | AlignY::Stretch => cell_top - top,
+        AlignY::End => cell_bottom - bottom,
+        AlignY::Center => cell_top + 0.5 * (cell[3] - (bottom - top)) - top,
+        AlignY::Cap => cell_top - above_baseline(first.and_then(|l| l.cap_height)),
+        AlignY::XHeight => cell_top - above_baseline(first.and_then(|l| l.x_height)),
+        AlignY::Baseline => cell_bottom - text.lines.last().map_or(0.0, |l| l.baseline),
     }
 }
 

@@ -20,7 +20,7 @@ fn torture_deck_is_valid_and_lint_clean() {
 fn every_torture_state_is_an_isolated_case() {
     let deck = Deck::from_json(TORTURE).unwrap();
     let snapshots = resolve_states(&deck).unwrap();
-    assert_eq!(snapshots.len(), 22);
+    assert_eq!(snapshots.len(), 23);
     let mut specimens_seen = HashSet::new();
     for (state, snap) in deck.states.iter().zip(&snapshots) {
         assert_eq!(state.mode, StateMode::Absolute, "{} must not track from the previous case", state.id);

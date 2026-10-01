@@ -14,7 +14,7 @@ use scaena_core::displaylist::{DisplayList, Glyph, Op, quantize};
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::TextLayout;
 use scaena_engine::theme::{Theme, Wrap};
-use scaena_engine::{Engine, EngineError, FrameRequest};
+use scaena_engine::{Engine, EngineError, FrameRequest, PlacedText};
 use std::collections::BTreeSet;
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
@@ -59,9 +59,13 @@ impl Fixture {
         Ok(self.engine.frame(&req)?.display_list)
     }
 
-    fn text(&mut self, state: &str, node: &str) -> TextLayout {
+    fn placed(&mut self, state: &str, node: &str) -> PlacedText {
         let req = FrameRequest { deck: &self.deck, theme: &self.theme, state, t_ms: f64::INFINITY };
-        self.engine.text_layout(&req, node).unwrap().1
+        self.engine.text_layout(&req, node).unwrap()
+    }
+
+    fn text(&mut self, state: &str, node: &str) -> TextLayout {
+        self.placed(state, node).text
     }
 
     fn states(&self) -> Vec<String> {
@@ -129,6 +133,39 @@ fn display_lists_match_goldens() {
         changed.is_empty(),
         "display lists differ from tests/golden/torture for {changed:?}; new output is in tests/golden/torture/actual/. \
          Review the diff, then bless with SCAENA_BLESS=1."
+    );
+}
+
+/// FNV-1a, 64-bit: a dependency-free digest for change detection (not security).
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// Stricter than the contract: SPEC §13.4 compares display lists after quantizing,
+/// but if unquantized output is already bit-identical across platforms (CI runs
+/// x86-64 Linux and arm64 macOS), quantization is pure margin, and any change that
+/// makes float results platform-dependent fails here before it happens to cross a
+/// rounding boundary.
+#[test]
+fn raw_display_lists_are_bit_identical_across_platforms() {
+    let mut fx = fixture();
+    let mut digests = String::new();
+    for state in fx.states() {
+        if LATER.iter().any(|(s, _)| *s == state) {
+            continue;
+        }
+        let bytes = fx.frame(&state).unwrap().to_postcard().unwrap();
+        digests.push_str(&format!("{state} {:016x}\n", fnv1a(&bytes)));
+    }
+    let path = format!("{GOLDEN}/raw.fnv1a");
+    if std::env::var_os("SCAENA_BLESS").is_some() {
+        std::fs::write(&path, &digests).unwrap();
+    }
+    let expected = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        digests, expected,
+        "unquantized display lists differ from {path}. If only this test fails, float results now depend on \
+         the platform: quantized goldens still hold the contract, but find the cause before re-blessing."
     );
 }
 
@@ -304,6 +341,42 @@ fn kill_fallback_within_one_run_uses_three_bundle_fonts() {
     let mut fx = fixture();
     let dl = fx.frame("fallback").unwrap();
     assert_eq!(fonts_used(&dl, "fallback-run"), BTreeSet::from([SERIF, GARAMOND, HEBREW]));
+}
+
+// --- alignment (PLAN 0.5) -----------------------------------------------------------
+
+/// Canvas y of a placed text's first cap top, first x-height top, and last baseline.
+fn anchors(p: &PlacedText) -> (f32, f32, f32) {
+    let (first, last) = (&p.text.lines[0], p.text.lines.last().unwrap());
+    let y = |local: f32| p.origin[1] + local;
+    (y(first.baseline - first.cap_height.unwrap()), y(first.baseline - first.x_height.unwrap()), y(last.baseline))
+}
+
+#[test]
+fn anchors_line_up_cap_heights_baselines_and_x_heights_across_sizes() {
+    let mut fx = fixture();
+    for size in [112, 64, 28] {
+        let cap = anchors(&fx.placed("anchors", &format!("anchor-cap-{size}"))).0;
+        let base = anchors(&fx.placed("anchors", &format!("anchor-base-{size}"))).2;
+        let x = anchors(&fx.placed("anchors", &format!("anchor-x-{size}"))).1;
+        assert!((cap - 210.0).abs() < 1e-3, "{size} cu cap top at {cap}");
+        assert!((base - 756.0).abs() < 1e-3, "{size} cu baseline at {base}");
+        assert!((x - 780.0).abs() < 1e-3, "{size} cu x-height at {x}");
+    }
+}
+
+#[test]
+fn box_cap_trims_to_the_cap_height_and_slots_align_by_it() {
+    let mut fx = fixture();
+    // `headline` is `box: cap`, aligned `start`: its cap top is the cell top.
+    let head = fx.placed("balance", "balance-head");
+    assert!((anchors(&head).0 - head.cell[1]).abs() < 1e-3, "cap top {} vs cell {}", anchors(&head).0, head.cell[1]);
+    // `body` is `box: line`: its line box starts at the cell top.
+    let body = fx.placed("pretty", "pretty-para");
+    assert_eq!(body.origin[1], body.cell[1]);
+    // The `case` slot aligns `y: cap`.
+    let label = fx.placed("axes", "case");
+    assert!((anchors(&label).0 - 96.0).abs() < 1e-3);
 }
 
 // --- catalogue (characterized as observed) ----------------------------------------

@@ -6,7 +6,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,96.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
         [261,0.0,20.71875],
         [262,13.203125,20.71875],
@@ -48,7 +48,7 @@
         [176,422.64062,20.71875]
       ]}}
     ]}},
-    {"layer":{"node":"balance-head","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"balance-head","transform":[1.0,0.0,0.0,1.0,96.0,197.375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,6554,0],"paint":{"solid":"#16140FFF"},"glyphs":[
         [76,0.0,80.78125],
         [143,65.65625,80.78125],

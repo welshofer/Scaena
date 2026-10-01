@@ -14,7 +14,7 @@ Versions, feature choices, and the reasoning are in ADR-0004. What the spike lea
 
 ## 0.2 Torture deck
 
-22 states in `tests/fixtures/torture.scaena/` (case table in its README): 10 kill, 5 catalogue, 7 recorded. Five OFL fonts subset deterministically from a pinned google/fonts commit (emoji 24.7 MB → 28 KB, COLRv1 only). Balance and widow baits were measured with HarfBuzz 14.5 to fail under greedy breaking with ±15 cu of slack.
+22 states in `tests/fixtures/torture.scaena/` (case table in its README): 10 kill, 5 catalogue, 7 recorded; 0.5 added `anchors` (recorded), for 23. Five OFL fonts subset deterministically from a pinned google/fonts commit (emoji 24.7 MB → 28 KB, COLRv1 only). Balance and widow baits were measured with HarfBuzz 14.5 to fail under greedy breaking with ±15 cu of slack.
 
 Found before any rendering existed:
 - `scaena inspect` panicked slicing multi-byte text at a byte offset (fixed in 0.2).
@@ -60,6 +60,8 @@ Found before any rendering existed:
 
 **Recorded:** the URL breaks only after `/` and `?`, never inside a path segment. The unbreakable word overflows its 852 cu box by 748 cu, with no emergency break (E100's job, PLAN 1.15). The 268 cu column sets six ragged greedy lines. Hanging punctuation and optical margins are not implemented (PLAN 1.8).
 
+**Cross-platform (gate 0 criterion 1, display-list half):** CI on arm64 macOS (`aarch64-apple-darwin`, PR #4) reproduced all 20 quantized goldens blessed on x86-64 Linux, byte for byte; the determinism test (fonts registered in reverse order) passed there too.
+
 **Timings** (`cargo run --release -p scaena-engine --example torture_timing`):
 
 | Stage | Measured | SPEC §15 |
@@ -70,3 +72,13 @@ Found before any rendering existed:
 | Display list → postcard | 3–4 µs | — |
 
 Warm frames cost the same as cold ones because `frame()` lays out on every call; there is no per-snapshot layout cache yet. PLAN 0.10 needs one: frames must only sample (SPEC §5).
+
+## 0.5 Cap-height and baseline alignment
+
+Text aligns in its cell by its trimmed box or by a typographic anchor (SPEC §3.4, now precise). `box: cap` trims from the first line's cap height to the last baseline; `y: cap` / `y: x-height` put the first line's cap or x-height on the cell's top edge; `y: baseline` puts the last baseline on the cell's bottom edge. Metrics come from OS/2 via parley's run metrics (cap 710 / 1000 × 96 cu = 68.16 cu, as the table says).
+
+- A new torture state, `anchors`, sets 112, 64, and 28 cu text in three rows aligned by cap, baseline, and x-height; every anchor lands within 0.001 cu of its line (210, 756, 780 cu). Test: `anchors_line_up_cap_heights_baselines_and_x_heights_across_sizes`.
+- The golden diff for this task touched only layer transforms: the `case` label moved up 5.09 cu (its cap top now on the slot top) and the `box: cap` headline 12.62 cu. No glyph moved relative to its layer, which is the point of positioning glyphs in layer space.
+- Fixed on the way: the 0.4 `LineBox.top` was parley's `block_min_coord`, the top of the *ascent* box, which sits above the line box when leading is tighter than ascent + descent (−8.21 cu for the 96 cu headline). It is now the CSS line-box top.
+- Stricter determinism check: `raw_display_lists_are_bit_identical_across_platforms` digests the *unquantized* display lists (`tests/golden/torture/raw.fnv1a`, FNV-1a over postcard bytes) and gates on them. The contract only needs quantized equality; this shows whether quantization is margin or necessity, and catches platform-dependent float math before it crosses a rounding boundary. First arm64 result: PR #5's macOS job.
+- Not yet: centered and end-aligned text (`NotImplemented`, PLAN 1.8); a font without OS/2 cap height keeps its line edge (none in the torture deck).

@@ -24,7 +24,7 @@
 
 use crate::EngineError;
 use crate::fonts::BundleFonts;
-use crate::theme::{Numeric, TextRole, Theme, Wrap};
+use crate::theme::{Numeric, TextBox, TextRole, Theme, Wrap};
 use parley::setting::Tag;
 use parley::{
     Alignment, AlignmentOptions, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontVariation, FontVariations,
@@ -93,8 +93,11 @@ pub struct TextLayout {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LineBox {
+    /// Top of the line box (CSS): the sum of the heights of the lines above.
     pub top: f32,
+    /// Baseline, from the paragraph top.
     pub baseline: f32,
+    /// Line-box height (leading × size of the tallest run).
     pub height: f32,
     pub ascent: f32,
     pub descent: f32,
@@ -105,6 +108,20 @@ pub struct LineBox {
     /// From the line's first run (OS/2), when the font provides it.
     pub cap_height: Option<f32>,
     pub x_height: Option<f32>,
+}
+
+impl TextLayout {
+    /// The vertical extent the text aligns by, from the paragraph top. `line`: the line
+    /// boxes. `cap`: from the first line's cap height to the last line's baseline (CSS
+    /// `text-box: trim-both cap alphabetic`), so a cap top can sit exactly on a grid
+    /// line. A font without OS/2 cap height keeps the line edge on that side.
+    pub fn trimmed(&self, trim: TextBox) -> (f32, f32) {
+        let (Some(first), Some(last)) = (self.lines.first(), self.lines.last()) else { return (0.0, 0.0) };
+        match trim {
+            TextBox::Line => (0.0, self.height),
+            TextBox::Cap => (first.cap_height.map_or(0.0, |cap| first.baseline - cap), last.baseline),
+        }
+    }
 }
 
 /// Glyphs that share font, size, instance, and color.
@@ -381,6 +398,7 @@ fn read_layout(
     let mut lines = Vec::new();
     let mut runs = Vec::new();
     let mut synthesized = false;
+    let mut top = 0.0_f32;
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
         let (mut cap_height, mut x_height) = (None, None);
@@ -402,8 +420,11 @@ fn read_layout(
                 line: index,
             });
         }
+        // parley's `block_min_coord` is the top of the ascent box, which sits above the
+        // line box when leading is tighter than the font's ascent + descent; the line
+        // box itself starts where the previous one ended.
         lines.push(LineBox {
-            top: m.block_min_coord,
+            top,
             baseline: m.baseline,
             height: m.line_height,
             ascent: m.ascent,
@@ -413,6 +434,7 @@ fn read_layout(
             cap_height,
             x_height,
         });
+        top += m.line_height;
     }
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     Ok(TextLayout { lines, runs, width, height: layout.height(), wrap, fallback, rtl, synthesized })

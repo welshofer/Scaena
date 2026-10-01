@@ -10,6 +10,7 @@
 use crate::EngineError;
 use crate::theme::Theme;
 use scaena_core::displaylist::Rect;
+use scaena_core::document::Props;
 use serde_json::Value;
 
 /// The theme grid resolved against the canvas, in canvas units.
@@ -100,11 +101,42 @@ impl Grid {
         Ok(rect)
     }
 
+    /// The slot definition `at` names in layout template `template`, if it names one.
+    pub fn slot(theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Option<Value> {
+        let name = at?.get("in")?.as_str()?;
+        theme.slots(template?)?.get(name).cloned()
+    }
+
     /// The default text role a slot gives nodes placed in it.
     pub fn slot_role(theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Option<String> {
-        let name = at?.get("in")?.as_str()?;
-        let slots = theme.slots(template?)?;
-        Some(slots.get(name)?.get("role")?.as_str()?.to_string())
+        Some(Self::slot(theme, template, at)?.get("role")?.as_str()?.to_string())
+    }
+
+    /// How a node aligns in its cell: the slot's default, then the node's `align`, then
+    /// `at.align`, later wins; `start` on both axes when nobody says.
+    pub fn alignment(theme: &Theme, template: Option<&str>, props: &Props) -> Result<(AlignX, AlignY), EngineError> {
+        let at = props.get("at");
+        let slot = Self::slot(theme, template, at);
+        let sources = [slot.as_ref().and_then(|s| s.get("align")), props.get("align"), at.and_then(|a| a.get("align"))];
+        let (mut x, mut y) = (AlignX::Start, AlignY::Start);
+        for value in sources.into_iter().flatten() {
+            match value {
+                // One keyword aligns both axes; the typographic anchors are vertical only.
+                Value::String(k) => (x, y) = (AlignX::parse(k)?, AlignY::parse(k)?),
+                Value::Object(o) => {
+                    if let Some(k) = o.get("x").and_then(Value::as_str) {
+                        x = AlignX::parse(k)?;
+                    }
+                    if let Some(k) = o.get("y").and_then(Value::as_str) {
+                        y = AlignY::parse(k)?;
+                    }
+                }
+                other => {
+                    return Err(EngineError::Layout(format!("`align` must be a keyword or {{x, y}}, got {other}")));
+                }
+            }
+        }
+        Ok((x, y))
     }
 
     fn margin_box(&self) -> Rect {
@@ -118,6 +150,56 @@ impl Grid {
         let (x0, x1) = span(&self.cols, col, "col")?;
         let (y0, y1) = span(&self.rows, row, "row")?;
         Ok([x0, y0, x1 - x0, y1 - y0])
+    }
+}
+
+/// Horizontal alignment in a cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignX {
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
+impl AlignX {
+    fn parse(keyword: &str) -> Result<AlignX, EngineError> {
+        Ok(match keyword {
+            "start" => AlignX::Start,
+            "center" => AlignX::Center,
+            "end" => AlignX::End,
+            "stretch" => AlignX::Stretch,
+            other => return Err(EngineError::Layout(format!("`{other}` is not a horizontal alignment"))),
+        })
+    }
+}
+
+/// Vertical alignment in a cell, including the typographic anchors (SPEC §3.4):
+/// `cap` and `x-height` put the first line's cap or x-height on the cell's top edge;
+/// `baseline` puts the last line's baseline on the cell's bottom edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignY {
+    Start,
+    Center,
+    End,
+    Stretch,
+    Cap,
+    Baseline,
+    XHeight,
+}
+
+impl AlignY {
+    fn parse(keyword: &str) -> Result<AlignY, EngineError> {
+        Ok(match keyword {
+            "start" => AlignY::Start,
+            "center" => AlignY::Center,
+            "end" => AlignY::End,
+            "stretch" => AlignY::Stretch,
+            "cap" => AlignY::Cap,
+            "baseline" => AlignY::Baseline,
+            "x-height" => AlignY::XHeight,
+            other => return Err(EngineError::Layout(format!("`{other}` is not a vertical alignment"))),
+        })
     }
 }
 

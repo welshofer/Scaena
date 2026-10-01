@@ -173,7 +173,7 @@ Placement is declared with `at`, resolved against the state's **layout template*
 
 Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = flex (one axis), `grid` = CSS grid, `frame` = absolute. Sizing values: `fixed(cu)`, `fit`, `fill`, `fraction(n)`, `aspect(w:h)`, `min/max`.
 
-**Alignment** includes typographic anchors, not just box edges: `y: "cap"` aligns cap height, `y: "baseline"` aligns baselines, `y: "x-height"`. Text boxes trim to cap-height/baseline when `box: "cap"` (the `text-box-trim` idea) so optical alignment is precise.
+**Alignment** in a cell is `x: start|center|end|stretch` and `y: start|center|end|stretch|cap|baseline|x-height`; a single keyword sets both axes. The slot's `align` is the default, the node's `align` overrides it, and `at.align` overrides both; `start` when nobody says. `start`/`center`/`end` align the text's box. The typographic anchors align text of any size to a shared line: `y: "cap"` and `y: "x-height"` put the first line's cap height or x-height on the cell's top edge, and `y: "baseline"` puts the last line's baseline on the cell's bottom edge. `box: "cap"` trims the text's box from the first line's cap height to the last line's baseline (CSS `text-box: trim-both cap alphabetic`), so a cap top can sit exactly on a grid line; `box: "line"` (default) uses line boxes. Cap height and x-height come from the font's OS/2 table, never from glyph bounds.
 
 **Text fit policy** (`fit`): `wrap` (default) | `shrink` (down to role `minSize`) | `grow` (up to role `maxSize`) | `clip` | `error`. Overflow under `wrap`/`clip` is lint **E100**; under `shrink` it is **W203** once the minimum is reached.
 
