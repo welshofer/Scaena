@@ -99,7 +99,7 @@ Text aligns in its cell by its trimmed box or by a typographic anchor (SPEC §3.
 | f32 pipeline (AVX2 or scalar) | 0 / 21 | ≈ 6,800 per frame | 3 | 0.30 | 18.5 |
 | Unquantized display list (what `render` paints) | 0 / 6 sampled | 4,900–16,000 per frame | 5 | 0.32 | — |
 
-  Nothing comes near the tolerance. The goldens stay at the host's best SIMD level with the u8 pipeline, single-threaded; ADR-0004 findings 1, 2, and 5 have the decisions. SPEC §13.4 says only comparisons round, so `render` paints the unquantized list, and its PNG sits within tolerance of the golden rather than on it. NEON is not measured here: macOS CI checks the x86-64-blessed goldens and prints each state's delta.
+  Nothing comes near the tolerance. The goldens stay at the host's best SIMD level with the u8 pipeline, single-threaded; ADR-0004 findings 1, 2, and 5 have the decisions. SPEC §13.4 says only comparisons round, so `render` paints the unquantized list, and its PNG sits within tolerance of the golden rather than on it. NEON: PR #6's macOS job (`aarch64-apple-darwin`) painted all 21 states byte-identical to these x86-64 AVX2 goldens, 0 pixels different in every state. With #5's unquantized display lists also bit-identical across the two platforms, the CPU path is bit-identical end to end on Linux x86-64 and macOS arm64, for this deck.
 - **Hinting.** glifo (vello_cpu's text) hints glyph outlines by default, and vello does not. `CpuPainter` turns hinting off so the two painters can agree (ADR-0004 finding 5).
 
 | Stage, cold `scaena render` (release, 21 states, 1080p) | Min | Median | Max | SPEC §15 |
