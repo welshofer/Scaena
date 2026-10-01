@@ -10,6 +10,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A stalled GPU readback or test must fail the job, not hold a runner for six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +40,7 @@ jobs:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -55,6 +58,7 @@ jobs:
       - run: node crates/scaena-wasm/www/smoke.mjs
   schema:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
