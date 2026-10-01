@@ -107,9 +107,11 @@ pub fn compare(a: &Raster, b: &Raster) -> Result<Diff, PaintError> {
     Ok(diff)
 }
 
-/// One `u32` per pixel, so the common case (equal pixels) is a single comparison.
+/// One `u32` per pixel, so the common case (equal pixels) is a single comparison. A fully
+/// transparent pixel is one value whatever its colour channels hold: straight alpha leaves
+/// them meaningless, and a GPU readback can leave noise there.
 fn packed(r: &Raster) -> Vec<u32> {
-    r.rgba.as_chunks::<4>().0.iter().map(|&p| u32::from_le_bytes(p)).collect()
+    r.rgba.as_chunks::<4>().0.iter().map(|&p| if p[3] == 0 { 0 } else { u32::from_le_bytes(p) }).collect()
 }
 
 /// Largest per-channel difference between two packed pixels.
@@ -200,6 +202,17 @@ mod tests {
         assert!((delta_e([0, 0, 0, 255], [255, 255, 255, 255]) - 100.0).abs() < 0.1);
         // One step of one 8-bit channel is below the 1.0 threshold.
         assert!(delta_e([128, 128, 128, 255], [129, 128, 128, 255]) < 1.0);
+    }
+
+    #[test]
+    fn fully_transparent_pixels_are_equal_whatever_their_colour_channels() {
+        let a = flat(4, 4, [0, 0, 0, 0]);
+        let mut b = a.clone();
+        set(&mut b, 1, 1, [2, 1, 1, 0]);
+        set(&mut b, 2, 2, [255, 255, 255, 0]);
+        let d = compare(&a, &b).unwrap();
+        assert_eq!((d.differing, d.max_channel), (0, 0), "{d}");
+        assert!(d.passes(), "{d}");
     }
 
     #[test]
