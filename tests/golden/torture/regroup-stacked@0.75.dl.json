@@ -6,20 +6,20 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"36","glyphs":[
           [263,0.0,20.71875],
           [266,13.203125,20.71875]
-        ]}}
+        ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":":","glyphs":[
           [312,253.32812,20.71875]
-        ]}}
+        ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.95096016,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"stacked","glyphs":[
           [201,267.10938,20.71875],
           [207,278.98438,20.71875],
           [124,288.53125,20.71875],
@@ -27,31 +27,31 @@
           [174,315.28125,20.71875],
           [143,330.125,20.71875],
           [141,343.73438,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"·","glyphs":[
           [328,32.828125,20.71875]
-        ]}}
+        ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Bars","glyphs":[
           [14,46.546875,20.71875],
           [124,62.8125,20.71875],
           [197,76.28125,20.71875],
           [201,86.828125,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"that","glyphs":[
           [207,105.1875,20.71875],
           [161,114.75,20.71875],
           [124,130.17188,20.71875],
           [207,143.5,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"regroup","glyphs":[
           [197,159.5,20.71875],
           [143,169.89062,20.71875],
           [156,183.29688,20.71875],
@@ -59,15 +59,15 @@
           [186,207.8125,20.71875],
           [210,222.65625,20.71875],
           [195,237.75,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3,4,5,6]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,-2.59375,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,-2.59375,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"·","glyphs":[
           [328,365.51562,20.71875]
-        ]}}
+        ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,-2.59375,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,-2.59375,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"recorded","glyphs":[
           [197,379.23438,20.71875],
           [143,389.625,20.71875],
           [135,403.21875,20.71875],
@@ -76,17 +76,17 @@
           [141,441.82812,20.71875],
           [143,457.1875,20.71875],
           [141,470.78125,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3,4,5,6,7]}}
       ]}}
     ]}},
-    {"layer":{"node":"regroup","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L1728 -210L1728 870L0 870Z","ops":[
+    {"layer":{"node":"regroup","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L1728 -210L1728 870L0 870Z","ops":[
       {"stroke":{"path":"M47.59375 621.84375L1708.7969 621.84375","paint":{"solid":"#DAD5C904"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 376.15625L1708.7969 376.15625","paint":{"solid":"#DAD5C904"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 499L1708.7969 499","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 253.3125L1708.7969 253.3125","paint":{"solid":"#DAD5C995"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 7.625L1708.7969 7.625","paint":{"solid":"#DAD5C995"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 744.6875L1708.7969 744.6875","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M47.59375 -210L1708.7969 -210L1708.7969 870L47.59375 870Z","ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M47.59375 -210L1708.7969 -210L1708.7969 870L47.59375 870Z","ops":[
         {"fill":{"path":"M106 600.4844L394.71875 600.4844L394.71875 744.6875L106 744.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
         {"fill":{"path":"M521.4219 564.4219L810.1406 564.4219L810.1406 744.6875L521.4219 744.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
         {"fill":{"path":"M936.84375 528.375L1225.5625 528.375L1225.5625 744.6875L936.84375 744.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
@@ -99,181 +99,181 @@
         {"fill":{"path":"M533.3125 408.1875L818.03125 408.1875C819.1406 408.1875 820.03125 409.09375 820.03125 410.1875L820.03125 456.26563L531.3125 456.26563L531.3125 410.1875C531.3125 409.09375 532.21875 408.1875 533.3125 408.1875Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
         {"fill":{"path":"M948.7344 312.04688L1233.4531 312.04688C1234.5625 312.04688 1235.4531 312.9375 1235.4531 314.04688L1235.4531 360.125L946.7344 360.125L946.7344 314.04688C946.7344 312.9375 947.625 312.04688 948.7344 312.04688Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
         {"fill":{"path":"M1364.1563 167.82813L1648.875 167.82813C1649.9844 167.82813 1650.875 168.73438 1650.875 169.82813L1650.875 251.95313L1362.1563 251.95313L1362.1563 169.82813C1362.1563 168.73438 1363.0469 167.82813 1364.1563 167.82813Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,239.39062,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,239.39062,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Q1","glyphs":[
             [75,0.0,20.71875],
             [416,18.53125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,654.6875,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,654.6875,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Q2","glyphs":[
             [75,0.0,20.71875],
             [417,18.53125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1069.9844,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1069.9844,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Q3","glyphs":[
             [75,0.0,20.71875],
             [418,18.53125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1485.2969,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1485.2969,747.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Q4","glyphs":[
             [75,0.0,20.71875],
             [419,18.53125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,230.5625,571.7656],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,230.5625,571.7656],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$12","glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [417,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,645.9844,535.71875],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,645.9844,535.71875],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$15","glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [420,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1061.4062,499.65625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1061.4062,499.65625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$18","glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [423,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1476.8281,451.59375],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1476.8281,451.59375],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$22","glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [417,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,242.10938,499.65625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,242.10938,499.65625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$6","glyphs":[
             [342,0.0,20.71875],
             [421,13.203125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,657.53125,427.54688],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,657.53125,427.54688],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$9","glyphs":[
             [342,0.0,20.71875],
             [424,13.203125,20.71875]
-          ]}}
+          ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1066.3594,331.40625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1066.3594,331.40625],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$14","glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [419,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1481.7812,223.25],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1481.7812,223.25],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$19","glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [424,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,240.45312,463.60938],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,240.45312,463.60938],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$21","glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [416,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,655.875,379.48438],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,655.875,379.48438],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$27","glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [422,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1071.2969,283.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1071.2969,283.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$35","glyphs":[
             [342,0.0,20.71875],
             [418,13.203125,20.71875],
             [420,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1486.7188,139.125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1486.7188,139.125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+          {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$47","glyphs":[
             [342,0.0,20.71875],
             [419,13.203125,20.71875],
             [422,26.40625,20.71875]
-          ]}}
+          ],"clusters":[0,1,2]}}
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,608.9531],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,608.9531],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$10","glyphs":[
           [342,0.0,20.71875],
           [416,13.203125,20.71875],
           [415,26.40625,20.71875]
-        ]}}
+        ],"clusters":[0,1,2]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,363.25],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,363.25],"opacity":0.02451992,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$30","glyphs":[
           [342,0.0,20.71875],
           [418,13.203125,20.71875],
           [415,26.40625,20.71875]
-        ]}}
+        ],"clusters":[0,1,2]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,13.203125,731.7969],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,13.203125,731.7969],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$0","glyphs":[
           [342,0.0,20.71875],
           [415,13.203125,20.71875]
-        ]}}
+        ],"clusters":[0,1]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,486.09375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,486.09375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$20","glyphs":[
           [342,0.0,20.71875],
           [417,13.203125,20.71875],
           [415,26.40625,20.71875]
-        ]}}
+        ],"clusters":[0,1,2]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,240.40625],"opacity":0.9754801,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,240.40625],"opacity":0.9754801,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$40","glyphs":[
           [342,0.0,20.71875],
           [419,13.203125,20.71875],
           [415,26.40625,20.71875]
-        ]}}
+        ],"clusters":[0,1,2]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,-5.28125],"opacity":0.9754801,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,-5.28125],"opacity":0.9754801,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"$60","glyphs":[
           [342,0.0,20.71875],
           [421,13.203125,20.71875],
           [415,26.40625,20.71875]
-        ]}}
+        ],"clusters":[0,1,2]}}
       ]}},
       {"fill":{"path":"M1617.5781 605.21875L1617.875 605.21875C1617.8906 605.21875 1617.9219 605.25 1617.9219 605.2656L1617.9219 605.5625C1617.9219 605.5781 1617.8906 605.6094 1617.875 605.6094L1617.5781 605.6094C1617.5625 605.6094 1617.5313 605.5781 1617.5313 605.5625L1617.5313 605.2656C1617.5313 605.25 1617.5625 605.21875 1617.5781 605.21875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1618.0156,584.8906],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#C2410CFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1618.0156,584.8906],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#C2410CFF"},"text":"Core","glyphs":[
           [15,0.0,20.71875],
           [186,16.609375,20.71875],
           [197,31.453125,20.71875],
           [143,41.84375,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3]}}
       ]}},
       {"fill":{"path":"M1619.8125 364.89063L1620.0938 364.89063C1620.125 364.89063 1620.1563 364.92188 1620.1563 364.9375L1620.1563 365.23438C1620.1563 365.25 1620.125 365.28125 1620.0938 365.28125L1619.8125 365.28125C1619.7813 365.28125 1619.7656 365.25 1619.7656 365.23438L1619.7656 364.9375C1619.7656 364.92188 1619.7813 364.89063 1619.8125 364.89063Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1620.25,344.5625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#0F766EFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1620.25,344.5625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#0F766EFF"},"text":"Cloud","glyphs":[
           [15,0.0,20.71875],
           [176,16.546875,20.71875],
           [186,24.515625,20.71875],
           [210,39.359375,20.71875],
           [141,54.453125,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3,4]}}
       ]}},
       {"fill":{"path":"M1622.4063 212.5L1622.6875 212.5C1622.7188 212.5 1622.7344 212.51563 1622.7344 212.54688L1622.7344 212.82813C1622.7344 212.85938 1622.7188 212.875 1622.6875 212.875L1622.4063 212.875C1622.375 212.875 1622.3438 212.85938 1622.3438 212.82813L1622.3438 212.54688C1622.3438 212.51563 1622.375 212.5 1622.4063 212.5Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,1622.8281,192.15625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#4338CAFF"},"glyphs":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,1622.8281,192.15625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#4338CAFF"},"text":"Edge","glyphs":[
           [23,0.0,20.71875],
           [141,15.21875,20.71875],
           [156,30.625,20.71875],
           [143,44.28125,20.71875]
-        ]}}
+        ],"clusters":[0,1,2,3]}}
       ]}}
     ]}}
   ]

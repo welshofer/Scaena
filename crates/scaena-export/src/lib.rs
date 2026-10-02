@@ -6,10 +6,13 @@
 //! | format | status |
 //! |---|---|
 //! | png / svg per state | PLAN 1.21 |
-//! | pdf (krilla, tagged, vector text) | PLAN 1.20 |
+//! | pdf (krilla: vector paths, text, shaders as images, tagged by [`reading`]; [`pdf`]) | PLAN 1.20, done |
 //! | mp4 / webm / prores via ffmpeg frame sequence | PLAN 1.21 |
 //! | single-file html | PLAN 2.5 |
 //! | spine json (+ per-beat renders) | PLAN 1.22 |
+
+pub mod pdf;
+pub mod reading;
 
 use thiserror::Error;
 
@@ -17,6 +20,8 @@ use thiserror::Error;
 pub enum ExportError {
     #[error("not implemented yet: {0} (see docs/PLAN.md)")]
     NotImplemented(&'static str),
+    #[error("pdf: {0}")]
+    Pdf(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

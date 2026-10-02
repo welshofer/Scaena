@@ -192,11 +192,11 @@ impl SceneNode {
                 plot.extend(chart.notes.iter().filter_map(|n| n.rule.as_ref()).map(|r| rule_op(r, 1.0)));
                 let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
                 for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
-                    plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
+                    plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
                 }
                 ops.extend(plot_layer(chart.clip, [-cell[1], dl.viewport[1]], plot));
                 for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
-                    ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
+                    ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
                 }
                 for e in &chart.legend {
                     ops.extend(legend_ops(dl, e.swatch, e.color, &e.label, e.label.origin, 1.0, e.label.opacity));
@@ -437,12 +437,12 @@ fn looked(op: Op, seen: Seen) -> Op {
     if seen.leaves_layer() {
         return op;
     }
-    let Op::Layer { node, transform, opacity, blend, clip, mut ops } = op else { return op };
+    let Op::Layer { node, cell, transform, opacity, blend, clip, mut ops } = op else { return op };
     if let Some((color, q)) = seen.tint {
         ops.iter_mut().for_each(|op| tint(op, color, q as f32));
     }
     let transform = compose(seen.map, transform.map(f64::from)).map(|v| v as f32);
-    Op::Layer { node, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
+    Op::Layer { node, cell, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
 }
 
 /// A group as the fold below keys it: its id, and whether its layer is the one in the
@@ -747,11 +747,12 @@ impl Transition {
                 && matches!(c.motion, Motion::Exit(_)) == source
                 && self.applies(&c.motion, &node.id)
         });
-        let (Some(cue), Op::Layer { node, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
+        let (Some(cue), Op::Layer { node, cell, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
         let split = text_split(cue.split).expect("found by its split");
         let ops = unit_ops(dl, &placed.text, split, cue, t);
         Op::Layer {
             node: node.clone(),
+            cell: *cell,
             transform: *transform,
             opacity: *opacity,
             blend: *blend,
@@ -931,12 +932,12 @@ impl Transition {
                     let clip = (a.clip.is_some() && b.clip.is_some())
                         .then(|| b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h])))
                         .flatten();
-                    let Op::Layer { node, transform, opacity, blend, ops, .. } =
+                    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
                         layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops)
                     else {
                         unreachable!("`layer` makes layers")
                     };
-                    dl.ops.push(looked(Op::Layer { node, transform, opacity, blend, clip, ops }, seen));
+                    dl.ops.push(looked(Op::Layer { node, cell, transform, opacity, blend, clip, ops }, seen));
                 }
             }
         }
@@ -1012,10 +1013,12 @@ struct WordPlan {
     came: Vec<Word>,
 }
 
-/// One word's glyphs, run by run, and its box: relative to its text's top-left corner.
+/// One word's glyphs, run by run, what each run says, and its box: relative to its
+/// text's top-left corner.
 #[derive(Debug, Clone, PartialEq)]
 struct Word {
     runs: Vec<GlyphRun>,
+    said: Vec<(String, Vec<u32>)>,
     rect: Rect,
 }
 
@@ -1035,6 +1038,7 @@ impl WordPlan {
         // with a period after it, and the period can stay at the end of the sentence.
         let words = |t: &TextLayout| -> Vec<(String, Word)> {
             let ink = |r: usize, g: usize| !t.text[t.runs[r].clusters[g]..].starts_with(char::is_whitespace);
+            let starts = t.cluster_starts();
             let mut out = Vec::new();
             for u in t.units(TextSplit::Words) {
                 let text = &t.text[u.text.clone()];
@@ -1052,7 +1056,8 @@ impl WordPlan {
                         continue;
                     }
                     let runs = subset(t, |r, g| glyphs.contains(&(r, g)));
-                    out.push((key, Word { runs, rect: unit_box(t, &glyphs) }));
+                    let said = runs.iter().map(|run| said(&t.text, &starts, run)).collect();
+                    out.push((key, Word { runs, said, rect: unit_box(t, &glyphs) }));
                 }
             }
             out
@@ -1089,13 +1094,14 @@ impl WordPlan {
     fn sample(&self, dl: &mut DisplayList, origins: [Point; 2], origin: Point, p: f32, geo: f32) -> Vec<Op> {
         let at = |o: Point| [o[0] - origin[0], o[1] - origin[1]];
         let (from, to) = (at(origins[0]), at(origins[1]));
-        let word = |dl: &mut DisplayList, runs: &[GlyphRun], transform: [f32; 6], opacity: f32| Op::Layer {
+        let word = |dl: &mut DisplayList, runs: &[GlyphRun], w: &Word, transform: [f32; 6], opacity: f32| Op::Layer {
             node: None,
+            cell: None,
             transform,
             opacity,
             blend: Blend::Normal,
             clip: None,
-            ops: text_ops(dl, runs),
+            ops: runs.iter().zip(&w.said).map(|(run, said)| glyph_op(dl, run, said.clone())).collect(),
         };
         let shift = |d: Point| [1.0, 0.0, 0.0, 1.0, d[0], d[1]];
         let mut ops = Vec::with_capacity(self.pairs.len() + self.gone.len() + self.came.len());
@@ -1103,7 +1109,7 @@ impl WordPlan {
         // the second, so neither shows under the words moving to make or take the room.
         for (words, at, opacity) in [(&self.gone, from, 1.0 - 2.0 * p), (&self.came, to, 2.0 * p - 1.0)] {
             if opacity > 0.0 {
-                ops.extend(words.iter().map(|w| word(dl, &w.runs, shift(at), opacity)));
+                ops.extend(words.iter().map(|w| word(dl, &w.runs, w, shift(at), opacity)));
             }
         }
         for pair in &self.pairs {
@@ -1116,15 +1122,15 @@ impl WordPlan {
                 let runs: Vec<GlyphRun> = (pair.a.runs.iter().zip(&pair.b.runs))
                     .map(|(x, y)| GlyphRun { color: mix(x.color, y.color, p), ..y.clone() })
                     .collect();
-                ops.push(word(dl, &runs, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
+                ops.push(word(dl, &runs, &pair.b, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
             } else {
                 // Each drawing scaled from its own box onto the box between.
                 let onto = |r: Rect| {
                     let (sx, sy) = (now[2] / r[2].max(1e-6), now[3] / r[3].max(1e-6));
                     [sx, 0.0, 0.0, sy, now[0] - r[0] * sx, now[1] - r[1] * sy]
                 };
-                ops.push(word(dl, &pair.a.runs, onto(ra), 1.0 - p));
-                ops.push(word(dl, &pair.b.runs, onto(rb), p));
+                ops.push(word(dl, &pair.a.runs, &pair.a, onto(ra), 1.0 - p));
+                ops.push(word(dl, &pair.b.runs, &pair.b, onto(rb), p));
             }
         }
         ops
@@ -1153,23 +1159,24 @@ fn same_glyphs(a: &Word, b: &Word) -> bool {
 /// (spaces between lines) stay as they are, under the units.
 fn unit_ops(dl: &mut DisplayList, text: &TextLayout, split: TextSplit, cue: &Placed, t: f64) -> Vec<Op> {
     let units = text.units(split);
+    let starts = text.cluster_starts();
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut layers = Vec::with_capacity(units.len());
     for (k, unit) in units.iter().enumerate() {
         taken.extend(unit.glyphs.iter().copied());
         let Some(look) = cue.motion.look(&cue.clock(k), t) else { continue };
         let runs = subset(text, |r, g| unit.glyphs.contains(&(r, g)));
-        let mut ops = text_ops(dl, &runs);
+        let mut ops = glyph_ops(dl, &text.text, &starts, &runs);
         if let Some((color, q)) = look.tint.filter(|t| t.1 > 0.0) {
             ops.iter_mut().for_each(|op| tint(op, color, q as f32));
         }
         let [a, b, c, d, e, f] = look.affine(unit_box(text, &unit.glyphs)).map(|v| v as f32);
         let transform = [a, b, c, d, e, f];
         let opacity = look.opacity as f32;
-        layers.push(Op::Layer { node: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
+        layers.push(Op::Layer { node: None, cell: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
     }
     let rest = subset(text, |r, g| !taken.contains(&(r, g)));
-    let mut ops = text_ops(dl, &rest);
+    let mut ops = glyph_ops(dl, &text.text, &starts, &rest);
     ops.extend(layers);
     ops
 }
@@ -1247,7 +1254,7 @@ impl TablePlan {
         }
         let (ca, cb): (Vec<&Cell>, Vec<&Cell>) =
             (a.header.iter().chain(&a.cells).collect(), b.header.iter().chain(&b.cells).collect());
-        let mut cell = |at: Point, alpha: f32, c: &Cell| ops.push(layer(None, at, alpha, text_ops(dl, &c.text.runs)));
+        let mut cell = |at: Point, alpha: f32, c: &Cell| ops.push(cell_layer(dl, c, at, alpha));
         for &(i, j) in &self.cells {
             match (i.map(|i| ca[i]), j.map(|j| cb[j])) {
                 (Some(x), Some(y)) if x.text.text == y.text.text && x.text.runs == y.text.runs => {
@@ -1284,7 +1291,7 @@ fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
     let rules = table.rule.iter().chain(table.row_rules.iter().map(|(_, r)| r));
     let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
     for cell in table.header.iter().chain(&table.cells) {
-        ops.push(layer(None, cell.origin, 1.0, text_ops(dl, &cell.text.runs)));
+        ops.push(cell_layer(dl, cell, cell.origin, 1.0));
     }
     ops
 }
@@ -1563,8 +1570,7 @@ impl ChartPlan {
             let d = ride.map_or([0.0, 0.0], |(ri, rj)| {
                 [tb[rj].origin[0] - ta[ri].origin[0], tb[rj].origin[1] - ta[ri].origin[1]]
             });
-            let mut tick =
-                |at: Point, alpha: f32, l: &Label| plot.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+            let mut tick = |at: Point, alpha: f32, l: &Label| plot.push(layer(None, at, alpha, text_ops(dl, &l.text)));
             match (i.map(|i| &ta[i]), j.map(|j| &tb[j])) {
                 (Some(x), Some(y)) if x.text == y.text => tick(lerp2(x.origin, y.origin, p), 1.0, y),
                 (Some(x), Some(y)) => {
@@ -1599,8 +1605,7 @@ impl ChartPlan {
         for &(x, y) in &ticks {
             let (lx, ly) = (x.and_then(|t| t.label.as_ref()), y.and_then(|t| t.label.as_ref()));
             let value = x.or(y).map_or(0.0, |t| t.value);
-            let mut label =
-                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+            let mut label = |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text)));
             match (lx, ly) {
                 (Some(lx), Some(ly)) => label(lerp2(lx.origin, ly.origin, p), 1.0, ly),
                 (Some(lx), None) => label(lerp2(lx.origin, label_on(lx, a, b, value), p), 1.0 - p, lx),
@@ -1640,7 +1645,7 @@ impl ChartPlan {
 /// between the two; changed text cross-fades as it moves; text on one side only fades
 /// where it is.
 fn text_between(dl: &mut DisplayList, ops: &mut Vec<Op>, x: Option<&Label>, y: Option<&Label>, p: f32) {
-    let mut put = |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+    let mut put = |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text)));
     match (x, y) {
         (Some(x), Some(y)) if x.text == y.text => put(lerp2(x.origin, y.origin, p), lerp(x.opacity, y.opacity, p), y),
         (Some(x), Some(y)) => {
@@ -1775,6 +1780,7 @@ fn plot_layer(span: Option<[f32; 2]>, clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op>
     let Some(span) = span else { return ops };
     vec![Op::Layer {
         node: None,
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         opacity: 1.0,
         blend: Blend::Normal,
@@ -1848,13 +1854,14 @@ fn value_label(
     if let (Some(x), Some(y)) = (x, y)
         && x.text == y.text
     {
-        ops.push(layer(None, at(&y.text, ride(y)), opacity, text_ops(dl, &y.text.runs)));
+        ops.push(layer(None, at(&y.text, ride(y)), opacity, text_ops(dl, &y.text)));
         return;
     }
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
     let end = y.map(|l| ride(l).value).or(marks.1.is_none().then_some(0.0));
     if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
-        && let Some((runs, width)) = numerals.compose(&numerals.count(start, end, p))
+        && let count = numerals.count(start, end, p)
+        && let Some((runs, width)) = numerals.compose(&count)
     {
         let v = ride(label);
         let [cx, baseline] = v.anchor(shape);
@@ -1864,14 +1871,15 @@ fn value_label(
             _ => 1.0,
         };
         let origin = [cx - v.align * width, baseline - numerals.baseline];
-        ops.push(layer(None, origin, alpha * opacity, text_ops(dl, &runs)));
+        let starts: Vec<usize> = count.char_indices().map(|(i, _)| i).collect();
+        ops.push(layer(None, origin, alpha * opacity, glyph_ops(dl, &count, &starts, &runs)));
         return;
     }
     if let Some(x) = x {
-        ops.push(layer(None, at(&x.text, ride(x)), (1.0 - p) * x.opacity, text_ops(dl, &x.text.runs)));
+        ops.push(layer(None, at(&x.text, ride(x)), (1.0 - p) * x.opacity, text_ops(dl, &x.text)));
     }
     if let Some(y) = y {
-        ops.push(layer(None, at(&y.text, ride(y)), p * y.opacity, text_ops(dl, &y.text.runs)));
+        ops.push(layer(None, at(&y.text, ride(y)), p * y.opacity, text_ops(dl, &y.text)));
     }
 }
 
@@ -2056,6 +2064,7 @@ fn lerp2(a: Point, b: Point, p: f32) -> Point {
 fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity: f32, ops: Vec<Op>) -> Op {
     Op::Layer {
         node: Some(id.to_string()),
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2067,6 +2076,7 @@ fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity:
 fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     Op::Layer {
         node: node.map(str::to_string),
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2075,28 +2085,67 @@ fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     }
 }
 
+/// A table cell's layer at `origin`, saying where the cell stands in its table.
+fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) -> Op {
+    let Op::Layer { node, transform, opacity, blend, clip, ops, .. } =
+        layer(None, origin, opacity, text_ops(dl, &cell.text))
+    else {
+        unreachable!("`layer` makes layers")
+    };
+    Op::Layer { node, cell: Some(cell.at), transform, opacity, blend, clip, ops }
+}
+
 /// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
-    let Op::Layer { node, transform, opacity, blend, ops, .. } =
-        layer(Some(id), origin, opacity, text_ops(dl, &placed.text.runs))
+    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
+        layer(Some(id), origin, opacity, text_ops(dl, &placed.text))
     else {
         unreachable!("`layer` makes layers")
     };
     let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
-    Op::Layer { node, transform, opacity, blend, clip, ops }
+    Op::Layer { node, cell, transform, opacity, blend, clip, ops }
 }
 
-fn text_ops(dl: &mut DisplayList, runs: &[GlyphRun]) -> Vec<Op> {
-    runs.iter()
-        .map(|run| Op::Glyphs {
-            font: dl.font(run.font.clone()),
-            size: run.size,
-            coords: run.coords.clone(),
-            paint: Paint::Solid(run.color),
-            glyphs: run.glyphs.clone(),
-        })
-        .collect()
+/// A text's runs as glyph ops, each with the text it sets (SPEC §6).
+fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
+    glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs)
+}
+
+/// `runs`, glyphs of `text` whose clusters start at `starts` (in order), as glyph ops.
+fn glyph_ops(dl: &mut DisplayList, text: &str, starts: &[usize], runs: &[GlyphRun]) -> Vec<Op> {
+    runs.iter().map(|run| glyph_op(dl, run, said(text, starts, run))).collect()
+}
+
+fn glyph_op(dl: &mut DisplayList, run: &GlyphRun, (text, clusters): (String, Vec<u32>)) -> Op {
+    Op::Glyphs {
+        font: dl.font(run.font.clone()),
+        size: run.size,
+        coords: run.coords.clone(),
+        paint: Paint::Solid(run.color),
+        text,
+        glyphs: run.glyphs.clone(),
+        clusters,
+    }
+}
+
+/// What a run of `text` says: the text from its first cluster to the end of its last,
+/// which runs to the next of `starts` (every cluster's start in `text`, in order) or to
+/// the end; and each glyph's cluster start in that cut. A hyphen drawn at a break says
+/// the soft hyphen it stands for.
+fn said(text: &str, starts: &[usize], run: &GlyphRun) -> (String, Vec<u32>) {
+    let clusters = &run.clusters;
+    if run.hyphen {
+        return ("\u{AD}".to_string(), vec![0; clusters.len()]);
+    }
+    let (Some(&lo), Some(&last)) = (clusters.iter().min(), clusters.iter().max()) else {
+        return (String::new(), Vec::new());
+    };
+    let hi = starts.get(starts.partition_point(|&s| s <= last)).copied().unwrap_or(text.len());
+    match text.get(lo..hi) {
+        Some(cut) => (cut.to_string(), clusters.iter().map(|&c| (c - lo) as u32).collect()),
+        None => (String::new(), Vec::new()),
+    }
 }
 
 /// A single fill or stroke fades through its paint's alpha: one shape, one coverage,
@@ -2129,7 +2178,7 @@ fn legend_ops(
         true => mark_op(Shape::Bar(swatch), color, alpha).into_iter().collect(),
         false => Vec::new(),
     };
-    ops.push(layer(None, at, alpha * opacity, text_ops(dl, &label.text.runs)));
+    ops.push(layer(None, at, alpha * opacity, text_ops(dl, &label.text)));
     ops
 }
 

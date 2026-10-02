@@ -203,13 +203,13 @@ pub struct DeckRender {
 pub struct DeckExport {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// `spine`; `pdf`, `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that
+    /// `spine` or `pdf`; `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that
     /// build them.
     pub format: String,
     /// The states a frame export draws; every state without it.
     #[serde(default)]
     pub states: Option<Vec<String>>,
-    /// Also write the export here.
+    /// Also write the export here; a PDF is written only here.
     #[serde(default)]
     pub out: Option<String>,
 }
@@ -291,6 +291,12 @@ pub struct Exported {
     /// The spine, for `spine`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spine: Option<Map<String, Value>>,
+    /// The state each page draws, in order, for `pdf`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pages: Option<Vec<String>>,
+    /// The document's size in bytes, for `pdf`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<usize>,
 }
 
 /// A rendered frame's facts; the PNG is the result's image.
@@ -426,16 +432,28 @@ impl Scaena {
         Ok(CallToolResult::success(vec![ContentBlock::image(png, "image/png"), ContentBlock::text(facts)]))
     }
 
-    #[tool(description = "Export a projection: `spine` now. PDF (PLAN 1.20), frames and video (1.21), and HTML (2.5) \
-        say which task builds them.")]
+    #[tool(description = "Export a projection: `spine`, or `pdf` written to `out` (each slide at its last state, \
+        or `states`, one page each). Frames and video (PLAN 1.21) and HTML (2.5) say which task builds them.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
         blocking(move || {
-            let v = scaena_ops::export::export(&open(&a.bundle)?, &a.format, a.states.as_deref())?;
-            if let Some(out) = &a.out {
-                let text = serde_json::to_string_pretty(&v)? + "\n";
-                std::fs::write(out, text).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
+            if a.format == "pdf" && a.out.is_none() {
+                return Err(OpsError::new("`pdf` writes a file: give `out`"));
             }
-            Ok(Exported { format: a.format, out: a.out, spine: Some(object(v)) })
+            match scaena_ops::export::export(&open(&a.bundle)?, &a.format, a.states.as_deref())? {
+                scaena_ops::export::Export::Spine(v) => {
+                    if let Some(out) = &a.out {
+                        let text = serde_json::to_string_pretty(&v)? + "\n";
+                        std::fs::write(out, text).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
+                    }
+                    Ok(Exported { format: a.format, out: a.out, spine: Some(object(v)), pages: None, bytes: None })
+                }
+                scaena_ops::export::Export::Pdf { bytes, pages } => {
+                    let out = a.out.clone().expect("checked above");
+                    std::fs::write(&out, &bytes).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
+                    let size = bytes.len();
+                    Ok(Exported { format: a.format, out: a.out, spine: None, pages: Some(pages), bytes: Some(size) })
+                }
+            }
         })
         .await
         .map(Json)

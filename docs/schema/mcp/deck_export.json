@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection: `spine` now. PDF (PLAN 1.20), frames and video (1.21), and HTML (2.5) say which task builds them.",
+  "description": "Export a projection: `spine`, or `pdf` written to `out` (each slide at its last state, or `states`, one page each). Frames and video (PLAN 1.21) and HTML (2.5) say which task builds them.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "format"],
@@ -8,7 +8,7 @@
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
       "format": {
-        "description": "`spine`; `pdf`, `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that\nbuild them.",
+        "description": "`spine` or `pdf`; `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that\nbuild them.",
         "type": "string"
       },
       "states": {
@@ -17,7 +17,11 @@
         "items": { "type": "string" },
         "default": null
       },
-      "out": { "description": "Also write the export here.", "type": ["string", "null"], "default": null }
+      "out": {
+        "description": "Also write the export here; a PDF is written only here.",
+        "type": ["string", "null"],
+        "default": null
+      }
     },
     "additionalProperties": false
   },
@@ -28,7 +32,18 @@
     "properties": {
       "format": { "type": "string" },
       "out": { "description": "Where it was written.", "type": ["string", "null"] },
-      "spine": { "description": "The spine, for `spine`.", "type": ["object", "null"], "additionalProperties": true }
+      "spine": { "description": "The spine, for `spine`.", "type": ["object", "null"], "additionalProperties": true },
+      "pages": {
+        "description": "The state each page draws, in order, for `pdf`.",
+        "type": ["array", "null"],
+        "items": { "type": "string" }
+      },
+      "bytes": {
+        "description": "The document's size in bytes, for `pdf`.",
+        "type": ["integer", "null"],
+        "format": "uint",
+        "minimum": 0
+      }
     }
   }
 }

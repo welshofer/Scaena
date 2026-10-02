@@ -6,8 +6,8 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"10 · Tracking: -0.08 em and +0.40 em · kill","glyphs":[
         [261,0.0,20.71875],
         [260,13.203125,20.71875],
         [1,26.40625,20.71875],
@@ -51,10 +51,10 @@
         [163,461.39062,20.71875],
         [176,469.48438,20.71875],
         [176,477.4375,20.71875]
-      ]}}
+      ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,40,41,42,43,44]}}
     ]}},
-    {"layer":{"node":"track-tight","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,9831,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+    {"layer":{"node":"track-tight","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,9831,0],"paint":{"solid":"#16140FFF"},"text":"Tightly tracked display","glyphs":[
         [86,0.0,80.78125],
         [163,59.234375,80.78125],
         [156,83.328125,80.78125],
@@ -78,10 +78,10 @@
         [176,822.2344,80.78125],
         [124,845.8594,80.78125],
         [225,892.21875,80.78125]
-      ]}}
+      ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]}}
     ]}},
-    {"layer":{"node":"track-loose","transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":56.0,"coords":[0,4757,3277,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+    {"layer":{"node":"track-loose","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":56.0,"coords":[0,4757,3277,0],"paint":{"solid":"#16140FFF"},"text":"LOOSELY TRACKED LABEL","glyphs":[
         [55,0.0,52.71875],
         [65,56.671875,52.71875],
         [65,123.59375,52.71875],
@@ -103,7 +103,7 @@
         [14,1043.2188,52.71875],
         [23,1103.4844,52.71875],
         [55,1161.5,52.71875]
-      ]}}
+      ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}}
     ]}}
   ]
 }

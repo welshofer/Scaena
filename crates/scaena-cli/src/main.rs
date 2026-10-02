@@ -105,7 +105,8 @@ enum Cmd {
         format: String,
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The states to export, comma-separated. Default: every state.
+        /// The states to export, comma-separated. Default: every state; for pdf, each
+        /// slide once, at its last state.
         #[arg(long, value_delimiter = ',')]
         states: Option<Vec<String>>,
         #[arg(long, default_value_t = 60)]
@@ -321,19 +322,36 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Export { bundle, format, out, states, .. } => {
-            let v = scaena_ops::export::export(&open(&bundle)?, &format, states.as_deref())?;
-            let s = serde_json::to_string_pretty(&v)?;
-            if let Some(p) = &out {
-                std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
+            if format == "pdf" && out.is_none() {
+                return Err(scaena_ops::OpsError::new("`export --format pdf` writes a file: give it --out FILE").into());
             }
-            if cli.json {
-                let mut summary = serde_json::json!({ "format": "spine", "out": out });
-                if out.is_none() {
-                    summary["spine"] = v;
+            match scaena_ops::export::export(&open(&bundle)?, &format, states.as_deref())? {
+                scaena_ops::export::Export::Spine(v) => {
+                    let s = serde_json::to_string_pretty(&v)?;
+                    if let Some(p) = &out {
+                        std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
+                    }
+                    if cli.json {
+                        let mut summary = serde_json::json!({ "format": "spine", "out": out });
+                        if out.is_none() {
+                            summary["spine"] = v;
+                        }
+                        println!("{}", serde_json::to_string_pretty(&summary)?);
+                    } else if out.is_none() {
+                        println!("{s}");
+                    }
                 }
-                println!("{}", serde_json::to_string_pretty(&summary)?);
-            } else if out.is_none() {
-                println!("{s}");
+                scaena_ops::export::Export::Pdf { bytes, pages } => {
+                    let p = out.as_ref().expect("checked above");
+                    std::fs::write(p, &bytes).with_context(|| format!("writing {}", p.display()))?;
+                    if cli.json {
+                        let summary =
+                            serde_json::json!({ "format": "pdf", "out": out, "pages": pages, "bytes": bytes.len() });
+                        println!("{}", serde_json::to_string_pretty(&summary)?);
+                    } else {
+                        println!("wrote {} ({} pages: {})", p.display(), pages.len(), pages.join(", "));
+                    }
+                }
             }
             Ok(ExitCode::SUCCESS)
         }

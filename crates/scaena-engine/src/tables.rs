@@ -36,6 +36,9 @@ pub struct Cell {
     pub row: String,
     /// Its column's field.
     pub column: String,
+    /// Where it stands: `[row, column]`, row 0 the header and the body's rows from 1,
+    /// columns as the table shows them (SPEC §6).
+    pub at: [u32; 2],
     /// The text box's top-left corner, relative to the table.
     pub origin: Point,
     /// The point the text aligns to: on its baseline, at the column's start, middle, or
@@ -217,27 +220,28 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
     let mut out =
         TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
     let mut y = 0.0_f32;
-    let place = |cells: Vec<Option<TextLayout>>, row: &str, y: &mut f32| -> Vec<Cell> {
+    let place = |cells: Vec<Option<TextLayout>>, row: &str, index: u32, y: &mut f32| -> Vec<Cell> {
         let baseline = cells.iter().flatten().filter_map(|t| t.lines.first()).map(|l| l.baseline).fold(0.0, f32::max);
         let height = cells.iter().flatten().map(|t| t.height).fold(0.0_f32, f32::max);
         let mut placed = Vec::new();
-        for ((c, text), (left, width)) in columns.iter().zip(cells).zip(lefts.iter().zip(&widths)) {
+        for (k, ((c, text), (left, width))) in columns.iter().zip(cells).zip(lefts.iter().zip(&widths)).enumerate() {
             let Some(text) = text else { continue };
             let first = text.lines.first().map_or(0.0, |l| l.baseline);
             let origin = [left + c.align * (width - text.width), *y + row_gap + baseline - first];
             let anchor = [left + c.align * width, *y + row_gap + baseline];
-            placed.push(Cell { row: row.to_string(), column: c.field.clone(), origin, anchor, text });
+            let at = [index, k as u32];
+            placed.push(Cell { row: row.to_string(), column: c.field.clone(), at, origin, anchor, text });
         }
         *y += row_gap + height + row_gap;
         placed
     };
     if show_header {
-        out.header = place(header, "", &mut y);
+        out.header = place(header, "", 0, &mut y);
         out.rule = Some(Rule { from: [0.0, y], to: [span, y], ..header_rule });
     }
     let rows = body.len();
     for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
-        out.cells.extend(place(cells, key, &mut y));
+        out.cells.extend(place(cells, key, r as u32 + 1, &mut y));
         if let Some(rule) = &row_rule
             && r + 1 < rows
         {

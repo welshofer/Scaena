@@ -357,6 +357,18 @@ impl TextLayout {
     }
 }
 
+impl TextLayout {
+    /// Where each cluster starts in [`TextLayout::text`], in order: a cluster runs to the
+    /// next, the last to the end of the text. Text that sets no glyph of its own (a soft
+    /// hyphen, a line break) belongs to the cluster before it.
+    pub fn cluster_starts(&self) -> Vec<usize> {
+        let mut starts: Vec<usize> = self.runs.iter().flat_map(|r| r.clusters.iter().copied()).collect();
+        starts.sort_unstable();
+        starts.dedup();
+        starts
+    }
+}
+
 /// One unit of a split text: what choreography staggers (SPEC §3.9).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextUnit {
@@ -384,6 +396,10 @@ pub struct GlyphRun {
     /// Each glyph's advance: with its position, the box a split unit turns about.
     pub advances: Vec<f32>,
     pub line: usize,
+    /// A hyphen drawn where a line breaks inside a word. It says the soft hyphen it
+    /// draws, though its clusters put it with the letter before, so it moves with that
+    /// letter.
+    pub hyphen: bool,
 }
 
 /// Reusable scratch for text layout (parley's layout context). One per thread.
@@ -1354,6 +1370,7 @@ fn read_layout(
                 clusters,
                 advances,
                 line: index,
+                hyphen: false,
             });
         }
         if let Some(h) = hyphen {
@@ -1366,6 +1383,7 @@ fn read_layout(
             let before = runs[first_run..].iter().flat_map(|r| r.clusters.iter().copied()).filter(|&c| c < shy).max();
             run.clusters = vec![before.unwrap_or(shy); run.glyphs.len()];
             run.line = index;
+            run.hyphen = true;
             runs.push(run);
         }
         // parley's `block_min_coord` is the top of the ascent box, which sits above the
