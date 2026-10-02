@@ -214,3 +214,47 @@ After editing:
 - Fit is unverified. The new headline is 26 characters. The `headline` role has `measure: 24` (maxLines 3, wrap balance, minSize 56), and the `header` slot is one grid row (col 1–8, row 1). The text probably sets on two lines, where the old 19-character text took one. Lint has no overflow or collision rules yet (PLAN 1.15), and render is out of scope (no fonts). So I cannot rule out E100 in the header slot, or a collision with the chart's top legend in row 2.
 - The docs don't say whether `measure` forces a break (wrap at the lesser of slot width and measure) or is advisory (W201 "line exceeds role measure" is only a warning). I cannot predict whether the result is one line with W201 or two lines.
 - Nothing links a beat's claim to the text of the node that expresses it. The reserved W420 only checks that some `semantic: claim` node exists, so spine and slide can drift apart silently. I kept them in step by hand.
+
+## (d) Add a build
+
+**Request (verbatim):** "On the $69.6M slide, show the number by itself first, then bring in what it means on the next click."
+
+**Commands** (cwd = bundle; `scaena` = `/home/user/Scaena/target/debug/scaena`)
+1. `scaena --help`, `scaena validate|lint|inspect|diff --help` → exit 0 (usage text).
+2. `scaena validate deck.json` (baseline) → exit 0, `ok: no findings`
+3. `scaena lint deck.json --json` (baseline) → exit 0, `[]`
+4. `scaena inspect deck.json --state topline` → exit 0. `state topline slide=topline layout=stat`; enters `q3-total` ($69.6M, `in:number`), `q3-total-meaning` (`in:meaning`), `q3-total-detail` (`in:aside`); exited bg, title, subtitle.
+5. `scaena inspect deck.json` → exit 0. Six states: cover, topline, quarters, products, mix, close.
+6. *(edit deck.json)*
+7. `scaena validate deck.json` → exit 0, `ok: no findings`
+8. `scaena lint deck.json --json` → exit 0, `[]`
+9. `scaena lint deck.json` → exit 0, `ok: no findings` / `(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)`
+10. `scaena inspect deck.json --state topline` → exit 0. `+ q3-total role=numeral text=$69.6M at={"in":"number"}`, `- exited: bg, title, subtitle`
+11. `scaena inspect deck.json --state topline-meaning` → exit 0. `slide=topline layout=stat`; `q3-total` tracked unchanged; `+ q3-total-meaning`, `+ q3-total-detail`.
+12. `scaena inspect deck.json --state quarters` → exit 0. Same as before: enters headline, rev-chart, chart-source; exits the three q3-total nodes.
+13. `scaena diff deck.json --from topline --to topline-meaning` → exit 0. Only `enter` for q3-total-meaning and q3-total-detail; no entry for q3-total (it neither moves nor changes).
+14. `scaena diff deck.json --from topline-meaning --to quarters` → exit 0. Enters headline, rev-chart, chart-source; `exit: true` for q3-total, q3-total-meaning, q3-total-detail.
+15. `scaena diff deck.json --from cover --to topline` → exit 0. Enter q3-total; exit bg, title, subtitle.
+16. `scaena inspect deck.json --state topline-meaning --json` → exit 0. Fields: state_id, slide_id `topline`, layout `stat`, nodes, entered `[q3-total-meaning, q3-total-detail]`, exited `[]`. No transition, choreography, or timeline.
+
+**Decisions**
+- "The $69.6M slide" = state `topline` (layout `stat`), whose numeral node `q3-total` reads "$69.6M".
+- `topline` is now the first click: `props` holds only `q3-total`; its `remove`, `transition: "standard"`, and the number's `rise` choreography are unchanged.
+- New state `topline-meaning` right after it, with `slide: "topline"` so both are one slide (same pattern as `products` → `quarters`; inspect confirms `slide=topline`).
+- No `layout` on the build; it tracks `stat` from `topline` (SPEC §2.2).
+- The build brings in `q3-total-meaning` and `q3-total-detail` together. The aside can't be on a "number by itself" click, and the request names only two clicks, so I didn't drop it or add a third click.
+- `transition: "standard"` on the build, because a state without a transition cuts (SPEC §3.9); 420 ms matches the slide's entrance and the `rise` preset.
+- One choreography item: `rise`, timing `with`, on `q3-total-meaning`. This matches the author's pattern of one enter for each cue's main node; the detail enters with the transition, as it did before.
+- The number stays in slot `number` in both states, so it doesn't move when the meaning arrives. I didn't center it for the solo click.
+- `semantic` labels are unchanged (q3-total = evidence, q3-total-meaning = claim, q3-total-detail = evidence). I didn't relabel them per state to satisfy lint.
+- Spine beat `doubled`: `states` → `["topline", "topline-meaning"]`, which avoids W401.
+- The id `topline-meaning` collides with no node, state, beat, or section id.
+- No `hold`: no state in the deck has one, so it isn't set up for video.
+- `quarters` is unchanged; its `remove` of the three q3-total nodes is still correct after the build.
+
+**Ambiguous / not expressible**
+- Does "what it means" include the aside (`q3-total-detail`) or only the `meaning` slot? It's the user's call; I put both on click 2.
+- The number-only state shows `evidence` with no `claim` node. Reserved W421 ("evidence shown with no claim in the same state") would fire there. Lint is clean, so W421 isn't implemented yet. The author-deck rule "Every beat's states include a node with `semantic: claim`" holds if read per beat (true via topline-meaning). Read per state, it would forbid what was asked. The docs don't settle which reading is meant.
+- SPEC §2.2 says only that `slide` groups consecutive states. That a build uses the first state's id as the value comes from the examples (revenue.deck.json `mix`, this deck's `products`).
+- The CLI can't check the build's motion. `inspect` and `diff` show no transition, choreography, or timeline in text or `--json`, though SPEC §7.1 lists "timeline" under inspect. The transition and the `rise` item are checked by the schema alone. Per SPEC §3.9, Phase 0 doesn't run presets or choreography (PLAN 1.11–1.12), so today the meaning and detail simply fade in over 420 ms.
+- The docs don't say what choreography `timing: "with"` means on a state that cuts (no transition). I avoided the question by giving the build a transition.
