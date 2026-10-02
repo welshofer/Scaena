@@ -1,8 +1,9 @@
 //! The typography torture deck (PLAN 0.2, benchmark B4) is a valid, lint-clean
 //! document whose states are isolated cases, so the parity harness (PLAN 0.9)
-//! can report per case without one case's nodes leaking into another. The one
-//! exception is the chart's build (PLAN 0.10): its states track from the one before,
-//! because the transitions between them are what it tests.
+//! can report per case without one case's nodes leaking into another. The exceptions
+//! are the chart's build (PLAN 0.10) and the chart gallery's motion (PLAN 1.9): those
+//! states track from the one before, because the transitions between them are what
+//! they test.
 
 use scaena_core::document::StateMode;
 use scaena_core::lint::lint_document;
@@ -19,14 +20,20 @@ fn torture_deck_is_valid_and_lint_clean() {
 }
 
 /// States that track from the state before them, as (state, that state): the chart's
-/// build, where the transitions are what is tested.
-const MORPHS: [(&str, &str); 2] = [("chart", "chart-intro"), ("chart-next", "chart")];
+/// build and the gallery's next states, where the transitions are what is tested.
+const MORPHS: [(&str, &str); 5] = [
+    ("chart", "chart-intro"),
+    ("chart-next", "chart"),
+    ("chart-kinds-next", "chart-kinds"),
+    ("chart-kinds-2-next", "chart-kinds-2"),
+    ("regroup-stacked", "regroup"),
+];
 
 #[test]
 fn every_torture_state_is_an_isolated_case() {
     let deck = Deck::from_json(TORTURE).unwrap();
     let snapshots = resolve_states(&deck).unwrap();
-    assert_eq!(snapshots.len(), 32);
+    assert_eq!(snapshots.len(), 38);
     let mut specimens_seen = HashSet::new();
     for (i, (state, snap)) in deck.states.iter().zip(&snapshots).enumerate() {
         if let Some((_, from)) = MORPHS.iter().find(|(s, _)| *s == state.id) {

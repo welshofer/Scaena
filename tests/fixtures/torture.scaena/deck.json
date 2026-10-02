@@ -93,6 +93,342 @@
         "label": "string",
         "value": "number"
       }
+    },
+    "rev": {
+      "source": {
+        "inline": [
+          {
+            "q": "Q1",
+            "product": "Core",
+            "rev": 12
+          },
+          {
+            "q": "Q2",
+            "product": "Core",
+            "rev": 15
+          },
+          {
+            "q": "Q3",
+            "product": "Core",
+            "rev": 18
+          },
+          {
+            "q": "Q4",
+            "product": "Core",
+            "rev": 22
+          },
+          {
+            "q": "Q1",
+            "product": "Cloud",
+            "rev": 6
+          },
+          {
+            "q": "Q2",
+            "product": "Cloud",
+            "rev": 9
+          },
+          {
+            "q": "Q3",
+            "product": "Cloud",
+            "rev": 14
+          },
+          {
+            "q": "Q4",
+            "product": "Cloud",
+            "rev": 19
+          },
+          {
+            "q": "Q1",
+            "product": "Edge",
+            "rev": 3
+          },
+          {
+            "q": "Q2",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q3",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q4",
+            "product": "Edge",
+            "rev": 7
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number"
+      }
+    },
+    "rev-next": {
+      "source": {
+        "inline": [
+          {
+            "q": "Q2",
+            "product": "Core",
+            "rev": 15
+          },
+          {
+            "q": "Q3",
+            "product": "Core",
+            "rev": 18
+          },
+          {
+            "q": "Q4",
+            "product": "Core",
+            "rev": 22
+          },
+          {
+            "q": "Q5",
+            "product": "Core",
+            "rev": 24
+          },
+          {
+            "q": "Q2",
+            "product": "Cloud",
+            "rev": 9
+          },
+          {
+            "q": "Q3",
+            "product": "Cloud",
+            "rev": 14
+          },
+          {
+            "q": "Q4",
+            "product": "Cloud",
+            "rev": 19
+          },
+          {
+            "q": "Q5",
+            "product": "Cloud",
+            "rev": 25
+          },
+          {
+            "q": "Q2",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q3",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q4",
+            "product": "Edge",
+            "rev": 7
+          },
+          {
+            "q": "Q5",
+            "product": "Edge",
+            "rev": 9
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number"
+      }
+    },
+    "pts": {
+      "source": {
+        "inline": [
+          {
+            "name": "Atlas",
+            "spend": 4.0,
+            "growth": 12.0,
+            "size": 30
+          },
+          {
+            "name": "Birch",
+            "spend": 7.5,
+            "growth": 3.0,
+            "size": 12
+          },
+          {
+            "name": "Cobalt",
+            "spend": 2.5,
+            "growth": 18.0,
+            "size": 8
+          },
+          {
+            "name": "Delta",
+            "spend": 9.0,
+            "growth": 9.0,
+            "size": 40
+          },
+          {
+            "name": "Ember",
+            "spend": 5.5,
+            "growth": -4.0,
+            "size": 16
+          },
+          {
+            "name": "Fjord",
+            "spend": 1.5,
+            "growth": 6.0,
+            "size": 4
+          },
+          {
+            "name": "Garnet",
+            "spend": 8.0,
+            "growth": 15.0,
+            "size": 22
+          },
+          {
+            "name": "Harbor",
+            "spend": 3.5,
+            "growth": -1.0,
+            "size": 10
+          }
+        ]
+      },
+      "schema": {
+        "spend": "number",
+        "growth": "number",
+        "size": "number"
+      }
+    },
+    "pts-next": {
+      "source": {
+        "inline": [
+          {
+            "name": "Atlas",
+            "spend": 5.0,
+            "growth": 14.0,
+            "size": 34
+          },
+          {
+            "name": "Birch",
+            "spend": 7.0,
+            "growth": 5.0,
+            "size": 14
+          },
+          {
+            "name": "Cobalt",
+            "spend": 3.5,
+            "growth": 21.0,
+            "size": 12
+          },
+          {
+            "name": "Delta",
+            "spend": 9.5,
+            "growth": 7.0,
+            "size": 38
+          },
+          {
+            "name": "Ember",
+            "spend": 5.0,
+            "growth": 1.0,
+            "size": 18
+          },
+          {
+            "name": "Fjord",
+            "spend": 2.0,
+            "growth": 8.0,
+            "size": 6
+          },
+          {
+            "name": "Garnet",
+            "spend": 8.5,
+            "growth": 16.0,
+            "size": 26
+          },
+          {
+            "name": "Harbor",
+            "spend": 4.0,
+            "growth": 2.0,
+            "size": 12
+          }
+        ]
+      },
+      "schema": {
+        "spend": "number",
+        "growth": "number",
+        "size": "number"
+      }
+    },
+    "share": {
+      "source": {
+        "inline": [
+          {
+            "channel": "Direct",
+            "share": 42
+          },
+          {
+            "channel": "Partners",
+            "share": 27
+          },
+          {
+            "channel": "Online",
+            "share": 19
+          },
+          {
+            "channel": "Retail",
+            "share": 12
+          }
+        ]
+      },
+      "schema": {
+        "share": "number"
+      }
+    },
+    "share-next": {
+      "source": {
+        "inline": [
+          {
+            "channel": "Direct",
+            "share": 38
+          },
+          {
+            "channel": "Online",
+            "share": 24
+          },
+          {
+            "channel": "Social",
+            "share": 22
+          },
+          {
+            "channel": "Retail",
+            "share": 16
+          }
+        ]
+      },
+      "schema": {
+        "share": "number"
+      }
+    },
+    "regions": {
+      "source": {
+        "inline": [
+          {
+            "region": "North America",
+            "rev": 1240.5,
+            "growth": 0.12
+          },
+          {
+            "region": "Europe",
+            "rev": 860,
+            "growth": -0.031
+          },
+          {
+            "region": "Asia Pacific",
+            "rev": 455.25,
+            "growth": 0.27
+          },
+          {
+            "region": "Latin America",
+            "rev": 212,
+            "growth": 0.08
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number",
+        "growth": "number"
+      }
     }
   },
   "nodes": {
@@ -1695,6 +2031,308 @@
           8
         ]
       }
+    },
+    "k-grouped": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "alt": "Revenue by product and quarter, side by side."
+    },
+    "k-stacked": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Revenue by quarter, stacked by product, totals above."
+    },
+    "k-line": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          5,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "ends",
+        "collide": "nudge"
+      },
+      "legend": "none",
+      "alt": "Revenue by product over four quarters, as lines."
+    },
+    "k-area": {
+      "type": "chart",
+      "kind": "area",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          5,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": "none",
+      "alt": "Revenue by product over four quarters, stacked areas."
+    },
+    "k-scatter": {
+      "type": "chart",
+      "kind": "scatter",
+      "data": "@pts",
+      "key": "name",
+      "x": {
+        "field": "spend",
+        "type": "quantitative",
+        "title": "Spend, $M"
+      },
+      "y": {
+        "field": "growth",
+        "title": "Growth, %"
+      },
+      "sizeEncoding": {
+        "field": "size"
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "alt": "Eight accounts by spend and growth, sized by seats."
+    },
+    "k-dot": {
+      "type": "chart",
+      "kind": "dot",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": "bottom",
+      "alt": "Revenue by product per quarter, as dots."
+    },
+    "k-donut": {
+      "type": "chart",
+      "kind": "donut",
+      "data": "@share",
+      "x": {
+        "field": "channel"
+      },
+      "y": {
+        "field": "share",
+        "format": ".0f"
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "right",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "alt": "Share of sales by channel."
+    },
+    "k-table": {
+      "type": "table",
+      "data": "@regions",
+      "key": "region",
+      "dataTransform": [
+        {
+          "sort": "-rev"
+        }
+      ],
+      "columns": [
+        {
+          "field": "region",
+          "title": "Region"
+        },
+        {
+          "field": "rev",
+          "title": "Revenue",
+          "format": "$,.0f"
+        },
+        {
+          "field": "growth",
+          "title": "Growth",
+          "format": "+.1%"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      },
+      "alt": "Revenue and growth by region."
+    },
+    "regroup": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "all"
+      },
+      "alt": "Revenue by product and quarter, grouped, then stacked."
     }
   },
   "states": [
@@ -2186,6 +2824,130 @@
         "hyph-end": {}
       },
       "notes": "Pass: the same paragraph three times in four-column boxes, English patterns. Left, pretty with hyphenation: words break between syllables, each hyphen drawn in the line's own font and counted in its width, and no line passes the column's right edge. Middle, pretty without: no word breaks. Right, greedy, end-aligned with hanging punctuation: lines flush with the right edge, the hyphens and the closing stop hanging past it."
+    },
+    {
+      "id": "chart-kinds",
+      "name": "Chart kinds: bars, stacks, lines, areas",
+      "slide": "chart-kinds",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "31 · Chart kinds: bars, stacks, lines, areas · recorded"
+        },
+        "k-grouped": {},
+        "k-stacked": {},
+        "k-line": {},
+        "k-area": {}
+      },
+      "notes": "Pass: four charts over one long table of three products by quarter, each series in its categorical color in every chart. Grouped bars share each quarter, with a legend above and a value axis whose gridlines fall on round dollars. Stacked bars pile Core, Cloud, and Edge with each stack's total above it. Lines run through each series' points, their end labels nudged apart where they would touch. Areas stack in series order. No transition: a cut."
+    },
+    {
+      "id": "chart-kinds-next",
+      "name": "Chart kinds: the next quarter",
+      "slide": "chart-kinds",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "32 · Chart kinds: the next quarter · recorded"
+        },
+        "k-grouped": {
+          "data": "@rev-next"
+        },
+        "k-stacked": {
+          "data": "@rev-next"
+        },
+        "k-line": {
+          "data": "@rev-next"
+        },
+        "k-area": {
+          "data": "@rev-next"
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): the window advances a quarter by key in all four charts. Q1 rides out under the left edge and Q5 rides in from the right; bars and stacks grow from and shrink to the baseline as they go, stacks never gap, and a line's or an area's new point slides in off its end, level with where the line ended."
+    },
+    {
+      "id": "chart-kinds-2",
+      "name": "Chart kinds: scatter, dots, donut, table",
+      "slide": "chart-kinds-2",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "33 · Chart kinds: scatter, dots, donut, table · recorded"
+        },
+        "k-scatter": {},
+        "k-dot": {},
+        "k-donut": {},
+        "k-table": {}
+      },
+      "notes": "Pass: a scatter on round axes both ways, each dot's area by its seats; a dot plot with its legend below; a donut whose labels sit outside each slice, legend at the right; and a table sorted by revenue, numbers in tabular figures at their columns' ends, the region column taking the room to spare."
+    },
+    {
+      "id": "chart-kinds-2-next",
+      "name": "Chart kinds: data moves by key",
+      "slide": "chart-kinds-2",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "34 · Chart kinds: data moves by key · recorded"
+        },
+        "k-scatter": {
+          "data": "@pts-next"
+        },
+        "k-dot": {
+          "data": "@rev-next"
+        },
+        "k-donut": {
+          "data": "@share-next"
+        },
+        "k-table": {
+          "dataTransform": [
+            {
+              "sort": "-growth"
+            }
+          ]
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): scatter dots move to their new places by name; Partners closes as Social opens in the donut, the ring whole throughout, and every slice keeps its color; the table re-sorts by growth, rows moving to where they now stand."
+    },
+    {
+      "id": "regroup",
+      "name": "Bars that regroup",
+      "slide": "regroup",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "35 · Bars that regroup · recorded"
+        },
+        "regroup": {}
+      },
+      "notes": "Pass: grouped bars, three products to a quarter, value labels over each bar."
+    },
+    {
+      "id": "regroup-stacked",
+      "name": "Bars that regroup: stacked",
+      "slide": "regroup",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "36 · Bars that regroup: stacked · recorded"
+        },
+        "regroup": {
+          "kind": "stackedBar"
+        }
+      },
+      "notes": "Pass in the transition (frames @0.25 and @0.75): the bars regroup in two stages, as d3's do. First the heights: each bar rises to its place in its quarter's stack while still side by side. Then the widths: the bars slide together into one stack. Each stack's total counts up over its top segment."
     }
   ]
 }

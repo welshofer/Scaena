@@ -24,8 +24,18 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// Frames inside a transition, as (state, fraction of its duration). PLAN 0.10 renders
 /// each chart transition at t = 0, 0.25, 0.5, and 1; 0 and 1 are the states at rest
 /// (asserted below), so the middle two get goldens of their own: the chart's values
-/// animating in, and the next quarter arriving.
-const MORPH: [(&str, f64); 4] = [("chart", 0.25), ("chart", 0.5), ("chart-next", 0.25), ("chart-next", 0.5)];
+/// animating in, and the next quarter arriving. PLAN 1.9 adds every kind's data
+/// motion mid-way, and the two stages of bars that regroup.
+const MORPH: [(&str, f64); 8] = [
+    ("chart", 0.25),
+    ("chart", 0.5),
+    ("chart-next", 0.25),
+    ("chart-next", 0.5),
+    ("chart-kinds-next", 0.5),
+    ("chart-kinds-2-next", 0.5),
+    ("regroup-stacked", 0.25),
+    ("regroup-stacked", 0.75),
+];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -51,8 +61,10 @@ fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: 
     fonts.check_theme(&theme).unwrap();
     let mut data = DataFiles::new();
     for source in deck.data.values() {
-        let path = source.source.as_str().unwrap();
-        data.insert(path, read(path));
+        // Files the bundle holds; inline sources need none.
+        if let Some(path) = source.source.as_str() {
+            data.insert(path, read(path));
+        }
     }
     let mut images = BundleImages::new();
     for path in deck.image_files() {

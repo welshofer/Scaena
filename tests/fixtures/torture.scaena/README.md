@@ -4,9 +4,11 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        32 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
+  deck.json        38 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, and each
+                   state that moves a gallery's data, which builds on the one before), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
-  data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
+  data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later; the chart
+                   galleries' sources are inline in deck.json
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
   assets/          test-card.png, 480 × 240, made by scripts/build_torture_images.py
 ```
@@ -59,6 +61,12 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 28 | `case-measure` | Case and measure | recorded (added with PLAN 1.8) | Row 2 in capitals, ß as SS; row 3 with each word's first letter capitalized, (Even) after a parenthesis, 3rd unchanged; row 4 in EB Garamond's own small capitals (`smcp`), none synthesized. Rows 5–8: a body paragraph held to 24 characters a line (24 × the advance of `0`), balanced, each line centered across all 12 columns. |
 | 29 | `fit` | Fit policies | recorded (added with PLAN 1.8) | Rows 2–5, left: a headline too long for its box at 96, set at the largest size at which it keeps to its role's two lines (`fit: shrink`, the theme's `maxLines: 2`, no smaller than 40). Right: one body word grown until it fills the box, here its width (`fit: grow`, no larger than 400). Rows 6–8: a headline held to one line (`maxLines: 1`) by shrinking. Nothing overflows; each size is the largest that fits, found by bisection between the text's bounds. |
 | 30 | `hyphenation` | Hyphenation | recorded (added with PLAN 1.8) | One paragraph three times in four-column boxes, English patterns. Left, `pretty` with `hyphenate`: words break between syllables ("tex-ture"), each hyphen drawn in the line's own font and counted in its width, no line past the column's right edge. Middle, `pretty` without: no word breaks, and the second line is left short. Right, greedy, end-aligned with `hangingPunctuation`: lines flush with the right edge, the hyphen and the closing stop hanging past it. |
+| 31 | `chart-kinds` | Chart kinds: bars, stacks, lines, areas | recorded (added with PLAN 1.9) | Four charts over one long table of three products by quarter, each series in the same categorical color in every chart. Top left, grouped bars share each quarter, with the legend above and a value axis on round dollars. Top right, stacked bars pile Core, Cloud, and Edge, each stack's total above it. Bottom left, lines through each series' points, their end labels nudged apart where they would touch. Bottom right, areas stacked in series order. |
+| 32 | `chart-kinds-next` | Chart kinds: the next quarter | recorded (added with PLAN 1.9) | The window advances a quarter by key in all four charts (frame `chart-kinds-next@0.5`): Q1 rides out under the left edge and Q5 rides in from the right. Bars and stacks grow from and shrink to the baseline as they go, a stack never gaps, and a line's or an area's new point slides in off its end, level with where the line ended. |
+| 33 | `chart-kinds-2` | Chart kinds: scatter, dots, donut, table | recorded (added with PLAN 1.9) | A scatter on round axes both ways, each dot's area by its seats; a dot plot with its legend below; a donut with its labels outside each slice and its legend at the right; a table sorted by revenue, numbers in tabular figures at their columns' ends, the region column taking the room to spare. |
+| 34 | `chart-kinds-2-next` | Chart kinds: data moves by key | recorded (added with PLAN 1.9) | Frame `chart-kinds-2-next@0.5`: the scatter's dots move to their new places by name; in the donut, Partners closes as Social opens, the ring whole throughout and every slice keeping its color; the table re-sorts by growth, rows moving to where they now stand. |
+| 35 | `regroup` | Bars that regroup | recorded (added with PLAN 1.9) | Grouped bars, three products to a quarter, value labels over each bar. |
+| 36 | `regroup-stacked` | Bars that regroup: stacked | recorded (added with PLAN 1.9) | The bars regroup in two stages, as d3's do (frames `regroup-stacked@0.25` and `@0.75`). First the heights: each bar rises to its place in its quarter's stack, still side by side. Then the widths: the bars slide together into one stack, whose total counts up over its top segment. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

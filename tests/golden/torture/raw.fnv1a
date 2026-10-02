@@ -30,7 +30,17 @@ alignment 66082b3d67c3a1b7
 case-measure de5b4932978578e7
 fit cf014cdc487c880f
 hyphenation 555bf767d04f7fbe
+chart-kinds 279a6ac2f86cb089
+chart-kinds-next 8ddbe2d6b1c24a85
+chart-kinds-2 b9222933e399f75f
+chart-kinds-2-next 99c3ac459f59bec2
+regroup 45d6949f7ae73b18
+regroup-stacked cdf8e6154ab5d448
 chart@0.25 0654022476565f01
 chart@0.5 0b9732ff7c81b6e5
 chart-next@0.25 89665e4270d8ba21
 chart-next@0.5 914b9d9bc31a7cf0
+chart-kinds-next@0.5 22ded290d70e574e
+chart-kinds-2-next@0.5 8a174d762a554330
+regroup-stacked@0.25 e370af9d555f4e28
+regroup-stacked@0.75 cceaea3d8e63db0c
