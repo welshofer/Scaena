@@ -16,10 +16,11 @@ use scaena_core::Deck;
 use scaena_core::displaylist::DisplayList;
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
+use scaena_engine::images::BundleImages;
 use scaena_engine::sample::Transition;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest};
-use scaena_paint::{FontStore, PaintError};
+use scaena_paint::{Assets, PaintError};
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,8 +31,8 @@ pub enum Error {
     Engine(#[from] EngineError),
     #[error(transparent)]
     Paint(#[from] PaintError),
-    #[error("add every font before the first frame: the engine is built from them then")]
-    FontAfterFrame,
+    #[error("add every font and image before the first frame: the engine is built from them then")]
+    AfterFrame,
 }
 
 /// One bundle's engine: the deck, its theme, fonts, and data files, and the layout
@@ -40,13 +41,13 @@ pub struct Session {
     deck: Deck,
     theme: Theme,
     data: DataFiles,
-    /// Fonts registered so far; the engine takes them on the first frame.
-    pending: Option<BundleFonts>,
+    /// Fonts and images registered so far; the engine takes them on the first frame.
+    pending: Option<(BundleFonts, BundleImages)>,
     engine: Option<Engine>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
-    /// The same fonts, as painters read them.
-    store: FontStore,
+    /// The same fonts and images, as painters read them.
+    store: Assets,
 }
 
 impl Session {
@@ -55,19 +56,32 @@ impl Session {
             deck: Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?,
             theme: Theme::from_json(theme_json)?,
             data: DataFiles::new(),
-            pending: Some(BundleFonts::new()),
+            pending: Some((BundleFonts::new(), BundleImages::new())),
             engine: None,
             transition: None,
-            store: FontStore::new(),
+            store: Assets::new(),
         })
     }
 
     /// Register a font file under its bundle id (its path in the bundle, as the deck's
     /// `fonts[].file` names it).
     pub fn add_font(&mut self, id: &str, bytes: Vec<u8>) -> Result<(), Error> {
-        let fonts = self.pending.as_mut().ok_or(Error::FontAfterFrame)?;
+        let (fonts, _) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
         fonts.register(id, bytes.clone())?;
-        self.store.insert(id, bytes);
+        self.store.insert_font(id, bytes);
+        Ok(())
+    }
+
+    /// The image files the deck names: each to add with [`Session::add_image`].
+    pub fn image_files(&self) -> Vec<String> {
+        self.deck.image_files()
+    }
+
+    /// Register an image file under its bundle path, as image nodes' `src` names it.
+    pub fn add_image(&mut self, path: &str, bytes: Vec<u8>) -> Result<(), Error> {
+        let (_, images) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
+        let info = images.register(path, &bytes)?;
+        self.store.insert_image(&info.id, &bytes)?;
         Ok(())
     }
 
@@ -91,9 +105,9 @@ impl Session {
     /// of one transition lay out once (SPEC §5).
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
         if self.engine.is_none() {
-            let fonts = self.pending.take().ok_or(Error::FontAfterFrame)?;
+            let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
             fonts.check_theme(&self.theme)?;
-            self.engine = Some(Engine::new(fonts));
+            self.engine = Some(Engine::new(fonts).with_images(images));
         }
         let engine = self.engine.as_mut().expect("built above");
         if scaena_engine::render::timing(&self.deck, &self.theme, state)?.progress(t_ms) >= 1.0 {
@@ -108,7 +122,8 @@ impl Session {
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
     }
 
-    pub fn fonts(&self) -> &FontStore {
+    /// The fonts and images, as painters read them.
+    pub fn assets(&self) -> &Assets {
         &self.store
     }
 }
@@ -136,6 +151,17 @@ impl Player {
     #[wasm_bindgen(js_name = addData)]
     pub fn add_data(&mut self, path: &str, bytes: Vec<u8>) {
         self.0.add_data(path, bytes);
+    }
+
+    /// The image files the deck names, each to add with `addImage`.
+    #[wasm_bindgen(js_name = imageFiles)]
+    pub fn image_files(&self) -> Vec<String> {
+        self.0.image_files()
+    }
+
+    #[wasm_bindgen(js_name = addImage)]
+    pub fn add_image(&mut self, path: &str, bytes: Vec<u8>) -> Result<(), JsError> {
+        self.0.add_image(path, bytes).map_err(js)
     }
 
     pub fn states(&self) -> Vec<String> {
@@ -283,7 +309,7 @@ mod web {
                 height,
                 antialiasing_method: vello::AaConfig::Area,
             };
-            let drawn = scaena_paint::gpu::scene(&dl, self.0.fonts(), scale, &images).map_err(js).and_then(|scene| {
+            let drawn = scaena_paint::gpu::scene(&dl, self.0.assets(), scale, &images).map_err(js).and_then(|scene| {
                 canvas
                     .renderer
                     .render_to_texture(&canvas.device, &canvas.queue, &scene, &canvas.target, &params)
@@ -327,6 +353,9 @@ mod tests {
         for path in ["data/bars.csv", "data/bars-next.csv"] {
             s.add_data(path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
         }
+        for path in s.image_files() {
+            s.add_image(&path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap()).unwrap();
+        }
         s
     }
 
@@ -354,11 +383,13 @@ mod tests {
     }
 
     #[test]
-    fn fonts_come_before_the_first_frame() {
+    fn fonts_and_images_come_before_the_first_frame() {
         let mut s = torture();
         s.frame("axes", f64::INFINITY).unwrap();
         let err = s.add_font("fonts/late.ttf", vec![]).unwrap_err();
-        assert!(matches!(err, Error::FontAfterFrame), "{err}");
-        assert_eq!(s.states().len(), 25);
+        assert!(matches!(err, Error::AfterFrame), "{err}");
+        let err = s.add_image("assets/late.png", vec![]).unwrap_err();
+        assert!(matches!(err, Error::AfterFrame), "{err}");
+        assert_eq!(s.states().len(), 27);
     }
 }

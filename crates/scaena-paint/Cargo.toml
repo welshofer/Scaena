@@ -17,6 +17,10 @@ png.workspace = true
 vello_cpu = { workspace = true, optional = true }
 vello = { workspace = true, optional = true }
 
+[dev-dependencies]
+# The torture bundle's images by content id, as display lists name them.
+sha2.workspace = true
+
 [features]
 default = ["cpu"]
 # Headless, deterministic painter: CI, agents, export (PLAN 0.6).

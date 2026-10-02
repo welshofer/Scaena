@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const TORTURE: &str = "../../tests/fixtures/torture.scaena";
+/// `sha256` of `assets/test-card.png`, the name saving gives it.
+const TEST_CARD_SHA256: &str = "7130f10a4aa0167a731f7735296b6079436f52e077fd5f2ea988d8c180ac2923";
 const B1: &str = "../../tests/bench/b1.scaena";
 const GOLDEN: &str = "../../tests/golden/torture";
 
@@ -64,13 +66,26 @@ fn a_saved_torture_deck_draws_its_golden_frames() {
     let dir = scratch("torture");
     let zip = dir.join("torture.scaena");
     let renamed = save(TORTURE, &zip);
-    assert_eq!(renamed.len(), 5, "every font is renamed by its content: {renamed:?}");
-    assert!(renamed.iter().all(|(_, new)| new.starts_with("fonts/") && new.ends_with(".ttf")));
+    assert_eq!(renamed.len(), 6, "every font and image is renamed by its content: {renamed:?}");
+    let fonts = renamed.iter().filter(|(_, new)| new.starts_with("fonts/") && new.ends_with(".ttf")).count();
+    let image = ("assets/test-card.png".to_string(), format!("assets/{}.png", TEST_CARD_SHA256));
+    assert_eq!((fonts, renamed.contains(&image)), (5, true), "{renamed:?}");
     // The scripts and features most likely to break in a subset: joining, bidi, marks,
-    // color glyphs, ligatures, kerning, hanging quotes, variable axes.
-    for state in
-        ["bidi-arabic", "bidi-hebrew", "combining", "emoji", "liga", "dlig", "kern", "hanging", "axes", "accents"]
-    {
+    // color glyphs, ligatures, kerning, hanging quotes, variable axes; and the images,
+    // found under their new names.
+    for state in [
+        "bidi-arabic",
+        "bidi-hebrew",
+        "combining",
+        "emoji",
+        "liga",
+        "dlig",
+        "kern",
+        "hanging",
+        "axes",
+        "accents",
+        "images",
+    ] {
         let golden = std::fs::read_to_string(format!("{GOLDEN}/{state}.dl.json")).unwrap();
         assert_eq!(frame(&zip, state, &dir, &renamed), golden, "{state}");
     }

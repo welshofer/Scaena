@@ -116,7 +116,7 @@ fn t_renders_a_frame_inside_the_transition() {
 /// A copy of the torture bundle in `dir`, its deck edited.
 fn edited_bundle(dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
     let bundle = dir.join("bundle");
-    for sub in ["fonts", "data"] {
+    for sub in ["fonts", "data", "assets"] {
         std::fs::create_dir_all(bundle.join(sub)).unwrap();
         for entry in std::fs::read_dir(Path::new(BUNDLE).join(sub)).unwrap() {
             let path = entry.unwrap().path();

@@ -274,6 +274,38 @@ impl Theme {
             .collect()
     }
 
+    /// A length (SPEC §3.2), in canvas units: a number, `"12cu"`, a percentage of `whole`,
+    /// or a theme token: `space.N` or `radius.N` (step N of that scale), or a stroke token
+    /// (`hairline`, `thin`, …).
+    pub fn length(&self, v: &Value, whole: f32) -> Result<f32, EngineError> {
+        let bad = || EngineError::Layout(format!("{v} is not a length: canvas units, a percentage, or a theme token"));
+        let s = match v {
+            Value::Number(n) => return n.as_f64().map(|n| n as f32).ok_or_else(bad),
+            Value::String(s) => s.as_str(),
+            _ => return Err(bad()),
+        };
+        if let Some(n) = s.strip_suffix("cu") {
+            return n.parse::<f32>().map_err(|_| bad());
+        }
+        if let Some(n) = s.strip_suffix('%') {
+            return n.parse::<f32>().map(|p| p / 100.0 * whole).map_err(|_| bad());
+        }
+        let step = |scale: Option<&Vec<scaena_core::model::values::NonNegative>>, n: &str, what: &str| {
+            let i: usize = n.parse().map_err(|_| bad())?;
+            scale
+                .and_then(|s| s.get(i))
+                .map(|v| v.0 as f32)
+                .ok_or_else(|| EngineError::Theme(format!("{what} scale has no step {i}")))
+        };
+        if let Some(n) = s.strip_prefix("space.") {
+            return step(Some(&self.tokens.space.scale), n, "the space");
+        }
+        if let Some(n) = s.strip_prefix("radius.") {
+            return step(self.tokens.radius.as_ref().and_then(|r| r.scale.as_ref()), n, "the radius");
+        }
+        self.stroke(s).map_err(|_| EngineError::Theme(format!("unknown length token `{s}`")))
+    }
+
     /// A stroke token's width.
     pub fn stroke(&self, name: &str) -> Result<f32, EngineError> {
         self.tokens

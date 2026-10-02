@@ -1,0 +1,66 @@
+{
+  "dl":1,
+  "viewport":[1920.0,1080.0],
+  "fonts":[
+    {"id":"fonts/RobotoSerif-VF.ttf","index":0}
+  ],
+  "ops":[
+    {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
+    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+        [262,0.0,20.71875],
+        [264,13.203125,20.71875],
+        [1,26.40625,20.71875],
+        [328,32.828125,20.71875],
+        [1,40.125,20.71875],
+        [80,46.546875,20.71875],
+        [161,61.203125,20.71875],
+        [124,76.625,20.71875],
+        [195,90.09375,20.71875],
+        [143,105.671875,20.71875],
+        [201,119.203125,20.71875],
+        [1,131.125,20.71875],
+        [328,137.54688,20.71875],
+        [1,144.84375,20.71875],
+        [197,151.26562,20.71875],
+        [143,161.65625,20.71875],
+        [135,175.25,20.71875],
+        [186,188.625,20.71875],
+        [197,203.48438,20.71875],
+        [141,213.85938,20.71875],
+        [143,229.21875,20.71875],
+        [141,242.8125,20.71875]
+      ]}}
+    ]}},
+    {"layer":{"node":"shape-panel","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"fill":{"path":"M16 0L544 0C552.84375 0 560 7.15625 560 16L560 302C560 310.84375 552.84375 318 544 318L16 318C7.15625 318 0 310.84375 0 302L0 16C0 7.15625 7.15625 0 16 0Z","rule":"nonzero","paint":{"solid":"#F1EEE6FF"}}},
+      {"stroke":{"path":"M16 0L544 0C552.84375 0 560 7.15625 560 16L560 302C560 310.84375 552.84375 318 544 318L16 318C7.15625 318 0 310.84375 0 302L0 16C0 7.15625 7.15625 0 16 0Z","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
+    ]}},
+    {"layer":{"node":"shape-pill","transform":[1.0,0.0,0.0,1.0,680.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"fill":{"path":"M45 0L515 0C539.8594 0 560 20.140625 560 45L560 45C560 69.859375 539.8594 90 515 90L45 90C20.140625 90 0 69.859375 0 45L0 45C0 20.140625 20.140625 0 45 0Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}}
+    ]}},
+    {"layer":{"node":"shape-arrow","transform":[1.0,0.0,0.0,1.0,680.0,324.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"stroke":{"path":"M0 204L544.96875 5.46875","paint":{"solid":"#C2410CFF"},"width":4.0,"cap":"round","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"fill":{"path":"M560 0L548.3906 14.875L541.5469 -3.921875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}}
+    ]}},
+    {"layer":{"node":"shape-ring","transform":[1.0,0.0,0.0,1.0,1264.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"stroke":{"path":"M560 159C560 246.8125 434.64063 318 280 318C125.359375 318 0 246.8125 0 159C0 71.1875 125.359375 0 280 0C434.64063 0 560 71.1875 560 159","paint":{"solid":"#C2410CFF"},"width":4.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
+    ]}},
+    {"layer":{"node":"shape-rule","transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"stroke":{"path":"M0 45L1728 45","paint":{"solid":"#16140FFF"},"width":2.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
+    ]}},
+    {"layer":{"node":"shape-dash","transform":[1.0,0.0,0.0,1.0,96.0,666.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"stroke":{"path":"M0 45L1728 45","paint":{"solid":"#6B675EFF"},"width":2.0,"cap":"round","join":"miter","miterLimit":4.0,"dash":[12.0,8.0],"dashOffset":0.0}}
+    ]}},
+    {"layer":{"node":"shape-tri","transform":[1.0,0.0,0.0,1.0,96.0,780.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"fill":{"path":"M134 0L268 204L0 204Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}}
+    ]}},
+    {"layer":{"node":"shape-star","transform":[1.0,0.0,0.0,1.0,534.0,780.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"fill":{"path":"M207 0L240.14063 67.140625L314.25 77.96875L260.625 130.20313L273.28125 204L207 169.14063L140.71875 204L153.375 130.20313L99.75 77.96875L173.85938 67.140625Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+      {"stroke":{"path":"M207 0L240.14063 67.140625L314.25 77.96875L260.625 130.20313L273.28125 204L207 169.14063L140.71875 204L153.375 130.20313L99.75 77.96875L173.85938 67.140625Z","paint":{"solid":"#16140FFF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
+    ]}},
+    {"layer":{"node":"shape-oval","transform":[1.0,0.0,0.0,1.0,1118.0,780.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"fill":{"path":"M706 102C706 158.32813 547.9531 204 353 204C158.04688 204 0 158.32813 0 102C0 45.671875 158.04688 0 353 0C547.9531 0 706 45.671875 706 102","rule":"nonzero","paint":{"solid":"#6B675EFF"}}}
+    ]}}
+  ]
+}

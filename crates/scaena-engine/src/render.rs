@@ -12,9 +12,11 @@ use crate::cascade;
 use crate::charts::{self, Ctx};
 use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
+use crate::images::{BundleImages, ImageNode};
 use crate::layout::{AlignX, AlignY, Grid};
 use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
+use crate::shapes::ShapeNode;
 use crate::text::{Span, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect, paint_order};
@@ -42,15 +44,22 @@ pub struct Frame {
     pub duration_ms: f64,
 }
 
-/// The engine for one bundle: its fonts plus reusable layout scratch.
+/// The engine for one bundle: its fonts and images, plus reusable layout scratch.
 pub struct Engine {
     fonts: BundleFonts,
+    images: BundleImages,
     text: TextEngine,
 }
 
 impl Engine {
     pub fn new(fonts: BundleFonts) -> Self {
-        Self { fonts, text: TextEngine::new() }
+        Self { fonts, images: BundleImages::new(), text: TextEngine::new() }
+    }
+
+    /// The bundle's images, which image nodes name.
+    pub fn with_images(mut self, images: BundleImages) -> Self {
+        self.images = images;
+        self
     }
 
     /// Render one frame. Deterministic: same inputs → identical display list (SPEC §13).
@@ -130,8 +139,15 @@ impl Engine {
                         grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
                     Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
                 }
-                NodeType::Shape | NodeType::Image => {
-                    return Err(EngineError::NotImplemented("shape and image nodes — PLAN 1.7"));
+                NodeType::Shape => {
+                    let rect =
+                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
+                    Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
+                }
+                NodeType::Image => {
+                    let rect =
+                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
+                    Content::Image(ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?)
                 }
                 NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group => {
                     return Err(EngineError::NotImplemented("container nodes — PLAN 1.7"));

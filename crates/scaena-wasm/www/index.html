@@ -28,6 +28,7 @@
     for (const font of deck.fonts) player.addFont(font.file, new Uint8Array(await (await get(font.file)).arrayBuffer()));
     for (const { source } of Object.values(deck.data ?? {}))
       if (typeof source === "string") player.addData(source, new Uint8Array(await (await get(source)).arrayBuffer()));
+    for (const path of player.imageFiles()) player.addImage(path, new Uint8Array(await (await get(path)).arrayBuffer()));
     const stage = document.getElementById("stage");
     [stage.width, stage.height] = [deck.canvas.width, deck.canvas.height];
     const canvas = await Canvas.attach(stage);

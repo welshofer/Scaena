@@ -1,7 +1,8 @@
-//! Shared by the painter tests: the torture goldens and the bundle fonts they name.
+//! Shared by the painter tests: the torture goldens and the bundle fonts and images they
+//! name.
 
 use scaena_core::displaylist::DisplayList;
-use scaena_paint::FontStore;
+use scaena_paint::Assets;
 
 pub const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
 pub const GOLDEN: &str = "../../tests/golden/torture";
@@ -21,13 +22,22 @@ pub fn goldens() -> Vec<(String, DisplayList)> {
     out
 }
 
-/// The bundle fonts the display lists name.
-pub fn fonts(dls: &[(String, DisplayList)]) -> FontStore {
-    let mut store = FontStore::new();
+/// The bundle fonts the display lists name, and the bundle's images by content id.
+pub fn assets(dls: &[(String, DisplayList)]) -> Assets {
+    use sha2::{Digest, Sha256};
+    let mut store = Assets::new();
     let ids: std::collections::BTreeSet<&str> =
         dls.iter().flat_map(|(_, dl)| dl.fonts.iter().map(|f| f.id.as_str())).collect();
     for id in ids {
-        store.insert(id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap());
+        store.insert_font(id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap());
+    }
+    for entry in std::fs::read_dir(format!("{BUNDLE}/assets")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "png") {
+            let bytes = std::fs::read(&path).unwrap();
+            let hex: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+            store.insert_image(&format!("sha256:{hex}"), &bytes).unwrap();
+        }
     }
     store
 }

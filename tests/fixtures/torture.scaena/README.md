@@ -4,10 +4,11 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        25 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
+  deck.json        27 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
+  assets/          test-card.png, 480 × 240, made by scripts/build_torture_images.py
 ```
 
 ## Fonts
@@ -51,6 +52,8 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 21 | `anchors` | Cap, baseline, x-height alignment across 112 / 64 / 28 cu | recorded (added with PLAN 0.5) | Cap tops share the cell top (210 cu), baselines the cell bottom (642 cu), x-height tops of `axe` 780 cu. One line per specimen; the rows do not touch. |
 | 22 | `chart-intro` → `chart` → `chart-next` | Bar chart: values in, then the next quarter | recorded (gate 0 criterion 3) | At rest, six bars keyed by label in the first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. Into `chart` (420 ms), the bars grow from the baseline and their labels count up. Into `chart-next`, the window scrolls a quarter by key: 2025-Q1 rides out under the left edge, 2026-Q3 rides in from the right, the rest slide and rescale. Each transition is its two states at rest exactly at t = 0 and 420 ms; the frames at 0.25 and 0.5 have goldens (`chart@0.25`, `chart-next@0.5`, …), and no frame lays anything out. |
 | 23 | `mesh` | Mesh background | recorded (gate 0 criterion 4) | A seeded mesh (`torture` palette, 5 points, drift 0.12, softness 0.85, grain 0.035) fills the canvas under the case label, at 0.84 s on the global timeline (the two chart transitions before it). cpu, gpu, and web paint it within SPEC §13.5, and the CPU reference and the WGSL agree within one step (`shader_parity`). |
+| 24 | `shapes` | Shapes | recorded (added with PLAN 1.7) | A rounded panel with a hairline, a pill, a ring, an arrow ending in its head, a rule and a dashed rule, a triangle, a star fitted from SVG path data, and an oval, each in its grid cell in theme colors. cpu, gpu, and web draw them within SPEC §13.5. |
+| 25 | `images` | Images | recorded (added with PLAN 1.7) | The test card seven ways. Top row: `cover` keeps the middle bands and the disc; `cover` with `focal: [0, 0.5]` keeps the left bands and the yellow corner mark; `contain` shows all four corner marks, centered; `fill` with `crop: [0.25, 0, 0.5, 1]` stretches the middle four bands. Bottom row: `cover` with `focal: [0.5, 1]` and `radius.4` keeps the bottom, its half-transparent strip blending with the page (straight alpha, premultiplied once), corners rounded; `contain` in a narrow box rounds the drawn image's corners, not the box's; `crop: [0, 0, 0.125, 0.125]` magnifies the 2 px checkerboard about ten times, bilinear. cpu, gpu, and web draw them within SPEC §13.5. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

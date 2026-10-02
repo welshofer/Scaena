@@ -243,27 +243,34 @@ pub enum ShapeKind {
 }
 
 node! {
-    /// A raster or vector image from the bundle's assets.
+    /// An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.
     ImageNode {
-        /// Asset reference: assets/<sha256>.<ext>.
+        /// The image file's path in the bundle; `assets/<sha256>.<ext>` once saved.
         pub src: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub fit: Option<ImageFit>,
+        /// The point of the image that lines up with the same point of the box, in
+        /// fractions of the crop, as CSS `object-position`; default [0.5, 0.5].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub focal: Option<Point>,
+        /// The part of the image to show, [x, y, w, h] in fractions of the image.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub crop: Option<Rect>,
+        /// Rounds the corners of what shows.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
     }
 }
 
-/// How an image fills its box.
+/// How an image meets its box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageFit {
+    /// Fills the box, cutting what overflows (the default).
     Cover,
+    /// Fits inside the box, whole.
     Contain,
+    /// Stretched to the box.
     Fill,
 }
 

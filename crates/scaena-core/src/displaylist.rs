@@ -70,6 +70,10 @@ pub struct FontRef {
     pub index: u32,
 }
 
+/// The longest side an [`Op::Image`] asset may have, in pixels: vello's image atlas is
+/// 8192 px square, and an image that does not fit it is not drawn on the GPU at all.
+pub const MAX_IMAGE_SIDE: u32 = 8192;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum Op {
@@ -112,9 +116,12 @@ pub enum Op {
         glyphs: Vec<Glyph>,
     },
     Image {
-        /// Content-addressed asset id, `sha256:<hex>`.
+        /// Content-addressed asset id, `sha256:<hex>`, of an image at most
+        /// [`MAX_IMAGE_SIDE`] px a side.
         asset: String,
+        /// The part of the image drawn, in its pixels.
         src: Rect,
+        /// Where `src` lands, in canvas units.
         dst: Rect,
         quality: Quality,
     },

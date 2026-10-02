@@ -277,18 +277,30 @@
       }
     },
     "ImageNode": {
-      "description": "A raster or vector image from the bundle's assets.",
+      "description": "An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type", "src"],
       "unevaluatedProperties": false,
       "properties": {
         "type": { "type": "string", "const": "image" },
-        "src": { "description": "Asset reference: assets/<sha256>.<ext>.", "type": "string" },
+        "src": {
+          "description": "The image file's path in the bundle; `assets/<sha256>.<ext>` once saved.",
+          "type": "string"
+        },
         "fit": { "$ref": "#/$defs/ImageFit" },
-        "focal": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
-        "crop": { "$ref": "#/$defs/Rect" },
-        "radius": { "$ref": "#/$defs/Length" }
+        "focal": {
+          "description": "The point of the image that lines up with the same point of the box, in fractions of the crop, as CSS `object-position`; default [0.5, 0.5].",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "crop": {
+          "description": "The part of the image to show, [x, y, w, h] in fractions of the image.",
+          "$ref": "#/$defs/Rect"
+        },
+        "radius": { "description": "Rounds the corners of what shows.", "$ref": "#/$defs/Length" }
       }
     },
     "ChartNode": {
@@ -686,9 +698,12 @@
     },
     "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
     "ImageFit": {
-      "description": "How an image fills its box.",
-      "type": "string",
-      "enum": ["cover", "contain", "fill"]
+      "description": "How an image meets its box.",
+      "oneOf": [
+        { "description": "Fills the box, cutting what overflows (the default).", "type": "string", "const": "cover" },
+        { "description": "Fits inside the box, whole.", "type": "string", "const": "contain" },
+        { "description": "Stretched to the box.", "type": "string", "const": "fill" }
+      ]
     },
     "ChartKind": {
       "description": "v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.",
@@ -919,7 +934,7 @@
         "src": { "type": ["string", "null"] },
         "focal": {
           "anyOf": [
-            { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            { "maxItems": 2, "type": "array", "items": { "type": "number" }, "minItems": 2 },
             { "type": "null" }
           ]
         },

@@ -13,6 +13,7 @@ use scaena_core::Deck;
 use scaena_core::displaylist::{Affine, DisplayList, Glyph, Op, PathEl, quantize};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
+use scaena_engine::images::BundleImages;
 use scaena_engine::text::{TextEngine, TextLayout, TextSpec};
 use scaena_engine::theme::{Theme, Wrap};
 use scaena_engine::{Engine, EngineError, FrameRequest, PlacedText};
@@ -53,7 +54,11 @@ fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: 
         let path = source.source.as_str().unwrap();
         data.insert(path, read(path));
     }
-    Fixture { deck, theme, data, engine: Engine::new(fonts) }
+    let mut images = BundleImages::new();
+    for path in deck.image_files() {
+        images.register(&path, &read(&path)).unwrap();
+    }
+    Fixture { deck, theme, data, engine: Engine::new(fonts).with_images(images) }
 }
 
 fn bundle_fonts(deck: &Deck, reverse: bool) -> BundleFonts {

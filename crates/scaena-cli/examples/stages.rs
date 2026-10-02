@@ -12,10 +12,11 @@
 use anyhow::{Context, Result};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
+use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use scaena_paint::cpu::CpuPainter;
-use scaena_paint::{FontStore, Painter};
+use scaena_paint::{Assets, Painter};
 use scaena_store::Bundle;
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
@@ -46,17 +47,19 @@ struct Loaded {
     theme: Theme,
     data: DataFiles,
     fonts: Vec<(String, Vec<u8>)>,
+    images: Vec<(String, Vec<u8>)>,
 }
 
 fn load(path: &Path) -> Result<Loaded> {
     let b = Bundle::open(path)?;
     let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
     let fonts = b.read_fonts()?;
+    let images = b.read_images()?;
     let mut data = DataFiles::new();
     for (p, bytes) in b.read_data()? {
         data.insert(p, bytes);
     }
-    Ok(Loaded { deck: b.deck, theme, data, fonts })
+    Ok(Loaded { deck: b.deck, theme, data, fonts, images })
 }
 
 /// The frame of `state` at rest.
@@ -71,6 +74,14 @@ fn register(l: &Loaded) -> Result<BundleFonts> {
     }
     fonts.check_theme(&l.theme)?;
     Ok(fonts)
+}
+
+fn images(l: &Loaded) -> Result<BundleImages> {
+    let mut images = BundleImages::new();
+    for (path, bytes) in &l.images {
+        images.register(path, bytes)?;
+    }
+    Ok(images)
 }
 
 fn main() -> Result<()> {
@@ -96,7 +107,7 @@ fn main() -> Result<()> {
     row("Register and check fonts", f(median(regs)), "—".into(), "cold start");
 
     // First pass on a fresh engine: shaping caches start empty and fill as states go by.
-    let mut engine = Engine::new(register(&l)?);
+    let mut engine = Engine::new(register(&l)?).with_images(images(&l)?);
     let mut first = Vec::new();
     for s in &states {
         let (t, frame) = ms(|| engine.frame(&req(&l, s)));
@@ -159,9 +170,12 @@ fn main() -> Result<()> {
 
     // Painting: one 1080p frame per state at rest, warm (median of 3 after one warm-up).
     let store = {
-        let mut store = FontStore::new();
+        let mut store = Assets::new();
         for (id, bytes) in &l.fonts {
-            store.insert(id, bytes.clone());
+            store.insert_font(id, bytes.clone());
+        }
+        for (path, bytes) in &l.images {
+            store.insert_image(&images(&l)?.get(path).context("registered above")?.id, bytes)?;
         }
         store
     };
@@ -247,7 +261,7 @@ fn main() -> Result<()> {
 #[cfg(feature = "gpu")]
 fn gpu_rows(
     dls: &[(String, scaena_core::displaylist::DisplayList)],
-    store: &FontStore,
+    store: &Assets,
     row: &mut impl FnMut(&str, String, String, &'static str),
 ) {
     let mut gpu = match scaena_paint::gpu::GpuPainter::new() {
@@ -282,7 +296,7 @@ fn gpu_rows(
 #[cfg(not(feature = "gpu"))]
 fn gpu_rows(
     _: &[(String, scaena_core::displaylist::DisplayList)],
-    _: &FontStore,
+    _: &Assets,
     row: &mut impl FnMut(&str, String, String, &'static str),
 ) {
     row("GPU paint, one frame at 1080p", "not run: build with `--features gpu`".into(), "—".into(), "≤ 6 ms");

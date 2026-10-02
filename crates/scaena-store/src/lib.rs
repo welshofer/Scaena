@@ -140,6 +140,11 @@ impl Bundle {
         self.deck.fonts.iter().map(|f| Ok((f.file.clone(), self.read(&f.file)?))).collect()
     }
 
+    /// The image files the deck's image nodes name, as (bundle path, bytes).
+    pub fn read_images(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
+        self.deck.image_files().into_iter().map(|path| Ok((path.clone(), self.read(&path)?))).collect()
+    }
+
     /// The files the deck's data sources name (`data.*.source` strings), as (bundle
     /// path, bytes), in deck order; inline sources need no file.
     pub fn read_data(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {

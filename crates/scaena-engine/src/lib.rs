@@ -23,10 +23,12 @@ pub mod charts;
 pub mod data;
 pub mod error;
 pub mod fonts;
+pub mod images;
 pub mod layout;
 pub mod render;
 pub mod sample;
 pub mod shaders;
+pub mod shapes;
 pub mod text;
 pub mod theme;
 

@@ -29,8 +29,10 @@
 use crate::EngineError;
 use crate::charts::{ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
 use crate::data;
+use crate::images::ImageNode;
 use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
+use crate::shapes::ShapeNode;
 use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
@@ -70,6 +72,8 @@ pub enum Content {
     Text(PlacedText),
     Chart { cell: Rect, chart: ChartLayout },
     Shader(ShaderNode),
+    Shape(ShapeNode),
+    Image(ImageNode),
 }
 
 /// A node's own transition policy: `morph` (the default), `crossfade`, or `cut`.
@@ -122,6 +126,8 @@ impl SceneNode {
     fn draw(&self, dl: &mut DisplayList, opacity: f32, time: f64) -> Op {
         match &self.content {
             Content::Shader(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, vec![s.op(time)]),
+            Content::Shape(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, s.ops()),
+            Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
             Content::Text(placed) => layer(Some(&self.id), placed.origin, opacity, text_ops(dl, &placed.text.runs)),
             Content::Chart { cell, chart } => {
                 let mut ops = Vec::new();
@@ -263,7 +269,7 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: Some(i), to: None, plan: ChartPlan::new(Some(chart), None) }
                     }
-                    Content::Text(_) | Content::Shader(_) => Track::Exit(i),
+                    Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Exit(i),
                 };
                 tracks.push((a.z, a.order, track));
             }
@@ -275,13 +281,15 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: None, to: Some(j), plan: ChartPlan::new(None, Some(chart)) }
                     }
-                    Content::Text(_) | Content::Shader(_) => Track::Enter(j),
+                    Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Enter(j),
                 },
                 (Some(_), Policy::Cut) => Track::Cut(j),
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
                     (Content::Shader(x), Content::Shader(y)) if x.same_shader(y) => Track::Move { from: i, to: j },
+                    (Content::Shape(x), Content::Shape(y)) if x.same_shape(y) => Track::Move { from: i, to: j },
+                    (Content::Image(x), Content::Image(y)) if x.same_image(y) => Track::Move { from: i, to: j },
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) => {
                         Track::Chart { from: Some(i), to: Some(j), plan: ChartPlan::new(Some(x), Some(y)) }
                     }
@@ -335,7 +343,17 @@ impl Transition {
                             let shader = b.at([x, y, w, h]);
                             layer(Some(&to[*j].id), [x, y], opacity, vec![shader.op(time)])
                         }
-                        _ => unreachable!("Move tracks pair text with text and a shader with itself"),
+                        (Content::Shape(a), Content::Shape(b)) => {
+                            let shape = ShapeNode::lerp(a, b, p);
+                            layer(Some(&to[*j].id), [shape.rect[0], shape.rect[1]], opacity, shape.ops())
+                        }
+                        (Content::Image(a), Content::Image(b)) => {
+                            let image = ImageNode::lerp(a, b, p);
+                            layer(Some(&to[*j].id), [image.rect[0], image.rect[1]], opacity, image.ops())
+                        }
+                        _ => unreachable!(
+                            "Move tracks pair text with text, and a shader, a shape, or an image with itself"
+                        ),
                     };
                     dl.ops.push(op);
                 }
@@ -365,7 +383,9 @@ impl Transition {
 fn chart(node: Option<&SceneNode>) -> Option<(&SceneNode, Rect, &ChartLayout)> {
     node.map(|n| match &n.content {
         Content::Chart { cell, chart } => (n, *cell, chart),
-        Content::Text(_) | Content::Shader(_) => unreachable!("Chart tracks pair charts"),
+        Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => {
+            unreachable!("Chart tracks pair charts")
+        }
     })
 }
 

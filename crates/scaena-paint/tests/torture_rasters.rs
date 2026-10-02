@@ -9,14 +9,14 @@
 
 mod common;
 
-use common::{GOLDEN, fonts, goldens};
+use common::{GOLDEN, assets, goldens};
 use scaena_core::displaylist::DisplayList;
 use scaena_paint::cpu::CpuPainter;
-use scaena_paint::{FontStore, Painter, Raster, diff};
+use scaena_paint::{Assets, Painter, Raster, diff};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Paints one state and blesses or checks its golden; returns a failure line if it fails.
-fn check(state: &str, dl: &DisplayList, store: &FontStore, bless: bool) -> Option<String> {
+fn check(state: &str, dl: &DisplayList, store: &Assets, bless: bool) -> Option<String> {
     let raster = CpuPainter::default().paint(dl, store, 1.0).unwrap_or_else(|e| panic!("{state}: {e}"));
     let path = format!("{GOLDEN}/{state}.png");
     if bless {
@@ -39,7 +39,7 @@ fn check(state: &str, dl: &DisplayList, store: &FontStore, bless: bool) -> Optio
 fn rasters_match_goldens_within_spec_tolerance() {
     let dls = goldens();
     assert!(dls.len() >= 20, "found {} display-list goldens", dls.len());
-    let store = fonts(&dls);
+    let store = assets(&dls);
     let bless = std::env::var_os("SCAENA_BLESS").is_some();
     // States are independent: one worker per core takes the next state off a shared index.
     let next = AtomicUsize::new(0);

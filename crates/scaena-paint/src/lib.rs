@@ -7,10 +7,14 @@
 //! - `gpu`: `vello` on `wgpu`: WebGPU in the browser, Metal on the Mac, Vulkan on Linux.
 //!
 //! A painter draws only what the engine emits and the tests exercise: solid fills,
-//! strokes, glyph runs (outline, COLR, and bitmap glyphs), layers, and `mesh` shaders.
-//! Gradients, images, and other shader kinds return `NotImplemented` naming the PLAN
-//! task that adds them. Both painters take their geometry from the same conversions
+//! strokes, glyph runs (outline, COLR, and bitmap glyphs), layers, PNG images, and `mesh`
+//! shaders. Gradients and other shader kinds return `NotImplemented` naming the PLAN task
+//! that adds them. Both painters take their geometry from the same conversions
 //! (`convert`), so they can differ only in rasterization.
+//!
+//! Images are decoded once, when they are added to [`Assets`], to straight-alpha RGBA8;
+//! the CPU painter premultiplies them, vello takes them as they are. Both filter them
+//! bilinearly (SPEC §3.3).
 //!
 //! A shader op draws as an image of its device pixels: the CPU painter computes it
 //! with the kind's CPU reference, the GPU painter with its WGSL twin
@@ -35,6 +39,8 @@ pub enum PaintError {
     MissingFont(String),
     #[error("display list names font index {0}, past the end of its font table")]
     FontIndex(u32),
+    #[error("display list names image {0}, which the painter was not given")]
+    MissingImage(String),
     #[error("{0}×{1} px is not a raster this painter can make")]
     Size(f32, f32),
     #[error("png: {0}")]
@@ -56,25 +62,152 @@ impl From<ShaderError> for PaintError {
     }
 }
 
-/// Font bytes by bundle id: loaded once per bundle, shared by every frame (SPEC §6).
+/// What display lists name besides themselves, loaded once per bundle and shared by every
+/// frame (SPEC §6): font bytes by bundle id, and images, decoded, by content id.
 #[derive(Debug, Clone, Default)]
-pub struct FontStore {
+pub struct Assets {
     blobs: BTreeMap<String, Blob<u8>>,
+    images: BTreeMap<String, Arc<Picture>>,
 }
 
-impl FontStore {
+/// A decoded image: straight (unpremultiplied) sRGB RGBA8, row-major.
+#[derive(Debug)]
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Blob<u8>,
+    /// Premultiplied, as `vello_cpu` paints it; made on first use.
+    #[cfg(feature = "cpu")]
+    pixmap: std::sync::OnceLock<Arc<vello_cpu::Pixmap>>,
+}
+
+impl Assets {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Add the bytes of the font file with bundle id `id` (its path in the bundle).
-    pub fn insert(&mut self, id: &str, bytes: Vec<u8>) {
+    pub fn insert_font(&mut self, id: &str, bytes: Vec<u8>) {
         self.blobs.insert(id.to_string(), Blob::new(Arc::new(bytes)));
+    }
+
+    /// Decode the PNG `bytes` and keep it under `id`, the content id display lists name
+    /// it by (`sha256:…`). Images are PNG in v1 (SPEC §3.3).
+    pub fn insert_image(&mut self, id: &str, bytes: &[u8]) -> Result<(), PaintError> {
+        self.images.insert(id.to_string(), Arc::new(Picture::decode(bytes)?));
+        Ok(())
     }
 
     fn get(&self, font: &FontRef) -> Result<FontData, PaintError> {
         let blob = self.blobs.get(&font.id).ok_or_else(|| PaintError::MissingFont(font.id.clone()))?;
         Ok(FontData::new(blob.clone(), font.index))
+    }
+
+    fn image(&self, id: &str) -> Result<&Arc<Picture>, PaintError> {
+        self.images.get(id).ok_or_else(|| PaintError::MissingImage(id.to_string()))
+    }
+}
+
+impl Picture {
+    /// A PNG, expanded to 8-bit RGBA: palettes and gray to color, 16 bits to 8, a
+    /// missing alpha to opaque. Color profiles are not applied: pixels are sRGB.
+    pub fn decode(bytes: &[u8]) -> Result<Picture, PaintError> {
+        let bad = |e: png::DecodingError| PaintError::Png(e.to_string());
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let mut reader = decoder.read_info().map_err(bad)?;
+        let (width, height) = reader.info().size();
+        if width.max(height) > scaena_core::displaylist::MAX_IMAGE_SIDE {
+            return Err(PaintError::Png(format!("{width} × {height} px: larger than an image may be (SPEC §3.3)")));
+        }
+        let size = reader.output_buffer_size().ok_or_else(|| PaintError::Png("image too large".into()))?;
+        let mut buf = vec![0; size];
+        let info = reader.next_frame(&mut buf).map_err(bad)?;
+        let buf = &buf[..info.buffer_size()];
+        let rgba: Vec<u8> = match info.color_type {
+            png::ColorType::Rgba => buf.to_vec(),
+            png::ColorType::Rgb => buf.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
+            png::ColorType::GrayscaleAlpha => buf.as_chunks::<2>().0.iter().flat_map(|&[g, a]| [g, g, g, a]).collect(),
+            png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+            png::ColorType::Indexed => return Err(PaintError::Png("an indexed PNG the decoder did not expand".into())),
+        };
+        Ok(Picture {
+            width: info.width,
+            height: info.height,
+            rgba: Blob::new(Arc::new(rgba)),
+            #[cfg(feature = "cpu")]
+            pixmap: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// Premultiplied, for `vello_cpu`.
+    #[cfg(feature = "cpu")]
+    fn pixmap(&self) -> Arc<vello_cpu::Pixmap> {
+        self.pixmap
+            .get_or_init(|| {
+                let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+                let pixels = self.rgba.data().as_chunks::<4>().0.iter().map(|&[r, g, b, a]| {
+                    vello_cpu::peniko::color::PremulRgba8 {
+                        r: premultiplied(r, a),
+                        g: premultiplied(g, a),
+                        b: premultiplied(b, a),
+                        a,
+                    }
+                });
+                Arc::new(vello_cpu::Pixmap::from_parts(pixels.collect(), self.width as u16, self.height as u16))
+            })
+            .clone()
+    }
+}
+
+#[cfg(test)]
+mod picture_tests {
+    use super::*;
+
+    /// `pixels`, packed rows at `depth` bits a sample, as a `w` px wide PNG of `color` type.
+    fn png(color: png::ColorType, depth: png::BitDepth, w: u32, pixels: &[u8], palette: Option<&[u8]>) -> Vec<u8> {
+        let mut out = Vec::new();
+        let row = (w as usize * color.samples() * depth as usize).div_ceil(8);
+        let mut e = png::Encoder::new(&mut out, w, (pixels.len() / row) as u32);
+        e.set_color(color);
+        e.set_depth(depth);
+        if let Some(p) = palette {
+            e.set_palette(p.to_vec());
+        }
+        e.write_header().unwrap().write_image_data(pixels).unwrap();
+        out
+    }
+
+    #[test]
+    fn every_png_color_type_decodes_to_straight_rgba8() {
+        use png::{BitDepth::*, ColorType::*};
+        let cases: [(&str, Vec<u8>); 6] = [
+            ("rgba", png(Rgba, Eight, 1, &[10, 20, 30, 40], None)),
+            ("rgb", png(Rgb, Eight, 1, &[10, 20, 30], None)),
+            ("gray", png(Grayscale, Eight, 1, &[77], None)),
+            ("gray+alpha", png(GrayscaleAlpha, Eight, 1, &[77, 40], None)),
+            ("indexed", png(Indexed, Eight, 1, &[1], Some(&[0, 0, 0, 10, 20, 30]))),
+            ("16-bit", png(Rgba, Sixteen, 1, &[10, 99, 20, 99, 30, 99, 40, 99], None)),
+        ];
+        let expect = |name: &str| match name {
+            "rgba" | "16-bit" => [10, 20, 30, 40],
+            "rgb" | "indexed" => [10, 20, 30, 255],
+            "gray" => [77, 77, 77, 255],
+            _ => [77, 77, 77, 40],
+        };
+        for (name, bytes) in cases {
+            let p = Picture::decode(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!((p.width, p.height), (1, 1), "{name}");
+            assert_eq!(p.rgba.data(), expect(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_picture_too_large_for_the_atlas_is_refused() {
+        let wide = png(png::ColorType::Grayscale, png::BitDepth::One, 8200, &[0; 1025], None);
+        let Err(PaintError::Png(e)) = Picture::decode(&wide) else { panic!("decoded an 8200 px image") };
+        assert!(e.contains("8200 × 1 px"), "{e}");
+        assert!(matches!(Picture::decode(b"GIF89a"), Err(PaintError::Png(_))));
     }
 }
 
@@ -139,7 +272,7 @@ impl Raster {
 pub trait Painter {
     fn name(&self) -> &'static str;
     /// Paint `dl` at `scale` output pixels per canvas unit.
-    fn paint(&mut self, dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Raster, PaintError>;
+    fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError>;
 }
 
 /// Output size in whole pixels for `dl` at `scale`.
@@ -206,6 +339,28 @@ mod convert {
         Affine::new(m.map(f64::from))
     }
 
+    /// The image pixels `src` onto the layer's rect `dst`: an image paint's transform.
+    pub fn src_to_dst(src: [f32; 4], dst: [f32; 4]) -> Affine {
+        let [sx, sy, sw, sh] = src.map(f64::from);
+        let [dx, dy, dw, dh] = dst.map(f64::from);
+        let (kx, ky) = (dw / sw, dh / sh);
+        Affine::new([kx, 0.0, 0.0, ky, dx - sx * kx, dy - sy * ky])
+    }
+
+    /// `high` samples bilinearly in both painters: vello's GPU path has no bicubic, so a
+    /// finer CPU filter would only make the painters disagree.
+    pub fn image_quality(q: scaena_core::displaylist::Quality) -> peniko::ImageQuality {
+        match q {
+            scaena_core::displaylist::Quality::Low => peniko::ImageQuality::Low,
+            scaena_core::displaylist::Quality::High => peniko::ImageQuality::Medium,
+        }
+    }
+
+    pub fn rect([x, y, w, h]: [f32; 4]) -> kurbo::Rect {
+        let [x, y, w, h] = [x, y, w, h].map(f64::from);
+        kurbo::Rect::new(x, y, x + w, y + h)
+    }
+
     pub fn stroke(width: f32, cap: Cap, join: Join, miter_limit: f32, dash: &[f32], dash_offset: f32) -> Stroke {
         let cap = match cap {
             Cap::Butt => kurbo::Cap::Butt,
@@ -253,7 +408,7 @@ mod convert {
 #[cfg(feature = "cpu")]
 pub mod cpu {
     use super::*;
-    use crate::convert::{affine, bez, isolated, mix, solid, stroke};
+    use crate::convert::{affine, bez, image_quality, isolated, mix, rect, solid, src_to_dst, stroke};
     use scaena_core::displaylist::{FillRule, Op};
     use vello_cpu::kurbo::{Affine, Rect};
     use vello_cpu::peniko::color::PremulRgba8;
@@ -286,7 +441,7 @@ pub mod cpu {
             "cpu"
         }
 
-        fn paint(&mut self, dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Raster, PaintError> {
+        fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
             let (width, height) = raster_size(dl, scale)?;
             let jobs = shader_jobs(dl, scale)?.into_iter();
@@ -310,7 +465,7 @@ pub mod cpu {
     struct Cx<'a> {
         ctx: &'a mut RenderContext,
         resources: &'a mut Resources,
-        store: &'a FontStore,
+        store: &'a Assets,
         fonts: &'a [FontRef],
         /// One per shader op, in the order the walk meets them.
         jobs: std::vec::IntoIter<Option<Job>>,
@@ -359,7 +514,18 @@ pub mod cpu {
                             self.ops(ops, child)?;
                         }
                     }
-                    Op::Image { .. } => return Err(PaintError::NotImplemented("image ops — PLAN 1.7")),
+                    Op::Image { asset, src, dst, quality } => {
+                        let picture = self.store.image(asset)?;
+                        self.ctx.set_transform(xf);
+                        self.ctx.set_paint(Image {
+                            image: ImageSource::Pixmap(picture.pixmap()),
+                            sampler: ImageSampler { quality: image_quality(*quality), ..ImageSampler::default() },
+                        });
+                        self.ctx.set_paint_transform(src_to_dst(*src, *dst));
+                        self.ctx.set_fill_rule(Fill::NonZero);
+                        self.ctx.fill_rect(&rect(*dst));
+                        self.ctx.reset_paint_transform();
+                    }
                     Op::Shader { rect, .. } => {
                         let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
                         if let Some(job) = job {
@@ -416,7 +582,7 @@ pub mod cpu {
                     paint: Paint::Solid(Color(ACCENT)),
                 });
                 let raster =
-                    CpuPainter { level, mode: RenderMode::OptimizeSpeed }.paint(&dl, &FontStore::new(), 1.0).unwrap();
+                    CpuPainter { level, mode: RenderMode::OptimizeSpeed }.paint(&dl, &Assets::new(), 1.0).unwrap();
                 for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     assert_eq!(raster.pixel(x, y), ACCENT, "inside ({x},{y}) at {level:?}");
                 }
@@ -441,7 +607,7 @@ pub mod cpu {
                     paint: Paint::Solid(Color([0, 0, 0, 255])),
                 }],
             });
-            let raster = CpuPainter::default().paint(&dl, &FontStore::new(), 2.0).unwrap();
+            let raster = CpuPainter::default().paint(&dl, &Assets::new(), 2.0).unwrap();
             assert_eq!((raster.width, raster.height), (8, 8));
             // The unit square at (2, 2) cu covers pixels 4..6 at 2 px per cu.
             assert_eq!(raster.pixel(4, 4), [0, 0, 0, 255]);
@@ -473,7 +639,7 @@ pub mod cpu {
                 clip: None,
                 ops: vec![mesh_op([5.0, 3.0, 30.0, 20.0])],
             });
-            let raster = CpuPainter::default().paint(&dl, &FontStore::new(), 2.0).unwrap();
+            let raster = CpuPainter::default().paint(&dl, &Assets::new(), 2.0).unwrap();
             let job = shader_jobs(&dl, 2.0).unwrap().remove(0).unwrap();
             // (5, 2) + (5, 3) cu at 2 px per cu.
             assert_eq!(job.bbox(), [20, 10, 60, 40]);
@@ -507,7 +673,7 @@ pub mod cpu {
                 rule: FillRule::NonZero,
                 paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
             });
-            let err = CpuPainter::default().paint(&dl, &FontStore::new(), 1.0).unwrap_err();
+            let err = CpuPainter::default().paint(&dl, &Assets::new(), 1.0).unwrap_err();
             assert!(err.to_string().contains("PLAN 1.10"), "{err}");
         }
     }
@@ -528,7 +694,7 @@ pub mod gpu {
     //! where the CPU painter draws the reference's pixels.
 
     use super::*;
-    use crate::convert::{affine, bez, isolated, mix, solid, stroke};
+    use crate::convert::{affine, bez, image_quality, isolated, mix, rect, solid, src_to_dst, stroke};
     use scaena_core::displaylist::{FillRule, Op};
     use vello::Scene;
     use vello::kurbo::{Affine, Rect};
@@ -682,7 +848,7 @@ pub mod gpu {
     /// to one onto `CpuPainter`'s calls, through the same conversions.
     pub fn scene(
         dl: &DisplayList,
-        fonts: &FontStore,
+        fonts: &Assets,
         scale: f32,
         shaders: &[Option<ShaderImage>],
     ) -> Result<Scene, PaintError> {
@@ -702,7 +868,7 @@ pub mod gpu {
 
     struct Cx<'a> {
         scene: Scene,
-        store: &'a FontStore,
+        store: &'a Assets,
         fonts: &'a [FontRef],
         output: Rect,
         shaders: std::slice::Iter<'a, Option<ShaderImage>>,
@@ -764,7 +930,18 @@ pub mod gpu {
                             self.ops(ops, child)?;
                         }
                     }
-                    Op::Image { .. } => return Err(PaintError::NotImplemented("image ops — PLAN 1.7")),
+                    Op::Image { asset, src, dst, quality } => {
+                        let picture = self.store.image(asset)?;
+                        let image = ImageData {
+                            data: picture.rgba.clone(),
+                            format: vello::peniko::ImageFormat::Rgba8,
+                            alpha_type: vello::peniko::ImageAlphaType::Alpha,
+                            width: picture.width,
+                            height: picture.height,
+                        };
+                        let brush = ImageBrush::new(image).with_quality(image_quality(*quality));
+                        self.scene.fill(Fill::NonZero, xf, &brush, Some(src_to_dst(*src, *dst)), &rect(*dst));
+                    }
                     Op::Shader { rect, .. } => {
                         let shader = self.shaders.next().ok_or_else(|| {
                             PaintError::Gpu("a shader op with no image: run `Shaders::prepare` on `shader_jobs`".into())
@@ -797,13 +974,13 @@ pub mod gpu {
                 rule: FillRule::NonZero,
                 paint: Paint::Solid(scaena_core::displaylist::Color([0, 0, 0, 255])),
             });
-            assert!(scene(&dl, &FontStore::new(), 1.0, &[]).is_ok());
+            assert!(scene(&dl, &Assets::new(), 1.0, &[]).is_ok());
             dl.ops.push(Op::Fill {
                 path: Path::rect([0.0, 0.0, 1.0, 1.0]),
                 rule: FillRule::NonZero,
                 paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
             });
-            let err = scene(&dl, &FontStore::new(), 1.0, &[]).err().unwrap();
+            let err = scene(&dl, &Assets::new(), 1.0, &[]).err().unwrap();
             assert!(err.to_string().contains("PLAN 1.10"), "{err}");
         }
     }
@@ -915,7 +1092,7 @@ pub mod gpu {
                 "gpu"
             }
 
-            fn paint(&mut self, dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Raster, PaintError> {
+            fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
                 let jobs = shader_jobs(dl, scale)?;
                 let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
                 let raster = self.render(dl, fonts, scale, &images);
@@ -928,7 +1105,7 @@ pub mod gpu {
             fn render(
                 &mut self,
                 dl: &DisplayList,
-                fonts: &FontStore,
+                fonts: &Assets,
                 scale: f32,
                 images: &[Option<ShaderImage>],
             ) -> Result<Raster, PaintError> {
@@ -1035,7 +1212,7 @@ pub mod gpu {
                     rule: FillRule::NonZero,
                     paint: Paint::Solid(Color(ACCENT)),
                 });
-                let raster = gpu.paint(&dl, &FontStore::new(), 1.0).unwrap();
+                let raster = gpu.paint(&dl, &Assets::new(), 1.0).unwrap();
                 for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     assert_eq!(raster.pixel(x, y), ACCENT, "inside ({x},{y}) on {:?}", gpu.adapter());
                 }
@@ -1056,8 +1233,8 @@ pub mod gpu {
                     clip: None,
                     ops: vec![crate::cpu::tests::mesh_op([5.0, 3.0, 30.0, 20.0])],
                 });
-                let cpu = crate::cpu::CpuPainter::default().paint(&dl, &FontStore::new(), 2.0).unwrap();
-                let raster = gpu.paint(&dl, &FontStore::new(), 2.0).unwrap();
+                let cpu = crate::cpu::CpuPainter::default().paint(&dl, &Assets::new(), 2.0).unwrap();
+                let raster = gpu.paint(&dl, &Assets::new(), 2.0).unwrap();
                 // The WGSL may round a channel the other way where a value sits on a
                 // threshold; the texture lands texel for pixel or the steps would be large.
                 let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
@@ -1091,7 +1268,7 @@ pub mod gpu {
                     clip: None,
                     ops: vec![square(255)],
                 });
-                let raster = gpu.paint(&dl, &FontStore::new(), 2.0).unwrap();
+                let raster = gpu.paint(&dl, &Assets::new(), 2.0).unwrap();
                 assert_eq!((raster.width, raster.height), (8, 8));
                 // The unit square at (2, 2) cu covers pixels 4..6 at 2 px per cu.
                 assert_eq!(raster.pixel(4, 4), [0, 0, 0, 255]);

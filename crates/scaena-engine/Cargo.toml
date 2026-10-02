@@ -21,6 +21,8 @@ taffy.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 libm.workspace = true
+# Image content ids (`sha256:…`), as bundles name assets (SPEC §3.1).
+sha2.workspace = true
 
 [dev-dependencies]
 # Torture tests map characters to glyph ids through the font's own cmap.

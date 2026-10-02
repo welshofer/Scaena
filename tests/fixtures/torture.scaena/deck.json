@@ -817,6 +817,190 @@
         ]
       }
     },
+    "shape-panel": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "shape-pill": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": 999,
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": 2
+      }
+    },
+    "shape-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thick",
+        "cap": "round"
+      },
+      "semantic": "annotation",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          3,
+          4
+        ]
+      }
+    },
+    "shape-ring": {
+      "type": "shape",
+      "kind": "ellipse",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "shape-rule": {
+      "type": "shape",
+      "kind": "line",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "shape-dash": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "muted",
+        "width": "thin",
+        "dash": [
+          12,
+          8
+        ],
+        "cap": "round"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 6
+      }
+    },
+    "shape-tri": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0.5,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          2
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "shape-star": {
+      "type": "shape",
+      "path": "M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z",
+      "fill": "accent",
+      "stroke": {
+        "paint": "onSurface",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "shape-oval": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "muted",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
     "mesh-bg": {
       "type": "shader",
       "kind": "mesh",
@@ -833,6 +1017,143 @@
       "semantic": "decoration",
       "at": {
         "in": "canvas"
+      }
+    },
+    "image-cover": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "alt": "The test card, cover: its middle bands and the focal disc fill the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-focal": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0,
+        0.5
+      ],
+      "alt": "The test card, cover around a focal point at its left edge: the left bands.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-contain": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "alt": "The whole test card, contained: all four corner marks inside the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-fill": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "fill",
+      "crop": [
+        0.25,
+        0,
+        0.5,
+        1
+      ],
+      "alt": "The middle half of the test card, cropped and stretched to fill the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-radius": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0.5,
+        1
+      ],
+      "radius": "radius.4",
+      "alt": "The bottom of the test card, rounded: its half-transparent strip over the page.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "image-tall": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "radius": "radius.3",
+      "alt": "The whole test card in a narrow box, contained, its corners rounded.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "image-zoom": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "crop": [
+        0,
+        0,
+        0.125,
+        0.125
+      ],
+      "alt": "The test card's checkerboard corner, magnified about ten times.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
       }
     }
   },
@@ -1188,6 +1509,46 @@
         "mesh-bg": {}
       },
       "notes": "Pass: a seeded mesh gradient fills the canvas under the case label, the four `torture` colors blending smoothly in Oklab with fine grain, at 0.84 s on the global timeline; every painter draws it within SPEC §13.5 (gate 0 criterion 4)."
+    },
+    {
+      "id": "shapes",
+      "name": "Shapes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "24 · Shapes · recorded"
+        },
+        "shape-panel": {},
+        "shape-pill": {},
+        "shape-arrow": {},
+        "shape-ring": {},
+        "shape-rule": {},
+        "shape-dash": {},
+        "shape-tri": {},
+        "shape-star": {},
+        "shape-oval": {}
+      },
+      "notes": "Pass: a rounded panel with a hairline, a pill, a ring, an arrow with its head, a rule and a dashed rule, a triangle, a star fitted from SVG path data, and an oval, each in its grid cell in theme colors; every painter draws them alike."
+    },
+    {
+      "id": "images",
+      "name": "Images",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "25 · Images · recorded"
+        },
+        "image-cover": {},
+        "image-focal": {},
+        "image-contain": {},
+        "image-fill": {},
+        "image-radius": {},
+        "image-tall": {},
+        "image-zoom": {}
+      },
+      "notes": "Pass: the test card (assets/test-card.png, 480 x 240) seven ways, each in its grid cell. Top row: cover keeps the middle bands and the disc; cover with focal [0, 0.5] keeps the left bands and the yellow corner mark; contain shows all four corner marks, centered; fill with crop [0.25, 0, 0.5, 1] stretches the middle four bands. Bottom row: cover with focal [0.5, 1] and radius.4 keeps the bottom, the half-transparent strip blending with the page, corners rounded; contain in a narrow box rounds the drawn image's corners, not the box's; crop [0, 0, 0.125, 0.125] magnifies the checkerboard about ten times, bilinear. Every painter draws them alike (SPEC §13.5)."
     }
   ]
 }

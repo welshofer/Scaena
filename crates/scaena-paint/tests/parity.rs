@@ -15,7 +15,7 @@
 
 mod common;
 
-use common::{GOLDEN, fonts, goldens};
+use common::{GOLDEN, assets, goldens};
 use scaena_paint::{Painter, Raster, diff};
 
 /// The native GPU painter, if this build and machine have one.
@@ -43,7 +43,7 @@ fn gpu() -> Option<(Box<dyn Painter>, String)> {
 fn painters_agree_within_spec_tolerance() {
     let dls = goldens();
     assert!(dls.len() >= 20, "found {} display-list goldens", dls.len());
-    let store = fonts(&dls);
+    let store = assets(&dls);
     let mut gpu = gpu();
     let web = std::env::var_os("SCAENA_WEB_PNGS").map(std::path::PathBuf::from);
     println!("cpu: vello_cpu goldens");

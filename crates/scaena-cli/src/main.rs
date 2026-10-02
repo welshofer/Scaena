@@ -8,10 +8,11 @@ use scaena_core::validate::BundleFiles;
 use scaena_core::{Finding, Severity};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
+use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest};
 use scaena_paint::cpu::CpuPainter;
-use scaena_paint::{FontStore, PaintError, Painter};
+use scaena_paint::{Assets, PaintError, Painter};
 use scaena_store::{Bundle, SaveOptions};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -644,16 +645,21 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let load = lap();
 
     let mut fonts = BundleFonts::new();
-    let mut store = FontStore::new();
+    let mut store = Assets::new();
     for (id, bytes) in files {
-        store.insert(&id, bytes.clone());
+        store.insert_font(&id, bytes.clone());
         fonts.register(&id, bytes)?;
     }
     fonts.check_theme(&theme)?;
+    let mut images = BundleImages::new();
+    for (path, bytes) in b.read_images()? {
+        let info = images.register(&path, &bytes)?;
+        store.insert_image(&info.id, &bytes)?;
+    }
     let register = lap();
 
     let req = FrameRequest { deck: &b.deck, theme: &theme, data: &data, state, t_ms: t.unwrap_or(f64::INFINITY) };
-    let frame = match Engine::new(fonts).frame(&req) {
+    let frame = match Engine::new(fonts).with_images(images).frame(&req) {
         Err(e @ EngineError::NotImplemented(_)) => return unimplemented(e),
         frame => frame?,
     };

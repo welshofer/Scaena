@@ -314,6 +314,23 @@ pub struct State {
 }
 
 impl Deck {
+    /// The image files the deck's image nodes name (`src`), in their defaults, their
+    /// states, and their overrides: sorted, each once.
+    pub fn image_files(&self) -> Vec<String> {
+        let images = |id: &String| self.nodes.get(id).is_some_and(|n| n.node_type == NodeType::Image);
+        let props = self
+            .nodes
+            .iter()
+            .filter(|(id, _)| images(id))
+            .map(|(_, n)| &n.props)
+            .chain(self.states.iter().flat_map(|s| s.props.iter().filter(|(id, _)| images(id)).map(|(_, p)| p)))
+            .chain(self.overrides.iter().filter(|(id, _)| images(id)).map(|(_, p)| p));
+        let mut out: Vec<String> = props.filter_map(|p| p.get("src")?.as_str().map(String::from)).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// The props a node's overrides set, as JSON pointers into the node: what makes it not
     /// theme-safe (SPEC §3.6). An object counts by its keys, so `style: {size, color}` is
     /// two overrides.
