@@ -201,3 +201,40 @@ fn a_table_reads_a_cell_for_every_column_of_every_row() {
         (table + 1..lines.len()).filter(|&i| lines[i].trim() == "TR").map(|i| children(&lines, i)).collect();
     assert_eq!(cells, [vec!["TH"; 3], vec!["TD"; 3], vec!["TD"; 3], vec!["TD"; 3]]);
 }
+
+#[test]
+fn text_at_a_layers_opacity_keeps_its_last_glyph() {
+    // The torture deck with its text at 0.75: a one-line text, each word of the motion
+    // case's headline and each card's caption, is a run in a group of its own, whose box
+    // must reach past the run's last glyph, or the PDF cuts it off ("tim", "car").
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("dimmed.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    let mut deck: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    for node in deck["nodes"].as_object_mut().unwrap().values_mut() {
+        if node["type"] == "text" {
+            node["opacity"] = serde_json::json!(0.75);
+        }
+    }
+    std::fs::write(dir.join("deck.json"), serde_json::to_vec(&deck).unwrap()).unwrap();
+    let bundle = scaena_ops::open(&dir).unwrap();
+    let motion = vec!["motion".to_string()];
+    let Export::Pdf { bytes, .. } = export_pdf(&bundle, Some(&motion), 1.0).unwrap() else { panic!("a pdf") };
+    let page = rasterize(bytes).remove(0);
+    let cpu = render(&dir, &Request { state: "motion".to_string(), ..Request::default() }).unwrap();
+    let d = scaena_paint::diff::compare(&Raster::from_png(&cpu.png).unwrap(), &page).unwrap();
+    assert!(d.passes(), "{d}");
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        match entry.file_type().unwrap().is_dir() {
+            true => copy_dir(&path, &to.join(entry.file_name())),
+            false => {
+                std::fs::copy(&path, to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+}

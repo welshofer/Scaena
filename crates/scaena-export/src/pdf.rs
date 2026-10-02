@@ -410,9 +410,9 @@ impl Cx<'_, '_> {
                         self.surface.set_stroke(None);
                     }
                 }
-                Op::Glyphs { font, size, coords, paint, text, glyphs, clusters } => {
+                Op::Glyphs { font: index, size, coords, paint, text, glyphs, clusters } => {
                     let Some(first) = glyphs.first() else { continue };
-                    let font = match self.font(*font, coords) {
+                    let font = match self.font(*index, coords) {
                         Ok(font) => font,
                         Err(e) => {
                             self.fail(e);
@@ -422,7 +422,8 @@ impl Cx<'_, '_> {
                     let (paint, opacity) = kpaint(paint);
                     self.surface.set_stroke(None);
                     self.surface.set_fill(Some(Fill { paint, opacity, rule: KRule::NonZero }));
-                    let placed = place(glyphs, *size, text, clusters);
+                    let last = glyphs.last().map_or(0.0, |g| self.advance(*index, coords, *size, g.id));
+                    let placed = place(glyphs, *size, text, clusters, last);
                     self.surface.draw_glyphs(Point::from_xy(first.x, first.y), &placed, font, text, *size, false);
                 }
                 Op::Image { asset, src, dst, quality } => {
@@ -440,6 +441,21 @@ impl Cx<'_, '_> {
                 }
             }
         }
+    }
+
+    /// Glyph `id`'s advance at `size` in font `index`, at the instance `coords` name: the
+    /// room a run's last glyph takes, which the display list does not say. A run's box
+    /// in a group reaches as far as its advances (0 where the font does not say).
+    fn advance(&self, index: u32, coords: &[i16], size: f32, id: u32) -> f32 {
+        use skrifa::MetadataProvider;
+        use skrifa::instance::{LocationRef, NormalizedCoord, Size};
+        let Some(font) = self.table.get(index as usize) else { return 0.0 };
+        let Ok(data) = self.assets.font_data(font) else { return 0.0 };
+        let Ok(face) = skrifa::FontRef::from_index(data.data.data(), font.index) else { return 0.0 };
+        let location: Vec<NormalizedCoord> = coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
+        face.glyph_metrics(Size::new(size), LocationRef::new(&location))
+            .advance_width(skrifa::GlyphId::new(id))
+            .unwrap_or(0.0)
     }
 
     /// Font `index` of the display list's table, at the instance `coords` name.
@@ -586,10 +602,17 @@ impl krilla::text::Glyph for Placed {
     }
 }
 
-/// The run's glyphs at `size`, placed from the first: each advances to the next, and
-/// sits as far off the first's baseline as the display list puts it. Each says its
-/// cluster: from its start to the next larger one, or the end of `text`.
-fn place(glyphs: &[scaena_core::displaylist::Glyph], size: f32, text: &str, clusters: &[u32]) -> Vec<Placed> {
+/// The run's glyphs at `size`, placed from the first: each advances to the next, the
+/// last by `last`, and sits as far off the first's baseline as the display list puts
+/// it. Each says its cluster: from its start to the next larger one, or the end of
+/// `text`.
+fn place(
+    glyphs: &[scaena_core::displaylist::Glyph],
+    size: f32,
+    text: &str,
+    clusters: &[u32],
+    last: f32,
+) -> Vec<Placed> {
     let mut starts: Vec<usize> = clusters.iter().map(|&c| c as usize).collect();
     starts.sort_unstable();
     starts.dedup();
@@ -606,7 +629,7 @@ fn place(glyphs: &[scaena_core::displaylist::Glyph], size: f32, text: &str, clus
         .map(|i| Placed {
             id: glyphs[i].id,
             text: range(i),
-            advance: glyphs.get(i + 1).map_or(0.0, |next| next.x - glyphs[i].x) * em,
+            advance: glyphs.get(i + 1).map_or(last, |next| next.x - glyphs[i].x) * em,
             rise: (y0 - glyphs[i].y) * em,
         })
         .collect()
