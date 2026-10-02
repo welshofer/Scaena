@@ -3071,6 +3071,84 @@
       "at": {
         "in": "right"
       }
+    },
+    "st-stack": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by quarter, stacked by product, building layer by layer.",
+      "semantic": "evidence"
+    },
+    "st-donut": {
+      "type": "chart",
+      "kind": "donut",
+      "data": "@share",
+      "x": {
+        "field": "channel"
+      },
+      "y": {
+        "field": "share",
+        "format": ".0f"
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Share of sales by channel, its slices sweeping open in turn.",
+      "semantic": "evidence"
+    },
+    "st-line": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by product over four quarters, one line after another.",
+      "semantic": "evidence"
     }
   },
   "states": [
@@ -3931,6 +4009,44 @@
         "fm-bars": {}
       },
       "notes": "Pass: on the deck's 1920 × 1080 canvas, the claim stands left of the bar chart, each in half of the grid. In 9:16 (`render --format 9:16`, frame `formats~9x16`) the deck lays out again on a 1080 × 1920 canvas: the theme's 9:16 grid narrows the side margins to 64 cu, the specimen layout's `left` and `right` slots stack, the claim wraps across the full width on rows 2-4, and the chart takes the full width on rows 5-8. Nothing in the deck changes."
+    },
+    {
+      "id": "stagger",
+      "name": "Charts that build in order",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "44 · Charts that build in order · recorded"
+        },
+        "st-stack": {},
+        "st-donut": {},
+        "st-line": {}
+      },
+      "choreography": [
+        {
+          "target": "st-stack",
+          "enter": {
+            "preset": "grow",
+            "stagger": 120
+          }
+        },
+        {
+          "target": "st-donut",
+          "enter": {
+            "preset": "grow",
+            "stagger": 120
+          }
+        },
+        {
+          "target": "st-line",
+          "enter": {
+            "preset": "grow",
+            "stagger": 120
+          }
+        }
+      ],
+      "notes": "Pass: the state cuts in and each chart's marks grow in one after another, 120 ms apart, on the theme's snappy spring (frames `stagger@0.3` and `@0.6` of its span). The stacked bars build layer by layer in data order: every Core segment on the baseline, then each Cloud segment on its Core, then Edge, each standing on the one under it as it is at that moment, never under it or apart from it. The donut's slices sweep open clockwise from twelve, each from where the one before it ends, so the ring is one ring however far each has come. The line's three series rise one after another, each whole: no point drops to the baseline while its neighbors are up. Value labels count with their marks and never pass their values, though the spring carries the marks past them. At rest, everything stands where the layout puts it."
     }
   ],
   "overrides": {
