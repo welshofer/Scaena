@@ -66,6 +66,17 @@ fn every_theme_has_a_typed_view() {
     }
 }
 
+/// The authorability bundle's Dusk is the example's, copied so the bundle stands alone: a
+/// change to one is a change to both.
+#[test]
+fn the_authorability_bundle_carries_the_examples_dusk() {
+    let theme = |name: &str| THEMES.iter().find(|(n, _)| *n == name).unwrap().1;
+    assert!(
+        theme("authorability dusk") == theme("dusk"),
+        "docs/examples/authorability/themes/dusk.theme.json differs from docs/examples/themes/dusk.theme.json"
+    );
+}
+
 #[test]
 fn a_property_of_another_type_has_no_view() {
     let deck = Deck::from_json(DECKS[0].1).unwrap();

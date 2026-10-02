@@ -1,14 +1,18 @@
 {
   "scaena": "0.8",
-  "_comment": "E101 clean: the same paragraphs in two slots.",
+  "_comment": "E101 clean: the same paragraphs in two slots; then the chart in the figure's main, rows 2–5, clear of its caption.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": "data/sales.csv", "schema": {"revenue": "number"}}},
   "nodes": {
     "a": {"type": "text", "role": "body", "text": "First paragraph"},
-    "b": {"type": "text", "role": "body", "text": "Second paragraph"}
+    "b": {"type": "text", "role": "body", "text": "Second paragraph"},
+    "k": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "quarter"}, "y": {"field": "revenue"}, "series": {"field": "product"}, "alt": "Revenue by quarter and product.", "at": {"in": "main"}},
+    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}}
   },
   "states": [
-    {"id": "s", "layout": "two", "props": {"a": {"at": {"in": "left"}}, "b": {"at": {"in": "right"}}}}
+    {"id": "s", "layout": "two", "props": {"a": {"at": {"in": "left"}}, "b": {"at": {"in": "right"}}}},
+    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}}
   ]
 }
