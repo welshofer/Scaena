@@ -1,62 +1,57 @@
-# Scaena DSL — docs/examples/revenue.deck.scn
-# Compiles losslessly to revenue.deck.json (see docs/SPEC.md §4).
-# Every click is a state. Unmentioned nodes track forward. `-id` exits a node.
+deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 formats:[16:9, 9:16] author:Jay
+  created:"2026-10-01T18:00:00Z" lang:en-US
+  description:"Reference deck: one morph, one build, one shader background, one spine."
 
-deck "Q3 Review" theme:themes/dusk.theme.json canvas:16:9 formats:[16:9, 9:16] lang:en-US
-  author "Jay"
-  description "Reference deck: one morph, one build, one shader background, one spine."
+font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
 
-font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght:[100,900], opsz:[9,144]}
-font Inter    "fonts/Inter-VF.ttf"    axes:{wght:[100,900], opsz:[14,32]}
-
-data q3 "data/q3-revenue.csv" schema:{quarter:string, product:string, revenue:number, customers:number}
+data q3 "data/q3-revenue.csv"
+  schema:{quarter: string, product: string, revenue: number, customers: number}
 
 section open "Open"
   beat opening "This quarter changed the shape of the business." states:[intro] duration:15s
     notes "One beat. Let the title sit."
 
 section growth "Growth"
-  beat doubled "Revenue doubled year over year, and Pro drove it." evidence:[@q3] states:[revenue, mix] duration:60s
-    notes """
-      Pause on the Q3 bar before the build.
-      The mix shift is the point: Pro went from a fifth to a third.
-    """
-    media infographic:{priority:1} podcast:{script:"Revenue doubled, but the story is the mix: Pro grew three times faster than Core."}
+  beat doubled "Revenue doubled year over year, and Pro drove it." evidence:[@q3]
+    states:[revenue, mix] duration:60s
+    media infographic:{priority: 1}
+      podcast:{script: "Revenue doubled, but the story is the mix: Pro grew three times faster than Core."}
+    notes "Pause on the Q3 bar before the build. The mix shift is the point: Pro went from a fifth to a third."
 
 section end "Close"
   beat thanks "Thank you." states:[close] duration:5s
 
-# ---- cue list ----------------------------------------------------------------
-
 state intro layout:title hold:4s
-  bg       shader:mesh semantic:decoration seed:7 palette:dusk params:{points:5, drift:0.12, softness:0.85, grain:0.035} at:in(canvas) z:-100 alt:""
-  title    text role:display "Q3 Review" semantic:navigation at:in(title)
-  subtitle text role:title   "Growth, mix, and what we do next" semantic:context at:in(subtitle)
+  bg shader:mesh seed:7 palette:dusk params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035}
+    at:in(canvas) z:-100 alt:"" semantic:decoration
+  title text role:display "Q3 Review" semantic:navigation at:in(title)
+  subtitle text role:title "Growth, mix, and what we do next" semantic:context at:in(subtitle)
   choreo title split:words enter:words timing:with
   choreo subtitle enter:rise delay:240ms
   notes "Open on the title. Don't talk over the build."
 
-state revenue layout:full transition:{duration:standard, ease:standard} hold:6s
+state revenue layout:full transition:{duration: standard, ease: standard} hold:6s
   -subtitle
-  title    "Revenue doubled" role:headline semantic:claim at:in(header)
-  rev      chart:bar data:@q3 key:product semantic:evidence
-           x:{field:quarter, type:ordinal}
-           y:{field:revenue, type:quantitative, format:"$,.1f", domain:[0,null], title:"Revenue ($M)"}
-           series:{field:product, type:nominal}
-           color:{field:product, type:nominal, scale:categorical}
-           labels:{show:ends} legend:top
-           alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
-           at:col(1-12) row(2-6)
-  note     text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source at:in(footer)
-  choreo rev enter:{preset:grow, stagger:40ms, spring:snappy} timing:after
+  title "Revenue doubled" role:headline semantic:claim at:in(header)
+  rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
+    y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
+    series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
+    key:product labels:{show: ends} legend:top
+    alt:"Quarterly revenue by product, Q4 2025 through Q3 2026." semantic:evidence
+    at:col(1-12) row(2-6)
+  note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
+    at:in(footer)
+  choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
   choreo note enter:fade delay:600ms
 
 state mix slide:revenue transition:slow hold:6s
-  title    "…and the mix shifted"          # same id → word-level morph
-  rev      kind:stackedBar legend:right     # marks matched by key; bars morph into stacks
+  title "…and the mix shifted"
+  rev kind:stackedBar legend:right
   notes "Same bars, stacked. Pro is the orange band growing quarter over quarter."
 
 state close layout:title hold:3s
   -rev
   -note
-  title    "Thank you" role:display semantic:navigation at:in(title)
+  title "Thank you" role:display semantic:navigation at:in(title)

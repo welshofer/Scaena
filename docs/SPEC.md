@@ -381,85 +381,153 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 
 ## 4. DSL (`.scn`)
 
-The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`.
+The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`. `scaena compile` turns source into `deck.json`, and `scaena decompile` turns any deck into canonical source (§7.1). The compiler lives in `scaena-core::dsl`.
 
-**Round-trip guarantee is semantic, not textual.** The promise is
+**The round trip is semantic and exact, not textual.** The promise is
 
 ```
-compile(decompile(document)) == document        (always)
-decompile(compile(source))   == decompile(compile(decompile(compile(source))))   (decompilation is canonical)
+compile(decompile(document)) == document        (always, byte for byte as canonical JSON)
+decompile(compile(decompile(document))) == decompile(document)   (the canonical form is a fixed point)
 ```
 
-and explicitly **not** `decompile(compile(source)) == source`. Whitespace, key order, shorthand choices, multi-line formatting, and other syntactic sugar are not preserved. The decompiler emits one canonical form (fixed indentation, props in schema order, one node per line with continuation lines when a line would exceed 100 columns). Line comments are attached as `_comment` to the state, node, or beat they precede and are re-emitted there; that is the whole extent of comment preservation. If you want your formatting kept, keep your file and regenerate `deck.json` from it — the compiler is the stable direction.
+and explicitly **not** `decompile(compile(source)) == source`. "Always" means every document the typed model reads, valid or not, so an agent can decompile a broken deck and fix it in the DSL. Whitespace, blank lines, column alignment, the order of declarations, and the choice between shorthand and `key:value` are not preserved. Keys keep the order the source writes them in, and the decompiler keeps the deck's order, because canonical JSON keeps it.
+
+Comments: `#` starts a comment outside strings. Comment lines, and a line's trailing comment, become the `_comment` of the next deck header, node, override, state, or node line in a state, which is where the format has one. Comments anywhere else are dropped. The decompiler writes a `_comment` back as comment lines. If you want your formatting kept, keep your file and regenerate `deck.json` from it: the compiler is the stable direction.
 
 ### 4.1 Example
 
+This is `docs/examples/revenue.deck.scn`, the canonical source of `revenue.deck.json`. A test holds the two together in both directions.
+
 ```scn
-deck "Q3 Review" theme:dusk canvas:16:9
+deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 formats:[16:9, 9:16] author:Jay
+  created:"2026-10-01T18:00:00Z" lang:en-US
+  description:"Reference deck: one morph, one build, one shader background, one spine."
+
+font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
 
 data q3 "data/q3-revenue.csv"
+  schema:{quarter: string, product: string, revenue: number, customers: number}
+
+section open "Open"
+  beat opening "This quarter changed the shape of the business." states:[intro] duration:15s
+    notes "One beat. Let the title sit."
 
 section growth "Growth"
-  beat doubled "Revenue doubled year over year." evidence:@q3 states:[revenue, mix]
-    notes """
-      Pause on the Q3 bar. Mention the launch.
-    """
+  beat doubled "Revenue doubled year over year, and Pro drove it." evidence:[@q3]
+    states:[revenue, mix] duration:60s
+    media infographic:{priority: 1}
+      podcast:{script: "Revenue doubled, but the story is the mix: Pro grew three times faster than Core."}
+    notes "Pause on the Q3 bar before the build. The mix shift is the point: Pro went from a fifth to a third."
 
-state revenue layout:full
-  bg     shader:mesh seed:7 palette:dusk drift:0.15
-  title  text role:display "Revenue doubled"       at:col(1-7) row(1)
-  rev    chart:bar data:@q3 x:quarter y:revenue series:product key:product
-         at:col(1-12) row(2-6)
-         enter:grow stagger:40ms spring:snappy
-  transition: standard
+section end "Close"
+  beat thanks "Thank you." states:[close] duration:5s
 
-state mix slide:revenue            # a build on the same slide
-  title  "…and the mix shifted"    # same id → word-level morph
-  rev    chart:stackedBar          # marks matched by key, bars morph
+state intro layout:title hold:4s
+  bg shader:mesh seed:7 palette:dusk params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035}
+    at:in(canvas) z:-100 alt:"" semantic:decoration
+  title text role:display "Q3 Review" semantic:navigation at:in(title)
+  subtitle text role:title "Growth, mix, and what we do next" semantic:context at:in(subtitle)
+  choreo title split:words enter:words timing:with
+  choreo subtitle enter:rise delay:240ms
+  notes "Open on the title. Don't talk over the build."
 
-state close from:intro             # branch: tracks from `intro`, not `mix`
-  -rev                             # explicit exit
-  title  "Thank you" role:headline at:in(center)
+state revenue layout:full transition:{duration: standard, ease: standard} hold:6s
+  -subtitle
+  title "Revenue doubled" role:headline semantic:claim at:in(header)
+  rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
+    y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
+    series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
+    key:product labels:{show: ends} legend:top
+    alt:"Quarterly revenue by product, Q4 2025 through Q3 2026." semantic:evidence
+    at:col(1-12) row(2-6)
+  note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
+    at:in(footer)
+  choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
+  choreo note enter:fade delay:600ms
+
+state mix slide:revenue transition:slow hold:6s
+  title "…and the mix shifted"
+  rev kind:stackedBar legend:right
+  notes "Same bars, stacked. Pro is the orange band growing quarter over quarter."
+
+state close layout:title hold:3s
+  -rev
+  -note
+  title "Thank you" role:display semantic:navigation at:in(title)
 ```
 
-### 4.2 Grammar (sketch)
+`bg`, `title`, `subtitle`, `rev`, and `note` are declared on the line that first shows them. In `revenue`, `title` is a change: the same id, so the text morphs. In `mix`, `rev` changes kind, and its marks are matched by key.
+
+### 4.2 Grammar
 
 ```
-file       := header? decl*
-header     := "deck" string prop* (NEWLINE INDENT (prop-line)* DEDENT)?
-decl       := font | data | section | state | comment
-font       := "font" id string prop*
-data       := "data" id string prop*
-section    := "section" id string NEWLINE INDENT beat+ DEDENT
-beat       := "beat" id string prop* (NEWLINE INDENT (notes | media | prop-line)* DEDENT)?
-state      := "state" id prop* NEWLINE INDENT line* DEDENT
-line       := node-line | remove-line | prop-line | choreo-line | notes | comment
-node-line  := id (type-spec)? value? prop* (NEWLINE INDENT prop-line* DEDENT)?   -- continuation lines are props
-type-spec  := ("text" | "shape" | "image" | "stack" | "grid" | "frame" | "group")
-            | ("chart" ":" kind) | ("shader" ":" kind)
-remove-line:= "-" id
-choreo-line:= "choreo" (id | "[" id ("," id)* "]") prop*          -- one choreography item
-media      := "media" prop*
-prop-line  := prop+
-prop       := key ":" value
-value      := string | number unit? | id | path | "@" id | list | map | call
-list       := "[" (value ("," value)*)? "]"
-map        := "{" (key ":" value ("," key ":" value)*)? "}"
-call       := id "(" arg ("," arg)* ")"          -- col(1-7), in(left), rect(120,80,900,420)
-notes      := "notes" (string | tripleString)
-comment    := "#" .* EOL
+file        := (declaration | comment | blank)*
+declaration := deck | font | data | node | override | section | state      -- at column 0
+block(x)    := the lines after a line that are indented deeper than it, each an x
+
+deck        := "deck" string? prop* block(prop-line)          -- once; `canvas` is required
+font        := "font" (word | string) string? prop* block(prop-line)
+data        := "data" id string? prop* block(prop-line)
+node        := "node" id type props block(props)
+override    := "override" id prop* block(prop-line)
+section     := "section" id string? prop* block(beat | prop-line)
+beat        := "beat" id string? prop* block(notes | media | prop-line)
+media       := "media" prop* block(prop-line)
+state       := "state" id prop* block(state-line)
+state-line  := "-" id                                         -- the node exits
+             | id type? props block(props)                    -- a node line
+             | "choreo" (id | list) prop* block(prop-line)    -- one choreography item
+             | "choreo" "=" value | "choreo" map              -- an item as its value
+             | ("sequence" | "parallel") prop* block(group-line)
+             | notes
+             | prop-line                                      -- the state's own keys
+group-line  := "choreo" … | ("sequence" | "parallel") … | prop-line
+notes       := "notes" string                                 -- `"""` for several lines
+type        := "text" | "shape" | "image" | "stack" | "grid" | "frame" | "group"
+             | ("chart" | "shader") (":" word)?               -- `chart:bar` is type and kind
+props       := (prop | string)*                               -- the string: see below
+prop-line   := prop+
+prop        := key ":" value
+key         := word | string
+id          := word | string
+value       := string | word | number | time | percent | ratio | "@" word
+             | "true" | "false" | "null" | list | map
+             | call+                                          -- `at:` only
+             | number "x" number                              -- `canvas:` only
+call        := word "(" arg ("," arg)* ")"                    -- arg: a value, or a range `1-7`
+list        := "[" (value ("," value)*)? "]"
+map         := "{" (key ":" value ("," key ":" value)*)? "}"
+time        := number ("ms" | "s")
+percent     := number "%"
+ratio       := number ":" number
+word        := [A-Za-z_][A-Za-z0-9_.-]*
+string      := a JSON string on one line | `"""`, a newline, lines, then `"""` alone on a line
 ```
 
 Rules:
-- A node line in a state sets that node's props for that state; the node is created in `nodes` on first mention with the given type; later mentions MUST NOT change the type (lint **E104**).
-- A bare string after the id sets the primary value (`text` for text nodes, `src` for images).
-- `-id` exits a node. Nodes not mentioned track forward (unless the state is `mode:absolute`). A node line with no props (`bg`) makes the node visible with its defaults (JSON: `"bg": {}`).
-- `choreo` lines compile to the state's `choreography` array in order; `choreo [a, b]` targets several nodes.
-- Reserved slots: `in(canvas)` is full-bleed (the whole canvas), `in(grid)` is the margin box; both exist in every layout template.
-- Units: `ms`, `s`, `cu` (default for lengths), `%`. Durations may be theme names (`standard`).
-- Decompilation is canonical (see the round-trip guarantee above); formatting is not preserved.
+- **The header.** `deck "Title"` sets `meta.title`. Of its keys, `scaena`, `theme`, `canvas`, `formats`, `spine`, and `meta` are the deck's; any other key is `meta`'s (`author:Jay` is `meta.author`). `canvas:1920x1080` is `{width, height}`. `scaena` defaults to the format version this build writes.
+- **Fonts and data.** `font Family "file" …` is `{family, file, …}`. `data id "path" …` is a data source whose `source` is the path; `data id inline:[…]` gives the rows inline.
+- **Declaring a node.** `node id type …` declares a node and its own props, wherever it stands. In a state, the first line that gives a node's type declares the node there: its props are the node's own (in `nodes`), and the state shows it as it is (JSON: `"bg": {}`). That is the usual way to write a deck: a node is introduced where it first appears.
+- **A node line in a state** without a type, or with the type the node already has, is the node's delta: what changes in this state (§2.2). A kind it names (`rev chart:line`) is part of the change; a different type is an error (**E104**). A node line with no props (`bg`) shows the node as it is (`"bg": {}`). A line for an id that is no node keeps its delta, and `validate` reports it (**E102**).
+- **A bare string** on a node line is a text node's `text` or an image's `src`, wherever it stands among the props. On any other node it is an error.
+- `-id` exits a node. Nodes not mentioned track forward (§2.2), unless the state is `mode:absolute`. A state's `props`, `remove`, and `choreography` are written as these lines, never as keys.
+- **Choreography.** `choreo` lines compile to the state's `choreography` in order. `choreo [a, b]` targets several nodes. `sequence` and `parallel` blocks nest. `choreo = value` writes an item as its JSON value, for an item the other forms cannot say.
+- **`at:` calls.** `col(1-7) row(2) in(title) rect(120, 80, 900, 420)` is `{col: [1, 7], row: 2, in: "title", rect: [120, 80, 900, 420]}`. One argument is the value, several make a list, and a range `a-b` is `[a, b]`. Reserved slots: `in(canvas)` is full-bleed (the whole canvas), and `in(grid)` is the margin box; both exist in every layout template.
+- **Units.** `ms` and `s` are times. A time is milliseconds in the deck (`1.5s` is `1500`), except a beat's `duration`, which is seconds (`15s` is `15`, `500ms` is `0.5`). `cu` is the canvas unit and the default (`12cu` is `12`). `50%` is the string `"50%"`, and `16:9` is the string `"16:9"`. There are no other units. Durations may also be theme names (`standard`).
+- Any key, and any id, may be quoted. A word is a string, except `true`, `false`, and `null`. `@q3` is the string `"@q3"`. A path is a string, so quote it.
+- The compiler reports an error with its line, its column, and, when it is about part of the deck, a JSON pointer into the compiled deck.
 
-The compiler reports errors with line/column and a JSON-pointer into the compiled document.
+### 4.3 Canonical form
+
+The decompiler's output is the canonical form. Every shorthand is used only where it compiles back to exactly what the deck holds:
+- Order: the header; fonts; data; `node` lines; overrides; sections; states. A blank line separates kinds, and comes before each section and state.
+- A node is declared in the state that first shows it when that state shows it unchanged, and when declaring it there keeps `nodes` in its order. Otherwise it gets a `node` line, placed so `nodes` keeps its order (between states if need be).
+- Keys keep the deck's order. A text node's `text`, and an image's `src`, are bare strings where they stand. `at` is written as calls when every key is a word.
+- An integer time takes a unit: `4s` for whole seconds, else `240ms`. This applies to `hold`, `transition`, and a choreography item's `delay`, `stagger`, and `duration`, and to a beat's `duration` (`15s`). A float stays a plain number, since a unit would read it back as an integer.
+- A string is bare when it reads back as itself: a word other than `true`, `false`, and `null`; `@` and a word; a percentage; or a ratio. Otherwise it is JSON-quoted. Notes with newlines are a `"""` block when that holds them exactly.
+- Lines fill to 100 columns. Props that do not fit continue on lines two deeper.
 
 ---
 
@@ -533,8 +601,8 @@ Rules:
 ### 7.1 CLI (`scaena`)
 
 ```
-scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON
-scaena decompile <deck.json> [-o deck.scn]            # JSON → DSL (canonical form)
+scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
+scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
 scaena inspect   <bundle> --state ID [--resolved]     # absolute snapshot, resolved styles, timeline
@@ -551,6 +619,8 @@ scaena mcp                                            # stdio MCP server exposin
 All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
+
+`compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
 `render` without `--t` renders the state at rest. `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
 

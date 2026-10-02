@@ -59,15 +59,19 @@ enum Cmd {
         #[arg(long)]
         to: String,
     },
-    /// DSL → JSON (PLAN 1.5).
+    /// DSL → JSON: compile a `.scn` file to `deck.json`, checked as `validate` checks it,
+    /// with each problem shown where the source says it.
     Compile {
         input: PathBuf,
+        /// The `deck.json` to write; its directory is the bundle it is checked in. Default:
+        /// stdout, checked in the source's directory.
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
-    /// JSON → canonical DSL (PLAN 1.5).
+    /// JSON → DSL: a deck (a bundle, a `.scaena` zip, or a `deck.json`) as canonical `.scn`.
     Decompile {
         input: PathBuf,
+        /// The `.scn` file to write. Default: stdout.
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
@@ -292,13 +296,135 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 _ => not_yet(&format!("export --format {format}"), "1.20–1.21 / 2.5"),
             }
         }
-        Cmd::Compile { .. } | Cmd::Decompile { .. } => not_yet("compile/decompile (DSL)", "1.5"),
+        Cmd::Compile { input, out } => compile(&input, out.as_deref(), cli.json),
+        Cmd::Decompile { input, out } => {
+            let scn = scaena_core::dsl::decompile(&open(&input)?.deck);
+            match out {
+                Some(p) => std::fs::write(&p, scn).with_context(|| format!("writing {}", p.display()))?,
+                None => print!("{scn}"),
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { .. } => not_yet("patch", "1.16"),
         Cmd::Theme { .. } => not_yet("theme --apply", "1.6"),
         Cmd::Serve { .. } => not_yet("serve", "2.x"),
         Cmd::Mcp => not_yet("mcp", "1.17"),
     }
+}
+
+/// `scaena compile` (PLAN 1.5): `.scn` → `deck.json`. A source that does not parse exits 2;
+/// a deck that does not validate exits 1, each finding shown at the source it came from.
+/// Either way nothing is written: `deck.json` is the truth, and only a valid deck replaces it.
+fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
+    let source = std::fs::read_to_string(input).with_context(|| format!("reading {}", input.display()))?;
+    let name = input.display().to_string();
+    let (doc, map) = match scaena_core::dsl::compile_json(&source) {
+        Ok(compiled) => compiled,
+        Err(e) => {
+            if json {
+                let mut v =
+                    serde_json::json!({ "severity": "error", "message": e.message, "line": e.line, "col": e.col });
+                if let Some(pointer) = &e.pointer {
+                    v["path"] = serde_json::json!(pointer);
+                }
+                println!("{}", serde_json::to_string_pretty(&[v])?);
+            } else {
+                let label = e.pointer.clone();
+                eprint!("{}", diagnostic(&name, &source, None, &e.message, Some((e.offset, e.len)), label, None));
+            }
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let deck_json = serde_json::to_string(&doc)?;
+    // The bundle the deck is checked in: the one it is written to, or the source's.
+    let root = out.unwrap_or(input).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let findings = scaena_core::validate::validate_bundle(&deck_json, &scaena_store::Files::Dir(root.to_path_buf()))?;
+    if !findings.is_empty() {
+        // A finding about the deck is about the source that wrote that part of it; one
+        // about another file (the theme) is about that file.
+        let span = |f: &Finding| match (&f.file, &f.path) {
+            (None, Some(path)) => map.locate(path),
+            _ => None,
+        };
+        if json {
+            let located: Vec<serde_json::Value> = findings
+                .iter()
+                .map(|f| {
+                    let mut v = serde_json::to_value(f).expect("a finding is JSON");
+                    if let Some((offset, _)) = span(f) {
+                        let (line, col) = line_col(&source, offset);
+                        v["line"] = serde_json::json!(line);
+                        v["col"] = serde_json::json!(col);
+                    }
+                    v
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&located)?);
+        } else {
+            for f in &findings {
+                let message = match &f.file {
+                    Some(file) => format!("{file} {}: {}", f.path.as_deref().unwrap_or(""), f.message),
+                    None => f.message.clone(),
+                };
+                let (span, label) = match span(f) {
+                    Some(span) => (Some(span), f.path.clone()),
+                    None => (None, None),
+                };
+                eprint!("{}", diagnostic(&name, &source, Some(&f.code), &message, span, label, f.hint.as_deref()));
+            }
+        }
+        return Ok(ExitCode::from(1));
+    }
+    let deck = scaena_core::document::Deck::from_json(&deck_json).context("the compiled deck")?;
+    let canonical = deck.to_json()? + "\n";
+    match out {
+        Some(p) => std::fs::write(p, canonical).with_context(|| format!("writing {}", p.display()))?,
+        None => print!("{canonical}"),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// One problem in `source`, drawn by miette: the message, and the source it is about
+/// underlined with `label`. Colors only on a terminal, and never under `NO_COLOR`.
+fn diagnostic(
+    name: &str,
+    source: &str,
+    code: Option<&str>,
+    message: &str,
+    span: Option<(usize, usize)>,
+    label: Option<String>,
+    hint: Option<&str>,
+) -> String {
+    use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
+    use std::io::IsTerminal;
+    let mut d = MietteDiagnostic::new(message);
+    if let Some(code) = code {
+        d = d.with_code(code);
+    }
+    if let Some((offset, len)) = span {
+        d = d.with_label(LabeledSpan::new(label, offset, len));
+    }
+    if let Some(hint) = hint {
+        d = d.with_help(hint);
+    }
+    let report = miette::Report::new(d).with_source_code(NamedSource::new(name, source.to_string()));
+    let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let theme = if color { GraphicalTheme::unicode() } else { GraphicalTheme::unicode_nocolor() };
+    let mut out = String::new();
+    GraphicalReportHandler::new_themed(theme)
+        .with_width(100)
+        .with_links(false)
+        .render_report(&mut out, report.as_ref())
+        .expect("drawing to a string");
+    out
+}
+
+/// 1-based line and column (in characters) of a byte offset into `source`.
+fn line_col(source: &str, offset: usize) -> (usize, usize) {
+    let before = &source[..offset.min(source.len())];
+    let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+    (before.matches('\n').count() + 1, col)
 }
 
 /// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG.

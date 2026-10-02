@@ -5,7 +5,7 @@ description: Author a Scaena deck from a brief and (optionally) a data file — 
 
 # author-deck
 
-You are writing a Scaena document (`deck.json`, schema at `docs/schema/deck.schema.json`; the DSL `.scn` is equivalent once PLAN 1.5 lands). Read `docs/SPEC.md` §2–§3 once per session. The model: nodes exist for the whole deck; states are cues; unchanged properties track forward; the theme owns typography and layout; you reference roles, slots, and presets — never pixels.
+You are writing a Scaena document: `deck.json` (schema at `docs/schema/deck.schema.json`), or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier. `scaena compile deck.scn -o deck.json` validates as it compiles and shows each finding at its line; `scaena decompile <bundle>` gives any deck as `.scn`. Read `docs/SPEC.md` §2–§4 once per session. The model: nodes exist for the whole deck; states are cues; unchanged properties track forward; the theme owns typography and layout; you reference roles, slots, and presets — never pixels.
 
 ## Procedure
 
@@ -13,7 +13,7 @@ You are writing a Scaena document (`deck.json`, schema at `docs/schema/deck.sche
 2. **Data.** Register sources under `data` (`data/*.csv|json`), with a `schema`. Charts bind with `"data": "@name"` and a `key` field for identity.
 3. **Nodes.** Create each object once with a meaningful id, a `type`, a `role` (text) and a `semantic` (`claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`). Default placement with `at: { in: <slot> }` from the theme's layout templates (`docs/examples/themes/*.json` → `layouts`).
 4. **States as deltas.** One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`. Add `choreography` sparingly (one `enter` per new object; stagger lists and marks). Give every state a `hold` if the deck will be exported to video.
-5. **Lint loop.** `scaena validate <deck>` then `scaena lint <deck> --json`. Fix every error; take warnings seriously (W300/W301 mean you reached for pixels — use a role, slot, or token instead). Re-run until clean.
+5. **Lint loop.** `scaena validate <deck>` (or `scaena compile`, which validates) then `scaena lint <deck> --json`. Fix every error; take warnings seriously (W300/W301 mean you reached for pixels — use a role, slot, or token instead). Re-run until clean.
 6. **Inspect.** `scaena inspect <deck> --state <id>` to confirm tracking did what you meant; `scaena diff <deck> --from a --to b` to confirm a build changes only what it should.
 7. **Look:** `scaena render <deck> --state <id> --out frame.png` (add `--t <ms>` for a frame inside the transition), view the PNG, fix what is wrong, repeat. Today it renders text, one-series `bar` charts, and `mesh` shaders; a state with anything else (other chart kinds, other shader kinds, shapes, images, containers, centered or end-aligned text) exits 3 naming the PLAN task that adds it, so check those states with `inspect` instead. Rendering needs the deck's font files in the bundle.
 8. Report: beats, states, lint summary, and anything you could not express without an override.

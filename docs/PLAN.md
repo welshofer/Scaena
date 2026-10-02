@@ -62,7 +62,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Subsets keep every glyph id, so a save changes no frame: ten torture states that stress shaping (Arabic, Hebrew, marks, COLRv1 emoji, ligatures, kerning, hanging quotes, axes) draw their goldens from a saved zip, and B1 draws the same before and after.*
   - *The same bundle zips to the same bytes. `SOURCE_DATE_EPOCH` fixes the manifest's times.*
   - *Open: whether fonts should follow the theme (SPEC §16 Q10).)*
-- [ ] 1.5 DSL: lexer/parser (`logos` + hand-written, or `chumsky`), compiler to JSON, canonical decompiler; round-trip property tests; error reporting with `miette`.
+- [x] 1.5 DSL: lexer/parser (`logos` + hand-written, or `chumsky`), compiler to JSON, canonical decompiler; round-trip property tests; error reporting with `miette`. *(Done:*
+  - *`scaena-core::dsl` compiles `.scn` to a deck and decompiles any deck to canonical source. The lexer and parser are hand-written, without `logos` or `chumsky`: the grammar is line-based and small, and the errors need byte spans and JSON pointers, which the parser records anyway.*
+  - *The round trip is exact. Every deck in the repository, and random mutations of them, valid or not (4,000 per test run; 80,000 more in deep runs, `SCAENA_FUZZ=seed:count`), decompile to source that compiles back to the same canonical JSON byte for byte. Decompiling again gives the same source.*
+  - *The scaffold's sketch, `docs/examples/revenue.deck.scn`, set the style: a node is declared on the state line that first shows it, a text node's bare string is its text wherever it stands, and times take units. The sketch claimed to compile losslessly to `revenue.deck.json`, but under SPEC §4's old rule (a first mention's props go to the state) it could not. Now the file is the deck's canonical source, a test holds the two together, and SPEC §4.1 shows it whole.*
+  - *A beat's `duration` is the deck's one field in seconds, so `15s` is `15` there and `15000` everywhere else.*
+  - *`scaena compile` validates what it compiles, in the bundle it writes to. miette shows each finding at the source that wrote it, through a source map from JSON pointers to spans, and the command writes only a valid deck. `scaena decompile` reads a bundle, a zip, or a deck file.*
+  - *SPEC §4 now gives the grammar as built (§4.2) and the canonical form (§4.3).)*
 
 ### 1B Engine
 - [ ] 1.6 Theme cascade (SPEC §3.6) with override tracking.

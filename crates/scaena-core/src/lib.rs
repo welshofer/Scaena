@@ -4,6 +4,7 @@
 //!
 //! - [`document`] — `deck.json` types (SPEC §3). Structural parts are typed; node
 //!   properties are an ordered JSON map, so tracking and patching work generically.
+//! - [`dsl`] — the `.scn` authoring projection: compile and canonical decompile (SPEC §4).
 //! - [`model`] — what those maps may hold, one struct per node type, and the theme; with
 //!   [`document`] they generate `docs/schema/*.json` (PLAN 1.1).
 //! - [`tracking`] — resolves the ordered cue list into absolute snapshots (SPEC §2.2).
@@ -18,6 +19,7 @@
 
 pub mod displaylist;
 pub mod document;
+pub mod dsl;
 pub mod ids;
 pub mod lint;
 pub mod model;
