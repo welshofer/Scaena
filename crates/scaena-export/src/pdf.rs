@@ -1,4 +1,5 @@
-//! PDF (PLAN 1.20; SPEC §10): pages drawn from display lists by `krilla`.
+//! PDF (PLAN 1.20; SPEC §10): a deck's pages drawn from display lists by `krilla`, and
+//! tagged with how the deck reads.
 //!
 //! - A page is a frame's canvas at 2 units to the point: a 1920 × 1080 canvas is the
 //!   13⅓ × 7½ in widescreen page.
@@ -11,79 +12,175 @@
 //! - Images embed at their own resolution, clipped to the part an op draws.
 //! - Shaders draw as images of their CPU reference at `shader_scale` pixels to the unit
 //!   (SPEC §3.8), placed as the CPU painter places them.
+//! - The PDF is tagged (SPEC §3.12). Its structure follows the spine: a section per
+//!   spine section, holding the pages of its beats' slides, then the pages no beat
+//!   names. A page reads in paint order, each node as [`crate::reading`] says: a heading
+//!   or paragraph, a figure with its alt text, a table by rows of header and data
+//!   cells. What no node reads (the page's background, decoration, a container's panel)
+//!   is an artifact. The spine's sections are the document's outline.
 
 use crate::ExportError;
+use crate::reading::{self, Kind, Reading};
 use krilla::color::rgb;
-use krilla::geom::{Path as KPath, PathBuilder, Point, Size, Transform};
+use krilla::destination::XyzDestination;
+use krilla::geom::{Path as KPath, PathBuilder, Point, Rect as KRect, Size, Transform};
 use krilla::image::{BitsPerComponent, CustomImage, Image, ImageColorspace};
 use krilla::metadata::Metadata;
 use krilla::num::NormalizedF32;
+use krilla::outline::{Outline, OutlineNode};
 use krilla::page::PageSettings;
 use krilla::paint::{
     Fill, FillRule as KRule, LineCap, LineJoin, LinearGradient, Paint as KPaint, RadialGradient, SpreadMethod,
     Stop as KStop, Stroke, StrokeDash, SweepGradient,
 };
 use krilla::surface::Surface;
+use krilla::tagging::{
+    Artifact, ArtifactType, ContentTag, Identifier, Node, TableHeaderScope, Tag, TagGroup, TagKind, TagTree,
+};
 use krilla::text::{Font, GlyphId};
 use krilla::{Document, SerializeSettings};
 use kurbo::Affine;
+use scaena_core::Deck;
 use scaena_core::displaylist::{
     Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, Op, Paint, Path, PathEl, Quality,
 };
+use scaena_core::document::Section;
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU16;
 use std::ops::Range;
 use std::sync::Arc;
 
 /// Points to a canvas unit: a page is its canvas at 2 units to the point.
 pub const POINTS_PER_UNIT: f32 = 0.5;
 
+/// A page: the state it draws, and its frame.
+#[derive(Debug, Clone)]
+pub struct Page {
+    pub state: String,
+    pub list: DisplayList,
+}
+
 /// How a document is written.
 #[derive(Debug, Clone)]
 pub struct PdfSettings {
     /// Device pixels to the canvas unit at which shaders are drawn: 2, twice the canvas.
     pub shader_scale: f32,
-    pub title: Option<String>,
-    /// BCP 47, the deck's `meta.lang`.
-    pub lang: Option<String>,
 }
 
 impl Default for PdfSettings {
     fn default() -> Self {
-        Self { shader_scale: 2.0, title: None, lang: None }
+        Self { shader_scale: 2.0 }
     }
 }
 
-/// A PDF of `pages`, one page per display list, drawing from `assets`.
-pub fn pdf(pages: &[DisplayList], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+/// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`.
+pub fn pdf(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+    let snapshots = scaena_core::resolve_states(deck).map_err(|e| ExportError::Pdf(e.to_string()))?;
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();
-    for dl in pages {
+    let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
+    for page in pages {
+        let dl = &page.list;
+        let readings = match snapshots.iter().find(|s| s.state_id == page.state) {
+            Some(snap) => reading::readings(deck, snap),
+            None => return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state))),
+        };
         let [w, h] = dl.viewport.map(|v| v * POINTS_PER_UNIT);
         let page_settings =
             PageSettings::from_wh(w, h).ok_or_else(|| ExportError::Pdf(format!("a {w}×{h} pt page")))?;
-        let mut page = document.start_page_with(page_settings);
-        let mut surface = page.surface();
-        surface.push_transform(&Transform::from_scale(POINTS_PER_UNIT, POINTS_PER_UNIT));
         let scale = settings.shader_scale;
         let jobs = scaena_paint::shader_jobs(dl, scale).map_err(|e| ExportError::Pdf(e.to_string()))?;
-        let mut cx = Cx { surface: &mut surface, assets, fonts: &mut fonts, table: &dl.fonts, jobs: jobs.into_iter() };
-        cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
+        let mut kpage = document.start_page_with(page_settings);
+        let mut surface = kpage.surface();
+        surface.push_transform(&Transform::from_scale(POINTS_PER_UNIT, POINTS_PER_UNIT));
+        let mut cx = Cx {
+            surface: &mut surface,
+            assets,
+            fonts: &mut fonts,
+            table: &dl.fonts,
+            jobs: jobs.into_iter(),
+            readings: &readings,
+            page: KRect::from_xywh(0.0, 0.0, w, h),
+            error: None,
+        };
+        let nodes = cx.read(&dl.ops, Affine::scale(f64::from(scale)));
+        let error = cx.error.take();
         surface.pop();
         surface.finish();
-        page.finish();
+        kpage.finish();
+        if let Some(e) = error {
+            return Err(e);
+        }
+        structure.push(nodes);
+    }
+
+    let meta = deck.meta.as_ref();
+    let lang = meta.and_then(|m| m.lang.clone());
+    let (sections, rest) = reading_order(deck, pages);
+    let mut taken: Vec<Option<Vec<Node>>> = structure.into_iter().map(Some).collect();
+    let mut page = |i: usize| TagGroup::with_children(Tag::Div, taken[i].take().unwrap_or_default());
+    let mut tree = TagTree::new().with_lang(lang.clone());
+    let mut outline = Outline::new();
+    for (section, at) in &sections {
+        let mut sect = TagGroup::new(Tag::Section);
+        for &i in at {
+            sect.push(page(i));
+        }
+        tree.push(sect);
+        let first = at.iter().copied().min().unwrap_or_default();
+        outline.push_child(OutlineNode::new(heading(section), XyzDestination::new(first, Point::from_xy(0.0, 0.0))));
+    }
+    for i in rest {
+        tree.push(page(i));
+    }
+    document.set_tag_tree(tree);
+    if !sections.is_empty() {
+        document.set_outline(outline);
     }
     let mut metadata = Metadata::new().creator("Scaena".to_string());
-    if let Some(title) = &settings.title {
-        metadata = metadata.title(title.clone());
+    if let Some(title) = meta.and_then(|m| m.title.clone()) {
+        metadata = metadata.title(title);
     }
-    if let Some(lang) = &settings.lang {
-        metadata = metadata.language(lang.clone());
+    if let Some(lang) = lang {
+        metadata = metadata.language(lang);
     }
     document.set_metadata(metadata);
     document.finish().map_err(|e| ExportError::Pdf(format!("{e:?}")))
+}
+
+/// The pages in reading order (SPEC §3.12): each spine section with the pages of its
+/// beats' slides, in spine order, then the pages no beat names, in page order.
+fn reading_order<'d>(deck: &'d Deck, pages: &[Page]) -> (Vec<(&'d Section, Vec<usize>)>, Vec<usize>) {
+    let slides: HashMap<&str, &str> = deck.states.iter().map(|s| (s.id.as_str(), deck.slide_of(s))).collect();
+    let slide = |state: &str| slides.get(state).copied();
+    let mut placed = vec![false; pages.len()];
+    let mut sections = Vec::new();
+    for section in deck.spine.iter().flat_map(|s| &s.sections) {
+        let mut at = Vec::new();
+        for named in section.beats.iter().flat_map(|b| &b.states).filter_map(|s| slide(s)) {
+            for (i, page) in pages.iter().enumerate() {
+                if !placed[i] && slide(&page.state) == Some(named) {
+                    placed[i] = true;
+                    at.push(i);
+                }
+            }
+        }
+        if !at.is_empty() {
+            sections.push((section, at));
+        }
+    }
+    let rest = (0..pages.len()).filter(|&i| !placed[i]).collect();
+    (sections, rest)
+}
+
+/// What a section's bookmark says: its title, else its first beat's claim.
+fn heading(section: &Section) -> String {
+    (section.title.clone())
+        .or_else(|| section.beats.first().map(|b| b.claim.clone()))
+        .unwrap_or_else(|| section.id.clone())
 }
 
 struct Cx<'a, 's> {
@@ -94,36 +191,186 @@ struct Cx<'a, 's> {
     table: &'a [FontRef],
     /// One per shader op, in the order the walk meets them.
     jobs: std::vec::IntoIter<Option<Job>>,
+    /// How each node on the page reads, by id.
+    readings: &'a HashMap<String, Reading>,
+    /// The page, in points: what its background covers.
+    page: Option<KRect>,
+    /// The first thing that did not draw. Drawing goes on past it, so that every push
+    /// is popped and every tagged section ended.
+    error: Option<ExportError>,
 }
 
 impl Cx<'_, '_> {
-    /// `ops` in the current coordinates, which `xf` maps to shader pixels.
-    fn ops(&mut self, ops: &[Op], xf: Affine) -> Result<(), ExportError> {
+    fn fail(&mut self, e: ExportError) {
+        self.error.get_or_insert(e);
+    }
+
+    /// `ops` drawn where content may be tagged (in the page's own content, outside any
+    /// tagged section), each node's content tagged as it reads, in paint order: a
+    /// page's reading order (SPEC §3.12). Returns the structure they make.
+    fn read(&mut self, ops: &[Op], xf: Affine) -> Vec<Node> {
+        let mut out = Vec::new();
+        for op in ops {
+            let Op::Layer { node, transform, opacity, blend, clip, ops: inner, .. } = op else {
+                // Drawn outside every node: the page's background.
+                self.artifact(Artifact::new(ArtifactType::Background, self.page), op, xf);
+                continue;
+            };
+            let reading = node.as_deref().and_then(|id| self.readings.get(id));
+            let alt = reading.and_then(|r| r.alt.clone());
+            // A layer drawn at an opacity or in a blend mode is a group (a form XObject)
+            // in the PDF, and content in one can only be tagged as a whole.
+            let whole = *opacity < 1.0 || *blend != Blend::Normal;
+            match reading.map_or(Kind::Group, |r| r.kind) {
+                Kind::Artifact => self.artifact(Artifact::new(ArtifactType::Layout, None), op, xf),
+                kind @ (Kind::Heading(_) | Kind::Paragraph | Kind::Figure) => {
+                    let id = self.tagged(op, xf);
+                    let tag: TagKind = match kind {
+                        Kind::Heading(level) => {
+                            Tag::Hn(NonZeroU16::new(level.into()).unwrap_or(NonZeroU16::MIN), None).into()
+                        }
+                        Kind::Paragraph => Tag::P.into(),
+                        _ => Tag::Figure(alt.clone()).into(),
+                    };
+                    // A text's alt text is said instead of its words.
+                    let tag = if kind == Kind::Figure { tag } else { tag.with_alt_text(alt) };
+                    out.push(element(tag, reading, vec![id.into()]));
+                }
+                Kind::Table if !whole => {
+                    let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
+                    let xf = xf * affine(transform);
+                    let mut cells = BTreeMap::new();
+                    for child in inner {
+                        match child {
+                            Op::Layer { cell: Some([row, column]), .. } => {
+                                let id = self.tagged(child, xf);
+                                cells.insert((*row, *column), id);
+                            }
+                            // Its rules.
+                            _ => self.artifact(Artifact::new(ArtifactType::Layout, None), child, xf),
+                        }
+                    }
+                    let rows = self.rows(cells);
+                    self.close(pushed);
+                    let mut table = Vec::with_capacity(rows.len());
+                    for (row, cells) in rows {
+                        let cells = cells.into_iter().map(|id| {
+                            let cell: TagKind =
+                                if row == 0 { Tag::TH(TableHeaderScope::Column).into() } else { Tag::TD.into() };
+                            Node::from(TagGroup::with_children(cell, vec![id.into()]))
+                        });
+                        table.push(Node::from(TagGroup::with_children(Tag::TR, cells.collect())));
+                    }
+                    out.push(element(Tag::Table.with_summary(alt).into(), reading, table));
+                }
+                Kind::Group if !whole && alt.is_none() => {
+                    let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
+                    out.extend(self.read(inner, xf * affine(transform)));
+                    self.close(pushed);
+                }
+                // Read as one: a group with alt text, or a group or table drawn as one.
+                Kind::Group | Kind::Table => {
+                    if alt.is_some() {
+                        let id = self.tagged(op, xf);
+                        out.push(element(Tag::Figure(alt).into(), reading, vec![id.into()]));
+                    } else if self.reads(inner) {
+                        let id = self.tagged(op, xf);
+                        out.push(element(Tag::Div.into(), reading, vec![id.into()]));
+                    } else {
+                        self.artifact(Artifact::new(ArtifactType::Layout, None), op, xf);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether anything in `ops` is read: a node that is not an artifact.
+    fn reads(&self, ops: &[Op]) -> bool {
+        ops.iter().any(|op| match op {
+            Op::Layer { node, ops, .. } => match node.as_deref().and_then(|id| self.readings.get(id)) {
+                Some(Reading { kind: Kind::Artifact, .. }) => false,
+                Some(Reading { kind: Kind::Group, .. }) | None => self.reads(ops),
+                Some(_) => true,
+            },
+            _ => false,
+        })
+    }
+
+    /// `op` drawn as one tagged section of content.
+    fn tagged(&mut self, op: &Op, xf: Affine) -> Identifier {
+        let id = self.surface.start_tagged(ContentTag::Other);
+        self.ops(std::slice::from_ref(op), xf);
+        self.surface.end_tagged();
+        id
+    }
+
+    /// `op` drawn as an artifact: content no one reads.
+    fn artifact(&mut self, artifact: Artifact, op: &Op, xf: Affine) {
+        self.surface.start_tagged(ContentTag::Artifact(artifact));
+        self.ops(std::slice::from_ref(op), xf);
+        self.surface.end_tagged();
+    }
+
+    /// A table's rows, its first drawn to its last, each with a cell per column: where a
+    /// row has no text in a column (a null), an empty cell, tagged here.
+    fn rows(&mut self, mut cells: BTreeMap<(u32, u32), Identifier>) -> Vec<(u32, Vec<Identifier>)> {
+        let columns = cells.keys().map(|&(_, c)| c + 1).max().unwrap_or(0);
+        let (Some(&(first, _)), Some(&(last, _))) = (cells.keys().next(), cells.keys().next_back()) else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+        for row in first..=last {
+            let mut line = Vec::with_capacity(columns as usize);
+            for column in 0..columns {
+                line.push(cells.remove(&(row, column)).unwrap_or_else(|| {
+                    let id = self.surface.start_tagged(ContentTag::Other);
+                    self.surface.end_tagged();
+                    id
+                }));
+            }
+            rows.push((row, line));
+        }
+        rows
+    }
+
+    /// Opens a layer: its transform, clip, blend, and opacity. Returns the pushes to pop.
+    fn open(&mut self, transform: &[f32; 6], opacity: f32, blend: Blend, clip: Option<&Path>) -> usize {
+        self.surface.push_transform(&matrix(transform));
+        let mut pushed = 1;
+        if let Some(clip) = clip.and_then(path) {
+            self.surface.push_clip_path(&clip, &KRule::NonZero);
+            pushed += 1;
+        }
+        // The layer composites as one: at its opacity, in its blend mode.
+        if blend != Blend::Normal {
+            self.surface.push_blend_mode(blend_mode(blend));
+            pushed += 1;
+        }
+        if opacity < 1.0 {
+            self.surface.push_opacity(unit(opacity));
+            pushed += 1;
+        } else if blend != Blend::Normal {
+            self.surface.push_isolated();
+            pushed += 1;
+        }
+        pushed
+    }
+
+    fn close(&mut self, pushed: usize) {
+        for _ in 0..pushed {
+            self.surface.pop();
+        }
+    }
+
+    /// `ops` drawn in the current coordinates, which `xf` maps to shader pixels.
+    fn ops(&mut self, ops: &[Op], xf: Affine) {
         for op in ops {
             match op {
                 Op::Layer { transform, opacity, blend, clip, ops, .. } => {
-                    self.surface.push_transform(&matrix(transform));
-                    let mut pushed = 1;
-                    if let Some(clip) = clip.as_ref().and_then(path) {
-                        self.surface.push_clip_path(&clip, &KRule::NonZero);
-                        pushed += 1;
-                    }
-                    // The layer composites as one: at its opacity, in its blend mode.
-                    if *blend != Blend::Normal {
-                        self.surface.push_blend_mode(blend_mode(*blend));
-                        pushed += 1;
-                    }
-                    if *opacity < 1.0 {
-                        self.surface.push_opacity(unit(*opacity));
-                        pushed += 1;
-                    } else if *blend != Blend::Normal {
-                        self.surface.push_isolated();
-                        pushed += 1;
-                    }
-                    self.ops(ops, xf * affine(transform))?;
-                    for _ in 0..pushed {
-                        self.surface.pop();
-                    }
+                    let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
+                    self.ops(ops, xf * affine(transform));
+                    self.close(pushed);
                 }
                 Op::Fill { path: p, rule, paint } => {
                     if let Some(p) = path(p) {
@@ -165,10 +412,13 @@ impl Cx<'_, '_> {
                 }
                 Op::Glyphs { font, size, coords, paint, text, glyphs, clusters } => {
                     let Some(first) = glyphs.first() else { continue };
-                    let font_ref = self.table.get(*font as usize).ok_or_else(|| {
-                        ExportError::Pdf(format!("display list names font index {font}, past its font table"))
-                    })?;
-                    let font = self.fonts.get(self.assets, font_ref, coords)?;
+                    let font = match self.font(*font, coords) {
+                        Ok(font) => font,
+                        Err(e) => {
+                            self.fail(e);
+                            continue;
+                        }
+                    };
                     let (paint, opacity) = kpaint(paint);
                     self.surface.set_stroke(None);
                     self.surface.set_fill(Some(Fill { paint, opacity, rule: KRule::NonZero }));
@@ -176,49 +426,74 @@ impl Cx<'_, '_> {
                     self.surface.draw_glyphs(Point::from_xy(first.x, first.y), &placed, font, text, *size, false);
                 }
                 Op::Image { asset, src, dst, quality } => {
-                    let picture = self.assets.image(asset).map_err(|e| ExportError::Pdf(e.to_string()))?;
-                    let image = Image::from_custom(Pixels::of_picture(asset, picture), *quality == Quality::High)
-                        .map_err(ExportError::Pdf)?;
-                    let Some(clip) = path(&Path::rect(*dst)) else { continue };
-                    self.surface.push_clip_path(&clip, &KRule::NonZero);
-                    let [sx, sy, sw, sh] = *src;
-                    let [dx, dy, dw, dh] = *dst;
-                    let (kx, ky) = (dw / sw, dh / sh);
-                    self.surface.push_transform(&Transform::from_row(kx, 0.0, 0.0, ky, dx - sx * kx, dy - sy * ky));
-                    let size = Size::from_wh(picture.width as f32, picture.height as f32);
-                    if let Some(size) = size {
-                        self.surface.draw_image(image, size);
+                    if let Err(e) = self.image(asset, *src, *dst, *quality) {
+                        self.fail(e);
                     }
-                    self.surface.pop();
-                    self.surface.pop();
                 }
                 Op::Shader { rect, .. } => {
                     let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
-                    if let Some(job) = job {
-                        self.shader(&job, *rect, xf)?;
+                    if let Some(job) = job
+                        && let Err(e) = self.shader(&job, *rect, xf)
+                    {
+                        self.fail(e);
                     }
                 }
             }
         }
+    }
+
+    /// Font `index` of the display list's table, at the instance `coords` name.
+    fn font(&mut self, index: u32, coords: &[i16]) -> Result<Font, ExportError> {
+        let font = self
+            .table
+            .get(index as usize)
+            .ok_or_else(|| ExportError::Pdf(format!("display list names font index {index}, past its font table")))?;
+        self.fonts.get(self.assets, font, coords)
+    }
+
+    /// The `src` part of image `asset` drawn into `dst`, clipped to it.
+    fn image(&mut self, asset: &str, src: [f32; 4], dst: [f32; 4], quality: Quality) -> Result<(), ExportError> {
+        let picture = self.assets.image(asset).map_err(|e| ExportError::Pdf(e.to_string()))?;
+        let image = Image::from_custom(Pixels::of_picture(asset, picture), quality == Quality::High)
+            .map_err(ExportError::Pdf)?;
+        let (Some(clip), Some(size)) =
+            (path(&Path::rect(dst)), Size::from_wh(picture.width as f32, picture.height as f32))
+        else {
+            return Ok(());
+        };
+        let [sx, sy, sw, sh] = src;
+        let [dx, dy, dw, dh] = dst;
+        let (kx, ky) = (dw / sw, dh / sh);
+        self.surface.push_clip_path(&clip, &KRule::NonZero);
+        self.surface.push_transform(&Transform::from_row(kx, 0.0, 0.0, ky, dx - sx * kx, dy - sy * ky));
+        self.surface.draw_image(image, size);
+        self.surface.pop();
+        self.surface.pop();
         Ok(())
     }
 
     /// The CPU reference's pixels for `job` inside `rect`, texel for shader pixel.
     fn shader(&mut self, job: &Job, rect: [f32; 4], xf: Affine) -> Result<(), ExportError> {
         let [x, y, w, h] = job.bbox();
-        let Some(clip) = path(&Path::rect(rect)) else { return Ok(()) };
+        let (Some(clip), Some(size)) = (path(&Path::rect(rect)), Size::from_wh(w as f32, h as f32)) else {
+            return Ok(());
+        };
         let image = Image::from_custom(Pixels::of_rgba(job.render(), w, h), true).map_err(ExportError::Pdf)?;
         self.surface.push_clip_path(&clip, &KRule::NonZero);
         // Texel (0, 0) on shader pixel (x, y): undo the layers' transforms and the scale.
         let place = xf.inverse() * Affine::translate((f64::from(x), f64::from(y)));
         self.surface.push_transform(&from_affine(place));
-        if let Some(size) = Size::from_wh(w as f32, h as f32) {
-            self.surface.draw_image(image, size);
-        }
+        self.surface.draw_image(image, size);
         self.surface.pop();
         self.surface.pop();
         Ok(())
     }
+}
+
+/// A node's element: `tag`, in the node's language, over `children`.
+fn element(tag: TagKind, reading: Option<&Reading>, children: Vec<Node>) -> Node {
+    let lang = reading.and_then(|r| r.lang.clone());
+    TagGroup::with_children(tag.with_lang(lang), children).into()
 }
 
 /// Fonts made once per document: a font's file at an instance.

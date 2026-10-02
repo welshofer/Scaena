@@ -567,7 +567,8 @@ Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before
 
 - Every non-decorative node carries `alt` (text nodes default to their content). Images without `alt` are **W410**.
 - Reading order = spine order, then z-order within a state.
-- PDF export is tagged (structure from spine + nodes); HTML export carries ARIA from the same data.
+- How a node reads (`scaena-export::reading`, from the state's resolved props): text in the `display` or `headline` role is a level-1 heading, `title` a level-2 heading, and any other text a paragraph, its `alt`, if it has one, said in place of its words. An image or a chart is a figure that its `alt` describes. A shape or shader is a figure only when it has an `alt`, and decoration otherwise. A table reads row by row, the header's cells as column headers. A group reads its members in turn, or as one figure when it has an `alt`. A node whose `semantic` is `decoration` or whose `alt` is `""`, and a container's own fill and stroke, are decoration and are not read. `navigation` is read: a cover's title and an agenda are content.
+- PDF export is tagged from the same data (PLAN 1.20). Its structure follows the spine: a section per spine section, holding a division for each page of its beats' slides, then the pages no beat names. A page's nodes read in z-order; what no node reads (the page's background, decoration) is an artifact. A table keeps a cell for every column of every row, an empty one where the data is null. A group drawn as one layer (at an opacity below 1, or in a blend mode) is tagged as one element: a figure if it has an `alt`, else a division. A PDF can tag the content of such a layer only as a whole. The spine's sections are also the PDF's outline, each titled by its `title`, else its first beat's claim. HTML export will carry ARIA from the same data (PLAN 2.5).
 - Lint **E110**/**E111** enforce contrast (4.5:1 body, 3:1 display) against what is painted behind the text (§7.5).
 
 ---
@@ -769,7 +770,7 @@ A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). 
     { "fill":   { "path": "M0 0L1920 0L1920 1080L0 1080Z", "rule": "nonzero", "paint": { "solid": "#101014FF" } } },
     { "shader": { "kind": "mesh", "seed": 7, "t": 0.25, "rect": [0, 0, 1920, 1080],
                   "palette": ["#1B1430FF", "#3A1F4FFF", "#B0452CFF", "#FF6A3DFF"], "params": { "drift": 0.12, "points": 5 } } },
-    { "layer":  { "node": "title", "transform": [1, 0, 0, 1, 0, 0], "opacity": 1, "blend": "normal", "clip": null, "ops": [
+    { "layer":  { "node": "title", "cell": null, "transform": [1, 0, 0, 1, 0, 0], "opacity": 1, "blend": "normal", "clip": null, "ops": [
       { "glyphs": { "font": 0, "size": 128, "coords": [0, 8192, -4096], "paint": { "solid": "#F2F0E9FF" },
                     "text": "Hi", "glyphs": [[38, 96, 300], [72, 131.5, 300]], "clusters": [0, 1] } }
     ] } },
@@ -785,12 +786,13 @@ Rules:
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
 - A glyph run says what it sets (PLAN 1.20): `text` is the text of its clusters, cut from the node's laid-out text (after `case`, with the soft hyphens hyphenation inserts), and `clusters` holds each glyph's cluster start in it, in bytes. A cluster runs to the next larger start or to the end of `text`, so a ligature says all its letters and a base and its marks share their cluster. A hyphen drawn at a break says the soft hyphen (U+00AD) it stands for. Painters draw from `glyphs` alone; exports a reader copies, searches, or hears (PDF, SVG) map glyphs to text through these. A run written before glyph runs carried text reads with none.
+- A table cell's layer says where the cell stands: `cell` is `[row, column]`, with row 0 the header row, the body's rows from 1, and columns in the order the table shows them. Every other layer's `cell` is null. Painters draw without it; exports that read a table as a table (a tagged PDF, §3.12) take its rows and columns from it.
 - Gradient paints (`linear` from `start` to `end`, `radial` about `center` out to `radius`, `sweep` about `center` from `startAngle` to `endAngle`, radians from the positive x axis, clockwise with y down) blend their stops in Oklab with premultiplied alpha. A linear or radial gradient holds its end colors past its ends; a sweep repeats, so one that starts off the x axis runs all the way round. Both painters build them through peniko from one conversion (`scaena-paint`'s `convert`), which adds sRGB stops between the given ones, close enough that blending them in sRGB stays within 0.01 of the Oklab blend: vello's GPU ramp blends stops in sRGB whatever the gradient asks (ADR-0004 finding 12).
 - Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`, all numbers (a name a kind lists is its place in the list: a gradient's `shape` is 0 linear, 1 radial, 2 conic). A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
 - In JSON, colors are `#RRGGBBAA` (sRGB, straight alpha) and paths are absolute SVG path data (`M L Q C Z`); in postcard they are four bytes and an element list. Every number is finite: the encoders refuse NaN and infinities rather than writing `null`.
 - The display list is the unit of golden testing (§14). Goldens are written with `to_golden_json` (one op per line, one glyph per line, so a diff reads as "this op changed" or "this glyph moved") after `quantize` (§13).
 
-**Painters:** `vello` (GPU via wgpu — WebGPU, Metal, Vulkan, DX12), `vello_cpu` (headless, CI, agents, export), `pdf` (krilla: vector paths, real text with embedded subsets, shaders as images), `svg` (static frames), `png` (via vello_cpu), `video` (PNG/raw frame sequence piped to ffmpeg; frame `n` at `t = n / fps` over the global timeline).
+**Painters:** `vello` (GPU via wgpu — WebGPU, Metal, Vulkan, DX12), `vello_cpu` (headless, CI, agents, export), `pdf` (krilla: vector paths, real text with embedded subsets, shaders as images, tagged as §3.12 says), `svg` (static frames), `png` (via vello_cpu), `video` (PNG/raw frame sequence piped to ffmpeg; frame `n` at `t = n / fps` over the global timeline).
 
 ---
 
@@ -827,7 +829,7 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 | `decompile` | `{ out, scn? }` |
 | `render` | `{ state, format, t_ms, span_ms, painter, adapter, size, out, display_list, ms }`: `ms` holds the stage timings |
 | `save` | `{ renamed, subset, manifest }` |
-| `export` | `{ format, out, spine? }` |
+| `export` | `{ format, out, spine? }`; a PDF adds `pages`, the state each page draws, and `bytes` |
 | `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `patch` | `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta. An op that does not apply adds `op`, its index, to the error object |
 
@@ -843,7 +845,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `diff` without `--json` prints a line per node: `+ id` enters, `- id` exits, and `~ id: keys` changes those keys.
 
-`export --states a,b` picks the states a frame export draws (png, pdf, svg, video, html). `spine` is the whole spine, and takes no `--states`.
+`export --states a,b` picks the states a frame export draws (png, pdf, svg, video, html). `spine` is the whole spine, and takes no `--states`. A PDF is written to the file `--out` names. Without `--states` it draws each slide once, at its last state, in spine order (§3.11): the slides of the states the beats name, then the slides no beat names, in deck order.
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
@@ -867,7 +869,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
 | `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, and `data`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
-| `deck_export` | `scaena export`. | `{ format, out?, spine? }` |
+| `deck_export` | `scaena export`. A PDF needs `out`. | `{ format, out?, spine?, pages?, bytes? }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
 | `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
@@ -1075,7 +1077,7 @@ All exports consume the same resolved document. The **spine** is the contract fo
 
 | Projection | Mechanism |
 |---|---|
-| PDF | `pdf` painter per slide (last state of each slide) or per state; tagged; vector text; shaders as images |
+| PDF | `pdf` painter (krilla, PLAN 1.20): a page per slide at its last state, in spine order, or per state with `--states`; the canvas at 2 units to the point (1920 × 1080 is a 960 × 540 pt page); paths and gradients as vectors; text as text in subset fonts, each glyph saying its cluster (§6); images at their own resolution; shaders as images of their CPU reference at 2× the canvas (§3.8); tagged and outlined from the spine (§3.12) |
 | PNG/SVG | per state at any size |
 | Video (mp4/webm/ProRes) | global timeline sampled at `fps`; `hold` provides dwell; deterministic frames; audio track optional (external) |
 | Single-file HTML | player + bundle, offline |

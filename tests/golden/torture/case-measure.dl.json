@@ -7,7 +7,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"28 · Case and measure · recorded","glyphs":[
         [262,0.0,20.71875],
         [268,13.203125,20.71875],
@@ -43,7 +43,7 @@
         [141,370.34375,20.71875]
       ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,25,26,27,28,29,30,31,32,33]}}
     ]}},
-    {"layer":{"node":"case-upper","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case-upper","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":64.0,"coords":[0,5814,0,0],"paint":{"solid":"#16140FFF"},"text":"UPPER CASE: STRASSE UND WEG","glyphs":[
         [89,0.0,58.65625],
         [74,50.5,58.65625],
@@ -74,7 +74,7 @@
         [34,1003.71875,58.65625]
       ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}
     ]}},
-    {"layer":{"node":"case-title","transform":[1.0,0.0,0.0,1.0,96.0,324.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case-title","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,324.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":64.0,"coords":[0,5814,0,0],"paint":{"solid":"#16140FFF"},"text":"Title Case Capitalizes Each Word, (Even) The 3rd","glyphs":[
         [86,0.0,58.65625],
         [163,41.984375,58.65625],
@@ -126,7 +126,7 @@
         [141,1434.625,58.65625]
       ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47]}}
     ]}},
-    {"layer":{"node":"case-smallcaps","transform":[1.0,0.0,0.0,1.0,96.0,438.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case-smallcaps","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,438.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":1,"size":72.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"Small capitals come from the font","glyphs":[
         [83,0.0,66.921875],
         [601,33.484375,66.921875],
@@ -163,7 +163,7 @@
         [634,1118.0156,66.921875]
       ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]}}
     ]}},
-    {"layer":{"node":"measure-centered","transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"measure-centered","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A measure of twenty-","glyphs":[
         [4,659.71875,40.65625],
         [1,687.5625,40.65625],

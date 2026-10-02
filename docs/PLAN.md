@@ -324,7 +324,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *CI runs it with the workspace's tests on Linux and macOS. It takes under half a second.)*
 
 ### 1D Exports
-- [ ] 1.20 PDF painter (`krilla`): vector text with subsets, tagged structure from spine, shaders as images.
+- [x] 1.20 PDF painter (`krilla`): vector text with subsets, tagged structure from spine, shaders as images. *(Done. `scaena-export::pdf`, `scaena export --format pdf --out FILE`, and `deck_export`; SPEC §3.12, §6, §10; ADR-0004 finding 13:*
+  - *A page is a slide at its last state, in spine order, or each state `--states` names. The canvas is set at 2 units to the point.*
+  - *Paths and gradients stay vectors. Text is text, in subset fonts. Glyph runs now carry the text of their clusters (SPEC §6), so a PDF copies and searches as the deck reads: ligatures, marks, Arabic, emoji, and hyphenated words. Images embed at their own resolution, and shaders as images of their CPU reference at twice the canvas.*
+  - *Rasterized by `hayro`, every torture page passes SPEC §13.5 against the CPU painter, with shaders drawn at one pixel to the unit so their grain compares.*
+  - *The PDF is tagged by how each node reads (`scaena-export::reading`): headings by role, figures with their alt text, tables by rows of header and data cells, and decoration as artifacts. Sections come from the spine, and so does the outline. A table cell's layer now says its row and column (display list `cell`).*
+  - *Not done:*
+    - *Shader images embed losslessly and are large: the trails example is 15 MB (ADR-0004 finding 13).*
+    - *PDF/UA conformance is not checked. `krilla` can validate it; headings would need titles first.*
+    - *A PDF is drawn in the canvas format only, not in another of the deck's `formats`.)*
 - [ ] 1.21 PNG/SVG per state; video via frame sequence → `ffmpeg` (mp4/webm/ProRes); `hold` dwell.
 - [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
 

@@ -187,6 +187,7 @@ impl ImageNode {
         let clip = RoundRect { x, y, w, h, top_radius: r, bottom_radius: r }.path();
         vec![Op::Layer {
             node: None,
+            cell: None,
             transform: IDENTITY,
             opacity: 1.0,
             blend: Blend::Normal,

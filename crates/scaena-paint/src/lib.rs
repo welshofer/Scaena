@@ -671,6 +671,7 @@ pub mod cpu {
             let mut dl = DisplayList::new([4.0, 4.0]);
             dl.ops.push(Op::Layer {
                 node: None,
+                cell: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0],
                 opacity: 1.0,
                 blend: Blend::Normal,
@@ -707,6 +708,7 @@ pub mod cpu {
             let mut dl = DisplayList::new([50.0, 30.0]);
             dl.ops.push(Op::Layer {
                 node: None,
+                cell: None,
                 transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
                 opacity: 1.0,
                 blend: Blend::Normal,
@@ -1311,6 +1313,7 @@ pub mod gpu {
                 let mut dl = DisplayList::new([50.0, 30.0]);
                 dl.ops.push(Op::Layer {
                     node: None,
+                    cell: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
                     opacity: 1.0,
                     blend: Blend::Normal,
@@ -1365,6 +1368,7 @@ pub mod gpu {
                 };
                 dl.ops.push(Op::Layer {
                     node: None,
+                    cell: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0],
                     opacity: 1.0,
                     blend: Blend::Normal,
@@ -1374,6 +1378,7 @@ pub mod gpu {
                 // An isolated layer (opacity < 1) takes the unclipped-layer path.
                 dl.ops.push(Op::Layer {
                     node: None,
+                    cell: None,
                     transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     opacity: 0.5,
                     blend: Blend::Normal,

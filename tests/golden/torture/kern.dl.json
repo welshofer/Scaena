@@ -6,7 +6,7 @@
   ],
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
-    {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"case","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"04 · Kerning-sensitive pairs · kill","glyphs":[
         [260,0.0,20.71875],
         [264,13.203125,20.71875],
@@ -45,7 +45,7 @@
         [176,375.01562,20.71875]
       ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,32,33,34,35,36]}}
     ]}},
-    {"layer":{"node":"kern-on","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"kern-on","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":112.0,"coords":[0,12156,3277,0],"paint":{"solid":"#16140FFF"},"text":"AVATAR To LT Wa Yo ff fi","glyphs":[
         [4,0.0,97.046875],
         [100,70.21875,97.046875],
@@ -71,7 +71,7 @@
         [378,1240.625,97.046875]
       ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,21,22]}}
     ]}},
-    {"layer":{"node":"kern-off","transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+    {"layer":{"node":"kern-off","cell":null,"transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
       {"glyphs":{"font":0,"size":112.0,"coords":[0,12156,3277,0],"paint":{"solid":"#16140FFF"},"text":"AVATAR To LT Wa Yo ff fi","glyphs":[
         [4,0.0,97.046875],
         [100,77.84375,97.046875],

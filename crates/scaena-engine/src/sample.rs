@@ -437,12 +437,12 @@ fn looked(op: Op, seen: Seen) -> Op {
     if seen.leaves_layer() {
         return op;
     }
-    let Op::Layer { node, transform, opacity, blend, clip, mut ops } = op else { return op };
+    let Op::Layer { node, cell, transform, opacity, blend, clip, mut ops } = op else { return op };
     if let Some((color, q)) = seen.tint {
         ops.iter_mut().for_each(|op| tint(op, color, q as f32));
     }
     let transform = compose(seen.map, transform.map(f64::from)).map(|v| v as f32);
-    Op::Layer { node, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
+    Op::Layer { node, cell, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
 }
 
 /// A group as the fold below keys it: its id, and whether its layer is the one in the
@@ -747,11 +747,12 @@ impl Transition {
                 && matches!(c.motion, Motion::Exit(_)) == source
                 && self.applies(&c.motion, &node.id)
         });
-        let (Some(cue), Op::Layer { node, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
+        let (Some(cue), Op::Layer { node, cell, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
         let split = text_split(cue.split).expect("found by its split");
         let ops = unit_ops(dl, &placed.text, split, cue, t);
         Op::Layer {
             node: node.clone(),
+            cell: *cell,
             transform: *transform,
             opacity: *opacity,
             blend: *blend,
@@ -931,12 +932,12 @@ impl Transition {
                     let clip = (a.clip.is_some() && b.clip.is_some())
                         .then(|| b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h])))
                         .flatten();
-                    let Op::Layer { node, transform, opacity, blend, ops, .. } =
+                    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
                         layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops)
                     else {
                         unreachable!("`layer` makes layers")
                     };
-                    dl.ops.push(looked(Op::Layer { node, transform, opacity, blend, clip, ops }, seen));
+                    dl.ops.push(looked(Op::Layer { node, cell, transform, opacity, blend, clip, ops }, seen));
                 }
             }
         }
@@ -1095,6 +1096,7 @@ impl WordPlan {
         let (from, to) = (at(origins[0]), at(origins[1]));
         let word = |dl: &mut DisplayList, runs: &[GlyphRun], w: &Word, transform: [f32; 6], opacity: f32| Op::Layer {
             node: None,
+            cell: None,
             transform,
             opacity,
             blend: Blend::Normal,
@@ -1171,7 +1173,7 @@ fn unit_ops(dl: &mut DisplayList, text: &TextLayout, split: TextSplit, cue: &Pla
         let [a, b, c, d, e, f] = look.affine(unit_box(text, &unit.glyphs)).map(|v| v as f32);
         let transform = [a, b, c, d, e, f];
         let opacity = look.opacity as f32;
-        layers.push(Op::Layer { node: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
+        layers.push(Op::Layer { node: None, cell: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
     }
     let rest = subset(text, |r, g| !taken.contains(&(r, g)));
     let mut ops = glyph_ops(dl, &text.text, &starts, &rest);
@@ -1252,7 +1254,7 @@ impl TablePlan {
         }
         let (ca, cb): (Vec<&Cell>, Vec<&Cell>) =
             (a.header.iter().chain(&a.cells).collect(), b.header.iter().chain(&b.cells).collect());
-        let mut cell = |at: Point, alpha: f32, c: &Cell| ops.push(layer(None, at, alpha, text_ops(dl, &c.text)));
+        let mut cell = |at: Point, alpha: f32, c: &Cell| ops.push(cell_layer(dl, c, at, alpha));
         for &(i, j) in &self.cells {
             match (i.map(|i| ca[i]), j.map(|j| cb[j])) {
                 (Some(x), Some(y)) if x.text.text == y.text.text && x.text.runs == y.text.runs => {
@@ -1289,7 +1291,7 @@ fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
     let rules = table.rule.iter().chain(table.row_rules.iter().map(|(_, r)| r));
     let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
     for cell in table.header.iter().chain(&table.cells) {
-        ops.push(layer(None, cell.origin, 1.0, text_ops(dl, &cell.text)));
+        ops.push(cell_layer(dl, cell, cell.origin, 1.0));
     }
     ops
 }
@@ -1778,6 +1780,7 @@ fn plot_layer(span: Option<[f32; 2]>, clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op>
     let Some(span) = span else { return ops };
     vec![Op::Layer {
         node: None,
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         opacity: 1.0,
         blend: Blend::Normal,
@@ -2061,6 +2064,7 @@ fn lerp2(a: Point, b: Point, p: f32) -> Point {
 fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity: f32, ops: Vec<Op>) -> Op {
     Op::Layer {
         node: Some(id.to_string()),
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2072,6 +2076,7 @@ fn chart_layer(id: &str, origin: Point, width: f32, canvas_height: f32, opacity:
 fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     Op::Layer {
         node: node.map(str::to_string),
+        cell: None,
         transform: [1.0, 0.0, 0.0, 1.0, origin[0], origin[1]],
         opacity,
         blend: Blend::Normal,
@@ -2080,16 +2085,26 @@ fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
     }
 }
 
+/// A table cell's layer at `origin`, saying where the cell stands in its table.
+fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) -> Op {
+    let Op::Layer { node, transform, opacity, blend, clip, ops, .. } =
+        layer(None, origin, opacity, text_ops(dl, &cell.text))
+    else {
+        unreachable!("`layer` makes layers")
+    };
+    Op::Layer { node, cell: Some(cell.at), transform, opacity, blend, clip, ops }
+}
+
 /// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
-    let Op::Layer { node, transform, opacity, blend, ops, .. } =
+    let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
         layer(Some(id), origin, opacity, text_ops(dl, &placed.text))
     else {
         unreachable!("`layer` makes layers")
     };
     let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
-    Op::Layer { node, transform, opacity, blend, clip, ops }
+    Op::Layer { node, cell, transform, opacity, blend, clip, ops }
 }
 
 /// A text's runs as glyph ops, each with the text it sets (SPEC §6).
