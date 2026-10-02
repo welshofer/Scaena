@@ -9,7 +9,7 @@
   "ops":[
     {"fill":{"path":"M0 0L1920 0L1920 1080L0 1080Z","rule":"nonzero","paint":{"solid":"#FBFAF6FF"}}},
     {"layer":{"node":"case","transform":[1.0,0.0,0.0,1.0,96.0,90.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
+      {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"17 · Emoji: COLRv1, ZWJ, skin tone, flag · catalogue","glyphs":[
         [261,0.0,20.71875],
         [267,13.203125,20.71875],
         [1,26.40625,20.71875],
@@ -61,10 +61,10 @@
         [156,559.1719,20.71875],
         [210,573.4375,20.71875],
         [143,588.5156,20.71875]
-      ]}}
+      ],"clusters":[0,1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,39,40,41,42,44,45,46,47,48,49,50,51,52,53]}}
     ]}},
     {"layer":{"node":"emoji-line","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"text":"Ship it ","glyphs":[
         [80,0.0,86.828125],
         [161,57.796875,86.828125],
         [163,118.75,86.828125],
@@ -73,35 +73,35 @@
         [163,233.28125,86.828125],
         [207,262.9375,86.828125],
         [1,298.65625,86.828125]
-      ]}},
-      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0,1,2,3,4,5,6,7]}},
+      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"🚀","glyphs":[
         [32,321.03125,86.828125]
-      ]}},
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"text":" ","glyphs":[
         [1,440.5625,86.828125]
-      ]}},
-      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"🙂","glyphs":[
         [12,462.92188,86.828125]
-      ]}},
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"text":" ","glyphs":[
         [1,582.4531,86.828125]
-      ]}},
-      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"👩🏽‍💻","glyphs":[
         [3,604.8281,86.828125]
-      ]}},
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"text":" ","glyphs":[
         [1,724.3594,86.828125]
-      ]}},
-      {"glyphs":{"font":2,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":2,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"🇺🇸","glyphs":[
         [1119,746.71875,86.828125],
         [1118,847.3281,86.828125]
-      ]}},
-      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0,0]}},
+      {"glyphs":{"font":0,"size":96.0,"coords":[0,10042,0,0],"paint":{"solid":"#16140FFF"},"text":" ","glyphs":[
         [1,947.9375,86.828125]
-      ]}},
-      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      ],"clusters":[0]}},
+      {"glyphs":{"font":1,"size":96.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"❤️","glyphs":[
         [14,970.3125,86.828125]
-      ]}}
+      ],"clusters":[0]}}
     ]}}
   ]
 }

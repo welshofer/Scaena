@@ -292,6 +292,71 @@ fn frames_are_deterministic_across_engines_and_font_order() {
     }
 }
 
+/// Every glyph op in `ops`, depth first: (its text, each glyph's cluster start).
+fn said(ops: &[Op], out: &mut Vec<(String, Vec<u32>, usize)>) {
+    for op in ops {
+        match op {
+            Op::Layer { ops, .. } => said(ops, out),
+            Op::Glyphs { text, clusters, glyphs, .. } => out.push((text.clone(), clusters.clone(), glyphs.len())),
+            _ => {}
+        }
+    }
+}
+
+/// What each glyph of each run in `dl` says: its cluster, up to the next larger start.
+fn glyph_texts(dl: &DisplayList) -> Vec<Vec<String>> {
+    let mut ops = Vec::new();
+    said(&dl.ops, &mut ops);
+    ops.into_iter()
+        .map(|(text, clusters, _)| {
+            let mut starts = clusters.clone();
+            starts.sort_unstable();
+            let end = |c: u32| starts.iter().copied().find(|&s| s > c).map_or(text.len(), |s| s as usize);
+            clusters.iter().map(|&c| text[c as usize..end(c)].to_string()).collect()
+        })
+        .collect()
+}
+
+#[test]
+fn glyph_runs_say_what_they_set() {
+    let mut fx = fixture();
+    // Every run of every golden frame says something, cluster by cluster.
+    for (name, state, t, format) in fx.golden_frames() {
+        let dl = fx.frame_in(&state, t, format).unwrap();
+        let mut ops = Vec::new();
+        said(&dl.ops, &mut ops);
+        for (text, clusters, glyphs) in ops {
+            assert!(!text.is_empty() && clusters.len() == glyphs, "{name}: {text:?} {clusters:?}");
+            let fits = |c: &u32| (*c as usize) < text.len() && text.is_char_boundary(*c as usize);
+            assert!(clusters.iter().all(fits), "{name}: {text:?} {clusters:?}");
+        }
+    }
+    // A ligature says its letters.
+    let liga = glyph_texts(&fx.frame("liga").unwrap());
+    assert!(liga.iter().any(|run| ["ffi", "ffl", "fj"].iter().all(|l| run.iter().any(|g| g == l))), "{liga:?}");
+    // A base and its marks, glyphs of one cluster, say it together.
+    let combining = glyph_texts(&fx.frame("combining").unwrap()).concat();
+    assert!(combining.windows(2).any(|w| w[0] == w[1] && w[0].chars().count() > 1), "{combining:?}");
+    // The hyphen drawn at a break says the soft hyphen it draws.
+    let hyphenation = glyph_texts(&fx.frame("hyphenation").unwrap());
+    assert!(hyphenation.iter().any(|run| run == &["\u{AD}"]), "{hyphenation:?}");
+    // In motion: a split unit says its word, a morphing word its own, a count its number.
+    let texts = |fx: &mut Fixture, state: &str, at: f64| {
+        let t = at * fx.duration(state);
+        let mut ops = Vec::new();
+        said(&fx.frame_at(state, t).unwrap().ops, &mut ops);
+        ops.into_iter().map(|(text, _, _)| text).collect::<Vec<_>>()
+    };
+    let motion = texts(&mut fx, "motion", 0.35);
+    assert!(motion.iter().any(|t| t == "word "), "{motion:?}");
+    let morph = texts(&mut fx, "morph", 0.5);
+    assert!(morph.iter().any(|t| t == "grew"), "{morph:?}");
+    let at_rest = texts(&mut fx, "chart", f64::INFINITY);
+    let counting = texts(&mut fx, "chart", 0.5);
+    let number = |t: &&String| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit());
+    assert!(counting.iter().filter(number).any(|t| !at_rest.contains(t)), "{counting:?}");
+}
+
 #[test]
 fn every_shader_kind_draws_as_its_shader_op() {
     for kind in ["gradient", "noise", "grain", "particles"] {

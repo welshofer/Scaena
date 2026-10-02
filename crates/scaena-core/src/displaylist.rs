@@ -113,7 +113,16 @@ pub enum Op {
         /// empty for the default instance.
         coords: Vec<i16>,
         paint: Paint,
+        /// What the glyphs set: the text of their clusters, for a reader that copies,
+        /// searches, or speaks it (PDF, SVG). No painter draws from it.
+        #[serde(default)]
+        text: String,
         glyphs: Vec<Glyph>,
+        /// Where each glyph's cluster starts in `text`, in bytes. A cluster runs to the next
+        /// larger start, or to the end of `text`; glyphs of one cluster (a base and its
+        /// marks) share it. Empty when `text` is.
+        #[serde(default)]
+        clusters: Vec<u32>,
     },
     Image {
         /// Content-addressed asset id, `sha256:<hex>`, of an image at most
@@ -759,7 +768,9 @@ mod tests {
                 size: 64.0,
                 coords: vec![0, -16384, 2048, 16384],
                 paint: Paint::Solid(INK),
+                text: "Hé".into(),
                 glyphs: vec![Glyph { id: 38, x: 96.0, y: 300.015_63 }, Glyph { id: 72, x: 131.5, y: 300.015_63 }],
+                clusters: vec![0, 1],
             }],
         });
         dl.ops.push(Op::Stroke {
@@ -842,7 +853,9 @@ mod tests {
                 size: 64.0,
                 coords: vec![],
                 paint: Paint::Solid(INK),
+                text: "ab".into(),
                 glyphs: vec![Glyph { id: 1, x: 0.5, y: 2.0 }, Glyph { id: 2, x: 30.25, y: 2.0 }],
+                clusters: vec![0, 1],
             }],
         });
         let expected = r##"{
@@ -854,10 +867,10 @@ mod tests {
   "ops":[
     {"fill":{"path":"M0 0L2 0L2 1.5L0 1.5Z","rule":"nonzero","paint":{"solid":"#16140FFF"}}},
     {"layer":{"node":"t","transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-      {"glyphs":{"font":0,"size":64.0,"coords":[],"paint":{"solid":"#16140FFF"},"glyphs":[
+      {"glyphs":{"font":0,"size":64.0,"coords":[],"paint":{"solid":"#16140FFF"},"text":"ab","glyphs":[
         [1,0.5,2.0],
         [2,30.25,2.0]
-      ]}}
+      ],"clusters":[0,1]}}
     ]}}
   ]
 }
@@ -904,6 +917,16 @@ mod tests {
         assert!(matches!(DisplayList::from_postcard(&postcard::to_allocvec(&dl).unwrap()), Err(DlError::Version(2))));
         let json = sample().to_json().unwrap().replacen("\"rule\"", "\"bogus\":1,\"rule\"", 1);
         assert!(DisplayList::from_json(&json).is_err());
+    }
+
+    #[test]
+    fn glyph_runs_written_before_they_carried_text_still_read() {
+        let json = sample().to_json().unwrap().replace(r#""text":"Hé","#, "").replace(r#","clusters":[0,1]"#, "");
+        assert!(!json.contains("clusters"));
+        let read = DisplayList::from_json(&json).unwrap();
+        let Op::Layer { ops, .. } = &read.ops[2] else { panic!("the sample's layer") };
+        let Op::Glyphs { text, clusters, glyphs, .. } = &ops[0] else { panic!("its glyphs") };
+        assert!(text.is_empty() && clusters.is_empty() && glyphs.len() == 2);
     }
 
     #[test]

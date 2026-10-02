@@ -541,7 +541,7 @@ pub mod cpu {
                         self.set_paint(paint);
                         self.ctx.stroke_path(&bez(path));
                     }
-                    Op::Glyphs { font, size, coords, paint, glyphs } => {
+                    Op::Glyphs { font, size, coords, paint, glyphs, .. } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
                         let font = self.store.get(font_ref)?;
                         self.ctx.set_transform(xf);
@@ -952,7 +952,7 @@ pub mod gpu {
                         let style = stroke(*width, *cap, *join, *miter_limit, dash, *dash_offset);
                         self.scene.stroke(&style, xf, &brush(paint), None, &bez(path));
                     }
-                    Op::Glyphs { font, size, coords, paint, glyphs } => {
+                    Op::Glyphs { font, size, coords, paint, glyphs, .. } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
                         let font = self.store.get(font_ref)?;
                         let brush = brush(paint);

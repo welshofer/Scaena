@@ -581,6 +581,7 @@ impl Numerals {
                     clusters: vec![at],
                     advances: vec![f.advance],
                     line: 0,
+                    hyphen: false,
                 }),
             }
             x += f.advance;
