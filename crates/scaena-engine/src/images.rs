@@ -149,7 +149,7 @@ impl ImageNode {
     /// `a` to `b`, `p` of the way: the box and the radius move.
     pub fn lerp(a: &ImageNode, b: &ImageNode, p: f32) -> ImageNode {
         let rect = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
-        ImageNode { rect, radius: lerp(a.radius, b.radius, p), ..b.clone() }
+        ImageNode { rect, radius: lerp(a.radius, b.radius, p).max(0.0), ..b.clone() }
     }
 
     /// The pixels of the image that show, and where in the box, box-local: `(src, dst)`.

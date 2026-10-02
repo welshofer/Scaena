@@ -1,5 +1,5 @@
 {
-  "scaena": "0.6",
+  "scaena": "0.7",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -2706,6 +2706,157 @@
       },
       "alt": "",
       "semantic": "decoration"
+    },
+    "mo-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Every word keeps its own time",
+      "semantic": "context",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          2
+        ]
+      }
+    },
+    "mo-cards": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mo-card-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-a-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "First, a card",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-a"
+      }
+    },
+    "mo-card-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-b-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "then the next",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-b"
+      }
+    },
+    "mo-card-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-c-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "then the last",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-c"
+      }
+    },
+    "mo-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@share",
+      "x": {
+        "field": "channel",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Four channels' shares, their bars growing in one after another.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          4,
+          8
+        ]
+      }
+    },
+    "mo-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          1
+        ],
+        "row": [
+          8,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -3421,6 +3572,60 @@
         "gp-conic": {}
       },
       "notes": "Pass: top row, three gradient shaders in the torture palette, blended in Oklab: a linear one at 120° with light grain, a radial one from left of center out past the corners, and a conic one turning 12° a second from 30° (shown at its time on the global timeline), its last color meeting its first without a seam. Middle row: soft noise from the theme preset `noise-soft`, forty seeded particles drifting over the surface, and film grain in ink and paper over an accent rect. Bottom row, gradient paints on shapes: a rounded rect from accent to ink left to right, an ellipse lit from its upper left, and a rounded rect whose 8 cu stroke turns from accent through ink and back."
+    },
+    {
+      "id": "motion",
+      "name": "Motion",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "40 · Motion on the cue clock · recorded"
+        },
+        "mo-title": {},
+        "mo-cards": {},
+        "mo-card-a": {},
+        "mo-card-a-label": {},
+        "mo-card-b": {},
+        "mo-card-b-label": {},
+        "mo-card-c": {},
+        "mo-card-c-label": {},
+        "mo-bars": {},
+        "mo-dot": {}
+      },
+      "choreography": [
+        {
+          "target": "mo-title",
+          "split": "words",
+          "enter": "rise",
+          "stagger": 60,
+          "timing": "with"
+        },
+        {
+          "target": "mo-cards",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 120,
+          "delay": 200,
+          "timing": "with"
+        },
+        {
+          "target": "mo-bars",
+          "enter": {
+            "preset": "grow",
+            "stagger": 80,
+            "spring": "snappy"
+          },
+          "delay": 400,
+          "timing": "with"
+        },
+        {
+          "target": "mo-dot",
+          "emphasis": "pulse",
+          "delay": 900
+        }
+      ],
+      "notes": "Pass: the state cuts in, and its motions run on its clock. The headline rises word by word, 60 ms apart. From 200 ms the three cards rise one after another, 120 ms apart, each card's caption riding with its card. From 400 ms the four bars grow from the baseline on the snappy spring, 80 ms apart, the axis fading in with the first. At 900 ms the dot pulses once on the gentle spring, to 1.25 times its size and back. At rest, everything stands where the layout puts it."
     }
   ]
 }

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 pub use scaena_core::data::{ColumnType, Datum, Table};
 
 /// A bundle's data files by bundle path (`data/q3.csv`), as the deck's sources name them.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Hash)]
 pub struct DataFiles(BTreeMap<String, Vec<u8>>);
 
 impl DataFiles {

@@ -186,6 +186,9 @@ fn e106_schema_and_resolved_types() {
             "/overrides/headline/style/weight",
             "/overrides/photo/fit",
             "/overrides/photo/kind",
+            "/states/1/choreography/0",
+            "/states/1/choreography/1/split",
+            "/states/1/choreography/2/enter/split",
             "/states/1/props/headline/fit",
             "/states/1/props/photo/src",
             "/states/1/props/plot/annotations/0",
@@ -196,6 +199,9 @@ fn e106_schema_and_resolved_types() {
     assert!(say("/nodes/plot/annotations/0").contains("not both"));
     assert!(say("/nodes/plot/annotations/1").contains("a highlight says nothing"));
     assert!(say("/states/1/props/plot/annotations/0").contains("from one value to another"));
+    assert!(say("/states/1/choreography/0").contains("enter and exit"));
+    assert!(say("/states/1/choreography/1/split").contains("`photo`, an image node, into words"));
+    assert!(say("/states/1/choreography/2/enter/split").contains("only a stack, grid, frame, or group"));
 }
 
 /// The fixtures' bundle with its theme edited by `edit`.

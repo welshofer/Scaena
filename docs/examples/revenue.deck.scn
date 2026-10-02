@@ -39,9 +39,8 @@ state revenue layout:full transition:{duration: standard, ease: standard} hold:6
   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
     series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
-    key:product labels:{show: ends} legend:top
-    alt:"Quarterly revenue by product, Q4 2025 through Q3 2026." semantic:evidence
-    at:col(1-12) row(2-6)
+    labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
+    semantic:evidence at:col(1-12) row(2-6)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
     at:in(footer)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after

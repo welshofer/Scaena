@@ -265,13 +265,13 @@ impl Theme {
         Some(&self.layouts.get(layout)?.slots)
     }
 
-    /// A shader palette's colors, as sRGB.
     /// A shader preset by name (SPEC §3.8).
     pub fn shader_preset(&self, name: &str) -> Result<&model::ShaderPreset, EngineError> {
         (self.shaders.as_ref().and_then(|s| s.presets.as_ref()).and_then(|p| p.get(name)))
             .ok_or_else(|| EngineError::Theme(format!("no shader preset `{name}`")))
     }
 
+    /// A shader palette's colors, as sRGB.
     pub fn palette(&self, name: &str) -> Result<Vec<Color>, EngineError> {
         let colors = self
             .shaders

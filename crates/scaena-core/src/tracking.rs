@@ -2,8 +2,8 @@
 //!
 //! A state declares deltas. Unchanged properties track forward from the previous
 //! state (or from `from`). `mode: absolute` starts from nothing. `remove` exits
-//! nodes. Per-state-only keys (currently `anim`) never track: an entrance track
-//! must not replay on the next cue.
+//! nodes. Per-state-only keys (`anim` and `emphasis`) never track: a motion must
+//! not replay on the next cue.
 //!
 //! Resolution is deterministic and depends only on the document.
 
@@ -14,7 +14,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 /// Property keys that belong to exactly one state and never track forward.
-pub const NON_TRACKING_KEYS: &[&str] = &["anim"];
+pub const NON_TRACKING_KEYS: &[&str] = &["anim", "emphasis"];
 
 #[derive(Debug, Error, PartialEq)]
 pub enum TrackingError {
@@ -196,12 +196,16 @@ mod tests {
     }
 
     #[test]
-    fn anim_does_not_track() {
+    fn anim_and_emphasis_do_not_track() {
         let mut deck = example();
-        deck.states[0].props.get_mut("title").unwrap().insert("anim".into(), json!({"opacity": [{"t": 0, "v": 0}]}));
+        let title = deck.states[0].props.get_mut("title").unwrap();
+        title.insert("anim".into(), json!({"opacity": [{"t": 0, "v": 0}]}));
+        title.insert("emphasis".into(), json!("pulse"));
         let snaps = resolve_states(&deck).unwrap();
-        assert!(snaps[0].nodes["title"].contains_key("anim"));
-        assert!(!snaps[1].nodes["title"].contains_key("anim"));
+        for key in ["anim", "emphasis"] {
+            assert!(snaps[0].nodes["title"].contains_key(key), "{key} in its own state");
+            assert!(!snaps[1].nodes["title"].contains_key(key), "{key} in the next");
+        }
     }
 
     /// A deck of `nodes` and `states`, written as JSON.

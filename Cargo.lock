@@ -1569,6 +1569,7 @@ dependencies = [
  "scaena-core",
  "scaena-engine",
  "scaena-paint",
+ "serde_json",
  "thiserror",
  "vello",
  "wasm-bindgen",

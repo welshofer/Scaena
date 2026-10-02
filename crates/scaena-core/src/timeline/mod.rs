@@ -1,8 +1,25 @@
-//! Timeline math (SPEC §3.9): cubic-Bézier easing and analytically solved springs.
+//! Timeline math (SPEC §2.4, §3.9): cubic-Bézier easing, analytically solved springs,
+//! the looks motions give, when each motion runs within its state's cue, and the deck's
+//! states end to end.
 //!
-//! Everything here is pure `f64` math with a fixed evaluation order, which is what
-//! the determinism contract (SPEC §13) needs. Springs report a settle time so the
-//! global timeline (and therefore video export) knows every duration up front.
+//! - [`CubicBezier`] and [`Spring`] shape a motion's progress; a [`Curve`] is either.
+//! - A [`Clock`] says how far along one motion is at a time; a [`Motion`] says what
+//!   [`Look`] its unit has then.
+//! - [`schedule`] places a state's cues ([`Item`]s: a node's own enter, exit,
+//!   emphasis, and anim, and its choreography) on the state's clock, and finds its span.
+//! - A [`Timeline`] lays the states end to end, with their holds.
+//!
+//! Everything here is pure `f64` math with a fixed evaluation order, and `libm` for
+//! every transcendental function, which is what the determinism contract (SPEC §13)
+//! needs. Springs report a settle time, so the global timeline (and therefore video
+//! export) knows every duration up front. Nothing here knows fonts or layout: what a
+//! cue splits its node into is counted by the caller, after layout (SPEC §5).
+
+mod look;
+mod schedule;
+
+pub use look::{Clock, Curve, Key, Keys, Look, Motion};
+pub use schedule::{Cue, Item, Placed, Schedule, Slot, Timeline, Units, schedule};
 
 use serde::{Deserialize, Serialize};
 
@@ -117,6 +134,38 @@ impl Spring {
             a * libm::exp(r1 * t) + b * libm::exp(r2 * t)
         };
         1.0 + x
+    }
+
+    /// The spring's answer to a tap, `t` seconds after it: how far it swings from rest,
+    /// as a share of the farthest it gets, which it reaches once. Under-damped, it then
+    /// swings past rest and back as it settles. The derivative of [`Spring::position`],
+    /// solved in closed form for each damping regime and scaled to peak at 1, with
+    /// `libm` throughout (SPEC §13).
+    pub fn impulse(&self, t: f64) -> f64 {
+        if t <= 0.0 {
+            return 0.0;
+        }
+        let m = self.mass.max(1e-9);
+        let k = self.stiffness.max(1e-9);
+        let c = self.damping.max(0.0);
+        let w0 = (k / m).sqrt();
+        let zeta = c / (2.0 * (k * m).sqrt());
+        if zeta < 1.0 && (zeta - 1.0).abs() >= 1e-9 {
+            // e^(−ζω₀t)·sin(ω_d t), which peaks where tan(ω_d t) = ω_d / ζω₀.
+            let wd = w0 * (1.0 - zeta * zeta).sqrt();
+            let peak = libm::atan2(wd, zeta * w0) / wd;
+            libm::exp(-zeta * w0 * (t - peak)) * libm::sin(wd * t) / libm::sin(wd * peak)
+        } else if (zeta - 1.0).abs() < 1e-9 {
+            // t·e^(−ω₀t), which peaks at 1/ω₀.
+            w0 * t * libm::exp(1.0 - w0 * t)
+        } else {
+            // e^(r₁t) − e^(r₂t), which peaks where r₁e^(r₁t) = r₂e^(r₂t).
+            let s = w0 * (zeta * zeta - 1.0).sqrt();
+            let (r1, r2) = (-zeta * w0 + s, -zeta * w0 - s);
+            let peak = libm::log(r2 / r1) / (r1 - r2);
+            let at = |t: f64| libm::exp(r1 * t) - libm::exp(r2 * t);
+            at(t) / at(peak)
+        }
     }
 
     /// Velocity at time `t` seconds (numerical derivative; adequate for settle checks).

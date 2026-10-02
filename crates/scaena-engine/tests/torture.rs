@@ -21,12 +21,14 @@ use std::collections::BTreeSet;
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
 const GOLDEN: &str = "../../tests/golden/torture";
-/// Frames inside a transition, as (state, fraction of its duration). PLAN 0.10 renders
-/// each chart transition at t = 0, 0.25, 0.5, and 1; 0 and 1 are the states at rest
-/// (asserted below), so the middle two get goldens of their own: the chart's values
-/// animating in, and the next quarter arriving. PLAN 1.9 adds every kind's data
-/// motion mid-way, the two stages of bars that regroup, and annotations that move.
-const MORPH: [(&str, f64); 9] = [
+/// Frames inside a state's cue, as (state, fraction of its span: its transition and its
+/// motions). PLAN 0.10 renders each chart transition at t = 0, 0.25, 0.5, and 1; 0 and
+/// 1 are the states at rest (asserted below), so the middle two get goldens of their
+/// own: the chart's values animating in, and the next quarter arriving. PLAN 1.9 adds
+/// every kind's data motion mid-way, the two stages of bars that regroup, and
+/// annotations that move. PLAN 1.11 adds case 40's motions on the cue clock: words
+/// rising in turn, then cards, then bars on a spring, then a pulse.
+const MORPH: [(&str, f64); 12] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -36,6 +38,9 @@ const MORPH: [(&str, f64); 9] = [
     ("regroup-stacked", 0.25),
     ("regroup-stacked", 0.75),
     ("annotations-next", 0.5),
+    ("motion", 0.15),
+    ("motion", 0.35),
+    ("motion", 0.65),
 ];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
@@ -100,13 +105,15 @@ impl Fixture {
         Ok(self.engine.frame(&req)?.display_list)
     }
 
-    fn duration(&self, state: &str) -> f64 {
-        scaena_engine::render::timing(&self.deck, &self.theme, state).unwrap().duration_ms
+    /// The state's span, ms: its transition and its motions (SPEC §2.4).
+    fn duration(&mut self, state: &str) -> f64 {
+        let timeline = self.engine.timeline(&self.deck, &self.theme, &self.data).unwrap();
+        timeline.slot(state).unwrap().span
     }
 
     /// Every golden frame as (name, state, t_ms): each state at rest under its own
-    /// name, then the transition frames in [`MORPH`] as `state@fraction`.
-    fn golden_frames(&self) -> Vec<(String, String, f64)> {
+    /// name, then the frames in [`MORPH`] as `state@fraction`.
+    fn golden_frames(&mut self) -> Vec<(String, String, f64)> {
         let mut out: Vec<(String, String, f64)> =
             self.states().into_iter().map(|s| (s.clone(), s, f64::INFINITY)).collect();
         for (state, at) in MORPH {

@@ -22,6 +22,7 @@ scaena-core.workspace = true
 scaena-engine.workspace = true
 # Not the workspace entry: the browser build leaves out the CPU painter (`cpu`).
 scaena-paint = { path = "../scaena-paint", default-features = false }
+serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 vello = { workspace = true, optional = true }

@@ -376,6 +376,8 @@ pub struct GlyphRun {
     /// group glyphs by. A ligature's glyph belongs to its first cluster, and the hyphen
     /// drawn at a break to the cluster before the soft hyphen.
     pub clusters: Vec<usize>,
+    /// Each glyph's advance: with its position, the box a split unit turns about.
+    pub advances: Vec<f32>,
     pub line: usize,
 }
 
@@ -1310,6 +1312,7 @@ fn read_layout(
             }
             let glyphs: Vec<Glyph> =
                 glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y }).collect();
+            let advances: Vec<f32> = glyph_run.positioned_glyphs().map(|g| g.advance).collect();
             if taken.0 != run.cluster_range() {
                 taken = (run.cluster_range(), 0);
             }
@@ -1330,6 +1333,7 @@ fn read_layout(
                 color: Color(glyph_run.style().brush),
                 glyphs,
                 clusters,
+                advances,
                 line: index,
             });
         }

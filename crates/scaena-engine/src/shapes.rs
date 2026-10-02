@@ -195,7 +195,8 @@ impl ShapeNode {
     pub fn lerp(a: &ShapeNode, b: &ShapeNode, p: f32) -> ShapeNode {
         let rect = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
         let geometry = match (&a.geometry, &b.geometry) {
-            (Geometry::Rect(x), Geometry::Rect(y)) => Geometry::Rect(lerp(*x, *y, p)),
+            // A spring may carry `p` past 1: a corner never rounds the wrong way.
+            (Geometry::Rect(x), Geometry::Rect(y)) => Geometry::Rect(lerp(*x, *y, p).max(0.0)),
             _ => b.geometry.clone(),
         };
         ShapeNode { rect, geometry, ..b.clone() }

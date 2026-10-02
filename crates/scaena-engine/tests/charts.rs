@@ -370,44 +370,41 @@ fn a_series_keeps_its_color_from_state_to_state() {
 
 #[test]
 fn chart_presets_read_the_themes_motion_and_calls_override_it() {
+    use scaena_core::model::values::SplitUnit;
+    use scaena_core::timeline::{CubicBezier, Curve, Item, Look, Motion};
     let rows = json!([{ "k": "a", "v": 1 }, { "k": "b", "v": 2 }]);
     let chart = |enter: Value| {
         json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "k" }, "y": { "field": "v" },
                 "enter": enter })
     };
-    let layout = |enter: Value| {
+    // The chart enters with the deck's first state: its own preset is one of its cues.
+    let cue = |enter: Value| {
         let d = deck("en-US", rows.clone(), json!({ "v": "number" }), Value::Null, chart(enter));
-        compile(&d)
+        let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+        let snapshots = scaena_core::resolve_states(&d).unwrap();
+        let items = scaena_engine::motion::items(&d, &theme, &d.states[0], None, &snapshots[0], true).unwrap();
+        match <[Item; 1]>::try_from(items) {
+            Ok([Item::Cue(cue)]) => cue,
+            other => panic!("one cue, not {other:?}"),
+        }
     };
-    // `rise`: from transparent, 24 cu down, eased `out` over `standard`.
-    let rise = layout(json!("rise")).enter.unwrap();
-    assert_eq!((rise.opacity, rise.translate, rise.grow), (0.0, [0.0, 24.0], false));
-    assert_eq!((rise.duration, rise.stagger, rise.spring), (Some(420.0), 0.0, None));
-    assert_eq!(rise.ease, Some(scaena_core::timeline::CubicBezier(0.0, 0.0, 0.2, 1.0)));
-    // `grow` scales its marks, so they grow from zero; the call's stagger wins.
-    let grow = layout(json!({ "preset": "grow", "stagger": 60 })).enter.unwrap();
-    assert!(grow.grow && grow.opacity == 1.0);
+    // `rise`: from transparent, 24 cu down, eased `out` over `standard`, a mark at a time.
+    let rise = cue(json!("rise"));
+    assert_eq!(rise.motion, Motion::Enter(Look { opacity: 0.0, translate: [0.0, 24.0], ..Look::REST }));
+    assert_eq!((rise.duration, rise.stagger, rise.split), (420.0, 0.0, Some(SplitUnit::Marks)));
+    assert_eq!(rise.curve, Curve::Ease(CubicBezier(0.0, 0.0, 0.2, 1.0)));
+    // `grow` scales its marks from their foot; the call's stagger wins; a spring lasts
+    // its settle time.
+    let grow = cue(json!({ "preset": "grow", "stagger": 60 }));
+    let Motion::Enter(look) = grow.motion else { panic!("{:?}", grow.motion) };
+    assert_eq!((look.scale, look.anchor), ([1.0, 0.0], [0.5, 1.0]));
     assert_eq!(grow.stagger, 60.0);
-    let (spring, settle) = grow.spring.unwrap();
+    let Curve::Spring(spring, settle) = grow.curve else { panic!("{:?}", grow.curve) };
     assert_eq!((spring.stiffness, spring.damping), (420.0, 34.0));
     assert!(settle > 0.2 && settle < 0.8, "snappy settles in {settle} s");
-    // Splitting a chart into anything but its marks waits for choreography.
-    let d = deck(
-        "en-US",
-        rows.clone(),
-        json!({ "v": "number" }),
-        Value::Null,
-        chart(json!({ "preset": "fade", "split": "words" })),
-    );
-    let mut fonts = BundleFonts::new();
-    for font in &d.fonts {
-        fonts.register(&font.file, read(&font.file)).unwrap();
-    }
-    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
-    let (mut text, data) = (TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
-    let err = charts::compile(&mut cx, &d.nodes["c"].props, [1600.0, 700.0]).unwrap_err();
-    assert!(err.to_string().contains("PLAN 1.11"), "{err}");
+    assert_eq!(grow.duration, 1000.0 * settle);
+    // A chart's own presets move its marks, whatever the preset would split.
+    assert_eq!(cue(json!({ "preset": "fade", "split": "words" })).split, Some(SplitUnit::Marks));
 }
 
 /// Two lines that end a hair apart, their end labels on top of each other.

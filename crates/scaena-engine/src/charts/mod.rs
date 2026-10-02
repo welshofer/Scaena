@@ -20,7 +20,6 @@ use crate::theme::Theme;
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl, Point};
 use scaena_core::format::{DateFormat, Locale, MINUS, NumberFormat};
-use scaena_core::timeline::{CubicBezier, Spring};
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
@@ -292,26 +291,6 @@ fn arc(center: Point, inner: f32, outer: f32, start: f32, end: f32) -> Path {
     }
     els.push(PathEl::Close);
     Path(els)
-}
-
-/// How a chart's marks enter or leave (SPEC §3.7): a theme motion preset, read for
-/// marks. Its look is where an entering mark starts and where a leaving one ends.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MarkPreset {
-    /// The look: an opacity, an offset in canvas units, and whether the mark grows
-    /// from where it would stand with no value (a preset that scales it does).
-    pub opacity: f32,
-    pub translate: [f32; 2],
-    pub grow: bool,
-    /// Milliseconds before the first mark, and between one mark and the next.
-    pub delay: f64,
-    pub stagger: f64,
-    /// Each mark's own time in ms: the preset's duration, else its spring's settle time,
-    /// else the transition's.
-    pub duration: Option<f64>,
-    pub ease: Option<CubicBezier>,
-    /// A spring, and its settle time in seconds.
-    pub spring: Option<(Spring, f64)>,
 }
 
 /// The v1 kinds (SPEC §3.7).
@@ -589,6 +568,7 @@ impl Numerals {
                 Some(run) if run.font == f.font && run.size == f.size && run.coords == f.coords => {
                     run.glyphs.push(glyph);
                     run.clusters.push(at);
+                    run.advances.push(f.advance);
                 }
                 _ => runs.push(GlyphRun {
                     font: f.font.clone(),
@@ -597,6 +577,7 @@ impl Numerals {
                     color: f.color,
                     glyphs: vec![glyph],
                     clusters: vec![at],
+                    advances: vec![f.advance],
                     line: 0,
                 }),
             }
@@ -655,10 +636,6 @@ impl CategoryFormat {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
     pub kind: ChartKind,
-    /// How its marks enter and leave, when the chart names a preset; else they grow in
-    /// and shrink out with the transition.
-    pub enter: Option<MarkPreset>,
-    pub exit: Option<MarkPreset>,
     /// The baseline's y: where a new value grows from and a removed one shrinks to.
     pub base: f32,
     pub baseline: Option<Rule>,

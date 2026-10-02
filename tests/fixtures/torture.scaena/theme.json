@@ -628,6 +628,15 @@
         "spring": "snappy",
         "split": "marks",
         "stagger": 40
+      },
+      "pulse": {
+        "to": {
+          "transform": {
+            "scale": 1.25
+          }
+        },
+        "spring": "gentle",
+        "description": "Emphasis: one soft pulse, out and back."
       }
     },
     "maxConcurrent": 12,

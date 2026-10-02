@@ -28,8 +28,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, MarkPreset, Note, Numerals, RoundRect, Rule,
-    SeriesPath, Shape, ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath, Shape,
+    ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -39,8 +39,10 @@ use crate::tables::{Cell, TableLayout};
 use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
-use scaena_core::timeline::CubicBezier;
+use scaena_core::model::values::{SplitUnit, TextSplit};
+use scaena_core::timeline::{Clock, CubicBezier, Curve, Item, Look, Motion, Placed, Schedule, schedule};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 /// One snapshot after layout: what a frame at rest draws, and what a transition
 /// into or out of the state interpolates.
@@ -50,11 +52,21 @@ pub struct Scene {
     pub canvas: [f32; 2],
     /// The theme's surface, painted under everything.
     pub surface: Color,
-    /// When the state comes to rest on the global timeline, seconds: the time its
-    /// shaders show at rest.
-    pub time: f64,
-    /// Visible nodes in paint order.
+    /// Visible nodes in paint order: those that draw something.
     pub nodes: Vec<SceneNode>,
+    /// Every visible node's place, containers and groups included: what cues on a
+    /// container, or on its children one by one, move.
+    pub tree: HashMap<String, Place>,
+}
+
+/// A visible node's place in its scene.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    pub parent: Option<String>,
+    /// Canvas units; a group's is the box around its children's.
+    pub rect: Rect,
+    /// In flow order: `at.index`, then the deck's order.
+    pub children: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,11 +115,11 @@ impl Policy {
 }
 
 impl Scene {
-    /// The state at rest.
-    pub fn draw(&self) -> DisplayList {
+    /// The state at rest, its shaders `time` seconds into the global timeline.
+    pub fn draw_at(&self, time: f64) -> DisplayList {
         let mut dl = self.ground();
         for node in &self.nodes {
-            let op = node.draw(&mut dl, node.opacity, self.time);
+            let op = node.draw(&mut dl, node.opacity, time);
             dl.ops.push(op);
         }
         dl
@@ -173,7 +185,8 @@ impl SceneNode {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timing {
     pub duration_ms: f64,
-    pub ease: CubicBezier,
+    /// Eased, or a spring, which lasts its settle time.
+    pub curve: Curve,
     /// `match: "id"` (the default) morphs nodes present in both states; `"none"`
     /// fades every node out and in.
     pub matched: bool,
@@ -181,28 +194,41 @@ pub struct Timing {
 
 impl Timing {
     /// A state without `transition` cuts in.
-    pub const CUT: Timing = Timing { duration_ms: 0.0, ease: CubicBezier::LINEAR, matched: true };
+    pub const CUT: Timing = Timing { duration_ms: 0.0, curve: Curve::Ease(CubicBezier::LINEAR), matched: true };
 
     /// A state's `transition`: a duration (ms or a theme name), or
-    /// `{ duration, ease, match }`, with `duration` and `ease` defaulting to `standard`.
+    /// `{ duration, ease, spring, match }`, with `duration` and `ease` defaulting to
+    /// `standard`. A spring takes the place of both: the transition follows it and
+    /// lasts its settle time.
     pub fn parse(theme: &Theme, transition: Option<&Value>) -> Result<Timing, EngineError> {
         let Some(v) = transition else { return Ok(Timing::CUT) };
         let standard = Value::from("standard");
-        let (duration, ease, matched) = match v {
-            Value::Number(_) | Value::String(_) => (v, None, true),
+        let (duration, ease, spring, matched) = match v {
+            Value::Number(_) | Value::String(_) => (v, None, None, true),
             Value::Object(o) => {
-                if o.contains_key("spring") {
-                    return Err(EngineError::NotImplemented("spring transitions — PLAN 1.11"));
-                }
                 let matched = match o.get("match").and_then(Value::as_str) {
                     None | Some("id") => true,
                     Some("none") => false,
                     Some(other) => return Err(EngineError::Layout(format!("transition match `{other}`"))),
                 };
-                (o.get("duration").unwrap_or(&standard), o.get("ease"), matched)
+                (o.get("duration").unwrap_or(&standard), o.get("ease"), o.get("spring"), matched)
             }
             other => return Err(EngineError::Layout(format!("transition {other}: expected a duration or an object"))),
         };
+        if let Some(spring) = spring {
+            let bad = || EngineError::Theme(format!("unknown or invalid spring in transition {v}"));
+            let spring = match spring {
+                Value::String(name) => theme.spring(name).ok_or_else(bad)?,
+                Value::Object(o) => {
+                    let at = |k: &str| o.get(k).and_then(Value::as_f64);
+                    let (Some(stiffness), Some(damping)) = (at("stiffness"), at("damping")) else { return Err(bad()) };
+                    scaena_core::timeline::Spring { stiffness, damping, mass: at("mass").unwrap_or(1.0) }
+                }
+                _ => return Err(bad()),
+            };
+            let curve = Curve::spring(spring);
+            return Ok(Timing { duration_ms: curve.duration(0.0), curve, matched });
+        }
         let duration_ms = theme
             .duration(duration)
             .filter(|d| d.is_finite() && *d >= 0.0)
@@ -217,19 +243,18 @@ impl Timing {
             Some(_) => None,
         }
         .ok_or_else(|| EngineError::Theme(format!("unknown or invalid easing in transition {v}")))?;
-        Ok(Timing { duration_ms, ease, matched })
+        Ok(Timing { duration_ms, curve: Curve::Ease(ease), matched })
     }
 
-    /// Eased progress at `t_ms`: 0 at or before the start, 1 at or past the end (and
-    /// for a NaN time, so a bad `t` shows the state at rest).
+    /// The transition's clock, from the start of the state's cue.
+    pub fn clock(&self) -> Clock {
+        Clock { start: 0.0, duration: self.duration_ms, curve: self.curve }
+    }
+
+    /// Progress at `t_ms`: 0 at or before the start, 1 at or past the end (and for a
+    /// NaN time, so a bad `t` shows the state at rest); a spring may pass 1 between.
     pub fn progress(&self, t_ms: f64) -> f64 {
-        if t_ms.is_nan() || t_ms >= self.duration_ms {
-            1.0
-        } else if t_ms <= 0.0 {
-            0.0
-        } else {
-            self.ease.ease(t_ms / self.duration_ms)
-        }
+        self.clock().progress(t_ms)
     }
 }
 
@@ -267,10 +292,10 @@ struct ChartPlan {
     /// Bars that regroup, in stages: into a stack (`Some(true)`: heights, then widths)
     /// or out of one (`Some(false)`: widths, then heights).
     regroup: Option<bool>,
-    /// The presets marks enter (the target's) and leave (the source's) with, and each
-    /// one-sided mark's place in its stagger: the `k`th of `n`, in data order.
-    enter: Option<MarkPreset>,
-    exit: Option<MarkPreset>,
+    /// The looks marks enter and leave with, from their cues, and each one-sided mark's
+    /// place among those that enter or leave with it: the `k`th of `n`, in data order.
+    enter: Option<MarkLook>,
+    exit: Option<MarkLook>,
     order: Vec<Option<(usize, usize)>>,
     /// Lines and areas by series.
     paths: Vec<Pair>,
@@ -293,8 +318,8 @@ struct Keyed {
     ride: Option<(usize, usize)>,
 }
 
-/// Two laid-out snapshots and the plan between them. Frames sample it; nothing here
-/// can lay out, shape, or read fonts.
+/// Two laid-out snapshots, the plan between them, and the state's motions on its clock.
+/// Frames sample it; nothing here can lay out, shape, or read fonts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transition {
     /// The state being left; `None` when the transition enters the first state.
@@ -303,24 +328,110 @@ pub struct Transition {
     timing: Timing,
     /// In paint order.
     tracks: Vec<Track>,
+    /// The state's motions, placed on its clock with the transition.
+    schedule: Schedule,
+    /// When the state's cue starts on the global timeline, seconds.
+    start: f64,
+}
+
+/// A look as a map of canvas points and an opacity: what the cues make of a node.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Seen {
+    map: [f64; 6],
+    opacity: f64,
+}
+
+impl Seen {
+    const REST: Seen = Seen { map: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], opacity: 1.0 };
+
+    /// This, with `look` on a unit whose box at rest is `rect` inside it.
+    fn within(self, look: &Look, rect: Rect) -> Seen {
+        Seen { map: compose(self.map, look.affine(rect)), opacity: self.opacity * look.opacity }
+    }
+}
+
+/// `a ∘ b`: the map that applies `b`, then `a`.
+fn compose(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
+    [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+    ]
+}
+
+/// A node's layer, through what its cues make of it.
+fn looked(op: Op, seen: Seen) -> Op {
+    if seen == Seen::REST {
+        return op;
+    }
+    let Op::Layer { node, transform, opacity, blend, clip, ops } = op else { return op };
+    let transform = compose(seen.map, transform.map(f64::from)).map(|v| v as f32);
+    Op::Layer { node, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
+}
+
+/// Every cue in `items`, groups opened.
+fn cues(items: &[Item]) -> Vec<&scaena_core::timeline::Cue> {
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            Item::Cue(c) => out.push(c),
+            Item::Sequence { items, .. } | Item::Parallel { items, .. } => out.extend(cues(items)),
+        }
+    }
+    out
+}
+
+/// The text split a cue's unit names, if it names one.
+fn text_split(split: Option<SplitUnit>) -> Option<TextSplit> {
+    match split? {
+        SplitUnit::Lines => Some(TextSplit::Lines),
+        SplitUnit::Words => Some(TextSplit::Words),
+        SplitUnit::Glyphs => Some(TextSplit::Glyphs),
+        SplitUnit::Children | SplitUnit::Marks => None,
+    }
 }
 
 impl Transition {
-    pub fn new(from: Option<Scene>, to: Scene, timing: Timing) -> Transition {
+    /// The transition from `from` (the state before, at rest; `None` into the first
+    /// state) into `to`, with the state's motions (`items`, from
+    /// [`crate::motion::items`]), its cue starting `start` seconds into the global
+    /// timeline. What a cue splits its targets into is counted here, from the scenes.
+    pub fn new(
+        from: Option<Scene>,
+        to: Scene,
+        timing: Timing,
+        items: &[Item],
+        start: f64,
+    ) -> Result<Transition, EngineError> {
+        let all = cues(items);
+        let names = |c: &scaena_core::timeline::Cue, id: &str| c.targets.iter().any(|t| t == id);
+        let entering = |m: &Motion| matches!(m, Motion::Enter(_));
+        let leaving = |m: &Motion| matches!(m, Motion::Exit(_));
+        // A chart's marks enter and leave with a cue on its marks; a cue on the whole
+        // chart moves it as one, its values at rest.
+        let marks = |id: &str, on: &dyn Fn(&Motion) -> bool| {
+            all.iter().find(|c| names(c, id) && c.split == Some(SplitUnit::Marks) && on(&c.motion))
+        };
+        let whole = |id: &str, on: &dyn Fn(&Motion) -> bool| {
+            all.iter().any(|c| names(c, id) && c.split.is_none() && on(&c.motion))
+        };
+        let look_of = |id: &str, on: &dyn Fn(&Motion) -> bool| marks(id, on).and_then(|c| MarkLook::of(&c.motion));
+
         let mut tracks: Vec<(Vec<(i64, usize)>, Track)> = Vec::new();
         let source = from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         for (i, a) in source.iter().enumerate() {
             let partner = to.nodes.iter().position(|b| b.id == a.id).filter(|_| timing.matched);
             if partner.is_none() {
                 let track = match &a.content {
-                    Content::Chart { chart, .. } => {
-                        Track::Chart { from: Some(i), to: None, plan: Box::new(ChartPlan::new(Some(chart), None)) }
-                    }
-                    Content::Text(_)
-                    | Content::Shader(_)
-                    | Content::Shape(_)
-                    | Content::Image(_)
-                    | Content::Table { .. } => Track::Exit(i),
+                    Content::Chart { chart, .. } if !whole(&a.id, &leaving) => Track::Chart {
+                        from: Some(i),
+                        to: None,
+                        plan: Box::new(ChartPlan::new(Some(chart), None, None, look_of(&a.id, &leaving))),
+                    },
+                    _ => Track::Exit(i),
                 };
                 tracks.push((a.paint.clone(), track));
             }
@@ -329,14 +440,12 @@ impl Transition {
             let partner = source.iter().position(|a| a.id == b.id).filter(|_| timing.matched);
             let track = match (partner, b.policy) {
                 (None, _) => match &b.content {
-                    Content::Chart { chart, .. } => {
-                        Track::Chart { from: None, to: Some(j), plan: Box::new(ChartPlan::new(None, Some(chart))) }
-                    }
-                    Content::Text(_)
-                    | Content::Shader(_)
-                    | Content::Shape(_)
-                    | Content::Image(_)
-                    | Content::Table { .. } => Track::Enter(j),
+                    Content::Chart { chart, .. } if !whole(&b.id, &entering) => Track::Chart {
+                        from: None,
+                        to: Some(j),
+                        plan: Box::new(ChartPlan::new(None, Some(chart), look_of(&b.id, &entering), None)),
+                    },
+                    _ => Track::Enter(j),
                 },
                 (Some(_), Policy::Cut) => Track::Cut(j),
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
@@ -351,7 +460,12 @@ impl Transition {
                         Track::Table { from: i, to: j, plan: Box::new(TablePlan::new(x, y)) }
                     }
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) if x.kind.morphs_to(y.kind) => {
-                        Track::Chart { from: Some(i), to: Some(j), plan: Box::new(ChartPlan::new(Some(x), Some(y))) }
+                        let (enter, exit) = (look_of(&b.id, &entering), look_of(&b.id, &leaving));
+                        Track::Chart {
+                            from: Some(i),
+                            to: Some(j),
+                            plan: Box::new(ChartPlan::new(Some(x), Some(y), enter, exit)),
+                        }
                     }
                     _ => Track::Crossfade { from: i, to: j },
                 },
@@ -360,65 +474,266 @@ impl Transition {
         }
         // Stable: within one paint position, an exiting node draws under its successor.
         tracks.sort_by(|a, b| a.0.cmp(&b.0));
-        Transition { from, to, timing, tracks: tracks.into_iter().map(|(_, t)| t).collect() }
+        let tracks: Vec<Track> = tracks.into_iter().map(|(_, t)| t).collect();
+
+        // What each split cue's targets split into: an exit's in the state left, any
+        // other's in this one.
+        for cue in &all {
+            let Some(split) = cue.split else { continue };
+            for id in &cue.targets {
+                let scene = if leaving(&cue.motion) { from.as_ref() } else { Some(&to) };
+                let Some(node) = scene.and_then(|s| s.nodes.iter().find(|n| &n.id == id)) else { continue };
+                let fits = match (split, &node.content) {
+                    (SplitUnit::Lines | SplitUnit::Words | SplitUnit::Glyphs, Content::Text(_)) => true,
+                    (SplitUnit::Marks, Content::Chart { .. }) => {
+                        !matches!(cue.motion, Motion::Emphasis(_) | Motion::Keys(_))
+                    }
+                    (SplitUnit::Children, _) => true,
+                    _ => false,
+                };
+                if !fits {
+                    let split = serde_json::to_value(split).unwrap_or_default();
+                    return Err(EngineError::Layout(format!(
+                        "node `{id}`: it cannot split into {split} for this motion"
+                    )));
+                }
+            }
+        }
+        let plan_of = |id: &str| {
+            tracks.iter().find_map(|t| match t {
+                Track::Chart { from: i, to: j, plan } => {
+                    let node = j.map(|j| &to.nodes[j]).or(i.map(|i| &source[i]))?;
+                    (node.id == id).then_some(&**plan)
+                }
+                _ => None,
+            })
+        };
+        let mut units = |id: &str, split: SplitUnit, motion: &Motion| -> usize {
+            let scene = if leaving(motion) { from.as_ref() } else { Some(&to) };
+            let Some(scene) = scene else { return 0 };
+            match (split, text_split(Some(split))) {
+                (_, Some(unit)) => scene.nodes.iter().find(|n| n.id == id).map_or(0, |n| match &n.content {
+                    Content::Text(placed) => placed.text.units(unit).len(),
+                    _ => 0,
+                }),
+                (SplitUnit::Children, _) => scene.tree.get(id).map_or(0, |p| p.children.len()),
+                (SplitUnit::Marks, _) => plan_of(id).map_or(0, |plan| plan.one_sided(entering(motion))),
+                _ => 0,
+            }
+        };
+        let schedule = schedule(timing.clock(), items, &mut units);
+        Ok(Transition { from, to, timing, tracks, schedule, start })
     }
 
+    /// The transition into the state alone, ms.
     pub fn duration_ms(&self) -> f64 {
         self.timing.duration_ms
     }
 
-    /// The frame `t_ms` into the transition.
+    /// The state's span, ms: its transition and every motion. From then on, at rest.
+    pub fn span_ms(&self) -> f64 {
+        self.schedule.span
+    }
+
+    /// The state's motions, placed on its clock.
+    pub fn schedule(&self) -> &Schedule {
+        &self.schedule
+    }
+
+    /// What the cues on `id` and on its containers make of it `t` ms in, outermost
+    /// first: `None` if one has it out of sight. Exits move what was on screen
+    /// (`source`); every other cue, what is. A text node's units and a chart's marks are
+    /// drawn by the node itself. The flag: whether a cue brings the node on or takes it
+    /// off, so the transition's own fade does not.
+    fn seen(&self, id: &str, source: bool, t: f64) -> (Option<Seen>, bool) {
+        let scene = if source { self.from.as_ref() } else { Some(&self.to) };
+        let Some(scene) = scene else { return (Some(Seen::REST), false) };
+        let mut chain = vec![id];
+        while let Some(parent) = chain.last().and_then(|n| scene.tree.get(*n)).and_then(|p| p.parent.as_deref()) {
+            chain.push(parent);
+        }
+        chain.reverse();
+        let (mut seen, mut governed) = (Seen::REST, false);
+        for (depth, &node) in chain.iter().enumerate() {
+            for cue in self.schedule.of(node) {
+                if matches!(cue.motion, Motion::Exit(_)) != source {
+                    continue;
+                }
+                let comes_or_goes = matches!(cue.motion, Motion::Enter(_) | Motion::Exit(_));
+                let place = |n: &str| scene.tree.get(n);
+                let unit = match cue.split {
+                    None => place(node).filter(|_| self.applies(&cue.motion, node)).map(|p| (0, p.rect)),
+                    // A container's own panel moves with none of its children.
+                    Some(SplitUnit::Children) => chain.get(depth + 1).and_then(|child| {
+                        let k = place(node)?.children.iter().position(|c| c == child)?;
+                        self.applies(&cue.motion, child).then_some((k, place(child)?.rect))
+                    }),
+                    Some(_) => {
+                        governed |= comes_or_goes && depth + 1 == chain.len() && self.applies(&cue.motion, node);
+                        None
+                    }
+                };
+                let Some((k, rect)) = unit else { continue };
+                governed |= comes_or_goes;
+                match cue.motion.look(&cue.clock(k), t) {
+                    Some(look) => seen = seen.within(&look, rect),
+                    None => return (None, true),
+                }
+            }
+        }
+        (Some(seen), governed)
+    }
+
+    /// Whether `motion` moves `unit` (a node): an entrance what enters in this state, an
+    /// exit what leaves in it, anything else what is on screen. An entrance cue on a node
+    /// that stays does nothing.
+    fn applies(&self, motion: &Motion, unit: &str) -> bool {
+        let was = self.from.as_ref().is_some_and(|f| f.tree.contains_key(unit));
+        let is = self.to.tree.contains_key(unit);
+        match motion {
+            Motion::Enter(_) => is && !(was && self.timing.matched),
+            Motion::Exit(_) => was && !(is && self.timing.matched),
+            Motion::Emphasis(_) | Motion::Keys(_) => true,
+        }
+    }
+
+    /// `node`'s layer `op`, its text split into the units of its cue if one splits it.
+    fn units(&self, dl: &mut DisplayList, op: Op, node: &SceneNode, source: bool, t: f64) -> Op {
+        let Content::Text(placed) = &node.content else { return op };
+        let cue = self.schedule.of(&node.id).find(|c| {
+            text_split(c.split).is_some()
+                && matches!(c.motion, Motion::Exit(_)) == source
+                && self.applies(&c.motion, &node.id)
+        });
+        let (Some(cue), Op::Layer { node, transform, opacity, blend, clip, .. }) = (cue, &op) else { return op };
+        let split = text_split(cue.split).expect("found by its split");
+        let ops = unit_ops(dl, &placed.text, split, cue, t);
+        Op::Layer {
+            node: node.clone(),
+            transform: *transform,
+            opacity: *opacity,
+            blend: *blend,
+            clip: clip.clone(),
+            ops,
+        }
+    }
+
+    /// Draws `node` at rest, through its cues, `t` ms into the state's cue.
+    fn put(&self, dl: &mut DisplayList, node: &SceneNode, seen: Seen, opacity: f32, source: bool, t: f64) {
+        let op = node.draw(dl, opacity, self.start + t / 1000.0);
+        let op = self.units(dl, op, node, source, t);
+        dl.ops.push(looked(op, seen));
+    }
+
+    /// The frame `t_ms` into the state's cue: into its transition, then its motions.
     pub fn frame(&self, t_ms: f64) -> DisplayList {
-        let p = self.timing.progress(t_ms);
-        if p >= 1.0 {
-            return self.to.draw();
+        let span = self.schedule.span;
+        if t_ms.is_nan() || t_ms >= span {
+            let at = if t_ms.is_finite() { t_ms } else { span };
+            return self.to.draw_at(self.start + at / 1000.0);
         }
-        if p <= 0.0 {
-            return self.from.as_ref().map_or_else(|| self.to.ground(), Scene::draw);
+        // The global timeline: the state's start, and as far into its cue.
+        let time = self.start + t_ms / 1000.0;
+        if t_ms <= 0.0 {
+            return self.from.as_ref().map_or_else(|| self.to.ground(), |s| s.draw_at(time));
         }
-        let p = p as f32;
-        // The global timeline reaches this state's rest time as the transition ends.
-        let time = self.to.time - self.timing.duration_ms / 1000.0 + t_ms / 1000.0;
+        // The transition runs until its duration, a spring perhaps past its target; then
+        // the motions that outlast it run over the state at rest.
+        let moving = t_ms < self.timing.duration_ms;
+        let geo = self.timing.progress(t_ms) as f32;
+        let p = geo.clamp(0.0, 1.0);
         let from = self.from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         let to = &self.to.nodes;
         let mut dl = self.to.ground();
         for track in &self.tracks {
             match track {
-                Track::Exit(i) => push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time),
-                Track::Enter(j) => push(&mut dl, &to[*j], to[*j].opacity * p, time),
-                Track::Cut(j) => push(&mut dl, &to[*j], to[*j].opacity, time),
+                Track::Exit(i) => {
+                    let node = &from[*i];
+                    let (Some(seen), governed) = self.seen(&node.id, true, t_ms) else { continue };
+                    if governed {
+                        self.put(&mut dl, node, seen, node.opacity, true, t_ms);
+                    } else if moving {
+                        self.put(&mut dl, node, seen, node.opacity * (1.0 - p), true, t_ms);
+                    }
+                }
+                Track::Enter(j) => {
+                    let node = &to[*j];
+                    let (Some(seen), governed) = self.seen(&node.id, false, t_ms) else { continue };
+                    let fade = if governed || !moving { 1.0 } else { p };
+                    self.put(&mut dl, node, seen, node.opacity * fade, false, t_ms);
+                }
+                Track::Cut(j) => {
+                    let node = &to[*j];
+                    let (Some(seen), _) = self.seen(&node.id, false, t_ms) else { continue };
+                    self.put(&mut dl, node, seen, node.opacity, false, t_ms);
+                }
                 Track::Crossfade { from: i, to: j } => {
-                    push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time);
-                    push(&mut dl, &to[*j], to[*j].opacity * p, time);
+                    let (Some(seen), _) = self.seen(&to[*j].id, false, t_ms) else { continue };
+                    if moving {
+                        push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time);
+                        self.put(&mut dl, &to[*j], seen, to[*j].opacity * p, false, t_ms);
+                    } else {
+                        self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
+                    }
                 }
                 Track::Move { from: i, to: j } => {
+                    let (Some(seen), _) = self.seen(&to[*j].id, false, t_ms) else { continue };
+                    if !moving {
+                        self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
+                        continue;
+                    }
                     let opacity = lerp(from[*i].opacity, to[*j].opacity, p);
                     let op = match (&from[*i].content, &to[*j].content) {
                         (Content::Text(a), Content::Text(b)) => {
-                            let origin = lerp2(a.origin, b.origin, p);
+                            let origin = lerp2(a.origin, b.origin, geo);
                             text_layer(&mut dl, &to[*j].id, b, origin, opacity)
                         }
                         (Content::Shader(a), Content::Shader(b)) => {
-                            let [x, y, w, h] = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
-                            let shader = b.at([x, y, w, h]);
+                            let [x, y, w, h] = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], geo));
+                            let shader = b.at([x, y, w.max(0.0), h.max(0.0)]);
                             layer(Some(&to[*j].id), [x, y], opacity, vec![shader.op(time)])
                         }
                         (Content::Shape(a), Content::Shape(b)) => {
-                            let shape = ShapeNode::lerp(a, b, p);
+                            let shape = ShapeNode::lerp(a, b, geo);
                             layer(Some(&to[*j].id), [shape.rect[0], shape.rect[1]], opacity, shape.ops())
                         }
                         (Content::Image(a), Content::Image(b)) => {
-                            let image = ImageNode::lerp(a, b, p);
+                            let image = ImageNode::lerp(a, b, geo);
                             layer(Some(&to[*j].id), [image.rect[0], image.rect[1]], opacity, image.ops())
                         }
                         _ => unreachable!(
                             "Move tracks pair text with text, and a shader, a shape, or an image with itself"
                         ),
                     };
-                    dl.ops.push(op);
+                    let op = self.units(&mut dl, op, &to[*j], false, t_ms);
+                    dl.ops.push(looked(op, seen));
                 }
                 Track::Chart { from: i, to: j, plan } => {
                     let (a, b) = (chart(i.map(|i| &from[i])), chart(j.map(|j| &to[j])));
+                    let id = &b.or(a).expect("a chart track has a side").0.id;
+                    let cue = |on: fn(&Motion) -> bool| {
+                        self.schedule.of(id).find(|c| c.split == Some(SplitUnit::Marks) && on(&c.motion))
+                    };
+                    let (enter, exit) = (cue(|m| matches!(m, Motion::Enter(_))), cue(|m| matches!(m, Motion::Exit(_))));
+                    let running = [enter, exit].into_iter().flatten().any(|c| t_ms < c.end());
+                    let (Some(seen), _) = self.seen(id, b.is_none(), t_ms) else { continue };
+                    if !moving && !running {
+                        // At rest, or gone.
+                        if let Some(j) = j {
+                            self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
+                        }
+                        continue;
+                    }
+                    // A chart that comes or goes with a cue on its marks shows its frame
+                    // (axes, legend, titles) with its first mark in, or its last out.
+                    let p = match (a, b, enter, exit) {
+                        (None, Some(_), Some(c), _) => c.clock(0).progress(t_ms).clamp(0.0, 1.0) as f32,
+                        (Some(_), None, _, Some(c)) => {
+                            c.clock(c.units.saturating_sub(1)).progress(t_ms).clamp(0.0, 1.0) as f32
+                        }
+                        _ if moving => p,
+                        _ => 1.0,
+                    };
                     let (id, origin, width, opacity) = match (a, b) {
                         (Some((x, ca, _)), Some((y, cb, _))) => (
                             &y.id,
@@ -430,12 +745,17 @@ impl Transition {
                         (None, None) => unreachable!("a chart track has a side"),
                     };
                     let clip_y = [-origin[1], dl.viewport[1]];
-                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, &self.timing, clip_y);
+                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, [enter, exit], clip_y);
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
-                    dl.ops.push(op);
+                    dl.ops.push(looked(op, seen));
                 }
                 Track::Table { from: i, to: j, plan } => {
                     let (x, y) = (&from[*i], &to[*j]);
+                    let (Some(seen), _) = self.seen(&y.id, false, t_ms) else { continue };
+                    if !moving {
+                        self.put(&mut dl, y, seen, y.opacity, false, t_ms);
+                        continue;
+                    }
                     let (Content::Table { cell: ca, table: a }, Content::Table { cell: cb, table: b }) =
                         (&x.content, &y.content)
                     else {
@@ -443,12 +763,70 @@ impl Transition {
                     };
                     let origin = lerp2([ca[0], ca[1]], [cb[0], cb[1]], p);
                     let ops = plan.sample(&mut dl, a, b, p);
-                    dl.ops.push(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops));
+                    dl.ops.push(looked(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops), seen));
                 }
             }
         }
         dl
     }
+}
+
+/// A text node's glyphs as its cue's units, each in its own layer through its look,
+/// `t` ms into the state's cue: a unit out of sight is left out, and glyphs in no unit
+/// (spaces between lines) stay as they are, under the units.
+fn unit_ops(dl: &mut DisplayList, text: &TextLayout, split: TextSplit, cue: &Placed, t: f64) -> Vec<Op> {
+    let units = text.units(split);
+    let mut taken: HashSet<(usize, usize)> = HashSet::new();
+    let mut layers = Vec::with_capacity(units.len());
+    for (k, unit) in units.iter().enumerate() {
+        taken.extend(unit.glyphs.iter().copied());
+        let Some(look) = cue.motion.look(&cue.clock(k), t) else { continue };
+        let runs = subset(text, |r, g| unit.glyphs.contains(&(r, g)));
+        let ops = text_ops(dl, &runs);
+        let [a, b, c, d, e, f] = look.affine(unit_box(text, &unit.glyphs)).map(|v| v as f32);
+        let transform = [a, b, c, d, e, f];
+        let opacity = look.opacity as f32;
+        layers.push(Op::Layer { node: None, transform, opacity, blend: Blend::Normal, clip: None, ops });
+    }
+    let rest = subset(text, |r, g| !taken.contains(&(r, g)));
+    let mut ops = text_ops(dl, &rest);
+    ops.extend(layers);
+    ops
+}
+
+/// The glyphs of `text`'s runs that `keep` keeps, run by run; runs left empty go.
+fn subset(text: &TextLayout, keep: impl Fn(usize, usize) -> bool) -> Vec<GlyphRun> {
+    let mut out = Vec::new();
+    for (r, run) in text.runs.iter().enumerate() {
+        let picked: Vec<usize> = (0..run.glyphs.len()).filter(|&g| keep(r, g)).collect();
+        if picked.is_empty() {
+            continue;
+        }
+        let mut part = run.clone();
+        part.glyphs = picked.iter().map(|&g| run.glyphs[g]).collect();
+        part.clusters = picked.iter().map(|&g| run.clusters[g]).collect();
+        part.advances = picked.iter().map(|&g| run.advances[g]).collect();
+        out.push(part);
+    }
+    out
+}
+
+/// A text unit's box, relative to the text's top-left corner: across its glyphs'
+/// advances, and down the line boxes they sit in.
+fn unit_box(text: &TextLayout, glyphs: &[(usize, usize)]) -> Rect {
+    let (mut x0, mut x1, mut y0, mut y1) = (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY);
+    for &(r, g) in glyphs {
+        let run = &text.runs[r];
+        let (x, advance) = (run.glyphs[g].x, run.advances[g]);
+        (x0, x1) = (x0.min(x.min(x + advance)), x1.max(x.max(x + advance)));
+        if let Some(line) = text.lines.get(run.line) {
+            (y0, y1) = (y0.min(line.top), y1.max(line.top + line.height));
+        }
+    }
+    if !(x0.is_finite() && y0.is_finite()) {
+        return [0.0; 4];
+    }
+    [x0, y0, x1 - x0, y1 - y0]
 }
 
 /// How a table's parts get from one snapshot to the next: cells by row and column (the
@@ -536,8 +914,34 @@ fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64) {
     dl.ops.push(op);
 }
 
+/// What a mark cue does to one mark (SPEC §3.7): where an entering mark starts and a
+/// leaving one ends. A cue that scales grows the mark from where it would stand with no
+/// value, whatever its anchor; one that does not keeps the mark whole, fading or moving.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MarkLook {
+    opacity: f32,
+    translate: [f32; 2],
+    grow: bool,
+}
+
+impl MarkLook {
+    fn of(motion: &Motion) -> Option<MarkLook> {
+        let (Motion::Enter(look) | Motion::Exit(look)) = motion else { return None };
+        Some(MarkLook {
+            opacity: look.opacity as f32,
+            translate: look.translate.map(|v| v as f32),
+            grow: look.scale != [1.0, 1.0],
+        })
+    }
+}
+
 impl ChartPlan {
-    fn new(a: Option<&ChartLayout>, b: Option<&ChartLayout>) -> ChartPlan {
+    fn new(
+        a: Option<&ChartLayout>,
+        b: Option<&ChartLayout>,
+        enter: Option<MarkLook>,
+        exit: Option<MarkLook>,
+    ) -> ChartPlan {
         // The value label for mark `i` of chart `c`, found by the mark's key.
         let label = |c: Option<&ChartLayout>, i: Option<usize>| {
             let c = c?;
@@ -548,7 +952,6 @@ impl ChartPlan {
             .into_iter()
             .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
             .collect();
-        let (enter, exit) = (b.and_then(|c| c.enter), a.and_then(|c| c.exit));
         // Entering marks stagger in the target's order, leaving ones in the source's.
         let side = |k: &Keyed| match k.pair {
             (None, Some(j)) => Some((1, j)),
@@ -586,10 +989,21 @@ impl ChartPlan {
         }
     }
 
+    /// How many marks enter (`true`) or leave: what a cue on the chart's marks counts.
+    fn one_sided(&self, entering: bool) -> usize {
+        let side = |k: &Keyed| match k.pair {
+            (None, Some(_)) => entering,
+            (Some(_), None) => !entering,
+            _ => false,
+        };
+        self.marks.iter().filter(|(k, _)| side(k)).count()
+    }
+
     /// The chart's ops `p` of the way from `a` to `b`, in the order a chart at rest
     /// draws them: gridlines, baseline; marks, category labels, and value labels in the
-    /// plot (see [`plot_layer`]); value-axis labels, titles. `clip_y` is the plot clip's
-    /// top and height.
+    /// plot (see [`plot_layer`]); value-axis labels, titles. Marks that enter or leave
+    /// with a cue (`cues`: the entering marks', the leaving marks') run on its clocks,
+    /// `t_ms` into the state's cue. `clip_y` is the plot clip's top and height.
     #[allow(clippy::too_many_arguments)]
     fn sample(
         &self,
@@ -598,7 +1012,7 @@ impl ChartPlan {
         b: Option<&ChartLayout>,
         p: f32,
         t_ms: f64,
-        timing: &Timing,
+        cues: [Option<&Placed>; 2],
         clip_y: [f32; 2],
     ) -> Vec<Op> {
         let mut ops = Vec::new();
@@ -664,20 +1078,21 @@ impl ChartPlan {
         let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
         // Each mark at this frame, and how opaque, by key, for the paths through them.
         let mut shapes: Vec<(&str, Shape, Color, f32)> = Vec::with_capacity(self.marks.len());
-        // How far along each mark is: a preset staggers the marks that enter or leave.
+        // How far along each mark is: a cue staggers the marks that enter or leave.
         let mut progress = Vec::with_capacity(self.marks.len());
         for ((&(Keyed { pair: (i, j), .. }, _), ends), order) in self.marks.iter().zip(&self.ends).zip(&self.order) {
-            let preset = match (i, j) {
-                (None, Some(_)) => self.enter.as_ref().map(|e| (e, true)),
-                (Some(_), None) => self.exit.as_ref().map(|e| (e, false)),
+            let cue = match (i, j) {
+                (None, Some(_)) => self.enter.zip(cues[0]).map(|(look, cue)| (look, cue, true)),
+                (Some(_), None) => self.exit.zip(cues[1]).map(|(look, cue)| (look, cue, false)),
                 _ => None,
             };
-            let (p, look) = match (preset, order) {
-                (Some((preset, entering)), Some((k, n))) => {
-                    let q = staggered(preset, *k, *n, t_ms, timing);
+            let (p, look) = match (cue, order) {
+                (Some((look, cue, entering)), Some((k, _))) => {
+                    let q = cue.clock(*k).progress(t_ms) as f32;
                     // Entering, the look fades as the mark arrives; leaving, it comes on.
                     let w = if entering { 1.0 - q } else { q };
-                    (q, Some((lerp(1.0, preset.opacity, w), [preset.translate[0] * w, preset.translate[1] * w])))
+                    let alpha = lerp(1.0, look.opacity, w).clamp(0.0, 1.0);
+                    (q, Some((alpha, [look.translate[0] * w, look.translate[1] * w])))
                 }
                 _ => (p, None),
             };
@@ -1028,18 +1443,18 @@ fn regrouped(a: RoundRect, b: RoundRect, p: f32, heights_first: bool) -> RoundRe
 /// from its shape on one side to its shape on the other; a key on one side only comes
 /// from, or goes to, where it would stand on the other side ([`entry`]). `None` where
 /// two kinds of mark meet.
-/// A preset that does not scale its marks keeps them whole: they ride in or out with
-/// their neighbors and only fade or move as it says.
+/// A cue that does not scale its marks keeps them whole: they ride in or out with their
+/// neighbors and only fade or move as it says.
 fn ends(
     k: Keyed,
     a: Option<&ChartLayout>,
     b: Option<&ChartLayout>,
-    enter: Option<MarkPreset>,
-    exit: Option<MarkPreset>,
+    enter: Option<MarkLook>,
+    exit: Option<MarkLook>,
 ) -> Option<(Shape, Shape)> {
     let (ma, mb) = (marks_of(a), marks_of(b));
     let dx = k.ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
-    let grows = |preset: Option<MarkPreset>| preset.is_none_or(|p| p.grow);
+    let grows = |look: Option<MarkLook>| look.is_none_or(|l| l.grow);
     match k.pair {
         (Some(i), Some(j)) => Shape::lerp(ma[i].shape, mb[j].shape, 0.0).map(|_| (ma[i].shape, mb[j].shape)),
         (None, Some(j)) if grows(enter) => Some((entry(&mb[j], a, b, true, -dx), mb[j].shape)),
@@ -1048,29 +1463,6 @@ fn ends(
         (Some(i), None) => Some((ma[i].shape, ma[i].shape.shifted(dx))),
         (None, None) => unreachable!("a pair has a side"),
     }
-}
-
-/// How far along the `k`th of `n` marks that enter or leave with `preset` is, `t_ms`
-/// into a transition timed by `timing`. Mark `k` starts `delay + k · stagger` in and
-/// runs for its own time (the preset's duration, its spring's settle time, or the
-/// transition's); a schedule longer than the transition shrinks to fit it, so every
-/// mark is at rest when the transition is. Then it eases, or follows its spring.
-fn staggered(preset: &MarkPreset, k: usize, n: usize, t_ms: f64, timing: &Timing) -> f32 {
-    let whole = timing.duration_ms;
-    let own = preset.duration.or(preset.spring.map(|(_, settle)| 1000.0 * settle)).unwrap_or(whole);
-    let span = preset.delay + n.saturating_sub(1) as f64 * preset.stagger + own;
-    let fit = if span > whole && span > 0.0 { whole / span } else { 1.0 };
-    let (start, length) = (fit * (preset.delay + k as f64 * preset.stagger), fit * own);
-    let u = match length > 0.0 {
-        true => ((t_ms - start) / length).clamp(0.0, 1.0),
-        false => f64::from(u8::from(t_ms >= start)),
-    };
-    let q = match (preset.spring, preset.ease) {
-        (Some((spring, settle)), _) => spring.position(u * settle, 0.0),
-        (None, Some(ease)) => ease.ease(u),
-        (None, None) => timing.ease.ease(u),
-    };
-    q as f32
 }
 
 /// Where mark `m`, only in the target (`entering`) or only in the source, stands on the
@@ -1358,7 +1750,7 @@ mod tests {
 
     #[test]
     fn progress_is_exact_at_both_ends_and_eased_between() {
-        let t = Timing { duration_ms: 400.0, ease: CubicBezier(0.2, 0.0, 0.0, 1.0), matched: true };
+        let t = Timing { duration_ms: 400.0, curve: Curve::Ease(CubicBezier(0.2, 0.0, 0.0, 1.0)), matched: true };
         assert_eq!((t.progress(-5.0), t.progress(0.0)), (0.0, 0.0));
         assert_eq!((t.progress(400.0), t.progress(f64::INFINITY), t.progress(f64::NAN)), (1.0, 1.0, 1.0));
         assert!(t.progress(100.0) > 0.25, "ease-out runs ahead early: {}", t.progress(100.0));
@@ -1395,8 +1787,6 @@ mod tests {
     fn chart(kind: ChartKind, marks: Vec<Mark>, paths: Vec<SeriesPath>) -> ChartLayout {
         ChartLayout {
             kind,
-            enter: None,
-            exit: None,
             base: 100.0,
             baseline: None,
             marks,
@@ -1434,7 +1824,17 @@ mod tests {
 
     /// Every mark of the plan `p` of the way, by key.
     fn at(a: Option<&ChartLayout>, b: Option<&ChartLayout>, p: f32) -> Vec<(String, Shape)> {
-        let plan = ChartPlan::new(a, b);
+        at_with(a, b, p, None)
+    }
+
+    /// The same, with marks entering by a cue's look.
+    fn at_with(
+        a: Option<&ChartLayout>,
+        b: Option<&ChartLayout>,
+        p: f32,
+        enter: Option<MarkLook>,
+    ) -> Vec<(String, Shape)> {
+        let plan = ChartPlan::new(a, b, enter, None);
         let (ma, mb) = (marks_of(a), marks_of(b));
         plan.marks
             .iter()
@@ -1473,7 +1873,7 @@ mod tests {
             Vec::new(),
         );
         let ends = |key: &str| {
-            let plan = ChartPlan::new(Some(&before), Some(&after));
+            let plan = ChartPlan::new(Some(&before), Some(&after), None, None);
             let i = plan.marks.iter().position(|(k, _)| {
                 let m = k.pair.1.map(|j| &after.marks[j]).or(k.pair.0.map(|i| &before.marks[i])).unwrap();
                 m.key == key
@@ -1594,50 +1994,38 @@ mod tests {
         assert_eq!(regrouped(side, stacked, 0.0, true), side);
     }
 
-    fn preset(stagger: f64, grow: bool) -> MarkPreset {
-        MarkPreset {
-            opacity: 0.0,
-            translate: [0.0, 24.0],
-            grow,
-            delay: 0.0,
-            stagger,
-            duration: None,
-            ease: Some(CubicBezier::LINEAR),
-            spring: None,
-        }
+    fn look(grow: bool) -> MarkLook {
+        MarkLook { opacity: 0.0, translate: [0.0, 24.0], grow }
     }
 
     #[test]
-    fn staggered_marks_start_in_turn_and_all_rest_when_the_transition_does() {
-        let timing = Timing { duration_ms: 420.0, ease: CubicBezier::LINEAR, matched: true };
-        let fade = preset(40.0, false);
-        // Three marks 40 ms apart, each as long as the transition: 500 ms shrinks to 420.
-        let at = |k: usize, t: f64| staggered(&fade, k, 3, t, &timing);
-        assert_eq!([at(0, 0.0), at(1, 0.0), at(2, 0.0)], [0.0, 0.0, 0.0]);
-        assert_eq!([at(0, 420.0), at(1, 420.0), at(2, 420.0)], [1.0, 1.0, 1.0]);
-        assert!(at(0, 60.0) > 0.0 && at(2, 60.0) == 0.0, "the third starts 67.2 ms in");
-        assert!(at(0, 200.0) > at(1, 200.0) && at(1, 200.0) > at(2, 200.0));
-        // A schedule that fits keeps its own times: 100 ms each, 40 ms apart.
-        let short = MarkPreset { duration: Some(100.0), ..fade };
-        assert_eq!(staggered(&short, 1, 3, 90.0, &timing), 0.5);
-        // A spring runs to rest over its settle time.
-        let snappy = scaena_core::timeline::Spring { stiffness: 420.0, damping: 34.0, mass: 1.0 };
-        let sprung = MarkPreset { spring: Some((snappy, snappy.settle_time(0.0))), ..fade };
-        assert!((staggered(&sprung, 0, 1, 420.0, &timing) - 1.0).abs() < 1e-3);
+    fn a_mark_cue_reads_its_look_and_counts_what_enters_and_leaves() {
+        let rise = Motion::Enter(Look { opacity: 0.0, translate: [0.0, 24.0], ..Look::REST });
+        assert_eq!(MarkLook::of(&rise), Some(look(false)));
+        let grow = Motion::Exit(Look { scale: [1.0, 0.0], anchor: [0.5, 1.0], ..Look::REST });
+        assert!(MarkLook::of(&grow).unwrap().grow, "a cue that scales grows its marks from their foot");
+        assert_eq!(MarkLook::of(&Motion::Emphasis(Look::REST)), None);
+        let bar = |key: &str| {
+            let r = RoundRect { x: 10.0, y: 60.0, w: 20.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0 };
+            mark(key, Shape::Bar(r), None)
+        };
+        let before = chart(ChartKind::Bar, vec![bar("q1"), bar("q2")], Vec::new());
+        let after = chart(ChartKind::Bar, vec![bar("q2"), bar("q3"), bar("q4")], Vec::new());
+        let plan = ChartPlan::new(Some(&before), Some(&after), None, None);
+        assert_eq!((plan.one_sided(true), plan.one_sided(false)), (2, 1));
     }
 
     #[test]
-    fn a_preset_that_does_not_scale_its_marks_keeps_them_whole() {
+    fn a_cue_that_does_not_scale_its_marks_keeps_them_whole() {
         let bar = |key: &str, h: f32| {
             let r = RoundRect { x: 10.0, y: 100.0 - h, w: 20.0, h, top_radius: 0.0, bottom_radius: 0.0 };
             mark(key, Shape::Bar(r), None)
         };
-        let mut after = chart(ChartKind::Bar, vec![bar("q1", 40.0)], Vec::new());
-        after.enter = Some(preset(0.0, false));
-        let start = at(None, Some(&after), 0.0);
+        let after = chart(ChartKind::Bar, vec![bar("q1", 40.0)], Vec::new());
+        let start = at_with(None, Some(&after), 0.0, Some(look(false)));
         assert_eq!(start[0].1, after.marks[0].shape, "whole from the start, only fading and rising");
-        after.enter = Some(preset(0.0, true));
-        assert!(matches!(at(None, Some(&after), 0.0)[0].1, Shape::Bar(r) if r.h == 0.0), "a scaling preset grows");
+        let grown = at_with(None, Some(&after), 0.0, Some(look(true)));
+        assert!(matches!(grown[0].1, Shape::Bar(r) if r.h == 0.0), "a scaling cue grows");
     }
 
     #[test]

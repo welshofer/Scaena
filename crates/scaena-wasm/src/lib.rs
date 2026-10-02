@@ -14,6 +14,7 @@
 
 use scaena_core::Deck;
 use scaena_core::displaylist::DisplayList;
+use scaena_core::timeline::Timeline;
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
@@ -94,23 +95,36 @@ impl Session {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
     }
 
-    /// The transition into `state`, ms; 0 when it cuts.
-    pub fn duration(&self, state: &str) -> Result<f64, Error> {
-        Ok(scaena_engine::render::timing(&self.deck, &self.theme, state)?.duration_ms)
+    /// The deck's states end to end, ms (SPEC §2.4): each state's start, its span (its
+    /// transition and motions), and its hold. Builds the engine, as a frame does.
+    pub fn timeline(&mut self) -> Result<Timeline, Error> {
+        let (deck, theme, data) = (&self.deck, &self.theme, &self.data);
+        let engine = match self.engine.as_mut() {
+            Some(engine) => engine,
+            None => {
+                let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
+                fonts.check_theme(theme)?;
+                self.engine.insert(Engine::new(fonts).with_images(images))
+            }
+        };
+        Ok(engine.timeline(deck, theme, data)?)
     }
 
-    /// The display list for `state`, `t_ms` into its transition (`f64::INFINITY`: at rest).
-    /// At rest, the state laid out alone. Inside its transition, a sample of the
-    /// transition, which is laid out on the first such frame and kept: the frames
-    /// of one transition lay out once (SPEC §5).
+    /// The span of `state`, ms: its transition and every motion of its cue. Past it, the
+    /// state is at rest.
+    pub fn duration(&mut self, state: &str) -> Result<f64, Error> {
+        let timeline = self.timeline()?;
+        Ok(timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?.span)
+    }
+
+    /// The display list for `state`, `t_ms` into its cue (`f64::INFINITY`: at rest). At
+    /// rest, the state laid out alone. Inside its cue, a sample of it, laid out on the
+    /// first such frame and kept: the frames of one cue lay out once (SPEC §5).
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
-        if self.engine.is_none() {
-            let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
-            fonts.check_theme(&self.theme)?;
-            self.engine = Some(Engine::new(fonts).with_images(images));
-        }
-        let engine = self.engine.as_mut().expect("built above");
-        if scaena_engine::render::timing(&self.deck, &self.theme, state)?.progress(t_ms) >= 1.0 {
+        // The engine is built by now: the span took it.
+        let span = self.duration(state)?;
+        let engine = self.engine.as_mut().expect("built for the span");
+        if t_ms.is_nan() || t_ms >= span {
             let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
             return Ok(engine.frame(&req)?.display_list);
         }
@@ -168,9 +182,18 @@ impl Player {
         self.0.states()
     }
 
-    /// The transition into `state`, ms; 0 when it cuts.
-    pub fn duration(&self, state: &str) -> Result<f64, JsError> {
+    /// The span of `state`, ms: its transition and its motions. Past it, at rest.
+    pub fn duration(&mut self, state: &str) -> Result<f64, JsError> {
         self.0.duration(state).map_err(js)
+    }
+
+    /// The deck's states end to end, as JSON: `[{ "state", "start", "span", "hold" }]`,
+    /// ms (SPEC §2.4). What a player auto-advances by, and a video samples.
+    pub fn timeline(&mut self) -> Result<String, JsError> {
+        let slots: Vec<serde_json::Value> = (self.0.timeline().map_err(js)?.slots.iter())
+            .map(|s| serde_json::json!({ "state": s.state, "start": s.start, "span": s.span, "hold": s.hold }))
+            .collect();
+        serde_json::to_string(&slots).map_err(js)
     }
 
     /// The display list for `state` at `t_ms` (`Infinity`: at rest), postcard-encoded.
@@ -390,6 +413,6 @@ mod tests {
         assert!(matches!(err, Error::AfterFrame), "{err}");
         let err = s.add_image("assets/late.png", vec![]).unwrap_err();
         assert!(matches!(err, Error::AfterFrame), "{err}");
-        assert_eq!(s.states().len(), 41);
+        assert_eq!(s.states().len(), 42);
     }
 }

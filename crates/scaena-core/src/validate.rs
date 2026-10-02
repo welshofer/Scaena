@@ -232,6 +232,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(encodings(&deck, snapshots, files));
         }
         out.extend(override_types(&deck));
+        out.extend(cues(&deck, theme.as_ref()));
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
@@ -1102,6 +1103,75 @@ fn shader_presets(deck: &Deck, snapshots: &[Snapshot], theme: &LoadedTheme) -> V
         }
     }
     out
+}
+
+/// E106: a choreography item that names no motion, or more than one, or splits a target
+/// into what its type does not have: lines, words, and glyphs are text's, children a
+/// container's, marks a chart's (SPEC §3.9). An item's split is its own, else its preset
+/// call's, else its theme preset's.
+fn cues(deck: &Deck, theme: Option<&LoadedTheme>) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (i, state) in deck.states.iter().enumerate() {
+        for (j, item) in state.choreography.iter().enumerate() {
+            cue(deck, theme, item, &format!("/states/{i}/choreography/{j}"), &state.id, &mut out);
+        }
+    }
+    out
+}
+
+fn cue(deck: &Deck, theme: Option<&LoadedTheme>, item: &Value, at: &str, state: &str, out: &mut Vec<Finding>) {
+    for key in ["sequence", "parallel"] {
+        for (k, inner) in item.get(key).and_then(Value::as_array).into_iter().flatten().enumerate() {
+            cue(deck, theme, inner, &format!("{at}/{key}/{k}"), state, out);
+        }
+    }
+    if item.get("target").is_none() {
+        return;
+    }
+    let motions: Vec<&str> =
+        ["enter", "exit", "emphasis", "anim"].into_iter().filter(|k| item.get(*k).is_some()).collect();
+    let [motion] = motions[..] else {
+        let message = match motions.len() {
+            0 => format!("choreography in `{state}` names no motion: give it `enter`, `exit`, `emphasis`, or `anim`"),
+            _ => format!("choreography in `{state}` names {}: give each its own item", motions.join(" and ")),
+        };
+        out.push(Finding::new("E106", Severity::Error, message).at(at.to_string()).state(state.to_string()));
+        return;
+    };
+    let call = item.get(motion);
+    let named = call.and_then(|c| c.as_str().or_else(|| c.get("preset").and_then(Value::as_str)));
+    let theirs = || {
+        let preset = theme?.theme.motion.presets.get(named?)?;
+        serde_json::to_value(preset.split?).ok()?.as_str().map(String::from)
+    };
+    let (split, path) = match (item.get("split").and_then(Value::as_str), call.and_then(|c| c.get("split"))) {
+        (Some(split), _) => (split.to_string(), format!("{at}/split")),
+        (None, Some(split)) => (split.as_str().unwrap_or_default().to_string(), format!("{at}/{motion}/split")),
+        (None, None) => match theirs() {
+            Some(split) => (split, format!("{at}/{motion}")),
+            None => return,
+        },
+    };
+    let (fits, takes): (fn(NodeType) -> bool, &str) = match split.as_str() {
+        "lines" | "words" | "glyphs" => (|t| t == NodeType::Text, "only text splits into lines, words, and glyphs"),
+        "children" => (
+            |t| matches!(t, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group),
+            "only a stack, grid, frame, or group splits into its children",
+        ),
+        "marks" => (|t| t == NodeType::Chart, "only a chart splits into its marks"),
+        _ => return,
+    };
+    for target in choreo_targets(item) {
+        let Some(node) = deck.nodes.get(&target) else { continue };
+        if !fits(node.node_type) {
+            let kind = type_name(node.node_type);
+            let message =
+                format!("choreography in `{state}` splits `{target}`, {} node, into {split}: {takes}", article(&kind));
+            out.push(
+                Finding::new("E106", Severity::Error, message).at(path.clone()).state(state.to_string()).node(target),
+            );
+        }
+    }
 }
 
 /// A JSON string as it reads, without its quotes.

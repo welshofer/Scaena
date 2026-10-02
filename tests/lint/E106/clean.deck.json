@@ -1,5 +1,5 @@
 {
-  "scaena": "0.6",
+  "scaena": "0.7",
   "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {
@@ -10,6 +10,10 @@
   },
   "states": [
     { "id": "one", "props": { "headline": {}, "photo": {}, "card": {}, "tag": {} } },
-    { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" } } }
+    { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" } },
+      "choreography": [
+        { "target": "headline", "split": "words", "enter": "fade", "timing": "with" },
+        { "target": "card", "split": "children", "emphasis": "rise" }
+      ] }
   ]
 }

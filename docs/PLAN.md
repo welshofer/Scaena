@@ -133,7 +133,24 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Gradient paints, which the painters had pointed at this task: a shape's fill or stroke takes `{ gradient: { kind, angle, center, stops } }` across its box. Both painters draw it through peniko in Oklab, with a sweep repeating round the turn (SPEC §3.3, §6). vello's GPU ramp blends stops in sRGB whatever the gradient asks, so the shared conversion adds the in-between stops itself, as vello_cpu does (ADR-0004 finding 12).*
   - *Evidence: `shader_parity` holds every kind's CPU reference to its WGSL. On llvmpipe, all but the conic case are bit-identical; the conic case is 30 pixels one step apart (ΔE 0.32), from the arctangent. Torture case 39 `shaders` (every kind, a preset, gradient fills and a conic stroke) has goldens, and CPU, GPU, and WebGPU agree on it. Engine and core unit tests cover each kind, presets, and the paints. No earlier golden changed.)*
 
-- [ ] 1.11 Timeline resolution: transitions, presets, choreography (`with`/`after`, stagger, sequence), global timeline with `hold`.
+- [x] 1.11 Timeline resolution: transitions, presets, choreography (`with`/`after`, stagger, sequence), global timeline with `hold`. *(Done. `scaena-core::timeline` and `scaena-engine::motion`/`sample`, SPEC §2.4, §3.9:*
+  - *The cue: a state's transition and its motions run on one clock from `t = 0`, and its span is when both have ended. `Transition::frame(t)` samples the whole cue; `t` at or past the span is the state at rest, exactly.*
+  - *Motions: a node's own `enter` and `exit` presets as it enters and leaves, with the transition; its `emphasis` (after it) and `anim` tracks (with it), which no longer track to the next state (deck format 0.7); and choreography, which a node's own preset gives way to. Settings come from the item, then the preset call, then the theme's preset, then `standard`; a spring wins and lasts its settle time.*
+  - *Scheduling: `with` and `after`, delays, staggers across a split's units and across targets, `sequence` and `parallel` groups (`timeline::schedule`).*
+  - *Looks: opacity times the node's own; translate, scale, and rotate about an anchor in the unit's box. An entrance holds its unit out of sight until it starts, an exit holds it at rest until it starts and removes it when it ends, an emphasis goes out and back (a spring answers a tap, `Spring::impulse`). An entrance moves only what enters, so a stack that gains a child brings in that child alone.*
+  - *Units: text split into lines, words, or glyphs draws each unit in its own layer about its box (glyph runs now carry advances). A container's children move with everything in them, looks composing from the outermost container in. A chart's marks run on the cue's clocks instead of shrinking into the transition, its frame coming in with the first mark.*
+  - *Spring transitions follow the spring for its settle time; positions and sizes overshoot, while opacity, colors, and chart data stop at their ends.*
+  - *The global timeline: each state's span, then its `hold`. `Engine::timeline` works it out as far as a frame needs, laying a state out only where a cue splits a node into what layout counts. Everything else is timed from the document, so B1 lays out nothing extra. Shaders keep its time through cues and holds. The WASM `Player` reports spans (`duration`) and the timeline as JSON, and `render --json` reports `span_ms`.*
+  - *Validation: E106 for a choreography item with no motion or several, and for a split the target's type does not have.*
+  - *Fixes on the way:*
+    - *vello's GPU ramp blends gradient stops in sRGB, so the painters disagreed on Oklab gradients (ADR-0004 finding 12, in PR #24).*
+    - *The example deck's `revenue` chart keyed its bars by product alone, which repeated across quarters; nothing rendered the state until now, so it went unnoticed. The key is gone, so it defaults to quarter and product.*
+  - *Evidence:*
+    - *Torture case 40 `motion` (words, cards, spring-grown bars, a pulse) has goldens at rest and at 0.15, 0.35, and 0.65 of its span.*
+    - *`motion.rs` has 10 engine tests: splits, `with`/`after`, exits held, spring overshoot, emphasis, children in flow order, entrances on what enters, sequences, keyframes, and the global timeline with holds and shader time. There are 10 core tests for clocks, looks, scheduling, and the timeline.*
+    - *The example deck's `intro` and `revenue` states render their choreography.*
+    - *No earlier golden changed: a deck without motions keeps its spans and its shader times.*
+  - *Not done: preset looks beyond opacity and transform (`params`, colors), and interpolating shader uniforms, are PLAN 1.12. Lint for a cue that moves nothing (an entrance on a node that stays) is PLAN 1.15. `validate` does not yet catch a chart key that repeats; rendering refuses it.)*
 - [ ] 1.12 Sampling: post-layout interpolation (geometry, glyph runs, marks, uniforms); word-diff text morph.
 - [ ] 1.13 Multi-format layout (`formats`) — minimum: 16:9 and 9:16 via template sets.
 

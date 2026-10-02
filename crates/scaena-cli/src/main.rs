@@ -663,7 +663,7 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
         Err(e @ EngineError::NotImplemented(_)) => return unimplemented(e),
         frame => frame?,
     };
-    let dl = frame.display_list;
+    let (dl, span) = (frame.display_list, frame.duration_ms);
     let layout = lap();
     if let Some(path) = &display_list {
         std::fs::write(path, dl.to_golden_json()?).with_context(|| format!("writing {}", path.display()))?;
@@ -704,6 +704,7 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
         let summary = serde_json::json!({
             "state": state,
             "t_ms": t,
+            "span_ms": span,
             "painter": painter.name(),
             "adapter": adapter,
             "size": [raster.width, raster.height],

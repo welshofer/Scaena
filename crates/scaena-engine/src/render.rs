@@ -15,7 +15,8 @@ use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::images::{BundleImages, ImageNode};
 use crate::layout::{AlignX, AlignY, Grid};
-use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
+use crate::motion;
+use crate::sample::{Content, Place, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::tables;
@@ -24,9 +25,12 @@ use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::nodes::TextFit;
+use scaena_core::model::values::SplitUnit;
+use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
 pub struct FrameRequest<'a> {
@@ -35,8 +39,9 @@ pub struct FrameRequest<'a> {
     /// The bundle's data files, which charts read (SPEC §3.10).
     pub data: &'a DataFiles,
     pub state: &'a str,
-    /// Milliseconds since the start of the transition into `state`; at or past its
-    /// duration (`f64::INFINITY` always is), the state at rest.
+    /// Milliseconds since the start of the transition into `state`: into the state's
+    /// cue, its transition and then its motions. At or past its span (`f64::INFINITY`
+    /// always is), the state at rest.
     pub t_ms: f64,
 }
 
@@ -44,20 +49,26 @@ pub struct FrameRequest<'a> {
 pub struct Frame {
     /// In canvas units; `viewport` is the canvas size, and painters scale to their output.
     pub display_list: DisplayList,
-    /// The transition into this state, ms; choreography adds to it in PLAN 1.11.
+    /// The state's span, ms: its transition and every motion of its cue.
     pub duration_ms: f64,
 }
+
+/// Each state's `(state, span, hold)` on the global timeline, ms.
+type Spans = Vec<(String, f64, f64)>;
 
 /// The engine for one bundle: its fonts and images, plus reusable layout scratch.
 pub struct Engine {
     fonts: BundleFonts,
     images: BundleImages,
     text: TextEngine,
+    /// The global timeline's states as far as last worked out, and a hash of the deck,
+    /// theme, and data they were worked out from.
+    timeline: Option<(u64, Spans)>,
 }
 
 impl Engine {
     pub fn new(fonts: BundleFonts) -> Self {
-        Self { fonts, images: BundleImages::new(), text: TextEngine::new() }
+        Self { fonts, images: BundleImages::new(), text: TextEngine::new(), timeline: None }
     }
 
     /// The bundle's images, which image nodes name.
@@ -67,24 +78,29 @@ impl Engine {
     }
 
     /// Render one frame. Deterministic: same inputs → identical display list (SPEC §13).
-    /// At rest it lays out the state alone; inside a transition it lays out the state
-    /// and the one before it, then samples. To draw many frames of one transition,
-    /// build it once with [`Engine::transition`].
+    /// At rest it lays out the state alone; inside its cue it lays out the state and the
+    /// one before it, then samples. To draw many frames of one cue, build it once with
+    /// [`Engine::transition`]. Shaders keep the global timeline's time
+    /// ([`Engine::timeline`]).
     pub fn frame(&mut self, req: &FrameRequest) -> Result<Frame, EngineError> {
         let snapshots = scaena_core::resolve_states(req.deck)?;
         let i = state_index(&snapshots, req.state)?;
-        let timing = Timing::parse(req.theme, req.deck.states[i].transition.as_ref())?;
-        let display_list = if timing.progress(req.t_ms) >= 1.0 {
-            self.scene(req.deck, req.theme, req.data, &snapshots[i])?.draw()
+        let timeline = self.timeline_to(req.deck, req.theme, req.data, i)?;
+        let slot = &timeline.slots[i];
+        let t = req.t_ms;
+        let display_list = if t.is_nan() || t >= slot.span {
+            // At rest: its shaders at the time it comes to rest, or `t` into its hold.
+            let at = if t.is_finite() { t } else { slot.span };
+            self.scene(req.deck, req.theme, req.data, &snapshots[i])?.draw_at((slot.start + at) / 1000.0)
         } else {
-            self.transition_at(req.deck, req.theme, req.data, &snapshots, i, timing)?.frame(req.t_ms)
+            self.transition_at(req.deck, req.theme, req.data, &snapshots, i, slot.start / 1000.0)?.frame(t)
         };
-        Ok(Frame { display_list, duration_ms: timing.duration_ms })
+        Ok(Frame { display_list, duration_ms: slot.span })
     }
 
-    /// The transition into `state`: it and the state before it in the cue list (what
-    /// was on screen), each laid out once. [`Transition::frame`] then samples any
-    /// time without layout.
+    /// The cue of `state`: the transition into it from the state before it in the cue
+    /// list (what was on screen), each laid out once, and its motions. Its frames
+    /// ([`Transition::frame`]) then sample any time without layout.
     pub fn transition(
         &mut self,
         deck: &Deck,
@@ -94,10 +110,11 @@ impl Engine {
     ) -> Result<Transition, EngineError> {
         let snapshots = scaena_core::resolve_states(deck)?;
         let i = state_index(&snapshots, state)?;
-        let timing = Timing::parse(theme, deck.states[i].transition.as_ref())?;
-        self.transition_at(deck, theme, data, &snapshots, i, timing)
+        let start = self.timeline_to(deck, theme, data, i)?.slots[i].start;
+        self.transition_at(deck, theme, data, &snapshots, i, start / 1000.0)
     }
 
+    /// The cue of state `i`, starting `start` seconds into the global timeline.
     fn transition_at(
         &mut self,
         deck: &Deck,
@@ -105,14 +122,68 @@ impl Engine {
         data: &DataFiles,
         snapshots: &[Snapshot],
         i: usize,
-        timing: Timing,
+        start: f64,
     ) -> Result<Transition, EngineError> {
+        let state = &deck.states[i];
+        let timing = Timing::parse(theme, state.transition.as_ref())?;
+        let before = i.checked_sub(1).map(|p| &snapshots[p]);
+        let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched)?;
         let to = self.scene(deck, theme, data, &snapshots[i])?;
-        let from = match i.checked_sub(1) {
-            Some(prev) if timing.duration_ms > 0.0 => Some(self.scene(deck, theme, data, &snapshots[prev])?),
+        // What was on screen is drawn while the transition runs, or a motion moves it.
+        let from = match before {
+            Some(prev) if timing.duration_ms > 0.0 || !items.is_empty() => Some(self.scene(deck, theme, data, prev)?),
             _ => None,
         };
-        Ok(Transition::new(from, to, timing))
+        Transition::new(from, to, timing, &items, start)
+    }
+
+    /// The deck's states end to end (SPEC §2.4): each state's span (its transition and
+    /// its motions), then its `hold`. A state is laid out only where a motion splits a
+    /// node into what layout counts (lines, words, glyphs, a chart's marks); the rest is
+    /// timed from the document.
+    pub fn timeline(&mut self, deck: &Deck, theme: &Theme, data: &DataFiles) -> Result<Timeline, EngineError> {
+        match deck.states.len() {
+            0 => Ok(Timeline::default()),
+            n => self.timeline_to(deck, theme, data, n - 1),
+        }
+    }
+
+    /// The global timeline up to and including state `last`: what a frame of it needs,
+    /// since a state starts where the ones before it end. Worked out as far as asked and
+    /// kept for the deck, theme, and data it was worked out from, so the frames of one
+    /// deck work each state out once.
+    fn timeline_to(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        last: usize,
+    ) -> Result<Timeline, EngineError> {
+        let key = fingerprint(deck, theme, data);
+        let mut states = match self.timeline.take() {
+            Some((k, states)) if k == key => states,
+            _ => Vec::new(),
+        };
+        let snapshots = if states.len() <= last { scaena_core::resolve_states(deck)? } else { Vec::new() };
+        for (i, state) in deck.states.iter().enumerate().take(last + 1).skip(states.len()) {
+            let timing = Timing::parse(theme, state.transition.as_ref())?;
+            let before = i.checked_sub(1).map(|p| &snapshots[p]);
+            let items = motion::items(deck, theme, state, before, &snapshots[i], timing.matched)?;
+            let span = if motion::counted_by_layout(&items) {
+                self.transition_at(deck, theme, data, &snapshots, i, 0.0)?.span_ms()
+            } else {
+                // Only a container's children are counted, and the snapshot has them.
+                let mut units = |id: &str, _: SplitUnit, m: &Motion| {
+                    let snap = if matches!(m, Motion::Exit(_)) { before } else { Some(&snapshots[i]) };
+                    snap.map_or(0, |s| children(deck, s, id).len())
+                };
+                scaena_core::timeline::schedule(timing.clock(), &items, &mut units).span
+            };
+            states.push((state.id.clone(), span, state.hold.unwrap_or(0.0)));
+        }
+        let timeline = Timeline::new(states.iter().take(last + 1).cloned());
+        self.timeline = Some((key, states));
+        Ok(timeline)
     }
 
     /// One snapshot, laid out: every visible node in paint order.
@@ -127,6 +198,7 @@ impl Engine {
         let grid = Grid::from_theme(theme, canvas)?;
         let snap = &cascade::with_overrides(deck, snap);
         let placement = self.place(deck, theme, &grid, snap)?;
+        let tree = tree(deck, snap, &placement);
         let mut nodes = Vec::with_capacity(snap.nodes.len());
         // Every state's props, read once, for what each chart colors across the deck.
         let mut every: Option<Vec<Snapshot>> = None;
@@ -184,13 +256,7 @@ impl Engine {
                 content,
             });
         }
-        Ok(Scene {
-            state: snap.state_id.clone(),
-            canvas,
-            surface: theme_color(theme, "surface")?,
-            time: rest_time(deck, theme, &snap.state_id)?,
-            nodes,
-        })
+        Ok(Scene { state: snap.state_id.clone(), canvas, surface: theme_color(theme, "surface")?, nodes, tree })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what
@@ -437,19 +503,55 @@ fn canvas(deck: &Deck) -> [f32; 2] {
     [deck.canvas.width as f32, deck.canvas.height as f32]
 }
 
-/// When `state` comes to rest on the global timeline (SPEC §2.2), in seconds: the
-/// transitions of the cue list up to and including its own, end to end. Phase 0 has
-/// no holds or choreography, so that is the whole timeline. Shaders read their time
-/// from it, so a background drifts on across states instead of starting over.
-pub fn rest_time(deck: &Deck, theme: &Theme, state: &str) -> Result<f64, EngineError> {
-    let mut ms = 0.0;
-    for s in &deck.states {
-        ms += Timing::parse(theme, s.transition.as_ref())?.duration_ms;
-        if s.id == state {
-            return Ok(ms / 1000.0);
-        }
+/// The nodes of `snap` placed in container `id`, in flow order: `at.index`, then the
+/// deck's order.
+fn children<'a>(deck: &Deck, snap: &'a Snapshot, id: &str) -> Vec<&'a str> {
+    fn parent(props: &Props) -> Option<&str> {
+        props.get("at").and_then(|at| at.get("parent")).and_then(Value::as_str)
     }
-    Err(EngineError::UnknownState(state.to_string()))
+    let index = |props: &Props| props.get("at").and_then(|at| at.get("index")).and_then(Value::as_u64);
+    let order = |kid: &str| deck.nodes.get_index_of(kid).unwrap_or(usize::MAX);
+    let mut kids: Vec<(u64, usize, &str)> = (snap.nodes.iter())
+        .filter(|(_, props)| parent(props) == Some(id))
+        .map(|(kid, props)| (index(props).unwrap_or(0), order(kid), kid.as_str()))
+        .collect();
+    kids.sort();
+    kids.into_iter().map(|(_, _, kid)| kid).collect()
+}
+
+/// Every visible node's place: its container, its box (a group's, its children's
+/// together), and its children in flow order.
+fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> HashMap<String, Place> {
+    let mut tree: HashMap<String, Place> = HashMap::new();
+    for (id, _) in &placement.order {
+        let rect = placement.boxes.get(id).copied().unwrap_or([0.0; 4]);
+        let parent = placement.parents.get(id).cloned();
+        let children = children(deck, snap, id).into_iter().map(String::from).collect();
+        tree.insert(id.clone(), Place { parent, rect, children });
+    }
+    // A group's box spans what its members draw, nested groups included.
+    for (id, _) in placement.order.iter().rev() {
+        if placement.boxes.contains_key(id) {
+            continue;
+        }
+        let boxes = tree[id].children.iter().map(|kid| tree[kid].rect).filter(|r| r[2] > 0.0 || r[3] > 0.0);
+        let union = boxes.reduce(|a, b| {
+            let (x0, y0) = (a[0].min(b[0]), a[1].min(b[1]));
+            let (x1, y1) = ((a[0] + a[2]).max(b[0] + b[2]), (a[1] + a[3]).max(b[1] + b[3]));
+            [x0, y0, x1 - x0, y1 - y0]
+        });
+        tree.get_mut(id).expect("every visible node has a place").rect = union.unwrap_or([0.0; 4]);
+    }
+    tree
+}
+
+/// A hash of everything the global timeline is worked out from.
+fn fingerprint(deck: &Deck, theme: &Theme, data: &DataFiles) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    serde_json::to_vec(deck).unwrap_or_default().hash(&mut h);
+    serde_json::to_vec(&**theme).unwrap_or_default().hash(&mut h);
+    data.hash(&mut h);
+    h.finish()
 }
 
 fn in_node(id: &str, e: EngineError) -> EngineError {

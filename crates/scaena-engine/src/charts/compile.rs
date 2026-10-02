@@ -4,19 +4,18 @@
 //! the kind; lines and areas are paths through their series' marks.
 
 use super::{
-    AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, MarkPreset, Note, Numerals, RoundRect, Rule,
-    SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
+    AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath,
+    Shape, Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
 use crate::data::{self, ColumnType, Datum};
 use crate::scale::{self, LinearScale};
 use crate::text::{TextLayout, TextSpec};
-use crate::theme::{Numeric, TextBox, Theme};
+use crate::theme::{Numeric, TextBox};
 use scaena_core::displaylist::Color;
 use scaena_core::document::Props;
 use scaena_core::format::{DateFormat, DateTime, Locale, MINUS, NumberFormat};
-use scaena_core::model::values::{Annotation, AnnotationKind, Place, Scalar, SplitUnit};
-use scaena_core::timeline::CubicBezier;
+use scaena_core::model::values::{Annotation, AnnotationKind, Place, Scalar};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
@@ -634,8 +633,6 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
 
     let mut out = ChartLayout {
         kind,
-        enter: mark_preset(theme, props.get("enter"))?,
-        exit: mark_preset(theme, props.get("exit"))?,
         base,
         baseline: (!donut).then_some(Rule {
             from: [left, base],
@@ -1250,97 +1247,6 @@ fn nudge(labels: &mut [Label], apart: f32) {
             }
         }
     }
-}
-
-/// A chart's `enter` or `exit`: a theme motion preset by name, or `{ "preset", … }`
-/// whose timing overrides the preset's. Chart marks move opacity, translate, and scale;
-/// a scale grows a mark from where it would stand with no value, whatever its anchor.
-fn mark_preset(theme: &Theme, v: Option<&Value>) -> Result<Option<MarkPreset>, EngineError> {
-    const ONLY: &str = "chart presets move opacity, translate, and scale, one mark at a time — PLAN 1.11";
-    let Some(v) = v else { return Ok(None) };
-    let (name, call) = match v {
-        Value::String(name) => (name.as_str(), None),
-        Value::Object(o) => match o.get("preset").and_then(Value::as_str) {
-            Some(name) => (name, Some(o)),
-            None => return Err(EngineError::Layout("a preset call names its `preset`".into())),
-        },
-        other => return Err(EngineError::Layout(format!("enter or exit {other}: expected a preset or a call"))),
-    };
-    let preset = theme.preset(name).ok_or_else(|| EngineError::Theme(format!("no motion preset `{name}`")))?;
-    let given = |key: &str| call.and_then(|c| c.get(key));
-    let split = match given("split") {
-        Some(v) => serde_json::from_value::<SplitUnit>(v.clone()).ok(),
-        None => preset.split,
-    };
-    if split.is_some_and(|s| s != SplitUnit::Marks) || preset.to.is_some() {
-        return Err(EngineError::NotImplemented(ONLY));
-    }
-    let (mut opacity, mut translate, mut grow) = (1.0_f32, [0.0_f32; 2], false);
-    for (key, value) in preset.from.iter().flatten() {
-        match (key.as_str(), value) {
-            ("opacity", Value::Number(n)) => opacity = n.as_f64().unwrap_or(1.0).clamp(0.0, 1.0) as f32,
-            ("transform", Value::Object(t)) => {
-                for (key, value) in t {
-                    match key.as_str() {
-                        "translate" => {
-                            let at = |i: usize| value.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-                            translate = [at(0), at(1)];
-                        }
-                        "scale" => grow = true,
-                        // A mark grows from its value's foot, not from a point of its box.
-                        "anchor" => {}
-                        _ => return Err(EngineError::NotImplemented(ONLY)),
-                    }
-                }
-            }
-            _ => return Err(EngineError::NotImplemented(ONLY)),
-        }
-    }
-    let bad = |what: &str| EngineError::Theme(format!("preset `{name}`: unknown or invalid {what}"));
-    let duration = match given("duration") {
-        Some(v) => Some(theme.duration(v).ok_or_else(|| bad("duration"))?),
-        None => match &preset.duration {
-            Some(d) => {
-                Some(theme.duration(&serde_json::to_value(d).unwrap_or_default()).ok_or_else(|| bad("duration"))?)
-            }
-            None => None,
-        },
-    };
-    let ease = match given("ease").cloned().or_else(|| preset.ease.as_ref().and_then(|e| serde_json::to_value(e).ok()))
-    {
-        None => None,
-        Some(Value::String(e)) => Some(theme.easing(&e).ok_or_else(|| bad("easing"))?),
-        Some(Value::Array(a)) if a.len() == 4 => {
-            let at = |i: usize| a[i].as_f64().unwrap_or(0.0);
-            Some(CubicBezier(at(0), at(1), at(2), at(3)))
-        }
-        Some(_) => return Err(bad("easing")),
-    };
-    let spring = match (given("spring"), preset.spring.as_ref()) {
-        (Some(Value::String(s)), _) | (None, Some(s)) => Some(theme.spring(s).ok_or_else(|| bad("spring"))?),
-        (Some(Value::Object(o)), _) => {
-            let at = |k: &str| o.get(k).and_then(Value::as_f64);
-            match (at("stiffness"), at("damping")) {
-                (Some(stiffness), Some(damping)) => {
-                    Some(scaena_core::timeline::Spring { stiffness, damping, mass: at("mass").unwrap_or(1.0) })
-                }
-                _ => return Err(bad("spring")),
-            }
-        }
-        (Some(_), _) => return Err(bad("spring")),
-        (None, None) => None,
-    };
-    let ms = |key: &str, preset: Option<f64>| given(key).and_then(Value::as_f64).or(preset).unwrap_or(0.0).max(0.0);
-    Ok(Some(MarkPreset {
-        opacity,
-        translate,
-        grow,
-        delay: ms("delay", None),
-        stagger: ms("stagger", preset.stagger.as_ref().map(|s| s.0)),
-        duration,
-        ease,
-        spring: spring.map(|s| (s, s.settle_time(0.0))),
-    }))
 }
 
 /// The color `t` of the way along `stops`, mixed in Oklab between the two around it.

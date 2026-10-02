@@ -63,7 +63,7 @@ A deck owns one **scene graph**: a set of **nodes**, each with a stable `id` (a 
 
 A deck is an **ordered list of states**. A state is a named point on the timeline where the scene graph has particular property values. Every click is a state. The state list is the cue list; the engine's lineage is a theatrical lighting console, not a slide sorter.
 
-**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value. An object value with nothing to merge into (the node has none, or has a value of another kind) is taken as it is, less the keys it deletes. The schema's `StateDelta` says what a delta may hold: any node type's property, in any form it takes, an object value with every key optional, or `null` (§3.3). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
+**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value. An object value with nothing to merge into (the node has none, or has a value of another kind) is taken as it is, less the keys it deletes. The schema's `StateDelta` says what a delta may hold: any node type's property, in any form it takes, an object value with every key optional, or `null` (§3.3). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (`anim` keyframe tracks and `emphasis`, deck format 0.7) never track: a motion must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
 
 **Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key starts a slide named by its own id; the states that build on it set `slide` to that id.
 
@@ -79,9 +79,10 @@ Text morphs at word granularity (shared words move, others cross-fade). Charts m
 
 ### 2.4 Time
 
-- `t` is milliseconds since the start of the *current* transition. `t ≥ transition.duration` means the state is at rest.
-- Within a state, nodes may own **keyframe tracks** and **choreography** (staggers, delays, sequences) that run after the transition completes or in parallel with it (`timing: "with" | "after"`).
-- A state MAY declare `hold` (ms) for auto-advance; this is how a deck becomes a video. The **global timeline** is the concatenation of (transition + choreography + hold) across states.
+- `t` is milliseconds since the start of the *current* state's cue: its transition, then its motions (§3.9). At or past the state's **span**, when both have ended, the state is at rest.
+- Within a state, nodes may own **keyframe tracks**, presets, and **choreography** (staggers, delays, sequences) that run with the transition or after it (`timing: "with" | "after"`).
+- A state MAY declare `hold` (ms) for auto-advance; this is how a deck becomes a video. The **global timeline** lays the states end to end: each state's span, then its hold. A frame `t` into a state is at the state's start plus `t`; at rest, at the moment the state comes to rest. Shaders keep this time (§3.8), video export samples it (§10), and a player auto-advances by it (`Player.timeline()`).
+- A state starts where the ones before it end. The engine works that out as far as a frame needs, and lays a state out for it only where a motion splits a node into what layout counts (lines, words, glyphs, a chart's marks); the rest is timed from the document.
 
 ### 2.5 The design system
 
@@ -123,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.6",
+  "scaena": "0.7",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -367,8 +368,8 @@ Rules:
   - Either names a theme motion preset (`motion.presets`), or calls one: `{ "preset": "grow", "stagger": 40, "spring": "snappy" }`, whose `duration`, `ease`, `spring`, `stagger`, and `delay` override the preset's.
   - A chart reads a preset one mark at a time. Its `from` look is where an entering mark starts and where a leaving one ends: `opacity`, `transform.translate` in canvas units, and `transform.scale`. A scale grows the mark from where it would stand with no value (Motion), whatever its `anchor`. A preset that does not scale keeps its marks whole: they ride in or out with their neighbors, fading or moving as it says.
   - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
-  - Mark k starts `delay + k × stagger` ms into the transition and runs for the preset's `duration`, else its spring's settle time, else the transition's. A schedule longer than the transition shrinks to fit it, so every mark is at rest when the transition is; PLAN 1.11 moves choreography onto the global timeline. A mark eases with the preset's `ease`, else the transition's, or follows its spring (`libm`, so every platform agrees).
-  - A `split` other than `marks`, a preset's `to`, and any other property return NotImplemented (PLAN 1.11).
+  - A chart's own presets run with the transition, and choreography can move its marks too (`{ "target": "rev", "enter": "grow", "timing": "after" }`, §3.9). Either way the marks are units on the state's clock (PLAN 1.11): mark k starts `k × stagger` ms after the first and runs for the preset's `duration`, else the theme's `standard`, or for its spring's settle time, easing or springing as §3.9 says (`libm`, so every platform agrees). A long schedule extends the state's span; nothing is squeezed into the transition. The chart's axes, legend, and titles come in with its first mark and go with its last.
+  - A chart's own presets move its marks whatever the preset would split. A choreography item that moves the chart whole (no split) moves it as one, its values at rest. A look that moves anything but opacity, translate, and scale returns NotImplemented (PLAN 1.12).
 - **Annotations** (`annotations`), drawn in `charts.annotation`: `stroke` (default `thin`) and `color` (default `accent`) for rules, leaders, and bands, `opacity` for the strokes, and `role` (default the value labels') for text, which prints in that color. An annotation stands at `at`: an `x` is a category, as the x column prints with no format, or on a continuous x a number or an ISO 8601 date; a `y` is a value; a `series` is a series. A value on the value axis widens it, as the data does, unless the author set that bound, when one past it is an error; an `x` on a continuous axis widens it too. A category, series, or x the data does not have is E103, and an annotation that stands where its kind cannot is E106 (`validate` finds both).
   - `rule`: one `x` or one `y`. A `y` rules the plot across, its text half a space unit over the rule at the plot's start; an `x` rules it from top to foot through the category's middle, its text beside the rule's top, after it unless that passes the plot's end.
   - `band`: from one `x` to another, or one `y` to another, under the gridlines, filled at `charts.annotation.band` (default 0.12) of the color. Across categories it covers both ends' bands. Its text sits inside its top-left corner, half a space unit in.
@@ -394,7 +395,7 @@ Requirements:
 - No arbitrary shader source in documents. Ever.
 - Uniforms are animatable properties like any other.
 - For PDF/SVG export, shaders rasterize at a declared DPI (default 2× canvas) and embed as images.
-- **Clock.** A shader's `t` is the frame's time on the global timeline (§2.2), in seconds, so a background that persists across states drifts on through every transition instead of starting over. At rest, a state's shaders show the time it comes to rest. Phase 0 has no holds or choreography, so the timeline is the cue list's transitions end to end.
+- **Clock.** A shader's `t` is the frame's time on the global timeline (§2.4), in seconds, so a background that persists across states drifts on through every transition, motion, and hold instead of starting over. At rest, a state's shaders show the moment it comes to rest; a frame `t` past its span, in its hold, shows that later time.
 - **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
 
 **Presets** (deck format 0.6, theme format 0.2). A theme's `shaders.presets` name shaders a node can take whole: `{ "kind", "palette", "params" }`, its params typed by its kind as a node's are. A node names one with `preset`; the node's own `kind` must be the preset's (E106), its `palette` and each of its `params` win over the preset's, and a preset the theme lacks is E102.
@@ -458,7 +459,37 @@ Each kind's CPU reference and its WGSL twin are tested against each other on the
 
 ### 3.9 Animation
 
-**Properties and keyframes.** Any animatable property may carry a track inside a state:
+A state's **cue** starts with the transition into it (`t = 0`) and runs the transition and the state's **motions** on one clock (PLAN 1.11, deck format 0.7). Its **span** is when the transition and its last motion have both ended; from then on the state is at rest, and the global timeline moves on to its hold (§2.4).
+
+**Where motions come from.**
+- A node's own `enter` preset, as it enters (it is not on screen in the state before), and its `exit` preset, read from the state it leaves, as it leaves. Both run with the transition. A chart's own presets move its marks one at a time, also while the chart stays and its data changes (§3.7).
+- A node's `emphasis` (a preset) and `anim` (keyframe tracks) in a state. Neither tracks to the next state (§2.2): a motion never replays on the next cue. `anim` runs with the transition, `emphasis` after it.
+- The state's `choreography`. A node's own preset of a kind gives way to a choreography item of that kind on the node.
+
+```jsonc
+"choreography": [
+  { "target": "title", "split": "words", "enter": "rise", "stagger": 30, "timing": "with" },
+  { "target": "rev",   "enter": { "preset": "grow", "stagger": 40, "spring": "snappy" } },
+  { "sequence": [ { "target": "note", "enter": "fade" }, { "target": "arrow", "enter": "rise" } ], "delay": 200 }
+]
+```
+
+**Choreography.**
+- An item moves one or more targets with one motion: `enter`, `exit`, or `emphasis`, each a preset by name or a call with settings (`{ "preset": "grow", "stagger": 40, "spring": "snappy" }`), or `anim`. An item with none, or with more than one, is E106.
+- `timing: "with"` starts an item with the transition; `"after"`, the default, once the transition ends. `delay` (ms) waits that much more.
+- A `sequence` runs its items one after another: each starts when the one before it has ended, then waits its own `delay`. A `parallel` starts its items together, each after its own `delay`. A group's `timing` and `delay` place the group, and its items' own `timing` does not apply. A state's top-level items run side by side.
+- `split` divides each target into units: the `lines`, `words`, or `glyphs` of text (§3.5), a container's `children` in flow order (`at.index`, then the deck's order), or a chart's `marks` in data order. Without one, each target moves whole. A split the target's type does not have is E106.
+- Unit *k* of an item starts *k* × `stagger` ms after its first unit, counting across its targets in order.
+- Each setting comes from the most specific place that gives it: the item, then the preset call, then the theme's preset, then the theme's `standard` duration and easing. At one place a `spring` wins over an `ease`, and a unit on a spring runs for its settle time.
+
+**Presets** (theme `motion.presets`): a look (`from` or `to`) and timing (`duration`, `ease`, `spring`, `stagger`, `split`).
+- A look is relative to the unit at rest: `opacity` multiplies its own, and `transform` takes `translate` (`[x, y]` canvas units), `scale` (a number, or `[x, y]`), `rotate` (degrees, clockwise), and `anchor` (`[x, y]`, fractions of the unit's box, default its center), which scale and rotation turn about. A unit's box is its node's box, a child's box, or for text, its glyphs' advances across the line boxes they sit in.
+- An `enter` runs from the preset's `from` look to rest; before it starts, its unit is not drawn. An `exit` runs from rest to the `from` look; once it ends, its unit is gone. An `emphasis` runs from rest to the `to` look and back: eased, out along the easing to its middle and back the same way; on a spring, as the spring answers a tap, reaching the look once and settling back (an under-damped spring swings past rest and back). Each reads the other key when its own is missing.
+- An entrance moves only what enters in the state, and an exit only what leaves. A `children` entrance on a stack that stays brings in only its new children, each at its place in the stagger. An entrance on a node that stays does nothing.
+- A node that enters or leaves with no motion fades in or out with the transition.
+- A look that moves anything but opacity and transform, or a call's `params`, returns NotImplemented (PLAN 1.12).
+
+**Keyframes** (`anim`). Per property (`opacity`, `translate`, `scale`, `rotate`), keys `{ "t", "v", "ease" | "spring" }`, `t` in ms from the motion's start, values as looks are:
 
 ```jsonc
 "anim": {
@@ -467,28 +498,20 @@ Each kind's CPU reference and its WGSL twin are tested against each other on the
 }
 ```
 
-**Presets** (`enter`, `exit`, `emphasis`) are theme-defined keyframe bundles with parameters. **Choreography** composes units:
+Before the first key a track holds the first value; after the last, the last value, until the state rests. Between two keys it follows the later key's curve (default the theme's `standard`), a spring fitted to the gap. Other properties wait for PLAN 1.12.
 
-```jsonc
-"choreography": [
-  { "target": "title", "split": "words", "enter": "rise", "stagger": 30, "timing": "after" },
-  { "target": "rev",   "enter": "grow",  "stagger": 40, "spring": "snappy", "timing": "with" },
-  { "sequence": [ { "target": "note", "enter": "fade" }, { "target": "arrow", "enter": "draw" } ], "delay": 200 }
-]
-```
+**Containers.** A motion on a container moves everything in it, and one on its children moves each child with everything in it. The container's own panel moves only with motions on the container. Looks compose from the outermost container in.
 
-- `timing: "with"` runs during the state transition; `"after"` runs once the transition rests.
-- Springs are solved analytically (damped harmonic oscillator); they terminate at a settle threshold recorded in the resolved timeline so durations are known ahead of time (required for video export).
-- Easing curves are cubic Béziers; named in the theme.
-- Interpolation rules: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure interpolate point-wise, else cross-fade; text by word diff; chart marks by key.
-- Lint **W320** flags more than N concurrent animated nodes (theme-tunable, default 12) and **W321** flags total choreography longer than the theme's `maxBuild` (default 2.5 s).
-
-**State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
-
+**State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "spring": "snappy", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
 - A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
-- The transition into a state starts from the state before it in the cue list, what was on screen, whichever state it tracks `from`. Into the first state, every node enters.
-- `t ≤ 0` is the previous state at rest and `t ≥ duration` this state at rest, exactly.
-- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Shaders show the frame's time on the global timeline (§3.8). A chart reads `enter` and `exit` presets for its marks, staggered within the transition (§3.7, PLAN 1.9); presets and choreography for every node are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
+- A `spring` takes the place of both: the transition follows the spring and lasts its settle time. An under-damped spring carries positions and sizes past their targets and back; opacity, colors, and chart data stop at their ends.
+- The transition into a state starts from the state before it in the cue list (what was on screen), whichever state it tracks `from`. Into the first state, every node enters.
+- `t ≤ 0` is the previous state at rest, and `t` at or past the span this state at rest, exactly.
+- Nodes present in both states interpolate (PLAN 0.10). Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12). Chart marks match by key and move their data (§3.7).
+
+**Curves.** Springs are solved analytically (a damped harmonic oscillator, through `libm`). One settles once it stays within 0.001 of its target, moving slower than 0.01 a second, for 50 ms; that settle time is part of the resolved timeline, so every duration is known ahead of time (video export). Easing curves are cubic Béziers, named in the theme. Interpolation: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure point-wise, else cross-faded; text by word diff; chart marks by key.
+
+Lint **W320** flags more than N concurrent animated nodes (theme-tunable, default 12) and **W321** flags total choreography longer than the theme's `maxBuild` (default 2.5 s).
 
 ### 3.10 Data sources
 
@@ -594,9 +617,8 @@ state revenue layout:full transition:{duration: standard, ease: standard} hold:6
   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
     series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
-    key:product labels:{show: ends} legend:top
-    alt:"Quarterly revenue by product, Q4 2025 through Q3 2026." semantic:evidence
-    at:col(1-12) row(2-6)
+    labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
+    semantic:evidence at:col(1-12) row(2-6)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
     at:in(footer)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
@@ -782,7 +804,7 @@ All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid 
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
-`render` without `--t` renders the state at rest. `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
+`render` without `--t` renders the state at rest; `--t` is milliseconds into the state's cue (its transition, then its motions, §3.9), and `--json` reports the state's span (`span_ms`). `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
 
 ### 7.2 MCP tools
 
@@ -819,7 +841,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
-| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot; a choreography item that names no motion or more than one, or splits a target into what its type does not have |
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |
