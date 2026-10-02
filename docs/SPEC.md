@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.5",
+  "scaena": "0.6",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -172,7 +172,7 @@ Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`.
 - A table that needs more room than its cell is an error that says what to cut: columns across, or rows down (keep fewer with `dataTransform`'s `limit`).
 - Rows are identified by `key` (default: the first column), which must be unique. Between states a row moves to where it now stands. A cell whose text changed cross-fades, aligned to its column. Rows and columns on one side only fade in or out where they stand, and rules move with their rows.
 
-**Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are theme colors; `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out.
+**Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are paints: a theme color (or `{ "solid": color }`), or a gradient across the shape's box, `{ "gradient": { "kind", "angle", "center", "stops" } }` (PLAN 1.10). A `linear` gradient runs along `angle`, degrees clockwise from up (default 180, top to bottom), through the box's middle and as long as the box is that way, as CSS's does; a `radial` one runs from `center` (fractions of the box, default `[0.5, 0.5]`) out to the box's farthest corner; a `conic` one turns about `center` from `angle` (default 0, up) all the way round. `stops` are `{ "at": 0–1, "color" }`, two or more, in theme colors, blended in Oklab. An arrow's head takes its stroke's paint. `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out.
 
 **Images** are PNG in v1: one pure-Rust decoder, the same pixels everywhere (§13); a JPEG is refused by name (§16 Q11). `src` is the file's path in the bundle (`assets/<sha256>.<ext>` once saved, §3.1), and the display list names the image by `sha256:` of its bytes. An image is at most 8192 px a side, vello's image atlas, which the engine checks when it registers the file. Pixels are sRGB, straight alpha, with no color profile applied. How the image meets its box:
 - `crop: [x, y, w, h]`, fractions of the image, cuts it first, so a sharper file of the same picture keeps the crop. Default: all of it.
@@ -244,7 +244,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.1",
+  "scaena-theme": "0.2",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -397,6 +397,17 @@ Requirements:
 - **Clock.** A shader's `t` is the frame's time on the global timeline (§2.2), in seconds, so a background that persists across states drifts on through every transition instead of starting over. At rest, a state's shaders show the time it comes to rest. Phase 0 has no holds or choreography, so the timeline is the cue list's transitions end to end.
 - **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
 
+**Presets** (deck format 0.6, theme format 0.2). A theme's `shaders.presets` name shaders a node can take whole: `{ "kind", "palette", "params" }`, its params typed by its kind as a node's are. A node names one with `preset`; the node's own `kind` must be the preset's (E106), its `palette` and each of its `params` win over the preset's, and a preset the theme lacks is E102.
+
+```jsonc
+// theme
+"shaders": { "presets": { "noise-fine": { "kind": "noise", "palette": "ember", "params": { "octaves": 4, "scale": 0.0015 } } } }
+// deck
+"bg": { "type": "shader", "kind": "noise", "preset": "noise-fine", "seed": 3, "params": { "contrast": 0.6 } }
+```
+
+**Params** are numbers, or a name a kind lists (a gradient's `shape`). The schema types them by kind, as the tables below do; the engine types them again when it resolves the node, and an unknown or out-of-range one is an error naming the node. A shader op carries numbers only: a name is its place in the kind's list (§6).
+
 **`mesh` (PLAN 0.11).** `points` palette colors (cycling the palette) sit at seeded, evenly spread places over the rect (the R2 low-discrepancy sequence from a seeded start) and drift on slow Lissajous paths of amplitude `drift` (0.2–0.45 rad/s per axis, seeded phases). Each pixel blends them in Oklab, weighting a point at distance d by 1/(1 + d²/σ²)² with σ = 0.6 × `softness`; distances are in units of the rect's shorter side, so circles stay round at any aspect. Alpha blends with the same weights. `grain` adds seeded noise of that amplitude to Oklab lightness, per device pixel.
 
 | param | type | range | default |
@@ -406,7 +417,44 @@ Requirements:
 | `softness` | number | above 0, up to 1 | 0.6 |
 | `grain` | number, in Oklab L | 0–0.25 | 0.03 |
 
-The engine types the params when it resolves the node; an unknown or out-of-range one is an error naming the node. The schema types them per kind: `mesh` by the table above, the other kinds with PLAN 1.10. Phase 0 cross-fades a shader whose kind, seed, palette, or params change between states, until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
+**`gradient` (PLAN 1.10).** The palette's colors (up to 16) run evenly spaced across the gradient, blended in Oklab. A `linear` gradient runs along `angle` over the rect's whole extent that way, as CSS's does; a `radial` one runs out from (`x`, `y`) to `radius` shorter sides of the rect, holding its last color beyond; a `conic` one turns about (`x`, `y`) from `angle` and runs on from its last color back to its first, so it has no seam. A linear or conic gradient turns `speed` degrees a second. Per pixel, a linear gradient is `+ − × ÷`; a radial one adds a square root and a conic one an arctangent, whose last bits a GPU may round differently (within §13.5).
+
+| param | type | range | default |
+|---|---|---|---|
+| `shape` | `linear`, `radial`, or `conic` | | `linear` |
+| `angle` | number, degrees clockwise from up | −360–360 | 180 |
+| `x`, `y` | number, across and down the rect | 0–1 | 0.5 |
+| `radius` | number, in shorter sides | above 0, up to 4 | 0.75 |
+| `speed` | number, degrees a second | −360–360 | 0 |
+| `grain` | number, in Oklab L | 0–0.25 | 0 |
+
+**`noise` (PLAN 1.10).** 3D simplex noise (Gustavson's, its gradients picked by a seeded integer hash) at each pixel's place in canvas units times `scale`, and at `speed` × t along the third axis, so the field changes as time runs rather than sliding. `octaves` layers finer noise over it, each at twice the frequency and half the amplitude. The sum, spread by `contrast`, picks a color along the palette's ramp (up to 16 colors), blended in Oklab. The seed moves the field and keys its hashes. Per pixel it is `+ − × ÷`, `floor`, comparisons, and integer hashing.
+
+| param | type | range | default |
+|---|---|---|---|
+| `scale` | number, cycles per canvas unit | above 0, up to 0.1 | 0.0015 |
+| `octaves` | integer | 1–8 | 4 |
+| `speed` | number, cycles a second | 0–2 | 0.05 |
+| `contrast` | number | 0–4 | 1 |
+| `grain` | number, in Oklab L | 0–0.25 | 0 |
+
+**`grain` (PLAN 1.10).** Film grain over what lies under it. Each device pixel takes seeded noise between −½ and ½: below zero it shows the palette's first color, above it the last, at an opacity up to `amount` as far as the noise is from zero. The grain changes `fps` times a second, so it shimmers rather than crawls; `0` holds it still.
+
+| param | type | range | default |
+|---|---|---|---|
+| `amount` | number, the strongest grain's opacity | 0–1 | 0.12 |
+| `fps` | number, changes a second | 0–60 | 12 |
+
+**`particles` (PLAN 1.10).** `count` soft discs start at seeded, evenly spread places (the R2 sequence) and drift in seeded directions at `speed` shorter sides a second, each at its own pace (½ to 1½ times). One that leaves a side comes back at the other once it is wholly out. Each is `size` shorter sides in radius (½ to 1½ times, seeded), its edge fading over `softness` of its radius, in the palette's colors in turn; later ones lie over earlier ones, blended in linear light. Places come from the seed and t once per frame (`libm`); per pixel it is `+ − × ÷` and comparisons.
+
+| param | type | range | default |
+|---|---|---|---|
+| `count` | integer | 1–64 | 24 |
+| `size` | number, in shorter sides | above 0, up to 0.25 | 0.01 |
+| `speed` | number, shorter sides a second | 0–1 | 0.02 |
+| `softness` | number, of the radius | 0–1 | 0.5 |
+
+Each kind's CPU reference and its WGSL twin are tested against each other on the GPU (`shader_parity`), per seed, time, transform, and parameters. A shader whose kind, seed, palette, or params change between states cross-fades until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
 
 ### 3.9 Animation
 
@@ -695,7 +743,8 @@ Rules:
 - Coordinates are in canvas units; `viewport` is the canvas extent, and painters map it to their output pixels. Glyph positions are in their layer's coordinate space (a text node's layer translates to its box), so moving a node changes one transform, not every glyph.
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
-- Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`. A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
+- Gradient paints (`linear` from `start` to `end`, `radial` about `center` out to `radius`, `sweep` about `center` from `startAngle` to `endAngle`, radians from the positive x axis, clockwise with y down) blend their stops in Oklab with premultiplied alpha. A linear or radial gradient holds its end colors past its ends; a sweep repeats, so one that starts off the x axis runs all the way round. Both painters build them through peniko from one conversion (`scaena-paint`'s `convert`), which adds sRGB stops between the given ones, close enough that blending them in sRGB stays within 0.01 of the Oklab blend: vello's GPU ramp blends stops in sRGB whatever the gradient asks (ADR-0004 finding 12).
+- Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`, all numbers (a name a kind lists is its place in the list: a gradient's `shape` is 0 linear, 1 radial, 2 conic). A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
 - In JSON, colors are `#RRGGBBAA` (sRGB, straight alpha) and paths are absolute SVG path data (`M L Q C Z`); in postcard they are four bytes and an element list. Every number is finite: the encoders refuse NaN and infinities rather than writing `null`.
 - The display list is the unit of golden testing (§14). Goldens are written with `to_golden_json` (one op per line, one glyph per line, so a diff reads as "this op changed" or "this glyph moved") after `quantize` (§13).
 

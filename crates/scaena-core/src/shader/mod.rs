@@ -8,22 +8,28 @@
 //! CPU painter calls [`Job::render`]; a GPU painter dispatches [`Job::wgsl`] over the
 //! same box with [`Job::uniforms`] and copies the bytes it writes into a texture.
 //!
-//! Phase 0 (PLAN 0.11) implements `mesh`; the other kinds are PLAN 1.10.
+//! Every v1 kind is here (PLAN 0.11, 1.10): `mesh`, `gradient`, `noise`, `grain`, and
+//! `particles`.
 
+pub mod gradient;
+pub mod grain;
 pub mod mesh;
+pub mod noise;
+pub mod particles;
 
-use crate::displaylist::{Op, ShaderKind};
+use crate::displaylist::{Color, Op, ShaderKind};
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ShaderError {
-    #[error("not implemented yet: {0} (see docs/PLAN.md)")]
-    NotImplemented(&'static str),
     #[error("shader param `{name}`: {problem}")]
     Param { name: String, problem: String },
     #[error("a shader needs at least one palette color")]
     EmptyPalette,
+    #[error("a {kind} shader runs through at most {max} palette colors; this palette has {len}")]
+    Palette { kind: &'static str, max: usize, len: usize },
     #[error("shader rect {0:?}: expected a finite width and height above 0")]
     Rect([f32; 4]),
 }
@@ -32,6 +38,10 @@ pub enum ShaderError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Job {
     Mesh(mesh::Frame),
+    Gradient(gradient::Frame),
+    Noise(noise::Frame),
+    Grain(grain::Frame),
+    Particles(particles::Frame),
 }
 
 impl Job {
@@ -42,21 +52,39 @@ impl Job {
         let Op::Shader { kind, seed, t, rect, palette, params } = op else {
             return Ok(None);
         };
-        match kind {
+        let (seed, t, rect) = (*seed, *t, *rect);
+        Ok(match kind {
             ShaderKind::Mesh => {
                 let params = mesh::Params::from_map(params)?;
-                Ok(mesh::Frame::new(*seed, *t, palette, &params, *rect, device, size)?.map(Job::Mesh))
+                mesh::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Mesh)
             }
-            ShaderKind::Gradient | ShaderKind::Noise | ShaderKind::Grain | ShaderKind::Particles => {
-                Err(ShaderError::NotImplemented("shader kinds other than mesh — PLAN 1.10"))
+            ShaderKind::Gradient => {
+                let params = gradient::Params::from_map(params)?;
+                gradient::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Gradient)
             }
-        }
+            ShaderKind::Noise => {
+                let params = noise::Params::from_map(params)?;
+                noise::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Noise)
+            }
+            ShaderKind::Grain => {
+                let params = grain::Params::from_map(params)?;
+                grain::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Grain)
+            }
+            ShaderKind::Particles => {
+                let params = particles::Params::from_map(params)?;
+                particles::Frame::new(seed, t, palette, &params, rect, device, size)?.map(Job::Particles)
+            }
+        })
     }
 
     /// `[x, y, width, height]` in device pixels: where [`Job::render`]'s pixels go.
     pub fn bbox(&self) -> [u32; 4] {
         match self {
             Job::Mesh(f) => f.bbox,
+            Job::Gradient(f) => f.bbox,
+            Job::Noise(f) => f.bbox,
+            Job::Grain(f) => f.bbox,
+            Job::Particles(f) => f.bbox,
         }
     }
 
@@ -64,6 +92,10 @@ impl Job {
     pub fn render(&self) -> Vec<u8> {
         match self {
             Job::Mesh(f) => f.render(),
+            Job::Gradient(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Noise(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Grain(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Particles(f) => render(f.bbox, |x, y| f.pixel(x, y)),
         }
     }
 
@@ -73,6 +105,10 @@ impl Job {
     pub fn wgsl(&self) -> &'static str {
         match self {
             Job::Mesh(_) => mesh::WGSL,
+            Job::Gradient(_) => gradient::WGSL,
+            Job::Noise(_) => noise::WGSL,
+            Job::Grain(_) => grain::WGSL,
+            Job::Particles(_) => particles::WGSL,
         }
     }
 
@@ -80,8 +116,151 @@ impl Job {
     pub fn uniforms(&self, stride: u32) -> Vec<u8> {
         match self {
             Job::Mesh(f) => f.uniforms(stride),
+            Job::Gradient(f) => f.uniforms(stride),
+            Job::Noise(f) => f.uniforms(stride),
+            Job::Grain(f) => f.uniforms(stride),
+            Job::Particles(f) => f.uniforms(stride),
         }
     }
+}
+
+/// Whether `params` are ones a `kind` shader takes, each in its range (SPEC §3.8). The
+/// engine asks when it resolves a node, so a bad param is the document's error.
+pub fn check(kind: ShaderKind, params: &BTreeMap<String, f32>) -> Result<(), ShaderError> {
+    match kind {
+        ShaderKind::Mesh => mesh::Params::from_map(params).map(drop),
+        ShaderKind::Gradient => gradient::Params::from_map(params).map(drop),
+        ShaderKind::Noise => noise::Params::from_map(params).map(drop),
+        ShaderKind::Grain => grain::Params::from_map(params).map(drop),
+        ShaderKind::Particles => particles::Params::from_map(params).map(drop),
+    }
+}
+
+/// The number a shader op carries for a param a document writes as a name: a gradient's
+/// `shape`. Shader ops carry numbers only (SPEC §6).
+pub fn named(kind: ShaderKind, param: &str, name: &str) -> Result<f32, ShaderError> {
+    let bad = |problem: String| ShaderError::Param { name: param.to_string(), problem };
+    match (kind, param) {
+        (ShaderKind::Gradient, "shape") => gradient::Shape::named(name)
+            .map(|s| s as u32 as f32)
+            .ok_or_else(|| bad(format!("`{name}`: expected linear, radial, or conic"))),
+        _ => Err(bad(format!("`{name}`: expected a number"))),
+    }
+}
+
+/// The box's pixels, row-major, from `pixel(x, y)`.
+fn render(bbox: [u32; 4], pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let [_, _, w, h] = bbox;
+    let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+    for gy in 0..h {
+        for gx in 0..w {
+            out.extend_from_slice(&pixel(gx, gy));
+        }
+    }
+    out
+}
+
+/// A param in `[lo, hi]`, or the error that says so.
+fn within(name: &str, v: f32, lo: f32, hi: f32) -> Result<f32, ShaderError> {
+    match (lo..=hi).contains(&v) {
+        true => Ok(v),
+        false => Err(ShaderError::Param { name: name.to_string(), problem: format!("{v}: expected {lo} to {hi}") }),
+    }
+}
+
+/// A whole-number param in `[lo, hi]`, or the error that says so.
+fn whole(name: &str, v: f32, lo: u32, hi: u32) -> Result<u32, ShaderError> {
+    match v.fract() == 0.0 && (lo as f32..=hi as f32).contains(&v) {
+        true => Ok(v as u32),
+        false => {
+            let problem = format!("{v}: expected a whole number from {lo} to {hi}");
+            Err(ShaderError::Param { name: name.to_string(), problem })
+        }
+    }
+}
+
+/// The most colors a ramp runs through: the WGSL uniform arrays' length.
+pub const MAX_STOPS: usize = 16;
+
+/// A palette as a ramp: each color in Oklab, with its alpha, for [`sample`].
+fn ramp(kind: &'static str, palette: &[Color]) -> Result<Vec<[f32; 4]>, ShaderError> {
+    if palette.is_empty() {
+        return Err(ShaderError::EmptyPalette);
+    }
+    if palette.len() > MAX_STOPS {
+        return Err(ShaderError::Palette { kind, max: MAX_STOPS, len: palette.len() });
+    }
+    Ok(palette
+        .iter()
+        .map(|&Color([r, g, b, a])| {
+            let [l, ca, cb] = linear_to_oklab([linear(r), linear(g), linear(b)]);
+            [l as f32, ca as f32, cb as f32, f32::from(a) / 255.0]
+        })
+        .collect())
+}
+
+/// The ramp at `u`, 0 to 1: its colors evenly spaced, blended in Oklab. A `cyclic` ramp
+/// runs on from its last color back to its first.
+fn sample(stops: &[[f32; 4]], u: f32, cyclic: bool) -> [f32; 4] {
+    let n = stops.len() as u32;
+    if n == 1 {
+        return stops[0];
+    }
+    let spans = if cyclic { n } else { n - 1 };
+    let s = u * spans as f32;
+    let k = (s.floor().max(0.0) as u32).min(spans - 1);
+    let f = s - k as f32;
+    let (a, b) = (stops[k as usize], stops[((k + 1) % n) as usize]);
+    [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]), a[2] + f * (b[2] - a[2]), a[3] + f * (b[3] - a[3])]
+}
+
+/// An Oklab color and its alpha, 0 to 1, as sRGB RGBA8 with straight alpha: the same
+/// conversion `mesh.wgsl` makes, and every ramp kind's WGSL after it.
+fn oklab_rgba8(l: f32, ca: f32, cb: f32, alpha: f32) -> [u8; 4] {
+    let lm = l + 0.396_337_78 * ca + 0.215_803_76 * cb;
+    let mm = l - 0.105_561_346 * ca - 0.063_854_17 * cb;
+    let sm = l - 0.089_484_18 * ca - 1.291_485_5 * cb;
+    let lc = lm * lm * lm;
+    let mc = mm * mm * mm;
+    let sc = sm * sm * sm;
+    let r = 4.076_741_7 * lc - 3.307_711_6 * mc + 0.230_969_94 * sc;
+    let g = -1.268_438 * lc + 2.609_757_4 * mc - 0.341_319_38 * sc;
+    let b = -0.004_196_086_4 * lc - 0.703_418_6 * mc + 1.707_614_7 * sc;
+    let a8 = alpha.clamp(0.0, 1.0) * 255.0 + 0.5;
+    [encode(r) as u8, encode(g) as u8, encode(b) as u8, a8 as u8]
+}
+
+/// Seeded noise for pixel `(gx, gy)` of a box, uniform in `[-0.5, 0.5)`: the grain
+/// every kind adds the same way.
+fn grain_noise(key: u32, gx: u32, gy: u32) -> f32 {
+    (lowbias32(key ^ lowbias32(gx ^ lowbias32(gy))) >> 8) as f32 * (1.0 / 16_777_216.0) - 0.5
+}
+
+/// A shader's seed as the key its grain and hashes start from.
+fn seed_key(seed: u64) -> u32 {
+    lowbias32(seed as u32 ^ lowbias32((seed >> 32) as u32))
+}
+
+/// A device pixel's center to canvas units relative to `rect`'s corner, scaled by `k`,
+/// as `[a, b, c, d, e, f]` (`x = a·px + c·py + e`), from `device`'s inverse.
+fn local_map(inverse: [f64; 6], rect: [f32; 4], k: f64) -> [f64; 6] {
+    let [a, b, c, d, e, f] = inverse;
+    let (x0, y0) = (f64::from(rect[0]), f64::from(rect[1]));
+    [a * k, b * k, c * k, d * k, (e - x0) * k, (f - y0) * k]
+}
+
+/// The device pixels a shader covers, `[x, y, width, height]`, and the inverse of the
+/// device map, which takes those pixels back to canvas units.
+type Framed = ([u32; 4], [f64; 6]);
+
+/// Checks a rect and finds the device box it covers and the device map's inverse, or
+/// `Ok(None)` when it covers no pixel.
+fn frame_box(rect: [f32; 4], device: [f64; 6], size: [u32; 2]) -> Result<Option<Framed>, ShaderError> {
+    let [rx, ry, w, h] = rect;
+    if !(rx.is_finite() && ry.is_finite() && w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return Err(ShaderError::Rect(rect));
+    }
+    Ok(device_box(rect, device, size).zip(invert(device)))
 }
 
 /// The inverse of the affine map `m` (`[a, b, c, d, e, f]`), if it has one.

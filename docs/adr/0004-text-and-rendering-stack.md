@@ -1,6 +1,6 @@
 # ADR-0004: Text and rendering stack — parley/harfrust/fontique, taffy, vello, krilla
 
-**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9) · 2026-10-02 (PLAN 1.4: subsetting, finding 10)
+**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9) · 2026-10-02 (PLAN 1.4: subsetting, finding 10) · 2026-10-02 (PLAN 1.10: gradient ramps, finding 12)
 
 ## Context
 
@@ -58,6 +58,7 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
     - The languages are English, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Russian, Ukrainian, Turkish, Greek, and Catalan, each a Cargo feature. Adding one is a one-line change, and a test.
     - Every target compiles the same languages. A browser build that dropped German would break German lines differently from the Mac, which SPEC §13 forbids, so languages cannot be trimmed per platform.
     - Measured: the 17 tries are 466 KB raw and 343 KB gzipped, German alone 150 KB. The WASM module (wasm-bindgen output, `gzip -9`, no fonts) went from 1.30 MB at PLAN 1.8c to 1.66 MB, against the 3.0 MB budget. If the budget tightens, the patterns are data: they can load on demand, as fonts do, on every target alike.
+12. **vello's GPU ramp blends gradient stops in sRGB, whatever color space the gradient names.** SPEC §3.9 blends colors in Oklab, so gradient paints ask peniko for `interpolation_cs: Oklab` (PLAN 1.10). vello_cpu 0.2 honours it: `encode_stops` (vello_common) adds sRGB stops between the given ones, as many as keep the sRGB blend within 0.01 of the Oklab one (`color::gradient`). vello 0.10 does not: `make_ramp` (vello_encoding) converts each stop to sRGB and blends those, and its ramp cache does not even key on the color space. A red-to-blue ramp's middle came out sRGB's dark purple on the GPU and Oklab's light violet on the CPU, 83 steps apart, and the torture deck's `shaders` state failed parity (ΔE up to 1.98). *Decision:* `scaena-paint`'s one conversion makes those in-between stops itself, with the same call vello_cpu makes, and hands both painters sRGB stops. The CPU's rasters did not change by a pixel, the GPU's now match them, and `a_gradient_paint_runs_in_oklab_as_the_cpu_painter_runs_it` holds the GPU to it. If a vello release honours the color space, the conversion can stop adding stops; nothing else depends on it.
 
 ## Alternatives
 

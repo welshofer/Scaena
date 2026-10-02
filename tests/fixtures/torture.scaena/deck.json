@@ -1,5 +1,5 @@
 {
-  "scaena": "0.5",
+  "scaena": "0.6",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -2457,6 +2457,255 @@
         }
       ],
       "alt": "Revenue by product as lines, Cloud highlighted."
+    },
+    "sh-linear": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 1,
+      "palette": "torture",
+      "params": {
+        "angle": 120,
+        "grain": 0.02
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-radial": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 2,
+      "palette": "torture",
+      "params": {
+        "shape": "radial",
+        "x": 0.3,
+        "y": 0.4,
+        "radius": 1.0
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-conic": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 3,
+      "palette": "torture",
+      "params": {
+        "shape": "conic",
+        "angle": 30,
+        "speed": 12
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-noise": {
+      "type": "shader",
+      "kind": "noise",
+      "seed": 4,
+      "preset": "noise-soft",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-particles": {
+      "type": "shader",
+      "kind": "particles",
+      "seed": 5,
+      "palette": "torture",
+      "params": {
+        "count": 40,
+        "size": 0.03,
+        "speed": 0.05,
+        "softness": 0.6
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-grain-under": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-grain": {
+      "type": "shader",
+      "kind": "grain",
+      "seed": 6,
+      "palette": "film",
+      "params": {
+        "amount": 0.35,
+        "fps": 12
+      },
+      "z": 1,
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-linear": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": 12,
+      "fill": {
+        "gradient": {
+          "kind": "linear",
+          "angle": 90,
+          "stops": [
+            {
+              "at": 0,
+              "color": "accent"
+            },
+            {
+              "at": 1,
+              "color": "ink"
+            }
+          ]
+        }
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-radial": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": {
+        "gradient": {
+          "kind": "radial",
+          "center": [
+            0.35,
+            0.35
+          ],
+          "stops": [
+            {
+              "at": 0,
+              "color": "paper"
+            },
+            {
+              "at": 1,
+              "color": "accent"
+            }
+          ]
+        }
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-conic": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": 12,
+      "stroke": {
+        "paint": {
+          "gradient": {
+            "kind": "conic",
+            "stops": [
+              {
+                "at": 0,
+                "color": "accent"
+              },
+              {
+                "at": 0.5,
+                "color": "ink"
+              },
+              {
+                "at": 1,
+                "color": "accent"
+              }
+            ]
+          }
+        },
+        "width": 8
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
     }
   },
   "states": [
@@ -3149,6 +3398,29 @@
         }
       },
       "notes": "Pass in the transition (frame @0.5): each annotation moves to where this state puts it. The band narrows to Q4 alone, the target rule rises to $25 as the value axis widens to reach it, and the callout slides from Cloud's bar to Core's. On the right, Cloud dims as Core comes up, their end labels and legend entries with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from “Cloud doubles” to “Core leads”."
+    },
+    {
+      "id": "shaders",
+      "name": "Shaders and gradient paints",
+      "slide": "shaders",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "39 · Shaders and gradient paints · recorded"
+        },
+        "sh-linear": {},
+        "sh-radial": {},
+        "sh-conic": {},
+        "sh-noise": {},
+        "sh-particles": {},
+        "sh-grain-under": {},
+        "sh-grain": {},
+        "gp-linear": {},
+        "gp-radial": {},
+        "gp-conic": {}
+      },
+      "notes": "Pass: top row, three gradient shaders in the torture palette, blended in Oklab: a linear one at 120° with light grain, a radial one from left of center out past the corners, and a conic one turning 12° a second from 30° (shown at its time on the global timeline), its last color meeting its first without a seam. Middle row: soft noise from the theme preset `noise-soft`, forty seeded particles drifting over the surface, and film grain in ink and paper over an accent rect. Bottom row, gradient paints on shapes: a rounded rect from accent to ink left to right, an ellipse lit from its upper left, and a rounded rect whose 8 cu stroke turns from accent through ink and back."
     }
   ]
 }

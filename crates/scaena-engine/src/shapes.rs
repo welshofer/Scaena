@@ -11,7 +11,7 @@
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
 use crate::theme::Theme;
-use scaena_core::displaylist::{Cap, Color, FillRule, Join, Op, Paint, Path, PathEl, Rect};
+use scaena_core::displaylist::{Cap, Color, FillRule, Join, Op, Paint, Path, PathEl, Rect, Stop};
 use scaena_core::document::Props;
 use serde_json::Value;
 
@@ -21,8 +21,68 @@ pub struct ShapeNode {
     /// The box, canvas units.
     pub rect: Rect,
     geometry: Geometry,
-    fill: Option<Color>,
+    fill: Option<ShapePaint>,
     stroke: Option<Stroke>,
+}
+
+/// A fill's or a stroke's paint: a color, or a gradient across the shape's box, made for
+/// whatever box the shape has when it is drawn.
+#[derive(Debug, Clone, PartialEq)]
+enum ShapePaint {
+    Solid(Color),
+    Gradient {
+        kind: GradientKind,
+        /// Degrees clockwise from up: a linear gradient's direction, a conic one's start.
+        angle: f32,
+        /// A radial or conic gradient's center, as fractions of the box.
+        center: [f32; 2],
+        stops: Vec<Stop>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GradientKind {
+    Linear,
+    Radial,
+    Conic,
+}
+
+impl ShapePaint {
+    /// The display-list paint over a box `w` × `h` from its corner. A linear gradient
+    /// runs through the box's middle along `angle`, as long as the box is that way, as
+    /// CSS's does; a radial one runs out from its center to the farthest corner; a conic
+    /// one turns about its center from `angle`.
+    fn paint(&self, w: f32, h: f32) -> Paint {
+        let ShapePaint::Gradient { kind, angle, center, stops } = self else {
+            let ShapePaint::Solid(c) = self else { unreachable!() };
+            return Paint::Solid(*c);
+        };
+        let stops = stops.clone();
+        let (w, h) = (f64::from(w), f64::from(h));
+        let theta = f64::from(*angle).to_radians();
+        let [cx, cy] = [f64::from(center[0]) * w, f64::from(center[1]) * h];
+        match kind {
+            GradientKind::Linear => {
+                let (sin, cos) = (libm::sin(theta), libm::cos(theta));
+                let half = 0.5 * ((w * sin).abs() + (h * cos).abs());
+                let (mx, my) = (0.5 * w, 0.5 * h);
+                let start = [(mx - sin * half) as f32, (my + cos * half) as f32];
+                let end = [(mx + sin * half) as f32, (my - cos * half) as f32];
+                Paint::Linear { start, end, stops }
+            }
+            GradientKind::Radial => {
+                let corner = |x: f64, y: f64| (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                let far = corner(0.0, 0.0).max(corner(w, 0.0)).max(corner(0.0, h)).max(corner(w, h));
+                Paint::Radial { center: [cx as f32, cy as f32], radius: far.sqrt() as f32, stops }
+            }
+            // A sweep's angles run from the positive x axis, clockwise with y down.
+            GradientKind::Conic => {
+                let start = theta - std::f64::consts::FRAC_PI_2;
+                let end = start + std::f64::consts::TAU;
+                Paint::Sweep { center: [cx as f32, cy as f32], start_angle: start as f32, end_angle: end as f32, stops }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +102,7 @@ enum Geometry {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Stroke {
-    color: Color,
+    paint: ShapePaint,
     width: f32,
     cap: Cap,
     join: Join,
@@ -97,7 +157,7 @@ impl ShapeNode {
             other => return Err(EngineError::Layout(format!("unknown shape kind `{other}`"))),
         };
         let fill = match props.get("fill") {
-            Some(paint) => Some(color(theme, paint)?),
+            Some(paint) => Some(shape_paint(theme, paint)?),
             None => None,
         };
         let open = matches!(geometry, Geometry::Line { .. });
@@ -128,7 +188,7 @@ impl ShapeNode {
                 (Geometry::Rect(_), Geometry::Rect(_)) | (Geometry::Ellipse, Geometry::Ellipse) => true,
                 (a, b) => a == b,
             }
-            && (self.fill, &self.stroke) == (other.fill, &other.stroke)
+            && (&self.fill, &self.stroke) == (&other.fill, &other.stroke)
     }
 
     /// `a` to `b`, `p` of the way: the box and a rect's radius move.
@@ -167,13 +227,13 @@ impl ShapeNode {
             Geometry::Path(bez) => (path_of(&fit(bez, w, h)), true),
         };
         let mut ops = Vec::new();
-        if let (Some(fill), true) = (self.fill, closed) {
-            ops.push(Op::Fill { path: path.clone(), rule: FillRule::NonZero, paint: Paint::Solid(fill) });
+        if let (Some(fill), true) = (&self.fill, closed) {
+            ops.push(Op::Fill { path: path.clone(), rule: FillRule::NonZero, paint: fill.paint(w, h) });
         }
         if let Some(s) = &self.stroke {
             ops.push(Op::Stroke {
                 path,
-                paint: Paint::Solid(s.color),
+                paint: s.paint.paint(w, h),
                 width: s.width,
                 cap: s.cap,
                 join: s.join,
@@ -182,7 +242,8 @@ impl ShapeNode {
                 dash_offset: 0.0,
             });
             if let Geometry::Line { points, arrow: true } = &self.geometry {
-                ops.push(arrowhead(at(points[points.len() - 2]), at(points[points.len() - 1]), s));
+                let head = arrowhead(at(points[points.len() - 2]), at(points[points.len() - 1]), s);
+                ops.push(Op::Fill { path: head, rule: FillRule::NonZero, paint: s.paint.paint(w, h) });
             }
         }
         ops
@@ -208,18 +269,18 @@ fn head_base(from: [f32; 2], to: [f32; 2], s: &Stroke) -> [f32; 2] {
     [to[0] - ux * long, to[1] - uy * long]
 }
 
-/// A filled head at `to`, pointing from `from`, sized by the stroke.
-fn arrowhead(from: [f32; 2], to: [f32; 2], s: &Stroke) -> Op {
+/// A head's outline at `to`, pointing from `from`, sized by the stroke; it fills in the
+/// stroke's paint.
+fn arrowhead(from: [f32; 2], to: [f32; 2], s: &Stroke) -> Path {
     let (ux, uy) = direction(from, to);
     let (_, half) = head(s);
     let base = head_base(from, to, s);
-    let path = Path(vec![
+    Path(vec![
         PathEl::MoveTo(to),
         PathEl::LineTo([base[0] - uy * half, base[1] + ux * half]),
         PathEl::LineTo([base[0] + uy * half, base[1] - ux * half]),
         PathEl::Close,
-    ]);
-    Op::Fill { path, rule: FillRule::NonZero, paint: Paint::Solid(s.color) }
+    ])
 }
 
 fn polyline(points: impl Iterator<Item = [f32; 2]>, closed: bool) -> Path {
@@ -263,26 +324,59 @@ fn path_of(bez: &kurbo::BezPath) -> Path {
     )
 }
 
-/// A paint's one color: a color, or `{ "solid": color }`. Gradients are PLAN 1.10.
-fn color(theme: &Theme, paint: &Value) -> Result<Color, EngineError> {
+/// A paint (SPEC §3.3): a color, `{ "solid": color }`, or `{ "gradient": { kind, angle,
+/// center, stops } }`, its colors the theme's.
+fn shape_paint(theme: &Theme, paint: &Value) -> Result<ShapePaint, EngineError> {
     match paint {
-        Value::String(c) => theme.color(c),
+        Value::String(c) => Ok(ShapePaint::Solid(theme.color(c)?)),
         Value::Object(o) if o.contains_key("solid") => {
-            theme.color(o["solid"].as_str().ok_or_else(|| EngineError::Layout("`solid` is a color".into()))?)
+            let c = o["solid"].as_str().ok_or_else(|| EngineError::Layout("`solid` is a color".into()))?;
+            Ok(ShapePaint::Solid(theme.color(c)?))
         }
         Value::Object(o) if o.contains_key("gradient") => {
-            Err(EngineError::NotImplemented("gradient paints — PLAN 1.10"))
+            let g = &o["gradient"];
+            let kind = match g.get("kind").and_then(Value::as_str) {
+                Some("linear") => GradientKind::Linear,
+                Some("radial") => GradientKind::Radial,
+                Some("conic") => GradientKind::Conic,
+                other => {
+                    return Err(EngineError::Layout(format!(
+                        "gradient kind {other:?}: expected linear, radial, or conic"
+                    )));
+                }
+            };
+            let default_angle = if kind == GradientKind::Linear { 180.0 } else { 0.0 };
+            let angle = g.get("angle").and_then(Value::as_f64).unwrap_or(default_angle) as f32;
+            let center = match g.get("center") {
+                None => [0.5, 0.5],
+                Some(c) => serde_json::from_value::<[f32; 2]>(c.clone()).map_err(|_| {
+                    EngineError::Layout(format!("gradient center {c}: expected [x, y], fractions of the box"))
+                })?,
+            };
+            let mut stops = Vec::new();
+            for stop in g.get("stops").and_then(Value::as_array).into_iter().flatten() {
+                let at = stop.get("at").and_then(Value::as_f64).filter(|a| (0.0..=1.0).contains(a));
+                let color = stop.get("color").and_then(Value::as_str);
+                let (Some(at), Some(color)) = (at, color) else {
+                    return Err(EngineError::Layout(format!("gradient stop {stop}: expected {{ at: 0–1, color }}")));
+                };
+                stops.push(Stop(at as f32, theme.color(color)?));
+            }
+            if stops.len() < 2 {
+                return Err(EngineError::Layout("a gradient needs two stops or more".into()));
+            }
+            Ok(ShapePaint::Gradient { kind, angle, center, stops })
         }
-        other => Err(EngineError::Layout(format!("{other} is not a paint: a color, or {{solid}}"))),
+        other => Err(EngineError::Layout(format!("{other} is not a paint: a color, {{solid}}, or {{gradient}}"))),
     }
 }
 
 /// A stroke: its paint (the theme's `onSurface` when it names none), its width (the
 /// theme's `thin` stroke, else 2), and its cap, join, and dashes.
 fn stroke(theme: &Theme, s: &Value) -> Result<Stroke, EngineError> {
-    let color = match s.get("paint") {
-        Some(paint) => color(theme, paint)?,
-        None => theme.color("onSurface")?,
+    let paint = match s.get("paint") {
+        Some(paint) => shape_paint(theme, paint)?,
+        None => ShapePaint::Solid(theme.color("onSurface")?),
     };
     let width = match s.get("width") {
         Some(w) => theme.length(w, 0.0)?,
@@ -305,7 +399,7 @@ fn stroke(theme: &Theme, s: &Value) -> Result<Stroke, EngineError> {
             .map_err(|_| EngineError::Layout(format!("stroke dash {d}: expected lengths")))?,
         None => Vec::new(),
     };
-    Ok(Stroke { color, width, cap, join, dash })
+    Ok(Stroke { paint, width, cap, join, dash })
 }
 
 #[cfg(test)]
@@ -356,6 +450,34 @@ mod tests {
     }
 
     #[test]
+    fn gradients_run_across_the_box_they_are_drawn_in() {
+        let stops = json!([{ "at": 0, "color": "accent" }, { "at": 1, "color": "onSurface" }]);
+        let paint = |kind: &str, extra: Value| {
+            let mut g = json!({ "kind": kind, "stops": stops });
+            g.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let s = shape(json!({ "kind": "rect", "fill": { "gradient": g } }), [10.0, 20.0, 200.0, 100.0]).unwrap();
+            let Op::Fill { paint, .. } = &s.ops()[0] else { panic!() };
+            paint.clone()
+        };
+        // Linear: top to bottom by default, through the box's middle, as tall as it is.
+        let close = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4;
+        let Paint::Linear { start, end, stops } = paint("linear", json!({})) else { panic!() };
+        assert!(close(start, [100.0, 0.0]) && close(end, [100.0, 100.0]), "{start:?} {end:?}");
+        assert_eq!((stops[0].0, stops[0].1), (0.0, theme().color("accent").unwrap()));
+        // 90°: left to right, as wide as the box.
+        let Paint::Linear { start, end, .. } = paint("linear", json!({ "angle": 90 })) else { panic!() };
+        assert!(close(start, [0.0, 50.0]) && close(end, [200.0, 50.0]), "{start:?} {end:?}");
+        // Radial: to the farthest corner.
+        let Paint::Radial { center, radius, .. } = paint("radial", json!({ "center": [0, 0] })) else { panic!() };
+        assert_eq!(center, [0.0, 0.0]);
+        assert!((radius - (200.0_f32 * 200.0 + 100.0 * 100.0).sqrt()).abs() < 1e-3);
+        // Conic from up, as a sweep from the x axis: a quarter turn back.
+        let Paint::Sweep { start_angle, end_angle, .. } = paint("conic", json!({})) else { panic!() };
+        assert!((start_angle + core::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!((end_angle - start_angle - core::f32::consts::TAU).abs() < 1e-5);
+    }
+
+    #[test]
     fn a_path_is_fitted_to_its_box() {
         let s = shape(json!({"path": "M0 0 L24 0 L24 12 Z", "fill": "accent"}), [0.0, 0.0, 100.0, 100.0]).unwrap();
         let Op::Fill { path, .. } = &s.ops()[0] else { panic!() };
@@ -381,7 +503,10 @@ mod tests {
         assert!(err(json!({"kind": "polygon", "points": [[0, 0], [1, 1]]})).contains("three points"));
         assert!(err(json!({"kind": "path"})).contains("needs `path`"));
         assert!(err(json!({"path": "M0 0 Q"})).contains("not SVG path data"));
-        assert!(err(json!({"kind": "rect", "fill": {"gradient": {}}})).contains("PLAN 1.10"));
+        assert!(err(json!({"kind": "rect", "fill": {"gradient": {}}})).contains("gradient kind"));
+        let one =
+            json!({"kind": "rect", "fill": {"gradient": {"kind": "linear", "stops": [{"at": 0, "color": "accent"}]}}});
+        assert!(err(one).contains("two stops"));
         assert!(err(json!({"kind": "rect", "fill": "nope"})).contains("unknown color"));
     }
 }

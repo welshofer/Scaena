@@ -251,11 +251,21 @@ fn frames_are_deterministic_across_engines_and_font_order() {
 }
 
 #[test]
-fn later_shader_kinds_say_which_plan_task_adds_them() {
-    let mut fx = fixture();
-    fx.deck.nodes["mesh-bg"].props.insert("kind".into(), "gradient".into());
-    let err = fx.frame("mesh").unwrap_err();
-    assert!(matches!(err, EngineError::NotImplemented(m) if m.contains("PLAN 1.10")), "{err}");
+fn every_shader_kind_draws_as_its_shader_op() {
+    for kind in ["gradient", "noise", "grain", "particles"] {
+        let mut fx = fixture();
+        let node = &mut fx.deck.nodes["mesh-bg"].props;
+        node.insert("kind".into(), kind.into());
+        node.shift_remove("params");
+        let dl = fx.frame("mesh").unwrap();
+        let found = (dl.ops.iter())
+            .flat_map(|op| match op {
+                Op::Layer { ops, .. } => ops.iter().collect::<Vec<_>>(),
+                other => vec![other],
+            })
+            .any(|op| matches!(op, Op::Shader { kind: k, .. } if serde_json::to_value(k).unwrap() == kind));
+        assert!(found, "{kind}");
+    }
 }
 
 // --- shaders (PLAN 0.11, gate 0 criterion 4) ----------------------------------------

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.1.json",
+  "$id": "https://scaena.dev/schema/theme-0.2.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.1(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.2(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -26,6 +26,119 @@
     "density": { "$ref": "#/$defs/Density" }
   },
   "$defs": {
+    "MeshParams": {
+      "description": "The `mesh` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "points": { "type": "integer", "minimum": 2, "maximum": 16 },
+        "drift": { "description": "In shorter sides of the rect.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientParams": {
+      "description": "The `gradient` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "description": "`linear` (the default), `radial`, or `conic`.", "$ref": "#/$defs/GradientShape" },
+        "angle": {
+          "description": "Degrees clockwise from up: a linear gradient's direction (180, the default, runs top to bottom), a conic one's start.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "x": {
+          "description": "A radial or conic gradient's center across the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "description": "A radial or conic gradient's center down the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "radius": {
+          "description": "A radial gradient's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4
+        },
+        "speed": {
+          "description": "Degrees a second a linear or conic gradient turns.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientShape": { "type": "string", "enum": ["linear", "radial", "conic"] },
+    "NoiseParams": {
+      "description": "The `noise` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": { "description": "Cycles per canvas unit.", "type": "number", "exclusiveMinimum": 0, "maximum": 0.1 },
+        "octaves": {
+          "description": "Layers of finer noise over the first (fractal Brownian motion); 1 is plain simplex noise.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "speed": {
+          "description": "How fast the field changes, in noise cycles a second.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "contrast": {
+          "description": "How far the field spreads across the palette.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GrainParams": {
+      "description": "The `grain` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "amount": { "description": "The strongest grain's opacity.", "type": "number", "minimum": 0, "maximum": 1 },
+        "fps": {
+          "description": "How many times a second the grain changes; 0 holds it still.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        }
+      }
+    },
+    "ParticlesParams": {
+      "description": "The `particles` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "size": {
+          "description": "A particle's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.25
+        },
+        "speed": { "description": "In shorter sides a second.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": {
+          "description": "How much of a particle's radius its edge fades over.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
     "Tokens": {
       "type": "object",
       "required": ["color", "roles", "data", "space"],
@@ -307,16 +420,43 @@
       }
     },
     "ShaderPreset": {
-      "description": "A shader a node can name (PLAN 1.10).",
+      "description": "A shader a node can name (SPEC §3.8): its kind, and the palette and params a node of that kind takes unless it sets its own.",
       "type": "object",
       "required": ["kind"],
+      "additionalProperties": false,
       "properties": {
         "kind": { "$ref": "#/$defs/ShaderKind" },
-        "params": { "type": "object", "additionalProperties": true },
-        "palette": { "type": "string" }
-      }
+        "params": { "type": "object", "additionalProperties": { "$ref": "#/$defs/ShaderParam" } },
+        "palette": { "description": "A shader palette from this theme.", "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "mesh" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/MeshParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "gradient" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GradientParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "noise" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/NoiseParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "grain" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GrainParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        }
+      ]
     },
     "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderParam": {
+      "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
+      "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
     "Charts": {
       "description": "Chart styling: every chart draws with these, never with literals.",
       "type": "object",

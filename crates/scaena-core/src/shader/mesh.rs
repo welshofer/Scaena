@@ -24,7 +24,7 @@ pub const MAX_POINTS: usize = 16;
 
 /// The R2 sequence (Roberts): the plastic number's inverse and its square. Points
 /// stepped by it spread evenly over the rect for any count.
-const R2: [f64; 2] = [0.754_877_666_246_692_7, 0.569_840_290_998_053_2];
+pub(super) const R2: [f64; 2] = [0.754_877_666_246_692_7, 0.569_840_290_998_053_2];
 /// Drift angular speeds, radians per second: one loop every 14 to 31 seconds.
 const SPEED: [f64; 2] = [0.2, 0.25];
 /// σ, in units of the rect's shorter side, at `softness` 1.

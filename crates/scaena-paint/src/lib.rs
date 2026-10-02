@@ -6,10 +6,9 @@
 //! - `cpu` (default feature): `vello_cpu`: headless, deterministic; CI, agents, export.
 //! - `gpu`: `vello` on `wgpu`: WebGPU in the browser, Metal on the Mac, Vulkan on Linux.
 //!
-//! A painter draws only what the engine emits and the tests exercise: solid fills,
-//! strokes, glyph runs (outline, COLR, and bitmap glyphs), layers, PNG images, and `mesh`
-//! shaders. Gradients and other shader kinds return `NotImplemented` naming the PLAN task
-//! that adds them. Both painters take their geometry from the same conversions
+//! A painter draws what the engine emits: fills and strokes in a color or a gradient,
+//! glyph runs (outline, COLR, and bitmap glyphs), layers, PNG images, and shaders of every
+//! kind. Both painters take their geometry and paints from the same conversions
 //! (`convert`), so they can differ only in rasterization.
 //!
 //! Images are decoded once, when they are added to [`Assets`], to straight-alpha RGBA8;
@@ -55,10 +54,7 @@ pub enum PaintError {
 
 impl From<ShaderError> for PaintError {
     fn from(e: ShaderError) -> Self {
-        match e {
-            ShaderError::NotImplemented(task) => PaintError::NotImplemented(task),
-            e => PaintError::Shader(e),
-        }
+        PaintError::Shader(e)
     }
 }
 
@@ -315,9 +311,9 @@ pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, Pai
 /// identical geometry (ADR-0004: one `kurbo`, one `peniko` in the graph).
 #[cfg(any(feature = "cpu", feature = "gpu"))]
 mod convert {
-    use crate::PaintError;
     use kurbo::{Affine, BezPath, Stroke};
-    use peniko::{BlendMode, Color, Mix};
+    use peniko::color::{ColorSpaceTag, DynamicColor, HueDirection, Srgb, gradient};
+    use peniko::{BlendMode, Brush, Color, ColorStop, Extend, Gradient, Mix};
     use scaena_core::displaylist::{Blend, Cap, Join, Paint, Path, PathEl};
 
     pub fn bez(path: &Path) -> BezPath {
@@ -379,11 +375,43 @@ mod convert {
             .with_dashes(f64::from(dash_offset), dash.iter().map(|d| f64::from(*d)))
     }
 
-    pub fn solid(paint: &Paint) -> Result<Color, PaintError> {
-        match paint {
-            Paint::Solid(c) => Ok(Color::from_rgba8(c.0[0], c.0[1], c.0[2], c.0[3])),
-            _ => Err(PaintError::NotImplemented("gradient paints — PLAN 1.10")),
+    /// A display-list paint as a peniko brush: a color, or a gradient interpolated in
+    /// Oklab with premultiplied alpha, as both painters draw it (SPEC §6).
+    pub fn brush(paint: &Paint) -> Brush {
+        let color = |c: &scaena_core::displaylist::Color| Color::from_rgba8(c.0[0], c.0[1], c.0[2], c.0[3]);
+        let point = |p: &[f32; 2]| kurbo::Point::new(f64::from(p[0]), f64::from(p[1]));
+        let (gradient, stops) = match paint {
+            Paint::Solid(c) => return Brush::Solid(color(c)),
+            Paint::Linear { start, end, stops } => (Gradient::new_linear(point(start), point(end)), stops),
+            Paint::Radial { center, radius, stops } => (Gradient::new_radial(point(center), *radius), stops),
+            // A sweep repeats around the turn, so one that starts off the x axis still
+            // runs all the way round.
+            Paint::Sweep { center, start_angle, end_angle, stops } => {
+                (Gradient::new_sweep(point(center), *start_angle, *end_angle).with_extend(Extend::Repeat), stops)
+            }
+        };
+        let stops: Vec<(f32, Color)> = stops.iter().map(|s| (s.0, color(&s.1))).collect();
+        Brush::Gradient(gradient.with_stops(oklab_stops(&stops).as_slice()).with_interpolation_cs(ColorSpaceTag::Srgb))
+    }
+
+    /// Stops close enough together that blending them in sRGB follows their blend in
+    /// Oklab. vello's GPU ramp blends a gradient's stops in sRGB whatever color space the
+    /// gradient names, while vello_cpu adds stops between them first, these same ones
+    /// (`color::gradient`, to within 0.01 in Oklab). Adding them here hands both
+    /// painters the same sRGB stops, so they draw the same ramp.
+    fn oklab_stops(stops: &[(f32, Color)]) -> Vec<ColorStop> {
+        if stops.len() < 2 {
+            return stops.iter().map(|&(at, c)| ColorStop::from((at, c))).collect();
         }
+        let mut out = Vec::new();
+        for pair in stops.windows(2) {
+            let [(a, from), (b, to)] = [pair[0], pair[1]];
+            let (from, to) = (DynamicColor::from_alpha_color(from), DynamicColor::from_alpha_color(to));
+            for (t, c) in gradient::<Srgb>(from, to, ColorSpaceTag::Oklab, HueDirection::default(), 0.01) {
+                out.push(ColorStop::from((a + (b - a) * t, c.un_premultiply())));
+            }
+        }
+        out
     }
 
     pub fn mix(blend: Blend) -> BlendMode {
@@ -408,8 +436,8 @@ mod convert {
 #[cfg(feature = "cpu")]
 pub mod cpu {
     use super::*;
-    use crate::convert::{affine, bez, image_quality, isolated, mix, rect, solid, src_to_dst, stroke};
-    use scaena_core::displaylist::{FillRule, Op};
+    use crate::convert::{affine, bez, brush, image_quality, isolated, mix, rect, src_to_dst, stroke};
+    use scaena_core::displaylist::{FillRule, Op, Paint};
     use vello_cpu::kurbo::{Affine, Rect};
     use vello_cpu::peniko::color::PremulRgba8;
     use vello_cpu::peniko::{Fill, ImageQuality, ImageSampler};
@@ -472,6 +500,15 @@ pub mod cpu {
     }
 
     impl Cx<'_> {
+        /// The paint the next fill or stroke draws with.
+        fn set_paint(&mut self, paint: &Paint) {
+            match brush(paint) {
+                vello_cpu::peniko::Brush::Solid(c) => self.ctx.set_paint(c),
+                vello_cpu::peniko::Brush::Gradient(g) => self.ctx.set_paint(g),
+                vello_cpu::peniko::Brush::Image(_) => unreachable!("display-list paints are colors and gradients"),
+            }
+        }
+
         fn ops(&mut self, ops: &[Op], xf: Affine) -> Result<(), PaintError> {
             for op in ops {
                 match op {
@@ -481,20 +518,20 @@ pub mod cpu {
                             FillRule::NonZero => Fill::NonZero,
                             FillRule::EvenOdd => Fill::EvenOdd,
                         });
-                        self.ctx.set_paint(solid(paint)?);
+                        self.set_paint(paint);
                         self.ctx.fill_path(&bez(path));
                     }
                     Op::Stroke { path, paint, width, cap, join, miter_limit, dash, dash_offset } => {
                         self.ctx.set_transform(xf);
                         self.ctx.set_stroke(stroke(*width, *cap, *join, *miter_limit, dash, *dash_offset));
-                        self.ctx.set_paint(solid(paint)?);
+                        self.set_paint(paint);
                         self.ctx.stroke_path(&bez(path));
                     }
                     Op::Glyphs { font, size, coords, paint, glyphs } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
                         let font = self.store.get(font_ref)?;
                         self.ctx.set_transform(xf);
-                        self.ctx.set_paint(solid(paint)?);
+                        self.set_paint(paint);
                         self.ctx
                             .glyph_run(self.resources, &font)
                             .font_size(*size)
@@ -666,15 +703,27 @@ pub mod cpu {
         }
 
         #[test]
-        fn unimplemented_ops_name_their_plan_task() {
-            let mut dl = DisplayList::new([4.0, 4.0]);
+        fn gradient_paints_run_their_stops_in_oklab() {
+            let (red, blue) =
+                (scaena_core::displaylist::Color([255, 0, 0, 255]), scaena_core::displaylist::Color([0, 0, 255, 255]));
+            let mut dl = DisplayList::new([64.0, 4.0]);
             dl.ops.push(Op::Fill {
-                path: Path::rect([0.0, 0.0, 1.0, 1.0]),
+                path: Path::rect([0.0, 0.0, 64.0, 4.0]),
                 rule: FillRule::NonZero,
-                paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
+                paint: Paint::Linear {
+                    start: [0.0, 0.0],
+                    end: [64.0, 0.0],
+                    stops: vec![scaena_core::displaylist::Stop(0.0, red), scaena_core::displaylist::Stop(1.0, blue)],
+                },
             });
-            let err = CpuPainter::default().paint(&dl, &Assets::new(), 1.0).unwrap_err();
-            assert!(err.to_string().contains("PLAN 1.10"), "{err}");
+            let raster = CpuPainter::default().paint(&dl, &Assets::new(), 1.0).unwrap();
+            let px = |x: usize| &raster.rgba[(2 * 64 + x) * 4..(2 * 64 + x) * 4 + 4];
+            assert!(px(0)[0] > 240 && px(0)[2] < 20, "{:?}", px(0));
+            assert!(px(63)[2] > 240 && px(63)[0] < 20, "{:?}", px(63));
+            // Halfway in Oklab, red to blue is a light violet near (140, 83, 165), not
+            // sRGB's dark purple (128, 0, 128).
+            let mid = px(32);
+            assert!(mid[1] > 60 && mid[0] > 120 && mid[2] > 140, "{mid:?}");
         }
     }
 }
@@ -694,7 +743,7 @@ pub mod gpu {
     //! where the CPU painter draws the reference's pixels.
 
     use super::*;
-    use crate::convert::{affine, bez, image_quality, isolated, mix, rect, solid, src_to_dst, stroke};
+    use crate::convert::{affine, bez, brush, image_quality, isolated, mix, rect, src_to_dst, stroke};
     use scaena_core::displaylist::{FillRule, Op};
     use vello::Scene;
     use vello::kurbo::{Affine, Rect};
@@ -883,16 +932,16 @@ pub mod gpu {
                             FillRule::NonZero => Fill::NonZero,
                             FillRule::EvenOdd => Fill::EvenOdd,
                         };
-                        self.scene.fill(rule, xf, solid(paint)?, None, &bez(path));
+                        self.scene.fill(rule, xf, &brush(paint), None, &bez(path));
                     }
                     Op::Stroke { path, paint, width, cap, join, miter_limit, dash, dash_offset } => {
                         let style = stroke(*width, *cap, *join, *miter_limit, dash, *dash_offset);
-                        self.scene.stroke(&style, xf, solid(paint)?, None, &bez(path));
+                        self.scene.stroke(&style, xf, &brush(paint), None, &bez(path));
                     }
                     Op::Glyphs { font, size, coords, paint, glyphs } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
                         let font = self.store.get(font_ref)?;
-                        let brush = solid(paint)?;
+                        let brush = brush(paint);
                         // vello fills a whole glyph run as one path, so overlapping glyphs
                         // would share a winding count: where a base and a mark of opposite
                         // contour direction overlap, the overlap cancels to a hole. One run
@@ -905,7 +954,7 @@ pub mod gpu {
                                 .font_size(*size)
                                 .normalized_coords(coords)
                                 .hint(false)
-                                .brush(brush)
+                                .brush(&brush)
                                 .draw(Fill::NonZero, std::iter::once(vello::Glyph { id: g.id, x: g.x, y: g.y }));
                         }
                     }
@@ -967,21 +1016,19 @@ pub mod gpu {
         use scaena_core::displaylist::{Paint, Path};
 
         #[test]
-        fn scene_needs_no_device_and_names_unimplemented_paints() {
+        fn scene_needs_no_device_and_takes_every_paint() {
             let mut dl = DisplayList::new([4.0, 4.0]);
             dl.ops.push(Op::Fill {
                 path: Path::rect([0.0, 0.0, 1.0, 1.0]),
                 rule: FillRule::NonZero,
                 paint: Paint::Solid(scaena_core::displaylist::Color([0, 0, 0, 255])),
             });
-            assert!(scene(&dl, &Assets::new(), 1.0, &[]).is_ok());
             dl.ops.push(Op::Fill {
                 path: Path::rect([0.0, 0.0, 1.0, 1.0]),
                 rule: FillRule::NonZero,
                 paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
             });
-            let err = scene(&dl, &Assets::new(), 1.0, &[]).err().unwrap();
-            assert!(err.to_string().contains("PLAN 1.10"), "{err}");
+            assert!(scene(&dl, &Assets::new(), 1.0, &[]).is_ok());
         }
     }
 
@@ -1240,6 +1287,34 @@ pub mod gpu {
                 let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
                 assert!(worst <= 1, "max channel step {worst} on {:?}", gpu.adapter());
                 assert_eq!(raster.pixel(19, 10), [0; 4], "nothing left of the box");
+            }
+
+            #[test]
+            fn a_gradient_paint_runs_in_oklab_as_the_cpu_painter_runs_it() {
+                let Some(mut gpu) = painter() else { return };
+                let stop = |at: f32, c: [u8; 4]| scaena_core::displaylist::Stop(at, Color(c));
+                let mut dl = DisplayList::new([256.0, 4.0]);
+                dl.ops.push(Op::Fill {
+                    path: Path::rect([0.0, 0.0, 256.0, 4.0]),
+                    rule: FillRule::NonZero,
+                    paint: Paint::Linear {
+                        start: [0.0, 0.0],
+                        end: [256.0, 0.0],
+                        stops: vec![
+                            stop(0.0, [255, 0, 0, 255]),
+                            stop(0.6, [0, 0, 255, 255]),
+                            stop(1.0, [0, 0, 0, 255]),
+                        ],
+                    },
+                });
+                let cpu = crate::cpu::CpuPainter::default().paint(&dl, &Assets::new(), 1.0).unwrap();
+                let raster = gpu.paint(&dl, &Assets::new(), 1.0).unwrap();
+                // vello's GPU ramp blends stops in sRGB: given only the three, its middle
+                // would be sRGB's dark purple, some 60 steps from Oklab's violet.
+                let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+                assert!(worst <= 3, "max channel step {worst} on {:?}", gpu.adapter());
+                let mid = raster.pixel(77, 2);
+                assert!(mid[1] > 60 && mid[0] > 120 && mid[2] > 140, "{mid:?}");
             }
 
             #[test]

@@ -34,7 +34,7 @@ const MORPHS: [(&str, &str); 6] = [
 fn every_torture_state_is_an_isolated_case() {
     let deck = Deck::from_json(TORTURE).unwrap();
     let snapshots = resolve_states(&deck).unwrap();
-    assert_eq!(snapshots.len(), 40);
+    assert_eq!(snapshots.len(), 41);
     let mut specimens_seen = HashSet::new();
     for (i, (state, snap)) in deck.states.iter().zip(&snapshots).enumerate() {
         if let Some((_, from)) = MORPHS.iter().find(|(s, _)| *s == state.id) {

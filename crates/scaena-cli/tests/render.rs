@@ -134,9 +134,12 @@ fn edited_bundle(dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> PathB
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
     let dir = scratch("unimplemented");
-    // Shader kinds other than mesh arrive in PLAN 1.10.
-    let gradient = edited_bundle(&dir, |deck| deck["nodes"]["mesh-bg"]["kind"] = "gradient".into());
-    let mut cases = vec![(gradient, vec!["--state", "mesh"], "PLAN 1.10")];
+    // Spring transitions arrive in PLAN 1.11.
+    let spring = edited_bundle(&dir, |deck| {
+        let mesh = deck["states"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "mesh").unwrap();
+        mesh["transition"] = serde_json::json!({ "spring": "snappy" });
+    });
+    let mut cases = vec![(spring, vec!["--state", "mesh"], "PLAN 1.11")];
     // Without the `gpu` feature the GPU painter is not compiled in.
     if cfg!(not(feature = "gpu")) {
         cases.push((PathBuf::from(BUNDLE), vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));

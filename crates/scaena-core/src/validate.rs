@@ -235,6 +235,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
+            out.extend(shader_presets(&deck, snapshots.as_deref().unwrap_or_default(), theme));
         }
     }
     // Each finding once, and an id problem once per place: the schema and the semantic
@@ -460,6 +461,10 @@ impl LoadedTheme {
 
     fn palette(&self, name: &str) -> bool {
         self.theme.shaders.as_ref().and_then(|s| s.palettes.as_ref()).is_some_and(|p| p.contains_key(name))
+    }
+
+    fn shader_preset(&self, name: &str) -> Option<&crate::model::theme::ShaderPreset> {
+        self.theme.shaders.as_ref().and_then(|s| s.presets.as_ref()).and_then(|p| p.get(name))
     }
 
     fn stroke(&self, name: &str) -> bool {
@@ -1066,6 +1071,44 @@ fn theme_names(deck: &Deck, snapshots: Option<&[Snapshot]>, theme: &LoadedTheme)
     names.out
 }
 
+/// E106: a shader's preset is a preset of its kind (SPEC §3.8), in every state that
+/// shows it. Each finding points at the `preset` the state's delta or the node set.
+fn shader_presets(deck: &Deck, snapshots: &[Snapshot], theme: &LoadedTheme) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Shader) {
+                continue;
+            }
+            let (Some(name), Some(kind)) = (props.get("preset").and_then(Value::as_str), props.get("kind")) else {
+                continue;
+            };
+            let Some(preset) = theme.shader_preset(name) else { continue };
+            let theirs = serde_json::to_value(preset.kind).unwrap_or_default();
+            if theirs == *kind {
+                continue;
+            }
+            let path = match state.props.get(id).and_then(|d| d.get("preset")) {
+                Some(_) => format!("/states/{i}/props/{}/preset", esc(id)),
+                None => format!("/nodes/{}/preset", esc(id)),
+            };
+            let message = format!("preset `{name}` is a {} shader, and this one is a {}", plain(&theirs), plain(kind));
+            if seen.insert(path.clone()) {
+                out.push(
+                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// A JSON string as it reads, without its quotes.
+fn plain(v: &Value) -> String {
+    v.as_str().map_or_else(|| v.to_string(), str::to_string)
+}
+
 /// What [`theme_names`] collects as it walks the deck.
 struct Names<'a> {
     theme: &'a LoadedTheme,
@@ -1130,6 +1173,12 @@ impl Names<'_> {
         {
             let defined = self.theme.palette(palette);
             self.need(defined, "shader palette", palette, format!("{at}/palette"), state, node_);
+        }
+        if node_type == NodeType::Shader
+            && let Some(preset) = props.get("preset").and_then(Value::as_str)
+        {
+            let defined = self.theme.shader_preset(preset).is_some();
+            self.need(defined, "shader preset", preset, format!("{at}/preset"), state, node_);
         }
         for key in ["enter", "exit", "emphasis"] {
             if let Some(preset) = props.get(key) {

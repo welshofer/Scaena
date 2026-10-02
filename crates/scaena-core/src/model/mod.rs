@@ -33,8 +33,8 @@ use std::borrow::Cow;
 /// `docs/schema/deck.schema.json`.
 pub fn deck_schema() -> Value {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    // Reached only through the shader node's `if`/`then`, which the generator cannot see.
-    generator.subschema_for::<nodes::MeshParams>();
+    // Reached only through the shader node's `if`/`then`s, which the generator cannot see.
+    shader_params(&mut generator);
     let schema = generator.into_root_schema_for::<crate::document::Deck>();
     let mut v = serde_json::to_value(schema).expect("a schema serializes");
     finish(&mut v, "deck", "scaena", crate::FORMAT_VERSION);
@@ -58,9 +58,20 @@ pub fn deck_schema() -> Value {
     v
 }
 
+/// Each shader kind's params, which a shader node and a theme preset type by kind.
+fn shader_params(generator: &mut schemars::SchemaGenerator) {
+    generator.subschema_for::<nodes::MeshParams>();
+    generator.subschema_for::<nodes::GradientParams>();
+    generator.subschema_for::<nodes::NoiseParams>();
+    generator.subschema_for::<nodes::GrainParams>();
+    generator.subschema_for::<nodes::ParticlesParams>();
+}
+
 /// `docs/schema/theme.schema.json`.
 pub fn theme_schema() -> Value {
-    let schema = SchemaSettings::draft2020_12().into_generator().into_root_schema_for::<Theme>();
+    let mut generator = SchemaSettings::draft2020_12().into_generator();
+    shader_params(&mut generator);
+    let schema = generator.into_root_schema_for::<Theme>();
     let mut v = serde_json::to_value(schema).expect("a schema serializes");
     finish(&mut v, "theme", "scaena-theme", crate::THEME_FORMAT_VERSION);
     v

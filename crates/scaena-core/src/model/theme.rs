@@ -1,7 +1,7 @@
 //! The theme, a design system (SPEC §3.6): tokens, typographic roles, the grid, layout
 //! templates, motion, shader palettes, chart styling. Documents reference these by name.
 
-use super::nodes::ShaderKind;
+use super::nodes::{ShaderKind, ShaderParam};
 use super::values::{Features, FontAxes, NonNegative, Range, SplitUnit, SpringParams};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -303,12 +303,27 @@ pub struct Shaders {
     pub presets: Option<IndexMap<String, ShaderPreset>>,
 }
 
-/// A shader a node can name (PLAN 1.10).
+/// A shader a node can name (SPEC §3.8): its kind, and the palette and params a node of
+/// that kind takes unless it sets its own.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("allOf" = [
+    {"if": {"properties": {"kind": {"const": "mesh"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/MeshParams"}}}},
+    {"if": {"properties": {"kind": {"const": "gradient"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/GradientParams"}}}},
+    {"if": {"properties": {"kind": {"const": "noise"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/NoiseParams"}}}},
+    {"if": {"properties": {"kind": {"const": "grain"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/GrainParams"}}}},
+    {"if": {"properties": {"kind": {"const": "particles"}}, "required": ["kind"]},
+     "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}}
+]))]
 pub struct ShaderPreset {
     pub kind: ShaderKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<IndexMap<String, Value>>,
+    pub params: Option<IndexMap<String, ShaderParam>>,
+    /// A shader palette from this theme.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette: Option<String>,
 }

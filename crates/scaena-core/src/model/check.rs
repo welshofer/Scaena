@@ -35,6 +35,7 @@ pub const KEYWORDS: &[&str] = &[
     "minProperties",
     "anyOf",
     "oneOf",
+    "allOf",
     "if",
     "then",
 ];
@@ -178,6 +179,13 @@ impl Checker {
                 if let Some(then) = schema.get("then") {
                     out.absorb(self.run(then, value, path, def));
                 }
+            }
+        }
+        // Every part holds: a shader's params are typed by its kind, one `if`/`then` a
+        // kind.
+        if let Some(Value::Array(parts)) = schema.get("allOf") {
+            for part in parts {
+                out.absorb(self.run(part, value, path, def));
             }
         }
         if schema.get("unevaluatedProperties") == Some(&Value::Bool(false))

@@ -449,22 +449,44 @@ pub enum LegendPlace {
 
 node! {
     /// A parametric background or fill (SPEC §3.8): a kind, a seed, a theme palette, and
-    /// typed params. No shader source, ever.
-    #[schemars(extend(
-        "if" = {"properties": {"kind": {"const": "mesh"}}, "required": ["kind"]},
-        "then" = {"properties": {"params": {"$ref": "#/$defs/MeshParams"}}}
-    ))]
+    /// typed params, its own or a theme preset's. No shader source, ever.
+    #[schemars(extend("allOf" = [
+        {"if": {"properties": {"kind": {"const": "mesh"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/MeshParams"}}}},
+        {"if": {"properties": {"kind": {"const": "gradient"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/GradientParams"}}}},
+        {"if": {"properties": {"kind": {"const": "noise"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/NoiseParams"}}}},
+        {"if": {"properties": {"kind": {"const": "grain"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/GrainParams"}}}},
+        {"if": {"properties": {"kind": {"const": "particles"}}, "required": ["kind"]},
+         "then": {"properties": {"params": {"$ref": "#/$defs/ParticlesParams"}}}}
+    ]))]
     ShaderNode {
         pub kind: ShaderKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub seed: Option<u64>,
-        /// A shader palette from the theme.
+        /// A shader palette from the theme; the preset's when unset.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub palette: Option<String>,
-        /// Typed per kind: `mesh` takes [`MeshParams`]; the other kinds are PLAN 1.10.
+        /// A shader preset from the theme, of this kind: its palette and params are this
+        /// node's, unless the node sets its own.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub params: Option<IndexMap<String, f64>>,
+        pub preset: Option<String>,
+        /// Typed per kind (SPEC §3.8): `mesh` takes [`MeshParams`], `gradient`
+        /// [`GradientParams`], `noise` [`NoiseParams`], `grain` [`GrainParams`], and
+        /// `particles` [`ParticlesParams`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub params: Option<IndexMap<String, ShaderParam>>,
     }
+}
+
+/// A shader parameter: a number, or a name its kind lists (a gradient's `shape`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ShaderParam {
+    Number(f64),
+    Name(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -475,6 +497,110 @@ pub enum ShaderKind {
     Noise,
     Grain,
     Particles,
+}
+
+/// The `gradient` shader's params (SPEC §3.8).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GradientParams {
+    /// `linear` (the default), `radial`, or `conic`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<GradientShape>,
+    /// Degrees clockwise from up: a linear gradient's direction (180, the default, runs
+    /// top to bottom), a conic one's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -360, max = 360))]
+    pub angle: Option<f64>,
+    /// A radial or conic gradient's center across the rect, 0 to 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub x: Option<f64>,
+    /// A radial or conic gradient's center down the rect, 0 to 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub y: Option<f64>,
+    /// A radial gradient's radius, in shorter sides of the rect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = 4), extend("exclusiveMinimum" = 0))]
+    pub radius: Option<f64>,
+    /// Degrees a second a linear or conic gradient turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = -360, max = 360))]
+    pub speed: Option<f64>,
+    /// In Oklab lightness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 0.25))]
+    pub grain: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum GradientShape {
+    Linear,
+    Radial,
+    Conic,
+}
+
+/// The `noise` shader's params (SPEC §3.8).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NoiseParams {
+    /// Cycles per canvas unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = 0.1), extend("exclusiveMinimum" = 0))]
+    pub scale: Option<f64>,
+    /// Layers of finer noise over the first (fractal Brownian motion); 1 is plain
+    /// simplex noise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 8))]
+    pub octaves: Option<u8>,
+    /// How fast the field changes, in noise cycles a second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 2))]
+    pub speed: Option<f64>,
+    /// How far the field spreads across the palette.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 4))]
+    pub contrast: Option<f64>,
+    /// In Oklab lightness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 0.25))]
+    pub grain: Option<f64>,
+}
+
+/// The `grain` shader's params (SPEC §3.8).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GrainParams {
+    /// The strongest grain's opacity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub amount: Option<f64>,
+    /// How many times a second the grain changes; 0 holds it still.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 60))]
+    pub fps: Option<f64>,
+}
+
+/// The `particles` shader's params (SPEC §3.8).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ParticlesParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 64))]
+    pub count: Option<u8>,
+    /// A particle's radius, in shorter sides of the rect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = 0.25), extend("exclusiveMinimum" = 0))]
+    pub size: Option<f64>,
+    /// In shorter sides a second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub speed: Option<f64>,
+    /// How much of a particle's radius its edge fades over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub softness: Option<f64>,
 }
 
 /// The `mesh` shader's params (SPEC §3.8).
