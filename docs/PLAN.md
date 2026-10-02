@@ -127,7 +127,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Tables as wide as their columns, at the cell's start (`tables.stretch` spans the cell).*
     - *Dusk and Daybreak (and the authorability copies) lose their rounded bars and take muted palettes led by a soft ink, the accent kept for emphasis. The torture theme keeps its values, so its goldens moved only where a chart leaned on a default: `chart-kinds`, `chart-kinds-2`, `regroup-stacked`, and `annotations`, and their transitions.*
     - *`docs/examples/charts.deck.json` is the review gallery: every kind and a table, nothing styled, linting clean.*
-  - *Open: Jay's review of the gallery renders, then the tick. Next candidates, by the same rule: range frames for the value axis, white gridlines knocked through bars, direct labels for donuts and scatters, and a dot plot's baseline only where 0 is in its domain.)*
+  - *After the fifteen-slide deck (#36):*
+    - *A line's first and last values get room beside a continuous axis, two spaces from the value axis's labels, so neither is pushed back over its line.*
+    - *The baseline rules 0 only where the value axis reaches it, so a line that starts at 120 shows no rule that reads as zero.*
+  - *Open: Jay's review of the gallery renders, then the tick. Next candidates, by the same rule: range frames for the value axis, white gridlines knocked through bars, and direct labels for donuts and scatters.)*
 
 - [x] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets. *(Done. In `scaena-core::shader`, SPEC §3.8:*
   - *Kinds: `gradient` (linear, radial, or conic, turning; the palette as a ramp in Oklab), `noise` (3D simplex in octaves, evolving along time, keyed by the seed), `grain` (per device pixel, two palette tones, changing `fps` times a second), and `particles` (seeded soft discs that drift and wrap, blended in linear light). Each has a CPU reference and a WGSL twin side by side. Per frame, geometry comes from `libm`; per pixel the arithmetic matches line for line.*
