@@ -792,7 +792,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> --state ID [--resolved]     # absolute snapshot, resolved styles, timeline
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data]   # absolute snapshot, resolved styles, cue, rows
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
@@ -803,7 +803,35 @@ scaena serve     <bundle> [--port N]                  # dev server: live preview
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 
-All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
+Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`); `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
+
+`--json` goes anywhere on the line. With it, stdout holds exactly one JSON value: the command's result, or, when the command stops with exit 2 or 3, `{ "error": { "exit", "message", "plan"? } }`. A usage error is one too. `compile` adds the `line` and `col` of source that does not compile, and the JSON pointer into the deck (`path`) when the error is about part of it. So an agent parses stdout, then reads the exit code. stderr is for people and is not part of the contract. The results:
+
+| Command | `--json` |
+|---|---|
+| `validate`, `lint` | an array of findings (§7.4) |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, and `--data` adds `data` |
+| `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
+| `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
+| `decompile` | `{ out, scn? }` |
+| `render` | `{ state, format, t_ms, span_ms, painter, adapter, size, out, display_list, ms }`: `ms` holds the stage timings |
+| `save` | `{ renamed, subset, manifest }` |
+| `export` | `{ format, out, spine? }` |
+| `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
+
+`inspect --timeline` shows each state's cue (§2.4, §3.9) in ms, worked out as `render` does, so it reads the bundle's fonts:
+- Where the state falls on the deck's timeline: `start`, `span` (its transition and motions), and `hold`.
+- Its `transition`: `duration`, `curve`, and `match`.
+- Each of its `motions` as placed on the state's clock: `node`, `motion` (`enter`, `exit`, `emphasis`, `anim`), `split` and `units`, `start`, `stagger`, `duration`, `end`, and `curve`.
+- The motion's look, as what it changes from rest: `from` (enter), `to` (exit), `peak` (emphasis), or `tracks` (anim).
+
+A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, mass } }`.
+
+`inspect --data` shows the rows each chart and table reads, after its `dataTransform`. Each is `{ source, columns, types, rows }`, and dates are ISO 8601.
+
+`diff` without `--json` prints a line per node: `+ id` enters, `- id` exits, and `~ id: keys` changes those keys.
+
+`export --states a,b` picks the states a frame export draws (png, pdf, svg, video, html). `spine` is the whole spine, and takes no `--states`.
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 

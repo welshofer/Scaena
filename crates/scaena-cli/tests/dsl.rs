@@ -64,7 +64,9 @@ fn findings_exit_1_at_the_source_that_wrote_them() {
     let out = scaena(&["--json", "compile", scn.to_str().unwrap(), "-o", out_json.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(!out_json.exists(), "a deck that does not validate is not written");
-    let findings: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let summary: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(summary["out"], serde_json::Value::Null, "{summary:#}");
+    let findings = &summary["findings"];
     let at = |path: &str| {
         let f =
             findings.as_array().unwrap().iter().find(|f| f["path"] == path).unwrap_or_else(|| panic!("{findings:#}"));
@@ -97,8 +99,10 @@ fn source_that_does_not_parse_exits_2() {
 
     let out = scaena(&["--json", "compile", scn.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2));
-    let errors: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!((errors[0]["line"].as_u64(), errors[0]["col"].as_u64()), (Some(2), Some(1)));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let error = &v["error"];
+    assert_eq!((error["exit"].as_u64(), error["line"].as_u64(), error["col"].as_u64()), (Some(2), Some(2), Some(1)));
+    assert!(error["message"].as_str().unwrap().contains("`nod` does not start a declaration"), "{v:#}");
 
     let out = scaena(&["compile", dir.join("missing.scn").to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2), "a file that is not there is invalid input");

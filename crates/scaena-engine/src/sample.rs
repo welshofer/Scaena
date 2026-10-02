@@ -659,6 +659,11 @@ impl Transition {
         self.timing.duration_ms
     }
 
+    /// How the transition into the state runs: its time, its curve, and whether it morphs.
+    pub fn timing(&self) -> Timing {
+        self.timing
+    }
+
     /// The state's span, ms: its transition and every motion. From then on, at rest.
     pub fn span_ms(&self) -> f64 {
         self.schedule.span
