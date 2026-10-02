@@ -1,12 +1,20 @@
-//! Semantic validation (SPEC §7.5 E-codes that need no layout): ids, references,
-//! tracking errors. Schema validation (shape) happens before this, against
-//! `docs/schema/deck.schema.json`; this catches what a schema cannot.
+//! Validation (SPEC §7.5 E-codes that need no layout), PLAN 1.2.
+//!
+//! [`validate_bundle`] is what `scaena validate` runs: the deck and its theme against
+//! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
+//! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::document::Deck;
+use crate::document::{Deck, NodeType, Props};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
-use serde_json::Value;
-use std::collections::HashSet;
+use crate::model::Theme;
+use crate::model::check::{Checker, Kind, Violation};
+use crate::model::values::{Duration, Easing};
+use crate::tracking::{Snapshot, resolve_states};
+use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde_json::{Map, Value, json};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 /// Validate `deck` and return every problem as an E-finding.
 pub fn validate(deck: &Deck) -> Vec<Finding> {
@@ -154,6 +162,709 @@ fn choreo_targets(item: &Value) -> Vec<String> {
         }
     }
     v
+}
+
+// --- the bundle ------------------------------------------------------------
+
+/// The files around a deck, as validation sees them; core reads no filesystem itself.
+pub trait BundleFiles {
+    /// Whether the bundle holds a file at `path`, a path inside the bundle.
+    fn exists(&self, path: &str) -> bool;
+    /// The file at `path` as text, if the bundle holds it.
+    fn read_text(&self, path: &str) -> Option<String>;
+}
+
+/// Everything `scaena validate` checks (SPEC §7.1), as findings:
+/// - the deck against its schema, and its theme against the theme schema (E106; an
+///   invalid id is E105);
+/// - a key written twice in one object (E105 for an id, E106 for anything else);
+/// - what a schema cannot say: references to nodes, states, data, files, and theme names
+///   (E102), a delta that sets `type` (E104), an id used twice (E105), and each state,
+///   resolved, against its nodes' types (E106).
+///
+/// `Err` only when `deck_json` is not JSON.
+pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<Finding>, serde_json::Error> {
+    let doc: Value = serde_json::from_str(deck_json)?;
+    let mut out = Vec::new();
+    for path in repeated_keys(deck_json)? {
+        out.push(locate(repeated(&path), &doc, &path));
+    }
+    for v in Checker::deck().check(&doc) {
+        // A delta's `type` is E104's (below).
+        if !(v.kind == Kind::Unknown && delta_key(&v.path) == Some("type")) {
+            let path = v.path.clone();
+            out.push(locate(schema_finding(v), &doc, &path));
+        }
+    }
+    let theme = load_theme(&doc, files, &mut out);
+    if let Ok(deck) = Deck::from_json(deck_json) {
+        out.extend(validate(&deck));
+        out.extend(type_changes(&deck));
+        out.extend(missing_files(&deck, theme.as_ref(), files));
+        // Tracking that fails (reported above) leaves no states to resolve.
+        let snapshots = resolve_states(&deck).ok();
+        if let Some(snapshots) = &snapshots {
+            out.extend(resolved_types(&deck, snapshots));
+        }
+        if let Some(theme) = &theme {
+            out.extend(theme.undefined_names());
+            out.extend(theme_names(&deck, snapshots.as_deref(), theme));
+        }
+    }
+    // Each finding once, and an id problem once per place: the schema and the semantic
+    // checks can both see an invalid id, in their own words.
+    let mut seen = HashSet::new();
+    out.retain(|f| seen.insert((f.code.clone(), f.file.clone(), f.path.clone(), f.message.clone())));
+    let mut placed = HashSet::new();
+    out.retain(|f| f.code != "E105" || placed.insert((f.file.clone(), f.path.clone())));
+    Ok(out)
+}
+
+/// A schema violation as a finding: an invalid id, or one listed twice, is E105; the rest
+/// are E106.
+fn schema_finding(v: Violation) -> Finding {
+    let code = match (v.def.as_deref(), v.kind) {
+        (Some("Id"), _) | (_, Kind::Name) | (Some("IdList"), Kind::Repeated) => "E105",
+        _ => "E106",
+    };
+    let mut finding = Finding::new(code, Severity::Error, v.message).at(v.path.clone());
+    if v.path == "/scaena" {
+        finding = finding.hint(format!("This build reads deck format {}.", crate::FORMAT_VERSION));
+    }
+    finding
+}
+
+/// A key written twice in one object: a parser keeps the second, so the first is lost.
+fn repeated(path: &str) -> Finding {
+    let tokens: Vec<String> = tokens(path);
+    let key = tokens.last().cloned().unwrap_or_default();
+    let id_map = match tokens.as_slice() {
+        [map, _] => matches!(map.as_str(), "nodes" | "data" | "overrides"),
+        [states, _, props, _] => states == "states" && props == "props",
+        _ => false,
+    };
+    let (code, what) = if id_map { ("E105", "id") } else { ("E106", "key") };
+    Finding::new(
+        code,
+        Severity::Error,
+        format!("{what} `{key}` is written twice in one object; only the last one counts"),
+    )
+    .at(path)
+}
+
+/// `finding` with the state and node its `path` into the deck is about.
+fn locate(mut finding: Finding, doc: &Value, path: &str) -> Finding {
+    match tokens(path).as_slice() {
+        [nodes, id, ..] if nodes == "nodes" || nodes == "overrides" => finding = finding.node(id.clone()),
+        [states, i, rest @ ..] if states == "states" => {
+            if let Some(id) = i.parse::<usize>().ok().and_then(|i| doc["states"][i]["id"].as_str()) {
+                finding = finding.state(id);
+            }
+            if let [props, node, ..] = rest
+                && props == "props"
+            {
+                finding = finding.node(node.clone());
+            }
+        }
+        _ => {}
+    }
+    finding
+}
+
+/// The key a path names inside a state's delta (`/states/2/props/title/type` → `type`).
+fn delta_key(path: &str) -> Option<&str> {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        ["", "states", _, "props", _, key] => Some(key),
+        _ => None,
+    }
+}
+
+/// A JSON pointer's tokens, unescaped.
+fn tokens(path: &str) -> Vec<String> {
+    path.split('/').skip(1).map(|t| t.replace("~1", "/").replace("~0", "~")).collect()
+}
+
+/// `path` extended by one JSON-pointer token.
+fn child(path: &str, token: &str) -> String {
+    format!("{path}/{}", esc(token))
+}
+
+/// The theme, checked against its schema, with its typed view when it has one.
+struct LoadedTheme {
+    theme: Theme,
+    /// The bundle file it came from; `None` when it is inline in the deck.
+    file: Option<String>,
+    /// Where its paths start: `/theme` inline, the file's root otherwise.
+    root: &'static str,
+}
+
+impl LoadedTheme {
+    /// A finding about the theme, at `path` inside it.
+    fn finding(&self, code: &str, message: String, path: &str) -> Finding {
+        let finding = Finding::new(code, Severity::Error, message).at(format!("{}{path}", self.root));
+        match &self.file {
+            Some(file) => finding.file(file.clone()),
+            None => finding,
+        }
+    }
+
+    /// E102: names the theme uses that it does not define.
+    fn undefined_names(&self) -> Vec<Finding> {
+        let t = &self.theme;
+        let mut out = Vec::new();
+        let mut need = |defined: bool, what: &str, name: &str, path: String| {
+            if !defined {
+                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme"), &path));
+            }
+        };
+        for (name, color) in &t.tokens.roles {
+            need(t.tokens.color.contains_key(color), "color", color, format!("/tokens/roles/{}", esc(name)));
+        }
+        for (key, family) in &t.typography.families {
+            for (i, fallback) in family.fallback.iter().flatten().enumerate() {
+                let path = format!("/type/families/{}/fallback/{i}", esc(key));
+                need(t.typography.families.contains_key(fallback), "font family", fallback, path);
+            }
+        }
+        for (name, role) in &t.typography.roles {
+            let at = format!("/type/roles/{}", esc(name));
+            need(t.typography.families.contains_key(&role.family), "font family", &role.family, format!("{at}/family"));
+            if let Some(color) = &role.color {
+                need(self.color(color), "color", color, format!("{at}/color"));
+            }
+        }
+        for (name, layout) in &t.layouts {
+            for (slot, def) in &layout.slots {
+                if let Some(role) = &def.role {
+                    let path = format!("/layouts/{}/slots/{}/role", esc(name), esc(slot));
+                    need(t.typography.roles.contains_key(role), "text role", role, path);
+                }
+            }
+        }
+        for (name, preset) in &t.motion.presets {
+            let at = format!("/motion/presets/{}", esc(name));
+            if let Some(Duration::Named(d)) = &preset.duration {
+                need(t.motion.durations.contains_key(d), "duration", d, format!("{at}/duration"));
+            }
+            if let Some(Easing::Named(e)) = &preset.ease {
+                need(t.motion.easings.contains_key(e), "easing", e, format!("{at}/ease"));
+            }
+            if let Some(s) = &preset.spring {
+                need(t.motion.springs.contains_key(s), "spring", s, format!("{at}/spring"));
+            }
+        }
+        if let Some(shaders) = &t.shaders {
+            for (name, preset) in shaders.presets.iter().flatten() {
+                if let Some(palette) = &preset.palette {
+                    let path = format!("/shaders/presets/{}/palette", esc(name));
+                    need(self.palette(palette), "shader palette", palette, path);
+                }
+            }
+        }
+        if let Some(charts) = &t.charts {
+            for (key, rule) in [("axis", &charts.axis), ("gridlines", &charts.gridlines)] {
+                let Some(rule) = rule else { continue };
+                if let Some(role) = &rule.role {
+                    need(t.typography.roles.contains_key(role), "text role", role, format!("/charts/{key}/role"));
+                }
+                if let Some(color) = &rule.color {
+                    need(self.color(color), "color", color, format!("/charts/{key}/color"));
+                }
+                if let Some(stroke) = &rule.stroke {
+                    need(self.stroke(stroke), "stroke", stroke, format!("/charts/{key}/stroke"));
+                }
+            }
+            if let Some(role) = charts.label.as_ref().and_then(|l| l.role.as_ref()) {
+                need(t.typography.roles.contains_key(role), "text role", role, "/charts/label/role".into());
+            }
+            if let Some(stroke) = &charts.stroke_width {
+                need(self.stroke(stroke), "stroke", stroke, "/charts/strokeWidth".into());
+            }
+        }
+        out
+    }
+
+    /// Whether `color` is a literal, or a color token or role the theme defines.
+    fn color(&self, color: &str) -> bool {
+        let tokens = &self.theme.tokens;
+        let name = color.strip_prefix("color.").unwrap_or(color);
+        is_color_literal(color) || tokens.color.contains_key(name) || tokens.roles.contains_key(name)
+    }
+
+    fn palette(&self, name: &str) -> bool {
+        self.theme.shaders.as_ref().and_then(|s| s.palettes.as_ref()).is_some_and(|p| p.contains_key(name))
+    }
+
+    fn stroke(&self, name: &str) -> bool {
+        self.theme.tokens.stroke.as_ref().is_some_and(|s| s.contains_key(name))
+    }
+
+    fn data_palette(&self, name: &str) -> bool {
+        let data = &self.theme.tokens.data;
+        match name {
+            "categorical" => true,
+            "sequential" => data.sequential.is_some(),
+            "diverging" => data.diverging.is_some(),
+            _ => false,
+        }
+    }
+}
+
+/// `#rrggbb[aa]`, `oklch(…)`, or `oklab(…)`: a color written out, not named.
+fn is_color_literal(color: &str) -> bool {
+    color.starts_with('#') || color.starts_with("oklch(") || color.starts_with("oklab(")
+}
+
+/// The deck's theme, checked against the theme schema: a file in the bundle, or inline.
+fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> Option<LoadedTheme> {
+    match doc.get("theme")? {
+        Value::String(path) => {
+            let Some(text) = files.read_text(path) else {
+                let message = format!("theme file `{path}` is not in the bundle");
+                out.push(Finding::new("E102", Severity::Error, message).at("/theme"));
+                return None;
+            };
+            let value: Value = match serde_json::from_str(&text) {
+                Ok(value) => value,
+                Err(e) => {
+                    out.push(Finding::new("E106", Severity::Error, format!("not JSON: {e}")).at("").file(path.clone()));
+                    return None;
+                }
+            };
+            for at in repeated_keys(&text).unwrap_or_default() {
+                out.push(repeated(&at).file(path.clone()));
+            }
+            out.extend(Checker::theme().check(&value).into_iter().map(|v| schema_finding(v).file(path.clone())));
+            let theme = serde_json::from_value(value).ok()?;
+            Some(LoadedTheme { theme, file: Some(path.clone()), root: "" })
+        }
+        inline @ Value::Object(_) => {
+            for v in Checker::theme().check(inline) {
+                let path = format!("/theme{}", v.path);
+                out.push(schema_finding(Violation { path, ..v }));
+            }
+            let theme = serde_json::from_value(inline.clone()).ok()?;
+            Some(LoadedTheme { theme, file: None, root: "/theme" })
+        }
+        _ => None,
+    }
+}
+
+/// E104: a node's type never changes, so a state's delta cannot set `type`.
+fn type_changes(deck: &Deck) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (i, state) in deck.states.iter().enumerate() {
+        for (id, delta) in &state.props {
+            let (Some(node), Some(new)) = (deck.nodes.get(id), delta.get("type")) else { continue };
+            let is = type_name(node.node_type);
+            let message = match new.as_str() {
+                Some(new) if new != is => {
+                    format!("`{id}` is {} node; a state cannot make it {}", article(&is), article(new))
+                }
+                _ => format!("`{id}` is {} node; a state cannot set `type`", article(&is)),
+            };
+            out.push(
+                Finding::new("E104", Severity::Error, message)
+                    .at(child(&format!("/states/{i}/props/{}", esc(id)), "type"))
+                    .state(state.id.clone())
+                    .node(id.clone())
+                    .hint("A node's type is set once, in `nodes`. To show something else, add a node and `remove` this one."),
+            );
+        }
+    }
+    out
+}
+
+/// E102: files the deck and its theme name that the bundle does not hold.
+fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFiles) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut need = |what: &str, file: &str, at: String| {
+        if !files.exists(file) {
+            out.push(Finding::new("E102", Severity::Error, format!("{what} `{file}` is not in the bundle")).at(at));
+        }
+    };
+    for (i, font) in deck.fonts.iter().enumerate() {
+        need("font file", &font.file, format!("/fonts/{i}/file"));
+    }
+    for (name, data) in &deck.data {
+        if let Value::String(file) = &data.source {
+            need("data file", file, format!("/data/{}/source", esc(name)));
+        }
+    }
+    for (id, node) in deck.nodes.iter().filter(|(_, n)| n.node_type == NodeType::Image) {
+        if let Some(Value::String(src)) = node.props.get("src") {
+            need("image", src, format!("/nodes/{}/src", esc(id)));
+        }
+        for (i, state) in deck.states.iter().enumerate() {
+            if let Some(Value::String(src)) = state.props.get(id).and_then(|d| d.get("src")) {
+                need("image", src, format!("/states/{i}/props/{}/src", esc(id)));
+            }
+        }
+    }
+    if let Some(theme) = theme {
+        for (key, family) in &theme.theme.typography.families {
+            if !files.exists(&family.file) {
+                let message = format!("font file `{}` is not in the bundle", family.file);
+                out.push(theme.finding("E102", message, &format!("/type/families/{}/file", esc(key))));
+            }
+            // Rendering registers the fonts the deck lists, and needs every family's.
+            if !deck.fonts.iter().any(|f| f.file == family.file) {
+                let message =
+                    format!("theme family `{key}` is set in `{}`, which the deck's `fonts` does not list", family.file);
+                let font = json!({ "family": family.family, "file": family.file });
+                out.push(
+                    Finding::new("E102", Severity::Error, message)
+                        .at("/fonts")
+                        .hint("Rendering registers only the fonts the deck lists.")
+                        .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// E106: each state resolved, each node against its type. A delta carries no `type`, so
+/// another type's property, or a value this type does not take, shows only in the
+/// resolved state. Each is reported at the delta that wrote it; node defaults were checked
+/// with the deck, and a value a later state tracks was reported where it was written.
+fn resolved_types(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    let checker = Checker::deck();
+    let defs: HashMap<String, String> = checker.node_types().into_iter().map(|(def, tag)| (tag, def)).collect();
+    let mut out = Vec::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            let (Some(delta), Some(node)) = (state.props.get(id), deck.nodes.get(id)) else { continue };
+            let tag = type_name(node.node_type);
+            let Some(def) = defs.get(&tag) else { continue };
+            let mut resolved = Map::new();
+            resolved.insert("type".into(), Value::from(tag.as_str()));
+            resolved.extend(props.iter().map(|(k, v)| (k.clone(), v.clone())));
+            for v in checker.check_def(def, &Value::Object(resolved), "") {
+                let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
+                if prop == "type" || !delta.contains_key(&prop) {
+                    continue;
+                }
+                let message = match v.kind {
+                    Kind::Missing => format!("{} nodes need `{prop}`; this state deletes it", tag),
+                    _ => v.message,
+                };
+                let path = format!("/states/{i}/props/{}{}", esc(id), v.path);
+                out.push(
+                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// E102: theme names the deck uses that its theme does not define: text roles, layouts and
+/// their slots, motion presets, durations, easings, springs, shader palettes, data palettes,
+/// and colors.
+fn theme_names(deck: &Deck, snapshots: Option<&[Snapshot]>, theme: &LoadedTheme) -> Vec<Finding> {
+    let mut names = Names { theme, out: Vec::new() };
+    for (id, node) in &deck.nodes {
+        names.props(&node.props, node.node_type, &format!("/nodes/{}", esc(id)), None, id);
+    }
+    for (i, state) in deck.states.iter().enumerate() {
+        let at = format!("/states/{i}");
+        if let Some(layout) = &state.layout {
+            let defined = theme.theme.layouts.contains_key(layout);
+            names.need(defined, "layout", layout, format!("{at}/layout"), Some(&state.id), None);
+        }
+        if let Some(transition) = &state.transition {
+            names.timing(transition, &format!("{at}/transition"), Some(&state.id), None);
+        }
+        for (j, item) in state.choreography.iter().enumerate() {
+            names.choreography(item, &format!("{at}/choreography/{j}"), &state.id);
+        }
+        for (id, delta) in &state.props {
+            if let Some(node) = deck.nodes.get(id) {
+                names.props(delta, node.node_type, &format!("{at}/props/{}", esc(id)), Some(&state.id), id);
+            }
+        }
+    }
+    // A slot belongs to the layout of the state that shows the node. Each node, slot, and
+    // layout is reported once, where it first meets: at the delta that put the node in
+    // the slot, else at its default, else at the layout of a state it tracked into.
+    let mut met = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots.unwrap_or_default()).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            let slot_of = |props: Option<&Props>| props?.get("at")?.get("in")?.as_str().map(String::from);
+            let Some(slot) = slot_of(Some(props)) else { continue };
+            if slot == "canvas" || slot == "grid" {
+                continue;
+            }
+            let message = match snapshot.layout.as_deref().map(|l| (l, theme.theme.layouts.get(l))) {
+                None => format!("slot `{slot}` needs a layout, and state `{}` has none", state.id),
+                Some((_, None)) => continue, // the layout itself is reported
+                Some((layout, Some(def))) if !def.slots.contains_key(&slot) => {
+                    let slots: Vec<&str> = def.slots.keys().map(String::as_str).chain(["canvas", "grid"]).collect();
+                    format!("slot `{slot}` is not in layout `{layout}`, which has {}", slots.join(", "))
+                }
+                Some(_) => continue,
+            };
+            if !met.insert((id.clone(), slot.clone(), snapshot.layout.clone())) {
+                continue;
+            }
+            let path = if slot_of(state.props.get(id)).is_some() {
+                format!("/states/{i}/props/{}/at/in", esc(id))
+            } else if slot_of(Some(&deck.nodes[id].props)).as_deref() == Some(slot.as_str()) {
+                format!("/nodes/{}/at/in", esc(id))
+            } else {
+                format!("/states/{i}/layout")
+            };
+            names
+                .out
+                .push(Finding::new("E102", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()));
+        }
+    }
+    names.out
+}
+
+/// What [`theme_names`] collects as it walks the deck.
+struct Names<'a> {
+    theme: &'a LoadedTheme,
+    out: Vec<Finding>,
+}
+
+impl Names<'_> {
+    fn need(&mut self, defined: bool, what: &str, name: &str, path: String, state: Option<&str>, node: Option<&str>) {
+        if defined {
+            return;
+        }
+        let mut finding =
+            Finding::new("E102", Severity::Error, format!("{what} `{name}` is not in the theme")).at(path);
+        if let Some(state) = state {
+            finding = finding.state(state);
+        }
+        if let Some(node) = node {
+            finding = finding.node(node);
+        }
+        self.out.push(finding);
+    }
+
+    /// A node's properties, whole or a delta, at `at`.
+    fn props(&mut self, props: &Props, node_type: NodeType, at: &str, state: Option<&str>, node: &str) {
+        let t = &self.theme.theme;
+        let roles = |role: &str| t.typography.roles.contains_key(role);
+        let node_ = Some(node);
+        if node_type == NodeType::Text {
+            if let Some(role) = props.get("role").and_then(Value::as_str) {
+                self.need(roles(role), "text role", role, format!("{at}/role"), state, node_);
+            }
+            for (i, run) in props.get("runs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                if let Some(role) = run.get("role").and_then(Value::as_str) {
+                    self.need(roles(role), "text role", role, format!("{at}/runs/{i}/role"), state, node_);
+                }
+            }
+        }
+        if node_type == NodeType::Chart {
+            if let Some(role) = props.get("labels").and_then(|l| l.get("role")).and_then(Value::as_str) {
+                self.need(roles(role), "text role", role, format!("{at}/labels/role"), state, node_);
+            }
+            for (i, note) in props.get("annotations").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                if let Some(role) = note.get("role").and_then(Value::as_str) {
+                    self.need(roles(role), "text role", role, format!("{at}/annotations/{i}/role"), state, node_);
+                }
+            }
+            for channel in ["x", "y", "series", "color", "sizeEncoding"] {
+                if let Some(scale) = props.get(channel).and_then(|c| c.get("scale")).and_then(Value::as_str) {
+                    let defined = self.theme.data_palette(scale);
+                    self.need(defined, "data palette", scale, format!("{at}/{channel}/scale"), state, node_);
+                }
+            }
+        }
+        if node_type == NodeType::Shader
+            && let Some(palette) = props.get("palette").and_then(Value::as_str)
+        {
+            let defined = self.theme.palette(palette);
+            self.need(defined, "shader palette", palette, format!("{at}/palette"), state, node_);
+        }
+        for key in ["enter", "exit", "emphasis"] {
+            if let Some(preset) = props.get(key) {
+                self.preset(preset, &format!("{at}/{key}"), state, node_);
+            }
+        }
+        if let Some(fill) = props.get("fill") {
+            self.paint(fill, &format!("{at}/fill"), state, node_);
+        }
+        if let Some(paint) = props.get("stroke").and_then(|s| s.get("paint")) {
+            self.paint(paint, &format!("{at}/stroke/paint"), state, node_);
+        }
+    }
+
+    /// A motion preset by name, or called with parameters.
+    fn preset(&mut self, preset: &Value, at: &str, state: Option<&str>, node: Option<&str>) {
+        let presets = &self.theme.theme.motion.presets;
+        match preset {
+            Value::String(name) => self.need(presets.contains_key(name), "motion preset", name, at.into(), state, node),
+            Value::Object(call) => {
+                if let Some(name) = call.get("preset").and_then(Value::as_str) {
+                    self.need(presets.contains_key(name), "motion preset", name, format!("{at}/preset"), state, node);
+                }
+                self.timing(preset, at, state, node);
+            }
+            _ => {}
+        }
+    }
+
+    /// Named durations, easings, and springs: a bare duration, or an object with any of
+    /// `duration`, `ease`, and `spring`.
+    fn timing(&mut self, value: &Value, at: &str, state: Option<&str>, node: Option<&str>) {
+        let motion = &self.theme.theme.motion;
+        if let Value::String(name) = value {
+            return self.need(motion.durations.contains_key(name), "duration", name, at.into(), state, node);
+        }
+        if let Some(name) = value.get("duration").and_then(Value::as_str) {
+            self.need(motion.durations.contains_key(name), "duration", name, format!("{at}/duration"), state, node);
+        }
+        if let Some(name) = value.get("ease").and_then(Value::as_str) {
+            self.need(motion.easings.contains_key(name), "easing", name, format!("{at}/ease"), state, node);
+        }
+        if let Some(name) = value.get("spring").and_then(Value::as_str) {
+            self.need(motion.springs.contains_key(name), "spring", name, format!("{at}/spring"), state, node);
+        }
+    }
+
+    /// A choreography item, and the groups inside it.
+    fn choreography(&mut self, item: &Value, at: &str, state: &str) {
+        for key in ["enter", "exit", "emphasis"] {
+            if let Some(preset) = item.get(key) {
+                self.preset(preset, &format!("{at}/{key}"), Some(state), None);
+            }
+        }
+        self.timing(
+            &json!({ "duration": item.get("duration"), "ease": item.get("ease"), "spring": item.get("spring") }),
+            at,
+            Some(state),
+            None,
+        );
+        for key in ["sequence", "parallel"] {
+            for (i, inner) in item.get(key).and_then(Value::as_array).into_iter().flatten().enumerate() {
+                self.choreography(inner, &format!("{at}/{key}/{i}"), state);
+            }
+        }
+    }
+
+    /// A paint's colors: a color, `{ "solid" }`, or a gradient's stops.
+    fn paint(&mut self, paint: &Value, at: &str, state: Option<&str>, node: Option<&str>) {
+        let mut colors: Vec<(String, String)> = Vec::new();
+        match paint {
+            Value::String(color) => colors.push((color.clone(), at.into())),
+            Value::Object(p) => {
+                if let Some(color) = p.get("solid").and_then(Value::as_str) {
+                    colors.push((color.into(), format!("{at}/solid")));
+                }
+                let stops = p.get("gradient").and_then(|g| g.get("stops")).and_then(Value::as_array);
+                for (i, stop) in stops.into_iter().flatten().enumerate() {
+                    if let Some(color) = stop.get("color").and_then(Value::as_str) {
+                        colors.push((color.into(), format!("{at}/gradient/stops/{i}/color")));
+                    }
+                }
+            }
+            _ => {}
+        }
+        for (color, path) in colors {
+            let defined = self.theme.color(&color);
+            self.need(defined, "color", &color, path, state, node);
+        }
+    }
+}
+
+fn type_name(node_type: NodeType) -> String {
+    serde_json::to_value(node_type).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
+}
+
+fn article(word: &str) -> String {
+    if word.starts_with(['a', 'e', 'i', 'o', 'u']) { format!("an {word}") } else { format!("a {word}") }
+}
+
+/// A key as one JSON-pointer token.
+fn esc(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
+}
+
+// --- repeated keys ------------------------------------------------------------
+
+/// Keys written twice in one JSON object, as JSON pointers to each repeat, in document
+/// order. A parser keeps the last value of a repeated key, so a node id written twice would
+/// replace the first node without a word.
+pub fn repeated_keys(json: &str) -> Result<Vec<String>, serde_json::Error> {
+    let mut out = Vec::new();
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    Walk { path: String::new(), out: &mut out }.deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(out)
+}
+/// One JSON value, walked for repeated keys.
+struct Walk<'a> {
+    path: String,
+    out: &'a mut Vec<String>,
+}
+
+impl<'de> DeserializeSeed<'de> for Walk<'_> {
+    type Value = ();
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Walk<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_unit<E>(self) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
+        let Walk { path, out } = self;
+        let mut i = 0;
+        while seq.next_element_seed(Walk { path: format!("{path}/{i}"), out: &mut *out })?.is_some() {
+            i += 1;
+        }
+        Ok(())
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        let Walk { path, out } = self;
+        let mut seen = HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let at = child(&path, &key);
+            if !seen.insert(key) {
+                out.push(at.clone());
+            }
+            map.next_value_seed(Walk { path: at, out: &mut *out })?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

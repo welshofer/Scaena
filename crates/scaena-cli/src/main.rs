@@ -167,8 +167,9 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.cmd {
         Cmd::Validate { bundle } => {
-            let b = open(&bundle)?;
-            let findings = scaena_core::validate::validate(&b.deck);
+            let (deck, files) =
+                scaena_store::open_unparsed(&bundle).with_context(|| format!("opening {}", bundle.display()))?;
+            let findings = scaena_core::validate::validate_bundle(&deck, &files).context("deck.json is not JSON")?;
             report(&findings, cli.json);
             Ok(if findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
@@ -420,7 +421,10 @@ fn report(findings: &[Finding], json: bool) {
             Severity::Warning => "warn ",
             Severity::Info => "info ",
         };
-        let loc = f.path.as_deref().unwrap_or("");
+        let loc = match &f.file {
+            Some(file) => format!("{file} {}", f.path.as_deref().unwrap_or("")),
+            None => f.path.clone().unwrap_or_default(),
+        };
         println!("{sev} {} {loc}: {}", f.code, f.message);
         if let Some(h) = &f.hint {
             println!("        hint: {h}");

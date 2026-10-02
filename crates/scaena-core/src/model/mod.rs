@@ -12,6 +12,7 @@
 //! A state's delta is not a type of its own: its schema (`StateDelta`) is derived from the
 //! node types, so a property a node type gains is one a delta may set.
 
+pub mod check;
 pub mod nodes;
 pub mod states;
 pub mod theme;

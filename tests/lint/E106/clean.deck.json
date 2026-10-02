@@ -1,0 +1,13 @@
+{
+  "scaena": "0.2",
+  "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "nodes": {
+    "headline": { "type": "text", "text": "Growth", "fit": "shrink", "at": { "in": "canvas" } },
+    "photo": { "type": "image", "src": "assets/photo.png", "fit": "cover", "alt": "A photo", "at": { "in": "canvas" } }
+  },
+  "states": [
+    { "id": "one", "props": { "headline": {}, "photo": {} } },
+    { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" } } }
+  ]
+}

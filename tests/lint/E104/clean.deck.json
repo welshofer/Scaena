@@ -1,0 +1,12 @@
+{
+  "scaena": "0.2",
+  "_comment": "E104 clean: the state changes the node's props, never its type.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "nodes": {
+    "figure": { "type": "text", "text": "42%", "at": { "in": "canvas" } }
+  },
+  "states": [
+    { "id": "one", "props": { "figure": {} } },
+    { "id": "two", "props": { "figure": { "text": "57%" } } }
+  ]
+}

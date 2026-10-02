@@ -41,7 +41,7 @@ wasm-check:
 schema:
     python3 scripts/validate_schema.py .
     python3 scripts/build_torture_fonts.py --check
-    python3 scripts/build_bench_fonts.py --check
+    python3 scripts/build_bundle_fonts.py --check
 
 # Per-stage timings against SPEC §15 (PLAN 0.14): B1 and B4 in one process each, then B1's cold
 # start in headless Chromium. CI runs the first half on Apple Silicon (.github/workflows/bench.yml).

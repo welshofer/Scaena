@@ -1,0 +1,17 @@
+{
+  "scaena": "0.2",
+  "_comment": "E105 trigger: a state id twice, a node id twice, a beat id twice, an id that is not a slug, and a child listed twice.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "spine": { "sections": [ { "id": "open", "beats": [ { "id": "hello", "claim": "We say hello.", "states": ["cover"] }, { "id": "hello", "claim": "There is more.", "states": ["more"] } ] } ] },
+  "nodes": {
+    "cover": { "type": "text", "text": "Hello", "at": { "in": "canvas" } },
+    "group": { "type": "group", "children": ["cover", "cover"] },
+    "Note": { "type": "text", "text": "More", "at": { "in": "canvas" } },
+    "cover": { "type": "text", "text": "Hello again", "at": { "in": "canvas" } }
+  },
+  "states": [
+    { "id": "cover", "props": { "cover": {}, "group": {} } },
+    { "id": "more", "props": { "Note": {} } },
+    { "id": "more" }
+  ]
+}

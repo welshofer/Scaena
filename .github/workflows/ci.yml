@@ -91,4 +91,4 @@ jobs:
       # Every character in the torture deck resolves through its role's bundle-font fallback chain (PLAN 0.2).
       - run: python3 scripts/build_torture_fonts.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
-      - run: python3 scripts/build_bench_fonts.py --check
+      - run: python3 scripts/build_bundle_fonts.py --check

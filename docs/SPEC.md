@@ -136,7 +136,9 @@ Rules:
 }
 ```
 
-**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique within `nodes`, within `states`, and within spine `beats` (E105); a node and a state may share one. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
+**Fonts.** `fonts` lists every font file the deck's theme names in its families: rendering registers only listed fonts (E102 otherwise, with the entry to add as its fix). Whether fonts should follow the theme instead, so a deck need not restate them, is PLAN 1.4's to settle.
+
+**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique within `nodes`, within `states`, and within spine `beats` (E105); a node and a state may share one. An id written twice as a key (`nodes`, `data`, a state's `props`) is E105 too: a parser would keep the second and drop the first. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
 
 ### 3.3 Node types
 
@@ -546,6 +548,8 @@ scaena mcp                                            # stdio MCP server exposin
 
 All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
 
+`validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
+
 `render` without `--t` renders the state at rest. `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
 
 ### 7.2 MCP tools
@@ -563,7 +567,7 @@ Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`
 
 ```jsonc
 { "code": "E100", "severity": "error", "message": "Text overflows its box by 2 lines",
-  "path": "/states/3/props/title", "state": "revenue", "node": "title",
+  "path": "/states/3/props/title", "state": "revenue", "node": "title",   // "file": "theme.json" when path points into a file other than deck.json
   "measure": { "lines": 5, "maxLines": 3 },
   "hint": "Shorten to ~18 words, or set fit:shrink (minSize 72).",
   "fix": [ { "op": "replace", "path": "/nodes/title/fit", "value": "shrink" } ] }
@@ -579,10 +583,11 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 |---|---|---|
 | E100 | error | text overflow (wrap/clip) |
 | E101 | error | unintended collision between nodes in the same layer |
-| E102 | error | reference to unknown node/state/data/font/asset |
+| E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
 | E103 | error | chart field missing in data / type mismatch |
-| E104 | error | node type changed across states |
-| E105 | error | duplicate id |
+| E104 | error | node type changed across states (a state's delta sets `type`) |
+| E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state does not match its node's type (another type's property, a value this type does not take) |
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |

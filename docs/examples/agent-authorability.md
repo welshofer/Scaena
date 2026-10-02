@@ -159,7 +159,7 @@ PLAN 0.13 does not judge visual quality, but four of the seven states can render
 
 The `author-deck` skill also says now that figures in copy are literals to re-derive when the data changes (finding 6), and the `retheme` skill that an empty lint delta proves nothing until PLAN 1.15.
 
-PLAN 1.1 finished two of these. The schema, now generated from the typed model, accepts `null` in a delta (1), and charts take `axes` settings where `axesSpec` held the place (4).
+PLAN 1.1 finished two of these. The schema, now generated from the typed model, accepts `null` in a delta (1), and charts take `axes` settings where `axesSpec` held the place (4). PLAN 1.2 finished most of open finding 5. `validate` reads the bundle: missing files, a theme that fails its schema or lacks a name the deck uses, and a theme family the deck's `fonts` omits are all errors now. What remains of it is E103 (PLAN 1.9), and whether fonts follow the theme (PLAN 1.4).
 
 **Open**, each pointing at the task that owns it:
 

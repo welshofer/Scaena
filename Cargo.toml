@@ -40,6 +40,7 @@ scaena-store  = { path = "crates/scaena-store" }
 serde      = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 schemars   = { version = "1.2", features = ["indexmap2", "preserve_order"] }
+regex-lite = "0.1"
 jsonschema = "0.58"
 indexmap   = { version = "2.14", features = ["serde"] }
 postcard   = { version = "1.1", features = ["alloc"] }

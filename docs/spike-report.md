@@ -287,7 +287,7 @@ The second hypothesis held: semantic text documents are naturally agent-authorab
 
 **B1 is new.** `tests/bench/b1.scaena` is SPEC §15's text-heavy benchmark: the manifesto as a talk.
 - **Content:** 40 states over 11 text nodes, no charts. Builds add the argument, then a line to remember, so 39 of the 40 transitions move and cross-fade text.
-- **Fonts:** Fraunces, Inter, JetBrains Mono, and Source Serif 4, 1.1 MB as subsets. `scripts/build_bench_fonts.py` builds them from the torture fonts' pinned google/fonts commit.
+- **Fonts:** Fraunces, Inter, JetBrains Mono, and Source Serif 4, 1.1 MB as subsets. `scripts/build_bundle_fonts.py` builds them from the torture fonts' pinned google/fonts commit.
 - **Kept honest:** `crates/scaena-engine/tests/bench.rs` keeps B1 at 40 states in four fonts, with every state drawing.
 
 B4 is the torture deck: 25 states, five fonts, a bar chart, and a mesh.

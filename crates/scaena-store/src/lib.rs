@@ -7,6 +7,7 @@
 //! to the bundle root.
 
 use scaena_core::Deck;
+use scaena_core::validate::BundleFiles;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
@@ -37,13 +38,7 @@ pub struct Bundle {
 impl Bundle {
     /// Open a bundle directory, or a bare `deck.json` (its parent becomes the root).
     pub fn open(path: &Path) -> Result<Bundle, StoreError> {
-        let (root, deck_path) = if path.is_dir() {
-            (path.to_path_buf(), path.join("deck.json"))
-        } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            (path.parent().unwrap_or(Path::new(".")).to_path_buf(), path.to_path_buf())
-        } else {
-            return Err(StoreError::NotABundle(path.to_path_buf()));
-        };
+        let (root, deck_path) = locate(path)?;
         let deck = Deck::from_json(&std::fs::read_to_string(&deck_path)?)?;
         let theme_json = match &deck.theme {
             Some(serde_json::Value::String(rel)) => Some(std::fs::read_to_string(inside(&root, rel)?)?),
@@ -87,6 +82,41 @@ impl Bundle {
     pub fn save(&self) -> Result<(), StoreError> {
         std::fs::write(self.root.join("deck.json"), self.deck.to_json()?)?;
         Ok(())
+    }
+}
+
+/// A bundle's `deck.json` as text, unparsed, and the bundle's files: what `scaena validate`
+/// checks (`scaena_core::validate::validate_bundle`).
+pub fn open_unparsed(path: &Path) -> Result<(String, DirFiles), StoreError> {
+    let (root, deck_path) = locate(path)?;
+    let deck = std::fs::read_to_string(&deck_path).map_err(|source| StoreError::Read { path: deck_path, source })?;
+    Ok((deck, DirFiles { root }))
+}
+
+/// A bundle directory's files, as validation reads them.
+#[derive(Debug, Clone)]
+pub struct DirFiles {
+    root: PathBuf,
+}
+
+impl BundleFiles for DirFiles {
+    fn exists(&self, path: &str) -> bool {
+        inside(&self.root, path).is_ok_and(|p| p.is_file())
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(inside(&self.root, path).ok()?).ok()
+    }
+}
+
+/// A bundle's root and its `deck.json`, from a bundle directory or a bare `deck.json`.
+fn locate(path: &Path) -> Result<(PathBuf, PathBuf), StoreError> {
+    if path.is_dir() {
+        Ok((path.to_path_buf(), path.join("deck.json")))
+    } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
+        Ok((path.parent().unwrap_or(Path::new(".")).to_path_buf(), path.to_path_buf()))
+    } else {
+        Err(StoreError::NotABundle(path.to_path_buf()))
     }
 }
 

@@ -29,6 +29,13 @@
         "wght": [100, 900],
         "opsz": [14, 32]
       }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [100, 800]
+      }
     }
   ],
   "data": {

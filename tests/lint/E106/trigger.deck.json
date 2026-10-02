@@ -1,0 +1,14 @@
+{
+  "scaena": "0.2",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, and two deltas whose resolved states break their node's type.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "nodes": {
+    "headline": { "type": "text", "text": "Growth", "fit": "cover", "at": { "in": "canvas" } },
+    "photo": { "type": "image", "src": "assets/photo.png", "role": "body", "alt": "A photo", "alt": "A better photo", "at": { "in": "canvas" } },
+    "logo": { "type": "image", "alt": "Logo", "at": { "in": "canvas" } }
+  },
+  "states": [
+    { "id": "one", "props": { "headline": {}, "photo": {} } },
+    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null } } }
+  ]
+}

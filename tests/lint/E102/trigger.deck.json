@@ -1,0 +1,28 @@
+{
+  "scaena": "0.2",
+  "_comment": "E102 trigger: E102/clean.deck.json with every kind of reference broken once.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "theme": "theme.json",
+  "fonts": [
+    { "family": "Display", "file": "fonts/Display.ttf" },
+    { "family": "Body", "file": "fonts/Body.ttf" }
+  ],
+  "data": { "q3": { "source": "data/q3-final.csv" } },
+  "nodes": {
+    "bg": { "type": "shader", "kind": "mesh", "palette": "sunset", "at": { "in": "canvas" } },
+    "title": { "type": "text", "role": "headlin", "text": "Q3 Review", "at": { "in": "title" }, "fill": "acent", "enter": "slide" },
+    "chart": { "type": "chart", "kind": "bar", "data": "@q4", "x": { "field": "quarter" }, "y": { "field": "revenue" }, "labels": { "show": "ends", "role": "figure" } },
+    "photo": { "type": "image", "src": "assets/team.png", "alt": "The team at launch", "at": { "in": "main" } }
+  },
+  "states": [
+    { "id": "intro", "layout": "titel", "props": { "bg": {}, "title": {} } },
+    {
+      "id": "numbers",
+      "layout": "full",
+      "transition": { "duration": "medium", "ease": "bouncy" },
+      "props": { "title": { "at": { "in": "header" } }, "chart": { "at": { "in": "main" } } },
+      "choreography": [ { "target": "chart", "enter": { "preset": "pop", "spring": "springy" } }, { "target": "ghost", "enter": "fade" } ]
+    },
+    { "id": "photo", "slide": "numbrs", "layout": "full", "remove": ["chart"], "props": { "photo": {} } }
+  ]
+}

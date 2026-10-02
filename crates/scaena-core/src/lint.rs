@@ -26,7 +26,10 @@ pub struct Finding {
     pub code: String,
     pub severity: Severity,
     pub message: String,
-    /// JSON pointer into `deck.json`.
+    /// The bundle file `path` points into, when it is not `deck.json` (a theme file).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// JSON pointer into `deck.json`, or into `file`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,6 +51,7 @@ impl Finding {
             code: code.into(),
             severity,
             message: message.into(),
+            file: None,
             path: None,
             state: None,
             node: None,
@@ -55,6 +59,10 @@ impl Finding {
             hint: None,
             fix: None,
         }
+    }
+    pub fn file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
+        self
     }
     pub fn at(mut self, path: impl Into<String>) -> Self {
         self.path = Some(path.into());

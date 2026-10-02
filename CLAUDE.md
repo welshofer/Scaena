@@ -66,7 +66,7 @@ just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs 
 just bench          # SPEC §15 stage timings on B1 and B4, then B1's WASM cold start (PLAN 0.14); CI records them on Apple Silicon
 ```
 
-The CLI today: `scaena validate | lint | inspect | diff | export --format spine` work, and `scaena render` renders states built from text, chart, and `mesh` shader nodes to PNG, at rest or `--t` ms into the transition into the state, with `--painter cpu` (the default) or, in a CLI built with `--features gpu`, `--painter gpu`; other node types exit 3 with their PLAN task. `export` (other formats), `compile`, `patch`, `theme`, `serve`, `mcp` exit 3 with their PLAN task.
+The CLI today: `scaena validate | lint | inspect | diff | export --format spine` work (`validate` checks a bundle as it is on disk: both schemas, every reference to a file or theme name, and each resolved state against its nodes' types, PLAN 1.2), and `scaena render` renders states built from text, chart, and `mesh` shader nodes to PNG, at rest or `--t` ms into the transition into the state, with `--painter cpu` (the default) or, in a CLI built with `--features gpu`, `--painter gpu`; other node types exit 3 with their PLAN task. `export` (other formats), `compile`, `patch`, `theme`, `serve`, `mcp` exit 3 with their PLAN task.
 
 ## Phase 0 in one paragraph
 
