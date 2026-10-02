@@ -332,7 +332,7 @@ fn scenes(deck: &Deck) -> Vec<ChartLayout> {
                 .nodes
                 .into_iter()
                 .find_map(|n| match n.content {
-                    scaena_engine::sample::Content::Chart { chart, .. } => Some(chart),
+                    scaena_engine::sample::Content::Chart { chart, .. } => Some(*chart),
                     _ => None,
                 })
                 .unwrap()
@@ -366,4 +366,46 @@ fn a_series_keeps_its_color_from_state_to_state() {
     assert_eq!(color(&two, "Edge"), color(&all, "Edge"), "Edge stays the third color");
     assert_ne!(color(&two, "Edge"), color(&all, "Cloud"));
     assert_eq!(color(&two, "Core"), color(&all, "Core"));
+}
+
+#[test]
+fn chart_presets_read_the_themes_motion_and_calls_override_it() {
+    let rows = json!([{ "k": "a", "v": 1 }, { "k": "b", "v": 2 }]);
+    let chart = |enter: Value| {
+        json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "k" }, "y": { "field": "v" },
+                "enter": enter })
+    };
+    let layout = |enter: Value| {
+        let d = deck("en-US", rows.clone(), json!({ "v": "number" }), Value::Null, chart(enter));
+        compile(&d)
+    };
+    // `rise`: from transparent, 24 cu down, eased `out` over `standard`.
+    let rise = layout(json!("rise")).enter.unwrap();
+    assert_eq!((rise.opacity, rise.translate, rise.grow), (0.0, [0.0, 24.0], false));
+    assert_eq!((rise.duration, rise.stagger, rise.spring), (Some(420.0), 0.0, None));
+    assert_eq!(rise.ease, Some(scaena_core::timeline::CubicBezier(0.0, 0.0, 0.2, 1.0)));
+    // `grow` scales its marks, so they grow from zero; the call's stagger wins.
+    let grow = layout(json!({ "preset": "grow", "stagger": 60 })).enter.unwrap();
+    assert!(grow.grow && grow.opacity == 1.0);
+    assert_eq!(grow.stagger, 60.0);
+    let (spring, settle) = grow.spring.unwrap();
+    assert_eq!((spring.stiffness, spring.damping), (420.0, 34.0));
+    assert!(settle > 0.2 && settle < 0.8, "snappy settles in {settle} s");
+    // Splitting a chart into anything but its marks waits for choreography.
+    let d = deck(
+        "en-US",
+        rows.clone(),
+        json!({ "v": "number" }),
+        Value::Null,
+        chart(json!({ "preset": "fade", "split": "words" })),
+    );
+    let mut fonts = BundleFonts::new();
+    for font in &d.fonts {
+        fonts.register(&font.file, read(&font.file)).unwrap();
+    }
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let (mut text, data) = (TextEngine::new(), DataFiles::new());
+    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
+    let err = charts::compile(&mut cx, &d.nodes["c"].props, [1600.0, 700.0]).unwrap_err();
+    assert!(err.to_string().contains("PLAN 1.11"), "{err}");
 }

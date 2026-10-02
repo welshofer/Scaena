@@ -249,6 +249,11 @@ impl Theme {
         Some(scaena_core::timeline::Spring { stiffness: s.stiffness, damping: s.damping, mass: s.mass.unwrap_or(1.0) })
     }
 
+    /// A named motion preset.
+    pub fn preset(&self, name: &str) -> Option<&model::Preset> {
+        self.motion.presets.get(name)
+    }
+
     /// A named easing as a cubic Bézier.
     pub fn easing(&self, name: &str) -> Option<scaena_core::timeline::CubicBezier> {
         let [a, b, c, d] = *self.motion.easings.get(name)?;

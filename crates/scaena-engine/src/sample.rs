@@ -28,8 +28,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, Numerals, RoundRect, Rule, SeriesPath, Shape,
-    ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, MarkPreset, Numerals, RoundRect, Rule, SeriesPath,
+    Shape, ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -73,7 +73,7 @@ pub struct SceneNode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Content {
     Text(PlacedText),
-    Chart { cell: Rect, chart: ChartLayout },
+    Chart { cell: Rect, chart: Box<ChartLayout> },
     Shader(ShaderNode),
     Shape(ShapeNode),
     Image(ImageNode),
@@ -255,6 +255,11 @@ struct ChartPlan {
     /// Bars that regroup, in stages: into a stack (`Some(true)`: heights, then widths)
     /// or out of one (`Some(false)`: widths, then heights).
     regroup: Option<bool>,
+    /// The presets marks enter (the target's) and leave (the source's) with, and each
+    /// one-sided mark's place in its stagger: the `k`th of `n`, in data order.
+    enter: Option<MarkPreset>,
+    exit: Option<MarkPreset>,
+    order: Vec<Option<(usize, usize)>>,
     /// Lines and areas by series.
     paths: Vec<Pair>,
     ticks: Vec<Keyed>,
@@ -400,7 +405,7 @@ impl Transition {
                         (None, None) => unreachable!("a chart track has a side"),
                     };
                     let clip_y = [-origin[1], dl.viewport[1]];
-                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, clip_y);
+                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, t_ms, &self.timing, clip_y);
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
                     dl.ops.push(op);
                 }
@@ -413,7 +418,7 @@ impl Transition {
 /// A chart track's node on one side, with its cell and layout.
 fn chart(node: Option<&SceneNode>) -> Option<(&SceneNode, Rect, &ChartLayout)> {
     node.map(|n| match &n.content {
-        Content::Chart { cell, chart } => (n, *cell, chart),
+        Content::Chart { cell, chart } => (n, *cell, &**chart),
         Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => {
             unreachable!("Chart tracks pair charts")
         }
@@ -437,9 +442,28 @@ impl ChartPlan {
             .into_iter()
             .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
             .collect();
+        let (enter, exit) = (b.and_then(|c| c.enter), a.and_then(|c| c.exit));
+        // Entering marks stagger in the target's order, leaving ones in the source's.
+        let side = |k: &Keyed| match k.pair {
+            (None, Some(j)) => Some((1, j)),
+            (Some(i), None) => Some((0, i)),
+            _ => None,
+        };
+        let order = marks
+            .iter()
+            .map(|(k, _)| {
+                let (s, at) = side(k)?;
+                let peers = marks.iter().filter_map(|(o, _)| side(o).filter(|(t, _)| *t == s));
+                let (before, n) = peers.fold((0, 0), |(b, n), (_, x)| (b + usize::from(x < at), n + 1));
+                Some((before, n))
+            })
+            .collect();
         ChartPlan {
             baseline: (a.and_then(|c| c.baseline.as_ref()).map(|_| 0), b.and_then(|c| c.baseline.as_ref()).map(|_| 0)),
-            ends: marks.iter().map(|(k, _)| ends(*k, a, b)).collect(),
+            ends: marks.iter().map(|(k, _)| ends(*k, a, b, enter, exit)).collect(),
+            enter,
+            exit,
+            order,
             regroup: match (a.map(|c| c.kind), b.map(|c| c.kind)) {
                 (Some(ChartKind::Bar), Some(ChartKind::StackedBar)) => Some(true),
                 (Some(ChartKind::StackedBar), Some(ChartKind::Bar)) => Some(false),
@@ -459,12 +483,15 @@ impl ChartPlan {
     /// draws them: gridlines, baseline; marks, category labels, and value labels in the
     /// plot (see [`plot_layer`]); value-axis labels, titles. `clip_y` is the plot clip's
     /// top and height.
+    #[allow(clippy::too_many_arguments)]
     fn sample(
         &self,
         dl: &mut DisplayList,
         a: Option<&ChartLayout>,
         b: Option<&ChartLayout>,
         p: f32,
+        t_ms: f64,
+        timing: &Timing,
         clip_y: [f32; 2],
     ) -> Vec<Op> {
         let mut ops = Vec::new();
@@ -514,7 +541,25 @@ impl ChartPlan {
         let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
         // Each mark at this frame, and how opaque, by key, for the paths through them.
         let mut shapes: Vec<(&str, Shape, Color, f32)> = Vec::with_capacity(self.marks.len());
-        for (&(Keyed { pair: (i, j), .. }, _), ends) in self.marks.iter().zip(&self.ends) {
+        // How far along each mark is: a preset staggers the marks that enter or leave.
+        let mut progress = Vec::with_capacity(self.marks.len());
+        for ((&(Keyed { pair: (i, j), .. }, _), ends), order) in self.marks.iter().zip(&self.ends).zip(&self.order) {
+            let preset = match (i, j) {
+                (None, Some(_)) => self.enter.as_ref().map(|e| (e, true)),
+                (Some(_), None) => self.exit.as_ref().map(|e| (e, false)),
+                _ => None,
+            };
+            let (p, look) = match (preset, order) {
+                (Some((preset, entering)), Some((k, n))) => {
+                    let q = staggered(preset, *k, *n, t_ms, timing);
+                    // Entering, the look fades as the mark arrives; leaving, it comes on.
+                    let w = if entering { 1.0 - q } else { q };
+                    (q, Some((lerp(1.0, preset.opacity, w), [preset.translate[0] * w, preset.translate[1] * w])))
+                }
+                _ => (p, None),
+            };
+            progress.push(p);
+            let (alpha, offset) = look.unwrap_or((1.0, [0.0, 0.0]));
             match (i.map(|i| &ma[i]), j.map(|j| &mb[j]), ends) {
                 (Some(x), Some(y), Some((from, to))) => {
                     let shape = match (self.regroup, from, to) {
@@ -526,7 +571,8 @@ impl ChartPlan {
                     shapes.push((&y.key, shape, mix(x.color, y.color, p), 1.0))
                 }
                 (Some(m), None, Some((from, to))) | (None, Some(m), Some((from, to))) => {
-                    shapes.push((&m.key, Shape::lerp(*from, *to, p).unwrap_or(m.shape), m.color, 1.0))
+                    let shape = Shape::lerp(*from, *to, p).unwrap_or(m.shape).translated(offset);
+                    shapes.push((&m.key, shape, m.color, alpha))
                 }
                 // Two kinds of mark: the old one shrinks out as the new one grows in.
                 (Some(x), Some(y), None) => {
@@ -594,7 +640,7 @@ impl ChartPlan {
         // Value labels ride their marks and count.
         let numerals = b.and_then(|c| c.numerals.as_ref()).or_else(|| a.and_then(|c| c.numerals.as_ref()));
         let (la, lb) = (a.map_or(&[][..], |c| &c.labels), b.map_or(&[][..], |c| &c.labels));
-        for (&(marks, (i, j)), shape) in self.marks.iter().zip(&sampled) {
+        for ((&(marks, (i, j)), shape), &p) in self.marks.iter().zip(&sampled).zip(&progress) {
             value_label(dl, &mut plot, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
         }
         // The plot clips while either side's does, its sides moving from one to the
@@ -825,15 +871,49 @@ fn regrouped(a: RoundRect, b: RoundRect, p: f32, heights_first: bool) -> RoundRe
 /// from its shape on one side to its shape on the other; a key on one side only comes
 /// from, or goes to, where it would stand on the other side ([`entry`]). `None` where
 /// two kinds of mark meet.
-fn ends(k: Keyed, a: Option<&ChartLayout>, b: Option<&ChartLayout>) -> Option<(Shape, Shape)> {
+/// A preset that does not scale its marks keeps them whole: they ride in or out with
+/// their neighbors and only fade or move as it says.
+fn ends(
+    k: Keyed,
+    a: Option<&ChartLayout>,
+    b: Option<&ChartLayout>,
+    enter: Option<MarkPreset>,
+    exit: Option<MarkPreset>,
+) -> Option<(Shape, Shape)> {
     let (ma, mb) = (marks_of(a), marks_of(b));
     let dx = k.ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
+    let grows = |preset: Option<MarkPreset>| preset.is_none_or(|p| p.grow);
     match k.pair {
         (Some(i), Some(j)) => Shape::lerp(ma[i].shape, mb[j].shape, 0.0).map(|_| (ma[i].shape, mb[j].shape)),
-        (None, Some(j)) => Some((entry(&mb[j], a, b, true, -dx), mb[j].shape)),
-        (Some(i), None) => Some((ma[i].shape, entry(&ma[i], a, b, false, dx))),
+        (None, Some(j)) if grows(enter) => Some((entry(&mb[j], a, b, true, -dx), mb[j].shape)),
+        (None, Some(j)) => Some((mb[j].shape.shifted(-dx), mb[j].shape)),
+        (Some(i), None) if grows(exit) => Some((ma[i].shape, entry(&ma[i], a, b, false, dx))),
+        (Some(i), None) => Some((ma[i].shape, ma[i].shape.shifted(dx))),
         (None, None) => unreachable!("a pair has a side"),
     }
+}
+
+/// How far along the `k`th of `n` marks that enter or leave with `preset` is, `t_ms`
+/// into a transition timed by `timing`. Mark `k` starts `delay + k · stagger` in and
+/// runs for its own time (the preset's duration, its spring's settle time, or the
+/// transition's); a schedule longer than the transition shrinks to fit it, so every
+/// mark is at rest when the transition is. Then it eases, or follows its spring.
+fn staggered(preset: &MarkPreset, k: usize, n: usize, t_ms: f64, timing: &Timing) -> f32 {
+    let whole = timing.duration_ms;
+    let own = preset.duration.or(preset.spring.map(|(_, settle)| 1000.0 * settle)).unwrap_or(whole);
+    let span = preset.delay + n.saturating_sub(1) as f64 * preset.stagger + own;
+    let fit = if span > whole && span > 0.0 { whole / span } else { 1.0 };
+    let (start, length) = (fit * (preset.delay + k as f64 * preset.stagger), fit * own);
+    let u = match length > 0.0 {
+        true => ((t_ms - start) / length).clamp(0.0, 1.0),
+        false => f64::from(u8::from(t_ms >= start)),
+    };
+    let q = match (preset.spring, preset.ease) {
+        (Some((spring, settle)), _) => spring.position(u * settle, 0.0),
+        (None, Some(ease)) => ease.ease(u),
+        (None, None) => timing.ease.ease(u),
+    };
+    q as f32
 }
 
 /// Where mark `m`, only in the target (`entering`) or only in the source, stands on the
@@ -1144,6 +1224,8 @@ mod tests {
     fn chart(kind: ChartKind, marks: Vec<Mark>, paths: Vec<SeriesPath>) -> ChartLayout {
         ChartLayout {
             kind,
+            enter: None,
+            exit: None,
             base: 100.0,
             baseline: None,
             marks,
@@ -1337,6 +1419,52 @@ mod tests {
         assert_eq!((quarter.y, quarter.w), (20.0, 20.0));
         assert_eq!(regrouped(stacked, side, 1.0, false), side);
         assert_eq!(regrouped(side, stacked, 0.0, true), side);
+    }
+
+    fn preset(stagger: f64, grow: bool) -> MarkPreset {
+        MarkPreset {
+            opacity: 0.0,
+            translate: [0.0, 24.0],
+            grow,
+            delay: 0.0,
+            stagger,
+            duration: None,
+            ease: Some(CubicBezier::LINEAR),
+            spring: None,
+        }
+    }
+
+    #[test]
+    fn staggered_marks_start_in_turn_and_all_rest_when_the_transition_does() {
+        let timing = Timing { duration_ms: 420.0, ease: CubicBezier::LINEAR, matched: true };
+        let fade = preset(40.0, false);
+        // Three marks 40 ms apart, each as long as the transition: 500 ms shrinks to 420.
+        let at = |k: usize, t: f64| staggered(&fade, k, 3, t, &timing);
+        assert_eq!([at(0, 0.0), at(1, 0.0), at(2, 0.0)], [0.0, 0.0, 0.0]);
+        assert_eq!([at(0, 420.0), at(1, 420.0), at(2, 420.0)], [1.0, 1.0, 1.0]);
+        assert!(at(0, 60.0) > 0.0 && at(2, 60.0) == 0.0, "the third starts 67.2 ms in");
+        assert!(at(0, 200.0) > at(1, 200.0) && at(1, 200.0) > at(2, 200.0));
+        // A schedule that fits keeps its own times: 100 ms each, 40 ms apart.
+        let short = MarkPreset { duration: Some(100.0), ..fade };
+        assert_eq!(staggered(&short, 1, 3, 90.0, &timing), 0.5);
+        // A spring runs to rest over its settle time.
+        let snappy = scaena_core::timeline::Spring { stiffness: 420.0, damping: 34.0, mass: 1.0 };
+        let sprung = MarkPreset { spring: Some((snappy, snappy.settle_time(0.0))), ..fade };
+        assert!((staggered(&sprung, 0, 1, 420.0, &timing) - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_preset_that_does_not_scale_its_marks_keeps_them_whole() {
+        let bar = |key: &str, h: f32| {
+            let r = RoundRect { x: 10.0, y: 100.0 - h, w: 20.0, h, top_radius: 0.0, bottom_radius: 0.0 };
+            mark(key, Shape::Bar(r), None)
+        };
+        let mut after = chart(ChartKind::Bar, vec![bar("q1", 40.0)], Vec::new());
+        after.enter = Some(preset(0.0, false));
+        let start = at(None, Some(&after), 0.0);
+        assert_eq!(start[0].1, after.marks[0].shape, "whole from the start, only fading and rising");
+        after.enter = Some(preset(0.0, true));
+        assert!(matches!(at(None, Some(&after), 0.0)[0].1, Shape::Bar(r) if r.h == 0.0), "a scaling preset grows");
     }
 
     #[test]

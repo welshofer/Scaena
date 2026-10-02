@@ -343,7 +343,13 @@ Rules:
   - Bars that regroup (`bar` ↔ `stackedBar`) move in two stages, as d3's do: into a stack, heights and then widths; out of one, widths and then heights. Any other change of kind cross-fades the chart.
 
   A value label rides its mark and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. Legend entries move and change color, and an entry on one side only fades. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
-- **Later.** `dataTransform`, `annotations`, and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9. The same sprint brings enter and exit presets with stagger, and label collision (`labels.collide`, W310).
+- **Enter and exit** (`enter`, `exit`). Without them, marks grow in and shrink out as Motion says, with the transition.
+  - Either names a theme motion preset (`motion.presets`), or calls one: `{ "preset": "grow", "stagger": 40, "spring": "snappy" }`, whose `duration`, `ease`, `spring`, `stagger`, and `delay` override the preset's.
+  - A chart reads a preset one mark at a time. Its `from` look is where an entering mark starts and where a leaving one ends: `opacity`, `transform.translate` in canvas units, and `transform.scale`. A scale grows the mark from where it would stand with no value (Motion), whatever its `anchor`. A preset that does not scale keeps its marks whole: they ride in or out with their neighbors, fading or moving as it says.
+  - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
+  - Mark k starts `delay + k × stagger` ms into the transition and runs for the preset's `duration`, else its spring's settle time, else the transition's. A schedule longer than the transition shrinks to fit it, so every mark is at rest when the transition is; PLAN 1.11 moves choreography onto the global timeline. A mark eases with the preset's `ease`, else the transition's, or follows its spring (`libm`, so every platform agrees).
+  - A `split` other than `marks`, a preset's `to`, and any other property return NotImplemented (PLAN 1.11).
+- **Later.** `dataTransform`, `annotations`, and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9. The same sprint brings label collision (`labels.collide`, W310).
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -407,7 +413,7 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 - A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
 - The transition into a state starts from the state before it in the cue list, what was on screen, whichever state it tracks `from`. Into the first state, every node enters.
 - `t ≤ 0` is the previous state at rest and `t ≥ duration` this state at rest, exactly.
-- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Shaders show the frame's time on the global timeline (§3.8). Presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
+- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Shaders show the frame's time on the global timeline (§3.8). A chart reads `enter` and `exit` presets for its marks, staggered within the transition (§3.7, PLAN 1.9); presets and choreography for every node are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
 
 ### 3.10 Data sources
 

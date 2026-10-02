@@ -152,7 +152,7 @@ impl Engine {
                     let mut cx =
                         Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &colors };
                     let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
-                    Content::Chart { cell: rect, chart }
+                    Content::Chart { cell: rect, chart: Box::new(chart) }
                 }
                 NodeType::Shader => {
                     Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)

@@ -86,7 +86,8 @@ pub const SETTLE_EPSILON: f64 = 0.001;
 
 impl Spring {
     /// Normalized position at time `t` seconds, moving from 0 to 1 with initial
-    /// velocity `v0` (units of 1/s). Closed-form solution for all damping regimes.
+    /// velocity `v0` (units of 1/s). Closed-form solution for all damping regimes, with
+    /// `libm`'s exp, sin, and cos, so every platform gets the same bits (SPEC §13).
     pub fn position(&self, t: f64, v0: f64) -> f64 {
         if t <= 0.0 {
             return 0.0;
@@ -102,18 +103,18 @@ impl Spring {
             let wd = w0 * (1.0 - zeta * zeta).sqrt();
             let a = x0;
             let b = (v0 + zeta * w0 * x0) / wd;
-            (-zeta * w0 * t).exp() * (a * (wd * t).cos() + b * (wd * t).sin())
+            libm::exp(-zeta * w0 * t) * (a * libm::cos(wd * t) + b * libm::sin(wd * t))
         } else if (zeta - 1.0).abs() < 1e-9 {
             let a = x0;
             let b = v0 + w0 * x0;
-            (a + b * t) * (-w0 * t).exp()
+            (a + b * t) * libm::exp(-w0 * t)
         } else {
             let s = w0 * (zeta * zeta - 1.0).sqrt();
             let r1 = -zeta * w0 + s;
             let r2 = -zeta * w0 - s;
             let b = (v0 - r1 * x0) / (r2 - r1);
             let a = x0 - b;
-            a * (r1 * t).exp() + b * (r2 * t).exp()
+            a * libm::exp(r1 * t) + b * libm::exp(r2 * t)
         };
         1.0 + x
     }
