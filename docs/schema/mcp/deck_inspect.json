@@ -1,0 +1,272 @@
+{
+  "name": "deck_inspect",
+  "description": "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's clock, `data` the rows each chart and table reads.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "state": { "description": "One state; every state without it.", "type": ["string", "null"], "default": null },
+      "resolved": {
+        "description": "Through the theme cascade: each node with the deck's overrides merged in, each text\nnode's look, and what each node's overrides set.",
+        "type": "boolean",
+        "default": false
+      },
+      "timeline": {
+        "description": "Its cue: where it falls on the deck's timeline, its transition, and each motion as\nplaced on its clock.",
+        "type": "boolean",
+        "default": false
+      },
+      "data": {
+        "description": "The rows each chart and table reads, after its `dataTransform`.",
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Inspected": {
+        "description": "One state, inspected.",
+        "type": "object",
+        "properties": {
+          "state_id": { "type": "string" },
+          "slide_id": { "type": "string" },
+          "layout": { "type": ["string", "null"] },
+          "nodes": {
+            "description": "Visible nodes in scene-graph order, with node defaults merged under state deltas.",
+            "type": "object",
+            "additionalProperties": { "type": "object", "additionalProperties": true }
+          },
+          "entered": {
+            "description": "Nodes that became visible in this state.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "exited": {
+            "description": "Nodes that stopped being visible in this state.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "looks": {
+            "description": "Each text node's look, through the cascade (`resolved`).",
+            "type": ["object", "null"],
+            "additionalProperties": { "$ref": "#/$defs/TextLook" }
+          },
+          "overrides": {
+            "description": "What each node's overrides set, as pointers into the node: what makes it not\ntheme-safe (`resolved`).",
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "array", "items": { "type": "string" } }
+          },
+          "timeline": { "anyOf": [{ "$ref": "#/$defs/Cue" }, { "type": "null" }] },
+          "data": {
+            "description": "The rows each chart and table reads, by node (`data`).",
+            "type": ["object", "null"],
+            "additionalProperties": { "$ref": "#/$defs/Rows" }
+          }
+        },
+        "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
+      },
+      "TextLook": {
+        "description": "A text node's look as the cascade resolved it (SPEC §3.6).",
+        "type": "object",
+        "properties": {
+          "role": { "description": "The role it is set in: its own, or its slot's.", "type": "string" },
+          "family": { "description": "The family's name, as its font names it.", "type": "string" },
+          "size": { "type": "number", "format": "double" },
+          "weight": { "type": "number", "format": "double" },
+          "leading": { "type": "number", "format": "double" },
+          "tracking": { "type": "number", "format": "double" },
+          "color": { "description": "The color as the cascade names it, and as sRGB.", "type": "string" },
+          "hex": { "type": "string" }
+        },
+        "required": ["role", "family", "size", "weight", "leading", "tracking", "color", "hex"]
+      },
+      "Cue": {
+        "description": "A state's cue (SPEC §2.4, §3.9), ms: where it falls on the deck's timeline, its\ntransition, and each motion as placed on the state's clock, which starts with the\ntransition.",
+        "type": "object",
+        "properties": {
+          "start": { "description": "When the transition into it starts.", "type": "number", "format": "double" },
+          "span": { "description": "Its transition and motions, from `start`.", "type": "number", "format": "double" },
+          "hold": {
+            "description": "Its dwell at rest before the next state starts.",
+            "type": "number",
+            "format": "double"
+          },
+          "transition": { "$ref": "#/$defs/Transition" },
+          "motions": { "type": "array", "items": { "$ref": "#/$defs/Motion" } }
+        },
+        "required": ["start", "span", "hold", "transition", "motions"]
+      },
+      "Transition": {
+        "type": "object",
+        "properties": {
+          "duration": { "type": "number", "format": "double" },
+          "curve": { "$ref": "#/$defs/Curve" },
+          "match": {
+            "description": "`id`: nodes are matched by id across the cut. `none`: every node leaves and enters.",
+            "type": "string"
+          }
+        },
+        "required": ["duration", "curve", "match"]
+      },
+      "Curve": {
+        "description": "An easing as its cubic Bézier, or a spring as its constants.",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ease": {
+                "type": "array",
+                "items": { "type": "number", "format": "double" },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": ["ease"]
+          },
+          { "type": "object", "properties": { "spring": { "$ref": "#/$defs/Spring" } }, "required": ["spring"] }
+        ]
+      },
+      "Spring": {
+        "type": "object",
+        "properties": {
+          "stiffness": { "type": "number", "format": "double" },
+          "damping": { "type": "number", "format": "double" },
+          "mass": { "type": "number", "format": "double" }
+        },
+        "required": ["stiffness", "damping", "mass"]
+      },
+      "Motion": {
+        "description": "One motion on one node: what it does, over how many units, and when, ms.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "motion": { "description": "`enter`, `exit`, `emphasis`, or `anim`.", "type": "string" },
+          "split": {
+            "description": "What it moves one at a time: lines, words, glyphs, children, or marks.",
+            "anyOf": [{ "$ref": "#/$defs/SplitUnit" }, { "type": "null" }]
+          },
+          "units": { "type": "integer", "format": "uint", "minimum": 0 },
+          "start": { "type": "number", "format": "double" },
+          "stagger": { "description": "From one unit's start to the next's.", "type": "number", "format": "double" },
+          "duration": { "description": "Each unit's.", "type": "number", "format": "double" },
+          "end": { "type": "number", "format": "double" },
+          "curve": { "$ref": "#/$defs/Curve" },
+          "from": {
+            "description": "An entrance's look before it: what it changes from rest.",
+            "anyOf": [{ "$ref": "#/$defs/LookChange" }, { "type": "null" }]
+          },
+          "to": {
+            "description": "An exit's look after it.",
+            "anyOf": [{ "$ref": "#/$defs/LookChange" }, { "type": "null" }]
+          },
+          "peak": {
+            "description": "An emphasis's look at its peak.",
+            "anyOf": [{ "$ref": "#/$defs/LookChange" }, { "type": "null" }]
+          },
+          "tracks": {
+            "description": "An `anim`'s tracks.",
+            "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }]
+          }
+        },
+        "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "curve"]
+      },
+      "SplitUnit": {
+        "description": "What a choreographed entrance splits its target into.",
+        "type": "string",
+        "enum": ["lines", "words", "glyphs", "children", "marks"]
+      },
+      "LookChange": {
+        "description": "A look as what it changes from rest.",
+        "type": "object",
+        "properties": {
+          "opacity": { "type": ["number", "null"], "format": "double" },
+          "translate": {
+            "type": ["array", "null"],
+            "items": { "type": "number", "format": "double" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "scale": {
+            "type": ["array", "null"],
+            "items": { "type": "number", "format": "double" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "rotate": { "type": ["number", "null"], "format": "double" },
+          "anchor": {
+            "type": ["array", "null"],
+            "items": { "type": "number", "format": "double" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "tint": { "anyOf": [{ "$ref": "#/$defs/Tint" }, { "type": "null" }] },
+          "progress": { "type": ["number", "null"], "format": "double" }
+        }
+      },
+      "Tint": {
+        "type": "object",
+        "properties": {
+          "color": { "description": "sRGB.", "type": "string" },
+          "amount": { "type": "number", "format": "double" }
+        },
+        "required": ["color", "amount"]
+      },
+      "Tracks": {
+        "description": "An `anim`'s tracks, each its keys.",
+        "type": "object",
+        "properties": {
+          "opacity": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
+          "translate": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key2" } },
+          "scale": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key2" } },
+          "rotate": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
+          "progress": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
+          "anchor": {
+            "type": ["array", "null"],
+            "items": { "type": "number", "format": "double" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "Key": {
+        "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
+        "type": "object",
+        "properties": {
+          "t": { "type": "number", "format": "double" },
+          "v": { "type": "number", "format": "double" },
+          "curve": { "$ref": "#/$defs/Curve" }
+        },
+        "required": ["t", "v", "curve"]
+      },
+      "Key2": {
+        "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
+        "type": "object",
+        "properties": {
+          "t": { "type": "number", "format": "double" },
+          "v": { "type": "array", "items": { "type": "number", "format": "double" }, "minItems": 2, "maxItems": 2 },
+          "curve": { "$ref": "#/$defs/Curve" }
+        },
+        "required": ["t", "v", "curve"]
+      },
+      "Rows": {
+        "description": "The rows a chart or table reads, after its `dataTransform`, cells typed by the source's\nschema; dates in ISO 8601.",
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "types": { "type": "array", "items": { "type": "string" } },
+          "rows": { "type": "array", "items": { "type": "array", "items": true } }
+        },
+        "required": ["source", "columns", "types", "rows"]
+      }
+    },
+    "type": "object",
+    "properties": { "states": { "type": "array", "items": { "$ref": "#/$defs/Inspected" } } },
+    "required": ["states"]
+  }
+}

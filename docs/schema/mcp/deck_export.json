@@ -1,0 +1,34 @@
+{
+  "name": "deck_export",
+  "description": "Export a projection: `spine` now. PDF (PLAN 1.20), frames and video (1.21), and HTML (2.5) say which task builds them.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "format"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "format": {
+        "description": "`spine`; `pdf`, `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that\nbuild them.",
+        "type": "string"
+      },
+      "states": {
+        "description": "The states a frame export draws; every state without it.",
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "default": null
+      },
+      "out": { "description": "Also write the export here.", "type": ["string", "null"], "default": null }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["format"],
+    "type": "object",
+    "properties": {
+      "format": { "type": "string" },
+      "out": { "description": "Where it was written.", "type": ["string", "null"] },
+      "spine": { "description": "The spine, for `spine`.", "type": ["object", "null"], "additionalProperties": true }
+    }
+  }
+}

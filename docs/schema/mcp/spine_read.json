@@ -1,0 +1,21 @@
+{
+  "name": "spine_read",
+  "description": "The deck's spine (SPEC §2.6): its sections and beats, each beat's claim, evidence, and states.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": {
+        "description": "The bundle's path: a directory, a `.scaena` zip, or a `deck.json`.",
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": true,
+    "type": "object"
+  }
+}

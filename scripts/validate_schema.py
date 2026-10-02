@@ -6,6 +6,12 @@ deck_schema = json.load(open(root / 'docs/schema/deck.schema.json'))
 theme_schema = json.load(open(root / 'docs/schema/theme.schema.json'))
 patch_schema = json.load(open(root / 'docs/schema/patch.schema.json'))
 for sch in (deck_schema, theme_schema, patch_schema): Draft202012Validator.check_schema(sch)
+# Each MCP tool's input and output schemas (PLAN 1.17): an MCP client refuses a tool whose are not schemas.
+for tool in sorted((root / 'docs/schema/mcp').glob('*.json')):
+    t = json.load(open(tool))
+    for k in ('inputSchema', 'outputSchema'):
+        assert t.get(k) is None or t[k]['type'] == 'object', f"{tool.name}: a tool's {k} is an object (MCP)"
+    for sch in filter(None, (t['inputSchema'], t.get('outputSchema'))): Draft202012Validator.check_schema(sch)
 # Every example, plus every fixture and benchmark bundle under tests/ (deck.json and its theme.json).
 targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema)]
 # The example patch (PLAN 1.16).

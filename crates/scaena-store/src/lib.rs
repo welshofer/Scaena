@@ -128,19 +128,6 @@ impl Bundle {
         Ok(Bundle { root, deck_file, deck, theme_json, files })
     }
 
-    /// The bundle as it would be with `deck` (a patch's, PLAN 1.16): its theme read for that
-    /// deck, its files the same. Nothing is written.
-    pub fn with_deck(&self, deck: Deck) -> Result<Bundle, StoreError> {
-        let theme_json = theme_of(&deck, &self.files)?;
-        Ok(Bundle {
-            root: self.root.clone(),
-            deck_file: self.deck_file.clone(),
-            deck,
-            theme_json,
-            files: self.files.clone(),
-        })
-    }
-
     /// A path the deck names (theme, fonts, data), resolved inside a directory bundle.
     /// Bundles are self-contained (SPEC §3.1): absolute paths and `..` are refused.
     pub fn path(&self, rel: &str) -> Result<PathBuf, StoreError> {

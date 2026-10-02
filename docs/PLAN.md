@@ -223,7 +223,36 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *`just schema` validates the example patch. It checks that the patch schema rejects a misspelled member, a prop three levels deep, and a lone op, and accepts an RFC 6902 op with a member it ignores.*
   - *Found on the way: the order of a deck's `nodes` is paint order at equal `z`, and a CRDT map keeps no order of its keys. 1.23 must hold the order apart (noted there).*
   - *Not done: a patch becomes a CRDT change with 1.23. `remove_state` does not fold its delta into the next state; the states after it track from the one before, as SPEC §7.3 says.)*
-- [ ] 1.17 MCP server (`rmcp`): tools + resources per SPEC §7.2; image content for `deck_render`.
+- [x] 1.17 MCP server (`rmcp`): tools + resources per SPEC §7.2; image content for `deck_render`. *(Done. `scaena-ops`, `scaena-mcp`, `scaena mcp`; SPEC §7.2, §12; ADR-0009:*
+  - *The operations moved out of the CLI into `scaena-ops` (ADR-0009). Each takes a bundle and returns a typed result, or an `OpsError { message, plan?, op? }`. The CLI parses, calls, and prints, and every CLI test passed unchanged across the move.*
+  - *Five operations are new, for agents:*
+    - *`deck_create` makes a bundle from a theme, the fonts its families name, data files, and a deck, and writes it only if it validates. The deck's `fonts` come from the theme. That is where authorability finding 5's deck failed: it listed two of its theme's three families.*
+    - *`data_attach` copies a CSV or JSON file in and declares it, each column typed by inference unless `schema` says.*
+    - *`deck_read` returns the deck as JSON or `.scn`.*
+    - *`spine_read` reads the spine, and `spine_update` replaces it as a patch: checked, with its lint delta.*
+  - *`scaena mcp` serves 12 tools over stdio, on `rmcp` 3.5.*
+    - *A tool's result is its command's `--json` result, as structured content and as text. Structured content is an object, so a command that prints a list or a map has it named (`findings`, `states`, `changes`).*
+    - *A tool that stops returns an error result whose text is `{ message, plan?, op? }`.*
+    - *`deck_render` returns the PNG as image content, with the display list's digest (`DisplayList::digest`, which the golden tests now share).*
+  - *Resources, compiled in:*
+    - *the deck, theme, and patch schemas;*
+    - *the lint catalog (SPEC §7.5, cut from SPEC at build time) and SPEC itself;*
+    - *the `author-deck` skill;*
+    - *the example deck (JSON and `.scn`), its patch, and its theme.*
+  - *Each tool's input and output schemas are generated and committed in `docs/schema/mcp/`. A test holds them to what the server lists, and `just bless` regenerates them. `just schema` checks that each is a JSON Schema whose root is an object, as MCP requires.*
+  - *A patch's ops and a deck to create are typed loosely, and point at their resources: inlined, the patch schema would add 73 KB to every `tools/list`. The server checks each op as `scaena patch` does.*
+  - *Evidence:*
+    - *`crates/scaena-mcp/tests/mcp.rs` (3), a client over an in-process pipe:*
+      - *The tools and resources are listed, and the resources read.*
+      - *A deck is built with the tools alone: created from Dusk, the Q3 CSV attached, then one patch for a title, a state, and a chart, then a spine. It lints with no errors and renders to a PNG twice with one digest. Inspect, diff, and read return what was built.*
+      - *Three tools that stop say why: a PDF export names 1.20, a patch names its op, and a missing bundle is reported.*
+    - *`crates/scaena-cli/tests/mcp.rs`: `scaena mcp` answers over real stdio, and exits cleanly when its client goes.*
+    - *`crates/scaena-ops/tests/create.rs` (3): a bundle from a theme, then data, then a chart; a whole deck with its data in one step; nothing written that does not validate. A unit test types columns by inference.*
+    - *SPEC §15's MCP budget, in release on the 4-core container: a `deck_render` round trip from a cold process (spawn, handshake, render, PNG back) takes 36 ms median and 50 ms worst over B1's 40 states, against 1 s.*
+  - *Not done:*
+    - *The skills still name CLI commands; 1.18 writes them for both.*
+    - *`deck_create` and `data_attach` have no CLI command.*
+    - *Paths are local to the server, and nothing streams progress for a long lint.)*
 - [ ] 1.18 Skills: `skills/author-deck`, `skills/retheme`, `skills/chart-from-data`, `skills/motion-pass`, `skills/tighten-copy`.
 - [ ] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI.
 

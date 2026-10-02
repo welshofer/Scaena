@@ -4,20 +4,16 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use scaena_core::lint::Delta;
-use scaena_core::validate::BundleFiles;
 use scaena_core::{Finding, Severity};
-use scaena_engine::data::DataFiles;
-use scaena_engine::fonts::BundleFonts;
-use scaena_engine::images::BundleImages;
-use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, EngineError, FrameRequest};
-use scaena_paint::cpu::CpuPainter;
-use scaena_paint::{Assets, PaintError, Painter};
+use scaena_engine::EngineError;
+use scaena_ops::OpsError;
+use scaena_ops::inspect::Views;
+use scaena_ops::lint::Linted;
+use scaena_ops::render::Painter;
+use scaena_paint::PaintError;
 use scaena_store::{Bundle, SaveOptions};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Instant;
 
 #[derive(Parser)]
 #[command(
@@ -144,7 +140,8 @@ enum Cmd {
         #[arg(long, default_value_t = 4848)]
         port: u16,
     },
-    /// MCP server on stdio (PLAN 1.17).
+    /// MCP server on stdio (PLAN 1.17, SPEC §7.2): the operations above as tools, and the
+    /// format's schemas, lint catalog, and examples as resources.
     Mcp,
 }
 
@@ -214,8 +211,14 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             let message = format!("{e:#}");
-            if e.chain().any(not_built) {
-                fail(json, 3, &message, plan_task(&message).as_deref())
+            let ops = e.chain().find_map(|c| c.downcast_ref::<OpsError>());
+            if let Some(plan) = ops.and_then(|o| o.plan.as_deref()) {
+                fail(json, 3, &message, Some(plan))
+            } else if e.chain().any(not_built) {
+                fail(json, 3, &message, scaena_ops::plan_task(&message).as_deref())
+            } else if let Some(op) = ops.and_then(|o| o.op) {
+                // A patch's op that does not apply: which one.
+                stop(json, serde_json::json!({ "exit": 2, "message": message, "op": op }))
             } else {
                 fail(json, 2, &message, None)
             }
@@ -250,20 +253,10 @@ fn not_built(e: &(dyn std::error::Error + 'static)) -> bool {
         || matches!(e.downcast_ref(), Some(PaintError::NotImplemented(_)))
 }
 
-/// The PLAN task a message names (`… — PLAN 1.20`), if it names one.
-fn plan_task(message: &str) -> Option<String> {
-    let (_, rest) = message.split_once("PLAN ")?;
-    let task: String = rest.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '.' | 'x')).collect();
-    let task = task.trim_end_matches('.');
-    (!task.is_empty()).then(|| task.to_string())
-}
-
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.cmd {
         Cmd::Validate { bundle } => {
-            let (deck, files) =
-                scaena_store::open_unparsed(&bundle).with_context(|| format!("opening {}", bundle.display()))?;
-            let findings = scaena_core::validate::validate_bundle(&deck, &files).context("deck.json is not JSON")?;
+            let findings = scaena_ops::lint::validate(&bundle)?;
             report(&findings, cli.json);
             Ok(if findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
@@ -288,10 +281,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Lint { bundle, state, severity, fix } => {
             let b = open(&bundle)?;
             if fix {
-                return lint_fix(&bundle, &b, cli.json);
+                return lint_fix(&b, cli.json);
             }
             let min: Severity = severity.into();
-            let (found, laid) = lint_bundle(&b, &b.deck, &b.files, b.theme_json.as_deref())?;
+            let Linted { findings: found, laid } = scaena_ops::lint::lint(&b)?;
             let findings: Vec<Finding> = found
                 .into_iter()
                 .filter(|f| f.severity >= min)
@@ -308,80 +301,41 @@ fn run(cli: Cli) -> Result<ExitCode> {
             inspect(&open(&bundle)?, state.as_deref(), Views { resolved, timeline, data }, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
-            let b = open(&bundle)?;
-            let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
-            let a = snaps.iter().find(|s| s.state_id == from).with_context(|| format!("unknown state `{from}`"))?;
-            let z = snaps.iter().find(|s| s.state_id == to).with_context(|| format!("unknown state `{to}`"))?;
-            let mut changes = serde_json::Map::new();
-            for (id, props) in &z.nodes {
-                match a.nodes.get(id) {
-                    None => {
-                        changes.insert(id.clone(), serde_json::json!({"enter": props}));
-                    }
-                    Some(prev) if prev != props => {
-                        let delta: serde_json::Map<String, serde_json::Value> = props
-                            .iter()
-                            .filter(|(k, v)| prev.get(*k) != Some(*v))
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect();
-                        changes.insert(id.clone(), serde_json::json!({"change": delta}));
-                    }
-                    _ => {}
-                }
-            }
-            for id in a.nodes.keys().filter(|id| !z.nodes.contains_key(*id)) {
-                changes.insert(id.clone(), serde_json::json!({"exit": true}));
-            }
+            use scaena_ops::inspect::Change;
+            let changes = scaena_ops::inspect::diff(&open(&bundle)?, &from, &to)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&changes)?);
             } else if changes.is_empty() {
                 println!("no changes from `{from}` to `{to}`");
             } else {
                 for (id, change) in &changes {
-                    match change.as_object().and_then(|c| c.iter().next()) {
-                        Some((kind, _)) if kind == "enter" => println!("+ {id}"),
-                        Some((kind, _)) if kind == "exit" => println!("- {id}"),
-                        Some((_, delta)) => {
-                            let keys: Vec<&str> =
-                                delta.as_object().into_iter().flatten().map(|(k, _)| k.as_str()).collect();
-                            println!("~ {id}: {}", keys.join(", "));
+                    match change {
+                        Change::Enter(_) => println!("+ {id}"),
+                        Change::Exit(_) => println!("- {id}"),
+                        Change::Change(delta) => {
+                            println!("~ {id}: {}", delta.keys().map(String::as_str).collect::<Vec<_>>().join(", "))
                         }
-                        None => {}
                     }
                 }
             }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Export { bundle, format, out, states, .. } => {
-            let fmt: scaena_export::Format = format.parse().map_err(anyhow::Error::msg)?;
-            match fmt {
-                scaena_export::Format::Spine => {
-                    if states.is_some() {
-                        anyhow::bail!(
-                            "--states picks the frames of png, pdf, svg, mp4, webm, and html; spine is the whole spine"
-                        );
-                    }
-                    let b = open(&bundle)?;
-                    let v = scaena_export::spine_json(&b.deck);
-                    let s = serde_json::to_string_pretty(&v)?;
-                    if let Some(p) = &out {
-                        std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
-                    }
-                    if cli.json {
-                        let mut summary = serde_json::json!({ "format": "spine", "out": out });
-                        if out.is_none() {
-                            summary["spine"] = v;
-                        }
-                        println!("{}", serde_json::to_string_pretty(&summary)?);
-                    } else if out.is_none() {
-                        println!("{s}");
-                    }
-                    Ok(ExitCode::SUCCESS)
-                }
-                scaena_export::Format::Pdf => Ok(not_yet(cli.json, "export --format pdf", "1.20")),
-                scaena_export::Format::Html => Ok(not_yet(cli.json, "export --format html", "2.5")),
-                _ => Ok(not_yet(cli.json, &format!("export --format {format}"), "1.21")),
+            let v = scaena_ops::export::export(&open(&bundle)?, &format, states.as_deref())?;
+            let s = serde_json::to_string_pretty(&v)?;
+            if let Some(p) = &out {
+                std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
             }
+            if cli.json {
+                let mut summary = serde_json::json!({ "format": "spine", "out": out });
+                if out.is_none() {
+                    summary["spine"] = v;
+                }
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else if out.is_none() {
+                println!("{s}");
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Cmd::Compile { input, out } => compile(&input, out.as_deref(), cli.json),
         Cmd::Decompile { input, out } => {
@@ -404,7 +358,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Theme { bundle, apply, dry_run } => theme_apply(&bundle, &apply, dry_run, cli.json),
         Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.x")),
-        Cmd::Mcp => Ok(not_yet(cli.json, "mcp", "1.17")),
+        Cmd::Mcp => {
+            scaena_mcp::stdio().context("serving MCP on stdio")?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -534,79 +491,22 @@ fn line_col(source: &str, offset: usize) -> (usize, usize) {
 /// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
 /// its `theme`. Findings after it, if any are errors, exit 1.
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
-    use std::collections::BTreeMap;
-    let b = open(bundle)?;
-    let mut text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
-    let mut parsed: serde_json::Value =
-        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", theme.display()))?;
-    // A family whose file the bundle does not hold is set in the bundle's font of that
-    // family, if it has one: a saved bundle names its fonts by their content.
-    let mut mapped = Vec::new();
-    for (key, family) in parsed.pointer_mut("/type/families").and_then(|f| f.as_object_mut()).into_iter().flatten() {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        if b.files.exists(file) {
-            continue;
-        }
-        if let Some(font) = b.deck.fonts.iter().find(|f| f.family == name && b.files.exists(&f.file)) {
-            mapped.push(format!("family `{key}`: {file} → {}", font.file));
-            family["file"] = serde_json::Value::String(font.file.clone());
-        }
-    }
-    if !mapped.is_empty() {
-        text = serde_json::to_string_pretty(&parsed)? + "\n";
-    }
-    // Where it goes: where it already is inside a bundle directory, else `themes/`.
-    let inside = match &b.files {
-        scaena_store::Files::Dir(root) => match (root.canonicalize(), theme.canonicalize()) {
-            (Ok(root), Ok(theme)) => theme.strip_prefix(&root).ok().map(|p| p.to_string_lossy().replace('\\', "/")),
-            _ => None,
-        },
-        scaena_store::Files::Zip(_) => None,
-    };
-    let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
-    let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
-    let was = match &b.deck.theme {
-        Some(serde_json::Value::String(path)) => Some(path.clone()),
-        Some(_) => Some("(inline)".to_string()),
-        None => None,
-    };
-
-    let before = lint_bundle(&b, &b.deck, &b.files, b.theme_json.as_deref())?.0;
-    let mut deck = b.deck.clone();
-    deck.theme = Some(serde_json::Value::String(rel.clone()));
-    let after = lint_bundle(&b, &deck, &Overlay { base: &b.files, path: &rel, text: &text }, Some(&text))?.0;
-
-    let states: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
-    let Delta { added, removed } = scaena_core::lint::delta(&before, &states, &after, &states, &[]);
-    let errors = after.iter().filter(|f| f.severity == Severity::Error).count();
-
-    if !dry_run {
-        let mut files = BTreeMap::new();
-        files.insert(b.deck_file.clone(), (deck.to_json()? + "\n").into_bytes());
-        if inside.is_none() || !mapped.is_empty() {
-            files.insert(rel.clone(), text.into_bytes());
-        }
-        b.write(&files).with_context(|| format!("writing {}", bundle.display()))?;
-    }
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run)?;
     if json {
-        let v = serde_json::json!({
-            "theme": rel, "was": was, "applied": !dry_run, "mapped": mapped,
-            "added": added, "removed": removed, "errors": errors,
-        });
-        println!("{}", serde_json::to_string_pretty(&v)?);
+        println!("{}", serde_json::to_string_pretty(&t)?);
     } else {
         let verb = if dry_run { "would apply" } else { "applied" };
-        println!("{verb} {rel} (was {})", was.as_deref().unwrap_or("no theme"));
-        for m in &mapped {
+        println!("{verb} {} (was {})", t.theme, t.was.as_deref().unwrap_or("no theme"));
+        for m in &t.mapped {
             println!("  {m}");
         }
-        print_delta(&added, &removed);
+        print_delta(&t.added, &t.removed);
     }
-    Ok(if errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+    Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
 /// A lint delta, a line a finding: `+` added, `-` removed.
-fn print_delta(added: &[&Finding], removed: &[&Finding]) {
+fn print_delta(added: &[Finding], removed: &[Finding]) {
     if added.is_empty() && removed.is_empty() {
         println!("lint delta: none");
     }
@@ -623,12 +523,11 @@ fn print_delta(added: &[&Finding], removed: &[&Finding]) {
 }
 
 /// `scaena patch` (PLAN 1.16, SPEC §7.3): compile the ops, JSON Patch and semantic, against
-/// the deck, each against the deck as the ops before it leave it; check the deck they make
-/// as `validate` checks a bundle; and write it, canonically, unless that adds a validation
-/// error. Reports the patch as RFC 6902 and the delta in what `validate` and `lint` find.
-/// An op that does not apply exits 2; a patch that would make the deck invalid exits 1,
-/// refused. Either way, and under `--dry-run`, nothing is written. Errors in the deck it
-/// makes exit 1, as `lint` does.
+/// the deck; check the deck they make as `validate` checks a bundle; and write it,
+/// canonically, unless that adds a validation error. Reports the patch as RFC 6902 and the
+/// delta in what `validate` and `lint` find. An op that does not apply exits 2; a patch that
+/// would make the deck invalid exits 1, refused. Either way, and under `--dry-run`, nothing
+/// is written. Errors in the deck it makes exit 1, as `lint` does.
 fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
     let b = open(bundle)?;
     let source = if ops == Path::new("-") {
@@ -640,216 +539,56 @@ fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCod
     };
     let parsed: serde_json::Value =
         serde_json::from_str(&source).with_context(|| format!("{} is not JSON", ops.display()))?;
-    let Some(list) = parsed.as_array() else {
-        anyhow::bail!("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)");
-    };
-    let doc = serde_json::to_value(&b.deck)?;
-    let compiled = match scaena_core::patch::compile(&doc, list, &b.files) {
-        Ok(compiled) => compiled,
-        Err(e) => return Ok(stop(json, serde_json::json!({ "exit": 2, "message": e.to_string(), "op": e.index }))),
-    };
-    let was: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
-    let is: Vec<&str> =
-        compiled.doc["states"].as_array().into_iter().flatten().map(|s| s["id"].as_str().unwrap_or_default()).collect();
-    // The deck it makes, checked as `validate` checks a bundle: a validation error it adds
-    // refuses the whole patch.
-    let text = serde_json::to_string_pretty(&compiled.doc)?;
-    let invalid = scaena_core::validate::validate_bundle(&b.deck.to_json()?, &b.files)?;
-    let invalid_after = scaena_core::validate::validate_bundle(&text, &b.files)?;
-    let broken = scaena_core::lint::delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added;
-    let (before, after, refused) = if broken.is_empty() {
-        let next = b.with_deck(scaena_core::Deck::from_json(&text).context("the patched deck")?)?;
-        let (before, _) = lint_bundle(&b, &b.deck, &b.files, b.theme_json.as_deref())?;
-        let (after, _) = lint_bundle(&next, &next.deck, &next.files, next.theme_json.as_deref())?;
-        if !dry_run && compiled.doc != doc {
-            let mut files = std::collections::BTreeMap::new();
-            files.insert(b.deck_file.clone(), (next.deck.to_json()? + "\n").into_bytes());
-            b.write(&files).with_context(|| format!("writing {}", bundle.display()))?;
-        }
-        (before, after, false)
-    } else {
-        (invalid, invalid_after, true)
-    };
-    let Delta { added, removed } = scaena_core::lint::delta(&before, &was, &after, &is, &compiled.renamed);
-    let errors = after.iter().filter(|f| f.severity == Severity::Error).count();
-    let applied = !refused && !dry_run;
+    let p = scaena_ops::patch::patch(&b, &parsed, dry_run)?;
     if json {
-        let v = serde_json::json!({
-            "applied": applied, "patch": compiled.patch, "added": added, "removed": removed, "errors": errors,
-        });
-        println!("{}", serde_json::to_string_pretty(&v)?);
+        println!("{}", serde_json::to_string_pretty(&p)?);
     } else {
-        let (n, m) = (list.len(), compiled.patch.len());
-        match (refused, dry_run) {
+        let (n, m) = (parsed.as_array().map_or(0, Vec::len), p.patch.len());
+        match (p.refused, dry_run) {
             (true, _) => println!("refused: the patch would make the deck invalid; nothing was written"),
             (false, true) => println!("would apply {n} ops, {m} as JSON Patch"),
             (false, false) => println!("applied {n} ops, {m} as JSON Patch"),
         }
-        for op in &compiled.patch {
+        for op in &p.patch {
             println!("  {}", serde_json::to_string(op)?);
         }
-        print_delta(&added, &removed);
+        print_delta(&p.added, &p.removed);
     }
-    Ok(if errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
-}
-
-/// What `lint` finds in a bundle (SPEC §7.5): its validation, the document rules, and,
-/// once it has no errors, the layout rules in its own format and each of its `formats`,
-/// contrast painted by the CPU painter. `deck`, `files`, and `theme` may be the bundle
-/// as it would be (`theme --apply`); its fonts, images, and data are the bundle's. The
-/// flag: whether the layout rules ran.
-fn lint_bundle(
-    b: &Bundle,
-    deck: &scaena_core::Deck,
-    files: &dyn scaena_core::validate::BundleFiles,
-    theme: Option<&str>,
-) -> Result<(Vec<Finding>, bool)> {
-    let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
-    let model: Option<scaena_core::model::theme::Theme> = theme.and_then(|t| serde_json::from_str(t).ok());
-    found.extend(scaena_core::lint::check(deck, model.as_ref()));
-    let laid = theme.is_some() && !found.iter().any(|f| f.severity == Severity::Error);
-    if let (true, Some(text)) = (laid, theme) {
-        let theme = Theme::from_json(text)?;
-        let mut assets = Assets::new();
-        let mut engine = engine_with(b, &theme, Some(&mut assets))?;
-        let data = data_files(b)?;
-        let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets: &assets };
-        found.extend(scaena_engine::lint::lint(&mut engine, deck, &theme, &data, Some(&mut backdrop))?);
-    }
-    scaena_core::lint::sort(&mut found);
-    Ok((found, laid))
+    Ok(if p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
 /// `scaena lint --fix`: apply every fix lint offers (each checked by laying its state out
 /// with it, never a change of content), write the deck, and lint again. Under `--json`:
 /// `{ "fixed": [findings], "findings": [what remains] }`.
-fn lint_fix(path: &Path, b: &Bundle, json: bool) -> Result<ExitCode> {
-    let (found, _) = lint_bundle(b, &b.deck, &b.files, b.theme_json.as_deref())?;
-    let mut doc = serde_json::to_value(&b.deck)?;
-    let mut fixed: Vec<&Finding> = Vec::new();
-    for f in found.iter().filter(|f| f.fix.is_some()) {
-        // Two findings can carry one fix (the same text in two states); it applies once.
-        let patch = f.fix.as_deref().unwrap_or_default();
-        let mut next = doc.clone();
-        if scaena_core::patch::apply(&mut next, patch).is_ok() {
-            doc = next;
-            fixed.push(f);
-        }
-    }
-    let deck = scaena_core::Deck::from_json(&doc.to_string()).context("the fixed deck")?;
-    if !fixed.is_empty() {
-        let mut files = std::collections::BTreeMap::new();
-        files.insert(b.deck_file.clone(), (deck.to_json()? + "\n").into_bytes());
-        b.write(&files).with_context(|| format!("writing {}", path.display()))?;
-    }
-    let (after, _) = lint_bundle(b, &deck, &b.files, b.theme_json.as_deref())?;
+fn lint_fix(b: &Bundle, json: bool) -> Result<ExitCode> {
+    let fixed = scaena_ops::lint::lint_fix(b)?;
     if json {
-        let v = serde_json::json!({ "fixed": fixed, "findings": after });
-        println!("{}", serde_json::to_string_pretty(&v)?);
+        println!("{}", serde_json::to_string_pretty(&fixed)?);
     } else {
-        for f in &fixed {
+        for f in &fixed.fixed {
             let ops: Vec<String> = f.fix.iter().flatten().map(|op| op.to_string()).collect();
             println!("fixed {} {}: {}", f.code, f.node.as_deref().unwrap_or_default(), ops.join(" "));
         }
-        if fixed.is_empty() {
+        if fixed.fixed.is_empty() {
             println!("nothing to fix");
         }
-        report(&after, false);
+        report(&fixed.findings, false);
     }
-    let errors = after.iter().any(|f| f.severity == Severity::Error);
+    let errors = fixed.findings.iter().any(|f| f.severity == Severity::Error);
     Ok(if errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
-}
-
-/// A bundle's files with one more, or one replaced: the bundle as it would be.
-struct Overlay<'a> {
-    base: &'a scaena_store::Files,
-    path: &'a str,
-    text: &'a str,
-}
-
-impl scaena_core::validate::BundleFiles for Overlay<'_> {
-    fn exists(&self, path: &str) -> bool {
-        path == self.path || self.base.exists(path)
-    }
-
-    fn read_text(&self, path: &str) -> Option<String> {
-        if path == self.path { Some(self.text.to_string()) } else { self.base.read_text(path) }
-    }
-}
-
-/// What `inspect` shows of each state besides its snapshot.
-#[derive(Clone, Copy)]
-struct Views {
-    resolved: bool,
-    timeline: bool,
-    data: bool,
 }
 
 /// `scaena inspect`: each state's snapshot, tracking applied (SPEC §2.2). `--resolved`
 /// takes it through the theme cascade (PLAN 1.6); `--timeline` adds its cue and `--data`
 /// the rows its charts and tables read (PLAN 1.14).
 fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<ExitCode> {
-    use scaena_engine::cascade;
-    use scaena_engine::layout::Grid;
-    use serde_json::{Map, Value};
-    let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
-    let selected: Vec<&scaena_core::Snapshot> =
-        snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
-    if selected.is_empty() {
-        anyhow::bail!("unknown state `{}`", state.unwrap_or_default());
-    }
-    let theme = match views.resolved || views.timeline {
-        true => Some(Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?),
-        false => None,
-    };
-    let files = if views.timeline || views.data { data_files(b)? } else { DataFiles::new() };
-    // A cue on lines, words, or a chart's marks counts them after layout, so the
-    // timeline needs the engine, with the bundle's fonts and images, as `render` does.
-    let mut cues = match (&theme, views.timeline) {
-        (Some(theme), true) => {
-            let mut engine = engine_with(b, theme, None)?;
-            let timeline = engine.timeline(&b.deck, theme, &files)?;
-            Some((engine, timeline))
-        }
-        _ => None,
-    };
-    let mut out = Vec::new();
-    for s in selected {
-        let snap = if views.resolved { cascade::with_overrides(&b.deck, s) } else { s.clone() };
-        let mut v = serde_json::to_value(&snap)?;
-        if let (true, Some(theme)) = (views.resolved, &theme) {
-            let mut looks = Map::new();
-            let mut overrides = Map::new();
-            for (id, props) in &snap.nodes {
-                if b.deck.nodes[id].node_type == scaena_core::document::NodeType::Text {
-                    let slot = Grid::slot_role(theme, snap.layout.as_deref(), props.get("at"));
-                    let look = cascade::look(theme, props, slot.as_deref()).with_context(|| format!("node `{id}`"))?;
-                    looks.insert(id.clone(), serde_json::to_value(look)?);
-                }
-                let over = b.deck.overridden(id);
-                if !over.is_empty() {
-                    overrides.insert(id.clone(), serde_json::to_value(over)?);
-                }
-            }
-            v["looks"] = looks.into();
-            v["overrides"] = overrides.into();
-        }
-        if let (Some((engine, timeline)), Some(theme)) = (&mut cues, &theme) {
-            let slot = timeline.slot(&s.state_id).context("a state missing from the timeline")?;
-            let cue = engine.transition(&b.deck, theme, &files, &s.state_id)?;
-            v["timeline"] = cue_json(slot, &cue);
-        }
-        if views.data {
-            v["data"] = rows_json(b, &files, &cascade::with_overrides(&b.deck, s))?;
-        }
-        out.push((snap, v));
-    }
+    let out = scaena_ops::inspect::inspect(b, state, views)?;
     if json {
-        let all: Vec<&Value> = out.iter().map(|(_, v)| v).collect();
-        println!("{}", serde_json::to_string_pretty(&all)?);
+        println!("{}", serde_json::to_string_pretty(&out)?);
         return Ok(ExitCode::SUCCESS);
     }
-    for (s, v) in &out {
+    for i in &out {
+        let (s, v) = (&i.snapshot, serde_json::to_value(i)?);
         println!("state {}  slide={}  layout={}", s.state_id, s.slide_id, s.layout.as_deref().unwrap_or("-"));
         if let Some(cue) = v.get("timeline") {
             print_cue(cue);
@@ -883,150 +622,6 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-/// A state's cue (SPEC §2.4, §3.9), ms: where it falls on the deck's timeline (its
-/// `start`, its `span` of transition and motions, and its `hold` at rest), its transition,
-/// and each motion as placed on the state's clock, which starts with the transition.
-fn cue_json(slot: &scaena_core::timeline::Slot, cue: &scaena_engine::sample::Transition) -> serde_json::Value {
-    let timing = cue.timing();
-    let motions: Vec<serde_json::Value> = cue.schedule().cues.iter().map(motion_json).collect();
-    serde_json::json!({
-        "start": ms(slot.start),
-        "span": ms(slot.span),
-        "hold": ms(slot.hold),
-        "transition": {
-            "duration": ms(timing.duration_ms),
-            "curve": curve_json(&timing.curve),
-            "match": if timing.matched { "id" } else { "none" },
-        },
-        "motions": motions,
-    })
-}
-
-/// One motion on one node: what it does (`enter` from a look, `exit` to one, `emphasis`
-/// out to a peak and back, or `anim` tracks), over how many units, and when, ms.
-fn motion_json(p: &scaena_core::timeline::Placed) -> serde_json::Value {
-    use scaena_core::timeline::Motion;
-    let (kind, key, look) = match &p.motion {
-        Motion::Enter(l) => ("enter", "from", look_json(l)),
-        Motion::Exit(l) => ("exit", "to", look_json(l)),
-        Motion::Emphasis(l) => ("emphasis", "peak", look_json(l)),
-        Motion::Keys(k) => ("anim", "tracks", keys_json(k)),
-    };
-    let mut v = serde_json::json!({
-        "node": p.node,
-        "motion": kind,
-        "split": p.split,
-        "units": p.units,
-        "start": ms(p.start),
-        "stagger": ms(p.stagger),
-        "duration": ms(p.duration),
-        "end": ms(p.end()),
-        "curve": curve_json(&p.curve),
-    });
-    v[key] = look;
-    v
-}
-
-/// A look as what it changes from rest.
-fn look_json(l: &scaena_core::timeline::Look) -> serde_json::Value {
-    use scaena_core::timeline::Look;
-    let rest = Look::REST;
-    let mut m = serde_json::Map::new();
-    let mut put = |k: &str, v: serde_json::Value| m.insert(k.to_string(), v);
-    if l.opacity != rest.opacity {
-        put("opacity", l.opacity.into());
-    }
-    if l.translate != rest.translate {
-        put("translate", serde_json::json!(l.translate));
-    }
-    if l.scale != rest.scale {
-        put("scale", serde_json::json!(l.scale));
-    }
-    if l.rotate != rest.rotate {
-        put("rotate", l.rotate.into());
-    }
-    if l.anchor != rest.anchor {
-        put("anchor", serde_json::json!(l.anchor));
-    }
-    if let Some((color, amount)) = l.tint {
-        put("tint", serde_json::json!({ "color": color.to_hex(), "amount": amount }));
-    }
-    if l.progress != rest.progress {
-        put("progress", l.progress.into());
-    }
-    m.into()
-}
-
-/// An `anim`'s tracks, each its keys: when (ms after the track starts), the value, and
-/// the curve from the key before.
-fn keys_json(k: &scaena_core::timeline::Keys) -> serde_json::Value {
-    use scaena_core::timeline::Key;
-    fn track<T: Copy>(keys: &[Key<T>], v: impl Fn(T) -> serde_json::Value) -> serde_json::Value {
-        keys.iter().map(|k| serde_json::json!({ "t": ms(k.t), "v": v(k.v), "curve": curve_json(&k.curve) })).collect()
-    }
-    let (one, two) = (|v: f64| serde_json::json!(v), |v: [f64; 2]| serde_json::json!(v));
-    let mut m = serde_json::Map::new();
-    for (name, keys, empty) in [
-        ("opacity", track(&k.opacity, one), k.opacity.is_empty()),
-        ("translate", track(&k.translate, two), k.translate.is_empty()),
-        ("scale", track(&k.scale, two), k.scale.is_empty()),
-        ("rotate", track(&k.rotate, one), k.rotate.is_empty()),
-        ("progress", track(&k.progress, one), k.progress.is_empty()),
-    ] {
-        if !empty {
-            m.insert(name.to_string(), keys);
-        }
-    }
-    if k.anchor != scaena_core::timeline::Look::REST.anchor {
-        m.insert("anchor".to_string(), serde_json::json!(k.anchor));
-    }
-    m.into()
-}
-
-/// An easing as its cubic Bézier, or a spring as its constants.
-fn curve_json(c: &scaena_core::timeline::Curve) -> serde_json::Value {
-    use scaena_core::timeline::{CubicBezier, Curve};
-    match c {
-        Curve::Ease(CubicBezier(x1, y1, x2, y2)) => serde_json::json!({ "ease": [x1, y1, x2, y2] }),
-        Curve::Spring(s, _) => {
-            serde_json::json!({ "spring": { "stiffness": s.stiffness, "damping": s.damping, "mass": s.mass } })
-        }
-    }
-}
-
-/// The rows each chart and table in a state reads (SPEC §3.10): its source through its
-/// `dataTransform`, as the engine reads them, cells typed by the source's schema.
-fn rows_json(b: &Bundle, files: &DataFiles, snap: &scaena_core::Snapshot) -> Result<serde_json::Value> {
-    use scaena_core::document::NodeType;
-    use scaena_engine::data::{self, Datum};
-    let cell = |d: &Datum| match d {
-        Datum::Number(n) => serde_json::json!(n),
-        Datum::Text(s) => serde_json::json!(s),
-        Datum::Bool(b) => serde_json::json!(b),
-        Datum::Date(_) => serde_json::json!(d.label()),
-        Datum::Null => serde_json::Value::Null,
-    };
-    let mut out = serde_json::Map::new();
-    for (id, props) in &snap.nodes {
-        if !matches!(b.deck.nodes[id].node_type, NodeType::Chart | NodeType::Table) {
-            continue;
-        }
-        let Some(source) = props.get("data").and_then(|d| d.as_str()).and_then(|d| d.strip_prefix('@')) else {
-            continue;
-        };
-        let table = data::load(&b.deck, files, source)
-            .and_then(|t| data::transform(t, props.get("dataTransform")))
-            .with_context(|| format!("node `{id}` in state `{}`", snap.state_id))?;
-        let rows: Vec<Vec<serde_json::Value>> = table.rows.iter().map(|r| r.iter().map(cell).collect()).collect();
-        let types: Vec<&str> = table.types.iter().map(|t| t.name()).collect();
-        out.insert(
-            id.clone(),
-            serde_json::json!({ "source": source, "columns": table.columns, "types": types, "rows": rows }),
-        );
-    }
-    Ok(out.into())
 }
 
 /// `inspect --timeline`, for a person: the state's place on the timeline, its
@@ -1138,175 +733,63 @@ fn words(look: &serde_json::Value) -> String {
     props.map(|(k, v)| format!("{k} {}", value(v))).collect::<Vec<_>>().join(", ")
 }
 
-/// A time in ms to the microsecond: a spring's settle time is not exact, and reads no
-/// better for its last digits.
-fn ms(x: f64) -> f64 {
-    let rounded = (x * 1000.0).round() / 1000.0;
-    if rounded == 0.0 { 0.0 } else { rounded }
-}
-
 /// A number as a person reads it: no trailing zeros, at most three decimals.
 fn num(x: f64) -> String {
-    format!("{}", ms(x))
+    format!("{}", scaena_ops::inspect::ms(x))
 }
 
-/// The bundle's data files, as the engine reads them.
-fn data_files(b: &Bundle) -> Result<DataFiles> {
-    let mut data = DataFiles::new();
-    for (path, bytes) in b.read_data()? {
-        data.insert(path, bytes);
-    }
-    Ok(data)
-}
-
-/// An engine with the bundle's fonts and images registered, for what only layout knows;
-/// and, given a store, the same fonts and images for a painter.
-fn engine_with(b: &Bundle, theme: &Theme, mut store: Option<&mut Assets>) -> Result<Engine> {
-    let mut fonts = BundleFonts::new();
-    for (id, bytes) in b.read_fonts()? {
-        if let Some(store) = store.as_deref_mut() {
-            store.insert_font(&id, bytes.clone());
-        }
-        fonts.register(&id, bytes)?;
-    }
-    fonts.check_theme(theme)?;
-    let mut images = BundleImages::new();
-    for (path, bytes) in b.read_images()? {
-        let info = images.register(&path, &bytes)?;
-        if let Some(store) = store.as_deref_mut() {
-            store.insert_image(&info.id, &bytes)?;
-        }
-    }
-    Ok(Engine::new(fonts).with_images(images))
-}
-
-/// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG.
-/// Timings are wall clock in this client; the render path itself never reads a clock.
+/// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG, with
+/// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let state = state.as_str();
-    if let Some(t) = t.filter(|t| !t.is_finite() || *t < 0.0) {
-        anyhow::bail!("--t {t}: expected a finite, non-negative number of milliseconds");
-    }
-    let start = Instant::now();
-    let mut lap = {
-        let mut last = start;
-        move || {
-            let now = Instant::now();
-            let ms = (now - last).as_secs_f64() * 1e3;
-            last = now;
-            ms
-        }
+    let painter = match painter {
+        PainterArg::Cpu => Painter::Cpu,
+        PainterArg::Gpu => Painter::Gpu,
     };
-    let b = open(&bundle)?;
-    let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
-    let files = b.read_fonts()?;
-    let data = data_files(&b)?;
-    let load = lap();
-
-    let mut fonts = BundleFonts::new();
-    let mut store = Assets::new();
-    for (id, bytes) in files {
-        store.insert_font(&id, bytes.clone());
-        fonts.register(&id, bytes)?;
-    }
-    fonts.check_theme(&theme)?;
-    let mut images = BundleImages::new();
-    for (path, bytes) in b.read_images()? {
-        let info = images.register(&path, &bytes)?;
-        store.insert_image(&info.id, &bytes)?;
-    }
-    let register = lap();
-
-    let req = FrameRequest {
-        deck: &b.deck,
-        theme: &theme,
-        data: &data,
-        state,
-        t_ms: t.unwrap_or(f64::INFINITY),
-        format: format.as_deref(),
-    };
-    let frame = Engine::new(fonts).with_images(images).frame(&req)?;
-    let (dl, span) = (frame.display_list, frame.duration_ms);
-    let layout = lap();
+    let req = scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter };
+    let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
-        std::fs::write(path, dl.to_golden_json()?).with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(path, r.display_list.to_golden_json()?)
+            .with_context(|| format!("writing {}", path.display()))?;
     }
-
-    let scale = match size.as_deref() {
-        Some(size) => scale_for(size, dl.viewport)?,
-        None => 1.0,
-    };
-    // Built after the frame, so a state the engine cannot draw costs no GPU start-up.
-    let (mut painter, adapter): (Box<dyn Painter>, Option<String>) = match painter {
-        PainterArg::Cpu => (Box::new(CpuPainter::default()), None),
-        #[cfg(feature = "gpu")]
-        PainterArg::Gpu => {
-            let gpu = scaena_paint::gpu::GpuPainter::new()?;
-            let info = gpu.adapter();
-            let adapter = format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type);
-            (Box::new(gpu), Some(adapter))
-        }
-        #[cfg(not(feature = "gpu"))]
-        PainterArg::Gpu => {
-            let message = "`--painter gpu` needs the CLI built with `--features gpu` (PLAN 0.7)";
-            return Ok(fail(json, 3, message, Some("0.7")));
-        }
-    };
-    let init = lap();
-    let raster = painter.paint(&dl, &store, scale)?;
-    let paint = lap();
     let out = out.unwrap_or_else(|| PathBuf::from(format!("{state}.png")));
-    std::fs::write(&out, raster.to_png_fast()?).with_context(|| format!("writing {}", out.display()))?;
-    let encode = lap();
-    let total = (Instant::now() - start).as_secs_f64() * 1e3;
-
+    std::fs::write(&out, &r.png).with_context(|| format!("writing {}", out.display()))?;
     if json {
-        let us = |ms: f64| (ms * 1e3).round() / 1e3;
         let summary = serde_json::json!({
             "state": state,
             "format": format,
             "t_ms": t,
-            "span_ms": span,
-            "painter": painter.name(),
-            "adapter": adapter,
-            "size": [raster.width, raster.height],
+            "span_ms": r.span_ms,
+            "painter": r.painter,
+            "adapter": r.adapter,
+            "size": r.size,
             "out": out,
             "display_list": display_list,
-            "ms": {
-                "load": us(load), "fonts": us(register), "frame": us(layout), "init": us(init),
-                "paint": us(paint), "png": us(encode), "total": us(total),
-            },
+            "ms": r.ms,
         });
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
+        let m = r.ms;
         println!(
-            "{} ({}×{}, {}) in {total:.0} ms: load {load:.1} · fonts {register:.1} · frame {layout:.1} · init {init:.1} · paint {paint:.1} · png {encode:.1}",
+            "{} ({}×{}, {}) in {:.0} ms: load {:.1} · fonts {:.1} · frame {:.1} · init {:.1} · paint {:.1} · png {:.1}",
             out.display(),
-            raster.width,
-            raster.height,
-            adapter.as_deref().unwrap_or(painter.name()),
+            r.size[0],
+            r.size[1],
+            r.adapter.as_deref().unwrap_or(r.painter),
+            m.total,
+            m.load,
+            m.fonts,
+            m.frame,
+            m.init,
+            m.paint,
+            m.png,
         );
     }
     Ok(ExitCode::SUCCESS)
 }
 
-/// `WxH` → output pixels per canvas unit. The size must have the canvas's aspect ratio,
-/// to the nearest pixel: painters scale uniformly and never stretch.
-fn scale_for(size: &str, canvas: [f32; 2]) -> Result<f32> {
-    let parsed = size.split_once('x').and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)));
-    let (w, h) = parsed
-        .filter(|&(w, h)| w > 0 && h > 0)
-        .with_context(|| format!("--size `{size}`: expected WxH, like 1920x1080"))?;
-    let scale = w as f32 / canvas[0];
-    if (canvas[1] * scale).round() != h as f32 {
-        anyhow::bail!("--size {w}x{h} does not have the canvas's aspect ratio ({}x{} cu)", canvas[0], canvas[1]);
-    }
-    Ok(scale)
-}
-
 fn open(path: &Path) -> Result<Bundle> {
-    Bundle::open(path).with_context(|| format!("opening {}", path.display()))
+    Ok(scaena_ops::open(path)?)
 }
 
 /// Now, in RFC 3339 UTC: `SOURCE_DATE_EPOCH` when set (reproducible saves), else the clock.

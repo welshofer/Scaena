@@ -14,6 +14,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux
+      # runner's free disk since scaena-ops and scaena-mcp (PLAN 1.17): the linker dies with a bus
+      # error. Drop preinstalled toolchains this job never uses.
+      - if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

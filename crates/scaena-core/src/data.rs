@@ -180,11 +180,86 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
     Ok(Table { columns, types, rows })
 }
 
+/// What a data file holds, read without a schema: its columns in order, the type each
+/// column's values all fit, and how many rows it has.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Inferred {
+    pub columns: Vec<String>,
+    pub types: Vec<ColumnType>,
+    pub rows: usize,
+}
+
+/// The columns of the CSV or JSON file `path` (`bytes`), each typed as narrowly as all its
+/// values allow: `number` if each reads as one, else `boolean` (`true`, `false`), else
+/// `date` in ISO 8601, else `string`. An empty value fits any type; a column with nothing
+/// in it is `string`. A date in another form needs a `parse` format and a `date` type, which
+/// a schema written by hand gives it.
+pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| DataError::Bad(format!("`{path}` is not UTF-8")))?;
+    let records = if path.ends_with(".csv") {
+        csv(text)
+    } else if path.ends_with(".json") {
+        serde_json::from_str::<Value>(text).map_err(|e| e.to_string()).and_then(|rows| json_rows(&rows))
+    } else {
+        Err("expected a .csv or .json file".to_string())
+    }
+    .map_err(|e| DataError::Bad(format!("`{path}`: {e}")))?;
+    let columns: Vec<String> = match records.first() {
+        Some((header, _)) => header.clone(),
+        // A CSV with a header and no rows still names its columns.
+        None if path.ends_with(".csv") => csv_rows(text).map(|(header, _)| header).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let fits = |kind: ColumnType, v: &Value| match (kind, v) {
+        (_, Value::Null) => true,
+        (_, Value::String(s)) if s.trim().is_empty() => true,
+        (ColumnType::Number, Value::Number(_)) => true,
+        (ColumnType::Number, Value::String(s)) => s.trim().parse::<f64>().is_ok_and(f64::is_finite),
+        (ColumnType::Boolean, Value::Bool(_)) => true,
+        (ColumnType::Boolean, Value::String(s)) => matches!(s.trim(), "true" | "false"),
+        (ColumnType::Date, Value::String(s)) => format::read_iso(s).is_ok(),
+        (ColumnType::String, _) => true,
+        _ => false,
+    };
+    let types = columns
+        .iter()
+        .map(|column| {
+            let values: Vec<&Value> = records
+                .iter()
+                .filter_map(|(header, values)| header.iter().position(|c| c == column).map(|i| &values[i]))
+                .collect();
+            let empty = values.iter().all(|v| fits(ColumnType::Number, v) && fits(ColumnType::Boolean, v));
+            if empty {
+                return ColumnType::String;
+            }
+            [ColumnType::Number, ColumnType::Boolean, ColumnType::Date]
+                .into_iter()
+                .find(|&kind| values.iter().all(|v| fits(kind, v)))
+                .unwrap_or(ColumnType::String)
+        })
+        .collect();
+    Ok(Inferred { columns, types, rows: records.len() })
+}
+
 /// Rows as (column names, values), each in source order.
 type Records = Vec<(Vec<String>, Vec<Value>)>;
 
 /// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote.
 fn csv(text: &str) -> Result<Records, String> {
+    let (header, rows) = csv_rows(text)?;
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, r)| {
+            if r.len() != header.len() {
+                return Err(format!("row {}: {} fields, header has {}", i + 2, r.len(), header.len()));
+            }
+            Ok((header.clone(), r.into_iter().map(Value::String).collect()))
+        })
+        .collect()
+}
+
+/// A CSV's header and its records, as text.
+fn csv_rows(text: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
     let mut records: Vec<Vec<String>> = Vec::new();
     let (mut record, mut field) = (Vec::new(), String::new());
     let (mut quoted, mut chars) = (false, text.trim_start_matches('\u{FEFF}').chars().peekable());
@@ -216,15 +291,7 @@ fn csv(text: &str) -> Result<Records, String> {
     records.retain(|r| !(r.len() == 1 && r[0].is_empty()));
     let mut records = records.into_iter();
     let header = records.next().ok_or("no header row")?;
-    records
-        .enumerate()
-        .map(|(i, r)| {
-            if r.len() != header.len() {
-                return Err(format!("row {}: {} fields, header has {}", i + 2, r.len(), header.len()));
-            }
-            Ok((header.clone(), r.into_iter().map(Value::String).collect()))
-        })
-        .collect()
+    Ok((header, records.collect()))
 }
 
 /// An array of objects; each row keeps its own key order.
@@ -274,6 +341,27 @@ mod tests {
         assert!(err.contains("`seven` is not a number"), "{err}");
         let missing = load(&deck2, &BTreeMap::new(), "q").unwrap_err();
         assert!(matches!(missing, DataError::Missing { .. }), "{missing}");
+    }
+
+    #[test]
+    fn a_files_columns_are_typed_as_narrowly_as_their_values_allow() {
+        let csv = "quarter,revenue,live,day,note,blank\nQ1,1.5,true,2025-03-05,a,\nQ2,,false,2025-04,7,\nQ3,2e3,,,,\n";
+        let t = infer("data/q.csv", csv.as_bytes()).unwrap();
+        assert_eq!(t.columns, ["quarter", "revenue", "live", "day", "note", "blank"]);
+        let names: Vec<&str> = t.types.iter().map(|t| t.name()).collect();
+        assert_eq!(names, ["string", "number", "boolean", "date", "string", "string"]);
+        assert_eq!(t.rows, 3);
+        let json = r#"[{"k": "a", "v": 2, "on": true}, {"k": "b", "v": null, "on": false}]"#;
+        let t = infer("data/q.json", json.as_bytes()).unwrap();
+        let names: Vec<&str> = t.types.iter().map(|t| t.name()).collect();
+        assert_eq!(
+            (t.columns, names),
+            (vec!["k".to_string(), "v".into(), "on".into()], vec!["string", "number", "boolean"])
+        );
+        let t = infer("data/empty.csv", b"a,b\n").unwrap();
+        assert_eq!((t.columns, t.rows), (vec!["a".to_string(), "b".to_string()], 0));
+        assert!(infer("data/q.xlsx", b"").unwrap_err().to_string().contains("expected a .csv or .json"));
+        assert!(infer("data/q.csv", b"a,b\n1\n").unwrap_err().to_string().contains("row 2: 1 fields"));
     }
 
     #[test]
