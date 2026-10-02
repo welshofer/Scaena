@@ -2019,7 +2019,11 @@ fn legend_ops(
     alpha: f32,
     opacity: f32,
 ) -> Vec<Op> {
-    let mut ops: Vec<Op> = mark_op(Shape::Bar(swatch), color, alpha).into_iter().collect();
+    // A name at a series' end has no swatch.
+    let mut ops: Vec<Op> = match swatch.w > 0.0 && swatch.h > 0.0 {
+        true => mark_op(Shape::Bar(swatch), color, alpha).into_iter().collect(),
+        false => Vec::new(),
+    };
     ops.push(layer(None, at, alpha * opacity, text_ops(dl, &label.text.runs)));
     ops
 }

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "W302 trigger: a deck laid out in 9:16 too, with a node placed by grid cells.",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],

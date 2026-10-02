@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {

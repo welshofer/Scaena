@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "E105 clean: every id is a slug, once in its collection; a node and a state share `cover`, which is allowed, and `cover` is in a group.",
   "canvas": { "width": 1920, "height": 1080 },
   "spine": { "sections": [ { "id": "open", "beats": [ { "id": "hello", "claim": "We say hello.", "states": ["cover"] }, { "id": "detail", "claim": "There is more.", "states": ["more"] } ] } ] },

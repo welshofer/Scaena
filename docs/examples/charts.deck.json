@@ -1,0 +1,415 @@
+{
+  "scaena": "0.9",
+  "meta": {
+    "title": "Charts and tables",
+    "lang": "en-US",
+    "description": "Every chart kind and a table, each with no style set: what the theme and the engine's defaults draw (PLAN 1.9)."
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "q3": {
+      "source": "data/q3-revenue.csv",
+      "schema": {
+        "quarter": "string",
+        "product": "string",
+        "revenue": "number",
+        "customers": "number"
+      }
+    }
+  },
+  "nodes": {
+    "title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue grew every quarter",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@q3",
+      "dataTransform": [
+        {
+          "aggregate": {
+            "revenue": "sum(revenue)"
+          },
+          "groupby": [
+            "quarter"
+          ]
+        }
+      ],
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f"
+      },
+      "alt": "Total revenue by quarter, 2025-Q4 to 2026-Q3: $28.7M, $34.7M, $43.3M, $57.6M.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "stack": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@q3",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f"
+      },
+      "series": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "alt": "Revenue by quarter and product, stacked: Core, Pro, and Enterprise all grow.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "lines": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@q3",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f"
+      },
+      "series": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "alt": "Revenue by product over four quarters: Core $18.2M to $23.9M, Pro $6.1M to $19.4M, Enterprise $4.4M to $14.3M.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "areas": {
+      "type": "chart",
+      "kind": "area",
+      "data": "@q3",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f"
+      },
+      "series": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "alt": "Revenue by product over four quarters, stacked areas.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "dots": {
+      "type": "chart",
+      "kind": "dot",
+      "data": "@q3",
+      "dataTransform": [
+        {
+          "filter": "quarter == '2026-Q3'"
+        }
+      ],
+      "x": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "y": {
+        "field": "customers",
+        "type": "quantitative",
+        "format": ",d"
+      },
+      "alt": "Customers by product in 2026-Q3: Core 1,502, Pro 910, Enterprise 88.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "scatter": {
+      "type": "chart",
+      "kind": "scatter",
+      "data": "@q3",
+      "x": {
+        "field": "customers",
+        "type": "quantitative",
+        "format": ",d",
+        "title": "Customers"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f",
+        "title": "Revenue ($M)"
+      },
+      "series": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "alt": "Revenue against customers, each product in each quarter.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "donut": {
+      "type": "chart",
+      "kind": "donut",
+      "data": "@q3",
+      "dataTransform": [
+        {
+          "filter": "quarter == '2026-Q3'"
+        }
+      ],
+      "x": {
+        "field": "product",
+        "type": "nominal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f"
+      },
+      "alt": "Share of 2026-Q3 revenue: Core $23.9M, Pro $19.4M, Enterprise $14.3M.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "table": {
+      "type": "table",
+      "data": "@q3",
+      "dataTransform": [
+        {
+          "filter": "quarter == '2026-Q3'"
+        }
+      ],
+      "key": "product",
+      "columns": [
+        {
+          "field": "product",
+          "title": "Product"
+        },
+        {
+          "field": "revenue",
+          "title": "Revenue ($M)",
+          "format": "$,.1f"
+        },
+        {
+          "field": "customers",
+          "title": "Customers",
+          "format": ",d"
+        }
+      ],
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Source: q3-revenue.csv",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "bars",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Revenue grew every quarter"
+        },
+        "bars": {},
+        "note": {}
+      },
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "stack",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Every product grew"
+        },
+        "stack": {}
+      },
+      "remove": [
+        "bars"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "lines",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Pro is closing on Core"
+        },
+        "lines": {}
+      },
+      "remove": [
+        "stack"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "areas",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Pro and Enterprise gain share"
+        },
+        "areas": {}
+      },
+      "remove": [
+        "lines"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "dots",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Core has the most customers"
+        },
+        "dots": {}
+      },
+      "remove": [
+        "areas"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "scatter",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Revenue rises with customers"
+        },
+        "scatter": {}
+      },
+      "remove": [
+        "dots"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "donut",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Core is two fifths of Q3 revenue"
+        },
+        "donut": {}
+      },
+      "remove": [
+        "scatter"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    },
+    {
+      "id": "table",
+      "layout": "figure",
+      "props": {
+        "title": {
+          "text": "Q3 by product"
+        },
+        "table": {}
+      },
+      "remove": [
+        "donut"
+      ],
+      "transition": {
+        "duration": "standard"
+      }
+    }
+  ]
+}

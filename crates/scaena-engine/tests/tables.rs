@@ -1,6 +1,7 @@
 //! Tables through the engine (SPEC §3.3, PLAN 1.9), with the torture deck's fonts and
-//! theme: columns from the data, numbers at the column's end in tabular figures, the
-//! first column taking the room to spare, and rows that move by key between states.
+//! theme: columns from the data, numbers at the column's end in tabular figures, a table
+//! as wide as its columns (or, stretched, its cell), and rows that move by key between
+//! states.
 
 use scaena_core::Deck;
 use scaena_core::displaylist::{DisplayList, Op};
@@ -22,6 +23,13 @@ fn read(path: &str) -> Vec<u8> {
 
 fn theme() -> Theme {
     Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap()
+}
+
+/// The torture theme, its tables stretched across their cells.
+fn stretched() -> Theme {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["tables"] = json!({ "stretch": true });
+    Theme::from_json(&t.to_string()).unwrap()
 }
 
 fn fonts(deck: &Deck) -> BundleFonts {
@@ -52,9 +60,13 @@ fn regions() -> Value {
 }
 
 fn layout(props: Value, size: [f32; 2]) -> Result<TableLayout, String> {
+    layout_in(theme(), props, size)
+}
+
+fn layout_in(theme: Theme, props: Value, size: [f32; 2]) -> Result<TableLayout, String> {
     let d = deck(regions(), json!([{ "id": "s", "layout": "specimen", "props": { "t": props } }]));
     let snap = &scaena_core::resolve_states(&d).unwrap()[0];
-    let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
+    let (mut fonts, mut text, data) = (fonts(&d), TextEngine::new(), DataFiles::new());
     let mut cx =
         Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[], lenient: false };
     tables::compile(&mut cx, &snap.nodes["t"], size).map_err(|e| e.to_string())
@@ -82,11 +94,18 @@ fn columns_come_from_the_data_with_numbers_at_their_end() {
     assert!((origin[0] + width - anchor[0]).abs() < 1e-3);
     let (_, origin, anchor, _) = text("Europe", "region");
     assert_eq!((origin[0], anchor[0]), (0.0, 0.0));
-    // The last column ends at the cell's far side: the first took the spare room.
+    // As wide as its columns, at the cell's start: the last column ends where the rule
+    // under the header does, short of the cell's far side.
     let (_, origin, _, width) = text("Asia Pacific", "growth");
-    assert!((origin[0] + width - 1600.0).abs() < 1e-3);
-    // The header's rule sits under the header, and each row under the one before.
     let rule = t.rule.as_ref().unwrap();
+    assert!((origin[0] + width - rule.to[0]).abs() < 1e-3 && rule.to[0] < 1000.0, "{:?}", rule.to);
+    // Stretched, the first column takes the room the cell has to spare, and the last ends
+    // at its far side, where the rule does.
+    let wide = layout_in(stretched(), json!({ "columns": columns }), [1600.0, 600.0]).unwrap();
+    let c = wide.cells.iter().find(|c| c.row == "Asia Pacific" && c.column == "growth").unwrap();
+    assert!((c.origin[0] + c.text.width - 1600.0).abs() < 1e-3);
+    assert_eq!(wide.rule.as_ref().unwrap().to[0], 1600.0);
+    // The header's rule sits under the header, and each row under the one before.
     assert!(t.header.iter().all(|c| c.anchor[1] < rule.from[1]));
     let rows: Vec<f32> = ["North America", "Europe", "Asia Pacific"].iter().map(|r| text(r, "region").2[1]).collect();
     assert!(rule.from[1] < rows[0] && rows[0] < rows[1] && rows[1] < rows[2], "{rows:?}");

@@ -402,9 +402,13 @@ pub struct ChartLabels {
     pub collide: Option<LabelCollide>,
 }
 
+/// Which values a chart prints. `auto` (the theme's `charts.label.show`, else by kind)
+/// puts the data on the marks: every bar, dot, and slice; a line's or an area's first
+/// and last; a scatter's none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum LabelShow {
+    Auto,
     All,
     Ends,
     None,
@@ -429,7 +433,7 @@ pub enum Legend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LegendSpec {
-    /// `top` when unset.
+    /// `top` when unset: a titled legend is a legend, not labels at the series' ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<LegendPlace>,
     /// Printed before the entries, in the legend's role.
@@ -437,11 +441,15 @@ pub struct LegendSpec {
     pub title: Option<String>,
 }
 
+/// Where a legend stands. `auto` is the theme's `charts.legend.place`, else `direct`.
+/// `direct` names each series at its end, beside the plot, where a chart has ends: a
+/// line, an area, or a stacked bar; any other chart places it `top`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum LegendPlace {
     None,
     Auto,
+    Direct,
     Top,
     Bottom,
     Right,

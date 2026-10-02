@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.8.json",
+  "$id": "https://scaena.dev/schema/deck-0.9.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.8(\\.[0-9]+)?$"
+      "pattern": "^0\\.9(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -952,19 +952,30 @@
         }
       }
     },
-    "LabelShow": { "type": "string", "enum": ["all", "ends", "none"] },
+    "LabelShow": {
+      "description": "Which values a chart prints. `auto` (the theme's `charts.label.show`, else by kind) puts the data on the marks: every bar, dot, and slice; a line's or an area's first and last; a scatter's none.",
+      "type": "string",
+      "enum": ["auto", "all", "ends", "none"]
+    },
     "LabelCollide": { "type": "string", "enum": ["hide", "nudge"] },
     "Legend": {
       "description": "Where a chart's legend stands, alone or with a title (SPEC §3.7).",
       "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "$ref": "#/$defs/LegendSpec" }]
     },
-    "LegendPlace": { "type": "string", "enum": ["none", "auto", "top", "bottom", "right"] },
+    "LegendPlace": {
+      "description": "Where a legend stands. `auto` is the theme's `charts.legend.place`, else `direct`. `direct` names each series at its end, beside the plot, where a chart has ends: a line, an area, or a stacked bar; any other chart places it `top`.",
+      "type": "string",
+      "enum": ["none", "auto", "direct", "top", "bottom", "right"]
+    },
     "LegendSpec": {
       "description": "A legend with a title: `{ \"place\": \"right\", \"title\": \"Product\" }`.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "place": { "description": "`top` when unset.", "$ref": "#/$defs/LegendPlace" },
+        "place": {
+          "description": "`top` when unset: a titled legend is a legend, not labels at the series' ends.",
+          "$ref": "#/$defs/LegendPlace"
+        },
         "title": { "description": "Printed before the entries, in the legend's role.", "type": "string" }
       }
     },
