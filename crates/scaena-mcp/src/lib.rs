@@ -520,10 +520,40 @@ const RESOURCES: &[(&str, &str, &str, &str)] = &[
         include_str!("../../../skills/author-deck/SKILL.md"),
     ),
     (
+        "scaena://skills/chart-from-data",
+        "How to make a chart or table from data",
+        "text/markdown",
+        include_str!("../../../skills/chart-from-data/SKILL.md"),
+    ),
+    (
+        "scaena://skills/motion-pass",
+        "How to set a deck's motion",
+        "text/markdown",
+        include_str!("../../../skills/motion-pass/SKILL.md"),
+    ),
+    (
+        "scaena://skills/retheme",
+        "How to apply another theme",
+        "text/markdown",
+        include_str!("../../../skills/retheme/SKILL.md"),
+    ),
+    (
+        "scaena://skills/tighten-copy",
+        "How to tighten a deck's words",
+        "text/markdown",
+        include_str!("../../../skills/tighten-copy/SKILL.md"),
+    ),
+    (
         "scaena://examples/revenue.deck.json",
         "An example deck",
         "application/json",
         include_str!("../../../docs/examples/revenue.deck.json"),
+    ),
+    (
+        "scaena://examples/trails.deck.json",
+        "A fifteen-slide example: text, a stat, a photograph, five kinds of chart, a table, cards, and a quote",
+        "application/json",
+        include_str!("../../../docs/examples/trails.deck.json"),
     ),
     (
         "scaena://examples/revenue.deck.scn",
@@ -569,7 +599,8 @@ impl ServerHandler for Scaena {
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
              with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
-             deck_render. The resources hold the schemas, the lint catalog, the specification, and examples.",
+             deck_render. The resources hold the schemas, the lint catalog, the specification, the skills (procedures to \
+             follow: scaena://skills/author-deck first), and examples.",
         )
     }
 

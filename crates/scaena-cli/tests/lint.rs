@@ -146,7 +146,12 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
 
 #[test]
 fn the_example_decks_and_b1_lint_clean() {
-    for bundle in ["docs/examples/revenue.deck.json", "docs/examples/charts.deck.json", "tests/bench/b1.scaena"] {
+    for bundle in [
+        "docs/examples/revenue.deck.json",
+        "docs/examples/charts.deck.json",
+        "docs/examples/trails.deck.json",
+        "tests/bench/b1.scaena",
+    ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));
         assert_eq!((exit, found.len()), (0, 0), "{bundle}: {found:#?}");
     }

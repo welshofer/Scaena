@@ -1,0 +1,1814 @@
+{
+  "scaena": "0.9",
+  "meta": {
+    "title": "High Country Trails: the 2026 season",
+    "lang": "en-US",
+    "description": "A fifteen-slide example: a trail conservancy's season in text, numbers, a photograph, charts, a table, and a diagram."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    }
+  ],
+  "data": {
+    "miles": {
+      "source": "data/trails-miles.csv",
+      "schema": {
+        "month": "string",
+        "miles": "number"
+      }
+    },
+    "hours": {
+      "source": "data/trails-hours.csv",
+      "schema": {
+        "month": "string",
+        "crew": "string",
+        "hours": "number"
+      }
+    },
+    "work": {
+      "source": "data/trails-work.csv",
+      "schema": {
+        "month": "string",
+        "kind": "string",
+        "hours": "number"
+      }
+    },
+    "segments": {
+      "source": "data/trails-segments.csv",
+      "schema": {
+        "segment": "string",
+        "grade": "number",
+        "erosion": "number",
+        "soil": "string"
+      }
+    },
+    "funding": {
+      "source": "data/trails-funding.csv",
+      "schema": {
+        "source": "string",
+        "amount": "number"
+      }
+    },
+    "budget": {
+      "source": "data/trails-budget.csv",
+      "schema": {
+        "item": "string",
+        "planned": "number",
+        "spent": "number",
+        "difference": "number"
+      }
+    }
+  },
+  "nodes": {
+    "cover-bg": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "mesh-soft",
+      "seed": 11,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100
+    },
+    "cover-kicker": {
+      "type": "text",
+      "role": "label",
+      "text": "Annual meeting · October 2026",
+      "semantic": "context",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": 1,
+        "align": {
+          "y": "end"
+        }
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "cover-title": {
+      "type": "text",
+      "role": "display",
+      "text": "High Country Trails",
+      "semantic": "navigation",
+      "at": {
+        "in": "title"
+      }
+    },
+    "cover-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "What a summer of Saturdays built.",
+      "semantic": "claim",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "agenda-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Tonight",
+      "semantic": "navigation",
+      "at": {
+        "in": "header"
+      }
+    },
+    "agenda-list": {
+      "type": "grid",
+      "cols": [
+        "space.9",
+        "fill"
+      ],
+      "rows": 5,
+      "gap": "space.3",
+      "semantic": "navigation",
+      "at": {
+        "col": [
+          1,
+          9
+        ],
+        "row": [
+          2,
+          6
+        ]
+      }
+    },
+    "agenda-n1": {
+      "type": "text",
+      "role": "title",
+      "text": "01",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 1,
+        "row": 1
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "agenda-i1": {
+      "type": "text",
+      "role": "title",
+      "text": "The season in numbers",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 2,
+        "row": 1
+      }
+    },
+    "agenda-n2": {
+      "type": "text",
+      "role": "title",
+      "text": "02",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 1,
+        "row": 2
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "agenda-i2": {
+      "type": "text",
+      "role": "title",
+      "text": "Where the work went",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 2,
+        "row": 2
+      }
+    },
+    "agenda-n3": {
+      "type": "text",
+      "role": "title",
+      "text": "03",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 1,
+        "row": 3
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "agenda-i3": {
+      "type": "text",
+      "role": "title",
+      "text": "What it cost",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 2,
+        "row": 3
+      }
+    },
+    "agenda-n4": {
+      "type": "text",
+      "role": "title",
+      "text": "04",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 1,
+        "row": 4
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "agenda-i4": {
+      "type": "text",
+      "role": "title",
+      "text": "How we work",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 2,
+        "row": 4
+      }
+    },
+    "agenda-n5": {
+      "type": "text",
+      "role": "title",
+      "text": "05",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 1,
+        "row": 5
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "agenda-i5": {
+      "type": "text",
+      "role": "title",
+      "text": "Next season",
+      "semantic": "navigation",
+      "at": {
+        "parent": "agenda-list",
+        "col": 2,
+        "row": 5
+      }
+    },
+    "promise-title": {
+      "type": "text",
+      "role": "display",
+      "text": "We set out to rebuild 40 miles of trail.",
+      "semantic": "context",
+      "at": {
+        "in": "title"
+      },
+      "fit": "shrink",
+      "wrap": "balance"
+    },
+    "promise-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "We rebuilt 52.",
+      "semantic": "claim",
+      "at": {
+        "in": "subtitle"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "hours-number": {
+      "type": "text",
+      "role": "numeral",
+      "text": "6,820",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "fit": "grow",
+      "box": "cap"
+    },
+    "hours-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "volunteer hours this season",
+      "semantic": "claim",
+      "at": {
+        "in": "meaning",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "hours-aside": {
+      "type": "text",
+      "role": "body",
+      "text": "More than three full-time years of work, given one Saturday at a time by 1,214 people.",
+      "semantic": "context",
+      "at": {
+        "in": "aside",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "storm-photo": {
+      "type": "image",
+      "src": "assets/trails-ridge.png",
+      "focal": [
+        0.62,
+        0.6
+      ],
+      "alt": "Layered ridgelines at dusk above Bear Creek, the sun setting behind the far peaks.",
+      "semantic": "evidence",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -10
+    },
+    "storm-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "We rebuilt Bear Creek saddle",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "storm-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "The Alpine crew rebuilt 4.6 miles here after the storms, in eleven weekends.",
+      "semantic": "context",
+      "at": {
+        "in": "footer"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "miles-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "June to September beat the plan",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "miles-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@miles",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "miles",
+        "type": "quantitative",
+        "format": ",.1f"
+      },
+      "annotations": [
+        {
+          "kind": "rule",
+          "at": {
+            "y": 6.7
+          },
+          "text": "Plan: 6.7 miles a month"
+        }
+      ],
+      "alt": "Miles of trail rebuilt per month, May to October: 3.1, 8.4, 12.6, 13.9, 9.8, 4.2; the plan was 6.7 a month.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "miles-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Miles of tread rebuilt per month. Source: crew logs.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "crews-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Alpine peaked after the snowmelt",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "crews-chart": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@hours",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "hours",
+        "type": "quantitative",
+        "format": ",d"
+      },
+      "series": {
+        "field": "crew",
+        "type": "nominal"
+      },
+      "alt": "Volunteer hours per month by crew: Alpine rises from 120 in May to 720 in August and falls to 150 in October; Canyon and Foothills stay between 260 and 470.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "crews-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Volunteer hours per month, by crew.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "kinds-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "The tread took the most hours",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "kinds-chart": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@work",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "hours",
+        "type": "quantitative",
+        "format": ",d"
+      },
+      "series": {
+        "field": "kind",
+        "type": "nominal"
+      },
+      "alt": "Volunteer hours per month by kind of work, stacked: tread, drainage, and brushing; tread is the largest share from May to September.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "kinds-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Volunteer hours per month, by kind of work.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "change-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Hikers stay on the trail now",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "change-grid": {
+      "type": "grid",
+      "cols": 2,
+      "gap": "space.5",
+      "semantic": "comparison",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "change-before": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-grid",
+        "col": 1
+      }
+    },
+    "change-before-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Before",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-before"
+      }
+    },
+    "change-before-head": {
+      "type": "text",
+      "role": "title",
+      "text": "Ruts, braids, and standing water",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-before"
+      }
+    },
+    "change-before-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Hikers walked around the mud, and every detour widened the trail.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "change-before"
+      }
+    },
+    "change-after": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-grid",
+        "col": 2
+      }
+    },
+    "change-after-label": {
+      "type": "text",
+      "role": "label",
+      "text": "After",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-after"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "change-after-head": {
+      "type": "text",
+      "role": "title",
+      "text": "One tread, drained and hardened",
+      "semantic": "comparison",
+      "at": {
+        "parent": "change-after"
+      }
+    },
+    "change-after-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Rock steps and 212 new drains keep water off the trail.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "change-after"
+      }
+    },
+    "erosion-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Steep clay trail erodes fastest",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "erosion-chart": {
+      "type": "chart",
+      "kind": "scatter",
+      "data": "@segments",
+      "x": {
+        "field": "grade",
+        "type": "quantitative",
+        "format": "d",
+        "title": "Grade (%)"
+      },
+      "y": {
+        "field": "erosion",
+        "type": "quantitative",
+        "format": ".1f",
+        "title": "Soil lost per year (in)"
+      },
+      "series": {
+        "field": "soil",
+        "type": "nominal"
+      },
+      "alt": "Soil lost per year against trail grade on 18 segments: loss rises with grade on every soil, fastest on clay, slowest on granite.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "erosion-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Measured on 18 segments, 2024–2026.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "funding-text": {
+      "type": "stack",
+      "gap": "space.5",
+      "distribute": "center",
+      "at": {
+        "in": "left"
+      }
+    },
+    "funding-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Grants paid for almost half",
+      "semantic": "claim",
+      "at": {
+        "parent": "funding-text"
+      }
+    },
+    "funding-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Members and local businesses covered most of the rest. Events raised $32,000 and goodwill.",
+      "semantic": "context",
+      "at": {
+        "parent": "funding-text"
+      }
+    },
+    "funding-chart": {
+      "type": "chart",
+      "kind": "donut",
+      "data": "@funding",
+      "x": {
+        "field": "source",
+        "type": "nominal"
+      },
+      "y": {
+        "field": "amount",
+        "type": "quantitative",
+        "format": "$,.0f"
+      },
+      "alt": "Funding by source: grants $184,000, members $124,000, business partners $60,000, events $32,000.",
+      "semantic": "evidence",
+      "at": {
+        "in": "right"
+      }
+    },
+    "budget-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "We came in $6,600 under budget",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "budget-table": {
+      "type": "table",
+      "data": "@budget",
+      "key": "item",
+      "columns": [
+        {
+          "field": "item",
+          "title": "Line"
+        },
+        {
+          "field": "planned",
+          "title": "Planned",
+          "format": "$,.0f"
+        },
+        {
+          "field": "spent",
+          "title": "Spent",
+          "format": "$,.0f"
+        },
+        {
+          "field": "difference",
+          "title": "Over (under)",
+          "format": "($,.0f"
+        }
+      ],
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "budget-aside": {
+      "type": "text",
+      "role": "title",
+      "text": "Food and travel ran $7,200 over.",
+      "semantic": "annotation",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "budget-why": {
+      "type": "text",
+      "role": "body",
+      "text": "Crews drove farther to reach the Alpine segments.",
+      "semantic": "context",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          3,
+          4
+        ]
+      }
+    },
+    "budget-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Fiscal year ending September 30.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "process-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "We fix a segment in four steps",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 1
+      }
+    },
+    "process-flow": {
+      "type": "grid",
+      "cols": [
+        "fill",
+        "space.8",
+        "fill",
+        "space.8",
+        "fill",
+        "space.8",
+        "fill"
+      ],
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "process-survey": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-flow",
+        "col": 1
+      }
+    },
+    "process-survey-n": {
+      "type": "text",
+      "role": "label",
+      "text": "01",
+      "semantic": "navigation",
+      "at": {
+        "parent": "process-survey"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "process-survey-head": {
+      "type": "text",
+      "role": "title",
+      "text": "Survey",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-survey"
+      }
+    },
+    "process-survey-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Measure grade and drainage.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-survey"
+      }
+    },
+    "process-arrow1": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "process-flow",
+        "col": 2
+      }
+    },
+    "process-plan": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-flow",
+        "col": 3
+      }
+    },
+    "process-plan-n": {
+      "type": "text",
+      "role": "label",
+      "text": "02",
+      "semantic": "navigation",
+      "at": {
+        "parent": "process-plan"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "process-plan-head": {
+      "type": "text",
+      "role": "title",
+      "text": "Plan",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-plan"
+      }
+    },
+    "process-plan-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Reroute, drain, armor, or close.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-plan"
+      }
+    },
+    "process-arrow2": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "process-flow",
+        "col": 4
+      }
+    },
+    "process-build": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-flow",
+        "col": 5
+      }
+    },
+    "process-build-n": {
+      "type": "text",
+      "role": "label",
+      "text": "03",
+      "semantic": "navigation",
+      "at": {
+        "parent": "process-build"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "process-build-head": {
+      "type": "text",
+      "role": "title",
+      "text": "Build",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-build"
+      }
+    },
+    "process-build-body": {
+      "type": "text",
+      "role": "body",
+      "text": "One segment a weekend.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-build"
+      }
+    },
+    "process-arrow3": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "process-flow",
+        "col": 6
+      }
+    },
+    "process-inspect": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-flow",
+        "col": 7
+      }
+    },
+    "process-inspect-n": {
+      "type": "text",
+      "role": "label",
+      "text": "04",
+      "semantic": "navigation",
+      "at": {
+        "parent": "process-inspect"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "process-inspect-head": {
+      "type": "text",
+      "role": "title",
+      "text": "Inspect",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-inspect"
+      }
+    },
+    "process-inspect-body": {
+      "type": "text",
+      "role": "body",
+      "text": "After the first storm, and in spring.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "process-inspect"
+      }
+    },
+    "voice-quote": {
+      "type": "text",
+      "role": "headline",
+      "text": "“You can see your work from the ridge. That’s why I keep coming back.”",
+      "semantic": "claim",
+      "at": {
+        "in": "quote"
+      }
+    },
+    "voice-who": {
+      "type": "text",
+      "role": "caption",
+      "text": "Dana Ortiz, Alpine crew lead since 2019",
+      "semantic": "source",
+      "at": {
+        "in": "who"
+      }
+    },
+    "next-bg": {
+      "type": "shader",
+      "kind": "noise",
+      "preset": "noise-fine",
+      "seed": 5,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100
+    },
+    "next-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Next season: 60 miles",
+      "semantic": "takeaway",
+      "at": {
+        "in": "title"
+      }
+    },
+    "next-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "Crews start May 9. Sign up at any trailhead kiosk.",
+      "semantic": "takeaway",
+      "at": {
+        "in": "subtitle"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "cover-bg": {},
+        "cover-kicker": {},
+        "cover-title": {},
+        "cover-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "cover-title",
+              "enter": "rise"
+            },
+            {
+              "target": "cover-sub",
+              "enter": "rise"
+            }
+          ],
+          "timing": "with"
+        }
+      ],
+      "hold": 4000.0
+    },
+    {
+      "id": "agenda",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": "fast",
+      "props": {
+        "agenda-title": {},
+        "agenda-list": {},
+        "agenda-n1": {},
+        "agenda-i1": {},
+        "agenda-n2": {},
+        "agenda-i2": {},
+        "agenda-n3": {},
+        "agenda-i3": {},
+        "agenda-n4": {},
+        "agenda-i4": {},
+        "agenda-n5": {},
+        "agenda-i5": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "agenda-title",
+              "enter": "rise"
+            },
+            {
+              "target": "agenda-list",
+              "split": "children",
+              "enter": "rise",
+              "stagger": 60
+            }
+          ]
+        }
+      ],
+      "hold": 5000.0
+    },
+    {
+      "id": "promise",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "promise-title": {},
+        "promise-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "promise-title",
+              "enter": "rise"
+            },
+            {
+              "target": "promise-sub",
+              "enter": "rise",
+              "delay": 900
+            }
+          ]
+        }
+      ],
+      "hold": 4000.0
+    },
+    {
+      "id": "hours",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": "fast",
+      "props": {
+        "hours-number": {},
+        "hours-meaning": {},
+        "hours-aside": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": [
+                "hours-number",
+                "hours-meaning"
+              ],
+              "enter": "rise"
+            },
+            {
+              "target": "hours-aside",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 5500.0
+    },
+    {
+      "id": "storm",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": "fast",
+      "props": {
+        "storm-photo": {},
+        "storm-title": {},
+        "storm-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "storm-title",
+              "enter": "rise"
+            },
+            {
+              "target": "storm-photo",
+              "enter": "fade"
+            },
+            {
+              "target": "storm-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 5000.0
+    },
+    {
+      "id": "miles",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "miles-title": {},
+        "miles-chart": {},
+        "miles-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "miles-title",
+              "enter": "rise"
+            },
+            {
+              "target": "miles-chart",
+              "enter": "grow"
+            },
+            {
+              "target": "miles-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "crews",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "crews-title": {},
+        "crews-chart": {},
+        "crews-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "crews-title",
+              "enter": "rise"
+            },
+            {
+              "target": "crews-chart",
+              "enter": "grow",
+              "stagger": 0
+            },
+            {
+              "target": "crews-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "kinds",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "kinds-title": {},
+        "kinds-chart": {},
+        "kinds-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "kinds-title",
+              "enter": "rise"
+            },
+            {
+              "target": "kinds-chart",
+              "enter": "grow",
+              "stagger": 0
+            },
+            {
+              "target": "kinds-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "change",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": "fast",
+      "props": {
+        "change-title": {},
+        "change-grid": {},
+        "change-before": {},
+        "change-before-label": {},
+        "change-before-head": {},
+        "change-before-body": {},
+        "change-after": {},
+        "change-after-label": {},
+        "change-after-head": {},
+        "change-after-body": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "change-title",
+              "enter": "rise"
+            },
+            {
+              "target": "change-grid",
+              "split": "children",
+              "enter": "rise",
+              "stagger": 300
+            }
+          ]
+        }
+      ],
+      "hold": 8000.0
+    },
+    {
+      "id": "erosion",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "erosion-title": {},
+        "erosion-chart": {},
+        "erosion-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "erosion-title",
+              "enter": "rise"
+            },
+            {
+              "target": "erosion-chart",
+              "enter": "grow"
+            },
+            {
+              "target": "erosion-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "funding",
+      "mode": "absolute",
+      "layout": "split",
+      "transition": "fast",
+      "props": {
+        "funding-text": {},
+        "funding-title": {},
+        "funding-body": {},
+        "funding-chart": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "funding-title",
+              "enter": "rise"
+            },
+            {
+              "target": "funding-chart",
+              "enter": "grow",
+              "stagger": 0
+            },
+            {
+              "target": "funding-body",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6500.0
+    },
+    {
+      "id": "budget",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "budget-title": {},
+        "budget-table": {},
+        "budget-aside": {},
+        "budget-why": {},
+        "budget-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "budget-title",
+              "enter": "rise"
+            },
+            {
+              "parallel": [
+                {
+                  "target": "budget-table",
+                  "enter": "rise"
+                },
+                {
+                  "target": "budget-note",
+                  "enter": "fade"
+                }
+              ]
+            },
+            {
+              "target": [
+                "budget-aside",
+                "budget-why"
+              ],
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 7500.0
+    },
+    {
+      "id": "process",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "process-title": {},
+        "process-flow": {},
+        "process-survey": {},
+        "process-survey-n": {},
+        "process-survey-head": {},
+        "process-survey-body": {},
+        "process-arrow1": {},
+        "process-plan": {},
+        "process-plan-n": {},
+        "process-plan-head": {},
+        "process-plan-body": {},
+        "process-arrow2": {},
+        "process-build": {},
+        "process-build-n": {},
+        "process-build-head": {},
+        "process-build-body": {},
+        "process-arrow3": {},
+        "process-inspect": {},
+        "process-inspect-n": {},
+        "process-inspect-head": {},
+        "process-inspect-body": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "process-title",
+              "enter": "rise"
+            },
+            {
+              "parallel": [
+                {
+                  "target": [
+                    "process-survey",
+                    "process-plan",
+                    "process-build",
+                    "process-inspect"
+                  ],
+                  "enter": "rise",
+                  "stagger": 360
+                },
+                {
+                  "target": [
+                    "process-arrow1",
+                    "process-arrow2",
+                    "process-arrow3"
+                  ],
+                  "enter": {
+                    "preset": "draw",
+                    "duration": "standard"
+                  },
+                  "stagger": 360,
+                  "delay": 240
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "hold": 7500.0
+    },
+    {
+      "id": "voice",
+      "mode": "absolute",
+      "layout": "quote",
+      "transition": "fast",
+      "props": {
+        "voice-quote": {},
+        "voice-who": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "voice-quote",
+              "enter": "rise"
+            },
+            {
+              "target": "voice-who",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 5500.0
+    },
+    {
+      "id": "next",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "next-bg": {},
+        "next-title": {},
+        "next-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "next-title",
+              "enter": "rise"
+            },
+            {
+              "target": "next-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 5000.0
+    }
+  ],
+  "spine": {
+    "sections": [
+      {
+        "id": "opening",
+        "title": "Opening",
+        "beats": [
+          {
+            "id": "welcome",
+            "claim": "A summer of Saturdays rebuilt the high country’s trails.",
+            "states": [
+              "cover",
+              "agenda"
+            ],
+            "notes": "Welcome everyone. Fifteen minutes, then questions."
+          }
+        ]
+      },
+      {
+        "id": "numbers",
+        "title": "The season in numbers",
+        "beats": [
+          {
+            "id": "beat-the-plan",
+            "claim": "We rebuilt 52 miles of trail against a plan of 40.",
+            "states": [
+              "promise"
+            ]
+          },
+          {
+            "id": "hours",
+            "claim": "Volunteers gave 6,820 hours.",
+            "evidence": [
+              "@hours"
+            ],
+            "states": [
+              "hours"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "work",
+        "title": "Where the work went",
+        "beats": [
+          {
+            "id": "saddle",
+            "claim": "We rebuilt Bear Creek saddle after the storms.",
+            "evidence": [
+              "assets/trails-ridge.png"
+            ],
+            "states": [
+              "storm"
+            ]
+          },
+          {
+            "id": "pace",
+            "claim": "June to September beat the plan.",
+            "evidence": [
+              "@miles"
+            ],
+            "states": [
+              "miles"
+            ]
+          },
+          {
+            "id": "crews",
+            "claim": "Alpine peaked after the snowmelt.",
+            "evidence": [
+              "@hours"
+            ],
+            "states": [
+              "crews"
+            ]
+          },
+          {
+            "id": "tread",
+            "claim": "The tread took the most hours.",
+            "evidence": [
+              "@work"
+            ],
+            "states": [
+              "kinds"
+            ]
+          },
+          {
+            "id": "change",
+            "claim": "Hikers stay on the trail now.",
+            "states": [
+              "change"
+            ]
+          },
+          {
+            "id": "erosion",
+            "claim": "Steep clay trail erodes fastest.",
+            "evidence": [
+              "@segments"
+            ],
+            "states": [
+              "erosion"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "cost",
+        "title": "What it cost",
+        "beats": [
+          {
+            "id": "grants",
+            "claim": "Grants paid for almost half.",
+            "evidence": [
+              "@funding"
+            ],
+            "states": [
+              "funding"
+            ]
+          },
+          {
+            "id": "budget",
+            "claim": "We came in $6,600 under budget.",
+            "evidence": [
+              "@budget"
+            ],
+            "states": [
+              "budget"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "how",
+        "title": "How we work",
+        "beats": [
+          {
+            "id": "process",
+            "claim": "We fix a segment in four steps.",
+            "states": [
+              "process"
+            ]
+          },
+          {
+            "id": "voice",
+            "claim": "Volunteers come back for work they can see.",
+            "states": [
+              "voice"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "next",
+        "title": "Next season",
+        "beats": [
+          {
+            "id": "sixty",
+            "claim": "Next season we rebuild 60 miles.",
+            "states": [
+              "next"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
