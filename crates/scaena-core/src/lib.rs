@@ -16,6 +16,7 @@
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
+//! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.

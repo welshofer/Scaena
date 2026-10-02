@@ -95,6 +95,15 @@ impl BundleFiles for Files {
     }
 }
 
+/// The JSON of the theme `deck` names: a file in the bundle, or inline.
+fn theme_of(deck: &Deck, files: &Files) -> Result<Option<String>, StoreError> {
+    Ok(match &deck.theme {
+        Some(serde_json::Value::String(rel)) => Some(String::from_utf8_lossy(&files.read(rel)?).into_owned()),
+        Some(inline @ serde_json::Value::Object(_)) => Some(inline.to_string()),
+        _ => None,
+    })
+}
+
 /// An opened bundle: the deck, its theme's JSON, and its files.
 #[derive(Debug, Clone)]
 pub struct Bundle {
@@ -115,12 +124,21 @@ impl Bundle {
         let (root, deck_file, files) = locate(path)?;
         let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
         let deck = Deck::from_json(&text)?;
-        let theme_json = match &deck.theme {
-            Some(serde_json::Value::String(rel)) => Some(String::from_utf8_lossy(&files.read(rel)?).into_owned()),
-            Some(inline @ serde_json::Value::Object(_)) => Some(inline.to_string()),
-            _ => None,
-        };
+        let theme_json = theme_of(&deck, &files)?;
         Ok(Bundle { root, deck_file, deck, theme_json, files })
+    }
+
+    /// The bundle as it would be with `deck` (a patch's, PLAN 1.16): its theme read for that
+    /// deck, its files the same. Nothing is written.
+    pub fn with_deck(&self, deck: Deck) -> Result<Bundle, StoreError> {
+        let theme_json = theme_of(&deck, &self.files)?;
+        Ok(Bundle {
+            root: self.root.clone(),
+            deck_file: self.deck_file.clone(),
+            deck,
+            theme_json,
+            files: self.files.clone(),
+        })
     }
 
     /// A path the deck names (theme, fonts, data), resolved inside a directory bundle.

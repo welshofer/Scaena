@@ -798,7 +798,7 @@ scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warnin
 scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data]   # absolute snapshot, resolved styles, cue, rows
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
-scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
+scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
 scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
@@ -806,7 +806,7 @@ scaena serve     <bundle> [--port N]                  # dev server: live preview
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 
-Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`); `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
+Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`, `patch`); `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
 
 `--json` goes anywhere on the line. With it, stdout holds exactly one JSON value: the command's result, or, when the command stops with exit 2 or 3, `{ "error": { "exit", "message", "plan"? } }`. A usage error is one too. `compile` adds the `line` and `col` of source that does not compile, and the JSON pointer into the deck (`path`) when the error is about part of it. So an agent parses stdout, then reads the exit code. stderr is for people and is not part of the contract. The results:
 
@@ -821,6 +821,7 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 | `save` | `{ renamed, subset, manifest }` |
 | `export` | `{ format, out, spine? }` |
 | `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
+| `patch` | `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta. An op that does not apply adds `op`, its index, to the error object |
 
 `inspect --timeline` shows each state's cue (§2.4, §3.9) in ms, worked out as `render` does, so it reads the bundle's fonts:
 - Where the state falls on the deck's timeline: `start`, `span` (its transition and motions), and `hold`.
@@ -852,10 +853,41 @@ Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`
 
 ### 7.3 Patch semantics
 
-- **JSON Patch** (RFC 6902) against `deck.json` with JSON-pointer paths, plus **semantic ops** that compile to JSON Patch:
-  `add_node`, `remove_node`, `set_prop {state, node, prop, value}`, `add_state {after, id, slide?}`, `move_state`, `set_text`, `bind_data`, `apply_preset`, `retheme`.
-- Patches are validated before apply; a failed patch is atomic (nothing applied).
-- Every patch becomes a CRDT change (§8); `--dry-run` returns the lint delta without committing.
+A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patch.schema.json`, generated from `scaena-core::patch`). Each op is RFC 6902's, or a semantic op that compiles to RFC 6902's.
+
+- **JSON Patch** (RFC 6902): `add`, `remove`, `replace`, `move`, `copy`, `test`, with JSON Pointer paths into `deck.json`.
+  - A member moved within its object keeps its place, so a `move` there is a rename. The order of `nodes` is paint order at equal `z` (§3.4).
+  - `test` compares numbers by value.
+  - Members an op does not define are ignored, as RFC 6902 says.
+- **Semantic ops** say what an author means. Each compiles against the deck as the ops before it leave it, so a patch can add a node and then set its props.
+  - An op refuses what would not do what it says. The refusal names the op by its index (`op`, from 0) and what to do instead.
+  - A misspelled member is an error, not a change somewhere else.
+  - `state` names the state an op acts in, as a delta from that state on. Without it, an op acts on the node's own properties.
+
+| Op | Members | What it does |
+|---|---|---|
+| `add_node` | `id`, `node`, `state?`, `props?` | Adds a node, last in scene-graph order. With `state` it enters there, `props` its delta |
+| `remove_node` | `id` | Removes the node and every reference to it: deltas, exits, choreography (an item left with no target goes too), overrides. A container must be emptied first |
+| `rename_node` | `id`, `to` | Renames the id everywhere it is used. The node keeps its place, type, and properties, so tracking and morphs see the same node |
+| `show_node` | `node`, `state`, `props?` | The node enters in the state; one that leaves there stays instead |
+| `hide_node` | `node`, `state` | The node leaves in the state; one that would enter there does not |
+| `set_prop` | `node`, `prop`, `value`, `state?` | Sets a property (`kind`) or one key of one (`at/in`); a delta merges objects one level deep (§2.2). `null` takes it away. Refused for `type` (E104), and for a node not on screen in `state`, which a delta would make enter (`show_node` does that) |
+| `set_text` | `node`, `text`, `state?` | Sets a text node's `text`; its `runs` there go |
+| `bind_data` | `node`, `data`, `source?`, `state?` | A chart or table reads `@data`; `source` declares or replaces the data source. In a state, it is a data update (§3.7) |
+| `apply_preset` | `node`, `preset`, `motion?`, `state?` | With `motion` (`enter`, `exit`, `emphasis`), a theme motion preset as that motion. Without, a shader takes a theme shader preset whole: the preset's kind, and none of its own `palette` or `params` |
+| `add_state` | `state`, `after?` or `before?`, `beat?` | Adds a state there (else last); with `beat`, one of that beat's states |
+| `move_state` | `id`, `after` or `before` | Moves a state. A state in delta mode tracks from whichever state now comes before it |
+| `remove_state` | `id` | Removes a state and its place in the spine; the state after it tracks from the one before. Refused for a state that others build on (`slide`) or track from (`from`) |
+| `rename_state` | `id`, `to` | Renames the id everywhere: `slide`, `from`, the beats |
+| `retheme` | `theme` | Sets the deck's theme: a file in the bundle, or inline. `theme --apply` copies a file in |
+
+**`scaena patch` checks a patch before it writes it:**
+- It compiles the ops, then checks the deck they make as `validate` checks a bundle. A patch that adds a validation finding (E102–E106) is refused whole: exit 1, and nothing is written.
+- It reports the patch as RFC 6902 and the lint delta: what `lint` finds that it did not (`added`), and what it finds no more (`removed`).
+- A finding is the same before and after when its code, format, file, state, and node match, and its message matches but for its figures. A path that names a state by place counts by the state's id, and renamed ids count by their new names. So a state added early does not move every finding after it, and a widow that gains a word is the same widow.
+- `--dry-run` reports without writing. An op that does not apply exits 2 with its index (`op`).
+
+Every patch becomes a CRDT change (§8, PLAN 1.23).
 
 ### 7.4 Lint results
 

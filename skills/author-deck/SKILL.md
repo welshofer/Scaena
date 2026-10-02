@@ -15,15 +15,18 @@ You are writing a Scaena document: `deck.json` (schema at `docs/schema/deck.sche
 4. **States as deltas.** One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`. Add `choreography` sparingly (one `enter` per new object; stagger lists and marks). Give every state a `hold` if the deck will be exported to video.
 5. **Lint loop.** `scaena validate <deck>` (or `scaena compile`, which validates) then `scaena lint <deck> --json`. Fix every error; take warnings seriously (W300/W301 mean you reached for pixels — use a role, slot, or token instead). Re-run until clean.
 6. **Inspect.** `scaena inspect <deck> --state <id>` to confirm tracking did what you meant. Add `--timeline` to see when each motion runs and over how many words, lines, or marks, and `--data` to see the rows a chart or table reads after its `dataTransform`. `scaena diff <deck> --from a --to b` confirms that a build changes only what it should. Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
-7. **Look:** `scaena render <deck> --state <id> --out frame.png` (add `--t <ms>` for a frame inside the transition, `--format 9:16` for another of the deck's formats), view the PNG, fix what is wrong, repeat. Rendering needs the deck's font files in the bundle.
-8. Report: beats, states, lint summary, and anything you could not express without an override.
+7. **Edit with patches.** To change a deck once it exists, write ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one) and run `scaena patch <deck> --ops ops.json --dry-run --json` first. It prints the patch as JSON Patch and what lint finds differently (`added`, `removed`). Then run it without `--dry-run`.
+   - Prefer the semantic ops: `set_prop` and `set_text` with a `state` change what that state shows, `show_node` and `hide_node` make a node enter or leave, and `add_state` with `beat` adds a build to its beat.
+   - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
+8. **Look:** `scaena render <deck> --state <id> --out frame.png` (add `--t <ms>` for a frame inside the transition, `--format 9:16` for another of the deck's formats), view the PNG, fix what is wrong, repeat. Rendering needs the deck's font files in the bundle.
+9. Report: beats, states, lint summary, and anything you could not express without an override.
 
 ## Rules
 
 - Never put a literal color, size, or coordinate anywhere but `overrides`, and avoid `overrides`.
 - Every beat's states include a node with `semantic: claim` that expresses the claim.
 - Charts: no style fields. `kind` ∈ v1 kinds only. Always set `key`.
-- Name ids for what a node is for, not what it says today: `total`, not `q3-total`. Ids are identity; they outlive the copy and the period.
+- Name ids for what a node is for, not what it says today: `total`, not `q3-total`. Ids are identity; they outlive the copy and the period. When one goes stale anyway, `rename_node` renames it everywhere and the node stays the same node.
 - Figures in copy (text, `alt`, beat claims, notes) are literals. When the data changes, re-derive every one from the data and re-read every claim: lint notices neither a stale figure nor a claim the new data makes false (SPEC §16, question 9).
 - Keep `maxWordsPerState` (theme `density`) — this is a presentation, not a document.
 - Do not invent fonts: use the theme's families.

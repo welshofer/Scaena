@@ -202,7 +202,24 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Chart labels are not judged for contrast, and W221 waits on baseline snapping.*
     - *Fixes beyond `fit: shrink`: a color role for contrast, or a slot for a `rect`, would change the look, and are left to the author.*
     - *A deck that lists 9:16 for one case is linted in 9:16 throughout (the torture deck's W302s); a per-state format is SPEC §16 Q6.)*
-- [ ] 1.16 Patch: JSON Patch + semantic ops; atomic apply; `--dry-run` lint delta.
+- [x] 1.16 Patch: JSON Patch + semantic ops; atomic apply; `--dry-run` lint delta. *(Done. `scaena-core::patch`, `scaena_core::lint::delta`, `scaena patch`; SPEC §7.1, §7.3:*
+  - *A patch is a JSON array of ops, applied in order, all or none: RFC 6902's, and 14 semantic ops that compile to them, each against the deck as the ops before it leave it. SPEC's nine, plus `rename_node` (authorability finding 13), `rename_state`, `remove_state`, and `show_node`/`hide_node`, so a node enters or leaves a state without hand-written JSON Patch.*
+  - *Each semantic op checks what it names and refuses what would not do what it says, naming the op and what to do instead: a delta on a node not on screen in that state (it would enter), `type` (E104), a key deeper than a delta merges, a container that still holds nodes, a state that others build on. A misspelled member is an error. RFC 6902 ops ignore members they do not define, as the RFC says.*
+  - *`rename_node` keeps the node's place in `nodes`, whose order is paint order at equal `z`: within one object, a `move` renames in place. Every state resolves as before, under the new name.*
+  - *The ops are typed (`Op`, `JsonOp`, `SemanticOp`) and generate `docs/schema/patch.schema.json`. It carries the deck schema's node, state, and delta definitions, so it stands alone, as an MCP tool's input schema must (1.17).*
+  - *`scaena patch <bundle> --ops ops.json|- [--dry-run]` checks the deck the ops make as `validate` checks a bundle, and refuses a patch that adds a validation finding (exit 1, nothing written). It reports `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta.*
+  - *The delta (`lint::delta`, now `theme --apply`'s too) knows a finding by its code, format, state, and node; a state by its id rather than its place; renamed ids by their new names; and its message but for its figures. So a state added early does not move every finding after it.*
+  - *Evidence:*
+    - *Core `tests/patch.rs` (9): each op against the example deck, to the exact RFC 6902 it applies; a rename resolves every state as before; removals, show and hide, and state ops with their references; presets, data, and themes; 17 refusals, each failing the whole patch at its op; `set_text` and `runs`; JSON Patch and semantic ops that fail together.*
+    - *Unit tests: RFC 6902 (a move renames in place; `test` compares numbers by value), choreography edits nested and multi-target, and the delta's keys.*
+    - *CLI `tests/patch.rs` (4):*
+      - *The example patch (`docs/examples/revenue.patch.json`: a rename, a guarded headline, a build) dry-runs to an empty delta and writes nothing. It then applies canonically and lints clean, and a second run fails at op 0 with nothing written.*
+      - *Three patches that would make the deck invalid are refused.*
+      - *A headline too long for its slot shows E100 in both formats, and E101 and W202 in 9:16. With lint's own fix in the same patch, it shows nothing.*
+      - *A rename keeps a finding the same finding. Ops come from stdin.*
+    - *`just schema` validates the example patch. It checks that the patch schema rejects a misspelled member, a prop three levels deep, and a lone op, and accepts an RFC 6902 op with a member it ignores.*
+  - *Found on the way: the order of a deck's `nodes` is paint order at equal `z`, and a CRDT map keeps no order of its keys. 1.23 must hold the order apart (noted there).*
+  - *Not done: a patch becomes a CRDT change with 1.23. `remove_state` does not fold its delta into the next state; the states after it track from the one before, as SPEC §7.3 says.)*
 - [ ] 1.17 MCP server (`rmcp`): tools + resources per SPEC §7.2; image content for `deck_render`.
 - [ ] 1.18 Skills: `skills/author-deck`, `skills/retheme`, `skills/chart-from-data`, `skills/motion-pass`, `skills/tighten-copy`.
 - [ ] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI.
@@ -213,7 +230,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
 
 ### 1E Store
-- [ ] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.)
+- [ ] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add.
 
 ### 1F Benchmarks
 - [ ] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)*

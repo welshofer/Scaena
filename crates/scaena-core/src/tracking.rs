@@ -44,26 +44,33 @@ pub struct Snapshot {
 pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
     let mut out: Vec<Snapshot> = Vec::with_capacity(deck.states.len());
     for (i, state) in deck.states.iter().enumerate() {
-        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match (state.mode, &state.from) {
-            (StateMode::Absolute, _) => (IndexMap::new(), None),
-            (StateMode::Delta, Some(from)) => {
-                let j = deck
-                    .state_index(from)
-                    .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
-                if j >= i {
-                    return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
-                }
-                (strip_non_tracking(&out[j].nodes), out[j].layout.clone())
+        if let (StateMode::Delta, Some(from)) = (state.mode, &state.from) {
+            let j = deck
+                .state_index(from)
+                .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
+            if j >= i {
+                return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
             }
-            (StateMode::Delta, None) => match out.last() {
-                Some(prev) => (strip_non_tracking(&prev.nodes), prev.layout.clone()),
-                None => (IndexMap::new(), None),
-            },
+        }
+        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match tracks_from(deck, i) {
+            Some(j) => (strip_non_tracking(&out[j].nodes), out[j].layout.clone()),
+            None => (IndexMap::new(), None),
         };
         let snap = apply_state(deck, state, base, base_layout, out.last())?;
         out.push(snap);
     }
     Ok(out)
+}
+
+/// The state that `deck.states[i]` tracks from: its `from`, else the state before it. None
+/// in absolute mode, or for the first state.
+pub fn tracks_from(deck: &Deck, i: usize) -> Option<usize> {
+    let state = &deck.states[i];
+    match (state.mode, &state.from) {
+        (StateMode::Absolute, _) => None,
+        (StateMode::Delta, Some(from)) => deck.state_index(from),
+        (StateMode::Delta, None) => i.checked_sub(1),
+    }
 }
 
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {

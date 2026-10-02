@@ -1,9 +1,9 @@
-//! `docs/schema/deck.schema.json`, `theme.schema.json`, and `manifest.schema.json` are generated from the typed model
-//! (PLAN 1.1): this test fails when the committed files are not what the model generates.
+//! `docs/schema/deck.schema.json`, `theme.schema.json`, `manifest.schema.json`, and `patch.schema.json` are generated
+//! from the typed model (PLAN 1.1, 1.16): this test fails when the committed files are not what the model generates.
 //! After a reviewed change to the model: `SCAENA_BLESS=1 cargo test -p scaena-core --test schemas`
 //! (or `just bless`), and review the schema diff with the code.
 
-use scaena_core::model::{deck_schema, manifest_schema, print_schema, theme_schema};
+use scaena_core::model::{deck_schema, manifest_schema, patch_schema, print_schema, theme_schema};
 use std::path::PathBuf;
 
 #[test]
@@ -11,7 +11,7 @@ fn committed_schemas_are_the_generated_ones() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/schema");
     let bless = std::env::var_os("SCAENA_BLESS").is_some();
     let mut stale = Vec::new();
-    for (name, schema) in [("deck", deck_schema()), ("theme", theme_schema()), ("manifest", manifest_schema())] {
+    for (name, schema) in schemas() {
         let path = dir.join(format!("{name}.schema.json"));
         let generated = print_schema(&schema);
         if bless {
@@ -33,10 +33,14 @@ fn committed_schemas_are_the_generated_ones() {
 
 #[test]
 fn every_definition_is_used() {
-    for (name, schema) in [("deck", deck_schema()), ("theme", theme_schema()), ("manifest", manifest_schema())] {
+    for (name, schema) in schemas() {
         let text = schema.to_string();
         for def in schema["$defs"].as_object().into_iter().flat_map(|defs| defs.keys()) {
             assert!(text.contains(&format!("\"#/$defs/{def}\"")), "{name}: $defs/{def} is never referenced");
         }
     }
+}
+
+fn schemas() -> [(&'static str, serde_json::Value); 4] {
+    [("deck", deck_schema()), ("theme", theme_schema()), ("manifest", manifest_schema()), ("patch", patch_schema())]
 }

@@ -1,0 +1,11 @@
+[
+  { "op": "rename_node", "id": "rev", "to": "revenue-chart" },
+  { "op": "test", "path": "/states/2/props/title/text", "value": "…and the mix shifted" },
+  { "op": "set_text", "node": "title", "state": "mix", "text": "…and the mix shifted to Pro" },
+  {
+    "op": "add_state",
+    "after": "mix",
+    "beat": "doubled",
+    "state": { "id": "pro", "slide": "revenue", "props": { "title": { "text": "Pro grew fastest" } }, "hold": 4000 }
+  }
+]
