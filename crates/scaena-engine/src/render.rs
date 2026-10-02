@@ -13,6 +13,7 @@ use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::layout::{AlignX, AlignY, Grid};
 use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
+use crate::shaders::ShaderNode;
 use crate::text::{Span, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect, paint_order};
@@ -122,7 +123,11 @@ impl Engine {
                     let chart = charts::compile(&mut cx, props, [cell[2], cell[3]]).map_err(|e| in_node(id, e))?;
                     Content::Chart { cell, chart }
                 }
-                NodeType::Shader => return Err(EngineError::NotImplemented("shader nodes — PLAN 0.11 (mesh), 1.10")),
+                NodeType::Shader => {
+                    let rect =
+                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
+                    Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
+                }
                 NodeType::Shape | NodeType::Image => {
                     return Err(EngineError::NotImplemented("shape and image nodes — PLAN 1.7"));
                 }
@@ -139,7 +144,13 @@ impl Engine {
                 content,
             });
         }
-        Ok(Scene { state: snap.state_id.clone(), canvas, surface: theme_color(theme, "surface")?, nodes })
+        Ok(Scene {
+            state: snap.state_id.clone(),
+            canvas,
+            surface: theme_color(theme, "surface")?,
+            time: rest_time(deck, theme, &snap.state_id)?,
+            nodes,
+        })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what
@@ -229,6 +240,21 @@ pub fn timing(deck: &Deck, theme: &Theme, state: &str) -> Result<Timing, EngineE
 
 fn canvas(deck: &Deck) -> [f32; 2] {
     [deck.canvas.width as f32, deck.canvas.height as f32]
+}
+
+/// When `state` comes to rest on the global timeline (SPEC §2.2), in seconds: the
+/// transitions of the cue list up to and including its own, end to end. Phase 0 has
+/// no holds or choreography, so that is the whole timeline. Shaders read their time
+/// from it, so a background drifts on across states instead of starting over.
+pub fn rest_time(deck: &Deck, theme: &Theme, state: &str) -> Result<f64, EngineError> {
+    let mut ms = 0.0;
+    for s in &deck.states {
+        ms += Timing::parse(theme, s.transition.as_ref())?.duration_ms;
+        if s.id == state {
+            return Ok(ms / 1000.0);
+        }
+    }
+    Err(EngineError::UnknownState(state.to_string()))
 }
 
 fn in_node(id: &str, e: EngineError) -> EngineError {

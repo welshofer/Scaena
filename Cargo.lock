@@ -1322,6 +1322,7 @@ name = "scaena-core"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "libm",
  "postcard",
  "serde",
  "serde_json",

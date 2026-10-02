@@ -294,6 +294,19 @@ Requirements:
 - No arbitrary shader source in documents. Ever.
 - Uniforms are animatable properties like any other.
 - For PDF/SVG export, shaders rasterize at a declared DPI (default 2× canvas) and embed as images.
+- **Clock.** A shader's `t` is the frame's time on the global timeline (§2.2), in seconds, so a background that persists across states drifts on through every transition instead of starting over. At rest, a state's shaders show the time it comes to rest. Phase 0 has no holds or choreography, so the timeline is the cue list's transitions end to end.
+- **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
+
+**`mesh` (PLAN 0.11).** `points` palette colors (cycling the palette) sit at seeded, evenly spread places over the rect (the R2 low-discrepancy sequence from a seeded start) and drift on slow Lissajous paths of amplitude `drift` (0.2–0.45 rad/s per axis, seeded phases). Each pixel blends them in Oklab, weighting a point at distance d by 1/(1 + d²/σ²)² with σ = 0.6 × `softness`; distances are in units of the rect's shorter side, so circles stay round at any aspect. Alpha blends with the same weights. `grain` adds seeded noise of that amplitude to Oklab lightness, per device pixel.
+
+| param | type | range | default |
+|---|---|---|---|
+| `points` | integer | 2–16 | 5 |
+| `drift` | number, in shorter sides | 0–1 | 0.1 |
+| `softness` | number | above 0, up to 1 | 0.6 |
+| `grain` | number, in Oklab L | 0–0.25 | 0.03 |
+
+The engine types the params when it resolves the node; an unknown or out-of-range one is an error naming the node. The JSON schema types them per kind with the rest of node props (PLAN 1.1). Phase 0 cross-fades a shader whose kind, seed, palette, or params change between states, until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
 
 ### 3.9 Animation
 
@@ -327,7 +340,7 @@ Requirements:
 - A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
 - The transition into a state starts from the state before it in the cue list, what was on screen, whichever state it tracks `from`. Into the first state, every node enters.
 - `t ≤ 0` is the previous state at rest and `t ≥ duration` this state at rest, exactly.
-- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
+- Phase 0 (PLAN 0.10): nodes present in both states interpolate. Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12); chart marks match by key and move their data (§3.7). A node only in the target fades in, and one only in the source fades out, except a chart, which grows its values in or shrinks them out. Shaders show the frame's time on the global timeline (§3.8). Presets and choreography are PLAN 1.11–1.12, and `spring` transitions PLAN 1.11.
 
 ### 3.10 Data sources
 
@@ -502,7 +515,7 @@ Rules:
 - Coordinates are in canvas units; `viewport` is the canvas extent, and painters map it to their output pixels. Glyph positions are in their layer's coordinate space (a text node's layer translates to its box), so moving a node changes one transform, not every glyph.
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
-- Shader ops carry parameters, not pixels; a painter either runs the WGSL or the CPU reference.
+- Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`. A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
 - In JSON, colors are `#RRGGBBAA` (sRGB, straight alpha) and paths are absolute SVG path data (`M L Q C Z`); in postcard they are four bytes and an element list. Every number is finite: the encoders refuse NaN and infinities rather than writing `null`.
 - The display list is the unit of golden testing (§14). Goldens are written with `to_golden_json` (one op per line, one glyph per line, so a diff reads as "this op changed" or "this glyph moved") after `quantize` (§13).
 
@@ -694,9 +707,9 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 
 ```
 crates/
-  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), document-level lints
-  scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shaders (CPU ref + WGSL), timeline resolution, sampling, display list
-  scaena-paint    painters: vello (gpu), vello_cpu (cpu)
+  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader kinds (CPU reference + WGSL), document-level lints
+  scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shader nodes→ops, timeline resolution, sampling
+  scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver), html, spine
   scaena-cli      `scaena` binary
   scaena-mcp      MCP server (rmcp) over the same operations
@@ -720,7 +733,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
 5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask; and no pixel anywhere, edges included, differs by half the channel range (128/255) or more, so a hole or a misplaced glyph cannot hide in the mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
-7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Springs (`scaena_core::timeline::Spring`) still call `std` and must move to `libm` before they drive frames (PLAN 1.11).
+7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Shader references compute theirs once per frame, and per pixel use only `+ − × ÷` and comparisons, in the same order as their WGSL twins; sRGB encoding compares against a table of 255 thresholds instead of calling `pow`. Springs (`scaena_core::timeline::Spring`) still call `std` and must move to `libm` before they drive frames (PLAN 1.11).
 
 ---
 

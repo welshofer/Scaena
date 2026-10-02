@@ -8,6 +8,8 @@
 //! - [`tracking`] — resolves the ordered cue list into absolute snapshots (SPEC §2.2).
 //! - [`timeline`] — easing curves and springs with settle-time computation (SPEC §3.9).
 //! - [`displaylist`] — the painter-agnostic frame description (SPEC §6).
+//! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
+//!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
@@ -17,6 +19,7 @@ pub mod displaylist;
 pub mod document;
 pub mod ids;
 pub mod lint;
+pub mod shader;
 pub mod timeline;
 pub mod tracking;
 pub mod validate;

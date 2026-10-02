@@ -113,17 +113,38 @@ fn t_renders_a_frame_inside_the_transition() {
     assert_eq!(list.to_golden_json().unwrap(), golden);
 }
 
+/// A copy of the torture bundle in `dir`, its deck edited.
+fn edited_bundle(dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+    let bundle = dir.join("bundle");
+    for sub in ["fonts", "data"] {
+        std::fs::create_dir_all(bundle.join(sub)).unwrap();
+        for entry in std::fs::read_dir(Path::new(BUNDLE).join(sub)).unwrap() {
+            let path = entry.unwrap().path();
+            std::fs::copy(&path, bundle.join(sub).join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    std::fs::copy(Path::new(BUNDLE).join("theme.json"), bundle.join("theme.json")).unwrap();
+    let deck = std::fs::read_to_string(Path::new(BUNDLE).join("deck.json")).unwrap();
+    let mut deck: serde_json::Value = serde_json::from_str(&deck).unwrap();
+    edit(&mut deck);
+    std::fs::write(bundle.join("deck.json"), deck.to_string()).unwrap();
+    bundle
+}
+
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
-    let mut cases = vec![(vec!["--state", "mesh"], "PLAN 0.11")];
+    let dir = scratch("unimplemented");
+    // Shader kinds other than mesh arrive in PLAN 1.10.
+    let gradient = edited_bundle(&dir, |deck| deck["nodes"]["mesh-bg"]["kind"] = "gradient".into());
+    let mut cases = vec![(gradient, vec!["--state", "mesh"], "PLAN 1.10")];
     // Without the `gpu` feature the GPU painter is not compiled in.
     if cfg!(not(feature = "gpu")) {
-        cases.push((vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));
+        cases.push((PathBuf::from(BUNDLE), vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));
     }
-    for (args, task) in cases {
-        let dir = scratch(&format!("unimplemented-{}", args[1]));
+    for (bundle, args, task) in cases {
         let png = dir.join("x.png");
-        let out = scaena(&[&["render", BUNDLE, "--out", png.to_str().unwrap()], args.as_slice()].concat());
+        let out =
+            scaena(&[&["render", bundle.to_str().unwrap(), "--out", png.to_str().unwrap()], args.as_slice()].concat());
         assert_eq!(code(&out), 3, "{args:?}: {}", stderr(&out));
         assert!(stderr(&out).contains(task), "{args:?}: {}", stderr(&out));
         assert!(!png.exists(), "{args:?} wrote a PNG");

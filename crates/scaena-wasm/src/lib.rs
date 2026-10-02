@@ -180,6 +180,7 @@ mod web {
         blitter: wgpu::util::TextureBlitter,
         size: (u32, u32),
         adapter: String,
+        shaders: scaena_paint::gpu::Shaders,
     }
 
     #[wasm_bindgen]
@@ -255,7 +256,8 @@ mod web {
                 "" => format!("{:?}", info.backend),
                 name => format!("{name} ({:?}, {:?})", info.backend, info.device_type),
             };
-            Ok(Canvas { device, queue, surface, renderer, target, blitter, size, adapter })
+            let shaders = scaena_paint::gpu::Shaders::new();
+            Ok(Canvas { device, queue, surface, renderer, target, blitter, size, adapter, shaders })
         }
 
         /// Which adapter paints: name, backend, device type.
@@ -271,17 +273,24 @@ mod web {
         pub fn paint(&mut self, canvas: &mut Canvas, state: &str, t_ms: f64) -> Result<(), JsError> {
             let dl = self.0.frame(state, t_ms).map_err(js)?;
             let (width, height) = canvas.size;
-            let scene = scaena_paint::gpu::scene(&dl, self.0.fonts(), width as f32 / dl.viewport[0]).map_err(js)?;
+            let scale = width as f32 / dl.viewport[0];
+            // Shader ops run as compute passes into textures first; the scene draws them.
+            let jobs = scaena_paint::shader_jobs(&dl, scale).map_err(js)?;
+            let images = canvas.shaders.prepare(&canvas.device, &canvas.queue, &mut canvas.renderer, &jobs);
             let params = vello::RenderParams {
                 base_color: vello::peniko::Color::TRANSPARENT,
                 width,
                 height,
                 antialiasing_method: vello::AaConfig::Area,
             };
-            canvas
-                .renderer
-                .render_to_texture(&canvas.device, &canvas.queue, &scene, &canvas.target, &params)
-                .map_err(js)?;
+            let drawn = scaena_paint::gpu::scene(&dl, self.0.fonts(), scale, &images).map_err(js).and_then(|scene| {
+                canvas
+                    .renderer
+                    .render_to_texture(&canvas.device, &canvas.queue, &scene, &canvas.target, &params)
+                    .map_err(js)
+            });
+            scaena_paint::gpu::Shaders::release(&mut canvas.renderer, images);
+            drawn?;
             let frame = match canvas.surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
                 _ => return Err(JsError::new("the canvas has no texture to draw into")),

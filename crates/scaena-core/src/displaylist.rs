@@ -121,11 +121,12 @@ pub enum Op {
     Shader {
         kind: ShaderKind,
         seed: u64,
-        /// Shader time in seconds (PLAN 0.11 defines the clock).
+        /// Seconds on the global timeline (SPEC §3.8).
         t: f32,
         rect: Rect,
         palette: Vec<Color>,
-        /// Typed per kind in PLAN 0.11 / 1.10; a sorted map keeps the encoding stable until then.
+        /// Typed per kind by `scaena_core::shader` (`mesh::Params`); a sorted map keeps
+        /// the encoding stable.
         params: BTreeMap<String, f32>,
     },
 }

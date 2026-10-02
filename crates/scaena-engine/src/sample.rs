@@ -17,6 +17,9 @@
 //!   bar leaves under one side of the chart's cell as the newest arrives from the
 //!   other. Value labels ride their marks and count through the numbers. A chart that
 //!   enters grows its values in; one that exits shrinks them out.
+//! - A shader shows the frame's time on the global timeline, so it drifts on through
+//!   a transition. The same shader in both states stays drawn (moving with its rect);
+//!   a changed one cross-fades (interpolating its uniforms is PLAN 1.12).
 //! - Any other node only in the target fades in; one only in the source fades out.
 //! - Numbers interpolate linearly; colors in Oklab (SPEC §3.9), through `libm`, whose
 //!   pure-Rust math gives the same bits on every platform.
@@ -27,6 +30,7 @@ use crate::EngineError;
 use crate::charts::{ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
 use crate::data;
 use crate::render::PlacedText;
+use crate::shaders::ShaderNode;
 use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
@@ -41,6 +45,9 @@ pub struct Scene {
     pub canvas: [f32; 2],
     /// The theme's surface, painted under everything.
     pub surface: Color,
+    /// When the state comes to rest on the global timeline, seconds: the time its
+    /// shaders show at rest.
+    pub time: f64,
     /// Visible nodes in paint order.
     pub nodes: Vec<SceneNode>,
 }
@@ -62,6 +69,7 @@ pub struct SceneNode {
 pub enum Content {
     Text(PlacedText),
     Chart { cell: Rect, chart: ChartLayout },
+    Shader(ShaderNode),
 }
 
 /// A node's own transition policy: `morph` (the default), `crossfade`, or `cut`.
@@ -90,7 +98,7 @@ impl Scene {
     pub fn draw(&self) -> DisplayList {
         let mut dl = self.ground();
         for node in &self.nodes {
-            let op = node.draw(&mut dl, node.opacity);
+            let op = node.draw(&mut dl, node.opacity, self.time);
             dl.ops.push(op);
         }
         dl
@@ -109,9 +117,11 @@ impl Scene {
 }
 
 impl SceneNode {
-    /// This node's layer at `opacity`.
-    fn draw(&self, dl: &mut DisplayList, opacity: f32) -> Op {
+    /// This node's layer at `opacity`, its shader `time` seconds into the global
+    /// timeline.
+    fn draw(&self, dl: &mut DisplayList, opacity: f32, time: f64) -> Op {
         match &self.content {
+            Content::Shader(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, vec![s.op(time)]),
             Content::Text(placed) => layer(Some(&self.id), placed.origin, opacity, text_ops(dl, &placed.text.runs)),
             Content::Chart { cell, chart } => {
                 let mut ops = Vec::new();
@@ -202,7 +212,7 @@ enum Track {
     Exit(usize),
     /// Only in the target: fades in.
     Enter(usize),
-    /// Drawn the same in both: moves, and its opacity interpolates.
+    /// Drawn the same in both: text or a shader that moves, and its opacity interpolates.
     Move { from: usize, to: usize },
     /// Drawn differently: the source fades out over the target fading in.
     Crossfade { from: usize, to: usize },
@@ -253,7 +263,7 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: Some(i), to: None, plan: ChartPlan::new(Some(chart), None) }
                     }
-                    Content::Text(_) => Track::Exit(i),
+                    Content::Text(_) | Content::Shader(_) => Track::Exit(i),
                 };
                 tracks.push((a.z, a.order, track));
             }
@@ -265,12 +275,13 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: None, to: Some(j), plan: ChartPlan::new(None, Some(chart)) }
                     }
-                    Content::Text(_) => Track::Enter(j),
+                    Content::Text(_) | Content::Shader(_) => Track::Enter(j),
                 },
                 (Some(_), Policy::Cut) => Track::Cut(j),
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
+                    (Content::Shader(x), Content::Shader(y)) if x.same_shader(y) => Track::Move { from: i, to: j },
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) => {
                         Track::Chart { from: Some(i), to: Some(j), plan: ChartPlan::new(Some(x), Some(y)) }
                     }
@@ -298,25 +309,34 @@ impl Transition {
             return self.from.as_ref().map_or_else(|| self.to.ground(), Scene::draw);
         }
         let p = p as f32;
+        // The global timeline reaches this state's rest time as the transition ends.
+        let time = self.to.time - self.timing.duration_ms / 1000.0 + t_ms / 1000.0;
         let from = self.from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         let to = &self.to.nodes;
         let mut dl = self.to.ground();
         for track in &self.tracks {
             match track {
-                Track::Exit(i) => push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p)),
-                Track::Enter(j) => push(&mut dl, &to[*j], to[*j].opacity * p),
-                Track::Cut(j) => push(&mut dl, &to[*j], to[*j].opacity),
+                Track::Exit(i) => push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time),
+                Track::Enter(j) => push(&mut dl, &to[*j], to[*j].opacity * p, time),
+                Track::Cut(j) => push(&mut dl, &to[*j], to[*j].opacity, time),
                 Track::Crossfade { from: i, to: j } => {
-                    push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p));
-                    push(&mut dl, &to[*j], to[*j].opacity * p);
+                    push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time);
+                    push(&mut dl, &to[*j], to[*j].opacity * p, time);
                 }
                 Track::Move { from: i, to: j } => {
-                    let (Content::Text(a), Content::Text(b)) = (&from[*i].content, &to[*j].content) else {
-                        unreachable!("Move tracks pair text nodes");
-                    };
-                    let origin = lerp2(a.origin, b.origin, p);
                     let opacity = lerp(from[*i].opacity, to[*j].opacity, p);
-                    let op = layer(Some(&to[*j].id), origin, opacity, text_ops(&mut dl, &b.text.runs));
+                    let op = match (&from[*i].content, &to[*j].content) {
+                        (Content::Text(a), Content::Text(b)) => {
+                            let origin = lerp2(a.origin, b.origin, p);
+                            layer(Some(&to[*j].id), origin, opacity, text_ops(&mut dl, &b.text.runs))
+                        }
+                        (Content::Shader(a), Content::Shader(b)) => {
+                            let [x, y, w, h] = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
+                            let shader = b.at([x, y, w, h]);
+                            layer(Some(&to[*j].id), [x, y], opacity, vec![shader.op(time)])
+                        }
+                        _ => unreachable!("Move tracks pair text with text and a shader with itself"),
+                    };
                     dl.ops.push(op);
                 }
                 Track::Chart { from: i, to: j, plan } => {
@@ -345,12 +365,12 @@ impl Transition {
 fn chart(node: Option<&SceneNode>) -> Option<(&SceneNode, Rect, &ChartLayout)> {
     node.map(|n| match &n.content {
         Content::Chart { cell, chart } => (n, *cell, chart),
-        Content::Text(_) => unreachable!("Chart tracks pair charts"),
+        Content::Text(_) | Content::Shader(_) => unreachable!("Chart tracks pair charts"),
     })
 }
 
-fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32) {
-    let op = node.draw(dl, opacity);
+fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64) {
+    let op = node.draw(dl, opacity, time);
     dl.ops.push(op);
 }
 

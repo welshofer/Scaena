@@ -1187,7 +1187,7 @@
         },
         "mesh-bg": {}
       },
-      "notes": "Recorded here; gated by PLAN 0.11 (CPU/GPU parity within tolerance). Seeded mesh gradient, full bleed, under the case label."
+      "notes": "Pass: a seeded mesh gradient fills the canvas under the case label, the four `torture` colors blending smoothly in Oklab with fine grain, at 0.84 s on the global timeline; every painter draws it within SPEC §13.5 (gate 0 criterion 4)."
     }
   ]
 }

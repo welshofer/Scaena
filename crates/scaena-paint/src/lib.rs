@@ -7,15 +7,20 @@
 //! - `gpu`: `vello` on `wgpu`: WebGPU in the browser, Metal on the Mac, Vulkan on Linux.
 //!
 //! A painter draws only what the engine emits and the tests exercise: solid fills,
-//! strokes, glyph runs (outline, COLR, and bitmap glyphs), and layers. Gradients,
-//! images, and shaders return `NotImplemented` naming the PLAN task that adds them.
-//! Both painters take their geometry from the same conversions (`convert`), so they
-//! can differ only in rasterization.
+//! strokes, glyph runs (outline, COLR, and bitmap glyphs), layers, and `mesh` shaders.
+//! Gradients, images, and other shader kinds return `NotImplemented` naming the PLAN
+//! task that adds them. Both painters take their geometry from the same conversions
+//! (`convert`), so they can differ only in rasterization.
+//!
+//! A shader op draws as an image of its device pixels: the CPU painter computes it
+//! with the kind's CPU reference, the GPU painter with its WGSL twin
+//! (`scaena_core::shader`), and either places it pixel for pixel ([`shader_jobs`]).
 
 pub mod diff;
 
 use peniko::{Blob, FontData};
 use scaena_core::displaylist::{DL_VERSION, DisplayList, FontRef};
+use scaena_core::shader::{Job, ShaderError};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -38,6 +43,17 @@ pub enum PaintError {
     Mismatch { a: (u32, u32), b: (u32, u32) },
     #[error("gpu: {0}")]
     Gpu(String),
+    #[error("shader: {0}")]
+    Shader(ShaderError),
+}
+
+impl From<ShaderError> for PaintError {
+    fn from(e: ShaderError) -> Self {
+        match e {
+            ShaderError::NotImplemented(task) => PaintError::NotImplemented(task),
+            e => PaintError::Shader(e),
+        }
+    }
 }
 
 /// Font bytes by bundle id: loaded once per bundle, shared by every frame (SPEC §6).
@@ -76,12 +92,25 @@ impl Raster {
         [self.rgba[i], self.rgba[i + 1], self.rgba[i + 2], self.rgba[i + 3]]
     }
 
-    /// PNG bytes. The same pixels always encode to the same bytes.
+    /// PNG bytes, compressed for keeping (goldens). The same pixels always encode to
+    /// the same bytes.
     pub fn to_png(&self) -> Result<Vec<u8>, PaintError> {
+        self.encode(png::Compression::Balanced)
+    }
+
+    /// PNG bytes, compressed for speed: what a render hands back. Shader grain is noise
+    /// that deflate cannot shrink, and balanced compression spends a second on a 1080p
+    /// mesh that this writes in 30 ms; files come out 1.5–2.5× larger.
+    pub fn to_png_fast(&self) -> Result<Vec<u8>, PaintError> {
+        self.encode(png::Compression::Fast)
+    }
+
+    fn encode(&self, compression: png::Compression) -> Result<Vec<u8>, PaintError> {
         let mut out = Vec::new();
         let mut encoder = png::Encoder::new(&mut out, self.width, self.height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(compression);
         let png_error = |e: png::EncodingError| PaintError::Png(e.to_string());
         let mut writer = encoder.write_header().map_err(png_error)?;
         writer.write_image_data(&self.rgba).map_err(png_error)?;
@@ -124,6 +153,29 @@ fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
 
 fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
     if dl.dl == DL_VERSION { Ok(()) } else { Err(PaintError::Version(dl.dl)) }
+}
+
+/// Every shader op in `dl`, made ready to draw at `scale` (`None` for one that covers
+/// no pixel), in the order a painter meets them: depth first, in paint order. A
+/// painter runs each job before or as it walks the ops, then draws its pixels where
+/// [`Job::bbox`] says.
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, PaintError> {
+    use scaena_core::displaylist::Op;
+    fn walk(ops: &[Op], xf: kurbo::Affine, size: [u32; 2], out: &mut Vec<Option<Job>>) -> Result<(), PaintError> {
+        for op in ops {
+            match op {
+                Op::Layer { transform, ops, .. } => walk(ops, xf * convert::affine(transform), size, out)?,
+                Op::Shader { .. } => out.push(Job::new(op, xf.as_coeffs(), size)?),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    let (w, h) = raster_size(dl, scale)?;
+    let mut out = Vec::new();
+    walk(&dl.ops, kurbo::Affine::scale(f64::from(scale)), [u32::from(w), u32::from(h)], &mut out)?;
+    Ok(out)
 }
 
 /// Display-list types to `kurbo`/`peniko`, shared by both painters so they receive
@@ -203,10 +255,11 @@ pub mod cpu {
     use super::*;
     use crate::convert::{affine, bez, isolated, mix, solid, stroke};
     use scaena_core::displaylist::{FillRule, Op};
-    use vello_cpu::kurbo::Affine;
-    use vello_cpu::peniko::Fill;
+    use vello_cpu::kurbo::{Affine, Rect};
+    use vello_cpu::peniko::color::PremulRgba8;
+    use vello_cpu::peniko::{Fill, ImageQuality, ImageSampler};
+    use vello_cpu::{Image, ImageSource, Pixmap, RasterizerSettings, RenderContext, RenderSettings, Resources};
     pub use vello_cpu::{Level, RenderMode};
-    use vello_cpu::{Pixmap, RasterizerSettings, RenderContext, RenderSettings, Resources};
 
     /// `vello_cpu`-backed painter (PLAN 0.6).
     ///
@@ -236,10 +289,11 @@ pub mod cpu {
         fn paint(&mut self, dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
             let (width, height) = raster_size(dl, scale)?;
+            let jobs = shader_jobs(dl, scale)?.into_iter();
             let mut ctx =
                 RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
             let mut resources = Resources::new();
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts };
+            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             let mut pixmap = Pixmap::new(width, height);
@@ -258,6 +312,8 @@ pub mod cpu {
         resources: &'a mut Resources,
         store: &'a FontStore,
         fonts: &'a [FontRef],
+        /// One per shader op, in the order the walk meets them.
+        jobs: std::vec::IntoIter<Option<Job>>,
     }
 
     impl Cx<'_> {
@@ -304,15 +360,45 @@ pub mod cpu {
                         }
                     }
                     Op::Image { .. } => return Err(PaintError::NotImplemented("image ops — PLAN 1.7")),
-                    Op::Shader { .. } => return Err(PaintError::NotImplemented("shader ops — PLAN 0.11")),
+                    Op::Shader { rect, .. } => {
+                        let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
+                        if let Some(job) = job {
+                            self.shader(&job, *rect, xf);
+                        }
+                    }
                 }
             }
             Ok(())
         }
+
+        /// The CPU reference's pixels for `job`, filling `rect` texel for device pixel.
+        fn shader(&mut self, job: &Job, rect: scaena_core::displaylist::Rect, xf: Affine) {
+            let [x, y, w, h] = job.bbox();
+            let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+            let pixels = job.render();
+            let pixels = pixels.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| PremulRgba8 {
+                r: premultiplied(r, a),
+                g: premultiplied(g, a),
+                b: premultiplied(b, a),
+                a,
+            });
+            let pixmap = Pixmap::from_parts(pixels.collect(), w as u16, h as u16);
+            self.ctx.set_transform(xf);
+            self.ctx.set_paint(Image {
+                image: ImageSource::Pixmap(Arc::new(pixmap)),
+                sampler: ImageSampler { quality: ImageQuality::Low, ..ImageSampler::default() },
+            });
+            // Texel (0, 0) on device pixel (x, y): the paint sits under the transform.
+            self.ctx.set_paint_transform(xf.inverse() * Affine::translate((f64::from(x), f64::from(y))));
+            self.ctx.set_fill_rule(Fill::NonZero);
+            let [rx, ry, rw, rh] = rect.map(f64::from);
+            self.ctx.fill_rect(&Rect::new(rx, ry, rx + rw, ry + rh));
+            self.ctx.reset_paint_transform();
+        }
     }
 
     #[cfg(test)]
-    mod tests {
+    pub(crate) mod tests {
         use super::*;
         use scaena_core::displaylist::{Blend, Color, Paint, Path};
 
@@ -364,12 +450,53 @@ pub mod cpu {
             assert_eq!(raster.pixel(6, 6)[3], 0);
         }
 
+        /// A three-color mesh op over `rect`.
+        pub(crate) fn mesh_op(rect: [f32; 4]) -> Op {
+            Op::Shader {
+                kind: scaena_core::displaylist::ShaderKind::Mesh,
+                seed: 7,
+                t: 0.5,
+                rect,
+                palette: vec![Color([15, 118, 110, 255]), Color([194, 65, 12, 255]), Color([245, 196, 81, 255])],
+                params: BTreeMap::new(),
+            }
+        }
+
+        #[test]
+        fn a_shader_op_paints_the_cpu_reference_pixel_for_pixel() {
+            let mut dl = DisplayList::new([50.0, 30.0]);
+            dl.ops.push(Op::Layer {
+                node: None,
+                transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
+                opacity: 1.0,
+                blend: Blend::Normal,
+                clip: None,
+                ops: vec![mesh_op([5.0, 3.0, 30.0, 20.0])],
+            });
+            let raster = CpuPainter::default().paint(&dl, &FontStore::new(), 2.0).unwrap();
+            let job = shader_jobs(&dl, 2.0).unwrap().remove(0).unwrap();
+            // (5, 2) + (5, 3) cu at 2 px per cu.
+            assert_eq!(job.bbox(), [20, 10, 60, 40]);
+            let want = job.render();
+            for gy in 0..40 {
+                for gx in 0..60 {
+                    let i = (gy * 60 + gx) as usize * 4;
+                    assert_eq!(raster.pixel(20 + gx, 10 + gy), want[i..i + 4], "({gx}, {gy})");
+                }
+            }
+            for (x, y) in [(19, 10), (80, 10), (20, 9), (20, 50)] {
+                assert_eq!(raster.pixel(x, y), [0; 4], "({x}, {y}) is outside");
+            }
+        }
+
         #[test]
         fn png_round_trips_pixels_exactly() {
             let raster = Raster { width: 2, height: 1, rgba: vec![255, 0, 0, 255, 0, 128, 255, 64] };
-            let png = raster.to_png().unwrap();
-            assert_eq!(Raster::from_png(&png).unwrap(), raster);
-            assert_eq!(raster.to_png().unwrap(), png, "same pixels, same bytes");
+            for png in [raster.to_png().unwrap(), raster.to_png_fast().unwrap()] {
+                assert_eq!(Raster::from_png(&png).unwrap(), raster);
+            }
+            assert_eq!(raster.to_png().unwrap(), raster.to_png().unwrap(), "same pixels, same bytes");
+            assert_eq!(raster.to_png_fast().unwrap(), raster.to_png_fast().unwrap(), "same pixels, same bytes");
         }
 
         #[test]
@@ -395,17 +522,170 @@ pub mod gpu {
     //! `CAMetalLayer`. Surfaces are the client's job. [`GpuPainter`] is the native
     //! headless painter: it renders into a texture and reads it back, which cannot
     //! block in a browser, so it is not built for wasm32.
+    //!
+    //! Shader ops run first: [`Shaders::prepare`] dispatches each job's WGSL into a
+    //! texture and registers it with the renderer, and the scene draws those textures
+    //! where the CPU painter draws the reference's pixels.
 
     use super::*;
     use crate::convert::{affine, bez, isolated, mix, solid, stroke};
     use scaena_core::displaylist::{FillRule, Op};
     use vello::Scene;
     use vello::kurbo::{Affine, Rect};
-    use vello::peniko::Fill;
+    use vello::peniko::{Fill, ImageBrush, ImageData, ImageQuality};
+    use vello::wgpu;
+    use vello::wgpu::util::DeviceExt;
 
-    /// The vello scene for `dl` at `scale` output pixels per canvas unit. Ops map one to
-    /// one onto `CpuPainter`'s calls, through the same conversions.
-    pub fn scene(dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Scene, PaintError> {
+    /// A shader job's pixels on the GPU: the device pixels they cover, and the image
+    /// the renderer knows their texture by.
+    #[derive(Debug, Clone)]
+    pub struct ShaderImage {
+        pub bbox: [u32; 4],
+        pub image: ImageData,
+    }
+
+    /// Runs shader jobs' WGSL (`scaena_core::shader`). One per device; each kind's
+    /// pipeline compiles on first use.
+    #[derive(Default)]
+    pub struct Shaders {
+        pipelines: Vec<(&'static str, wgpu::ComputePipeline)>,
+    }
+
+    impl Shaders {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn pipeline(&mut self, device: &wgpu::Device, wgsl: &'static str) -> &wgpu::ComputePipeline {
+            let i = match self.pipelines.iter().position(|(src, _)| std::ptr::eq(*src, wgsl)) {
+                Some(i) => i,
+                None => {
+                    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("scaena shader"),
+                        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+                    });
+                    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some("scaena shader"),
+                        layout: None,
+                        module: &module,
+                        entry_point: Some("main"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    });
+                    self.pipelines.push((wgsl, pipeline));
+                    self.pipelines.len() - 1
+                }
+            };
+            &self.pipelines[i].1
+        }
+
+        /// Record `job`'s WGSL into `encoder`. It writes RGBA8 bytes into the returned
+        /// buffer, rows the returned number of bytes apart: a multiple of 256, as a copy
+        /// into a texture needs.
+        pub fn dispatch(
+            &mut self,
+            device: &wgpu::Device,
+            encoder: &mut wgpu::CommandEncoder,
+            job: &Job,
+        ) -> (wgpu::Buffer, u32) {
+            let [_, _, w, h] = job.bbox();
+            let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+            let stride = (w * 4).div_ceil(align) * align;
+            let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("scaena shader uniforms"),
+                contents: &job.uniforms(stride / 4),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let pixels = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("scaena shader pixels"),
+                size: u64::from(stride) * u64::from(h),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let pipeline = self.pipeline(device, job.wgsl());
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scaena shader"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: pixels.as_entire_binding() },
+                ],
+            });
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.dispatch_workgroups(w.div_ceil(8), h.div_ceil(8), 1);
+            drop(pass);
+            (pixels, stride)
+        }
+
+        /// Run every job on the GPU into its own texture and register each with
+        /// `renderer`; pass the result to [`scene`], then to [`Shaders::release`] once
+        /// the renderer has drawn it.
+        pub fn prepare(
+            &mut self,
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            renderer: &mut vello::Renderer,
+            jobs: &[Option<Job>],
+        ) -> Vec<Option<ShaderImage>> {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let mut out = Vec::with_capacity(jobs.len());
+            for job in jobs {
+                let Some(job) = job else {
+                    out.push(None);
+                    continue;
+                };
+                let [_, _, w, h] = job.bbox();
+                let (pixels, stride) = self.dispatch(device, &mut encoder, job);
+                let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("scaena shader"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+                encoder.copy_buffer_to_texture(
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &pixels,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(stride),
+                            rows_per_image: None,
+                        },
+                    },
+                    texture.as_image_copy(),
+                    size,
+                );
+                let image = renderer.register_texture(texture);
+                out.push(Some(ShaderImage { bbox: job.bbox(), image }));
+            }
+            // Submitted before the renderer's own work, which copies the textures.
+            queue.submit([encoder.finish()]);
+            out
+        }
+
+        /// Unregister what [`Shaders::prepare`] gave `renderer`.
+        pub fn release(renderer: &mut vello::Renderer, images: Vec<Option<ShaderImage>>) {
+            for image in images.into_iter().flatten() {
+                renderer.unregister_texture(image.image);
+            }
+        }
+    }
+
+    /// The vello scene for `dl` at `scale` output pixels per canvas unit, drawing its
+    /// shader ops from `shaders` ([`Shaders::prepare`] on [`shader_jobs`]). Ops map one
+    /// to one onto `CpuPainter`'s calls, through the same conversions.
+    pub fn scene(
+        dl: &DisplayList,
+        fonts: &FontStore,
+        scale: f32,
+        shaders: &[Option<ShaderImage>],
+    ) -> Result<Scene, PaintError> {
         check_version(dl)?;
         let (width, height) = raster_size(dl, scale)?;
         let mut cx = Cx {
@@ -414,6 +694,7 @@ pub mod gpu {
             fonts: &dl.fonts,
             // vello layers always clip; an unclipped layer clips to the whole output.
             output: Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
+            shaders: shaders.iter(),
         };
         cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
         Ok(cx.scene)
@@ -424,6 +705,7 @@ pub mod gpu {
         store: &'a FontStore,
         fonts: &'a [FontRef],
         output: Rect,
+        shaders: std::slice::Iter<'a, Option<ShaderImage>>,
     }
 
     impl Cx<'_> {
@@ -483,7 +765,19 @@ pub mod gpu {
                         }
                     }
                     Op::Image { .. } => return Err(PaintError::NotImplemented("image ops — PLAN 1.7")),
-                    Op::Shader { .. } => return Err(PaintError::NotImplemented("shader ops — PLAN 0.11")),
+                    Op::Shader { rect, .. } => {
+                        let shader = self.shaders.next().ok_or_else(|| {
+                            PaintError::Gpu("a shader op with no image: run `Shaders::prepare` on `shader_jobs`".into())
+                        })?;
+                        if let Some(ShaderImage { bbox: [x, y, ..], image }) = shader {
+                            let brush = ImageBrush::new(image.clone()).with_quality(ImageQuality::Low);
+                            // Texel (0, 0) on device pixel (x, y), as the CPU painter places it.
+                            let place = xf.inverse() * Affine::translate((f64::from(*x), f64::from(*y)));
+                            let [rx, ry, rw, rh] = rect.map(f64::from);
+                            let rect = Rect::new(rx, ry, rx + rw, ry + rh);
+                            self.scene.fill(Fill::NonZero, xf, &brush, Some(place), &rect);
+                        }
+                    }
                 }
             }
             Ok(())
@@ -503,13 +797,13 @@ pub mod gpu {
                 rule: FillRule::NonZero,
                 paint: Paint::Solid(scaena_core::displaylist::Color([0, 0, 0, 255])),
             });
-            assert!(scene(&dl, &FontStore::new(), 1.0).is_ok());
+            assert!(scene(&dl, &FontStore::new(), 1.0, &[]).is_ok());
             dl.ops.push(Op::Fill {
                 path: Path::rect([0.0, 0.0, 1.0, 1.0]),
                 rule: FillRule::NonZero,
                 paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
             });
-            let err = scene(&dl, &FontStore::new(), 1.0).err().unwrap();
+            let err = scene(&dl, &FontStore::new(), 1.0, &[]).err().unwrap();
             assert!(err.to_string().contains("PLAN 1.10"), "{err}");
         }
     }
@@ -520,7 +814,6 @@ pub mod gpu {
     #[cfg(not(target_arch = "wasm32"))]
     mod native {
         use super::*;
-        use vello::wgpu;
 
         /// Headless `vello` (PLAN 0.7): renders into an `Rgba8Unorm` texture and reads it
         /// back. vello writes straight alpha (it unpremultiplies before storing), which
@@ -530,6 +823,7 @@ pub mod gpu {
             queue: wgpu::Queue,
             renderer: vello::Renderer,
             adapter: wgpu::AdapterInfo,
+            shaders: Shaders,
         }
 
         impl GpuPainter {
@@ -564,13 +858,55 @@ pub mod gpu {
                     pipeline_cache: None,
                 };
                 let renderer = vello::Renderer::new(&device, options).map_err(gpu)?;
-                Ok(Self { device, queue, renderer, adapter })
+                Ok(Self { device, queue, renderer, adapter, shaders: Shaders::new() })
             }
 
             /// Which adapter paints: name, backend, and device type (a CPU adapter such
             /// as lavapipe reports `Cpu`).
             pub fn adapter(&self) -> &wgpu::AdapterInfo {
                 &self.adapter
+            }
+
+            /// `job`'s pixels as its WGSL computes them on this GPU: what the CPU
+            /// painter gets from [`Job::render`], for the shader parity test.
+            pub fn shader_pixels(&mut self, job: &Job) -> Result<Vec<u8>, PaintError> {
+                let [_, _, w, h] = job.bbox();
+                let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                let (pixels, stride) = self.shaders.dispatch(&self.device, &mut encoder, job);
+                let size = u64::from(stride) * u64::from(h);
+                let buffer = self.readback(size);
+                encoder.copy_buffer_to_buffer(&pixels, 0, &buffer, 0, size);
+                self.queue.submit([encoder.finish()]);
+                self.read(&buffer, w * 4, stride)
+            }
+
+            fn readback(&self, size: u64) -> wgpu::Buffer {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("scaena readback"),
+                    size,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                })
+            }
+
+            /// Wait for `buffer`, then take `row` bytes from every `padded` bytes of it.
+            fn read(&self, buffer: &wgpu::Buffer, row: u32, padded: u32) -> Result<Vec<u8>, PaintError> {
+                let (tx, rx) = std::sync::mpsc::channel();
+                buffer.map_async(wgpu::MapMode::Read, .., move |mapped| {
+                    let _ = tx.send(mapped);
+                });
+                // Bounded: a GPU that never finishes is an error to report, not a hang.
+                let wait = wgpu::PollType::Wait { submission_index: None, timeout: Some(GPU_TIMEOUT) };
+                self.device.poll(wait).map_err(gpu)?;
+                rx.recv_timeout(GPU_TIMEOUT)
+                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
+                    .map_err(gpu)?;
+                let mut out = Vec::with_capacity(buffer.size() as usize / padded as usize * row as usize);
+                for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
+                    out.extend_from_slice(&line[..row as usize]);
+                }
+                buffer.unmap();
+                Ok(out)
             }
         }
 
@@ -580,7 +916,23 @@ pub mod gpu {
             }
 
             fn paint(&mut self, dl: &DisplayList, fonts: &FontStore, scale: f32) -> Result<Raster, PaintError> {
-                let scene = scene(dl, fonts, scale)?;
+                let jobs = shader_jobs(dl, scale)?;
+                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
+                let raster = self.render(dl, fonts, scale, &images);
+                Shaders::release(&mut self.renderer, images);
+                raster
+            }
+        }
+
+        impl GpuPainter {
+            fn render(
+                &mut self,
+                dl: &DisplayList,
+                fonts: &FontStore,
+                scale: f32,
+                images: &[Option<ShaderImage>],
+            ) -> Result<Raster, PaintError> {
+                let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
                 let target = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -606,12 +958,7 @@ pub mod gpu {
                 let row = width * 4;
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
                 let padded = row.div_ceil(align) * align;
-                let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("scaena readback"),
-                    size: u64::from(padded) * u64::from(height),
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                    mapped_at_creation: false,
-                });
+                let buffer = self.readback(u64::from(padded) * u64::from(height));
                 let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                 encoder.copy_texture_to_buffer(
                     target.as_image_copy(),
@@ -626,21 +973,7 @@ pub mod gpu {
                     size,
                 );
                 self.queue.submit([encoder.finish()]);
-                let (tx, rx) = std::sync::mpsc::channel();
-                buffer.map_async(wgpu::MapMode::Read, .., move |mapped| {
-                    let _ = tx.send(mapped);
-                });
-                // Bounded: a GPU that never finishes is an error to report, not a hang.
-                let wait = wgpu::PollType::Wait { submission_index: None, timeout: Some(GPU_TIMEOUT) };
-                self.device.poll(wait).map_err(gpu)?;
-                rx.recv_timeout(GPU_TIMEOUT)
-                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
-                    .map_err(gpu)?;
-                let mut rgba = Vec::with_capacity(row as usize * height as usize);
-                for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
-                    rgba.extend_from_slice(&line[..row as usize]);
-                }
-                buffer.unmap();
+                let mut rgba = self.read(&buffer, row, padded)?;
                 // vello unpremultiplies as rgb / max(a, 1e-6), so a sliver of coverage below
                 // 1/255 reads back as alpha 0 with leftover colour (Metal leaves [2, 1, 1, 0]
                 // beside pixel-aligned edges). Fully transparent is fully transparent.
@@ -709,6 +1042,27 @@ pub mod gpu {
                 for (x, y) in [(2, 0), (0, 2), (2, 2), (3, 3)] {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) on {:?}", gpu.adapter());
                 }
+            }
+
+            #[test]
+            fn a_shader_op_paints_where_the_cpu_painter_paints_it() {
+                let Some(mut gpu) = painter() else { return };
+                let mut dl = DisplayList::new([50.0, 30.0]);
+                dl.ops.push(Op::Layer {
+                    node: None,
+                    transform: [1.0, 0.0, 0.0, 1.0, 5.0, 2.0],
+                    opacity: 1.0,
+                    blend: Blend::Normal,
+                    clip: None,
+                    ops: vec![crate::cpu::tests::mesh_op([5.0, 3.0, 30.0, 20.0])],
+                });
+                let cpu = crate::cpu::CpuPainter::default().paint(&dl, &FontStore::new(), 2.0).unwrap();
+                let raster = gpu.paint(&dl, &FontStore::new(), 2.0).unwrap();
+                // The WGSL may round a channel the other way where a value sits on a
+                // threshold; the texture lands texel for pixel or the steps would be large.
+                let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+                assert!(worst <= 1, "max channel step {worst} on {:?}", gpu.adapter());
+                assert_eq!(raster.pixel(19, 10), [0; 4], "nothing left of the box");
             }
 
             #[test]

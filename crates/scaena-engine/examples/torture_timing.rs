@@ -16,7 +16,7 @@ fn main() {
     let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let fonts: Vec<(String, Vec<u8>)> = deck.fonts.iter().map(|f| (f.file.clone(), read(&f.file))).collect();
-    let states: Vec<String> = deck.states.iter().map(|s| s.id.clone()).filter(|s| s != "mesh").collect();
+    let states: Vec<String> = deck.states.iter().map(|s| s.id.clone()).collect();
     let mut data = DataFiles::new();
     for source in deck.data.values() {
         if let Some(path) = source.source.as_str() {

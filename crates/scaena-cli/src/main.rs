@@ -344,7 +344,7 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     };
     let paint = lap();
     let out = out.unwrap_or_else(|| PathBuf::from(format!("{state}.png")));
-    std::fs::write(&out, raster.to_png()?).with_context(|| format!("writing {}", out.display()))?;
+    std::fs::write(&out, raster.to_png_fast()?).with_context(|| format!("writing {}", out.display()))?;
     let encode = lap();
     let total = (Instant::now() - start).as_secs_f64() * 1e3;
 

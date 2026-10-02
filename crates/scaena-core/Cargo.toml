@@ -14,3 +14,5 @@ serde_json.workspace = true
 indexmap.workspace = true
 thiserror.workspace = true
 postcard.workspace = true
+# Shader references (SPEC §3.8, §13.7): transcendental math that reads the same everywhere.
+libm.workspace = true

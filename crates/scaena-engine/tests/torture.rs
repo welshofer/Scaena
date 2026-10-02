@@ -10,7 +10,7 @@
 //!   upstream change shows up as a test to update, not a silent shift.
 
 use scaena_core::Deck;
-use scaena_core::displaylist::{DisplayList, Glyph, Op, PathEl, quantize};
+use scaena_core::displaylist::{Affine, DisplayList, Glyph, Op, PathEl, quantize};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::{Span, TextEngine, TextLayout, TextSpec};
@@ -20,8 +20,6 @@ use std::collections::BTreeSet;
 
 const BUNDLE: &str = "../../tests/fixtures/torture.scaena";
 const GOLDEN: &str = "../../tests/golden/torture";
-/// States whose node types arrive later: shaders (PLAN 0.11).
-const LATER: [(&str, &str); 1] = [("mesh", "PLAN 0.11")];
 /// Frames inside a transition, as (state, fraction of its duration). PLAN 0.10 renders
 /// each chart transition at t = 0, 0.25, 0.5, and 1; 0 and 1 are the states at rest
 /// (asserted below), so the middle two get goldens of their own: the chart's values
@@ -90,12 +88,8 @@ impl Fixture {
     /// Every golden frame as (name, state, t_ms): each state at rest under its own
     /// name, then the transition frames in [`MORPH`] as `state@fraction`.
     fn golden_frames(&self) -> Vec<(String, String, f64)> {
-        let mut out: Vec<(String, String, f64)> = self
-            .states()
-            .into_iter()
-            .filter(|s| !LATER.iter().any(|(later, _)| later == s))
-            .map(|s| (s.clone(), s, f64::INFINITY))
-            .collect();
+        let mut out: Vec<(String, String, f64)> =
+            self.states().into_iter().map(|s| (s.clone(), s, f64::INFINITY)).collect();
         for (state, at) in MORPH {
             out.push((format!("{state}@{at}"), state.to_string(), at * self.duration(state)));
         }
@@ -239,12 +233,64 @@ fn frames_are_deterministic_across_engines_and_font_order() {
 }
 
 #[test]
-fn later_node_types_say_which_plan_task_adds_them() {
+fn later_shader_kinds_say_which_plan_task_adds_them() {
     let mut fx = fixture();
-    for (state, task) in LATER {
-        let err = fx.frame(state).unwrap_err();
-        assert!(matches!(err, EngineError::NotImplemented(m) if m.contains(task)), "{state}: {err}");
+    fx.deck.nodes["mesh-bg"].props.insert("kind".into(), "gradient".into());
+    let err = fx.frame("mesh").unwrap_err();
+    assert!(matches!(err, EngineError::NotImplemented(m) if m.contains("PLAN 1.10")), "{err}");
+}
+
+// --- shaders (PLAN 0.11, gate 0 criterion 4) ----------------------------------------
+
+/// The `mesh-bg` layer's shader op.
+fn mesh_op(dl: &DisplayList) -> (Affine, f32, [f32; 4]) {
+    let (transform, ops) = dl
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            Op::Layer { node: Some(n), transform, ops, .. } if n == "mesh-bg" => Some((*transform, ops)),
+            _ => None,
+        })
+        .expect("a `mesh-bg` layer");
+    match ops.as_slice() {
+        [Op::Shader { t, rect, .. }] => (transform, *t, *rect),
+        other => panic!("expected one shader op, got {other:?}"),
     }
+}
+
+/// The mesh draws under everything else, full bleed, with the theme palette and its
+/// typed params, at the time the global timeline rests in its state: the two chart
+/// transitions before it, 420 ms each, end to end.
+#[test]
+fn the_mesh_background_rests_at_its_global_time() {
+    let mut fx = fixture();
+    let dl = fx.frame("mesh").unwrap();
+    let first = dl.ops.iter().position(|op| matches!(op, Op::Layer { .. })).unwrap();
+    assert!(matches!(&dl.ops[first], Op::Layer { node: Some(n), .. } if n == "mesh-bg"), "z = -100 paints first");
+    let (transform, t, rect) = mesh_op(&dl);
+    assert_eq!((transform, rect), ([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1920.0, 1080.0]));
+    assert_eq!(t, 0.84);
+    let Some(Op::Layer { ops, .. }) = dl.ops.get(first) else { unreachable!() };
+    let Op::Shader { seed, palette, params, .. } = &ops[0] else { unreachable!() };
+    assert_eq!((*seed, palette.len()), (7, 4));
+    let typed: Vec<(&str, f32)> = params.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    assert_eq!(typed, [("drift", 0.12), ("grain", 0.035), ("points", 5.0), ("softness", 0.85)]);
+}
+
+/// Shader time is the global timeline's, so a background keeps drifting through a
+/// transition and comes to rest where the next state's transition picks it up.
+#[test]
+fn a_shader_drifts_on_through_a_transition() {
+    let mut fx = fixture();
+    fx.deck.states.iter_mut().find(|s| s.id == "mesh").unwrap().transition = Some("standard".into());
+    let d = fx.duration("mesh");
+    let start = 0.84_f32;
+    for at in [0.25, 0.5] {
+        let (_, t, _) = mesh_op(&fx.frame_at("mesh", at * d).unwrap());
+        assert!((t - (start + (at * d / 1000.0) as f32)).abs() < 1e-6, "{at}: t = {t}");
+    }
+    let (_, t, _) = mesh_op(&fx.frame("mesh").unwrap());
+    assert!((t - (start + (d / 1000.0) as f32)).abs() < 1e-6, "at rest: t = {t}");
 }
 
 #[test]
