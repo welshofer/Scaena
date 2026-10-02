@@ -4,7 +4,7 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        30 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
+  deck.json        31 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
@@ -57,6 +57,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 26 | `containers` | Containers | recorded (added with PLAN 1.7) | Rows 2–4: a row stack of three cards sharing its width, each a padded, rounded column stack whose figure and caption sit at its foot (`distribute: end`). Row 5: a row stack whose 72 cu figure and 40 cu label share one baseline on the row's bottom edge (`align: { y: baseline }`), and at its right end a group of a ring and a dot at 0.6 opacity. Rows 6–8: a grid container whose photo spans two rows of its `fraction(2)` column, its note and its 48 cu centered dot in the named areas beside it; and a framed card (fill, hairline, radius) whose photo fills its padding, with a pill and its label placed by `rect`. Every box comes from `taffy`, laid out once for the state; cpu, gpu, and web draw it within SPEC §13.5. |
 | 27 | `alignment` | Line alignment | kill (added with PLAN 1.8) | Rows 2–3: a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line: centered text has no aligned edge, so nothing hangs. Rows 4–5: end-aligned lines flush with the right edge of column 12; the last line's period and closing ” hang past that edge (the role sets `hangingPunctuation`). Rows 6–8: a Hebrew paragraph broken by `pretty`, no longer falling back to greedy, every line starting at the right edge. |
 | 28 | `case-measure` | Case and measure | recorded (added with PLAN 1.8) | Row 2 in capitals, ß as SS; row 3 with each word's first letter capitalized, (Even) after a parenthesis, 3rd unchanged; row 4 in EB Garamond's own small capitals (`smcp`), none synthesized. Rows 5–8: a body paragraph held to 24 characters a line (24 × the advance of `0`), balanced, each line centered across all 12 columns. |
+| 29 | `fit` | Fit policies | recorded (added with PLAN 1.8) | Rows 2–5, left: a headline too long for its box at 96, set at the largest size at which it keeps to its role's two lines (`fit: shrink`, the theme's `maxLines: 2`, no smaller than 40). Right: one body word grown until it fills the box, here its width (`fit: grow`, no larger than 400). Rows 6–8: a headline held to one line (`maxLines: 1`) by shrinking. Nothing overflows; each size is the largest that fits, found by bisection between the text's bounds. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

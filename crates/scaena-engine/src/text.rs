@@ -249,6 +249,17 @@ impl Default for TextEngine {
 }
 
 impl TextSpec {
+    /// The same text set `scale` times larger (`fit: shrink` and `grow`): every span's
+    /// size; leading and tracking follow, as they are relative to it.
+    pub fn scaled(&self, scale: f32) -> TextSpec {
+        let mut spec = self.clone();
+        spec.role.size *= scale;
+        for span in &mut spec.spans {
+            span.style.size *= scale;
+        }
+        spec
+    }
+
     /// `text` in one look, with no node-level settings.
     pub fn plain(role: TextRole, text: impl Into<String>) -> TextSpec {
         TextSpec {

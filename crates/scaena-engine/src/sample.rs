@@ -129,7 +129,7 @@ impl SceneNode {
             Content::Shader(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, vec![s.op(time)]),
             Content::Shape(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, s.ops()),
             Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
-            Content::Text(placed) => layer(Some(&self.id), placed.origin, opacity, text_ops(dl, &placed.text.runs)),
+            Content::Text(placed) => text_layer(dl, &self.id, placed, placed.origin, opacity),
             Content::Chart { cell, chart } => {
                 let mut ops = Vec::new();
                 if let Some(rule) = &chart.baseline {
@@ -337,7 +337,7 @@ impl Transition {
                     let op = match (&from[*i].content, &to[*j].content) {
                         (Content::Text(a), Content::Text(b)) => {
                             let origin = lerp2(a.origin, b.origin, p);
-                            layer(Some(&to[*j].id), origin, opacity, text_ops(&mut dl, &b.text.runs))
+                            text_layer(&mut dl, &to[*j].id, b, origin, opacity)
                         }
                         (Content::Shader(a), Content::Shader(b)) => {
                             let [x, y, w, h] = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], p));
@@ -604,6 +604,18 @@ fn layer(node: Option<&str>, origin: Point, opacity: f32, ops: Vec<Op>) -> Op {
         clip: None,
         ops,
     }
+}
+
+/// A text node's layer at `origin`, clipped to its box under `fit: clip` (the clip moves
+/// with the text).
+fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
+    let Op::Layer { node, transform, opacity, blend, ops, .. } =
+        layer(Some(id), origin, opacity, text_ops(dl, &placed.text.runs))
+    else {
+        unreachable!("`layer` makes layers")
+    };
+    let clip = placed.clip.map(|[x, y, w, h]| Path::rect([x - placed.origin[0], y - placed.origin[1], w, h]));
+    Op::Layer { node, transform, opacity, blend, clip, ops }
 }
 
 fn text_ops(dl: &mut DisplayList, runs: &[GlyphRun]) -> Vec<Op> {

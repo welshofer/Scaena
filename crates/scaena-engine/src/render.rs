@@ -22,6 +22,7 @@ use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
+use scaena_core::model::nodes::TextFit;
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -220,20 +221,94 @@ impl Engine {
             AlignX::Center => TextAlign::Center,
             AlignX::End => TextAlign::End,
         };
-        let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
+        let trim = match typed_prop::<TextBox>(props, "box")? {
+            Some(trim) => trim,
+            None => spec.role.text_box,
+        };
+        let fit = typed_prop::<TextFit>(props, "fit")?.unwrap_or(TextFit::Wrap);
+        let number = |key: &str| props.get(key).and_then(Value::as_f64).map(|v| v as f32);
+        let max_lines = props
+            .get("maxLines")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize)
+            .or(spec.role.max_lines.map(|n| n as usize));
+        let fits_box = |t: &TextLayout| {
+            let (top, bottom) = t.trimmed(trim);
+            bottom - top <= cell[3] + FIT_EPSILON && t.lines.iter().all(|l| l.width <= cell[2] + FIT_EPSILON)
+        };
+        let fits = |t: &TextLayout| fits_box(t) && max_lines.is_none_or(|m| t.lines.len() <= m);
+        let mut lay = |scale: f32| -> Result<TextLayout, EngineError> {
+            self.text.layout(&mut self.fonts, theme, &spec.scaled(scale), cell[2]).map_err(|e| in_node(id, e))
+        };
+        let base = lay(1.0)?;
+        let (scale, text) = match fit {
+            TextFit::Shrink if !fits(&base) => {
+                let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
+                largest_fit(&mut lay, &fits, floor, 1.0)?
+            }
+            TextFit::Grow if fits(&base) => {
+                let ceiling = number("maxSize").or(spec.role.max_size).map_or(2.0, |m| m / spec.role.size).max(1.0);
+                largest_fit(&mut lay, &fits, 1.0, ceiling)?
+            }
+            TextFit::Error if !fits_box(&base) => {
+                let (top, bottom) = base.trimmed(trim);
+                return Err(EngineError::Layout(format!(
+                    "node `{id}`: its text needs {:.0} × {:.0} cu and its box is {:.0} × {:.0} (`fit: error`)",
+                    base.width,
+                    bottom - top,
+                    cell[2],
+                    cell[3]
+                )));
+            }
+            _ => (1.0, base),
+        };
         if text.synthesized {
             return Err(EngineError::Font(format!(
                 "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
                  use a weight or style the family provides"
             )));
         }
-        let trim = match typed_prop::<TextBox>(props, "box")? {
-            Some(trim) => trim,
-            None => spec.role.text_box,
-        };
+        let overflow = !fits_box(&text);
+        let clip = (fit == TextFit::Clip).then_some(cell);
         let origin = [cell[0], text_top(cell, align_y, &text, trim)];
-        Ok(PlacedText { cell, origin, text })
+        Ok(PlacedText { cell, origin, text, scale, overflow, clip })
     }
+}
+
+/// Room for float error when text is held to its box, canvas units.
+const FIT_EPSILON: f32 = 1.0 / 64.0;
+
+/// Bisection steps for `fit: shrink` and `grow`: the scale is within `(hi - lo) / 2^12`
+/// of the largest that fits.
+const FIT_STEPS: u32 = 12;
+
+/// The largest scale in `lo..=hi` at which the text fits, by bisection, and its layout.
+/// `lo` is used when nothing fits; `hi` when everything does.
+fn largest_fit(
+    lay: &mut impl FnMut(f32) -> Result<TextLayout, EngineError>,
+    fits: &impl Fn(&TextLayout) -> bool,
+    lo: f32,
+    hi: f32,
+) -> Result<(f32, TextLayout), EngineError> {
+    let top = lay(hi)?;
+    if fits(&top) {
+        return Ok((hi, top));
+    }
+    let bottom = lay(lo)?;
+    if !fits(&bottom) {
+        return Ok((lo, bottom));
+    }
+    let (mut lo, mut hi, mut best) = (lo, hi, bottom);
+    for _ in 0..FIT_STEPS {
+        let mid = 0.5 * (lo + hi);
+        let laid = lay(mid)?;
+        if fits(&laid) {
+            (lo, best) = (mid, laid);
+        } else {
+            hi = mid;
+        }
+    }
+    Ok((lo, best))
 }
 
 /// A text node placed on the canvas.
@@ -245,6 +320,14 @@ pub struct PlacedText {
     pub origin: [f32; 2],
     /// Laid out relative to `origin`.
     pub text: TextLayout,
+    /// The size `fit: shrink` or `grow` set the text at, as a multiple of its own; 1
+    /// otherwise.
+    pub scale: f32,
+    /// Whether the text is taller or wider than its box as set: E100, or W203 under
+    /// `fit: shrink` at its minimum size (lints, PLAN 1.15).
+    pub overflow: bool,
+    /// What `fit: clip` cuts the text to, canvas units.
+    pub clip: Option<Rect>,
 }
 
 /// Canvas y of the paragraph top, so the text's anchor sits where its alignment says
