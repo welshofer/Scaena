@@ -29,6 +29,7 @@ pub mod images;
 pub mod layout;
 pub mod render;
 pub mod sample;
+pub mod scale;
 pub mod shaders;
 pub mod shapes;
 pub mod text;

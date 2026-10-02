@@ -15,6 +15,7 @@
 use crate::EngineError;
 use crate::data::{self, ColumnType, DataFiles, Datum};
 use crate::fonts::BundleFonts;
+use crate::scale::{self, LinearScale};
 use crate::text::{GlyphRun, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme};
 use scaena_core::Deck;
@@ -325,7 +326,8 @@ impl CategoryFormat {
 }
 
 /// A chart compiled for one snapshot, relative to its cell. Painted bottom to top:
-/// baseline, marks, category labels, value labels, clipped at the cell's sides.
+/// gridlines, baseline, marks, category labels, value-axis labels, titles, value
+/// labels, clipped at the cell's sides.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
     /// The baseline's y: where a new value grows from and a removed one shrinks to.
@@ -338,6 +340,23 @@ pub struct ChartLayout {
     pub labels: Vec<Label>,
     /// For counting the value labels; `None` without them.
     pub numerals: Option<Numerals>,
+    /// Values to heights: where a tick of another snapshot's axis sits in this one.
+    pub y_scale: LinearScale,
+    /// The plot's box, `[x, y, w, h]` relative to the chart.
+    pub plot: [f32; 4],
+    /// The value axis, tick by tick: a gridline across the plot, a label beside it.
+    pub y_axis: Vec<AxisTick>,
+    /// Axis titles, keyed `x` and `y`.
+    pub titles: Vec<Label>,
+}
+
+/// One tick of the value axis, keyed by its label's text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AxisTick {
+    pub key: String,
+    pub value: f64,
+    pub rule: Option<Rule>,
+    pub label: Option<Label>,
 }
 
 /// What the compiler needs from the engine: text layout for the labels.
@@ -361,9 +380,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     for (key, task) in [
         ("series", "multi-series charts — PLAN 1.9"),
         ("color", "chart color encodings — PLAN 1.9"),
-        ("transform", "chart data transforms — PLAN 1.9"),
+        ("dataTransform", "chart data transforms — PLAN 1.9"),
         ("annotations", "chart annotations — PLAN 1.9"),
-        ("axes", "chart axes settings — PLAN 1.9"),
     ] {
         if props.contains_key(key) {
             return Err(EngineError::NotImplemented(task));
@@ -379,6 +397,24 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     if matches!(x.get("type").and_then(Value::as_str), Some("quantitative" | "temporal")) {
         return Err(EngineError::NotImplemented("continuous x scales — PLAN 1.9"));
     }
+    // Axes: categories under the plot by default; the value axis, its gridlines, and
+    // titles when asked for.
+    let axes = props.get("axes");
+    let setting = |name: &str, key: &str| axes.and_then(|a| a.get(name)).and_then(|a| a.get(key));
+    let flag = |name: &str, key: &str, default: bool| setting(name, key).and_then(Value::as_bool).unwrap_or(default);
+    let (x_show, y_show, y_grid) = (flag("x", "show", true), flag("y", "show", false), flag("y", "gridlines", false));
+    if flag("x", "gridlines", false) {
+        return Err(EngineError::NotImplemented(
+            "gridlines across a category axis need a continuous x scale — PLAN 1.9",
+        ));
+    }
+    let title = |name: &str, e: &serde_json::Map<String, Value>| {
+        setting(name, "title")
+            .and_then(Value::as_str)
+            .or_else(|| e.get("title").and_then(Value::as_str))
+            .map(str::to_string)
+    };
+    let (x_title, y_title) = (title("x", x), title("y", y));
     let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
     let y_format = (y.get("format").and_then(Value::as_str))
         .map(|f| NumberFormat::parse(f).map_err(|e| EngineError::Layout(format!("`y.format`: {e}"))))
@@ -440,6 +476,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         .unwrap_or("label")
         .to_string();
     let tick_role = axis.and_then(|a| a.role.as_deref()).unwrap_or("label").to_string();
+    let title_role = (charts.and_then(|c| c.title.as_ref()).and_then(|t| t.role.clone())).unwrap_or(tick_role.clone());
+    let grid = charts.and_then(|c| c.gridlines.as_ref());
+    let grid_width = cx.theme.stroke(grid.and_then(|g| g.stroke.as_deref()).unwrap_or("hairline"))?;
+    let grid_color = {
+        let Color([r, g, b, a]) = cx.theme.color(grid.and_then(|g| g.color.as_deref()).unwrap_or("onSurfaceMuted"))?;
+        let opacity = grid.and_then(|g| g.opacity).unwrap_or(1.0).clamp(0.0, 1.0);
+        Color([r, g, b, (f64::from(a) * opacity).round() as u8])
+    };
+    let tick_count = charts.and_then(|c| c.tick_count).unwrap_or(5) as usize;
     let show = labels.and_then(|l| l.get("show")).and_then(Value::as_str).unwrap_or("none");
     let labelled = |i: usize| match show {
         "all" => Ok(true),
@@ -457,9 +502,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let value_format = y_format.clone().unwrap_or_else(NumberFormat::plain);
     let labelled_any = (0..rows.len()).map(&labelled).collect::<Result<Vec<_>, _>>()?.into_iter().any(|l| l);
     // The minus sign the labels' font sets: U+2212 if it has one.
-    let minus = match labelled_any {
+    let minus = match labelled_any || y_show {
         true => {
-            let probe = set(format!("{MINUS}0"), &label_role)?;
+            let probe = set(format!("{MINUS}0"), if labelled_any { &label_role } else { &tick_role })?;
             if probe.runs.iter().flat_map(|r| &r.glyphs).any(|g| g.id == 0) { '-' } else { MINUS }
         }
         false => MINUS,
@@ -470,40 +515,111 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         values.push(if labelled(i)? { Some(set(text, &label_role)?) } else { None });
     }
     let numerals = match labelled_any {
-        true => Numerals::shape(&value_format.alphabet(locale), y_format, locale, minus, |c| set(c, &label_role))?,
+        true => {
+            Numerals::shape(&value_format.alphabet(locale), y_format.clone(), locale, minus, |c| set(c, &label_role))?
+        }
         false => None,
     };
-    let ticks: Vec<TextLayout> = rows.iter().map(|(c, ..)| set(c.clone(), &tick_role)).collect::<Result<_, _>>()?;
-    // Cap height above the baseline; line-box height below the cap top.
-    let cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| l.cap_height.unwrap_or(l.ascent));
-    let below_cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| t.height - (l.baseline - cap(t)));
-    let label_room = values.iter().flatten().map(cap).fold(0.0_f32, f32::max);
-    let top = if label_room > 0.0 { label_room + gap } else { 0.0 };
-    let bottom = size[1] - gap - ticks.iter().map(below_cap).fold(0.0_f32, f32::max);
-    if bottom - top <= 0.0 {
-        return Err(EngineError::Layout(format!("chart cell {}×{} cu leaves no room to plot", size[0], size[1])));
-    }
-
-    // Scales: bands across, values up from the domain's low end.
+    let ticks: Vec<TextLayout> = match x_show {
+        true => rows.iter().map(|(c, ..)| set(c.clone(), &tick_role)).collect::<Result<_, _>>()?,
+        false => Vec::new(),
+    };
+    // The value axis: the data's extent, widened to round ticks when the axis or its
+    // gridlines show. A bound the author set stays.
     let domain = y.get("domain").and_then(Value::as_array);
     let bound = |i: usize| domain.and_then(|d| d.get(i)).and_then(Value::as_f64);
     let (min, max) = rows.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r.1), hi.max(r.1)));
     let lo = bound(0).unwrap_or(min.min(0.0));
     let hi = bound(1).unwrap_or(max).max(lo + f64::EPSILON);
-    let to_y = |v: f64| (f64::from(bottom) - (v - lo) / (hi - lo) * f64::from(bottom - top)) as f32;
+    let ruled = y_show || y_grid;
+    let (lo, hi) =
+        if ruled { scale::nice(lo, hi, tick_count, [bound(0).is_none(), bound(1).is_none()]) } else { (lo, hi) };
+    let tick_values = if ruled { scale::ticks(lo, hi, tick_count) } else { Vec::new() };
+    let step = scale::tick_step(lo, hi, tick_count);
+    let tick_format = match &y_format {
+        Some(f) => f.for_ticks(step, lo.abs().max(hi.abs())),
+        None => NumberFormat::ticks(step),
+    };
+    let tick_labels: Vec<(f64, String, Option<TextLayout>)> = tick_values
+        .iter()
+        .map(|&v| {
+            let text = typeset_minus(tick_format.format(v, locale), minus);
+            let label = if y_show { Some(set(text.clone(), &tick_role)?) } else { None };
+            Ok((v, text, label))
+        })
+        .collect::<Result<_, EngineError>>()?;
+    let titles: Vec<(&str, TextLayout)> = [("y", &y_title), ("x", &x_title)]
+        .into_iter()
+        .filter_map(|(k, t)| t.as_ref().map(|t| (k, t)))
+        .map(|(k, t)| Ok((k, set(t.clone(), &title_role)?)))
+        .collect::<Result<_, EngineError>>()?;
+    let title_height = |key: &str| titles.iter().find(|(k, _)| *k == key).map_or(0.0, |(_, t)| t.height + gap);
+    // Cap height above the baseline; line-box height below the cap top.
+    let cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| l.cap_height.unwrap_or(l.ascent));
+    let below_cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| t.height - (l.baseline - cap(t)));
+    let label_room = values.iter().flatten().map(cap).fold(0.0_f32, f32::max);
+    let tick_cap = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(cap).fold(0.0_f32, f32::max);
+    // Above the plot: the value axis's title, then room for value labels over the
+    // tallest bar or half a tick label's cap over the top gridline.
+    let top = title_height("y") + (if label_room > 0.0 { label_room + gap } else { 0.0 }).max(0.5 * tick_cap);
+    let mut bottom = size[1];
+    if x_show {
+        bottom = bottom - gap - ticks.iter().map(below_cap).fold(0.0_f32, f32::max);
+    }
+    bottom -= title_height("x");
+    // Beside it, a gutter as wide as the widest value-axis label.
+    let left = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(|l| l.width + gap).fold(0.0_f32, f32::max);
+    if bottom - top <= 0.0 || size[0] - left <= 0.0 {
+        return Err(EngineError::Layout(format!("chart cell {}×{} cu leaves no room to plot", size[0], size[1])));
+    }
+
+    // Scales: bands across, values up from the domain's low end.
+    let y_scale = LinearScale { domain: [lo, hi], range: [bottom, top] };
+    let to_y = |v: f64| y_scale.map(v);
     let base = to_y(0.0_f64.clamp(lo, hi));
-    let band = size[0] / rows.len() as f32;
+    let band = (size[0] - left) / rows.len() as f32;
 
     let mut out = ChartLayout {
         base,
-        baseline: Some(Rule { from: [0.0, base], to: [size[0], base], width: axis_width, color: axis_color }),
+        baseline: Some(Rule { from: [left, base], to: [size[0], base], width: axis_width, color: axis_color }),
         marks: Vec::with_capacity(rows.len()),
         ticks: Vec::with_capacity(rows.len()),
         labels: Vec::new(),
         numerals,
+        y_scale,
+        plot: [left, top, size[0] - left, bottom - top],
+        y_axis: Vec::with_capacity(tick_labels.len()),
+        titles: Vec::new(),
     };
-    for (i, ((category, v, key), (value, tick))) in rows.iter().zip(values.into_iter().zip(ticks)).enumerate() {
-        let center = (i as f32 + 0.5) * band;
+    for (v, key, label) in tick_labels {
+        let y = to_y(v);
+        // The baseline already rules the line it sits on.
+        let rule = (y_grid && y != base).then(|| Rule {
+            from: [left, y],
+            to: [size[0], y],
+            width: grid_width,
+            color: grid_color,
+        });
+        // Right-aligned in the gutter, the middle of its cap height on the tick.
+        let label = label.map(|text| {
+            let first = &text.lines[0];
+            let origin = [left - gap - text.width, y + 0.5 * cap(&text) - first.baseline];
+            Label { key: key.clone(), origin, text, value: None }
+        });
+        out.y_axis.push(AxisTick { key, value: v, rule, label });
+    }
+    for (key, text) in titles {
+        // The value axis's title above the plot at the chart's left; the category
+        // axis's title centered under the category labels.
+        let origin = match key {
+            "y" => [0.0, 0.0],
+            _ => [left + 0.5 * (size[0] - left) - 0.5 * text.width, size[1] - text.height],
+        };
+        out.titles.push(Label { key: key.to_string(), origin, text, value: None });
+    }
+    let mut ticks = ticks.into_iter();
+    for (i, ((category, v, key), value)) in rows.iter().zip(values).enumerate() {
+        let center = left + (i as f32 + 0.5) * band;
         let at = to_y(*v);
         // Square on the baseline, rounded at the free end.
         let (w, top, bottom) = (band * (1.0 - bar_gap), at.min(base), at.max(base));
@@ -523,8 +639,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             let value = Some(ValueLabel { value: *v, below, offset });
             out.labels.push(Label { key: key.clone(), origin, text, value });
         }
-        let origin = [center - 0.5 * tick.width, bottom + gap - tick.trimmed(TextBox::Cap).0];
-        out.ticks.push(Label { key: category.clone(), origin, text: tick, value: None });
+        if let Some(tick) = ticks.next() {
+            let origin = [center - 0.5 * tick.width, y_scale.range[0] + gap - tick.trimmed(TextBox::Cap).0];
+            out.ticks.push(Label { key: category.clone(), origin, text: tick, value: None });
+        }
         out.marks.push(Mark { key: key.clone(), shape, color: ink });
     }
     Ok(out)

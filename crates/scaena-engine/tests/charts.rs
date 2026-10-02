@@ -90,3 +90,53 @@ fn date_categories_print_through_the_x_format() {
     let layout = compile(&deck("en-US", rows, schema, json!({ "m": "%b %Y" }), plain));
     assert_eq!(texts(&layout.ticks), ["2025-01-01", "2025-04-01"]);
 }
+
+fn bars(axes: Value, domain: Value) -> Deck {
+    let rows = json!([{ "k": "a", "v": 12 }, { "k": "b", "v": 31 }, { "k": "c", "v": 7 }]);
+    let chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "k", "title": "Quarter" },
+                        "y": { "field": "v", "format": "$,.0f", "domain": domain }, "axes": axes });
+    deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart)
+}
+
+#[test]
+fn the_value_axis_widens_to_round_ticks_and_rules_them() {
+    let layout =
+        compile(&bars(json!({ "y": { "show": true, "gridlines": true, "title": "Revenue" } }), json!([0, null])));
+    assert_eq!(layout.y_scale.domain, [0.0, 35.0], "31 widens to the next tick");
+    let keys: Vec<&str> = layout.y_axis.iter().map(|t| t.key.as_str()).collect();
+    assert_eq!(keys, ["$0", "$5", "$10", "$15", "$20", "$25", "$30", "$35"]);
+    let [left, top, width, height] = layout.plot;
+    // Labels right-aligned in the gutter, one space unit (8) from the plot.
+    for tick in &layout.y_axis {
+        let label = tick.label.as_ref().unwrap();
+        assert!((label.origin[0] + label.text.width - (left - 8.0)).abs() < 1e-3, "{}", tick.key);
+    }
+    // A gridline at every tick but the baseline's, across the plot.
+    let rules: Vec<f32> = layout.y_axis.iter().filter_map(|t| t.rule.as_ref()).map(|r| r.from[1]).collect();
+    assert_eq!(rules.len(), 7);
+    assert!((rules.last().unwrap() - top).abs() < 1e-3, "the top tick is the plot's top");
+    assert!(layout.y_axis.iter().all(|t| t.rule.as_ref().is_none_or(|r| r.from[0] == left && r.to[0] == left + width)));
+    assert_eq!(layout.base, top + height);
+    // Titles: the value axis's above the plot, the category axis's under the labels.
+    let titles: Vec<(&str, &str)> = layout.titles.iter().map(|t| (t.key.as_str(), t.text.text.as_str())).collect();
+    assert_eq!(titles, [("y", "Revenue"), ("x", "Quarter")]);
+    assert!(layout.titles[0].origin[1] + layout.titles[0].text.height < top);
+    // Bands share the plot, not the gutter.
+    let first = &layout.marks[0].shape;
+    assert!(first.x > left && (first.center_x() - (left + width / 6.0)).abs() < 1e-3);
+}
+
+#[test]
+fn a_bound_the_author_sets_stays_and_gridlines_can_show_alone() {
+    let layout = compile(&bars(json!({ "y": { "gridlines": true } }), json!([0, 37])));
+    assert_eq!(layout.y_scale.domain, [0.0, 37.0]);
+    assert!(layout.y_axis.iter().all(|t| t.label.is_none()), "no labels without show");
+    assert_eq!(layout.y_axis.iter().map(|t| t.value).collect::<Vec<_>>(), [0.0, 10.0, 20.0, 30.0]);
+    assert_eq!(layout.plot[0], 0.0, "no gutter");
+    // Without the axis, the domain is the data's: bars reach the top of the plot.
+    let bare = compile(&bars(json!({}), json!([0, null])));
+    assert_eq!(bare.y_scale.domain, [0.0, 31.0]);
+    assert!(bare.y_axis.is_empty() && bare.titles.len() == 1);
+    let hidden = compile(&bars(json!({ "x": { "show": false } }), json!([0, null])));
+    assert!(hidden.ticks.is_empty());
+}

@@ -329,10 +329,11 @@ impl Decimal {
     }
 }
 
-/// The decimal exponent of `|x|`'s leading digit. The shortest round-trip form has the
+/// The decimal exponent of `|x|`'s leading digit (`floor(log10 |x|)`, 0 for zero). The
+/// shortest round-trip form has the
 /// same exponent as the exact value: it lies in the value's rounding interval, which a
 /// power of ten splits only when the power itself is in it, and then it is that power.
-fn exponent_of(x: f64) -> i32 {
+pub fn exponent_of(x: f64) -> i32 {
     let s = format!("{:e}", x.abs());
     s.split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0)
 }
@@ -355,6 +356,9 @@ pub struct NumberFormat {
     precision: Option<usize>,
     trim: bool,
     kind: Kind,
+    /// For `s` and `k` on an axis: every value in this tier (thousands = 1), with
+    /// `precision` decimals, as d3's `formatPrefix` writes ticks.
+    tier: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -385,7 +389,15 @@ enum Kind {
 impl NumberFormat {
     /// No format string: d3's default (12 significant digits, trailing zeros trimmed).
     pub fn plain() -> NumberFormat {
-        NumberFormat { sign: Sign::Minus, currency: false, group: false, precision: None, trim: true, kind: Kind::None }
+        NumberFormat {
+            sign: Sign::Minus,
+            currency: false,
+            group: false,
+            precision: None,
+            trim: true,
+            kind: Kind::None,
+            tier: None,
+        }
     }
 
     /// `places` decimals, no grouping (`.{places}f`).
@@ -420,6 +432,49 @@ impl NumberFormat {
         }
         let mut seen = std::collections::BTreeSet::new();
         s.chars().filter(|c| !c.is_ascii_digit() && seen.insert(*c)).collect()
+    }
+
+    /// This format for the ticks of an axis whose ticks are `step` apart and reach
+    /// `max` in size, as d3's `tickFormat` makes it. A format with no precision takes
+    /// the precision the step needs: decimals for `f` and `%`, significant digits for
+    /// the others. `s` and `k` write every tick in the tier of `max` (`0k`, `20k`, `40k`).
+    /// With no format at all ([`NumberFormat::ticks`]), ticks group thousands.
+    pub fn for_ticks(&self, step: f64, max: f64) -> NumberFormat {
+        let mut f = self.clone();
+        let step_exp = exponent_of(step);
+        match f.kind {
+            Kind::Si | Kind::Compact => {
+                let exp = exponent_of(max);
+                let tier = match f.kind {
+                    Kind::Si => exp.div_euclid(3).clamp(-8, 8),
+                    _ => exp.div_euclid(3).clamp(0, 4),
+                };
+                f.tier = Some(tier);
+                if f.precision.is_none() {
+                    f.precision = Some((3 * tier - step_exp).max(0) as usize);
+                }
+            }
+            Kind::Fixed | Kind::Percent if f.precision.is_none() => {
+                let shift = if f.kind == Kind::Percent { 2 } else { 0 };
+                f.precision = Some((-step_exp - shift).max(0) as usize);
+            }
+            Kind::None | Kind::Exponent | Kind::General | Kind::Rounded if f.precision.is_none() => {
+                let round = (exponent_of(max) - step_exp).max(0) as usize + 1;
+                f.precision = Some(if f.kind == Kind::Exponent { round.saturating_sub(1) } else { round });
+            }
+            _ => {}
+        }
+        f
+    }
+
+    /// d3's default for ticks with no format (`,f`), at the step's precision.
+    pub fn ticks(step: f64) -> NumberFormat {
+        NumberFormat { group: true, ..NumberFormat::fixed(0) }.for_ticks_fixed(step)
+    }
+
+    fn for_ticks_fixed(mut self, step: f64) -> NumberFormat {
+        self.precision = Some((-exponent_of(step)).max(0) as usize);
+        self
     }
 
     pub fn parse(spec: &str) -> Result<NumberFormat, FormatError> {
@@ -481,7 +536,7 @@ impl NumberFormat {
                 )));
             }
         };
-        Ok(NumberFormat { sign, currency, group, precision, trim: trim || kind == Kind::None, kind })
+        Ok(NumberFormat { sign, currency, group, precision, trim: trim || kind == Kind::None, kind, tier: None })
     }
 
     /// `x` in this format and `locale`.
@@ -537,6 +592,21 @@ impl NumberFormat {
                 } else {
                     (self.join_decimal(&d, p, locale), String::new())
                 }
+            }
+            Kind::Si | Kind::Compact if self.tier.is_some() => {
+                let tier = self.tier.unwrap_or_default();
+                let suffix = match self.kind {
+                    Kind::Si => SI[(tier + 8) as usize].to_string(),
+                    _ if tier == 0 => String::new(),
+                    _ => locale.compact[tier as usize - 1].to_string(),
+                };
+                // x / 1000^tier at `p` decimals: round at `p + 3·tier` decimals of x,
+                // exactly, then move the point.
+                let n = exponent_of(x) + 1 + p as i32 + 3 * tier;
+                let d = Decimal::round_significant(x, n);
+                let scaled = Decimal { exp: d.exp - 3 * tier, ..d };
+                let (int, frac) = scaled.fixed(p);
+                (self.join(&int, &frac, locale), suffix)
             }
             Kind::Si | Kind::Compact => {
                 let d = significant(x, p);
@@ -1067,6 +1137,28 @@ mod tests {
         assert_eq!(NumberFormat::parse("($,.1~k").unwrap().alphabet(en), ".\u{2212},$()KMBT");
         assert_eq!(NumberFormat::parse(".0%").unwrap().alphabet(Locale::of(Some("fr"))), ",\u{2212}\u{a0}%");
         assert_eq!(NumberFormat::fixed(2).format(-0.004, en), "0.00");
+    }
+
+    #[test]
+    fn tick_formats_take_the_precision_their_step_needs() {
+        let en = Locale::of(None);
+        let ticks = |f: &NumberFormat, values: &[f64]| values.iter().map(|&v| f.format(v, en)).collect::<Vec<_>>();
+        assert_eq!(ticks(&NumberFormat::ticks(20.0), &[0.0, 20.0, 1000.0]), ["0", "20", "1,000"]);
+        assert_eq!(ticks(&NumberFormat::ticks(0.5), &[0.0, 0.5, 1.0]), ["0.0", "0.5", "1.0"]);
+        let money = NumberFormat::parse("$,f").unwrap().for_ticks(0.05, 1.0);
+        assert_eq!(ticks(&money, &[0.0, 0.75]), ["$0.00", "$0.75"]);
+        let share = NumberFormat::parse("%").unwrap().for_ticks(0.05, 0.2);
+        assert_eq!(ticks(&share, &[0.0, 0.05, 0.2]), ["0%", "5%", "20%"]);
+        // One prefix for every tick, from the largest.
+        let si = NumberFormat::parse("s").unwrap().for_ticks(20_000.0, 100_000.0);
+        assert_eq!(ticks(&si, &[0.0, 20_000.0, 100_000.0]), ["0k", "20k", "100k"]);
+        let compact = NumberFormat::parse("$k").unwrap().for_ticks(500_000_000.0, 2_500_000_000.0);
+        assert_eq!(ticks(&compact, &[0.0, 500_000_000.0, 2_500_000_000.0]), ["$0.0B", "$0.5B", "$2.5B"]);
+        // An explicit precision stays.
+        let fixed = NumberFormat::parse(".2f").unwrap().for_ticks(10.0, 50.0);
+        assert_eq!(ticks(&fixed, &[10.0]), ["10.00"]);
+        let plain = NumberFormat::plain().for_ticks(0.1, 0.3);
+        assert_eq!(ticks(&plain, &[0.1 + 0.2]), ["0.3"]);
     }
 
     #[test]

@@ -324,6 +324,13 @@
         "axis": { "$ref": "#/$defs/ChartRule" },
         "gridlines": { "$ref": "#/$defs/ChartRule" },
         "label": { "$ref": "#/$defs/ChartLabel" },
+        "title": { "description": "Axis titles; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
+        "tickCount": {
+          "description": "About how many ticks a value axis shows (d3's tick count); 5 when unset.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
         "strokeWidth": { "type": "string" },
         "cornerRadius": { "type": "number", "minimum": 0 },
         "barGap": { "type": "number", "minimum": 0, "maximum": 1 }

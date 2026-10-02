@@ -321,6 +321,13 @@ pub struct Charts {
     pub gridlines: Option<ChartRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<ChartLabel>,
+    /// Axis titles; their role defaults to the axis's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<ChartLabel>,
+    /// About how many ticks a value axis shows (d3's tick count); 5 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 2, max = 20))]
+    pub tick_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_width: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

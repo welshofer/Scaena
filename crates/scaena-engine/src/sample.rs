@@ -27,7 +27,7 @@
 //!   target at rest, exactly: both ends draw a scene, not an interpolation.
 
 use crate::EngineError;
-use crate::charts::{ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
+use crate::charts::{AxisTick, ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
 use crate::images::ImageNode;
 use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
@@ -130,12 +130,18 @@ impl SceneNode {
             Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
             Content::Text(placed) => text_layer(dl, &self.id, placed, placed.origin, opacity),
             Content::Chart { cell, chart } => {
-                let mut ops = Vec::new();
+                let mut ops: Vec<Op> =
+                    chart.y_axis.iter().filter_map(|t| t.rule.as_ref()).map(|r| rule_op(r, 1.0)).collect();
                 if let Some(rule) = &chart.baseline {
                     ops.push(rule_op(rule, 1.0));
                 }
-                ops.extend(chart.marks.iter().map(|m| mark_op(m.shape, m.color, 1.0)));
+                let mut plot: Vec<Op> = chart.marks.iter().map(|m| mark_op(m.shape, m.color, 1.0)).collect();
                 for label in chart.ticks.iter().chain(&chart.labels) {
+                    plot.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
+                }
+                let [left, _, width, _] = chart.plot;
+                ops.extend(plot_layer([left, left + width], [-cell[1], dl.viewport[1]], plot));
+                for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
                     ops.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
                 }
                 chart_layer(&self.id, [cell[0], cell[1]], cell[2], dl.viewport[1], opacity, ops)
@@ -236,6 +242,9 @@ struct ChartPlan {
     /// Each mark with its key's value labels on either side.
     marks: Vec<(Keyed, Pair)>,
     ticks: Vec<Keyed>,
+    /// Value-axis ticks by their text, and axis titles by axis.
+    y_axis: Vec<Pair>,
+    titles: Vec<Pair>,
 }
 
 /// A keyed chart part on either side and, for a part on one side only, the nearest
@@ -359,7 +368,6 @@ impl Transition {
                 }
                 Track::Chart { from: i, to: j, plan } => {
                     let (a, b) = (chart(i.map(|i| &from[i])), chart(j.map(|j| &to[j])));
-                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p);
                     let (id, origin, width, opacity) = match (a, b) {
                         (Some((x, ca, _)), Some((y, cb, _))) => (
                             &y.id,
@@ -370,6 +378,8 @@ impl Transition {
                         (Some((n, c, _)), None) | (None, Some((n, c, _))) => (&n.id, [c[0], c[1]], c[2], n.opacity),
                         (None, None) => unreachable!("a chart track has a side"),
                     };
+                    let clip_y = [-origin[1], dl.viewport[1]];
+                    let ops = plan.sample(&mut dl, a.map(|c| c.2), b.map(|c| c.2), p, clip_y);
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
                     dl.ops.push(op);
                 }
@@ -409,13 +419,40 @@ impl ChartPlan {
                 .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
                 .collect(),
             ticks: rides(pair(ticks_of(a), ticks_of(b), |l| &l.key)),
+            y_axis: pair(axis_of(a), axis_of(b), |t| &t.key),
+            titles: pair(titles_of(a), titles_of(b), |l| &l.key),
         }
     }
 
     /// The chart's ops `p` of the way from `a` to `b`, in the order a chart at rest
-    /// draws them: baseline, marks, category labels, value labels.
-    fn sample(&self, dl: &mut DisplayList, a: Option<&ChartLayout>, b: Option<&ChartLayout>, p: f32) -> Vec<Op> {
+    /// draws them: gridlines, baseline; marks, category labels, and value labels in the
+    /// plot (see [`plot_layer`]); value-axis labels, titles. `clip_y` is the plot clip's
+    /// top and height.
+    fn sample(
+        &self,
+        dl: &mut DisplayList,
+        a: Option<&ChartLayout>,
+        b: Option<&ChartLayout>,
+        p: f32,
+        clip_y: [f32; 2],
+    ) -> Vec<Op> {
         let mut ops = Vec::new();
+        // The value axis rescales as d3's does: a tick on both sides moves; one on one
+        // side only rides from or to where its value sits on the other side's scale,
+        // fading.
+        let (ya, yb) = (axis_of(a), axis_of(b));
+        let ticks: Vec<(Option<&AxisTick>, Option<&AxisTick>)> =
+            self.y_axis.iter().map(|&(i, j)| (i.map(|i| &ya[i]), j.map(|j| &yb[j]))).collect();
+        for &(x, y) in &ticks {
+            let (rx, ry) = (x.and_then(|t| t.rule.as_ref()), y.and_then(|t| t.rule.as_ref()));
+            let value = x.or(y).map_or(0.0, |t| t.value);
+            match (rx, ry) {
+                (Some(rx), Some(ry)) => ops.push(rule_op(&lerp_rule(rx, ry, p), 1.0)),
+                (Some(rx), None) => ops.push(rule_op(&lerp_rule(rx, &rule_on(rx, b, value), p), 1.0 - p)),
+                (None, Some(ry)) => ops.push(rule_op(&lerp_rule(&rule_on(ry, a, value), ry, p), p)),
+                (None, None) => {}
+            }
+        }
         match (a.and_then(|c| c.baseline.as_ref()), b.and_then(|c| c.baseline.as_ref())) {
             (Some(x), Some(y)) => ops.push(rule_op(
                 &Rule {
@@ -433,6 +470,7 @@ impl ChartPlan {
         // Marks: a matched key interpolates. A new one grows from the baseline where the
         // transition starts, and a removed one shrinks onto it where the transition
         // ends, each moving as far as the neighbor it rides with.
+        let mut plot = Vec::new();
         let (ma, mb) = (marks_of(a), marks_of(b));
         let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
         let mut shapes = Vec::with_capacity(self.marks.len());
@@ -448,7 +486,7 @@ impl ChartPlan {
                 }
                 (None, None) => unreachable!("a pair has a side"),
             };
-            ops.push(mark_op(shape, color, 1.0));
+            plot.push(mark_op(shape, color, 1.0));
             shapes.push(shape);
         }
         // Category labels move; a new or removed one rides along and fades.
@@ -458,7 +496,7 @@ impl ChartPlan {
                 [tb[rj].origin[0] - ta[ri].origin[0], tb[rj].origin[1] - ta[ri].origin[1]]
             });
             let mut tick =
-                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+                |at: Point, alpha: f32, l: &Label| plot.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
             match (i.map(|i| &ta[i]), j.map(|j| &tb[j])) {
                 (Some(x), Some(y)) if x.text == y.text => tick(lerp2(x.origin, y.origin, p), 1.0, y),
                 (Some(x), Some(y)) => {
@@ -474,7 +512,43 @@ impl ChartPlan {
         let numerals = b.and_then(|c| c.numerals.as_ref()).or_else(|| a.and_then(|c| c.numerals.as_ref()));
         let (la, lb) = (a.map_or(&[][..], |c| &c.labels), b.map_or(&[][..], |c| &c.labels));
         for (&(marks, (i, j)), shape) in self.marks.iter().zip(&shapes) {
-            value_label(dl, &mut ops, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
+            value_label(dl, &mut plot, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
+        }
+        let edge = |c: Option<&ChartLayout>| c.map(|c| [c.plot[0], c.plot[0] + c.plot[2]]);
+        let span = match (edge(a), edge(b)) {
+            (Some(x), Some(y)) => lerp2(x, y, p),
+            (Some(e), None) | (None, Some(e)) => e,
+            (None, None) => [0.0, 0.0],
+        };
+        ops.extend(plot_layer(span, clip_y, plot));
+        // Value-axis labels ride with their ticks.
+        for &(x, y) in &ticks {
+            let (lx, ly) = (x.and_then(|t| t.label.as_ref()), y.and_then(|t| t.label.as_ref()));
+            let value = x.or(y).map_or(0.0, |t| t.value);
+            let mut label =
+                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+            match (lx, ly) {
+                (Some(lx), Some(ly)) => label(lerp2(lx.origin, ly.origin, p), 1.0, ly),
+                (Some(lx), None) => label(lerp2(lx.origin, label_on(lx, a, b, value), p), 1.0 - p, lx),
+                (None, Some(ly)) => label(lerp2(label_on(ly, b, a, value), ly.origin, p), p, ly),
+                (None, None) => {}
+            }
+        }
+        // Titles move; changed text cross-fades.
+        let (ta, tb) = (titles_of(a), titles_of(b));
+        for &(i, j) in &self.titles {
+            let mut title =
+                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+            match (i.map(|i| &ta[i]), j.map(|j| &tb[j])) {
+                (Some(x), Some(y)) if x.text == y.text => title(lerp2(x.origin, y.origin, p), 1.0, y),
+                (Some(x), Some(y)) => {
+                    title(lerp2(x.origin, y.origin, p), 1.0 - p, x);
+                    title(lerp2(x.origin, y.origin, p), p, y);
+                }
+                (Some(x), None) => title(x.origin, 1.0 - p, x),
+                (None, Some(y)) => title(y.origin, p, y),
+                (None, None) => {}
+            }
         }
         ops
     }
@@ -486,6 +560,60 @@ fn marks_of(c: Option<&ChartLayout>) -> &[Mark] {
 
 fn ticks_of(c: Option<&ChartLayout>) -> &[Label] {
     c.map_or(&[], |c| &c.ticks)
+}
+
+/// The plot's ops: in a layer clipped to the plot's width, `[left, right]`, when a
+/// value-axis gutter sits beside it, so a mark or label riding out of the window passes
+/// under the plot's edge rather than over the axis labels; else as they are.
+fn plot_layer(span: [f32; 2], clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op> {
+    if span[0] <= 0.0 {
+        return ops;
+    }
+    vec![Op::Layer {
+        node: None,
+        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        opacity: 1.0,
+        blend: Blend::Normal,
+        clip: Some(Path::rect([span[0], clip_y[0], span[1] - span[0], clip_y[1]])),
+        ops,
+    }]
+}
+
+fn axis_of(c: Option<&ChartLayout>) -> &[AxisTick] {
+    c.map_or(&[], |c| &c.y_axis)
+}
+
+fn titles_of(c: Option<&ChartLayout>) -> &[Label] {
+    c.map_or(&[], |c| &c.titles)
+}
+
+fn lerp_rule(a: &Rule, b: &Rule, p: f32) -> Rule {
+    Rule {
+        from: lerp2(a.from, b.from, p),
+        to: lerp2(a.to, b.to, p),
+        width: lerp(a.width, b.width, p),
+        color: mix(a.color, b.color, p),
+    }
+}
+
+/// `rule`, a gridline at `value`, where that value sits on chart `c`'s scale, across its
+/// plot; where it is when there is no `c`.
+fn rule_on(rule: &Rule, c: Option<&ChartLayout>, value: f64) -> Rule {
+    let Some(c) = c else { return rule.clone() };
+    let y = c.y_scale.map(value);
+    Rule { from: [c.plot[0], y], to: [c.plot[0] + c.plot[2], y], ..rule.clone() }
+}
+
+/// Where `label`, beside the tick at `value` on chart `own`, sits beside that value on
+/// chart `other`: moved as far as the value moves and as the gutter's edge moves.
+fn label_on(label: &Label, own: Option<&ChartLayout>, other: Option<&ChartLayout>, value: f64) -> Point {
+    match (own, other) {
+        (Some(own), Some(other)) => [
+            label.origin[0] + (other.plot[0] - own.plot[0]),
+            label.origin[1] + (other.y_scale.map(value) - own.y_scale.map(value)),
+        ],
+        _ => label.origin,
+    }
 }
 
 /// A value label on its mark (`shape`, already interpolated). Unchanged text rides
