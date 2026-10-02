@@ -5,7 +5,7 @@
 
 use super::{
     AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, Numerals, RoundRect, Rule, SeriesPath, Shape,
-    ValueLabel, typeset_minus,
+    Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
 use crate::data::{self, ColumnType, Datum};
@@ -18,17 +18,7 @@ use scaena_core::format::{DateFormat, DateTime, Locale, MINUS, NumberFormat};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
-/// The v1 kinds (SPEC §3.7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Bar,
-    StackedBar,
-    Line,
-    Area,
-    Scatter,
-    Dot,
-    Donut,
-}
+use super::ChartKind as Kind;
 
 impl Kind {
     fn parse(v: Option<&Value>) -> Result<Kind, EngineError> {
@@ -84,6 +74,34 @@ fn number(d: &Datum) -> Option<f64> {
         Datum::Date(t) => Some(t.0 as f64),
         _ => None,
     }
+}
+
+/// What a chart's categorical colors go to, in the order each first appears in its
+/// data: its series (or a color field of text), or a donut's categories. Empty when its
+/// colors go to nothing, or when its props or data do not read, which compiling it
+/// reports.
+pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Props) -> Vec<String> {
+    let encoding = |name: &str| props.get(name).and_then(Value::as_object);
+    let Ok(kind) = Kind::parse(props.get("kind")) else { return Vec::new() };
+    let Some(source) = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@')) else {
+        return Vec::new();
+    };
+    let Ok(table) = data::load(deck, files, source) else { return Vec::new() };
+    let color =
+        field(encoding("color")).and_then(|f| table.column(f)).filter(|&c| table.types[c] != ColumnType::Number);
+    let by = match kind {
+        Kind::Donut => field(encoding("x")).and_then(|f| table.column(f)),
+        _ => field(encoding("series")).and_then(|f| table.column(f)).or(color),
+    };
+    let Some(by) = by else { return Vec::new() };
+    let mut out: Vec<String> = Vec::new();
+    for row in &table.rows {
+        let key = row[by].label();
+        if !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
 }
 
 /// Compile a chart node's resolved props for a cell `size` wide and high.
@@ -213,6 +231,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
 
     // Theme: chart styles, all tokens.
     let theme = cx.theme;
+    let cx_colors = cx.colors;
     let charts = theme.charts.as_ref();
     let axis = charts.and_then(|c| c.axis.as_ref());
     let axis_width = theme.stroke(axis.and_then(|a| a.stroke.as_deref()).unwrap_or("hairline"))?;
@@ -274,9 +293,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             let t = if hi > lo { ((v - lo) / (hi - lo)).clamp(0.0, 1.0) as f32 } else { 0.5 };
             return along(stops, t);
         }
+        // Its place among what the chart colors across the deck, else in this state.
+        let deck_wide = |key: &str, local: usize| cx_colors.iter().position(|k| k == key).unwrap_or(local);
         let index = match (&r.series, donut) {
-            (Some(s), _) => series.iter().position(|x| x == s).unwrap_or(0),
-            (None, true) => categories.iter().position(|(k, _)| *k == r.category).unwrap_or(0),
+            (Some(s), _) => deck_wide(s, series.iter().position(|x| x == s).unwrap_or(0)),
+            (None, true) => deck_wide(&r.category, categories.iter().position(|(k, _)| *k == r.category).unwrap_or(0)),
             (None, false) => 0,
         };
         palette[index % palette.len()]
@@ -538,6 +559,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
 
     let mut out = ChartLayout {
+        kind,
         base,
         baseline: (!donut).then_some(Rule {
             from: [left, base],
@@ -670,8 +692,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         (center - 0.5 * w + (k as f32 + 0.5) * slot, slot * (1.0 - group_gap))
                     }
                 };
-                // A stacked segment stands on the stack under it, a bar on the baseline.
-                let (to, foot, grows) = if kind == Kind::StackedBar {
+                // A stacked segment stands on the stack under it (values below zero
+                // stack down from the baseline), a bar on the baseline.
+                let (to, foot, place) = if kind == Kind::StackedBar {
                     let stack = &mut stacks[c];
                     let from = if r.y >= 0.0 { stack.0 } else { stack.1 };
                     let to = from + r.y;
@@ -680,7 +703,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     } else {
                         stack.1 = to;
                     }
-                    (to, to_y(from), Some(to_y(from)))
+                    let key = format!("{}\u{1f}{}", r.category, if r.y >= 0.0 { '+' } else { '-' });
+                    (to, to_y(from), Some(Stack { key, from: to_y(from), to: to_y(to) }))
                 } else {
                     (r.y, base, None)
                 };
@@ -700,7 +724,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     _ => r.y,
                 };
                 label_at(&mut out, value, &r.key, &shape, cx, v, below);
-                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), base: grows });
+                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
         }
         Kind::Line | Kind::Area | Kind::Dot | Kind::Scatter => {
@@ -709,6 +733,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             let size_max = rows.iter().filter_map(|r| r.size).fold(0.0_f64, f64::max);
             for (r, value) in rows.iter().zip(values) {
                 let x = center_of(r);
+                let mut place = None;
                 let shape = match kind {
                     Kind::Area => {
                         let c = categories.iter().position(|(k, _)| *k == r.category).unwrap_or(0);
@@ -716,6 +741,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         let to = if stack_areas { from + r.y } else { r.y };
                         if stack_areas {
                             stacks[c] = to;
+                            place = Some(Stack { key: r.category.clone(), from: to_y(from), to: to_y(to) });
                         }
                         Shape::Span { x, top: to_y(to), base: to_y(from) }
                     }
@@ -729,12 +755,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     Kind::Dot => Shape::Dot { x, y: to_y(r.y), r: dot_radius },
                     _ => Shape::Dot { x, y: to_y(r.y), r: point_radius },
                 };
-                let grows = match shape {
-                    Shape::Span { base, .. } => Some(base),
-                    _ => None,
-                };
                 label_at(&mut out, value, &r.key, &shape, x, r.y, false);
-                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), base: grows });
+                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
             if matches!(kind, Kind::Line | Kind::Area) {
                 let groups: Vec<Option<String>> =
@@ -780,7 +802,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
                     out.labels.push(Label { key: r.key.clone(), origin, text, value: Some(value) });
                 }
-                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), base: None });
+                let place = Stack { key: String::new(), from: start, to: end };
+                out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: Some(place) });
             }
         }
     }

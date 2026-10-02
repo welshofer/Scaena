@@ -37,7 +37,7 @@ fn compile(deck: &Deck) -> ChartLayout {
     }
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let (mut text, data) = (TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck, data: &data };
+    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck, data: &data, colors: &[] };
     charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap()
 }
 
@@ -222,9 +222,13 @@ fn stacked_bars_pile_up_by_series_and_label_their_totals() {
         let (core, cloud, edge) = (seg("Core"), seg("Cloud"), seg("Edge"));
         assert!((core.top() - cloud.bottom()).abs() < 1e-3 && (cloud.top() - edge.bottom()).abs() < 1e-3, "{q}");
         assert!((core.bottom() - layout.base).abs() < 1e-3);
-        // A segment grows from the stack under it.
+        // Each segment knows its stack and its place in it, from the foot up.
         let mark = layout.marks.iter().find(|m| m.key == format!("{q}\u{1f}Cloud")).unwrap();
-        assert_eq!(mark.base, Some(cloud.bottom()));
+        let place = mark.stack.as_ref().unwrap();
+        assert_eq!(
+            (place.key.as_str(), place.from, place.to),
+            (format!("{q}\u{1f}+").as_str(), cloud.bottom(), cloud.top())
+        );
     }
     let totals: Vec<&str> = layout.labels.iter().map(|l| l.text.text.as_str()).collect();
     assert_eq!(totals, ["21", "28", "36", "48"]);
@@ -309,4 +313,57 @@ fn a_time_axis_ticks_on_calendar_boundaries() {
     assert_eq!(ticks, ["Jan 2024", "Apr 2024", "Jul 2024", "Oct 2024"]);
     // The first label would hang past the plot's left edge: it starts there instead.
     assert_eq!(layout.ticks[0].origin[0], layout.plot[0]);
+}
+
+/// The chart `c` of each of `deck`'s states, laid out by the engine.
+fn scenes(deck: &Deck) -> Vec<ChartLayout> {
+    let mut fonts = BundleFonts::new();
+    for font in &deck.fonts {
+        fonts.register(&font.file, read(&font.file)).unwrap();
+    }
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let mut engine = scaena_engine::render::Engine::new(fonts);
+    let snapshots = scaena_core::resolve_states(deck).unwrap();
+    snapshots
+        .iter()
+        .map(|snap| {
+            let scene = engine.scene(deck, &theme, &DataFiles::new(), snap).unwrap();
+            scene
+                .nodes
+                .into_iter()
+                .find_map(|n| match n.content {
+                    scaena_engine::sample::Content::Chart { chart, .. } => Some(chart),
+                    _ => None,
+                })
+                .unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn a_series_keeps_its_color_from_state_to_state() {
+    // The first state shows Core, Cloud, and Edge; the second drops Cloud.
+    let mut d = deck(
+        "en-US",
+        revenue(),
+        json!({ "rev": "number" }),
+        Value::Null,
+        json!({
+        "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
+        "series": { "field": "product" } }),
+    );
+    let without_cloud: Vec<Value> =
+        revenue().as_array().unwrap().iter().filter(|r| r["product"] != "Cloud").cloned().collect();
+    let mut raw = serde_json::to_value(&d).unwrap();
+    raw["data"]["q2"] = json!({ "source": { "inline": without_cloud }, "schema": { "rev": "number" } });
+    raw["states"] = json!([
+        { "id": "all", "layout": "specimen", "props": { "c": {} } },
+        { "id": "two", "layout": "specimen", "props": { "c": { "data": "@q2" } } }
+    ]);
+    d = serde_json::from_value(raw).unwrap();
+    let [all, two] = <[ChartLayout; 2]>::try_from(scenes(&d)).unwrap();
+    let color = |c: &ChartLayout, key: &str| c.legend.iter().find(|e| e.key == key).unwrap().color;
+    assert_eq!(color(&two, "Edge"), color(&all, "Edge"), "Edge stays the third color");
+    assert_ne!(color(&two, "Edge"), color(&all, "Cloud"));
+    assert_eq!(color(&two, "Core"), color(&all, "Core"));
 }

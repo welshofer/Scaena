@@ -127,6 +127,8 @@ impl Engine {
         let snap = &cascade::with_overrides(deck, snap);
         let placement = self.place(deck, theme, &grid, snap)?;
         let mut nodes = Vec::with_capacity(snap.nodes.len());
+        // Every state's props, read once, for what each chart colors across the deck.
+        let mut every: Option<Vec<Snapshot>> = None;
         for (id, paint) in &placement.order {
             let id = id.as_str();
             let props = &snap.nodes[id];
@@ -134,7 +136,21 @@ impl Engine {
             let content = match deck.nodes[id].node_type {
                 NodeType::Text => Content::Text(self.layout_text_node(deck, theme, snap, id, rect)?),
                 NodeType::Chart => {
-                    let mut cx = Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data };
+                    let states = match &mut every {
+                        Some(states) => states,
+                        none => none.insert(scaena_core::resolve_states(deck)?),
+                    };
+                    let mut colors: Vec<String> = Vec::new();
+                    for state in states.iter() {
+                        let state = cascade::with_overrides(deck, state);
+                        for key in state.nodes.get(id).map(|p| charts::color_keys(deck, data, p)).unwrap_or_default() {
+                            if !colors.contains(&key) {
+                                colors.push(key);
+                            }
+                        }
+                    }
+                    let mut cx =
+                        Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &colors };
                     let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
                     Content::Chart { cell: rect, chart }
                 }

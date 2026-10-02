@@ -28,7 +28,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartLayout, Label, LegendEntry, Mark, Numerals, RoundRect, Rule, SeriesPath, Shape, ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, Numerals, RoundRect, Rule, SeriesPath, Shape,
+    ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -249,6 +250,11 @@ struct ChartPlan {
     baseline: Pair,
     /// Each mark with its key's value labels on either side.
     marks: Vec<(Keyed, Pair)>,
+    /// Where each mark starts and ends; `None` where two kinds of mark meet.
+    ends: Vec<Option<(Shape, Shape)>>,
+    /// Bars that regroup, in stages: into a stack (`Some(true)`: heights, then widths)
+    /// or out of one (`Some(false)`: widths, then heights).
+    regroup: Option<bool>,
     /// Lines and areas by series.
     paths: Vec<Pair>,
     ticks: Vec<Keyed>,
@@ -312,7 +318,9 @@ impl Transition {
                     (Content::Shader(x), Content::Shader(y)) if x.same_shader(y) => Track::Move { from: i, to: j },
                     (Content::Shape(x), Content::Shape(y)) if x.same_shape(y) => Track::Move { from: i, to: j },
                     (Content::Image(x), Content::Image(y)) if x.same_image(y) => Track::Move { from: i, to: j },
-                    (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) => {
+                    // Charts morph mark by mark between kinds that draw the same
+                    // marks; any other change of kind cross-fades.
+                    (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) if x.kind.morphs_to(y.kind) => {
                         Track::Chart { from: Some(i), to: Some(j), plan: Box::new(ChartPlan::new(Some(x), Some(y))) }
                     }
                     _ => Track::Crossfade { from: i, to: j },
@@ -425,12 +433,19 @@ impl ChartPlan {
             let key = &c.marks[i?].key;
             c.labels.iter().position(|l| &l.key == key)
         };
+        let marks: Vec<(Keyed, Pair)> = rides(pair(marks_of(a), marks_of(b), |m| &m.key))
+            .into_iter()
+            .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
+            .collect();
         ChartPlan {
             baseline: (a.and_then(|c| c.baseline.as_ref()).map(|_| 0), b.and_then(|c| c.baseline.as_ref()).map(|_| 0)),
-            marks: rides(pair(marks_of(a), marks_of(b), |m| &m.key))
-                .into_iter()
-                .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
-                .collect(),
+            ends: marks.iter().map(|(k, _)| ends(*k, a, b)).collect(),
+            regroup: match (a.map(|c| c.kind), b.map(|c| c.kind)) {
+                (Some(ChartKind::Bar), Some(ChartKind::StackedBar)) => Some(true),
+                (Some(ChartKind::StackedBar), Some(ChartKind::Bar)) => Some(false),
+                _ => None,
+            },
+            marks,
             paths: pair(paths_of(a), paths_of(b), |s| &s.key),
             ticks: rides(pair(ticks_of(a), ticks_of(b), |l| &l.key)),
             y_axis: pair(axis_of(a), axis_of(b), |t| &t.key),
@@ -493,44 +508,34 @@ impl ChartPlan {
             (None, Some(y)) => ops.push(rule_op(y, p)),
             (None, None) => {}
         }
-        // Marks: a matched key interpolates. A new one grows from the baseline where the
-        // transition starts, and a removed one shrinks onto it where the transition
-        // ends, each moving as far as the neighbor it rides with.
+        // Marks move from where they start to where they end (see [`ends`]).
         let mut plot = Vec::new();
         let (ma, mb) = (marks_of(a), marks_of(b));
         let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
         // Each mark at this frame, and how opaque, by key, for the paths through them.
         let mut shapes: Vec<(&str, Shape, Color, f32)> = Vec::with_capacity(self.marks.len());
-        for &(Keyed { pair: (i, j), ride }, _) in &self.marks {
-            let dx = ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
-            let gone = |m: &Mark, base: f32| m.shape.shifted(dx).collapsed(m.base.unwrap_or(base));
-            let come = |m: &Mark, base: f32| m.shape.shifted(-dx).collapsed(m.base.unwrap_or(base));
-            match (i.map(|i| &ma[i]), j.map(|j| &mb[j])) {
-                (Some(x), Some(y)) => match Shape::lerp(x.shape, y.shape, p) {
-                    Some(shape) => shapes.push((&y.key, shape, mix(x.color, y.color, p), 1.0)),
-                    // Two kinds of mark: the old one shrinks out as the new one grows in.
-                    None => {
-                        shapes.push((
-                            &x.key,
-                            Shape::lerp(x.shape, gone(x, base_b), p).unwrap_or(x.shape),
-                            x.color,
-                            1.0,
-                        ));
-                        shapes.push((
-                            &y.key,
-                            Shape::lerp(come(y, base_a), y.shape, p).unwrap_or(y.shape),
-                            y.color,
-                            1.0,
-                        ));
-                    }
-                },
-                (Some(x), None) => {
-                    shapes.push((&x.key, Shape::lerp(x.shape, gone(x, base_b), p).unwrap_or(x.shape), x.color, 1.0))
+        for (&(Keyed { pair: (i, j), .. }, _), ends) in self.marks.iter().zip(&self.ends) {
+            match (i.map(|i| &ma[i]), j.map(|j| &mb[j]), ends) {
+                (Some(x), Some(y), Some((from, to))) => {
+                    let shape = match (self.regroup, from, to) {
+                        (Some(heights_first), Shape::Bar(f), Shape::Bar(t)) => {
+                            Shape::Bar(regrouped(*f, *t, p, heights_first))
+                        }
+                        _ => Shape::lerp(*from, *to, p).unwrap_or(*to),
+                    };
+                    shapes.push((&y.key, shape, mix(x.color, y.color, p), 1.0))
                 }
-                (None, Some(y)) => {
-                    shapes.push((&y.key, Shape::lerp(come(y, base_a), y.shape, p).unwrap_or(y.shape), y.color, 1.0))
+                (Some(m), None, Some((from, to))) | (None, Some(m), Some((from, to))) => {
+                    shapes.push((&m.key, Shape::lerp(*from, *to, p).unwrap_or(m.shape), m.color, 1.0))
                 }
-                (None, None) => unreachable!("a pair has a side"),
+                // Two kinds of mark: the old one shrinks out as the new one grows in.
+                (Some(x), Some(y), None) => {
+                    let gone = Shape::lerp(x.shape, x.shape.collapsed(base_b), p).unwrap_or(x.shape);
+                    shapes.push((&x.key, gone, x.color, 1.0));
+                    let come = Shape::lerp(y.shape.collapsed(base_a), y.shape, p).unwrap_or(y.shape);
+                    shapes.push((&y.key, come, y.color, 1.0));
+                }
+                _ => unreachable!("a pair has a side, and one side has one kind of mark"),
             }
         }
         // Lines and areas run through their marks where this frame puts them; a series
@@ -800,6 +805,131 @@ fn rides(pairs: Vec<Pair>) -> Vec<Keyed> {
         .collect()
 }
 
+/// A bar `p` of the way from `a` to `b` in two stages, as d3's grouped and stacked bars
+/// regroup: heights first and then widths, or widths first and then heights. Each stage
+/// takes half the transition, so the bars never cross mid-way.
+fn regrouped(a: RoundRect, b: RoundRect, p: f32, heights_first: bool) -> RoundRect {
+    let (first, second) = ((2.0 * p).min(1.0), (2.0 * p - 1.0).max(0.0));
+    let (ph, pw) = if heights_first { (first, second) } else { (second, first) };
+    RoundRect {
+        x: lerp(a.x, b.x, pw),
+        w: lerp(a.w, b.w, pw),
+        y: lerp(a.y, b.y, ph),
+        h: lerp(a.h, b.h, ph),
+        top_radius: lerp(a.top_radius, b.top_radius, ph),
+        bottom_radius: lerp(a.bottom_radius, b.bottom_radius, ph),
+    }
+}
+
+/// Where a mark of the plan starts and ends (SPEC §3.7 Motion). A matched key moves
+/// from its shape on one side to its shape on the other; a key on one side only comes
+/// from, or goes to, where it would stand on the other side ([`entry`]). `None` where
+/// two kinds of mark meet.
+fn ends(k: Keyed, a: Option<&ChartLayout>, b: Option<&ChartLayout>) -> Option<(Shape, Shape)> {
+    let (ma, mb) = (marks_of(a), marks_of(b));
+    let dx = k.ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
+    match k.pair {
+        (Some(i), Some(j)) => Shape::lerp(ma[i].shape, mb[j].shape, 0.0).map(|_| (ma[i].shape, mb[j].shape)),
+        (None, Some(j)) => Some((entry(&mb[j], a, b, true, -dx), mb[j].shape)),
+        (Some(i), None) => Some((ma[i].shape, entry(&ma[i], a, b, false, dx))),
+        (None, None) => unreachable!("a pair has a side"),
+    }
+}
+
+/// Where mark `m`, only in the target (`entering`) or only in the source, stands on the
+/// side that lacks it, moved as far as the neighbor it rides with (`dx`):
+/// - A point of a line or an area whose series runs on that side lies on the series'
+///   path where its x falls, level with the path's end past it: a vertex bends out of
+///   the line, and a new period slides in off the end.
+/// - A member of a stack opens with no extent where it stands among the stack's members
+///   there, so a stack never gaps and a donut sweeps open from twelve o'clock.
+/// - A bar flattens onto the baseline, and a point of a line drops onto it. A dot of a
+///   scatter or a dot plot closes where it is.
+fn entry(m: &Mark, a: Option<&ChartLayout>, b: Option<&ChartLayout>, entering: bool, dx: f32) -> Shape {
+    let (own, other) = if entering { (b, a) } else { (a, b) };
+    let foot = other.or(own).map_or(0.0, |c| c.base);
+    let series = own.and_then(|c| c.paths.iter().find(|s| s.marks.contains(&m.key)));
+    if let (Some(series), Some(o)) = (series, other)
+        && let Some(path) = o.paths.iter().find(|p| p.key == series.key)
+    {
+        let mut points: Vec<Shape> =
+            path.marks.iter().filter_map(|k| o.marks.iter().find(|x| x.key == *k)).map(|x| x.shape).collect();
+        points.sort_by(|p, q| p.center_x().total_cmp(&q.center_x()));
+        if !points.is_empty() {
+            return on_path(m.shape, &points, m.shape.center_x() + dx);
+        }
+    }
+    if let Some(stack) = &m.stack {
+        fn members<'c>(c: Option<&'c ChartLayout>, stack: &str) -> Vec<&'c Mark> {
+            marks_of(c).iter().filter(|x| x.stack.as_ref().is_some_and(|s| s.key == stack)).collect()
+        }
+        let (sa, sb) = (members(a, &stack.key), members(b, &stack.key));
+        let keys = |s: &[&Mark]| -> Vec<String> { s.iter().map(|x| x.key.clone()).collect() };
+        let order = merged(&keys(&sa), &keys(&sb));
+        let side = if entering { &sa } else { &sb };
+        let start = if matches!(m.shape, Shape::Arc { .. }) { 0.0 } else { foot };
+        let at = boundary(&order, side, &m.key, start);
+        let beside = side.first().map(|x| x.shape);
+        let shape = if beside.is_some() { m.shape } else { m.shape.shifted(dx) };
+        return shape.opened_at(at, beside);
+    }
+    match m.shape {
+        Shape::Dot { x, y, .. } if series.is_none() => Shape::Dot { x: x + dx, y, r: 0.0 },
+        shape => shape.shifted(dx).collapsed(foot),
+    }
+}
+
+/// `shape`, a point of a line or an area, moved to `x` on the path through `points` (in
+/// x order): between the two points around `x`, or level with the nearer end.
+fn on_path(shape: Shape, points: &[Shape], x: f32) -> Shape {
+    let n = points.partition_point(|q| q.center_x() < x);
+    let along = match n {
+        0 => points[0],
+        n if n == points.len() => points[n - 1],
+        n => {
+            let (p, q) = (points[n - 1], points[n]);
+            let span = q.center_x() - p.center_x();
+            Shape::lerp(p, q, if span > 0.0 { (x - p.center_x()) / span } else { 0.0 }).unwrap_or(p)
+        }
+    };
+    match (shape, along) {
+        (Shape::Dot { r, .. }, Shape::Dot { y, .. }) => Shape::Dot { x, y, r },
+        (Shape::Span { .. }, Shape::Span { top, base, .. }) => Shape::Span { x, top, base },
+        (shape, _) => shape.shifted(x - shape.center_x()),
+    }
+}
+
+/// The keys of `a` and `b` in one order that keeps each one's: a key on one side only
+/// stays among the keys around it on that side.
+fn merged(a: &[String], b: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    let mut next = 0;
+    for k in b {
+        if let Some(at) = a.iter().position(|x| x == k) {
+            out.extend(a.get(next..at).unwrap_or_default().iter().filter(|x| !b.contains(x)).cloned());
+            next = next.max(at + 1);
+        }
+        out.push(k.clone());
+    }
+    out.extend(a.get(next..).unwrap_or_default().iter().filter(|x| !b.contains(x)).cloned());
+    out
+}
+
+/// Where `key`, missing from `side`, would stand among `side`'s members of its stack:
+/// at the end of the member before it in `order`, else at the stack's `start`.
+fn boundary(order: &[String], side: &[&Mark], key: &str, start: f32) -> f32 {
+    let mut at = start;
+    for k in order {
+        if k == key {
+            break;
+        }
+        if let Some(stack) = side.iter().find(|m| m.key == *k).and_then(|m| m.stack.as_ref()) {
+            at = stack.to;
+        }
+    }
+    at
+}
+
 fn lerp2(a: Point, b: Point, p: f32) -> Point {
     [lerp(a[0], b[0], p), lerp(a[1], b[1], p)]
 }
@@ -1004,5 +1134,216 @@ mod tests {
         // Nothing matched: nothing to ride with.
         let (a, b) = (names(&["a"]), names(&["b"]));
         assert!(rides(pair(&a, &b, |s| s)).iter().all(|k| k.ride.is_none()));
+    }
+
+    // --- chart motion -------------------------------------------------------------
+
+    use crate::charts::Stack;
+    use crate::scale::LinearScale;
+
+    fn chart(kind: ChartKind, marks: Vec<Mark>, paths: Vec<SeriesPath>) -> ChartLayout {
+        ChartLayout {
+            kind,
+            base: 100.0,
+            baseline: None,
+            marks,
+            ticks: Vec::new(),
+            labels: Vec::new(),
+            numerals: None,
+            paths,
+            y_scale: LinearScale { domain: [0.0, 1.0], range: [100.0, 0.0] },
+            plot: [0.0, 0.0, 400.0, 100.0],
+            clipped: false,
+            y_axis: Vec::new(),
+            titles: Vec::new(),
+            legend: Vec::new(),
+            x_grid: Vec::new(),
+        }
+    }
+
+    fn mark(key: &str, shape: Shape, stack: Option<(&str, f32, f32)>) -> Mark {
+        let stack = stack.map(|(k, from, to)| Stack { key: k.into(), from, to });
+        Mark { key: key.into(), shape, color: Color([0, 0, 0, 255]), stack }
+    }
+
+    /// A segment of stack `s` at `x` from `from` up to `to` (canvas y, so `to < from`).
+    fn segment(key: &str, x: f32, from: f32, to: f32) -> Mark {
+        let r = RoundRect { x, y: to, w: 20.0, h: from - to, top_radius: 0.0, bottom_radius: 0.0 };
+        mark(key, Shape::Bar(r), Some(("s", from, to)))
+    }
+
+    fn slice(key: &str, start: f32, end: f32) -> Mark {
+        let arc = Shape::Arc { cx: 50.0, cy: 50.0, inner: 20.0, outer: 40.0, start, end };
+        mark(key, arc, Some(("", start, end)))
+    }
+
+    /// Every mark of the plan `p` of the way, by key.
+    fn at(a: Option<&ChartLayout>, b: Option<&ChartLayout>, p: f32) -> Vec<(String, Shape)> {
+        let plan = ChartPlan::new(a, b);
+        let (ma, mb) = (marks_of(a), marks_of(b));
+        plan.marks
+            .iter()
+            .zip(&plan.ends)
+            .map(|((k, _), ends)| {
+                let m = k.pair.1.map(|j| &mb[j]).or(k.pair.0.map(|i| &ma[i])).unwrap();
+                let (from, to) = ends.unwrap();
+                (m.key.clone(), Shape::lerp(from, to, p).unwrap())
+            })
+            .collect()
+    }
+
+    /// The extents of `shapes` along their stack, end to end from `start`: each one's
+    /// start is the last one's end.
+    fn partition(mut spans: Vec<(f32, f32)>, start: f32, end: f32) {
+        spans.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.total_cmp(&y.1)));
+        let mut at = start;
+        for (from, to) in &spans {
+            assert!((from - at).abs() < 1e-4, "a gap or an overlap at {at}: {spans:?}");
+            at = *to;
+        }
+        assert!((at - end).abs() < 1e-4, "ends at {at}, not {end}: {spans:?}");
+    }
+
+    #[test]
+    fn a_stack_member_that_enters_or_leaves_opens_where_it_stands_and_the_stack_never_gaps() {
+        // [a, x, b] becomes [a, n, b]: x closes and n opens between a and b.
+        let before = chart(
+            ChartKind::StackedBar,
+            vec![segment("a", 10.0, 100.0, 80.0), segment("x", 10.0, 80.0, 70.0), segment("b", 10.0, 70.0, 40.0)],
+            Vec::new(),
+        );
+        let after = chart(
+            ChartKind::StackedBar,
+            vec![segment("a", 10.0, 100.0, 90.0), segment("n", 10.0, 90.0, 60.0), segment("b", 10.0, 60.0, 50.0)],
+            Vec::new(),
+        );
+        let ends = |key: &str| {
+            let plan = ChartPlan::new(Some(&before), Some(&after));
+            let i = plan.marks.iter().position(|(k, _)| {
+                let m = k.pair.1.map(|j| &after.marks[j]).or(k.pair.0.map(|i| &before.marks[i])).unwrap();
+                m.key == key
+            });
+            plan.ends[i.unwrap()].unwrap()
+        };
+        let span = |s: Shape| match s {
+            Shape::Bar(r) => (r.top(), r.bottom()),
+            other => panic!("{other:?}"),
+        };
+        // In the merged order a, n, x, b: n opens on a, under x, and x closes on n, under b.
+        assert_eq!(span(ends("n").0), (80.0, 80.0));
+        assert_eq!(span(ends("x").1), (60.0, 60.0));
+        for p in [0.0, 0.3, 0.5, 0.8, 1.0] {
+            let bars: Vec<(f32, f32)> = at(Some(&before), Some(&after), p)
+                .into_iter()
+                .map(|(_, s)| {
+                    let (top, bottom) = span(s);
+                    (-bottom, -top)
+                })
+                .collect();
+            let top = lerp(40.0, 50.0, p);
+            partition(bars, -100.0, -top);
+        }
+        // A stack that is new rides in whole from the baseline.
+        let grown = at(None, Some(&after), 0.0);
+        assert!(grown.iter().all(|(_, s)| span(*s) == (100.0, 100.0)), "{grown:?}");
+    }
+
+    #[test]
+    fn a_donut_sweeps_open_from_twelve_and_keeps_its_ring_whole() {
+        let before = chart(
+            ChartKind::Donut,
+            vec![slice("a", 0.0, 0.5), slice("x", 0.5, 0.75), slice("b", 0.75, 1.0)],
+            Vec::new(),
+        );
+        let after = chart(
+            ChartKind::Donut,
+            vec![slice("a", 0.0, 0.25), slice("n", 0.25, 0.6), slice("b", 0.6, 1.0)],
+            Vec::new(),
+        );
+        let turns = |s: Shape| match s {
+            Shape::Arc { start, end, .. } => (start, end),
+            other => panic!("{other:?}"),
+        };
+        for p in [0.0, 0.25, 0.5, 0.9, 1.0] {
+            partition(at(Some(&before), Some(&after), p).into_iter().map(|(_, s)| turns(s)).collect(), 0.0, 1.0);
+            // Entering: every slice opens from twelve o'clock, so the ring sweeps round.
+            let entering: Vec<(f32, f32)> = at(None, Some(&after), p).into_iter().map(|(_, s)| turns(s)).collect();
+            partition(entering.clone(), 0.0, p);
+        }
+    }
+
+    #[test]
+    fn a_point_of_a_line_enters_on_the_line_and_a_new_period_slides_in_off_its_end() {
+        let dot = |key: &str, x: f32, y: f32| mark(key, Shape::Dot { x, y, r: 3.0 }, None);
+        let path = |keys: &[&str]| SeriesPath {
+            key: "s".into(),
+            color: Color([0, 0, 0, 255]),
+            stroke: Some(2.0),
+            marks: keys.iter().map(|k| k.to_string()).collect(),
+        };
+        let before =
+            chart(ChartKind::Line, vec![dot("q1", 0.0, 80.0), dot("q2", 100.0, 40.0)], vec![path(&["q1", "q2"])]);
+        // A point between two others bends out of the segment between them.
+        let between = chart(
+            ChartKind::Line,
+            vec![dot("q1", 0.0, 80.0), dot("mid", 25.0, 10.0), dot("q2", 100.0, 40.0)],
+            vec![path(&["q1", "mid", "q2"])],
+        );
+        let start = at(Some(&before), Some(&between), 0.0);
+        let mid = start.iter().find(|(k, _)| k == "mid").unwrap().1;
+        assert_eq!(mid, Shape::Dot { x: 25.0, y: 70.0, r: 3.0 }, "a quarter of the way from q1 to q2");
+        // The window advances: q3 rides in with q2, level with where the line ended.
+        let next =
+            chart(ChartKind::Line, vec![dot("q2", 0.0, 40.0), dot("q3", 100.0, 60.0)], vec![path(&["q2", "q3"])]);
+        let start = at(Some(&before), Some(&next), 0.0);
+        let q3 = start.iter().find(|(k, _)| k == "q3").unwrap().1;
+        assert_eq!(q3, Shape::Dot { x: 200.0, y: 40.0, r: 3.0 }, "off the end, one period on, level with q2");
+        let end = at(Some(&before), Some(&next), 1.0);
+        let q1 = end.iter().find(|(k, _)| k == "q1").unwrap().1;
+        assert_eq!(q1, Shape::Dot { x: -100.0, y: 40.0, r: 3.0 }, "q1 leaves off the start, level with q2");
+        // With no line to enter on, the points rise from the baseline.
+        let rising = at(None, Some(&before), 0.0);
+        assert!(rising.iter().all(|(_, s)| matches!(s, Shape::Dot { y: 100.0, r: 0.0, .. })), "{rising:?}");
+    }
+
+    #[test]
+    fn a_dot_of_a_scatter_opens_where_it_stands() {
+        let dots =
+            chart(ChartKind::Scatter, vec![mark("p", Shape::Dot { x: 30.0, y: 20.0, r: 8.0 }, None)], Vec::new());
+        assert_eq!(at(None, Some(&dots), 0.0)[0].1, Shape::Dot { x: 30.0, y: 20.0, r: 0.0 });
+        assert_eq!(at(Some(&dots), None, 1.0)[0].1, Shape::Dot { x: 30.0, y: 20.0, r: 0.0 });
+    }
+
+    #[test]
+    fn charts_morph_between_kinds_that_draw_the_same_marks_and_cross_fade_otherwise() {
+        use ChartKind::*;
+        assert!(Bar.morphs_to(StackedBar) && StackedBar.morphs_to(Bar) && Donut.morphs_to(Donut));
+        for (x, y) in [(Bar, Line), (Line, Area), (Dot, Scatter), (Area, StackedBar)] {
+            assert!(!x.morphs_to(y), "{x:?} → {y:?}");
+        }
+    }
+
+    #[test]
+    fn bars_regroup_in_two_stages() {
+        let side = RoundRect { x: 0.0, y: 60.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0 };
+        let stacked = RoundRect { x: 0.0, y: 20.0, w: 30.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0 };
+        // Into a stack: heights first, then widths.
+        let quarter = regrouped(side, stacked, 0.25, true);
+        assert_eq!((quarter.y, quarter.w, quarter.top_radius), (40.0, 10.0, 1.0));
+        let three = regrouped(side, stacked, 0.75, true);
+        assert_eq!((three.y, three.w), (20.0, 20.0));
+        // Out of one: widths first, then heights.
+        let quarter = regrouped(stacked, side, 0.25, false);
+        assert_eq!((quarter.y, quarter.w), (20.0, 20.0));
+        assert_eq!(regrouped(stacked, side, 1.0, false), side);
+        assert_eq!(regrouped(side, stacked, 0.0, true), side);
+    }
+
+    #[test]
+    fn the_merged_order_keeps_both_sides_orders() {
+        let v = |s: &[&str]| s.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        assert_eq!(merged(&v(&["a", "x", "b"]), &v(&["a", "n", "b"])), v(&["a", "n", "x", "b"]));
+        assert_eq!(merged(&v(&["a", "b"]), &v(&["b", "c"])), v(&["a", "b", "c"]));
+        assert_eq!(merged(&v(&["a", "b", "z"]), &v(&["n"])), v(&["n", "a", "b", "z"]));
     }
 }

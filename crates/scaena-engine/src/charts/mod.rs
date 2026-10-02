@@ -176,6 +176,20 @@ impl Shape {
         }
     }
 
+    /// The same mark with no extent at `at` along its stack, standing across it where
+    /// `beside` stands (a mark of the same stack), or where it is.
+    pub fn opened_at(self, at: f32, beside: Option<Shape>) -> Shape {
+        match (self, beside) {
+            (Shape::Bar(r), Some(Shape::Bar(s))) => Shape::Bar(RoundRect { x: s.x, w: s.w, ..r.collapsed(at) }),
+            (Shape::Bar(r), _) => Shape::Bar(r.collapsed(at)),
+            (Shape::Span { .. }, Some(Shape::Span { x, .. })) => Shape::Span { x, top: at, base: at },
+            (Shape::Span { x, .. }, _) => Shape::Span { x, top: at, base: at },
+            (Shape::Arc { .. }, Some(Shape::Arc { cx, cy, inner, outer, .. }))
+            | (Shape::Arc { cx, cy, inner, outer, .. }, _) => Shape::Arc { cx, cy, inner, outer, start: at, end: at },
+            (Shape::Dot { x, y, .. }, _) => Shape::Dot { x, y, r: 0.0 },
+        }
+    }
+
     /// The same mark moved `dx` across; a slice stays where it is.
     pub fn shifted(self, dx: f32) -> Shape {
         match self {
@@ -268,6 +282,30 @@ fn arc(center: Point, inner: f32, outer: f32, start: f32, end: f32) -> Path {
     Path(els)
 }
 
+/// The v1 kinds (SPEC §3.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartKind {
+    Bar,
+    StackedBar,
+    Line,
+    Area,
+    Scatter,
+    Dot,
+    Donut,
+}
+
+impl ChartKind {
+    /// A chart of this kind morphs into one of `other` mark by mark: the same kind, or
+    /// bars that regroup. Any other change of kind cross-fades.
+    pub fn morphs_to(self, other: ChartKind) -> bool {
+        self == other
+            || matches!(
+                (self, other),
+                (ChartKind::Bar, ChartKind::StackedBar) | (ChartKind::StackedBar, ChartKind::Bar)
+            )
+    }
+}
+
 /// One datum's mark.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
@@ -275,9 +313,22 @@ pub struct Mark {
     pub key: String,
     pub shape: Shape,
     pub color: Color,
-    /// Where it grows from when it enters and shrinks to when it leaves: `None` for the
-    /// chart's baseline, wherever that is in each state; the stack under it otherwise.
-    pub base: Option<f32>,
+    /// Its place in a stack, if it stands in one.
+    pub stack: Option<Stack>,
+}
+
+/// A mark's place in a stack: a stacked bar's segment, a stacked area's span, or a
+/// donut's slice. The members of one stack partition it end to end in the order they
+/// are listed, so a member that enters or leaves opens or closes where it stands among
+/// them and the stack never gaps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stack {
+    /// The stack: a category (and a sign, for bars), or the ring.
+    pub key: String,
+    /// Where it starts and ends along the stack: canvas y from the stack's foot for bars
+    /// and spans, turns clockwise from twelve o'clock for slices.
+    pub from: f32,
+    pub to: f32,
 }
 
 /// A series drawn as one path through its marks (SPEC §3.7): a line through its dots,
@@ -541,6 +592,7 @@ impl CategoryFormat {
 /// labels, clipped at the cell's sides.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
+    pub kind: ChartKind,
     /// The baseline's y: where a new value grows from and a removed one shrinks to.
     pub base: f32,
     pub baseline: Option<Rule>,
@@ -595,10 +647,14 @@ pub struct Ctx<'a> {
     pub theme: &'a Theme,
     pub deck: &'a Deck,
     pub data: &'a DataFiles,
+    /// What the chart colors across the deck's states, in the order it first appears
+    /// ([`color_keys`]), so a series keeps its color from state to state. A key not
+    /// here takes its place in this state's own order.
+    pub colors: &'a [String],
 }
 
 mod compile;
-pub use compile::compile;
+pub use compile::{color_keys, compile};
 
 #[cfg(test)]
 mod tests {
