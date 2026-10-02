@@ -130,6 +130,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *After the fifteen-slide deck (#36):*
     - *A line's first and last values get room beside a continuous axis, two spaces from the value axis's labels, so neither is pushed back over its line.*
     - *The baseline rules 0 only where the value axis reaches it, so a line that starts at 120 shows no rule that reads as zero.*
+  - *After the skill trials (1.18):*
+    - *A stack whose members move on different clocks, as under a stagger, is re-stacked each frame. Each member keeps the extent its own clock gives it and starts where the one before it ends, so stacks build member on member and a ring sweeps open slice by slice. A stack's total counts with the stack.*
+    - *A line's or an area's unit is its series, so its points move together and no point drops to the baseline while its neighbors are up.*
+    - *Counts stop at their ends on a spring (SPEC §3.9 already said so).*
+    - *A date `parse` format that reads a month or a day but no year is refused, instead of reading 1900.*
+    - *Torture case 44 `stagger` holds the motion, at 0.3 and 0.6 of its span; no other golden moved. The trails deck drops its `stagger: 0` workarounds.*
   - *Open: Jay's review of the gallery renders, then the tick. Next candidates, by the same rule: range frames for the value axis, white gridlines knocked through bars, and direct labels for donuts and scatters.)*
 
 - [x] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets. *(Done. In `scaena-core::shader`, SPEC §3.8:*
@@ -284,10 +290,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Not done:*
     - *No semantic op sets a state's `transition`, `choreography`, or `hold`; the motion skill writes JSON Patch guarded by `test`.*
     - *W320 counts nodes, not the marks or split units a motion moves.*
-    - *The motion trial found defects in the engine:*
-      - *A staggered chart entrance misorders stacked segments, repeats donut slices, and drops a line's later points to zero.*
-      - *Counting labels overshoot their values on an under-damped spring, where SPEC §3.9 says chart data stop at their ends.*
-      - *Until those are fixed, the trails deck sets `stagger: 0` on its stacked bars, donut, and lines.)*
+    - *The motion trial found engine defects: a staggered chart entrance misordered stacked segments and donut slices and dropped a line's points to zero, and counting labels overshot their values on a spring. 1.9 fixes them, after the skill trials.)*
 - [x] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI. *(Done. `crates/scaena-cli/tests/mcp.rs`; SPEC §14:*
   - *The test starts `scaena mcp` as a child process and talks to it on stdio, as an agent's client does. Through the tools alone it:*
     - *creates a deck from Dusk (`deck_create`);*

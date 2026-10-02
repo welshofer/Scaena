@@ -130,10 +130,14 @@ W302 - morph-from mf-star /nodes/mf-star/at/col
 W302 - morph-from mf-sky /nodes/mf-sky/at/col
 W302 - morph-from mf-badge /nodes/mf-badge/at/col
 W302 - morph mf-arrow /nodes/mf-arrow/at/col
+W302 - stagger st-stack /nodes/st-stack/at/col
+W302 - stagger st-donut /nodes/st-donut/at/col
+W302 - stagger st-line /nodes/st-line/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27
 W421 - motion - /states/41
+W421 - stagger - /states/45
 I402 - - marks-dot /overrides/marks-dot
 I402 - - gp-linear /overrides/gp-linear
 I402 - - gp-conic /overrides/gp-conic

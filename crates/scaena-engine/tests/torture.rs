@@ -29,8 +29,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// annotations that move. PLAN 1.11 adds case 40's motions on the cue clock: words
 /// rising in turn, then cards, then bars on a spring, then a pulse. PLAN 1.12 adds case
 /// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
-/// color that comes and goes.
-const MORPH: [(&str, f64); 15] = [
+/// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
+/// build member on member, a ring that sweeps open, and lines that rise series by series.
+const MORPH: [(&str, f64); 17] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -46,6 +47,8 @@ const MORPH: [(&str, f64); 15] = [
     ("morph", 0.25),
     ("morph", 0.5),
     ("morph", 0.75),
+    ("stagger", 0.3),
+    ("stagger", 0.6),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and

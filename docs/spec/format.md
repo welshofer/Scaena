@@ -60,7 +60,7 @@ Directives, among literal text:
 
 - **Padding.** After the `%`, `-` drops a number's padding, `_` pads with spaces, and `0` pads with zeros: `%b %-d, %Y` prints `Mar 5, 2025`.
 - **Time zones.** Dates have none. A date is a civil date and time, so 2025-03-01T09:00 is nine o'clock wherever the deck plays.
-- **Reading dates.** A column the source's `schema` types `date` reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`). Without one, it reads ISO 8601: `2025`, `2025-03`, `2025-03-05`, or with `T14:07` or `T14:07:09`, and a trailing `Z` is ignored.
+- **Reading dates.** A column the source's `schema` types `date` reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`). A format that reads a month, quarter, day, or weekday reads the year too (`%Y` or `%y`): one without would put every date in 1900, and is E103. Periods without a year (`Jan`, `Q3`) are text, on an ordinal axis in their order. A time of day alone (`%H:%M`) reads no date and needs no year. Without one, it reads ISO 8601: `2025`, `2025-03`, `2025-03-05`, or with `T14:07` or `T14:07:09`, and a trailing `Z` is ignored.
   - Names read in any case.
   - Fields the format does not name default to 1900-01-01 at midnight, as d3's do.
   - `%y` reads 00–68 as 2000–2068, and 69–99 as 1969–1999.

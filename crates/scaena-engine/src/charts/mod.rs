@@ -540,9 +540,11 @@ impl Numerals {
     }
 
     /// The number `p` of the way from `a` to `b`, as its label spells it: in the
-    /// encoding's format, else to as many places as either end shows.
+    /// encoding's format, else to as many places as either end shows. A spring that
+    /// carries the mark past its value does not carry the number: data stop at their
+    /// ends (SPEC §3.9).
     pub fn count(&self, a: f64, b: f64, p: f32) -> String {
-        let v = a + (b - a) * f64::from(p);
+        let v = a + (b - a) * f64::from(p.clamp(0.0, 1.0));
         let text = match &self.format {
             Some(f) => f.format(v, self.locale),
             None => {
