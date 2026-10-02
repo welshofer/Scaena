@@ -94,6 +94,8 @@ fn without_a_format_labels_print_as_d3_does_and_count_at_the_places_either_end_s
     let numerals = layout.numerals.as_ref().unwrap();
     assert_eq!(numerals.count(0.25, 12.0, 0.5), "6.13", "two places, as 0.25 shows; 6.125 rounds up");
     assert_eq!(numerals.count(7.0, 12.0, 0.5), "10", "9.5 rounds away from zero");
+    // A spring carries a bar past its value and back, but not its number (SPEC §3.9).
+    assert_eq!((numerals.count(0.0, 12.0, 1.03), numerals.count(0.0, 12.0, -0.02)), ("12".into(), "0".into()));
 }
 
 #[test]

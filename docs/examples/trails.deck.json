@@ -1345,8 +1345,7 @@
             },
             {
               "target": "crews-chart",
-              "enter": "grow",
-              "stagger": 0
+              "enter": "grow"
             },
             {
               "target": "crews-note",
@@ -1376,8 +1375,7 @@
             },
             {
               "target": "kinds-chart",
-              "enter": "grow",
-              "stagger": 0
+              "enter": "grow"
             },
             {
               "target": "kinds-note",
@@ -1473,8 +1471,7 @@
             },
             {
               "target": "funding-chart",
-              "enter": "grow",
-              "stagger": 0
+              "enter": "grow"
             },
             {
               "target": "funding-body",

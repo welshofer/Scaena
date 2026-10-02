@@ -115,6 +115,12 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
             return Err(at(format!("`parse` names `{column}`, which the schema does not type as a date")));
         }
         let f = DateFormat::parse(spec).map_err(|e| at(format!("`parse.{column}`: {e}")))?;
+        if f.misses_year() {
+            return Err(at(format!(
+                "`parse.{column}`: `{spec}` reads no year, so every date would fall in 1900. Add the year \
+                 (`%b %Y`), or keep the column text: periods without a year sit on an ordinal axis in their order"
+            )));
+        }
         parse.insert(column, f);
     }
     let typed = |column: &str, kind: ColumnType, raw: Value| -> Result<Datum, DataError> {
@@ -385,5 +391,13 @@ mod tests {
         assert_eq!(t.rows[0][0], Datum::Date(DateTime::ymd(2025, 3, 1).unwrap()));
         let deck2 = deck(r#"{"q": {"source": {"inline": []}, "schema": {"v": "number"}, "parse": {"v": "%Y"}}}"#);
         assert!(load(&deck2, &BTreeMap::new(), "q").unwrap_err().to_string().contains("does not type as a date"));
+        // A month with no year would fall in 1900; a time of day alone is no date.
+        let monthly =
+            deck(r#"{"q": {"source": {"inline": [{"m": "May"}]}, "schema": {"m": "date"}, "parse": {"m": "%b"}}}"#);
+        assert!(load(&monthly, &BTreeMap::new(), "q").unwrap_err().to_string().contains("reads no year"));
+        let hourly = deck(
+            r#"{"q": {"source": {"inline": [{"h": "14:05"}]}, "schema": {"h": "date"}, "parse": {"h": "%H:%M"}}}"#,
+        );
+        assert!(load(&hourly, &BTreeMap::new(), "q").is_ok());
     }
 }

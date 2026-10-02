@@ -1332,21 +1332,24 @@ impl ChartPlan {
             .into_iter()
             .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
             .collect();
-        // Entering marks stagger in the target's order, leaving ones in the source's.
-        let side = |k: &Keyed| match k.pair {
-            (None, Some(j)) => Some((1, j)),
-            (Some(i), None) => Some((0, i)),
+        // Entering marks stagger in the target's order, leaving ones in the source's: a
+        // line's or an area's by series, so a series' points move together and its path
+        // keeps its shape, and any other chart's mark by mark.
+        let unit = |k: &Keyed| match k.pair {
+            (None, Some(j)) => b.map(|c| (1, unit_of(c, j))),
+            (Some(i), None) => a.map(|c| (0, unit_of(c, i))),
             _ => None,
         };
-        let order = marks
-            .iter()
-            .map(|(k, _)| {
-                let (s, at) = side(k)?;
-                let peers = marks.iter().filter_map(|(o, _)| side(o).filter(|(t, _)| *t == s));
-                let (before, n) = peers.fold((0, 0), |(b, n), (_, x)| (b + usize::from(x < at), n + 1));
-                Some((before, n))
-            })
-            .collect();
+        let units: Vec<Option<(usize, usize)>> = marks.iter().map(|(k, _)| unit(k)).collect();
+        let peers = |s: usize| {
+            let mut peers: Vec<usize> = units.iter().flatten().filter(|(t, _)| *t == s).map(|&(_, u)| u).collect();
+            peers.sort_unstable();
+            peers.dedup();
+            peers
+        };
+        let peers = [peers(0), peers(1)];
+        let order =
+            (units.iter()).map(|u| u.map(|(s, u)| (peers[s].partition_point(|&x| x < u), peers[s].len()))).collect();
         ChartPlan {
             baseline: (a.and_then(|c| c.baseline.as_ref()).map(|_| 0), b.and_then(|c| c.baseline.as_ref()).map(|_| 0)),
             ends: marks.iter().map(|(k, _)| ends(*k, a, b, enter, exit)).collect(),
@@ -1369,14 +1372,17 @@ impl ChartPlan {
         }
     }
 
-    /// How many marks enter (`true`) or leave: what a cue on the chart's marks counts.
+    /// How many units enter (`true`) or leave: what a cue on the chart's marks counts. A
+    /// line's or an area's unit is a series, any other chart's a mark.
     fn one_sided(&self, entering: bool) -> usize {
         let side = |k: &Keyed| match k.pair {
             (None, Some(_)) => entering,
             (Some(_), None) => !entering,
             _ => false,
         };
-        self.marks.iter().filter(|(k, _)| side(k)).count()
+        (self.marks.iter().zip(&self.order))
+            .find_map(|((k, _), order)| order.filter(|_| side(k)).map(|(_, n)| n))
+            .unwrap_or(0)
     }
 
     /// The chart's ops `p` of the way from `a` to `b`, in the order a chart at rest
@@ -1502,6 +1508,13 @@ impl ChartPlan {
                 _ => unreachable!("a pair has a side, and one side has one kind of mark"),
             }
         }
+        let same_kind = a.zip(b).is_none_or(|(x, y)| x.kind == y.kind);
+        let mut counted = progress.clone();
+        if same_kind && self.regroup.is_none() && shapes.len() == self.marks.len() {
+            for (i, q) in restack(&mut shapes, &progress, a, b) {
+                counted[i] = q;
+            }
+        }
         // Lines and areas run through their marks where this frame puts them; a series
         // on one side only fades.
         let (pa, pb) = (paths_of(a), paths_of(b));
@@ -1566,7 +1579,7 @@ impl ChartPlan {
         // Value labels ride their marks and count.
         let numerals = b.and_then(|c| c.numerals.as_ref()).or_else(|| a.and_then(|c| c.numerals.as_ref()));
         let (la, lb) = (a.map_or(&[][..], |c| &c.labels), b.map_or(&[][..], |c| &c.labels));
-        for ((&(marks, (i, j)), shape), &p) in self.marks.iter().zip(&sampled).zip(&progress) {
+        for ((&(marks, (i, j)), shape), &p) in self.marks.iter().zip(&sampled).zip(&counted) {
             value_label(dl, &mut plot, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
         }
         for &(x, y) in &notes {
@@ -1638,6 +1651,100 @@ fn text_between(dl: &mut DisplayList, ops: &mut Vec<Op>, x: Option<&Label>, y: O
         (None, Some(y)) => put(y.origin, p * y.opacity, y),
         (None, None) => {}
     }
+}
+
+/// Mark `i`'s unit when chart `c`'s marks move one after another: its series' place on
+/// a line or an area, else its own.
+fn unit_of(c: &ChartLayout, i: usize) -> usize {
+    let key = &c.marks[i].key;
+    c.paths.iter().position(|p| p.marks.contains(key)).unwrap_or(i)
+}
+
+/// Each stack re-stacked at this frame, where its members move on different clocks (a
+/// stagger, or a member entering on its cue while the rest move with the transition).
+/// In the stack's order, each member keeps the extent its own progress gives it and
+/// starts where the one before it ends, so the stack never gaps or overlaps. At either
+/// end, and wherever its members share one progress, a stack already stands so and is
+/// left as it is. A stack whose order differs between the sides, or whose members
+/// change stacks (a value changing sign), is left as it is too.
+///
+/// Returns how far each re-stacked bar's label has counted: a stack prints one label,
+/// its total, which counts with the stack, by how much of it stands, not with its top
+/// member alone.
+fn restack(
+    shapes: &mut [(&str, Shape, Color, f32)],
+    progress: &[f32],
+    a: Option<&ChartLayout>,
+    b: Option<&ChartLayout>,
+) -> Vec<(usize, f32)> {
+    let mut totals = Vec::new();
+    fn stack_of<'c>(c: Option<&'c ChartLayout>, key: &str) -> Option<&'c crate::charts::Stack> {
+        marks_of(c).iter().find(|m| m.key == key).and_then(|m| m.stack.as_ref())
+    }
+    let mut stacks: Vec<&str> = Vec::new();
+    for m in marks_of(a).iter().chain(marks_of(b)) {
+        if let Some(s) = &m.stack
+            && !stacks.contains(&s.key.as_str())
+        {
+            stacks.push(&s.key);
+        }
+    }
+    for stack in stacks {
+        let members = |c: Option<&ChartLayout>| -> Vec<String> {
+            let on = marks_of(c).iter().filter(|m| m.stack.as_ref().is_some_and(|s| s.key == stack));
+            on.map(|m| m.key.clone()).collect()
+        };
+        let (sa, sb) = (members(a), members(b));
+        let order = merged(&sa, &sb);
+        let keeps = |side: &[String]| order.iter().filter(|k| side.contains(k)).eq(side.iter());
+        let stays = |key: &str| [a, b].iter().all(|&c| stack_of(c, key).is_none_or(|s| s.key == stack));
+        if !keeps(&sa) || !keeps(&sb) || !order.iter().all(|k| stays(k)) {
+            continue;
+        }
+        let Some(at): Option<Vec<usize>> =
+            order.iter().map(|k| shapes.iter().position(|s| s.0 == k.as_str())).collect()
+        else {
+            continue;
+        };
+        if at.iter().all(|&i| progress[i] == progress[at[0]]) {
+            continue;
+        }
+        // How tall the stack stands on either side, and at this frame.
+        let extent = |c: Option<&ChartLayout>, key: &str| stack_of(c, key).map_or(0.0, |s| (s.to - s.from).abs());
+        let (was, will) = order.iter().fold((0.0, 0.0), |(x, y), k| (x + extent(a, k), y + extent(b, k)));
+        let mut now = 0.0;
+        let top = *at.last().expect("a stack has members");
+        let bars = matches!(shapes[top].1, Shape::Bar(_));
+        let mut next: Option<f32> = None;
+        for (i, key) in at.iter().copied().zip(&order) {
+            // A bar's stack rises from its foot, or for values below zero falls from it.
+            let rising = stack_of(b, key).or(stack_of(a, key)).is_some_and(|s| s.to < s.from);
+            let shape = shapes[i].1;
+            let (from, extent) = match shape {
+                Shape::Bar(r) if rising => (r.y + r.h, -r.h),
+                Shape::Bar(r) => (r.y, r.h),
+                Shape::Span { top, base, .. } => (base, top - base),
+                Shape::Arc { start, end, .. } => (start, end - start),
+                Shape::Dot { .. } => continue,
+            };
+            let from = next.unwrap_or(from);
+            next = Some(from + extent);
+            now += extent.abs();
+            shapes[i].1 = match shape {
+                Shape::Bar(r) => Shape::Bar(RoundRect { y: from.min(from + extent), h: extent.abs(), ..r }),
+                Shape::Span { x, .. } => Shape::Span { x, top: from + extent, base: from },
+                Shape::Arc { cx, cy, inner, outer, .. } => {
+                    Shape::Arc { cx, cy, inner, outer, start: from, end: from + extent }
+                }
+                dot => dot,
+            };
+        }
+        if bars {
+            let counted = if (will - was).abs() > f32::EPSILON { (now - was) / (will - was) } else { progress[top] };
+            totals.extend(at.into_iter().map(|i| (i, counted)));
+        }
+    }
+    totals
 }
 
 fn marks_of(c: Option<&ChartLayout>) -> &[Mark] {
@@ -2418,5 +2525,88 @@ mod tests {
         assert_eq!(merged(&v(&["a", "x", "b"]), &v(&["a", "n", "b"])), v(&["a", "n", "x", "b"]));
         assert_eq!(merged(&v(&["a", "b"]), &v(&["b", "c"])), v(&["a", "b", "c"]));
         assert_eq!(merged(&v(&["a", "b", "z"]), &v(&["n"])), v(&["n", "a", "b", "z"]));
+    }
+
+    /// Marks by key, and how far each re-stacked total has counted.
+    type Staggered = (Vec<(String, Shape)>, Vec<(usize, f32)>);
+
+    /// Each mark of `b`, entering with a growing cue, at its own progress, re-stacked,
+    /// and how far each stack's total has counted.
+    fn staggered(b: &ChartLayout, progress: &[f32]) -> Staggered {
+        let mut shapes: Vec<(String, Shape)> = progress
+            .iter()
+            .enumerate()
+            .map(|(i, &q)| at_with(None, Some(b), q, Some(look(true))).swap_remove(i))
+            .collect();
+        let mut sampled: Vec<(&str, Shape, Color, f32)> =
+            shapes.iter().map(|(k, s)| (k.as_str(), *s, Color([0, 0, 0, 255]), 1.0)).collect();
+        let totals = restack(&mut sampled, progress, None, Some(b));
+        let restacked: Vec<Shape> = sampled.iter().map(|s| s.1).collect();
+        for (s, r) in shapes.iter_mut().zip(restacked) {
+            s.1 = r;
+        }
+        (shapes, totals)
+    }
+
+    #[test]
+    fn a_staggered_stack_builds_up_member_on_member() {
+        // Three segments enter one after another: the first is in, the second half way,
+        // the third not yet begun. Each stands on the one before it as it is now.
+        let stack = chart(
+            ChartKind::StackedBar,
+            vec![segment("a", 10.0, 100.0, 80.0), segment("b", 10.0, 80.0, 70.0), segment("c", 10.0, 70.0, 40.0)],
+            Vec::new(),
+        );
+        let (bars, totals) = staggered(&stack, &[1.0, 0.5, 0.0]);
+        let span = |s: Shape| match s {
+            Shape::Bar(r) => (r.top(), r.bottom()),
+            other => panic!("{other:?}"),
+        };
+        partition(bars.iter().map(|(_, s)| span(*s)).collect(), 75.0, 100.0);
+        assert_eq!(span(bars[1].1), (75.0, 80.0), "half its extent, on the first");
+        // Its total counts with the stack: 25 of its 60 stand.
+        assert_eq!(totals, [(0, 25.0 / 60.0), (1, 25.0 / 60.0), (2, 25.0 / 60.0)]);
+        // Left as they were, the second would open from the foot over the first.
+        let unstacked = at_with(None, Some(&stack), 0.5, Some(look(true)));
+        assert_eq!(span(unstacked[1].1), (85.0, 90.0));
+
+        // A donut's slices sweep open one after another, each from the last one's end.
+        let ring =
+            chart(ChartKind::Donut, vec![slice("x", 0.0, 0.5), slice("y", 0.5, 0.8), slice("z", 0.8, 1.0)], vec![]);
+        let (slices, totals) = staggered(&ring, &[1.0, 0.5, 0.0]);
+        assert!(totals.is_empty(), "each slice prints its own value, on its own clock");
+        let turns = |s: Shape| match s {
+            Shape::Arc { start, end, .. } => (start, end),
+            other => panic!("{other:?}"),
+        };
+        partition(slices.iter().map(|(_, s)| turns(*s)).collect(), 0.0, 0.65);
+        // Members on one clock already stand so, and keep their exact places.
+        let (together, _) = staggered(&ring, &[0.5, 0.5, 0.5]);
+        let lerped = at_with(None, Some(&ring), 0.5, Some(look(true)));
+        assert_eq!(together, lerped);
+    }
+
+    #[test]
+    fn a_line_or_an_area_staggers_by_series() {
+        let point = |key: &str, x: f32| mark(key, Shape::Dot { x, y: 50.0, r: 3.0 }, None);
+        let series = |key: &str, marks: &[&str]| SeriesPath {
+            key: key.into(),
+            color: Color([0, 0, 0, 255]),
+            stroke: Some(2.0),
+            marks: marks.iter().map(|k| k.to_string()).collect(),
+        };
+        let lines = chart(
+            ChartKind::Line,
+            vec![point("a1", 0.0), point("b1", 0.0), point("a2", 50.0), point("b2", 50.0), point("a3", 99.0)],
+            vec![series("a", &["a1", "a2", "a3"]), series("b", &["b1", "b2"])],
+        );
+        let plan = ChartPlan::new(None, Some(&lines), Some(look(true)), None);
+        // Two units, one a series: each point moves with the rest of its series.
+        assert_eq!(plan.one_sided(true), 2);
+        let order: Vec<Option<(usize, usize)>> = plan.order.clone();
+        assert_eq!(order, [Some((0, 2)), Some((1, 2)), Some((0, 2)), Some((1, 2)), Some((0, 2))]);
+        // Bars stagger one by one.
+        let bars = chart(ChartKind::Bar, vec![point("q1", 0.0), point("q2", 50.0)], Vec::new());
+        assert_eq!(ChartPlan::new(None, Some(&bars), Some(look(true)), None).one_sided(true), 2);
     }
 }
