@@ -1240,6 +1240,7 @@ mod tests {
             titles: Vec::new(),
             legend: Vec::new(),
             x_grid: Vec::new(),
+            collisions: Vec::new(),
         }
     }
 

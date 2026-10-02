@@ -583,6 +583,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         titles: Vec::new(),
         legend: Vec::new(),
         x_grid: Vec::new(),
+        collisions: Vec::new(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);
@@ -825,7 +826,123 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let origin = [x0, y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
         out.ticks.push(Label { key, origin, text, value: None });
     }
+    // Value labels that overlap: hidden or nudged apart as `labels.collide` says, else
+    // reported (W310).
+    let apart = 0.25 * gap;
+    match labels.and_then(|l| l.get("collide")).and_then(Value::as_str) {
+        None => out.collisions = collisions(&out.labels, apart),
+        Some("hide") => hide(&mut out.labels, apart),
+        Some("nudge") => nudge(&mut out.labels, apart),
+        Some(other) => return Err(EngineError::Layout(format!("labels.collide `{other}`: expected hide or nudge"))),
+    }
     Ok(out)
+}
+
+/// A label's box: its advance across, and its cap height down to its baseline.
+fn ink(l: &Label) -> [f32; 4] {
+    let first = &l.text.lines[0];
+    let baseline = l.origin[1] + first.baseline;
+    let cap = first.cap_height.unwrap_or(first.ascent);
+    [l.origin[0], baseline - cap, l.origin[0] + l.text.width, baseline]
+}
+
+/// Two boxes closer than `apart` both ways.
+fn near(a: [f32; 4], b: [f32; 4], apart: f32) -> bool {
+    a[0] < b[2] + apart && b[0] < a[2] + apart && a[1] < b[3] + apart && b[1] < a[3] + apart
+}
+
+/// Each pair of labels closer than `apart`, by key, in label order.
+fn collisions(labels: &[Label], apart: f32) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (i, a) in labels.iter().enumerate() {
+        for b in &labels[i + 1..] {
+            if near(ink(a), ink(b), apart) {
+                out.push((a.key.clone(), b.key.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Keep the labels of the largest values that touch no label kept before them (the
+/// earlier in data order on a tie); hide the rest.
+fn hide(labels: &mut Vec<Label>, apart: f32) {
+    let size = |l: &Label| l.value.map_or(0.0, |v| v.value.abs());
+    let mut order: Vec<usize> = (0..labels.len()).collect();
+    order.sort_by(|&i, &j| size(&labels[j]).total_cmp(&size(&labels[i])).then(i.cmp(&j)));
+    let mut kept: Vec<usize> = Vec::new();
+    for i in order {
+        if !kept.iter().any(|&k| near(ink(&labels[k]), ink(&labels[i]), apart)) {
+            kept.push(i);
+        }
+    }
+    let mut i = 0;
+    labels.retain(|_| {
+        i += 1;
+        kept.contains(&(i - 1))
+    });
+}
+
+/// Move labels that overlap up and down, as little as they can in all (least squares),
+/// keeping their order: labels whose spans across overlap form a column, and each run
+/// of a column that would touch moves as a block centered on where its labels want to
+/// be. A nudged label rides its mark at its new height.
+fn nudge(labels: &mut [Label], apart: f32) {
+    let boxes: Vec<[f32; 4]> = labels.iter().map(ink).collect();
+    // Columns: labels whose spans across overlap, transitively.
+    let mut across: Vec<usize> = (0..labels.len()).collect();
+    across.sort_by(|&i, &j| boxes[i][0].total_cmp(&boxes[j][0]).then(i.cmp(&j)));
+    let mut columns: Vec<(Vec<usize>, f32)> = Vec::new();
+    for i in across {
+        match columns.last_mut() {
+            Some((column, right)) if boxes[i][0] < *right + apart => {
+                column.push(i);
+                *right = right.max(boxes[i][2]);
+            }
+            _ => columns.push((vec![i], boxes[i][2])),
+        }
+    }
+    for (mut column, _) in columns {
+        column.sort_by(|&i, &j| boxes[i][1].total_cmp(&boxes[j][1]).then(i.cmp(&j)));
+        // Blocks of labels set edge to edge: their members, and where the block's top
+        // goes. Each member wants its top where it is.
+        let mut blocks: Vec<(Vec<usize>, f32)> = Vec::new();
+        for i in column {
+            blocks.push((vec![i], boxes[i][1]));
+            while blocks.len() > 1 {
+                let (members, top) = &blocks[blocks.len() - 2];
+                let bottom = top + members.iter().map(|&m| boxes[m][3] - boxes[m][1] + apart).sum::<f32>();
+                let (_, next) = &blocks[blocks.len() - 1];
+                if bottom <= *next {
+                    break;
+                }
+                let (tail, _) = blocks.pop().expect("two blocks");
+                let (head, _) = blocks.pop().expect("two blocks");
+                let members: Vec<usize> = head.into_iter().chain(tail).collect();
+                // The top that moves the members least in all: the mean of each one's
+                // wanted top less its place in the block.
+                let mut at = 0.0;
+                let mut want = 0.0;
+                for &m in &members {
+                    want += boxes[m][1] - at;
+                    at += boxes[m][3] - boxes[m][1] + apart;
+                }
+                let top = want / members.len() as f32;
+                blocks.push((members, top));
+            }
+        }
+        for (members, top) in blocks {
+            let mut at = top;
+            for m in members {
+                let dy = at - boxes[m][1];
+                labels[m].origin[1] += dy;
+                if let Some(v) = labels[m].value.as_mut() {
+                    v.drop += dy;
+                }
+                at += boxes[m][3] - boxes[m][1] + apart;
+            }
+        }
+    }
 }
 
 /// A chart's `enter` or `exit`: a theme motion preset by name, or `{ "preset", … }`

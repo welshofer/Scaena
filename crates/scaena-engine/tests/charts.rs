@@ -409,3 +409,48 @@ fn chart_presets_read_the_themes_motion_and_calls_override_it() {
     let err = charts::compile(&mut cx, &d.nodes["c"].props, [1600.0, 700.0]).unwrap_err();
     assert!(err.to_string().contains("PLAN 1.11"), "{err}");
 }
+
+/// Two lines that end a hair apart, their end labels on top of each other.
+fn close_ends(collide: Value) -> ChartLayout {
+    let rows = json!([
+        { "q": "Q1", "s": "A", "v": 10 }, { "q": "Q2", "s": "A", "v": 22 },
+        { "q": "Q1", "s": "B", "v": 4 }, { "q": "Q2", "s": "B", "v": 21.5 },
+        { "q": "Q1", "s": "C", "v": 2 }, { "q": "Q2", "s": "C", "v": 21 }
+    ]);
+    let mut labels = json!({ "show": "ends" });
+    if !collide.is_null() {
+        labels["collide"] = collide;
+    }
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q", "x": { "field": "q" }, "y": { "field": "v" },
+                        "series": { "field": "s" }, "labels": labels });
+    compile(&deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart))
+}
+
+#[test]
+fn value_labels_that_overlap_are_reported_hidden_or_nudged_apart() {
+    // As laid out: B's end label overlaps A's above it and C's below (W310 reads this).
+    let raw = close_ends(Value::Null);
+    let ends = |c: &ChartLayout| -> Vec<String> {
+        c.labels.iter().filter(|l| l.key.starts_with("Q2")).map(|l| l.key.clone()).collect()
+    };
+    assert_eq!(ends(&raw).len(), 3);
+    let pair = |x: &str, y: &str| (format!("Q2\u{1f}{x}"), format!("Q2\u{1f}{y}"));
+    assert_eq!(raw.collisions, [pair("A", "B"), pair("B", "C")]);
+    // `hide` keeps the largest values' labels that touch none kept before them.
+    let hidden = close_ends(json!("hide"));
+    assert_eq!(ends(&hidden), ["Q2\u{1f}A", "Q2\u{1f}C"]);
+    assert!(hidden.collisions.is_empty());
+    // `nudge` moves them apart, in their order, each by as much as its label rides.
+    let nudged = close_ends(json!("nudge"));
+    assert!(nudged.collisions.is_empty());
+    let label = |c: &ChartLayout, k: &str| c.labels.iter().find(|l| l.key == format!("Q2\u{1f}{k}")).unwrap().clone();
+    let (a, b, c) = (label(&nudged, "A"), label(&nudged, "B"), label(&nudged, "C"));
+    assert!(a.origin[1] < b.origin[1] && b.origin[1] < c.origin[1], "A above B above C");
+    for k in ["A", "B", "C"] {
+        let (was, now) = (label(&raw, k), label(&nudged, k));
+        let dy = now.origin[1] - was.origin[1];
+        assert!((now.value.unwrap().drop - was.value.unwrap().drop - dy).abs() < 1e-4, "{k} rides at its new height");
+    }
+    // Least movement: the middle label stays about where it was.
+    assert!((b.origin[1] - label(&raw, "B").origin[1]).abs() < 0.5 * b.text.height);
+}

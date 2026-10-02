@@ -308,7 +308,7 @@ Rules:
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
 - Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
 - A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
-- Label collision is lint **W310**; the engine MAY auto-resolve with `labels.collide: "hide" | "nudge"`.
+- Value labels that overlap are lint **W310**, unless `labels.collide` resolves them (`"hide"` or `"nudge"`; Labels below).
 - Numbers and dates print through an encoding's `format`, in d3's grammar plus a compact type `k` (`$.2~k` prints `$1.2B`). They print in the deck's language (`meta.lang`), and identically on every platform (`docs/spec/format.md`).
 
 **Compile (PLAN 0.10, 1.9).** A chart compiles once per snapshot to keyed marks, labels, axes, and a legend; frames only sample them (§5).
@@ -327,6 +327,10 @@ Rules:
 - **Legend.** One entry per series, or per slice of a donut, when there are two or more. Each entry is a swatch, a square of the label's cap height rounded like the bars, on the label's baseline, in `charts.legend.role` (else the axis's role). `legend` places it: `auto` and `top` (the default) above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top; `none` hides it. The object form of `legend` is reserved and returns NotImplemented.
 - **Scale.** The value axis runs from `domain[0]` to `domain[1]`. An unset bound is the data's extent, and for kinds whose length is the value (`bar`, `stackedBar`, `area`) it includes 0. Stacked kinds take the extent of their stacks. The plot leaves room above the marks for value labels.
 - **Labels.** Category labels (or x ticks) sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) prints values in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format`. With no format they print as d3 prints a number: `0.1 + 0.2` prints `0.3`. `ends` labels each series' first and last datum. A bar's label sits one space unit above it (below a negative bar), and a point's sits above the point. A stack prints one label, its total, over its top segment: every stack with `all`, the first and last with `ends`. A donut's label sits outside its slice's middle, on that side of the ring. Every other value label, and every category label and x tick, is centered on its mark or tick but stays inside the plot's sides. Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
+- **Collisions.** Value labels collide when their cap-height boxes come within a quarter space unit of each other.
+  - `labels.collide: "hide"` keeps the labels of the largest values that touch no label kept before them (the earlier in data order on a tie), and hides the rest.
+  - `"nudge"` moves labels up and down as little as it can in all (least squares), keeping their order: labels whose spans across overlap form a column, and each run of a column that would touch moves as a block centered on where its labels want to be. A nudged label rides its mark at its new height.
+  - Without `collide`, the layout reports each pair that collides, for W310 (PLAN 1.15 runs layout lints).
 - **Axes** (PLAN 1.9). Category labels and x ticks show unless `axes.x.show` is false.
   - `axes.y.show` adds the value axis: tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
   - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one the baseline already rules. On a continuous x, `axes.x.gridlines` rules each x tick from the plot's top to its foot.
@@ -349,7 +353,7 @@ Rules:
   - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
   - Mark k starts `delay + k × stagger` ms into the transition and runs for the preset's `duration`, else its spring's settle time, else the transition's. A schedule longer than the transition shrinks to fit it, so every mark is at rest when the transition is; PLAN 1.11 moves choreography onto the global timeline. A mark eases with the preset's `ease`, else the transition's, or follows its spring (`libm`, so every platform agrees).
   - A `split` other than `marks`, a preset's `to`, and any other property return NotImplemented (PLAN 1.11).
-- **Later.** `dataTransform`, `annotations`, and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9. The same sprint brings label collision (`labels.collide`, W310).
+- **Later.** `dataTransform`, `annotations`, and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9.
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -745,7 +749,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W221 | warn | baseline-grid violation |
 | W300 | warn | style literal outside `overrides` |
 | W301 | warn | absolute `rect` placement in a template-managed state |
-| W310 | warn | chart label collision |
+| W310 | warn | chart value labels within a quarter space unit of each other, unless `labels.collide` resolves them |
 | W320 | warn | too many concurrent animations |
 | W321 | warn | build exceeds `maxBuild` |
 | W401 | warn | state not referenced by any beat |

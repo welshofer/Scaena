@@ -420,8 +420,8 @@ pub struct ValueLabel {
     /// How much of the label's width falls before its anchor: ½ centers it, 0 starts it
     /// there, 1 ends it there.
     pub align: f32,
-    /// From the anchor down to the baseline (a slice's label centers its cap height on
-    /// its point).
+    /// From the anchor down to the baseline: a slice's label centers its cap height on
+    /// its point, and a label nudged off its neighbors moves (`labels.collide`).
     pub drop: f32,
 }
 
@@ -431,10 +431,10 @@ impl ValueLabel {
         match *shape {
             Shape::Bar(r) => {
                 let end = if self.below { r.bottom() } else { r.top() };
-                [r.center_x(), end + self.offset]
+                [r.center_x(), end + self.offset + self.drop]
             }
-            Shape::Dot { x, y, r } => [x, if self.below { y + r } else { y - r } + self.offset],
-            Shape::Span { x, top, .. } => [x, top + self.offset],
+            Shape::Dot { x, y, r } => [x, if self.below { y + r } else { y - r } + self.offset + self.drop],
+            Shape::Span { x, top, .. } => [x, top + self.offset + self.drop],
             Shape::Arc { cx, cy, outer, start, end, .. } => {
                 let (mid, r) = (0.5 * (start + end) * core::f32::consts::TAU, outer + self.offset);
                 [cx + r * libm::sinf(mid), cy - r * libm::cosf(mid) + self.drop]
@@ -657,6 +657,9 @@ pub struct ChartLayout {
     pub legend: Vec<LegendEntry>,
     /// Gridlines across a continuous x, keyed by tick.
     pub x_grid: Vec<AxisTick>,
+    /// Value labels that overlap as laid out, by their marks' keys (lint W310); none
+    /// when `labels.collide` resolves them.
+    pub collisions: Vec<(String, String)>,
 }
 
 /// A legend entry: a swatch in the series' color beside its name.
