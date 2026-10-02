@@ -988,7 +988,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         keys_repeat(&repeated),
                         by(base, own)
                     );
-                    found("E103", here(if key.is_some() { "key" } else { "x" }, ""), message);
+                    found("E103", if key.is_some() { here("key", "") } else { here("x", "/field") }, message);
                 }
             }
             // A chart's annotations name its categories (or x values) and series.

@@ -76,7 +76,8 @@ fn a_theme_that_lacks_names_the_deck_uses_says_which_and_exits_1() {
         .iter()
         .map(|f| format!("{} {}", f["code"].as_str().unwrap(), f["path"].as_str().unwrap()))
         .collect();
-    for expected in ["E102 /nodes/subtitle/role", "E102 /states/1/props/title/at/in", "E102 /nodes/note/at/in"] {
+    // It has no `title` role and no `figure` layout (whose slots are then not looked for).
+    for expected in ["E102 /nodes/subtitle/role", "E102 /states/1/layout"] {
         assert!(added.contains(&expected.to_string()), "{expected} in {added:?}");
     }
     assert!(delta["removed"].as_array().unwrap().is_empty());

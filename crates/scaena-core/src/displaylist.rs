@@ -965,8 +965,8 @@ mod tests {
         let mut snaps = crate::resolve_states(&deck).unwrap();
         assert_eq!(paint_order(&snaps[0]), ["bg", "title", "subtitle"]);
         // Push the background to the front: z decides; equal z keeps scene-graph order.
-        snaps[1].nodes["bg"].insert("z".into(), serde_json::json!(5));
-        snaps[1].nodes["note"].insert("z".into(), serde_json::json!(-1));
-        assert_eq!(paint_order(&snaps[1]), ["note", "title", "rev", "bg"]);
+        snaps[0].nodes["bg"].insert("z".into(), serde_json::json!(5));
+        snaps[0].nodes["subtitle"].insert("z".into(), serde_json::json!(-1));
+        assert_eq!(paint_order(&snaps[0]), ["subtitle", "title", "bg"]);
     }
 }

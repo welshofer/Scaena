@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W322 clean: the entrance in the state where the node enters.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Enters", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}, "choreography": [{"target": "t", "enter": "fade"}]},
+    {"id": "b", "layout": "full", "props": {"t": {"text": "Then changes"}}}
+  ]
+}

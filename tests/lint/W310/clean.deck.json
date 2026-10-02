@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W310 clean: the same chart, its colliding labels hidden.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"pairs": {"source": {"inline": [{"q": "Q1", "p": "A", "v": 10}, {"q": "Q1", "p": "B", "v": 10}, {"q": "Q2", "p": "A", "v": 12}, {"q": "Q2", "p": "B", "v": 12}, {"q": "Q3", "p": "A", "v": 14}, {"q": "Q3", "p": "B", "v": 14}]}, "schema": {"v": "number"}}},
+  "nodes": {
+    "c": {"type": "chart", "kind": "bar", "data": "@pairs", "x": {"field": "q"}, "y": {"field": "v"}, "series": {"field": "p"}, "labels": {"show": "all", "collide": "hide"}, "alt": "Two series, even in each quarter.", "at": {"col": [1, 1], "row": [1, 6]}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"c": {}}}
+  ]
+}

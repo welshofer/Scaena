@@ -205,7 +205,8 @@ fn main() -> Result<()> {
     gpu_rows(&dls, &store, &mut row);
 
     // Lint: validation and the document-level rules.
-    let lints: Vec<f64> = (0..20).map(|_| ms(|| black_box(scaena_core::lint::lint_document(&l.deck))).0).collect();
+    let lints: Vec<f64> =
+        (0..20).map(|_| ms(|| black_box(scaena_core::lint::lint_document(&l.deck, Some(&*l.theme)))).0).collect();
     row("Validate + document-level lint", f(median(lints)), "—".into(), "≤ 100 ms (B1)");
 
     // Cold render: the whole `scaena render` process, once per state.

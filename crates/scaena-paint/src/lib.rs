@@ -271,6 +271,20 @@ pub trait Painter {
     fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError>;
 }
 
+/// A painter and the assets it draws from, lent to lint for what only pixels say: the
+/// background text sits on (E110, E111; `scaena_core::lint::Backdrop`).
+pub struct Backdrop<'a, P: Painter> {
+    pub painter: P,
+    pub assets: &'a Assets,
+}
+
+impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
+    fn paint(&mut self, dl: &DisplayList, scale: f32) -> Result<scaena_core::lint::Pixels, String> {
+        let raster = self.painter.paint(dl, self.assets, scale).map_err(|e| e.to_string())?;
+        Ok(scaena_core::lint::Pixels { width: raster.width, height: raster.height, rgba: raster.rgba })
+    }
+}
+
 /// Output size in whole pixels for `dl` at `scale`.
 fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
     let (w, h) = ((dl.viewport[0] * scale).round(), (dl.viewport[1] * scale).round());

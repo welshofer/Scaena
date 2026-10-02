@@ -55,7 +55,8 @@ fn layout(props: Value, size: [f32; 2]) -> Result<TableLayout, String> {
     let d = deck(regions(), json!([{ "id": "s", "layout": "specimen", "props": { "t": props } }]));
     let snap = &scaena_core::resolve_states(&d).unwrap()[0];
     let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
+    let mut cx =
+        Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[], lenient: false };
     tables::compile(&mut cx, &snap.nodes["t"], size).map_err(|e| e.to_string())
 }
 
@@ -105,7 +106,8 @@ fn a_table_that_does_not_fit_says_how_to_make_it() {
     let d = deck(twice, json!([{ "id": "s", "layout": "specimen", "props": { "t": {} } }]));
     let snap = &scaena_core::resolve_states(&d).unwrap()[0];
     let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
+    let mut cx =
+        Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[], lenient: false };
     let err = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).unwrap_err().to_string();
     assert!(err.contains("row key `A` repeats"), "{err}");
 }
@@ -143,7 +145,15 @@ fn validate_finds_the_row_key_that_compiling_refuses() {
         let d = deck(rows.clone(), json!([{ "id": "s", "layout": "specimen", "props": { "t": props } }]));
         let snap = &scaena_core::resolve_states(&d).unwrap()[0];
         let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
-        let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
+        let mut cx = Ctx {
+            text: &mut text,
+            fonts: &mut fonts,
+            theme: &theme,
+            deck: &d,
+            data: &data,
+            colors: &[],
+            lenient: false,
+        };
         let refused = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).err().map(|e| {
             let e = e.to_string();
             assert!(e.contains("repeats; table keys must be unique"), "{props}: {e}");

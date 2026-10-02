@@ -37,7 +37,7 @@ pub fn deck_schema() -> Value {
     shader_params(&mut generator);
     let schema = generator.into_root_schema_for::<crate::document::Deck>();
     let mut v = serde_json::to_value(schema).expect("a schema serializes");
-    finish(&mut v, "deck", "scaena", crate::FORMAT_VERSION);
+    finish(&mut v, "deck", Some("scaena"), crate::FORMAT_VERSION);
     let defs = v["$defs"].as_object_mut().expect("the deck schema has $defs");
     // Both from the node types as generated, each variant with every property inline.
     let mut deltas = delta_defs(defs);
@@ -73,8 +73,54 @@ pub fn theme_schema() -> Value {
     shader_params(&mut generator);
     let schema = generator.into_root_schema_for::<Theme>();
     let mut v = serde_json::to_value(schema).expect("a schema serializes");
-    finish(&mut v, "theme", "scaena-theme", crate::THEME_FORMAT_VERSION);
+    finish(&mut v, "theme", Some("scaena-theme"), crate::THEME_FORMAT_VERSION);
     v
+}
+
+/// `docs/schema/patch.schema.json`: a patch's ops (SPEC §7.3), versioned with the deck
+/// format. What an op carries (a node, a state, a delta, a data source, a theme) is typed
+/// as `deck.schema.json` types it, those definitions copied in, so the schema stands alone
+/// (an MCP tool's input schema must, PLAN 1.17).
+pub fn patch_schema() -> Value {
+    let generator = SchemaSettings::draft2020_12().into_generator();
+    let schema = generator.into_root_schema_for::<crate::patch::Patch>();
+    let mut v = serde_json::to_value(schema).expect("a schema serializes");
+    finish(&mut v, "patch", None, crate::FORMAT_VERSION);
+    let deck = deck_schema();
+    let deck_defs = deck["$defs"].as_object().expect("the deck schema has $defs");
+    let own = v["$defs"].as_object().expect("the patch schema has $defs");
+    // The patch's own definitions, then the deck's, as the deck schema writes them.
+    let mut defs: Map<String, Value> =
+        own.iter().filter(|(name, _)| !deck_defs.contains_key(*name)).map(|(n, d)| (n.clone(), d.clone())).collect();
+    defs.extend(deck_defs.iter().map(|(n, d)| (n.clone(), d.clone())));
+    v["$defs"] = Value::Object(defs);
+    // Only what the ops reach.
+    let mut reached: Vec<String> = Vec::new();
+    let mut todo = refs(&v, "$defs");
+    while let Some(name) = todo.pop() {
+        if !reached.contains(&name) {
+            todo.extend(refs(&v["$defs"][&name], ""));
+            reached.push(name);
+        }
+    }
+    v["$defs"].as_object_mut().expect("$defs").retain(|name, _| reached.contains(name));
+    v
+}
+
+/// The definitions `v` names by `$ref`, leaving out what is under the key `skip`.
+fn refs(v: &Value, skip: &str) -> Vec<String> {
+    match v {
+        Value::Object(map) => map
+            .iter()
+            .filter(|(key, _)| *key != skip)
+            .flat_map(|(key, value)| match (key.as_str(), ref_name(v)) {
+                ("$ref", Some(name)) => vec![name.to_string()],
+                _ => refs(value, skip),
+            })
+            .collect(),
+        Value::Array(items) => items.iter().flat_map(|item| refs(item, skip)).collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// `docs/schema/manifest.schema.json`.
@@ -82,7 +128,7 @@ pub fn manifest_schema() -> Value {
     let generator = SchemaSettings::draft2020_12().into_generator();
     let schema = generator.into_root_schema_for::<crate::document::Manifest>();
     let mut v = serde_json::to_value(schema).expect("a schema serializes");
-    finish(&mut v, "manifest", "scaena", crate::FORMAT_VERSION);
+    finish(&mut v, "manifest", Some("scaena"), crate::FORMAT_VERSION);
     v
 }
 
@@ -320,11 +366,13 @@ fn is_object(schema: &Value) -> bool {
 /// What schemars writes that the document format does not say: numeric `format`s, `null`
 /// on every optional property (a node's absent property is absent, not null; only a delta
 /// deletes with null, and `StateDelta` says so itself), and doc comments' line breaks and
-/// links. Then the root's `$id` and its version key's pattern, both from `version`, and every
-/// schema's keywords in one order.
-fn finish(v: &mut Value, name: &str, version_key: &str, version: &str) {
+/// links. Then the root's `$id` and its version key's pattern (a document that has one), both
+/// from `version`, and every schema's keywords in one order.
+fn finish(v: &mut Value, name: &str, version_key: Option<&str>, version: &str) {
     v["$id"] = json!(format!("https://scaena.dev/schema/{name}-{version}.json"));
-    v["properties"][version_key]["pattern"] = json!(format!("^{}(\\.[0-9]+)?$", version.replace('.', "\\.")));
+    if let Some(key) = version_key {
+        v["properties"][key]["pattern"] = json!(format!("^{}(\\.[0-9]+)?$", version.replace('.', "\\.")));
+    }
     each_schema(v, &mut |schema| {
         if schema.get("format").and_then(Value::as_str).is_some_and(is_numeric_format) {
             schema.remove("format");

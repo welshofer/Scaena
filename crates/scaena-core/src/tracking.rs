@@ -44,26 +44,33 @@ pub struct Snapshot {
 pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
     let mut out: Vec<Snapshot> = Vec::with_capacity(deck.states.len());
     for (i, state) in deck.states.iter().enumerate() {
-        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match (state.mode, &state.from) {
-            (StateMode::Absolute, _) => (IndexMap::new(), None),
-            (StateMode::Delta, Some(from)) => {
-                let j = deck
-                    .state_index(from)
-                    .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
-                if j >= i {
-                    return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
-                }
-                (strip_non_tracking(&out[j].nodes), out[j].layout.clone())
+        if let (StateMode::Delta, Some(from)) = (state.mode, &state.from) {
+            let j = deck
+                .state_index(from)
+                .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
+            if j >= i {
+                return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
             }
-            (StateMode::Delta, None) => match out.last() {
-                Some(prev) => (strip_non_tracking(&prev.nodes), prev.layout.clone()),
-                None => (IndexMap::new(), None),
-            },
+        }
+        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match tracks_from(deck, i) {
+            Some(j) => (strip_non_tracking(&out[j].nodes), out[j].layout.clone()),
+            None => (IndexMap::new(), None),
         };
         let snap = apply_state(deck, state, base, base_layout, out.last())?;
         out.push(snap);
     }
     Ok(out)
+}
+
+/// The state that `deck.states[i]` tracks from: its `from`, else the state before it. None
+/// in absolute mode, or for the first state.
+pub fn tracks_from(deck: &Deck, i: usize) -> Option<usize> {
+    let state = &deck.states[i];
+    match (state.mode, &state.from) {
+        (StateMode::Absolute, _) => None,
+        (StateMode::Delta, Some(from)) => deck.state_index(from),
+        (StateMode::Delta, None) => i.checked_sub(1),
+    }
 }
 
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
@@ -168,20 +175,22 @@ mod tests {
         // intro: bg, title, subtitle
         assert_eq!(snaps[0].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title", "subtitle"]);
         assert_eq!(snaps[0].entered, vec!["bg", "title", "subtitle"]);
-        // revenue: subtitle removed, rev + note entered, title text overridden
+        // revenue: subtitle and background removed, rev + note entered, title text overridden
         assert!(!snaps[1].nodes.contains_key("subtitle"));
-        assert_eq!(snaps[1].exited, vec!["subtitle"]);
+        assert_eq!(snaps[1].exited, vec!["bg", "subtitle"]);
         assert_eq!(snaps[1].entered, vec!["rev", "note"]);
         assert_eq!(snaps[1].nodes["title"]["text"], json!("Revenue doubled"));
         assert_eq!(snaps[1].nodes["title"]["at"], json!({"in": "header"}));
-        // mix: rev kind changed, bg tracked all the way from intro
+        // mix: rev kind changed, the layout tracked forward, the background still gone
         assert_eq!(snaps[2].nodes["rev"]["kind"], json!("stackedBar"));
         assert_eq!(snaps[2].nodes["rev"]["data"], json!("@q3"));
-        assert_eq!(snaps[2].nodes["bg"]["seed"], json!(7));
+        assert!(!snaps[2].nodes.contains_key("bg"), "a removed node stays removed");
         assert_eq!(snaps[2].slide_id, "revenue");
-        assert_eq!(snaps[2].layout.as_deref(), Some("full"), "layout tracks forward");
-        // close: rev/note removed
+        assert_eq!(snaps[2].layout.as_deref(), Some("figure"), "layout tracks forward");
+        // close: rev/note removed; the background re-enters from its node defaults
         assert_eq!(snaps[3].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title"]);
+        assert_eq!(snaps[3].entered, vec!["bg"]);
+        assert_eq!(snaps[3].nodes["bg"]["seed"], json!(7));
     }
 
     #[test]

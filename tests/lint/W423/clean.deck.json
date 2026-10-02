@@ -1,0 +1,16 @@
+{
+  "scaena": "0.8",
+  "_comment": "W423 clean: a chart reads @sales in the beat's state.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": "data/sales.csv", "schema": {"revenue": "number"}}},
+  "spine": {"sections": [{"id": "only", "beats": [{"id": "one", "claim": "Revenue doubled", "evidence": ["@sales"], "states": ["a"]}]}]},
+  "nodes": {
+    "c": {"type": "text", "role": "headline", "text": "Revenue doubled", "semantic": "claim", "at": {"in": "header"}},
+    "k": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "quarter"}, "y": {"field": "revenue"}, "series": {"field": "product"}, "alt": "Revenue by quarter and product.", "semantic": "evidence", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"c": {}, "k": {}}}
+  ]
+}

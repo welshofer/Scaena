@@ -1,0 +1,16 @@
+{
+  "scaena": "0.8",
+  "_comment": "W320 clean: the same four, staggered so no more than three move at once.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "n1": {"type": "text", "role": "body", "text": "Item 1", "at": {"col": [1, 3], "row": 2}},
+    "n2": {"type": "text", "role": "body", "text": "Item 2", "at": {"col": [4, 6], "row": 2}},
+    "n3": {"type": "text", "role": "body", "text": "Item 3", "at": {"col": [7, 9], "row": 2}},
+    "n4": {"type": "text", "role": "body", "text": "Item 4", "at": {"col": [10, 12], "row": 2}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"n1": {}, "n2": {}, "n3": {}, "n4": {}}, "choreography": [{"target": ["n1", "n2", "n3", "n4"], "enter": "fade", "stagger": 200}]}
+  ]
+}

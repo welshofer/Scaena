@@ -263,6 +263,11 @@ pub struct TextLayout {
     pub rtl: bool,
     /// Some run asked for faux bold or oblique, which the display list cannot express.
     pub synthesized: bool,
+    /// How its lines align across the box.
+    pub align: TextAlign,
+    /// Where its lines break: the box's width, or its `measure` if that is narrower. A
+    /// line wider than this holds a word that cannot break (lint W201).
+    pub measure: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -518,7 +523,18 @@ impl TextEngine {
         let optical = spec.optical_margins;
         let widow = widowed(&layout, &segments, min_words);
         let words = words(&segments);
-        let paragraph = Paragraph { wrap, fallback, rtl, align: spec.align, hang, optical, width, words, widow };
+        let paragraph = Paragraph {
+            wrap,
+            fallback,
+            rtl,
+            align: spec.align,
+            hang,
+            optical,
+            width,
+            measure: max_width,
+            words,
+            widow,
+        };
         read_layout(&layout, text, fonts, &hyphens, paragraph)
     }
 
@@ -1222,6 +1238,8 @@ struct Paragraph {
     optical: bool,
     /// The box the lines align across.
     width: f32,
+    /// Where lines break: `width`, or the measure if that is narrower.
+    measure: f32,
     /// Its words (see [`words`]).
     words: Vec<Range<usize>>,
     /// A last line shorter than `minLastLineWords` that breaking could not hold.
@@ -1240,6 +1258,7 @@ impl Paragraph {
             hang,
             optical: false,
             width: 0.0,
+            measure: 0.0,
             words: Vec::new(),
             widow: false,
         }
@@ -1383,5 +1402,7 @@ fn read_layout(
         widow: p.widow,
         rtl: p.rtl,
         synthesized,
+        align: p.align,
+        measure: p.measure,
     })
 }

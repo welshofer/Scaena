@@ -100,11 +100,14 @@ pub struct Engine {
     /// The global timeline's states as far as last worked out, and a hash of the deck,
     /// theme, and data they were worked out from.
     timeline: Option<(u64, Spans)>,
+    /// Lay out what a frame refuses (text under `fit: error` that does not fit, a table
+    /// whose rows do not), for lint to report: set only while lint runs.
+    pub(crate) lenient: bool,
 }
 
 impl Engine {
     pub fn new(fonts: BundleFonts) -> Self {
-        Self { fonts, images: BundleImages::new(), text: TextEngine::new(), timeline: None }
+        Self { fonts, images: BundleImages::new(), text: TextEngine::new(), timeline: None, lenient: false }
     }
 
     /// The bundle's images, which image nodes name.
@@ -260,13 +263,22 @@ impl Engine {
                             }
                         }
                     }
-                    let mut cx =
-                        Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &colors };
+                    let mut cx = Ctx {
+                        text: &mut self.text,
+                        fonts: &mut self.fonts,
+                        theme,
+                        deck,
+                        data,
+                        colors: &colors,
+                        lenient: self.lenient,
+                    };
                     let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
                     Content::Chart { cell: rect, chart: Box::new(chart) }
                 }
                 NodeType::Table => {
-                    let mut cx = Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &[] };
+                    let lenient = self.lenient;
+                    let mut cx =
+                        Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &[], lenient };
                     let table = tables::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
                     Content::Table { cell: rect, table: Box::new(table) }
                 }
@@ -378,7 +390,7 @@ impl Engine {
                 let ceiling = number("maxSize").or(spec.role.max_size).map_or(2.0, |m| m / spec.role.size).max(1.0);
                 largest_fit(&mut lay, &fits, 1.0, ceiling)?
             }
-            TextFit::Error if !fits_box(&base) => {
+            TextFit::Error if !fits_box(&base) && !self.lenient => {
                 let (top, bottom) = base.trimmed(trim);
                 return Err(EngineError::Layout(format!(
                     "node `{id}`: its text needs {:.0} × {:.0} cu and its box is {:.0} × {:.0} (`fit: error`)",

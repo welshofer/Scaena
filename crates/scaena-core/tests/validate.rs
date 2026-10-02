@@ -71,8 +71,8 @@ fn e103_fields_charts_cannot_read() {
             "/nodes/g/annotations/1/at/series",
             "/nodes/h/annotations/0/at/x",
             "/nodes/k/key",
-            "/nodes/m/x",
-            "/nodes/n/x",
+            "/nodes/m/x/field",
+            "/nodes/n/x/field",
             "/nodes/tk/columns/0",
             "/states/1/props/c/y/field",
             "/states/1/props/p/key",
@@ -100,12 +100,12 @@ fn e103_fields_charts_cannot_read() {
     let k = say("/nodes/k/key");
     assert!(k.starts_with("keys `Core`, `Cloud` repeat in `@sales`: the chart keys each datum by `product`;"), "{k}");
     assert!(k.ends_with("drop `key` to key it by `quarter` and `product`, which tell its rows apart"), "{k}");
-    let m = say("/nodes/m/x");
+    let m = say("/nodes/m/x/field");
     assert!(
         m.contains("keys `Q1`, `Q2` repeat") && m.ends_with("give it a `key` field that tells its rows apart"),
         "{m}"
     );
-    let n = say("/nodes/n/x");
+    let n = say("/nodes/n/x/field");
     assert!(n.contains("keys `Core`, `Cloud` repeat in `@sales`: the chart keys each datum by `product`;"), "{n}");
     let tk = say("/nodes/tk/columns/0");
     assert!(tk.contains("row keys `Core`, `Cloud` repeat") && tk.contains("by `product`, its first column"), "{tk}");
@@ -264,4 +264,29 @@ fn a_theme_name_the_theme_does_not_define_is_e102_in_the_theme_file() {
 #[test]
 fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
     assert!(validate_bundle("{ \"scaena\": ", &Fixtures).is_err());
+}
+
+#[test]
+fn e103_two_rows_one_mark() {
+    // A mark is known by its key, else its category, with its series beside it.
+    let deck = serde_json::json!({
+        "scaena": "0.8",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": {
+            "source": { "inline": [{ "q": "Q1", "p": "A", "v": 1 }, { "q": "Q1", "p": "B", "v": 2 }, { "q": "Q2", "p": "A", "v": 3 }] },
+            "schema": { "v": "number" }
+        } },
+        "nodes": {
+            "keyed": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                       "series": { "field": "p" }, "key": "p", "alt": "", "at": { "in": "main" } },
+            "unseried": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                          "alt": "", "at": { "in": "main" } },
+            "fine": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                      "series": { "field": "p" }, "alt": "", "at": { "in": "main" } }
+        },
+        "states": [{ "id": "a", "layout": "full", "props": { "keyed": {}, "unseried": {}, "fine": {} } }]
+    });
+    assert_eq!(findings(&deck.to_string()), ["E103 /nodes/keyed/key", "E103 /nodes/unseried/x/field"]);
 }

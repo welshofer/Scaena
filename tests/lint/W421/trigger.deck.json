@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "W421 trigger: the slide ends showing evidence and no claim.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "e": {"type": "text", "role": "body", "text": "Up 48% in a year", "semantic": "evidence", "at": {"in": "footer"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"e": {}}}
+  ]
+}

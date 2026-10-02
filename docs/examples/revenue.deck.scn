@@ -28,19 +28,21 @@ state intro layout:title hold:4s
     params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035} at:in(canvas) z:-100 alt:""
     semantic:decoration
   title text role:display "Q3 Review" semantic:navigation at:in(title)
-  subtitle text role:title "Growth, mix, and what we do next" semantic:context at:in(subtitle)
+  subtitle text role:title "This quarter changed the shape of the business." semantic:claim
+    at:in(subtitle)
   choreo title split:words enter:words timing:with
   choreo subtitle enter:rise delay:240ms
   notes "Open on the title. Don't talk over the build."
 
-state revenue layout:full transition:{duration: standard, ease: standard} hold:6s
+state revenue layout:figure transition:{duration: standard, ease: standard} hold:6s
   -subtitle
+  -bg
   title "Revenue doubled" role:headline semantic:claim at:in(header)
   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
     series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
     labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
-    semantic:evidence at:col(1-12) row(2-6)
+    semantic:evidence at:in(main)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
     at:in(footer)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
@@ -54,4 +56,5 @@ state mix slide:revenue transition:slow hold:6s
 state close layout:title hold:3s
   -rev
   -note
+  bg
   title "Thank you" role:display semantic:navigation at:in(title)

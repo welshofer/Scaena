@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "E101 trigger: two paragraphs in one slot, at the same z.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "a": {"type": "text", "role": "body", "text": "First paragraph"},
+    "b": {"type": "text", "role": "body", "text": "Second paragraph"}
+  },
+  "states": [
+    {"id": "s", "layout": "full", "props": {"a": {"at": {"in": "main"}}, "b": {"at": {"in": "main"}}}}
+  ]
+}

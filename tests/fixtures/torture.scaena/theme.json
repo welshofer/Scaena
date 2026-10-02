@@ -63,7 +63,8 @@
         4,
         8,
         16,
-        32
+        32,
+        999
       ]
     },
     "stroke": {
@@ -765,6 +766,6 @@
     "barGap": 0.28
   },
   "density": {
-    "maxWordsPerState": 60
+    "maxWordsPerState": 80
   }
 }

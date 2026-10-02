@@ -1,22 +1,28 @@
-//! The typography torture deck (PLAN 0.2, benchmark B4) is a valid, lint-clean
-//! document whose states are isolated cases, so the parity harness (PLAN 0.9)
+//! The typography torture deck (PLAN 0.2, benchmark B4) is a valid document whose
+//! states are isolated cases, so the parity harness (PLAN 0.9)
 //! can report per case without one case's nodes leaking into another. The exceptions
 //! are the chart's build (PLAN 0.10), the chart gallery's motion (PLAN 1.9), and the
 //! morphs (PLAN 1.12): those states track from the one before, because the transitions
 //! between them are what they test.
 
 use scaena_core::document::StateMode;
-use scaena_core::lint::lint_document;
+use scaena_core::lint::{Severity, lint_document};
 use scaena_core::{Deck, resolve_states};
 use std::collections::{BTreeSet, HashSet};
 
 const TORTURE: &str = include_str!("../../../tests/fixtures/torture.scaena/deck.json");
+const THEME: &str = include_str!("../../../tests/fixtures/torture.scaena/theme.json");
 
+/// Valid, so every case renders. Its document-level warnings are its cases' (a deck laid
+/// out in 9:16 for one case places the rest by grid cells, W302); the CLI's lint golden
+/// (`tests/golden/lint/torture.txt`) holds every finding, layout's included.
 #[test]
-fn torture_deck_is_valid_and_lint_clean() {
+fn torture_deck_is_valid() {
     let deck = Deck::from_json(TORTURE).expect("torture deck parses");
-    let findings = lint_document(&deck);
-    assert!(findings.is_empty(), "{findings:#?}");
+    let theme = serde_json::from_str(THEME).expect("torture theme parses");
+    let errors: Vec<_> =
+        lint_document(&deck, Some(&theme)).into_iter().filter(|f| f.severity == Severity::Error).collect();
+    assert!(errors.is_empty(), "{errors:#?}");
 }
 
 /// States that track from the state before them, as (state, that state): the chart's

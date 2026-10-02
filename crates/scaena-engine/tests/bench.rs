@@ -33,7 +33,8 @@ fn runs(ops: &[Op], out: &mut Vec<(u32, usize)>) {
 fn b1_is_forty_text_states_in_four_fonts_and_every_one_draws() {
     let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
-    assert!(lint_document(&deck).is_empty(), "{:#?}", lint_document(&deck));
+    let findings = lint_document(&deck, Some(&*theme));
+    assert!(findings.is_empty(), "{findings:#?}");
     assert_eq!((deck.states.len(), deck.fonts.len()), (40, 4));
     assert!(deck.nodes.values().all(|n| n.node_type == NodeType::Text), "B1 is text only");
 
