@@ -64,7 +64,7 @@ fn load(path: &Path) -> Result<Loaded> {
 
 /// The frame of `state` at rest.
 fn req<'a>(l: &'a Loaded, state: &'a str) -> FrameRequest<'a> {
-    FrameRequest { deck: &l.deck, theme: &l.theme, data: &l.data, state, t_ms: f64::INFINITY }
+    FrameRequest { deck: &l.deck, theme: &l.theme, data: &l.data, state, t_ms: f64::INFINITY, format: None }
 }
 
 fn register(l: &Loaded) -> Result<BundleFonts> {

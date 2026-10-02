@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.3.json",
+  "$id": "https://scaena.dev/schema/theme-0.4.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.3(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.4(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -18,6 +18,19 @@
       "minProperties": 2,
       "required": ["title", "full"],
       "additionalProperties": { "$ref": "#/$defs/Layout" }
+    },
+    "formats": {
+      "description": "The grid in other formats than the deck's own (SPEC §3.4): `\"9:16\": { \"grid\": … }`. Each layout says its own slots there.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "16:9": { "$ref": "#/$defs/ThemeFormat" },
+        "1:1": { "$ref": "#/$defs/ThemeFormat" },
+        "4:3": { "$ref": "#/$defs/ThemeFormat" },
+        "9:16": { "$ref": "#/$defs/ThemeFormat" },
+        "A4": { "$ref": "#/$defs/ThemeFormat" },
+        "Letter": { "$ref": "#/$defs/ThemeFormat" }
+      }
     },
     "motion": { "$ref": "#/$defs/Motion" },
     "shaders": { "$ref": "#/$defs/Shaders" },
@@ -297,10 +310,27 @@
       "properties": {
         "description": { "type": "string" },
         "formats": {
-          "description": "Per-format overrides of slots (e.g. \"9:16\").",
+          "description": "The slots that move in other formats (SPEC §3.4): `\"9:16\": { \"slots\": … }`.",
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": false,
+          "properties": {
+            "16:9": { "$ref": "#/$defs/LayoutFormat" },
+            "1:1": { "$ref": "#/$defs/LayoutFormat" },
+            "4:3": { "$ref": "#/$defs/LayoutFormat" },
+            "9:16": { "$ref": "#/$defs/LayoutFormat" },
+            "A4": { "$ref": "#/$defs/LayoutFormat" },
+            "Letter": { "$ref": "#/$defs/LayoutFormat" }
+          }
         },
+        "slots": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Slot" } }
+      }
+    },
+    "LayoutFormat": {
+      "description": "A layout in another format: slots that take the place of its slots of the same names there. The rest stay as they are.",
+      "type": "object",
+      "required": ["slots"],
+      "additionalProperties": false,
+      "properties": {
         "slots": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Slot" } }
       }
     },
@@ -333,6 +363,12 @@
       "properties": { "x": { "$ref": "#/$defs/AlignX" }, "y": { "$ref": "#/$defs/AlignY" } }
     },
     "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
+    "ThemeFormat": {
+      "description": "A theme in another format: the grid there.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "grid": { "$ref": "#/$defs/Grid" } }
+    },
     "Motion": {
       "type": "object",
       "required": ["durations", "easings", "springs", "presets"],

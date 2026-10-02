@@ -149,7 +149,7 @@ fn rows_move_by_key_when_the_order_changes() {
     let mut engine = Engine::new(fonts(&d));
     let data = DataFiles::new();
     let mut frame = |state: &str, t_ms: f64| {
-        let req = FrameRequest { deck: &d, theme: &theme, data: &data, state, t_ms };
+        let req = FrameRequest { deck: &d, theme: &theme, data: &data, state, t_ms, format: None };
         engine.frame(&req).unwrap().display_list
     };
     let (before, after) = (cells(&frame("by-rev", f64::INFINITY)), cells(&frame("by-growth", f64::INFINITY)));

@@ -58,8 +58,11 @@ try {
   const frameMs = [];
   await mkdir(out, { recursive: true });
   for (const [name, digest] of expected) {
-    // `state` at rest, or `state@fraction`: that fraction of the transition into it.
-    const [state, at] = name.split("@");
+    // `state` at rest, or `state@fraction`: that fraction of the transition into it; after
+    // `~`, in one of the deck's formats (`9x16` for `9:16`), else on its own canvas.
+    const [frame, format] = name.split("~");
+    const [state, at] = frame.split("@");
+    await page.evaluate((f) => window.scaena.setFormat(f), format?.replace("x", ":") ?? "");
     const [got, ms] = await page.evaluate(([s, at]) => {
       const player = window.scaena.player;
       const t = at === undefined ? Infinity : Number(at) * player.duration(s);

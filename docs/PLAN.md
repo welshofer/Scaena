@@ -162,7 +162,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Tests: `morph.rs` (6: words that move and fade, punctuation, a word that changes size, one that changes color, a shape's points and paint, a shader's uniforms and a rate that cross-fades); `motion.rs` gains 8 (color looks on nodes and on split text; draw-on, a call's params, and an `anim` track; typed looks; groups at rest, coming and going, cued by their children, and drawn on); unit tests for path morphs and trimming, look composition, and shader defaults.*
     - *Changed goldens, reviewed: the case label in five chart transitions now morphs by word (`chart-kinds-next@0.5`, `chart-kinds-2-next@0.5`, `regroup-stacked@0.25` and `@0.75`, `annotations-next@0.5`); `containers` draws its group as one layer, and its raster is unchanged (the ring and the dot do not overlap).*
   - *Not done: a chart's marks take a look's opacity, translation, and scale only; color and draw-on reach a chart as a whole. A line chart that reveals left to right waits for Jay's chart pass (1.9). Lint for a draw-on that reaches no shape is PLAN 1.15's.)*
-- [ ] 1.13 Multi-format layout (`formats`) — minimum: 16:9 and 9:16 via template sets.
+- [x] 1.13 Multi-format layout (`formats`) — minimum: 16:9 and 9:16 via template sets. *(Done. `scaena-core::model::Format`, `scaena_engine::project`, SPEC §3.4, §3.6:*
+  - *A deck's `formats` name the other shapes it is laid out in: 16:9, 4:3, 9:16, 1:1, and upright A4 and Letter. A format's canvas keeps the canvas's shorter side, so a 1920 × 1080 deck is 1080 × 1920 in 9:16.*
+  - *Template sets (theme format 0.4): a theme's `formats.<format>.grid` is the grid there, and a layout's `formats.<format>.slots` take the place of its slots of the same names. Both are typed now; the layout key was an untyped placeholder since PLAN 1.1.*
+  - *`project` puts the deck on the format's canvas and the theme on its template set before layout, so layout knows nothing of formats. Everything downstream is unchanged, and the global timeline is cached per projection (a cue on lines counts them after layout). A format the deck does not list is an error naming those it does.*
+  - *Surfaces: `FrameRequest.format`, `scaena render --format 9:16` (exit 2 for an unlisted format), and in WASM `Player.formats()`, `setFormat()`, `canvasSize()`, and `Canvas.resize()`, with a format picker on the bare page.*
+  - *Found on the way: in a narrow grid container, an image whose row sets its height asked for the width its picture's shape would take, and pushed its track past the canvas. Grid children now never widen a track unless their `minW`/`minH` asks (CSS's `min-width: 0`); no existing golden moved.*
+  - *Evidence:*
+    - *Torture case 43 `formats`: a claim and a chart side by side in 16:9, stacked in 9:16 by the specimen layout's 9:16 slots on the theme's 9:16 grid.*
+    - *9:16 goldens for it and for `containers`, `chart-next@0.5`, and `morph@0.75`, named `~9x16`. `just spike` holds CPU, GPU, and WebGPU to SPEC §13.5 on them, and WASM matches the native digests.*
+    - *Tests: 3 in `formats.rs` (canvas, slots, the format's grid, cells by column and row, the deck's own shape, unlisted and unknown formats, a format the theme says nothing about), a CLI test against the portrait golden, and a unit test for every format's canvas.*
+  - *Not done: per-format node props (SPEC §16 Q6), and a lint for nodes placed by `col`/`row` or `rect` in a deck with formats, which do not move with the slots (PLAN 1.15). Exports in a format (PDF, video) follow with PLAN 1.20–1.21.)*
 
 ### 1C Agent surface
 - [ ] 1.14 CLI: all commands in SPEC §7.1 with `--json`.

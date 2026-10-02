@@ -41,7 +41,7 @@ fn theme() -> Theme {
 
 fn placed(deck: &Deck, node: &str) -> PlacedText {
     let (theme, data) = (theme(), DataFiles::new());
-    let req = FrameRequest { deck, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY };
+    let req = FrameRequest { deck, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
     engine(deck).text_layout(&req, node).unwrap()
 }
 
@@ -106,13 +106,13 @@ fn clip_cuts_the_text_to_its_box_and_error_refuses_it() {
     let p = placed(&d, "n");
     assert!(p.overflow && p.clip == Some(p.cell), "{:?}", p.clip);
     let (theme, data) = (theme(), DataFiles::new());
-    let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY };
+    let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
     let dl = engine(&d).frame(&req).unwrap().display_list;
     let clipped = dl.ops.iter().any(|op| matches!(op, Op::Layer { node: Some(n), clip: Some(_), .. } if n == "n"));
     assert!(clipped, "the text's layer carries the clip");
 
     let d = deck(json!({ "n": { "type": "text", "role": "body", "fit": "error", "text": LONG, "at": at } }));
-    let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY };
+    let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
     let err = engine(&d).frame(&req).unwrap_err().to_string();
     assert!(err.contains("node `n`") && err.contains("fit: error"), "{err}");
 }

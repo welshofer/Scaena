@@ -31,7 +31,8 @@ fn main() {
     }
     let register = t.elapsed();
     let mut engine = Engine::new(bundle_fonts);
-    let req = |state| FrameRequest { deck: &deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY };
+    let req =
+        |state| FrameRequest { deck: &deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY, format: None };
 
     // Cold: first frame of each state on a fresh engine (parley's shaping caches empty).
     let mut cold = Vec::new();

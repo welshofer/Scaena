@@ -12,6 +12,9 @@
     "height": 1080,
     "unit": "cu"
   },
+  "formats": [
+    "9:16"
+  ],
   "theme": "theme.json",
   "fonts": [
     {
@@ -3035,6 +3038,41 @@
           8
         ]
       }
+    },
+    "fm-claim": {
+      "type": "text",
+      "role": "headline",
+      "text": "Direct sales bring in the largest share of revenue",
+      "semantic": "claim",
+      "at": {
+        "in": "left"
+      }
+    },
+    "fm-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@share",
+      "x": {
+        "field": "channel",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Four channels' shares as bars: beside the claim on the deck's canvas, under it in 9:16.",
+      "semantic": "evidence",
+      "at": {
+        "in": "right"
+      }
     }
   },
   "states": [
@@ -3881,6 +3919,20 @@
         }
       },
       "notes": "Pass: the 420 ms transition from the case before, its frames at 0.25, 0.5, and 0.75 of the cue. \"Revenue grew\" and \"this quarter\" move apart as \"fast\" fades in between them; the case label's shared words move the same way. The triangle turns over point by point into an ink one standing on its tip, its fill mixing in Oklab. The star's points swell into a rounder star, vertex by vertex. The gradient turns from top-to-bottom to left-to-right and takes on grain, its uniforms moving, not cross-fading. The group fades to 0.3 as one layer while the ink disc slides left, further over the accent one, the accent never showing through it. The arrow draws on over 800 ms from its tail, its head riding the tip. After the transition, \"A record quarter\" warms to the accent and back over 400 ms. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "formats",
+      "name": "Formats: 16:9 and 9:16",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "43 · Formats: 16:9 and 9:16 · recorded"
+        },
+        "fm-claim": {},
+        "fm-bars": {}
+      },
+      "notes": "Pass: on the deck's 1920 × 1080 canvas, the claim stands left of the bar chart, each in half of the grid. In 9:16 (`render --format 9:16`, frame `formats~9x16`) the deck lays out again on a 1080 × 1920 canvas: the theme's 9:16 grid narrows the side margins to 64 cu, the specimen layout's `left` and `right` slots stack, the claim wraps across the full width on rows 2-4, and the chart takes the full width on rows 5-8. Nothing in the deck changes."
     }
   ]
 }

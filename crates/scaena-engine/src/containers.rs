@@ -9,7 +9,8 @@
 //!
 //! Inside a stack, text and images take the room their content needs and containers wrap
 //! theirs, while shapes, charts, and shaders share what is left; everything stretches
-//! across the stack. Inside a grid container, children fill their cells. Inside a frame,
+//! across the stack. Inside a grid container, children fill their cells and never widen
+//! a track (CSS's `min-width: 0`). Inside a frame,
 //! `at.rect` is relative to the frame's padding, and a child with no `rect` fills it.
 //!
 //! Layout is per snapshot (SPEC §5): this runs once when a scene is built, never per frame.
@@ -534,6 +535,15 @@ fn item_style(
             };
             style.justify_self = self_align(&w, x_align, &mut style.size.width);
             style.align_self = self_align(&h, y_align, &mut style.size.height);
+            // A child fills its cell and never widens its track, as CSS's `min-width: 0`
+            // has it: an image whose height the row gives would otherwise ask for the width
+            // its picture's shape takes, past a narrow grid's edge.
+            if size.min_w.is_none() {
+                style.min_size.width = LengthPercentageAuto::length(0.0);
+            }
+            if size.min_h.is_none() {
+                style.min_size.height = LengthPercentageAuto::length(0.0);
+            }
         }
         Within::Frame { padding } => {
             style.position = Position::Absolute;

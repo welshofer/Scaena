@@ -45,7 +45,7 @@ fn theme() -> Theme {
 fn frame(deck: &Deck, state: &str, t_ms: f64) -> DisplayList {
     let theme = theme();
     let data = DataFiles::new();
-    let req = FrameRequest { deck, theme: &theme, data: &data, state, t_ms };
+    let req = FrameRequest { deck, theme: &theme, data: &data, state, t_ms, format: None };
     engine(deck).frame(&req).unwrap().display_list
 }
 

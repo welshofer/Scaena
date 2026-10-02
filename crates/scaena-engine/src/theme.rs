@@ -5,6 +5,7 @@
 use crate::EngineError;
 use indexmap::IndexMap;
 use scaena_core::displaylist::Color;
+use scaena_core::model::Format;
 use scaena_core::model::nodes as node_model;
 use scaena_core::model::theme as model;
 use scaena_core::model::values::FeatureValue;
@@ -263,6 +264,22 @@ impl Theme {
     /// A layout template's slots, by name.
     pub fn slots(&self, layout: &str) -> Option<&IndexMap<String, model::Slot>> {
         Some(&self.layouts.get(layout)?.slots)
+    }
+
+    /// This theme as it lays out in `format` (SPEC §3.4): the format's grid, if it gives
+    /// one, and each layout's slots with those it names in that format in their place.
+    pub fn in_format(&self, format: Format) -> Theme {
+        let mut theme = self.0.clone();
+        if let Some(grid) = (self.formats.as_ref()).and_then(|f| f.get(&format)).and_then(|f| f.grid.clone()) {
+            theme.grid = grid;
+        }
+        for layout in theme.layouts.values_mut() {
+            if let Some(there) = layout.formats.as_ref().and_then(|f| f.get(&format)) {
+                let slots = there.slots.clone();
+                layout.slots.extend(slots);
+            }
+        }
+        Theme(theme)
     }
 
     /// A shader preset by name (SPEC §3.8).

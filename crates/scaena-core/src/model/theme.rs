@@ -6,7 +6,6 @@ use super::values::{Features, FontAxes, NonNegative, Range, SplitUnit, SpringPar
 use indexmap::IndexMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Tokens, typographic roles, layout templates, motion, and palettes. Documents reference
 /// these by name; they never store resolved values. See docs/SPEC.md §3.6.
@@ -28,6 +27,10 @@ pub struct Theme {
     pub grid: Grid,
     #[schemars(extend("required" = ["title", "full"], "minProperties" = 2))]
     pub layouts: IndexMap<String, Layout>,
+    /// The grid in other formats than the deck's own (SPEC §3.4): `"9:16": { "grid": … }`.
+    /// Each layout says its own slots there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formats: Option<IndexMap<super::Format, ThemeFormat>>,
     pub motion: Motion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shaders: Option<Shaders>,
@@ -227,9 +230,26 @@ pub enum Margin {
 pub struct Layout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Per-format overrides of slots (e.g. "9:16").
+    /// The slots that move in other formats (SPEC §3.4): `"9:16": { "slots": … }`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub formats: Option<IndexMap<String, Value>>,
+    pub formats: Option<IndexMap<super::Format, LayoutFormat>>,
+    #[schemars(extend("minProperties" = 1))]
+    pub slots: IndexMap<String, Slot>,
+}
+
+/// A theme in another format: the grid there.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ThemeFormat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<Grid>,
+}
+
+/// A layout in another format: slots that take the place of its slots of the same
+/// names there. The rest stay as they are.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutFormat {
     #[schemars(extend("minProperties" = 1))]
     pub slots: IndexMap<String, Slot>,
 }

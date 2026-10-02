@@ -141,6 +141,10 @@ struct RenderArgs {
     /// Milliseconds into the transition into the state. Omitted: the state at rest.
     #[arg(long)]
     t: Option<f64>,
+    /// Lay the deck out in one of its `formats` (`9:16`) on that format's canvas.
+    /// Omitted: its own canvas.
+    #[arg(long)]
+    format: Option<String>,
     /// Output pixels, `WxH`, in the canvas's aspect ratio. Default: the canvas size.
     #[arg(long)]
     size: Option<String>,
@@ -620,7 +624,7 @@ fn inspect_resolved(b: &Bundle, snaps: &[&scaena_core::Snapshot], json: bool) ->
 /// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG.
 /// Timings are wall clock in this client; the render path itself never reads a clock.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
-    let RenderArgs { bundle, state, t, size, out, display_list, painter } = args;
+    let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
     let state = state.as_str();
     if let Some(t) = t.filter(|t| !t.is_finite() || *t < 0.0) {
         anyhow::bail!("--t {t}: expected a finite, non-negative number of milliseconds");
@@ -658,7 +662,14 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     }
     let register = lap();
 
-    let req = FrameRequest { deck: &b.deck, theme: &theme, data: &data, state, t_ms: t.unwrap_or(f64::INFINITY) };
+    let req = FrameRequest {
+        deck: &b.deck,
+        theme: &theme,
+        data: &data,
+        state,
+        t_ms: t.unwrap_or(f64::INFINITY),
+        format: format.as_deref(),
+    };
     let frame = match Engine::new(fonts).with_images(images).frame(&req) {
         Err(e @ EngineError::NotImplemented(_)) => return unimplemented(e),
         frame => frame?,
@@ -703,6 +714,7 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
         let us = |ms: f64| (ms * 1e3).round() / 1e3;
         let summary = serde_json::json!({
             "state": state,
+            "format": format,
             "t_ms": t,
             "span_ms": span,
             "painter": painter.name(),

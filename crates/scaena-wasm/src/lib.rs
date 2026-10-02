@@ -20,7 +20,7 @@ use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
 use scaena_engine::sample::Transition;
 use scaena_engine::theme::Theme;
-use scaena_engine::{Engine, EngineError, FrameRequest};
+use scaena_engine::{Engine, EngineError, FrameRequest, project};
 use scaena_paint::{Assets, PaintError};
 use wasm_bindgen::prelude::*;
 
@@ -47,6 +47,8 @@ pub struct Session {
     engine: Option<Engine>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
+    /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
+    format: Option<String>,
     /// The same fonts and images, as painters read them.
     store: Assets,
 }
@@ -60,6 +62,7 @@ impl Session {
             pending: Some((BundleFonts::new(), BundleImages::new())),
             engine: None,
             transition: None,
+            format: None,
             store: Assets::new(),
         })
     }
@@ -95,10 +98,34 @@ impl Session {
         self.deck.states.iter().map(|s| s.id.clone()).collect()
     }
 
+    /// The formats the deck is also laid out in, as it writes them (`9:16`).
+    pub fn formats(&self) -> Vec<String> {
+        self.deck.formats.clone()
+    }
+
+    /// Lay frames out in `format`, one of the deck's `formats` (SPEC §3.4), or on the
+    /// deck's own canvas (`None`). Timelines and frames from then on are in it.
+    pub fn set_format(&mut self, format: Option<&str>) -> Result<(), Error> {
+        project(&self.deck, &self.theme, format)?;
+        if self.format.as_deref() != format {
+            self.format = format.map(str::to_string);
+            self.transition = None;
+        }
+        Ok(())
+    }
+
+    /// The canvas frames are laid out on, `[width, height]` canvas units: the deck's, or
+    /// its format's.
+    pub fn canvas_size(&self) -> Result<[f64; 2], Error> {
+        let (deck, _) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        Ok([deck.canvas.width, deck.canvas.height])
+    }
+
     /// The deck's states end to end, ms (SPEC §2.4): each state's start, its span (its
     /// transition and motions), and its hold. Builds the engine, as a frame does.
     pub fn timeline(&mut self) -> Result<Timeline, Error> {
-        let (deck, theme, data) = (&self.deck, &self.theme, &self.data);
+        let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        let (deck, theme, data) = (deck.as_ref(), theme.as_ref(), &self.data);
         let engine = match self.engine.as_mut() {
             Some(engine) => engine,
             None => {
@@ -124,13 +151,15 @@ impl Session {
         // The engine is built by now: the span took it.
         let span = self.duration(state)?;
         let engine = self.engine.as_mut().expect("built for the span");
+        let format = self.format.as_deref();
         if t_ms.is_nan() || t_ms >= span {
-            let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
+            let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms, format };
             return Ok(engine.frame(&req)?.display_list);
         }
         let cached = self.transition.as_ref().is_some_and(|(s, _)| s == state);
         if !cached {
-            let transition = engine.transition(&self.deck, &self.theme, &self.data, state)?;
+            let (deck, theme) = project(&self.deck, &self.theme, format)?;
+            let transition = engine.transition(&deck, &theme, &self.data, state)?;
             self.transition = Some((state.to_string(), transition));
         }
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
@@ -182,6 +211,23 @@ impl Player {
         self.0.states()
     }
 
+    /// The formats the deck is also laid out in (`9:16`).
+    pub fn formats(&self) -> Vec<String> {
+        self.0.formats()
+    }
+
+    /// Lay frames out in one of the deck's formats, or on its own canvas (`undefined`).
+    #[wasm_bindgen(js_name = setFormat)]
+    pub fn set_format(&mut self, format: Option<String>) -> Result<(), JsError> {
+        self.0.set_format(format.as_deref()).map_err(js)
+    }
+
+    /// The canvas frames are laid out on, `[width, height]`: the deck's, or its format's.
+    #[wasm_bindgen(js_name = canvasSize)]
+    pub fn canvas_size(&self) -> Result<Vec<f64>, JsError> {
+        self.0.canvas_size().map(Vec::from).map_err(js)
+    }
+
     /// The span of `state`, ms: its transition and its motions. Past it, at rest.
     pub fn duration(&mut self, state: &str) -> Result<f64, JsError> {
         self.0.duration(state).map_err(js)
@@ -228,8 +274,26 @@ mod web {
         target: wgpu::TextureView,
         blitter: wgpu::util::TextureBlitter,
         size: (u32, u32),
+        /// How the surface is configured, kept to configure it again at another size.
+        config: wgpu::SurfaceConfiguration,
         adapter: String,
         shaders: scaena_paint::gpu::Shaders,
+    }
+
+    /// The texture vello draws a frame into, `size` pixels.
+    fn target(device: &wgpu::Device, size: (u32, u32)) -> wgpu::TextureView {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("scaena target"),
+                size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     #[wasm_bindgen]
@@ -263,19 +327,17 @@ mod web {
             } else {
                 caps.alpha_modes[0]
             };
-            surface.configure(
-                &device,
-                &wgpu::SurfaceConfiguration {
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    format,
-                    width: size.0,
-                    height: size.1,
-                    present_mode: wgpu::PresentMode::Fifo,
-                    desired_maximum_frame_latency: 2,
-                    alpha_mode,
-                    view_formats: vec![],
-                },
-            );
+            let config = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format,
+                width: size.0,
+                height: size.1,
+                present_mode: wgpu::PresentMode::Fifo,
+                desired_maximum_frame_latency: 2,
+                alpha_mode,
+                view_formats: vec![],
+            };
+            surface.configure(&device, &config);
             let renderer = vello::Renderer::new(
                 &device,
                 vello::RendererOptions {
@@ -286,18 +348,7 @@ mod web {
                 },
             )
             .map_err(js)?;
-            let target = device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("scaena target"),
-                    size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                })
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            let target = target(&device, size);
             let blitter = wgpu::util::TextureBlitter::new(&device, format);
             let info = adapter.get_info();
             // Browsers withhold adapter names; say what is known.
@@ -306,7 +357,19 @@ mod web {
                 name => format!("{name} ({:?}, {:?})", info.backend, info.device_type),
             };
             let shaders = scaena_paint::gpu::Shaders::new();
-            Ok(Canvas { device, queue, surface, renderer, target, blitter, size, adapter, shaders })
+            Ok(Canvas { device, queue, surface, renderer, target, blitter, size, config, adapter, shaders })
+        }
+
+        /// Paint at `width` × `height` pixels from now on, as the canvas element's
+        /// attributes have just been set: another format's canvas (SPEC §3.4).
+        pub fn resize(&mut self, width: u32, height: u32) {
+            if (width, height) == self.size {
+                return;
+            }
+            (self.config.width, self.config.height) = (width, height);
+            self.surface.configure(&self.device, &self.config);
+            self.target = target(&self.device, (width, height));
+            self.size = (width, height);
         }
 
         /// Which adapter paints: name, backend, device type.
@@ -395,10 +458,16 @@ mod tests {
         let expected = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();
         for line in expected.lines() {
             let (name, digest) = line.split_once(' ').unwrap();
-            // `state` at rest, or `state@fraction` of the transition into it.
-            let (state, t) = match name.split_once('@') {
+            // `state` at rest, or `state@fraction` of the transition into it, each in the
+            // deck's own canvas or, after `~`, in a format (`9x16` for `9:16`).
+            let (frame, format) = match name.split_once('~') {
+                Some((frame, format)) => (frame, Some(format.replace('x', ":"))),
+                None => (name, None),
+            };
+            s.set_format(format.as_deref()).unwrap();
+            let (state, t) = match frame.split_once('@') {
                 Some((state, at)) => (state, at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
-                None => (name, f64::INFINITY),
+                None => (frame, f64::INFINITY),
             };
             let bytes = s.frame(state, t).unwrap().to_postcard().unwrap();
             assert_eq!(format!("{:016x}", fnv1a(&bytes)), digest, "{name}");
@@ -413,6 +482,6 @@ mod tests {
         assert!(matches!(err, Error::AfterFrame), "{err}");
         let err = s.add_image("assets/late.png", vec![]).unwrap_err();
         assert!(matches!(err, Error::AfterFrame), "{err}");
-        assert_eq!(s.states().len(), 44);
+        assert_eq!(s.states().len(), 45);
     }
 }

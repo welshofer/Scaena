@@ -40,4 +40,4 @@ pub mod text;
 pub mod theme;
 
 pub use error::EngineError;
-pub use render::{Engine, Frame, FrameRequest, PlacedText};
+pub use render::{Engine, Frame, FrameRequest, PlacedText, project};

@@ -685,7 +685,14 @@ fn annotations_move_to_where_the_next_state_puts_them() {
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let mut engine = scaena_engine::render::Engine::new(fonts);
     let data = DataFiles::new();
-    let req = scaena_engine::render::FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: 200.0 };
+    let req = scaena_engine::render::FrameRequest {
+        deck: &d,
+        theme: &theme,
+        data: &data,
+        state: "t",
+        t_ms: 200.0,
+        format: None,
+    };
     let dl = engine.frame(&req).unwrap().display_list;
     let accent = accent(1.0);
     let mut strokes = Vec::new();

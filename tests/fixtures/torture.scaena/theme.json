@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.3",
+  "scaena-theme": "0.4",
   "name": "Torture",
   "description": "Fixture theme for the typography torture deck (PLAN 0.2). Every case-specific typographic setting lives here as a role, so the deck itself references roles only.",
   "tokens": {
@@ -520,7 +520,7 @@
       }
     },
     "specimen": {
-      "description": "A case label on row 1; specimens placed on grid rows 2-8.",
+      "description": "A case label on row 1; specimens placed on grid rows 2-8, whole or in halves that stack in 9:16.",
       "slots": {
         "case": {
           "col": [
@@ -543,7 +543,67 @@
             2,
             8
           ]
+        },
+        "left": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            2,
+            8
+          ]
+        },
+        "right": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            2,
+            8
+          ]
         }
+      },
+      "formats": {
+        "9:16": {
+          "slots": {
+            "left": {
+              "col": [
+                1,
+                12
+              ],
+              "row": [
+                2,
+                4
+              ]
+            },
+            "right": {
+              "col": [
+                1,
+                12
+              ],
+              "row": [
+                5,
+                8
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "formats": {
+    "9:16": {
+      "grid": {
+        "columns": 12,
+        "rows": 8,
+        "gutter": 24,
+        "margin": [
+          96,
+          64
+        ],
+        "baseline": 8
       }
     }
   },

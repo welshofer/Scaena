@@ -127,7 +127,7 @@ Rules:
   "scaena": "0.8",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
-  "formats": ["16:9", "9:16"],                               // additional projections (optional)
+  "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
   "theme":  "theme.json",                                     // path in bundle, or inline object
   "fonts":  [ { "family": "...", "file": "fonts/...", "axes": {...} } ],
   "data":   { "q3": { "source": "data/q3-revenue.csv", "schema": { ... } } },
@@ -202,12 +202,18 @@ One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans th
 - **Membership.** A node is in a container when its `at.parent` names one; nothing else declares it. A container's children flow in `at.index` order (default 0), ties in `nodes` order, as CSS `order` does. A container must be in every state its children are in (E102), a node's `at.parent` must be a container (E106), and containers do not nest in a loop (E106). Inside a container, `at.offset` moves a node, and what is in it, after layout, and `at.inset` shrinks the node's own box, as they do on the slide.
 - **Roots.** A node with no container, or in a group, is a root: `at` places it on the theme grid as above. A root container lays its subtree out inside that box. Any root but text fills its box unless it has a `size`; then it takes that size inside the box and aligns there by its `align`.
 - **`stack`.** `axis: y` (the default) runs top to bottom, `x` left to right; `gap` sits between children, `padding` inside the edge, and `distribute` (`start` by default, `center`, `end`, `between`, `around`, `evenly`) places leftover room along the axis. Text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders, which have no size of their own, share what is left. Every child stretches across the stack unless its `size` or `align` says otherwise. An image keeps its picture's proportions as it stretches. Text in a row stays in a box the row's height, so `align: { y: "baseline" }` puts the last baselines of a row's texts on one line, and `cap` puts their cap tops on one line.
-- **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise.
+- **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise, and never widens its track unless its `minW` or `minH` asks (CSS's `min-width: 0`): an image whose row sets its height does not ask for the width its picture's shape would take.
 - **`frame`.** A child's `at.rect` is `[x, y, w, h]` from the frame's padding edge. A child with no `rect` fills the padding box.
 - **`group`.** Its children are placed on the slide by the rest of their `at`, and composited together (PLAN 1.12): the group draws them into one layer, each at its own opacity, and that layer at the group's `opacity`, so two overlapping children never show through each other. Motions on the group move its layer, and it comes and goes with the transition as one; a `children` split moves each child inside it. A group lays nothing out, and cannot sit in a stack, grid, or frame.
 - **Sizing values** (`size: { w, h, minW, maxW, minH, maxH, aspect }`): a length (canvas units, a token, or a percentage of the container), `fit` (the content's size), `fill` (an equal share of the room), or `fraction(n)` (n shares). `aspect: "w:h"` fixes the proportions, and the bounds clamp.
 - **Panels.** A container with `fill` or `stroke` draws them as a rectangle with its `radius`, under its children.
 - **Order and timing.** Siblings paint by `z`, then `nodes` order, and a container paints under its children. Layout runs once per snapshot. A child that changes container between states morphs from one box to the other, like any box.
+
+**Formats** (PLAN 1.13, theme format 0.4). A deck is made for its `canvas`, and `formats` names the other shapes it is laid out in too: `16:9`, `4:3`, `9:16`, `1:1`, `A4` (210:297), and `Letter` (8.5:11), the paper sizes upright. A format the canvas already has is the canvas.
+- A format's canvas keeps the canvas's shorter side and sets the longer one by the format's proportions, in whole canvas units: a 1920 × 1080 deck is 1080 × 1920 in `9:16`, 1080 × 1080 in `1:1`, and 1080 × 1527 in `A4`.
+- Its template set is the theme's: `formats.<format>.grid` is the grid there, and a layout's `formats.<format>.slots` take the place of its slots of the same names there, the rest staying as they are (§3.6). A format the theme says nothing about keeps the theme's grid and slots.
+- Nodes, states, the spine, and every motion are shared; the deck lays out again on the format's canvas. A node placed in a slot moves with the slot, one placed by `col`/`row` takes those cells of the format's grid, and a `rect` stays where it is in canvas units. So a deck meant for several formats places by slot.
+- A frame names its format (`FrameRequest.format`, `scaena render --format 9:16`, `Player.setFormat`); one the deck does not list is an error. The global timeline is worked out per format: a cue on lines counts them after layout.
 
 **Alignment** in a cell is `x: start|center|end|stretch` and `y: start|center|end|stretch|cap|baseline|x-height`; a single keyword sets both axes. The slot's `align` is the default, the node's `align` overrides it, and `at.align` overrides both; `start` when nobody says. For text, `x` aligns each line across the box, in the paragraph's direction: `start` is the left edge for left-to-right text and the right edge for right-to-left text, and `stretch` is `start`. Lines break at the box's width, or at the role's or node's `measure` if that is narrower, and still align across the whole box. The typographic anchors align text of any size to a shared line: `y: "cap"` and `y: "x-height"` put the first line's cap height or x-height on the cell's top edge, and `y: "baseline"` puts the last line's baseline on the cell's bottom edge. `box: "cap"` trims the text's box from the first line's cap height to the last line's baseline (CSS `text-box: trim-both cap alphabetic`), so a cap top can sit exactly on a grid line; `box: "line"` (default) uses line boxes. Cap height and x-height come from the font's OS/2 table, never from glyph bounds.
 
@@ -245,7 +251,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.3",
+  "scaena-theme": "0.4",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -266,9 +272,11 @@ See `docs/schema/theme.schema.json`. Shape:
   "grid":   { "columns": 12, "gutter": 24, "margin": 96, "baseline": 8 },
   "layouts": {
     "title":  { "slots": { "title": {...}, "subtitle": {...} } },
-    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } } },
+    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } },
+                "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 3] }, "right": { "col": [1, 12], "row": [4, 6] } } } } },
     "full":   { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } }
   },
+  "formats": { "9:16": { "grid": { "columns": 12, "rows": 8, "gutter": 24, "margin": [96, 64] } } },
   "motion": {
     "durations": { "fast": 180, "standard": 420, "slow": 800 },
     "easings":   { "standard": [0.2, 0, 0, 1], "out": [0, 0, 0, 1], "in": [0.4, 0, 1, 1] },
@@ -735,8 +743,8 @@ Stages are pure and cached:
 Design notes:
 - Interpolating resolved geometry (post-layout) is what makes morphs cheap and deterministic; text morph interpolates word boxes and cross-fades glyph runs, chart morph interpolates mark geometry.
 - Layout is per-snapshot, not per-frame. Frames only sample. In code (PLAN 0.10), `Engine::transition` lays out a state and the one before it once, and `Transition::frame(t)` samples them. It holds no fonts or layout engine, so it cannot lay out.
-- Multiple `formats` re-run layout with a different template set; the spine and nodes are shared.
-- The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, viewport) -> DisplayList`, `lint`, `patch`.
+- Multiple `formats` re-run layout with a different template set; the spine and nodes are shared. `scaena_engine::project` puts the deck on the format's canvas and the theme on its template set before anything is laid out (PLAN 1.13), so layout itself knows nothing of formats.
+- The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, format) -> DisplayList`, `lint`, `patch`.
 
 ---
 
@@ -785,7 +793,7 @@ scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical 
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
 scaena inspect   <bundle> --state ID [--resolved]     # absolute snapshot, resolved styles, timeline
-scaena render    <bundle> --state ID [--t MS] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
+scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
@@ -1047,7 +1055,7 @@ Notes: the cold PNG budget and the video budgets are different workloads and are
 3. Font licensing: enforce embedding permissions bits at bundle time? (Proposal: warn, don't block.)
 4. Live data sources and refresh semantics.
 5. Direct-manipulation editing model and how it expresses patches in template-managed layouts.
-6. Multiple formats: how much per-format override is allowed before it's a second deck?
+6. Multiple formats: how much per-format override is allowed before it's a second deck? PLAN 1.13 settles the minimum: a format's template set moves slots and changes the grid, and nodes and states are shared. Open: per-format node props (a shorter headline in `9:16`), and a lint for nodes placed by `col`/`row` or `rect` in a deck with formats, which do not move with the slots.
 7. Collaboration conflict UX when it arrives.
 8. A very large font catalog (Jay, 2026-10-01). Proposal: a local, content-addressed font store with a searchable index (family, styles, axes, script coverage, license), filled on demand from catalog sources. Editors and agents pick from it (`scaena fonts search | add`, and the same over MCP), and saving subsets the chosen faces into the bundle. The render path is unchanged, bundle fonts only (§13), so the catalog's size never reaches layout or painting. Open: which sources, licensing (Q3), offline use, and drawing script fallback chains from the catalog.
 9. Copy that quotes data. Every figure in text, `alt`, claims, and notes is a literal, so a data update is a manual sweep, and nothing notices a claim the new data makes false. In the authorability spike (PLAN 0.13), rolling a chart forward was one field for the chart and 22 hand edits for the words. Proposal: a text run can bind a value, as in `{ "bind": "@revenue", "value": "sum(revenue) where quarter = last(quarter)", "format": "$,.1f" }`, written in `dataTransform`'s expression language (§3.10) and resolved per snapshot like any text, so a figure rolls forward with its data. Open: how big the expression language gets, how an editor shows a bound figure, the DSL spelling, and whether a claim about a trend ("growth accelerated") can be checked at all.

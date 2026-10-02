@@ -47,6 +47,11 @@ const MORPH: [(&str, f64); 15] = [
     ("morph", 0.5),
     ("morph", 0.75),
 ];
+/// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
+/// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
+/// containers, a chart's data, and morphs laid out again on the tall canvas.
+const TALL: [(&str, Option<f64>); 4] =
+    [("formats", None), ("containers", None), ("chart-next", Some(0.5)), ("morph", Some(0.75))];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";
 const HEBREW: &str = "fonts/NotoSansHebrew-VF.ttf";
@@ -106,29 +111,55 @@ impl Fixture {
     }
 
     fn frame_at(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, EngineError> {
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
+        self.frame_in(state, t_ms, None)
+    }
+
+    /// The frame `t_ms` into `state`'s cue, in `format` or on the deck's own canvas.
+    fn frame_in(&mut self, state: &str, t_ms: f64, format: Option<&str>) -> Result<DisplayList, EngineError> {
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms, format };
         Ok(self.engine.frame(&req)?.display_list)
     }
 
     /// The state's span, ms: its transition and its motions (SPEC §2.4).
     fn duration(&mut self, state: &str) -> f64 {
-        let timeline = self.engine.timeline(&self.deck, &self.theme, &self.data).unwrap();
+        self.duration_in(state, None)
+    }
+
+    fn duration_in(&mut self, state: &str, format: Option<&str>) -> f64 {
+        let (deck, theme) = scaena_engine::project(&self.deck, &self.theme, format).unwrap();
+        let timeline = self.engine.timeline(&deck, &theme, &self.data).unwrap();
         timeline.slot(state).unwrap().span
     }
 
-    /// Every golden frame as (name, state, t_ms): each state at rest under its own
-    /// name, then the frames in [`MORPH`] as `state@fraction`.
-    fn golden_frames(&mut self) -> Vec<(String, String, f64)> {
-        let mut out: Vec<(String, String, f64)> =
-            self.states().into_iter().map(|s| (s.clone(), s, f64::INFINITY)).collect();
+    /// Every golden frame as (name, state, t_ms, format): each state at rest under its own
+    /// name, then the frames in [`MORPH`] as `state@fraction`, then those in [`TALL`] in
+    /// `9:16`, with `~9x16` after their names.
+    fn golden_frames(&mut self) -> Vec<(String, String, f64, Option<&'static str>)> {
+        let mut out: Vec<(String, String, f64, Option<&'static str>)> =
+            self.states().into_iter().map(|s| (s.clone(), s, f64::INFINITY, None)).collect();
         for (state, at) in MORPH {
-            out.push((format!("{state}@{at}"), state.to_string(), at * self.duration(state)));
+            out.push((format!("{state}@{at}"), state.to_string(), at * self.duration(state), None));
+        }
+        let tall = Some("9:16");
+        for (state, at) in TALL {
+            let (name, t) = match at {
+                Some(at) => (format!("{state}@{at}~9x16"), at * self.duration_in(state, tall)),
+                None => (format!("{state}~9x16"), f64::INFINITY),
+            };
+            out.push((name, state.to_string(), t, tall));
         }
         out
     }
 
     fn placed(&mut self, state: &str, node: &str) -> PlacedText {
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY };
+        let req = FrameRequest {
+            deck: &self.deck,
+            theme: &self.theme,
+            data: &self.data,
+            state,
+            t_ms: f64::INFINITY,
+            format: None,
+        };
         self.engine.text_layout(&req, node).unwrap()
     }
 
@@ -193,8 +224,8 @@ fn display_lists_match_goldens() {
     let mut fx = fixture();
     let bless = std::env::var_os("SCAENA_BLESS").is_some();
     let mut changed = Vec::new();
-    for (name, state, t_ms) in fx.golden_frames() {
-        let mut dl = fx.frame_at(&state, t_ms).unwrap_or_else(|e| panic!("{name}: {e}"));
+    for (name, state, t_ms, format) in fx.golden_frames() {
+        let mut dl = fx.frame_in(&state, t_ms, format).unwrap_or_else(|e| panic!("{name}: {e}"));
         quantize(&mut dl);
         let json = dl.to_golden_json().unwrap();
         let path = format!("{GOLDEN}/{name}.dl.json");
@@ -228,8 +259,8 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 fn raw_display_lists_are_bit_identical_across_platforms() {
     let mut fx = fixture();
     let mut digests = String::new();
-    for (name, state, t_ms) in fx.golden_frames() {
-        let bytes = fx.frame_at(&state, t_ms).unwrap().to_postcard().unwrap();
+    for (name, state, t_ms, format) in fx.golden_frames() {
+        let bytes = fx.frame_in(&state, t_ms, format).unwrap().to_postcard().unwrap();
         digests.push_str(&format!("{name} {:016x}\n", fnv1a(&bytes)));
     }
     let path = format!("{GOLDEN}/raw.fnv1a");
@@ -247,15 +278,15 @@ fn raw_display_lists_are_bit_identical_across_platforms() {
 #[test]
 fn frames_are_deterministic_across_engines_and_font_order() {
     let (mut a, mut b) = (fixture(), fixture_with(|_| {}, true));
-    for (name, state, t_ms) in a.golden_frames() {
-        let first = a.frame_at(&state, t_ms).unwrap().to_postcard().unwrap();
+    for (name, state, t_ms, format) in a.golden_frames() {
+        let first = a.frame_in(&state, t_ms, format).unwrap().to_postcard().unwrap();
         assert_eq!(
-            a.frame_at(&state, t_ms).unwrap().to_postcard().unwrap(),
+            a.frame_in(&state, t_ms, format).unwrap().to_postcard().unwrap(),
             first,
             "{name}: same engine, second frame"
         );
         assert_eq!(
-            b.frame_at(&state, t_ms).unwrap().to_postcard().unwrap(),
+            b.frame_in(&state, t_ms, format).unwrap().to_postcard().unwrap(),
             first,
             "{name}: fonts registered in reverse order"
         );

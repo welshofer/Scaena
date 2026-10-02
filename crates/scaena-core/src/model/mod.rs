@@ -548,7 +548,7 @@ impl JsonSchema for StateDeltaRef {
 
 /// Additional projections rendered from the same spine and nodes with other layout
 /// template sets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum Format {
     #[serde(rename = "16:9")]
     Wide,
@@ -560,6 +560,51 @@ pub enum Format {
     Square,
     A4,
     Letter,
+}
+
+impl Format {
+    pub const ALL: [Format; 6] =
+        [Format::Wide, Format::Standard, Format::Tall, Format::Square, Format::A4, Format::Letter];
+
+    /// As a deck writes it: `16:9`, `A4`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Format::Wide => "16:9",
+            Format::Standard => "4:3",
+            Format::Tall => "9:16",
+            Format::Square => "1:1",
+            Format::A4 => "A4",
+            Format::Letter => "Letter",
+        }
+    }
+
+    /// The format a deck writes as `name`.
+    pub fn parse(name: &str) -> Option<Format> {
+        Format::ALL.into_iter().find(|f| f.name() == name)
+    }
+
+    /// Width over height. The paper sizes are upright: A4 is 210:297 and Letter 8.5:11.
+    pub fn aspect(self) -> f64 {
+        match self {
+            Format::Wide => 16.0 / 9.0,
+            Format::Standard => 4.0 / 3.0,
+            Format::Tall => 9.0 / 16.0,
+            Format::Square => 1.0,
+            Format::A4 => 210.0 / 297.0,
+            Format::Letter => 8.5 / 11.0,
+        }
+    }
+
+    /// The canvas of a deck whose own canvas is `canvas` (`[width, height]`), in this
+    /// format: the shorter side kept, the longer one set by the aspect, in whole canvas
+    /// units. A 1920 × 1080 deck is 1080 × 1920 in `9:16`.
+    pub fn canvas(self, canvas: [f64; 2]) -> [f64; 2] {
+        let short = canvas[0].min(canvas[1]);
+        match self.aspect() {
+            a if a >= 1.0 => [(short * a).round(), short],
+            a => [short, (short / a).round()],
+        }
+    }
 }
 
 /// A theme file inside the bundle, or an inline theme object (schema: theme.schema.json).
@@ -598,4 +643,25 @@ pub enum FieldType {
 pub enum FontStyle {
     Normal,
     Italic,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Format;
+
+    #[test]
+    fn a_format_keeps_the_shorter_side_and_its_name_round_trips() {
+        let hd = [1920.0, 1080.0];
+        assert_eq!(Format::Wide.canvas(hd), hd);
+        assert_eq!(Format::Tall.canvas(hd), [1080.0, 1920.0]);
+        assert_eq!(Format::Standard.canvas(hd), [1440.0, 1080.0]);
+        assert_eq!(Format::Square.canvas(hd), [1080.0, 1080.0]);
+        assert_eq!(Format::A4.canvas(hd), [1080.0, 1527.0]);
+        assert_eq!(Format::Letter.canvas(hd), [1080.0, 1398.0]);
+        assert_eq!(Format::Wide.canvas([1080.0, 1920.0]), hd, "from an upright deck too");
+        for f in Format::ALL {
+            assert_eq!(Format::parse(f.name()), Some(f));
+            assert_eq!(serde_json::to_value(f).unwrap(), f.name());
+        }
+    }
 }

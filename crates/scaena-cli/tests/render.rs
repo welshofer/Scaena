@@ -88,6 +88,27 @@ fn size_scales_uniformly_and_json_reports_the_stages() {
     }
 }
 
+/// `--format` lays the deck out again in one of its formats, on that format's canvas
+/// (PLAN 1.13): the `formats~9x16` golden. A format the deck does not list exits 2.
+#[test]
+fn format_renders_on_that_formats_canvas() {
+    let dir = scratch("format");
+    let png = dir.join("tall.png");
+    let args = ["render", BUNDLE, "--state", "formats", "--format", "9:16", "--out", png.to_str().unwrap(), "--json"];
+    let out = scaena(&args);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let summary: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((&summary["format"], &summary["size"]), (&serde_json::json!("9:16"), &serde_json::json!([1080, 1920])));
+    let raster = Raster::from_png(&std::fs::read(&png).unwrap()).unwrap();
+    let golden = Raster::from_png(&std::fs::read(format!("{GOLDEN}/formats~9x16.png")).unwrap()).unwrap();
+    let d = diff::compare(&golden, &raster).unwrap();
+    assert!(d.passes(), "the portrait golden: {d}");
+
+    let out = scaena(&["render", BUNDLE, "--state", "formats", "--format", "1:1", "--out", png.to_str().unwrap()]);
+    assert_eq!(code(&out), 2, "{}", stderr(&out));
+    assert!(stderr(&out).contains("`1:1` is not one of the deck's formats (`9:16`)"), "{}", stderr(&out));
+}
+
 /// `--t` reaches the sampler: a quarter of the 420 ms transition to the next quarter
 /// is the `chart-next@0.25` golden (PLAN 0.10).
 #[test]

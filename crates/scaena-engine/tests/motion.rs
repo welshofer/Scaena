@@ -48,7 +48,7 @@ impl Fx {
     }
 
     fn frame(&mut self, state: &str, t_ms: f64) -> Frame {
-        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms };
+        let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms, format: None };
         self.engine.frame(&req).unwrap_or_else(|e| panic!("{state} at {t_ms}: {e}"))
     }
 

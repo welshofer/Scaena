@@ -46,7 +46,14 @@ fn b1_is_forty_text_states_in_four_fonts_and_every_one_draws() {
     let data = DataFiles::new();
     let mut files = BTreeSet::new();
     for state in &deck.states {
-        let req = FrameRequest { deck: &deck, theme: &theme, data: &data, state: &state.id, t_ms: f64::INFINITY };
+        let req = FrameRequest {
+            deck: &deck,
+            theme: &theme,
+            data: &data,
+            state: &state.id,
+            t_ms: f64::INFINITY,
+            format: None,
+        };
         let dl = engine.frame(&req).unwrap_or_else(|e| panic!("{}: {e}", state.id)).display_list;
         let mut found = Vec::new();
         runs(&dl.ops, &mut found);

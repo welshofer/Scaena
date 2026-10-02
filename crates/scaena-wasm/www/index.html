@@ -10,7 +10,7 @@
   p { margin: 8px 12px; }
 </style>
 <canvas id="stage"></canvas>
-<p><select id="state"></select> <span id="status">loading…</span></p>
+<p><select id="state"></select> <select id="format"><option value="">own canvas</option></select> <span id="status">loading…</span></p>
 <script type="module">
   import init, { Player, Canvas } from "./pkg/scaena_wasm.js";
   const status = document.getElementById("status");
@@ -38,6 +38,16 @@
       try { player.paint(canvas, select.value, t); status.textContent = `${select.value} · ${canvas.adapter}`; }
       catch (e) { status.textContent = `${select.value}: ${e.message}`; }
     };
+    // Another format lays the deck out again on its own canvas (SPEC §3.4).
+    const setFormat = (format) => {
+      player.setFormat(format || undefined);
+      const [w, h] = player.canvasSize();
+      [stage.width, stage.height] = [w, h];
+      canvas.resize(w, h);
+    };
+    const formats = document.getElementById("format");
+    for (const f of player.formats()) formats.add(new Option(f, f));
+    formats.onchange = () => { setFormat(formats.value); show(); };
     // Choosing a state plays the transition into it, then rests.
     select.onchange = () => {
       const [state, d, start] = [select.value, player.duration(select.value), performance.now()];
@@ -45,7 +55,7 @@
       requestAnimationFrame(tick);
     };
     show();
-    window.scaena = { player, canvas, select, show, firstFrameMs: performance.now() };
+    window.scaena = { player, canvas, select, show, setFormat, firstFrameMs: performance.now() };
   } catch (e) {
     status.textContent = `error: ${e.message ?? e}`;
   }

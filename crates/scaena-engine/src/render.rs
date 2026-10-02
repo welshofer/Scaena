@@ -24,11 +24,13 @@ use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
+use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
@@ -43,6 +45,40 @@ pub struct FrameRequest<'a> {
     /// cue, its transition and then its motions. At or past its span (`f64::INFINITY`
     /// always is), the state at rest.
     pub t_ms: f64,
+    /// The format to lay the deck out in (SPEC §3.4): one of its `formats`, as it writes
+    /// them (`"9:16"`), or `None` for its own canvas.
+    pub format: Option<&'a str>,
+}
+
+/// The deck and theme as they lay out in `format` (SPEC §3.4): the deck on that format's
+/// canvas, and the theme with that format's grid and slots. `None`, or a format of the
+/// deck's own shape, is the deck as it is. A format the deck does not list is an error.
+pub fn project<'d>(
+    deck: &'d Deck,
+    theme: &'d Theme,
+    format: Option<&str>,
+) -> Result<(Cow<'d, Deck>, Cow<'d, Theme>), EngineError> {
+    let Some(name) = format else { return Ok((Cow::Borrowed(deck), Cow::Borrowed(theme))) };
+    let listed = || deck.formats.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ");
+    let format = Format::parse(name).ok_or_else(|| {
+        let known = Format::ALL.map(|f| format!("`{}`", f.name())).join(", ");
+        EngineError::Layout(format!("format `{name}`: expected one of {known}"))
+    })?;
+    let own = [deck.canvas.width, deck.canvas.height];
+    let canvas = format.canvas(own);
+    if canvas == own {
+        return Ok((Cow::Borrowed(deck), Cow::Borrowed(theme)));
+    }
+    if !deck.formats.iter().any(|f| f == name) {
+        let listed = match deck.formats.is_empty() {
+            true => "none".to_string(),
+            false => listed(),
+        };
+        return Err(EngineError::Layout(format!("format `{name}` is not one of the deck's formats ({listed})")));
+    }
+    let mut projected = deck.clone();
+    (projected.canvas.width, projected.canvas.height) = (canvas[0], canvas[1]);
+    Ok((Cow::Owned(projected), Cow::Owned(theme.in_format(format))))
 }
 
 #[derive(Debug, Clone)]
@@ -83,17 +119,19 @@ impl Engine {
     /// [`Engine::transition`]. Shaders keep the global timeline's time
     /// ([`Engine::timeline`]).
     pub fn frame(&mut self, req: &FrameRequest) -> Result<Frame, EngineError> {
-        let snapshots = scaena_core::resolve_states(req.deck)?;
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
         let i = state_index(&snapshots, req.state)?;
-        let timeline = self.timeline_to(req.deck, req.theme, req.data, i)?;
+        let timeline = self.timeline_to(deck, theme, req.data, i)?;
         let slot = &timeline.slots[i];
         let t = req.t_ms;
         let display_list = if t.is_nan() || t >= slot.span {
             // At rest: its shaders at the time it comes to rest, or `t` into its hold.
             let at = if t.is_finite() { t } else { slot.span };
-            self.scene(req.deck, req.theme, req.data, &snapshots[i])?.draw_at((slot.start + at) / 1000.0)
+            self.scene(deck, theme, req.data, &snapshots[i])?.draw_at((slot.start + at) / 1000.0)
         } else {
-            self.transition_at(req.deck, req.theme, req.data, &snapshots, i, slot.start / 1000.0)?.frame(t)
+            self.transition_at(deck, theme, req.data, &snapshots, i, slot.start / 1000.0)?.frame(t)
         };
         Ok(Frame { display_list, duration_ms: slot.span })
     }
@@ -262,14 +300,16 @@ impl Engine {
     /// One text node of a state, laid out and placed: what `frame` draws, and what
     /// layout-level lints (E100 overflow, W200 widows) read.
     pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<PlacedText, EngineError> {
-        let snapshots = scaena_core::resolve_states(req.deck)?;
-        let snap = &cascade::with_overrides(req.deck, &snapshots[state_index(&snapshots, req.state)?]);
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &cascade::with_overrides(deck, &snapshots[state_index(&snapshots, req.state)?]);
         if !snap.nodes.contains_key(node) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
-        let grid = Grid::from_theme(req.theme, canvas(req.deck))?;
-        let placement = self.place(req.deck, req.theme, &grid, snap)?;
-        self.layout_text_node(req.deck, req.theme, snap, node, placement.boxes[node])
+        let grid = Grid::from_theme(theme, canvas(deck))?;
+        let placement = self.place(deck, theme, &grid, snap)?;
+        self.layout_text_node(deck, theme, snap, node, placement.boxes[node])
     }
 
     /// Every node's box in `snap` (overrides merged), its container, and paint order:

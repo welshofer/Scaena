@@ -34,7 +34,7 @@ fn runs(deck: &Deck, node: &str) -> Vec<(f32, Color)> {
     }
     let theme = theme();
     let data = DataFiles::new();
-    let req = FrameRequest { deck, theme: &theme, data: &data, state: "intro", t_ms: f64::INFINITY };
+    let req = FrameRequest { deck, theme: &theme, data: &data, state: "intro", t_ms: f64::INFINITY, format: None };
     let frame = Engine::new(fonts).frame(&req).unwrap();
     let layer = frame
         .display_list
