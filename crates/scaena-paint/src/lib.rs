@@ -94,12 +94,14 @@ impl Assets {
         Ok(())
     }
 
-    fn get(&self, font: &FontRef) -> Result<FontData, PaintError> {
+    /// The font a display list names: its bytes and its face index.
+    pub fn font_data(&self, font: &FontRef) -> Result<FontData, PaintError> {
         let blob = self.blobs.get(&font.id).ok_or_else(|| PaintError::MissingFont(font.id.clone()))?;
         Ok(FontData::new(blob.clone(), font.index))
     }
 
-    fn image(&self, id: &str) -> Result<&Arc<Picture>, PaintError> {
+    /// The decoded image a display list names by content id.
+    pub fn image(&self, id: &str) -> Result<&Arc<Picture>, PaintError> {
         self.images.get(id).ok_or_else(|| PaintError::MissingImage(id.to_string()))
     }
 }
@@ -321,6 +323,14 @@ pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, Pai
     Ok(out)
 }
 
+/// A gradient's stops as both painters draw them (SPEC §6): in sRGB, with stops added
+/// between the given ones so that blending them in sRGB follows their blend in Oklab. For
+/// a painter that is not built on peniko, such as the PDF one.
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+pub fn srgb_stops(stops: &[scaena_core::displaylist::Stop]) -> Vec<scaena_core::displaylist::Stop> {
+    convert::srgb_stops(stops)
+}
+
 /// Display-list types to `kurbo`/`peniko`, shared by both painters so they receive
 /// identical geometry (ADR-0004: one `kurbo`, one `peniko` in the graph).
 #[cfg(any(feature = "cpu", feature = "gpu"))]
@@ -406,6 +416,19 @@ mod convert {
         };
         let stops: Vec<(f32, Color)> = stops.iter().map(|s| (s.0, color(&s.1))).collect();
         Brush::Gradient(gradient.with_stops(oklab_stops(&stops).as_slice()).with_interpolation_cs(ColorSpaceTag::Srgb))
+    }
+
+    /// The stops [`brush`] draws a gradient with, back in display-list colors.
+    pub fn srgb_stops(stops: &[scaena_core::displaylist::Stop]) -> Vec<scaena_core::displaylist::Stop> {
+        let stops: Vec<(f32, Color)> =
+            stops.iter().map(|s| (s.0, Color::from_rgba8(s.1.0[0], s.1.0[1], s.1.0[2], s.1.0[3]))).collect();
+        oklab_stops(&stops)
+            .into_iter()
+            .map(|s| {
+                let c = s.color.to_alpha_color::<Srgb>().to_rgba8();
+                scaena_core::displaylist::Stop(s.offset, scaena_core::displaylist::Color([c.r, c.g, c.b, c.a]))
+            })
+            .collect()
     }
 
     /// Stops close enough together that blending them in sRGB follows their blend in
@@ -543,7 +566,7 @@ pub mod cpu {
                     }
                     Op::Glyphs { font, size, coords, paint, glyphs, .. } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
-                        let font = self.store.get(font_ref)?;
+                        let font = self.store.font_data(font_ref)?;
                         self.ctx.set_transform(xf);
                         self.set_paint(paint);
                         self.ctx
@@ -954,7 +977,7 @@ pub mod gpu {
                     }
                     Op::Glyphs { font, size, coords, paint, glyphs, .. } => {
                         let font_ref = self.fonts.get(*font as usize).ok_or(PaintError::FontIndex(*font))?;
-                        let font = self.store.get(font_ref)?;
+                        let font = self.store.font_data(font_ref)?;
                         let brush = brush(paint);
                         // vello fills a whole glyph run as one path, so overlapping glyphs
                         // would share a winding count: where a base and a mark of opposite

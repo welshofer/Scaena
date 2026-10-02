@@ -25,7 +25,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.92"
 license = "UNLICENSED"
 repository = "https://github.com/welshofer/Scaena"
 authors = ["Jay Welshofer"]
@@ -87,7 +87,8 @@ write-fonts = { version = "0.53.0", default-features = false, features = ["read"
 sha2  = "0.10"
 
 # export
-krilla = "0.8.2"
+krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] } # no `simple-text`: we never shape here
+hayro  = { version = "0.7.1", default-features = false } # tests only: rasterizes PDFs to compare with the painters
 png    = "0.18.1"
 image  = { version = "0.25", default-features = false, features = ["png"] }
 
