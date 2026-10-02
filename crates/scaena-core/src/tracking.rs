@@ -120,7 +120,9 @@ fn apply_state(
 }
 
 /// Shallow-merge `delta` into `base`: top-level keys replace; object values merge
-/// one level (so `at: {col}` can override just `col`); `null` deletes a key.
+/// one level (so `at: {col}` can override just `col`); `null` deletes a key. An object
+/// with nothing to merge into is taken as it is, less the keys it deletes. Deletes keep
+/// the order of what remains.
 pub fn merge_props(base: &mut Props, delta: &Props) {
     for (k, v) in delta {
         match v {
@@ -131,14 +133,15 @@ pub fn merge_props(base: &mut Props, delta: &Props) {
                 Some(Value::Object(bm)) => {
                     for (dk, dv) in dm {
                         if dv.is_null() {
-                            bm.remove(dk);
+                            bm.shift_remove(dk);
                         } else {
                             bm.insert(dk.clone(), dv.clone());
                         }
                     }
                 }
                 _ => {
-                    base.insert(k.clone(), v.clone());
+                    let kept = dm.iter().filter(|(_, dv)| !dv.is_null()).map(|(dk, dv)| (dk.clone(), dv.clone()));
+                    base.insert(k.clone(), Value::Object(kept.collect()));
                 }
             },
             _ => {
@@ -199,6 +202,115 @@ mod tests {
         let snaps = resolve_states(&deck).unwrap();
         assert!(snaps[0].nodes["title"].contains_key("anim"));
         assert!(!snaps[1].nodes["title"].contains_key("anim"));
+    }
+
+    /// A deck of `nodes` and `states`, written as JSON.
+    fn deck(nodes: serde_json::Value, states: serde_json::Value) -> Deck {
+        let doc = json!({ "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": nodes, "states": states });
+        serde_json::from_value(doc).unwrap()
+    }
+
+    #[test]
+    fn an_object_with_nothing_to_merge_into_keeps_none_of_its_nulls() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" } }),
+            json!([{ "id": "a", "props": { "t": { "at": { "in": null, "col": [1, 6] } } } }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[0].nodes["t"]["at"], json!({ "col": [1, 6] }));
+    }
+
+    #[test]
+    fn null_deletes_and_the_deletion_tracks() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "alt": "a caption" } }),
+            json!([
+                { "id": "a", "props": { "t": {} } },
+                { "id": "b", "props": { "t": { "alt": null } } },
+                { "id": "c" }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[0].nodes["t"]["alt"], json!("a caption"));
+        assert!(!snaps[1].nodes["t"].contains_key("alt"));
+        assert!(!snaps[2].nodes["t"].contains_key("alt"), "a deletion tracks like any change");
+    }
+
+    #[test]
+    fn a_state_with_no_changes_repeats_the_one_before() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" } }),
+            json!([{ "id": "a", "props": { "t": { "text": "y" } } }, { "id": "b" }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes, snaps[0].nodes);
+        assert!(snaps[1].entered.is_empty() && snaps[1].exited.is_empty());
+    }
+
+    #[test]
+    fn a_node_that_reenters_starts_from_its_defaults() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "opacity": 1 } }),
+            json!([
+                { "id": "a", "props": { "t": { "text": "changed", "opacity": 0.5 } } },
+                { "id": "b", "remove": ["t"] },
+                { "id": "c", "props": { "t": { "opacity": 0.8 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert!(!snaps[1].nodes.contains_key("t"));
+        assert_eq!(snaps[1].exited, ["t"]);
+        assert_eq!(snaps[2].nodes["t"]["text"], json!("x"), "not the text it had when it left");
+        assert_eq!(snaps[2].nodes["t"]["opacity"], json!(0.8));
+        assert_eq!(snaps[2].entered, ["t"]);
+    }
+
+    #[test]
+    fn from_branches_from_an_earlier_state() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" }, "u": { "type": "text", "text": "u" } }),
+            json!([
+                { "id": "a", "layout": "title", "props": { "t": { "text": "a" } } },
+                { "id": "b", "layout": "full", "remove": ["t"], "props": { "u": {} } },
+                { "id": "c", "from": "a", "props": { "t": { "opacity": 0.5 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        // `c` is `a` plus its delta, layout included: `b` does not reach it.
+        assert_eq!(snaps[2].nodes.keys().collect::<Vec<_>>(), ["t"]);
+        assert_eq!(snaps[2].nodes["t"]["text"], json!("a"));
+        assert_eq!(snaps[2].nodes["t"]["opacity"], json!(0.5));
+        assert_eq!(snaps[2].layout.as_deref(), Some("title"));
+        // What enters and exits is against what was on screen: `b`.
+        assert_eq!(snaps[2].entered, ["t"]);
+        assert_eq!(snaps[2].exited, ["u"]);
+    }
+
+    #[test]
+    fn absolute_shows_exactly_its_own_props() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" }, "u": { "type": "text", "text": "u" } }),
+            json!([
+                { "id": "a", "layout": "title", "props": { "t": { "text": "a" }, "u": {} } },
+                { "id": "b", "mode": "absolute", "props": { "t": { "opacity": 0.5 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes.keys().collect::<Vec<_>>(), ["t"]);
+        assert_eq!(snaps[1].nodes["t"]["text"], json!("x"), "node defaults, not what `a` set");
+        assert_eq!(snaps[1].nodes["t"]["opacity"], json!(0.5));
+        assert_eq!(snaps[1].layout, None, "nothing tracks, the layout included");
+        assert_eq!(snaps[1].exited, ["u"]);
+    }
+
+    #[test]
+    fn scene_graph_order_not_cue_order() {
+        let d = deck(
+            json!({ "back": { "type": "group" }, "front": { "type": "group" } }),
+            json!([{ "id": "a", "props": { "front": {} } }, { "id": "b", "props": { "back": {} } }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes.keys().collect::<Vec<_>>(), ["back", "front"]);
     }
 
     #[test]
