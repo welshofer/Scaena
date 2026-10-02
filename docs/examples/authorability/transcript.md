@@ -138,3 +138,39 @@ Checks outside the scaena CLI (python3):
 14. **`takeaway` semantic vs. the claim rule.** The close's title is semantically a `takeaway`, but it is marked `claim` to satisfy the skill rule that each beat's states include a claim node.
 15. **What "clean" covers.** `validate` and `lint` don't check that the font files listed in `fonts` exist (the bundle has none, and both are clean). Lint has no layout-level rules yet (overflow, contrast, collisions: PLAN 1.15). Copy fit, slot overlaps, and contrast over the mesh are therefore unverified; ink over the mesh's `#FF6A3D` stop is about 2.5:1 by hand calculation.
 16. **Choreography timing.** Unspecified whether a node with an `after` choreography `enter` stays hidden until it runs, or fades in with the transition first.
+
+## (b) Roll the chart forward
+
+**Request (verbatim):** "Q4 closed. Here's the new data, data/q4-revenue.csv (2026-Q1 through 2026-Q4). Roll the deck's chart forward to it."
+
+**Read:** SPEC §2–§4 and §7; deck.schema.json and theme.schema.json; docs/examples/revenue.deck.json and themes/; skills author-deck and retheme; CLI help; bundle deck.json, data/*.csv, themes/dusk.theme.json.
+
+**Commands** (cwd = bundle; `scaena` = target/debug/scaena):
+- `scaena --help`, `scaena {validate,lint,inspect,diff,render,export,patch} --help` → 0 each.
+- Baseline: `scaena validate .` → 0, `ok: no findings`. `scaena lint .` → 0, `ok: no findings` + `(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)`. `scaena lint . --json` → 0, `[]`.
+- `scaena inspect . --state quarters` → 0; `scaena inspect . --state mix --json` → 0 (resolved props; shows `data: "@revenue"` but no data rows); `scaena inspect .` → 0, all 6 states.
+- After repointing the data source only: `scaena validate .` → 0, `ok: no findings`; `scaena lint . --json` → 0, `[]`.
+- Probes on a throwaway copy outside the bundle: source → `data/missing.csv`: validate 0, lint 0, no findings. `rev-chart.y.field` → `revenu`: validate 0, lint 0, no findings. Schema key `customers` → `region`: validate 0, lint 0, no findings. `rev-chart.data` → `@revenu`: validate 1 and `lint --json` 1, `E102 /nodes/rev-chart/data: node `rev-chart` references unknown data source `@revenu``.
+- Final: `scaena validate .` → 0, `ok: no findings`. `scaena lint .` → 0, `ok: no findings` (+ PLAN 1.15 note). `scaena lint . --json` → 0, `[]`. `scaena inspect .` → 0, new copy in every state, tracking as before. `scaena diff . --from quarters --to products` → 0, only `headline.text` and `rev-chart.kind`. `scaena diff . --from products --to mix` → 0, rev-chart kind + at, pro-share and pro-share-meaning enter, headline and chart-source exit (same shape as before).
+- Not run: `render` (no fonts in bundle). Also hand checks in python, not the CLI: CSV header = schema, chart fields present, numbers parse, (quarter, product) unique; every figure in the new copy recomputed from the CSV (all pass).
+
+**Decisions:**
+- Rolled forward by repointing `data.revenue.source` to `data/q4-revenue.csv` (same columns and types). I kept the name `revenue`, so `rev-chart` (`@revenue`) and every beat's `@revenue` evidence follow with no rebinding.
+- Chart spec unchanged (kind, encodings, `key`, format, domain). I rewrote `rev-chart.alt`, which listed the old values.
+- Left `data/q3-revenue.csv` in the bundle, now unreferenced. I did not delete it.
+- Scope: I read "Q4 closed" as rolling the deck's period forward, not only the chart. Every beat cites `@revenue`, so I re-checked each claim against the new window (2026-Q1..Q4) and updated every data-derived figure: meta title and description, 5 beat claims, 4 beat notes, 8 node texts, and 2 `close` state props. A chart-only roll would put a Q1–Q4 2026 chart under Q3-2026 / Q4-2025 copy.
+- "Growth accelerated every quarter" is false on the new data (q/q +25%, +33%, +21%). The beat claim is now "Growth slowed in Q4, to 21% from 33% in Q3." and `headline` is now "Growth slowed in Q4". This changes the narrative and needs the author's sign-off.
+- "Pro: a fifth → a third" became "a quarter → over a third" (25.6% → 35.6%). The thesis, takeaway, and close title follow.
+- Notes said "Pro and Enterprise both more than tripled", now false for Pro (2.8x). They now say Enterprise more than tripled and Pro nearly tripled.
+- Still true, wording kept: "Pro added the most" (+$15.9M vs +$13.2M vs +$5.8M), "every product grew every quarter", "doubled" (2.01x; the window starts at Q1 2026 instead of Q4 2025).
+- Kept every id: `q3-total*` now hold Q4 figures, and beat `accelerated` now claims growth slowed. Ids are identity (SPEC §1.2), and renaming them would break continuity with history/a.
+- Layout lints are not implemented, so I checked line counts against role measure/maxLines by hand. All are unchanged except the close title, 2 → 3 lines at measure 16, still within display `maxLines: 3`.
+- No new state animating the window from Q3 to Q4 (2025-Q4 exits, 2026-Q4 grows in); it was not asked for.
+
+**Could not express / ambiguous:**
+- Copy cannot reference data: every figure in text, alt, and notes is a literal copy, so a data roll-forward is a manual sweep, and nothing flags a claim that the new data falsifies (lint stays clean with "Growth accelerated" over decelerating data).
+- validate/lint do not check that the data file exists, that the CSV header matches `schema`, or that chart fields exist in the data. SPEC §7.5 lists E103, but it did not fire. Only an unknown `@name` is caught (E102).
+- `inspect` shows a chart's data ref, not its resolved rows, so the CLI cannot confirm what the chart will draw.
+- `key: "product"` with `x: quarter` and `series: product`: SPEC §3.7 does not say whether mark identity is the key alone or (x, key). It matters for any state that changes data (a scrolling window); not for this edit.
+- "Roll the deck's chart forward" leaves open whether the copy should follow. I resolved it as above.
+- Ids that encode a period (`q3-total`) go stale on a roll-forward. The format has no rename or alias that keeps identity.
