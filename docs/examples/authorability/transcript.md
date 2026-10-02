@@ -258,3 +258,64 @@ After editing:
 - SPEC §2.2 says only that `slide` groups consecutive states. That a build uses the first state's id as the value comes from the examples (revenue.deck.json `mix`, this deck's `products`).
 - The CLI can't check the build's motion. `inspect` and `diff` show no transition, choreography, or timeline in text or `--json`, though SPEC §7.1 lists "timeline" under inspect. The transition and the `rise` item are checked by the schema alone. Per SPEC §3.9, Phase 0 doesn't run presets or choreography (PLAN 1.11–1.12), so today the meaning and detail simply fade in over 420 ms.
 - The docs don't say what choreography `timing: "with"` means on a state that cuts (no transition). I avoided the question by giving the build a transition.
+
+## (e) Retheme
+
+**Request (verbatim):** "We're presenting in a bright room. Switch the deck to the Daybreak theme (themes/daybreak.theme.json)."
+
+Read: skills/retheme + author-deck SKILL.md, SPEC §2–§4 and §7, deck/theme schemas, deck.json, themes/{daybreak,dusk}.theme.json, data/q4-revenue.csv. `scaena` = target/debug/scaena, cwd = bundle. Scratch files (lint JSON, probes, scripts) live outside the bundle.
+
+### Commands
+1. `scaena --help`; `scaena {validate,lint,inspect,diff,theme} --help` → exit 0. Usage; `theme` reads "Re-theme (PLAN 1.6)".
+2. python `jsonschema`: themes/daybreak.theme.json and dusk.theme.json vs docs/schema/theme.schema.json → exit 0, both valid.
+3. python structural diff dusk → daybreak → exit 0. Only `name`, `description`, `tokens.color.*`, `tokens.data.*`, `shaders.palettes.{dusk,ember}` differ. Type, grid, layouts, motion, shader presets, charts, density are identical.
+4. `scaena validate deck.json` (baseline) → exit 0, `ok: no findings`.
+5. `scaena lint deck.json` (baseline) → exit 0, `ok: no findings` / `(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)`.
+6. `scaena lint deck.json --json > before.json` → exit 0, `[]`.
+7. `scaena validate .` → exit 0, `ok: no findings`.
+8. `scaena theme deck.json --apply themes/daybreak.theme.json` (on a scratch copy) → exit 3, "`theme --apply` is not implemented yet — see docs/PLAN.md task 1.6".
+9. `scaena inspect deck.json --state close` → exit 0. layout=title; + bg, title, subtitle; exited: rev-chart, pro-share, pro-share-meaning.
+10. `scaena inspect deck.json --state mix --json` → exit 0. Resolved snapshot (layout stat; rev-chart, pro-share, pro-share-meaning).
+    — edit: `theme` → `themes/daybreak.theme.json` —
+11. `scaena inspect deck.json --json` (exit 0), then a python check of every theme name against Daybreak (exit 0). All 24 resolve: layouts title/stat/full; slots title.{title,subtitle,canvas}, stat.{number,meaning,aside}, full.{header,footer}; roles display/headline/title/body/caption/numeral; presets words/rise/grow; durations standard/slow; palette dusk; data scale categorical. The deck references no springs or easings.
+12. `scaena validate deck.json` → exit 0, `ok: no findings`.
+13. `scaena validate .` → exit 0, `ok: no findings`.
+14. `scaena lint deck.json` → exit 0, `ok: no findings` plus the PLAN 1.15 line.
+15. `scaena lint deck.json --json > after.json` → exit 0, `[]`. `diff before.json after.json` → exit 0, no difference.
+16. `scaena lint deck.json --severity info --json` → exit 0, `[]`. No I402: the deck has no `overrides`.
+17. Probe: `scaena lint deck.json` on a scratch copy whose Daybreak sets ink = muted = paper → exit 0, `ok: no findings`. Lint does not check contrast today.
+18. python WCAG contrast, Dusk vs Daybreak (table below) → exit 0.
+19. `scaena inspect deck.json --json` on the original (Dusk) copy, diffed against #11 → exit 0. Resolved snapshots identical for all 7 states.
+20. `diff` original vs edited deck.json → exit 1 (differences found). One line: `"theme": "themes/dusk.theme.json"` → `"themes/daybreak.theme.json"`.
+21. Probe: `scaena validate deck.json` and `scaena lint deck.json` on a scratch copy whose theme lacks layout `stat`, palette `dusk`, and preset `rise` (so it is also schema-invalid) → both exit 0, `ok: no findings`. Neither command reads the theme.
+
+Contrast (WCAG 2, computed by hand). For text over the mesh, the background is the worst palette color, shifted by the `bg` grain (0.035 Oklab L) toward the ink.
+
+| pair | Dusk | Daybreak |
+|---|---|---|
+| ink on paper (display, headline, title, body, numeral) | 16.65 | 17.62 |
+| muted on paper (caption: chart-source; label: chart axis/value labels) | 5.57 | 5.40 |
+| ink on cover/close mesh, worst color + grain | 2.33 (#FF6A3D) | 7.76 (#7FBFB6) |
+| Core/Pro/Enterprise marks vs paper (non-text) | 6.67 / 12.34 / 7.71 | 5.24 / 4.96 / 7.57 |
+| `line` hairline (axis rule) vs paper | 1.34 | 1.40 |
+
+### Decisions
+- Changed one field: top-level `theme` → `themes/daybreak.theme.json`. No nodes, states, spine, data, or fonts changed.
+- Swapped by hand because `theme --apply` exits 3 (PLAN 1.6), as the skill expects.
+- Validated the theme with python `jsonschema` directly, not `scripts/validate_schema.py` (off-limits; the skill allows direct validation for a new theme).
+- Kept `bg.palette: "dusk"`. Daybreak defines `dusk` as a light paper/sand/teal palette, and its own `mesh-soft` preset uses it. `ember` would add an orange accent nobody asked for.
+- Kept `fonts`: Daybreak uses the same families (Fraunces, Inter). The deck uses no `code` role, so JetBrains Mono stays undeclared, as under Dusk.
+- No copy or `fit` changes: type roles, grid, and layouts are identical, so no new overflow risk.
+- Checked contrast by hand because lint can't (#17). Every text pair is ≥ 5.4:1 under Daybreak.
+- No overrides to report or remove (I402 count 0).
+- Did not render (the bundle has no fonts; per instructions).
+
+### Hard or ambiguous
+- An empty lint delta proves nothing for a retheme today. Overflow and contrast are PLAN 1.15, and skill step 5 assumes they exist. A zero-contrast theme lints clean (#17).
+- `validate` and `lint` don't read the theme. A schema-invalid theme missing a layout, palette, and preset the deck uses passes both (#21). The skill's manual name check (step 4) was the only guard.
+- Skill step 1 names `scripts/validate_schema.py`, a repo script. The CLI has no command that validates a theme file.
+- Daybreak keeps the palette name `dusk` for a light palette. Palette names are theme-scoped keys, but no doc says so, and an agent may read `palette: "dusk"` as something to swap out.
+- A shader node can't reference theme `shaders.presets` (`mesh-soft`): the deck schema has no `preset` on nodes. So `bg.params` are deck literals no theme can retune (e.g. less grain for a projector). Here they already equal Daybreak's `mesh-soft`.
+- SPEC doesn't say which roles count as "display" (3:1) vs "body" (4.5:1) for E110/E111, or how the background is resolved for text over a shader. Under Dusk the cover had a latent 2.3–2.5:1 case on the mesh's #FF6A3D; Daybreak removes it.
+
+Final deck.json copied to history/e.deck.json.
