@@ -288,7 +288,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *A staggered chart entrance misorders stacked segments, repeats donut slices, and drops a line's later points to zero.*
       - *Counting labels overshoot their values on an under-damped spring, where SPEC §3.9 says chart data stop at their ends.*
       - *Until those are fixed, the trails deck sets `stagger: 0` on its stacked bars, donut, and lines.)*
-- [ ] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI.
+- [x] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI. *(Done. `crates/scaena-cli/tests/mcp.rs`; SPEC §14:*
+  - *The test starts `scaena mcp` as a child process and talks to it on stdio, as an agent's client does. Through the tools alone it:*
+    - *creates a deck from Dusk (`deck_create`);*
+    - *patches in a headline too long for its one-row slot (`deck_patch`);*
+    - *finds the E100 on it, which carries a fix (`deck_lint`);*
+    - *applies the fix, which lint checks by laying the state out again (`deck_lint` with `fix`);*
+    - *lints again and finds no errors;*
+    - *renders the state, and gets a PNG back (`deck_render`).*
+  - *CI runs it with the workspace's tests on Linux and macOS. It takes under half a second.)*
 
 ### 1D Exports
 - [ ] 1.20 PDF painter (`krilla`): vector text with subsets, tagged structure from spine, shaders as images.
