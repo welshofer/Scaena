@@ -291,7 +291,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *No semantic op sets a state's `transition`, `choreography`, or `hold`; the motion skill writes JSON Patch guarded by `test`.*
     - *W320 counts nodes, not the marks or split units a motion moves.*
     - *The motion trial found engine defects: a staggered chart entrance misordered stacked segments and donut slices and dropped a line's points to zero, and counting labels overshot their values on a spring. 1.9 fixes them, after the skill trials.)*
-- [ ] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI.
+- [x] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI. *(Done. `crates/scaena-cli/tests/mcp.rs`; SPEC §14:*
+  - *The test starts `scaena mcp` as a child process and talks to it on stdio, as an agent's client does. Through the tools alone it:*
+    - *creates a deck from Dusk (`deck_create`);*
+    - *patches in a headline too long for its one-row slot (`deck_patch`);*
+    - *finds the E100 on it, which carries a fix (`deck_lint`);*
+    - *applies the fix, which lint checks by laying the state out again (`deck_lint` with `fix`);*
+    - *lints again and finds no errors;*
+    - *renders the state, and gets a PNG back (`deck_render`).*
+  - *CI runs it with the workspace's tests on Linux and macOS. It takes under half a second.)*
 
 ### 1D Exports
 - [ ] 1.20 PDF painter (`krilla`): vector text with subsets, tagged structure from spine, shaders as images.

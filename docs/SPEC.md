@@ -1139,7 +1139,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 - **Lint fixtures:** one deck per rule that must trigger it, one that must not.
 - **Fuzz:** DSL parser and JSON loader (`cargo-fuzz`).
 - **Benches:** layout, sample, paint at 1080p and 4K (`criterion`), tracked against §15 budgets.
-- **Agent loop test:** an MCP smoke test that creates a deck, introduces an E100, lints, applies the fix, re-lints to zero errors, renders.
+- **Agent loop test:** an MCP smoke test that creates a deck, introduces an E100, lints, applies the fix, re-lints to zero errors, renders. It talks to `scaena mcp` on stdio, as an agent's client does (`crates/scaena-cli/tests/mcp.rs`), and runs in CI with the rest.
 
 ---
 
