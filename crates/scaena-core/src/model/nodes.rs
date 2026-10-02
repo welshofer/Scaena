@@ -1,0 +1,532 @@
+//! Node properties, one struct per node type (SPEC §3.3, §3.7, §3.8). A node in `nodes`
+//! is one of [`TypedNode`]'s variants: its `type` picks the struct, and every property
+//! must belong to that type.
+
+use super::values::*;
+use indexmap::IndexMap;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Communicative function, independent of visual role (SPEC §3.3). Reserved for narrative
+/// lints; optional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Semantic {
+    Claim,
+    Evidence,
+    Annotation,
+    Context,
+    Comparison,
+    Takeaway,
+    Source,
+    Navigation,
+    Decoration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Blend {
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    Difference,
+}
+
+/// How this node moves between two states that both show it (SPEC §3.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeTransition {
+    Morph,
+    Crossfade,
+    Cut,
+}
+
+/// Clip to the node's box, or to SVG path data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Clip {
+    Box(bool),
+    Path(String),
+}
+
+/// One length for every side, or 2–4 lengths CSS-style.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Padding {
+    All(Length),
+    Sides(#[schemars(length(min = 2, max = 4))] Vec<Length>),
+}
+
+/// The properties every node type has, followed by the type's own: one struct per type.
+/// (`#[serde(flatten)]` would lose `deny_unknown_fields`, so the shared fields are
+/// written out by this macro instead.)
+macro_rules! node {
+    ($(#[$meta:meta])* $name:ident { $($body:tt)* }) => {
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+        #[serde(deny_unknown_fields, rename_all = "camelCase")]
+        $(#[$meta])*
+        pub struct $name {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub name: Option<String>,
+            /// Accessible description; text nodes default to their content (SPEC §3.12).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub alt: Option<String>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub semantic: Option<Semantic>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub parent: Option<Id>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub z: Option<i64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub tags: Option<Vec<String>>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub visible: Option<bool>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[schemars(range(min = 0, max = 1))]
+            pub opacity: Option<f64>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub transform: Option<Transform>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub fill: Option<Paint>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub stroke: Option<Stroke>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub blur: Option<NonNegative>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub shadow: Option<IndexMap<String, Value>>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub clip: Option<Clip>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub blend: Option<Blend>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub at: Option<Placement>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub size: Option<Size>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub align: Option<Align>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub transition: Option<NodeTransition>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub enter: Option<PresetRef>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub exit: Option<PresetRef>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub emphasis: Option<PresetRef>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub anim: Option<AnimTracks>,
+            /// Role-level style refinements (tokens, not literals).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub style: Option<IndexMap<String, Value>>,
+            #[serde(rename = "_comment", default, skip_serializing_if = "Option::is_none")]
+            pub comment: Option<String>,
+            $($body)*
+        }
+    };
+}
+
+node! {
+    /// Typographic text (SPEC §3.5): `text` or `runs`, set in a theme role.
+    #[schemars(extend("anyOf" = [{"required": ["text"]}, {"required": ["runs"]}]))]
+    TextNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(length(min = 1))]
+        pub runs: Option<Vec<Run>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub fit: Option<TextFit>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub wrap: Option<Wrap>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 1))]
+        pub max_lines: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("exclusiveMinimum" = 0))]
+        pub min_size: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("exclusiveMinimum" = 0))]
+        pub max_size: Option<f64>,
+        #[serde(rename = "box", default, skip_serializing_if = "Option::is_none")]
+        pub text_box: Option<TextBox>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub features: Option<Features>,
+        /// Variable-font axis values by tag.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub axes: Option<FontAxes>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub lang: Option<String>,
+        /// Max line length in characters (overrides the role's).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("exclusiveMinimum" = 0))]
+        pub measure: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub hyphenate: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub optical_margins: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub hanging_punctuation: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub numeric: Option<Numeric>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 1))]
+        pub min_last_line_words: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub split: Option<TextSplit>,
+    }
+}
+
+/// What a text node does when its text does not fit (SPEC §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TextFit {
+    Wrap,
+    Shrink,
+    Grow,
+    Clip,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Wrap {
+    Greedy,
+    Pretty,
+    Balance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TextBox {
+    Cap,
+    Line,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Numeric {
+    TabularLining,
+    TabularOldstyle,
+    ProportionalLining,
+    ProportionalOldstyle,
+}
+
+node! {
+    /// Vector geometry: `path` (SVG path data) or a `kind`.
+    ShapeNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub kind: Option<ShapeKind>,
+        /// SVG path data.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub points: Option<Vec<Point>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub radius: Option<Length>,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeKind {
+    Rect,
+    Ellipse,
+    Line,
+    Arrow,
+    Polygon,
+    Path,
+}
+
+node! {
+    /// A raster or vector image from the bundle's assets.
+    ImageNode {
+        /// Asset reference: assets/<sha256>.<ext>.
+        pub src: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub fit: Option<ImageFit>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub focal: Option<Point>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub crop: Option<Rect>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub radius: Option<Length>,
+    }
+}
+
+/// How an image fills its box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageFit {
+    Cover,
+    Contain,
+    Fill,
+}
+
+node! {
+    /// A data-bound chart (SPEC §3.7): a declarative spec compiled to marks.
+    ChartNode {
+        pub kind: ChartKind,
+        /// A data source, `@name`.
+        #[schemars(regex(pattern = r"^@[a-z][a-z0-9_-]*$"))]
+        pub data: String,
+        /// The transform pipeline: filter, sort, limit, derive, aggregate, pivot (PLAN 1.9).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub data_transform: Option<Vec<IndexMap<String, Value>>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub x: Option<Encoding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub y: Option<Encoding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub series: Option<Encoding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub color: Option<Encoding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub size_encoding: Option<Encoding>,
+        /// The field that identifies a mark across states.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub key: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub axes: Option<ChartAxes>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub labels: Option<ChartLabels>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub legend: Option<Legend>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub annotations: Option<Vec<Annotation>>,
+    }
+}
+
+/// v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ChartKind {
+    Bar,
+    StackedBar,
+    Line,
+    Area,
+    Scatter,
+    Dot,
+    Donut,
+}
+
+/// The chart's axes (PLAN 1.9 draws them).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartAxes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<AxisSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<AxisSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AxisSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gridlines: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Value labels on the marks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartLabels {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<LabelShow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// How labels that collide resolve (lint W310 otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collide: Option<LabelCollide>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelShow {
+    All,
+    Ends,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelCollide {
+    Hide,
+    Nudge,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Legend {
+    Placed(LegendPlace),
+    Spec(IndexMap<String, Value>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LegendPlace {
+    None,
+    Auto,
+    Top,
+    Bottom,
+    Right,
+}
+
+node! {
+    /// A parametric background or fill (SPEC §3.8): a kind, a seed, a theme palette, and
+    /// typed params. No shader source, ever.
+    #[schemars(extend(
+        "if" = {"properties": {"kind": {"const": "mesh"}}, "required": ["kind"]},
+        "then" = {"properties": {"params": {"$ref": "#/$defs/MeshParams"}}}
+    ))]
+    ShaderNode {
+        pub kind: ShaderKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub seed: Option<u64>,
+        /// A shader palette from the theme.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub palette: Option<String>,
+        /// Typed per kind: `mesh` takes [`MeshParams`]; the other kinds are PLAN 1.10.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub params: Option<IndexMap<String, f64>>,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ShaderKind {
+    Mesh,
+    Gradient,
+    Noise,
+    Grain,
+    Particles,
+}
+
+/// The `mesh` shader's params (SPEC §3.8).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MeshParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 2, max = 16))]
+    pub points: Option<u8>,
+    /// In shorter sides of the rect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub drift: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(max = 1), extend("exclusiveMinimum" = 0))]
+    pub softness: Option<f64>,
+    /// In Oklab lightness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 0.25))]
+    pub grain: Option<f64>,
+}
+
+node! {
+    /// A layout container along one axis (flex).
+    StackNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub axis: Option<Axis>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub gap: Option<Length>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub distribute: Option<Distribute>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub padding: Option<Padding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub radius: Option<Length>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub children: Option<IdList>,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Axis {
+    X,
+    Y,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Distribute {
+    Start,
+    Center,
+    End,
+    Between,
+    Around,
+    Evenly,
+}
+
+node! {
+    /// A layout container on a grid (CSS grid).
+    GridNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub cols: Option<Tracks>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub rows: Option<Tracks>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub gap: Option<Length>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub areas: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub padding: Option<Padding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub radius: Option<Length>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub children: Option<IdList>,
+    }
+}
+
+/// A count of equal tracks, or each track's size.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Tracks {
+    Count(#[schemars(range(min = 1))] u32),
+    Sizes(Vec<SizeValue>),
+}
+
+node! {
+    /// A layout container whose children place themselves by `rect`.
+    FrameNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub padding: Option<Padding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub radius: Option<Length>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub children: Option<IdList>,
+    }
+}
+
+node! {
+    /// Transform-only grouping.
+    GroupNode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub children: Option<IdList>,
+    }
+}
+
+/// A node in the scene graph: its `type` and that type's properties. A node's type never
+/// changes across states (E104).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "lowercase")]
+#[schemars(rename = "Node")]
+pub enum TypedNode {
+    Text(Box<TextNode>),
+    Shape(Box<ShapeNode>),
+    Image(Box<ImageNode>),
+    Chart(Box<ChartNode>),
+    Shader(Box<ShaderNode>),
+    Stack(Box<StackNode>),
+    Grid(Box<GridNode>),
+    Frame(Box<FrameNode>),
+    Group(Box<GroupNode>),
+}

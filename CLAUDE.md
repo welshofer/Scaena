@@ -47,7 +47,7 @@ apps/mac/              SwiftUI client                                           
 - Errors: `thiserror` in libraries, `anyhow` only in `scaena-cli`. Unimplemented paths return `NotImplemented("… — PLAN x.y")`, never `todo!()`, so the CLI exits 3 with a pointer instead of panicking.
 - Every lint rule: a struct implementing `Rule` with a stable code from SPEC §7.5, plus fixtures under `tests/lint/<CODE>/trigger.deck.json` and `tests/lint/<CODE>/clean.deck.json`.
 - Every change to layout/text/timeline/painters updates golden display lists in the same PR; the diff is reviewed, not regenerated blindly.
-- New node types, properties, or state fields: update `docs/schema/deck.schema.json` → `docs/examples/*` → `scaena-core::document` → SPEC §3. Run `just schema` to validate.
+- New node types, properties, or state fields: change the typed model (`scaena-core::model`; the deck's skeleton is `scaena-core::document`) → `just bless` regenerates `docs/schema/*.json`, which nobody edits by hand (ADR-0007) → `docs/examples/*` → SPEC §3. Run `just schema` to validate.
 - Commit messages: imperative, one line, optional body. Reference PLAN task ids (`PLAN 0.4`) and ADRs.
 
 ## Commands
@@ -59,7 +59,7 @@ just schema         # validate docs/examples + tests/fixtures against docs/schem
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
 just example        # validate/lint/inspect the example deck
 just test-gpu       # painter + CLI tests with vello on the GPU; skip without an adapter unless SCAENA_REQUIRE_GPU=1
-just bless          # re-bless golden display lists, then rasters; only after reviewing tests/golden/**/actual/
+just bless          # regenerate docs/schema from the model, then re-bless golden display lists and rasters; only after reviewing the diffs
 just wasm           # WASM engine + JS glue into crates/scaena-wasm/www/pkg (needs wasm-bindgen-cli 0.2.129)
 just wasm-smoke     # the WebGPU page in headless Chromium: WASM display lists match native, every state paints
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)

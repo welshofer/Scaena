@@ -53,9 +53,9 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 **Goal:** an agent can author, lint, render, patch, and export a real deck from Claude Code with no UI.
 
 ### 1A Document model
-- [ ] 1.1 `scaena-core` types for the full SPEC §3 document; `serde` + `schemars`; generate `docs/schema/*.json` from Rust and diff against the hand-written schemas (hand-written ones are the spec until the generated ones match; then the generated ones win).
+- [x] 1.1 `scaena-core` types for the full SPEC §3 document; `serde` + `schemars`; generate `docs/schema/*.json` from Rust and diff against the hand-written schemas (hand-written ones are the spec until the generated ones match; then the generated ones win). *(Done: `scaena-core::model` types every node type, the theme, and the values they hold, and generates both schemas, which replace the hand-written ones (ADR-0007). The runtime keeps node props as JSON maps, and `Node::typed()` gives a node its type's view. A test holds the model to every node in every state of every deck in the repository and to every theme; another holds `docs/schema/` to the generator (`just bless` regenerates). The diff found eight places where the hand-written schemas disagreed with SPEC, each resolved for SPEC. Another type's props now fail; `null` and partial objects pass in deltas; charts take `axes` settings (`axesSpec` is gone); mesh params and label policies are typed; an image's `fit` validates; a slot's `align` is checked. `StateDelta` is derived from the node types, so a property a type gains is one a delta may set. Deck format 0.2; the theme format stays 0.1.)*
 - [ ] 1.2 Validation: schema + semantic (ids, references, type stability E104, duplicates E105).
-- [ ] 1.3 Tracking resolution → absolute snapshots; `from` branching; `mode: absolute`.
+- [ ] 1.3 Tracking resolution → absolute snapshots; `from` branching; `mode: absolute`. *(Found in 1.1: where nothing is tracked, `merge_props` inserts a delta's object value whole, its `null` keys included.)*
 - [ ] 1.4 Bundle I/O: directory and zip; manifest; content-addressed assets; font subsetting at save (`subsetter` or `klippa`).
 - [ ] 1.5 DSL: lexer/parser (`logos` + hand-written, or `chumsky`), compiler to JSON, canonical decompiler; round-trip property tests; error reporting with `miette`.
 
@@ -160,7 +160,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 1. **Small, green PRs.** Every PR compiles, passes golden tests, and updates PLAN checkboxes.
 2. **Determinism is a test, not a hope.** Any change to layout, text, timeline, or painters updates golden display lists in the same PR with a reviewed diff.
 3. **Decisions get an ADR.** Library choices, format changes, anything that would be expensive to reverse: `docs/adr/NNNN-title.md`, status `proposed → accepted`.
-4. **Schema is law.** `deck.json` changes require a schema change, example updates, and a format version bump (minor for additive, major for breaking).
+4. **Schema is law.** `deck.json` changes are made in the typed model (`scaena-core::model`), which regenerates the schema (`just bless`), with example updates and a format version bump (minor for additive, major for breaking; before 1.0 a breaking change takes the minor, ADR-0007).
 5. **Lint rules come with fixtures.** One deck that triggers, one that doesn't.
 6. **PPTX/Keynote never touch the model or the engine.** No import filter, no shared abstraction, no "just a quick converter" in `crates/`. A lossy external projection is permitted in principle, like PDF export, and is not planned.
 7. **No HTML/CSS layout in the engine, no TextKit in the Mac app.** The engine lays out; clients paint.

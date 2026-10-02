@@ -205,7 +205,7 @@ mod tests {
 
     fn deck(data: &str) -> Deck {
         let json = format!(
-            r#"{{"scaena": "0.1", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
+            r#"{{"scaena": "0.2", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
         );
         Deck::from_json(&json).unwrap()
     }

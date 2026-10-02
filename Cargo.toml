@@ -39,7 +39,7 @@ scaena-store  = { path = "crates/scaena-store" }
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-schemars   = "1.2"
+schemars   = { version = "1.2", features = ["indexmap2", "preserve_order"] }
 jsonschema = "0.58"
 indexmap   = { version = "2.14", features = ["serde"] }
 postcard   = { version = "1.1", features = ["alloc"] }

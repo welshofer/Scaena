@@ -159,6 +159,8 @@ PLAN 0.13 does not judge visual quality, but four of the seven states can render
 
 The `author-deck` skill also says now that figures in copy are literals to re-derive when the data changes (finding 6), and the `retheme` skill that an empty lint delta proves nothing until PLAN 1.15.
 
+PLAN 1.1 finished two of these. The schema, now generated from the typed model, accepts `null` in a delta (1), and charts take `axes` settings where `axesSpec` held the place (4).
+
 **Open**, each pointing at the task that owns it:
 
 | # | Finding | Evidence | Proposal | PLAN |

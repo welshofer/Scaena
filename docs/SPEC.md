@@ -63,7 +63,7 @@ A deck owns one **scene graph**: a set of **nodes**, each with a stable `id` (a 
 
 A deck is an **ordered list of states**. A state is a named point on the timeline where the scene graph has particular property values. Every click is a state. The state list is the cue list; the engine's lineage is a theatrical lighting console, not a slide sorter.
 
-**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value (the hand-written schema cannot say `null` yet: PLAN 1.1). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
+**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value. The schema's `StateDelta` says what a delta may hold: any node type's property, in any form it takes, an object value with every key optional, or `null` (§3.3). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
 
 **Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key starts a slide named by its own id; the states that build on it set `slide` to that id.
 
@@ -113,7 +113,7 @@ name.scaena/
 ```
 
 Rules:
-- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
+- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. The JSON schemas in `docs/schema/` are generated from it and never edited by hand (ADR-0007). `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
 - Assets and fonts are referenced by content hash; the bundle is self-contained and portable.
 - Fonts are **subsetted** into the bundle at save time. The render path MUST NOT consult system fonts (§13). System fonts are only enumerated in editors for picking.
 - `manifest.json` records `"scaena": "<format version>"` (semver; majors break) and the hash of `deck.json` it was last written against.
@@ -122,7 +122,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.1",
+  "scaena": "0.2",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -140,20 +140,20 @@ Rules:
 
 ### 3.3 Node types
 
-Every node: `{ "type", "id" (implicit from key), "name"?, "alt"?, "semantic"?, "parent"?, "z"?, "tags"?: [...] }`.
+Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `parent`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim`, `style` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
 
 **Two semantic axes.** `role` (on text nodes) and the theme describe *what something looks like*. `semantic` describes *what it does in the argument*: `claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`. They are independent: a claim may be a `headline` on one state and a `caption` on another. `semantic` is optional in v1 and reserved for the narrative lint family (§7.5) — e.g. "this beat's claim has no visible expression" or "evidence outranks the claim in visual hierarchy". Agents SHOULD set it; nothing renders differently because of it.
 
 | type | purpose | key properties |
 |---|---|---|
-| `text` | typographic text | `role`, `runs` or `text`, `fit`, `balance`, `maxLines`, `align`, `box`, `features`, `axes`, `lang` |
-| `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon`, `fill`, `stroke`, `radius` |
-| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop` |
+| `text` | typographic text | `role`, `text` or `runs`, `fit`, `wrap: greedy\|pretty\|balance`, `maxLines`, `minSize`, `maxSize`, `box`, `features`, `axes`, `lang`, `measure`, `hyphenate`, `opticalMargins`, `hangingPunctuation`, `numeric`, `minLastLineWords`, `split` |
+| `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon\|path`, `points`, `radius` |
+| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius` |
 | `chart` | data-bound visualization | §3.7 |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
-| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `align`, `distribute`, `padding`, `children` |
-| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `padding`, `children` (+ child `area`) |
-| `frame` | layout container (absolute) | `children` (+ child `rect`) |
+| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `distribute`, `padding`, `radius`, `children` |
+| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `areas`, `padding`, `radius`, `children` (+ child `at.area`) |
+| `frame` | layout container (absolute) | `padding`, `radius`, `children` (+ child `at.rect`) |
 | `group` | transform-only grouping | `children` |
 
 Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`. `table` arrives with the chart and table sprint (PLAN 1.9) and joins the schema there.
@@ -280,7 +280,7 @@ Rules:
 - **Motion.** A matched bar interpolates its shape. A new key grows from the baseline and a removed one shrinks onto it, each moving with its nearest matched neighbor (the earlier on a tie), so a window that advances a period scrolls. A value label rides its bar and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
 - **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, `format`, and `dataTransform` return NotImplemented until the chart and table sprint (PLAN 1.9).
 
-Open (PLAN 1.1): the chart `axes` object above collides in the schema with text `axes` (variable-font axes, numbers only) in `NodeProps`, so a chart cannot declare axes settings until node props are typed per node type. The schema holds the place with `axesSpec`, an untyped object that nothing reads yet.
+`axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
 ### 3.8 Shader nodes
 
@@ -308,7 +308,7 @@ Requirements:
 | `softness` | number | above 0, up to 1 | 0.6 |
 | `grain` | number, in Oklab L | 0–0.25 | 0.03 |
 
-The engine types the params when it resolves the node; an unknown or out-of-range one is an error naming the node. The JSON schema types them per kind with the rest of node props (PLAN 1.1). Phase 0 cross-fades a shader whose kind, seed, palette, or params change between states, until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
+The engine types the params when it resolves the node; an unknown or out-of-range one is an error naming the node. The schema types them per kind: `mesh` by the table above, the other kinds with PLAN 1.10. Phase 0 cross-fades a shader whose kind, seed, palette, or params change between states, until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
 
 ### 3.9 Animation
 
