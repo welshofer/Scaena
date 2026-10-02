@@ -37,7 +37,7 @@ impl Bundle {
     /// - `deck.json` in canonical form, and the theme file the deck names in the same form;
     /// - each font the deck or its theme names, subset to what the deck can draw, at
     ///   `fonts/<family>-<hash>.<ext>`, and each image at `assets/<sha256>.<ext>`, with
-    ///   every reference to them rewritten;
+    ///   every reference to them rewritten, a beat's evidence among them;
     /// - every other file of the bundle as it is (from a bare deck file, whose directory is
     ///   not a bundle of its own, only its data and the font licenses beside its fonts);
     /// - `manifest.json`.
@@ -118,6 +118,14 @@ impl Bundle {
                 }
             };
             *old = new;
+        }
+        // A beat cites a file by its path, so it follows the file.
+        for beat in deck.spine.iter_mut().flat_map(|s| &mut s.sections).flat_map(|s| &mut s.beats) {
+            for cited in &mut beat.evidence {
+                if let Some(new) = names.get(cited.as_str()) {
+                    cited.clone_from(new);
+                }
+            }
         }
         renamed.extend(names.iter().filter(|(old, new)| old != new).map(|(o, n)| (o.clone(), n.clone())));
 

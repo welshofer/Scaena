@@ -71,6 +71,25 @@ fn a_bare_deck_saves_with_what_it_references_and_no_more() {
 }
 
 #[test]
+fn a_beat_cites_an_image_by_the_name_saving_gives_it() {
+    let dir = scratch("evidence").join("trails");
+    let saved = Bundle::open(Path::new("../../docs/examples/trails.deck.json")).unwrap().save(&dir, &opts()).unwrap();
+    let (_, new) =
+        saved.renamed.iter().find(|(old, _)| old == "assets/trails-ridge.png").expect("the photo is renamed");
+    let deck: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+    let cited: Vec<&str> = deck["spine"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["beats"].as_array().unwrap())
+        .flat_map(|b| b["evidence"].as_array().into_iter().flatten())
+        .filter_map(|e| e.as_str().filter(|e| !e.starts_with('@')))
+        .collect();
+    assert_eq!(cited, [new.as_str()], "the saddle beat cites the photo where it now is");
+    assert!(dir.join(new).exists());
+}
+
+#[test]
 fn a_directory_that_holds_something_else_is_not_overwritten() {
     let dir = scratch("occupied");
     std::fs::write(dir.join("notes.txt"), "mine").unwrap();
