@@ -1,0 +1,798 @@
+{
+  "scaena": "0.8",
+  "meta": {
+    "title": "B1: the manifesto as a talk",
+    "lang": "en-US",
+    "description": "SPEC §15 benchmark B1: text-heavy, 40 states, 4 fonts, no charts. The text is docs/MANIFESTO.md."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Source Serif 4",
+      "file": "fonts/SourceSerif4-VF.ttf",
+      "axes": {
+        "wght": [
+          200,
+          900
+        ],
+        "opsz": [
+          8,
+          60
+        ]
+      }
+    }
+  ],
+  "spine": {
+    "sections": [
+      {
+        "id": "manifesto",
+        "title": "Manifesto",
+        "beats": [
+          {
+            "id": "opening",
+            "claim": "Scaena is the tool we would build if the slide had never been invented.",
+            "states": [
+              "cover"
+            ]
+          },
+          {
+            "id": "goal",
+            "claim": "Build the tool we would design today if the slide had never been invented.",
+            "states": [
+              "goal",
+              "goal-why",
+              "goal-bar"
+            ]
+          },
+          {
+            "id": "belief-1",
+            "claim": "The slide was a mistake we inherited, not a law of nature.",
+            "states": [
+              "belief-1",
+              "belief-1-why",
+              "belief-1-line"
+            ]
+          },
+          {
+            "id": "belief-2",
+            "claim": "Identity is the primitive.",
+            "states": [
+              "belief-2",
+              "belief-2-why",
+              "belief-2-line"
+            ]
+          },
+          {
+            "id": "belief-3",
+            "claim": "Typography is the product.",
+            "states": [
+              "belief-3",
+              "belief-3-why",
+              "belief-3-line"
+            ]
+          },
+          {
+            "id": "belief-4",
+            "claim": "Semantics over pixels.",
+            "states": [
+              "belief-4",
+              "belief-4-why",
+              "belief-4-line"
+            ]
+          },
+          {
+            "id": "belief-5",
+            "claim": "The document is text, and text is the truth.",
+            "states": [
+              "belief-5",
+              "belief-5-why",
+              "belief-5-line"
+            ]
+          },
+          {
+            "id": "belief-6",
+            "claim": "One engine, pixel-identical everywhere.",
+            "states": [
+              "belief-6",
+              "belief-6-why",
+              "belief-6-line"
+            ]
+          },
+          {
+            "id": "belief-7",
+            "claim": "The agent is a user, not a feature.",
+            "states": [
+              "belief-7",
+              "belief-7-why",
+              "belief-7-line"
+            ]
+          },
+          {
+            "id": "belief-8",
+            "claim": "The deck is a projection of the story.",
+            "states": [
+              "belief-8",
+              "belief-8-why",
+              "belief-8-line"
+            ]
+          },
+          {
+            "id": "belief-9",
+            "claim": "Local-first. Yours.",
+            "states": [
+              "belief-9",
+              "belief-9-why",
+              "belief-9-line"
+            ]
+          },
+          {
+            "id": "belief-10",
+            "claim": "Constraint is the gift.",
+            "states": [
+              "belief-10",
+              "belief-10-why",
+              "belief-10-line"
+            ]
+          },
+          {
+            "id": "refuse",
+            "claim": "Some things we will not build.",
+            "states": [
+              "refuse",
+              "refuse-2",
+              "refuse-3"
+            ]
+          },
+          {
+            "id": "work",
+            "claim": "How we work keeps the promises honest.",
+            "states": [
+              "work"
+            ]
+          },
+          {
+            "id": "last-word",
+            "claim": "When the typography is wrong, nothing else is right.",
+            "states": [
+              "last-word"
+            ]
+          },
+          {
+            "id": "close",
+            "claim": "Scaena: the stage you build so the performance can happen.",
+            "states": [
+              "close"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "title": {
+      "type": "text",
+      "role": "display",
+      "text": "Scaena",
+      "semantic": "claim",
+      "at": {
+        "in": "title"
+      }
+    },
+    "subtitle": {
+      "type": "text",
+      "role": "title",
+      "text": "Why this exists, what we believe, and what we refuse to build.",
+      "semantic": "context",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "kicker": {
+      "type": "text",
+      "role": "label",
+      "text": "The goal",
+      "semantic": "navigation",
+      "at": {
+        "in": "kicker"
+      }
+    },
+    "headline": {
+      "type": "text",
+      "role": "headline",
+      "text": "Build the tool we would design today if the slide had never been invented.",
+      "semantic": "claim",
+      "at": {
+        "in": "headline"
+      }
+    },
+    "body": {
+      "type": "text",
+      "role": "body",
+      "text": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "body"
+      }
+    },
+    "aside": {
+      "type": "text",
+      "role": "quote",
+      "text": "",
+      "semantic": "takeaway",
+      "at": {
+        "in": "aside"
+      }
+    },
+    "snippet": {
+      "type": "text",
+      "role": "code",
+      "text": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "aside"
+      }
+    },
+    "header": {
+      "type": "text",
+      "role": "headline",
+      "text": "What we refuse",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "items": {
+      "type": "text",
+      "role": "body",
+      "text": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "items"
+      }
+    },
+    "quote": {
+      "type": "text",
+      "role": "quote",
+      "text": "When the typography is wrong, nothing else is right.",
+      "semantic": "takeaway",
+      "at": {
+        "in": "quote"
+      }
+    },
+    "who": {
+      "type": "text",
+      "role": "caption",
+      "text": "Scaena manifesto, “How we work”",
+      "semantic": "source",
+      "at": {
+        "in": "who"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "layout": "title",
+      "props": {
+        "title": {},
+        "subtitle": {}
+      }
+    },
+    {
+      "id": "goal",
+      "layout": "belief",
+      "transition": "standard",
+      "remove": [
+        "title",
+        "subtitle"
+      ],
+      "props": {
+        "kicker": {},
+        "headline": {}
+      }
+    },
+    {
+      "id": "goal-why",
+      "slide": "goal",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Not a better PowerPoint. Not a prettier Keynote. A tool whose primitives are the things a presentation is actually made of — objects with identity, states on a timeline, typography that is correct by construction, data that stays data, motion that is a property rather than an effect."
+        }
+      }
+    },
+    {
+      "id": "goal-bar",
+      "slide": "goal",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "Studio-grade work, reachable by someone with a CSV, a paragraph, and twenty minutes."
+        }
+      }
+    },
+    {
+      "id": "belief-1",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 1 of 10"
+        },
+        "headline": {
+          "text": "The slide was a mistake we inherited, not a law of nature."
+        }
+      }
+    },
+    {
+      "id": "belief-1-why",
+      "slide": "belief-1",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Slides are film frames: discrete, independent, dumb. Everything that was ever good in presentation software — Magic Move, Morph, builds, “appear on click” — was an attempt to smuggle continuity back into a model that had thrown it away. We start from continuity. A deck is one scene over time. “Slides” are bookmarks."
+        }
+      }
+    },
+    {
+      "id": "belief-1-line",
+      "slide": "belief-1",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "A deck is one scene over time. “Slides” are bookmarks."
+        }
+      }
+    },
+    {
+      "id": "belief-2",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 2 of 10"
+        },
+        "headline": {
+          "text": "Identity is the primitive."
+        }
+      }
+    },
+    {
+      "id": "belief-2-why",
+      "slide": "belief-2",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "An object that exists on slide 4 and slide 5 is the same object. That sentence is the whole animation system — and most of everything else. When identity is the primitive, transitions are not a menu; they are what the object does between two states. Patches become local. Diffs become meaningful. Data updates flow to the mark that changed. A re-theme keeps every object where the argument put it. Lighting consoles figured this out in the 1980s. Cue 12 goes. The unchanged channels track; the changed ones crossfade."
+        }
+      }
+    },
+    {
+      "id": "belief-2-line",
+      "slide": "belief-2",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "We are building a lighting console for ideas."
+        }
+      }
+    },
+    {
+      "id": "belief-3",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 3 of 10"
+        },
+        "headline": {
+          "text": "Typography is the product."
+        }
+      }
+    },
+    {
+      "id": "belief-3-why",
+      "slide": "belief-3",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Most presentation software treats text as a rectangle with a font name. We treat it as the thing people look at. Real shaping. Optical sizes. Balanced headlines, pretty paragraphs, no widows. Cap-height alignment, not bounding boxes. Hanging punctuation. Tabular figures in charts without asking."
+        }
+      }
+    },
+    {
+      "id": "belief-3-line",
+      "slide": "belief-3",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "If the type is wrong, nothing else matters. If the type is right, almost everything else can be plain."
+        }
+      }
+    },
+    {
+      "id": "belief-4",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 4 of 10"
+        },
+        "headline": {
+          "text": "Semantics over pixels."
+        }
+      }
+    },
+    {
+      "id": "belief-4-why",
+      "slide": "belief-4",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "A headline is a “headline.” A chart’s colors come from the data palette. A margin is “space.4.” Authors — human or machine — say what things are; the design system decides what they look like. This is how re-theming becomes a live, animated, lossless operation instead of a weekend."
+        }
+      }
+    },
+    {
+      "id": "belief-4-line",
+      "slide": "belief-4",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "An agent produces beautiful work by being prevented from producing ugly work."
+        }
+      }
+    },
+    {
+      "id": "belief-5",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 5 of 10"
+        },
+        "headline": {
+          "text": "The document is text, and text is the truth."
+        }
+      }
+    },
+    {
+      "id": "belief-5-why",
+      "slide": "belief-5",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Diffable. Patchable. Versioned. Readable by a person at 2 a.m. and by an agent at 2 a.m. the next day. A deck that can be reasoned about is a deck that can be improved, checked, regenerated from new data, or projected into another medium. While you edit, a CRDT keeps the history; what it writes to disk is this text, and nothing else is authoritative."
+        }
+      }
+    },
+    {
+      "id": "belief-5-line",
+      "slide": "belief-5",
+      "transition": "standard",
+      "props": {
+        "snippet": {
+          "text": "\"rev-chart\": {\n  \"type\": \"chart\",\n  \"kind\": \"bar\",\n  \"data\": \"@revenue\",\n  \"key\": \"quarter\"\n}"
+        }
+      }
+    },
+    {
+      "id": "belief-6",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "snippet"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 6 of 10"
+        },
+        "headline": {
+          "text": "One engine, pixel-identical everywhere."
+        }
+      }
+    },
+    {
+      "id": "belief-6-why",
+      "slide": "belief-6",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "The browser, the Mac, the PDF, the video frame, the thumbnail an agent inspects: same glyph positions, same geometry, same colors. Rendering is a pure function of the document and time. Determinism is not an aspiration; it is a test that fails the build."
+        }
+      }
+    },
+    {
+      "id": "belief-6-line",
+      "slide": "belief-6",
+      "transition": "standard",
+      "props": {
+        "snippet": {
+          "text": "render(deck, theme,\n       state, t, viewport)\n  -> the same pixels,\n     everywhere"
+        }
+      }
+    },
+    {
+      "id": "belief-7",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "snippet"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 7 of 10"
+        },
+        "headline": {
+          "text": "The agent is a user, not a feature."
+        }
+      }
+    },
+    {
+      "id": "belief-7-why",
+      "slide": "belief-7",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Everything a UI can do is reachable by an agent, with results it can act on: errors that carry fixes, renders it can look at, patches that apply atomically. Authoring is a loop — make, lint, look, fix — and the loop is designed for whoever runs it."
+        }
+      }
+    },
+    {
+      "id": "belief-7-line",
+      "slide": "belief-7",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "The best “AI feature” is a tool that is honest with the machine."
+        }
+      }
+    },
+    {
+      "id": "belief-8",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 8 of 10"
+        },
+        "headline": {
+          "text": "The deck is a projection of the story."
+        }
+      }
+    },
+    {
+      "id": "belief-8-why",
+      "slide": "belief-8",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Beneath the states is a spine: sections, beats, claims, evidence, notes. The deck is one rendering of that spine. The infographic, the PDF, the motion piece, and the podcast are others. Export is not a conversion; it is another projection of the same truth."
+        }
+      }
+    },
+    {
+      "id": "belief-8-line",
+      "slide": "belief-8",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "Narrative is a contract, not a byproduct."
+        }
+      }
+    },
+    {
+      "id": "belief-9",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 9 of 10"
+        },
+        "headline": {
+          "text": "Local-first. Yours."
+        }
+      }
+    },
+    {
+      "id": "belief-9-why",
+      "slide": "belief-9",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "A deck is a bundle on your disk. It opens offline, from a USB stick, in ten years. No account, no server, no telemetry. If you want to use a model, you bring your own key or your own agent. We may add sync when there are people to sync with."
+        }
+      }
+    },
+    {
+      "id": "belief-9-line",
+      "slide": "belief-9",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "We will never add a lock-in."
+        }
+      }
+    },
+    {
+      "id": "belief-10",
+      "transition": "standard",
+      "remove": [
+        "body",
+        "aside"
+      ],
+      "props": {
+        "kicker": {
+          "text": "Belief 10 of 10"
+        },
+        "headline": {
+          "text": "Constraint is the gift."
+        }
+      }
+    },
+    {
+      "id": "belief-10-why",
+      "slide": "belief-10",
+      "transition": "standard",
+      "props": {
+        "body": {
+          "text": "Fewer node types, one grid, named motion, a fixed set of shaders, a small chart grammar. Every constraint is chosen so that the default output is excellent and the escape hatch is loud."
+        }
+      }
+    },
+    {
+      "id": "belief-10-line",
+      "slide": "belief-10",
+      "transition": "standard",
+      "props": {
+        "aside": {
+          "text": "We would rather ship four exceptional themes than four hundred mediocre ones."
+        }
+      }
+    },
+    {
+      "id": "refuse",
+      "layout": "list",
+      "transition": "standard",
+      "remove": [
+        "kicker",
+        "headline",
+        "body",
+        "aside"
+      ],
+      "props": {
+        "header": {},
+        "items": {
+          "text": "• PPTX and Keynote inside the model.\n• WYSIWYG first."
+        }
+      }
+    },
+    {
+      "id": "refuse-2",
+      "slide": "refuse",
+      "transition": "standard",
+      "props": {
+        "items": {
+          "text": "• PPTX and Keynote inside the model.\n• WYSIWYG first.\n• Effects: no entrance-effect gallery, no “bounce in from the left.”\n• Arbitrary code in documents: no user shaders, no scripts, no plugins."
+        }
+      }
+    },
+    {
+      "id": "refuse-3",
+      "slide": "refuse",
+      "transition": "standard",
+      "props": {
+        "items": {
+          "text": "• PPTX and Keynote inside the model.\n• WYSIWYG first.\n• Effects: no entrance-effect gallery, no “bounce in from the left.”\n• Arbitrary code in documents: no user shaders, no scripts, no plugins.\n• A backend we don’t need yet.\n• Features that only demo well. If it doesn’t survive a Tuesday-morning board deck, it doesn’t ship."
+        }
+      }
+    },
+    {
+      "id": "work",
+      "transition": "standard",
+      "props": {
+        "header": {
+          "text": "How we work"
+        },
+        "items": {
+          "text": "• Determinism is tested, not hoped for.\n• Layout runs once per state; frames only sample.\n• Decisions get an ADR; reversals get another.\n• Every lint rule ships with the deck that triggers it.\n• Phase 0 is adversarial: we try to break the typography first.\n• The spike comes before the editor. The agent comes before the UI."
+        }
+      }
+    },
+    {
+      "id": "last-word",
+      "layout": "quote",
+      "transition": "slow",
+      "remove": [
+        "header",
+        "items"
+      ],
+      "props": {
+        "quote": {},
+        "who": {}
+      }
+    },
+    {
+      "id": "close",
+      "from": "cover",
+      "transition": "slow",
+      "props": {
+        "subtitle": {
+          "text": "Latin for stage: the thing you build so the performance can happen."
+        }
+      }
+    }
+  ]
+}

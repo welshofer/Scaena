@@ -1,0 +1,50 @@
+{
+  "scaena": "0.8",
+  "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, every value fits the schema and its parse format, and every category an annotation names is one.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "data": {
+    "q": {
+      "source": { "inline": [{ "quarter": "Q1", "rev": 12, "when": "Jan 2025" }, { "quarter": "Q2", "rev": 19, "when": "Apr 2025" }] },
+      "schema": { "quarter": "string", "rev": "number", "when": "date" },
+      "parse": { "when": "%b %Y" }
+    }
+  },
+  "nodes": {
+    "a": {
+      "type": "chart", "kind": "bar", "data": "@q", "key": "quarter",
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative", "format": "$,.0f" },
+      "annotations": [
+        { "kind": "rule", "at": { "y": 15 }, "text": "Plan" },
+        { "kind": "callout", "at": { "x": "Q2" }, "text": "Best" },
+        { "kind": "highlight", "at": { "x": ["Q2"] } }
+      ],
+      "at": { "in": "canvas" }
+    },
+    "c": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "when", "type": "temporal", "format": "Q%q %Y" }, "y": { "field": "rev", "type": "quantitative" },
+      "annotations": [{ "kind": "band", "at": { "x": ["2025-01-01", "2025-04-01"] }, "text": "H1" }],
+      "at": { "in": "canvas" }
+    },
+    "t": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "dataTransform": [
+        { "filter": "rev > 0 && quarter in ['Q1', 'Q2']" },
+        { "derive": { "growth": "round(rev / 12 * 100 - 100, 1)" } },
+        { "sort": "-growth" },
+        { "limit": 8 }
+      ],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "growth", "type": "quantitative", "format": ".1f" },
+      "at": { "in": "canvas" }
+    },
+    "tb": {
+      "type": "table", "data": "@q", "key": "quarter",
+      "columns": [{ "field": "quarter", "title": "Quarter" }, { "field": "rev", "title": "Revenue", "format": "$,.0f" }],
+      "at": { "in": "canvas" }
+    }
+  },
+  "states": [
+    { "id": "one", "props": { "a": {}, "c": {}, "t": {}, "tb": {} } },
+    { "id": "two", "props": { "c": { "y": { "format": ".1~k" } } } }
+  ]
+}

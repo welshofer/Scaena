@@ -12,4 +12,11 @@ authors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
+# Typed document views generate docs/schema/*.json (PLAN 1.1).
+schemars.workspace = true
+# The schemas' `pattern`s, when checking a document against them (PLAN 1.2).
+regex-lite.workspace = true
 thiserror.workspace = true
+postcard.workspace = true
+# Shader references (SPEC §3.8, §13.7): transcendental math that reads the same everywhere.
+libm.workspace = true

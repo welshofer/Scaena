@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "W202 trigger: a display line that sets in three lines, where the role allows two.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "display", "text": "One two three four five six seven eight nine ten eleven twelve", "at": {"in": "left"}}
+  },
+  "states": [
+    {"id": "a", "layout": "two", "props": {"t": {}}}
+  ]
+}

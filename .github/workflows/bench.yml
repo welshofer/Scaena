@@ -1,0 +1,32 @@
+name: bench
+# Per-stage timings against SPEC §15 (PLAN 0.14). SPEC's reference machine is an M-series Mac;
+# GitHub's macos-latest runner is Apple Silicon (virtualized), the closest CI has. The tables go
+# to the run summary. Recorded, not gated: shared runners are too noisy for a hard budget.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "tests/bench/**"
+      - "crates/scaena-cli/examples/stages.rs"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch:
+jobs:
+  stages:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p scaena-cli --features gpu --bins --examples
+      - name: Machine
+        run: |
+          echo "$(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, $(sw_vers -productName) $(sw_vers -productVersion)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+      - name: B1 (text) and B4 (torture)
+        run: |
+          for bundle in tests/bench/b1.scaena tests/fixtures/torture.scaena; do
+            target/release/examples/stages "$bundle" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+          done

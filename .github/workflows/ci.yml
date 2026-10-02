@@ -6,9 +6,12 @@ on:
 jobs:
   rust:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A stalled GPU readback or test must fail the job, not hold a runner for six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -17,14 +20,75 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # --all-features type-checks the `gpu` painter (vello on wgpu: Metal on macOS, Vulkan/GL on Linux).
+      # --locked: Cargo.lock is the pin for the text and rendering stack (ADR-0004).
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --locked --exclude scaena-paint
+      # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
+      # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
+      # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
+      # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
+        env:
+          SCAENA_REQUIRE_GPU: "1"
+      # Diff images from the parity harness and any rejected golden (PLAN 0.9).
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diffs-${{ matrix.os }}
+          path: tests/golden/torture/actual/
+          if-no-files-found: ignore
+      # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
+      # must keep compiling for the browser (PLAN 0.1, 0.8).
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+  wasm:
+    # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
+    # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
+    # PLAN 0.9: then the parity harness compares all three painters (vello_cpu goldens, vello on
+    # lavapipe, vello on WebGPU in the browser) on every state.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The CLI must match the wasm-bindgen version in Cargo.lock.
+      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
+      - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: node crates/scaena-wasm/www/smoke.mjs
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
+        env:
+          SCAENA_REQUIRE_GPU: "1"
+          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity
+          path: |
+            tests/golden/torture/actual/
+            target/wasm-smoke/
+          if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema
+      - run: pip install jsonschema fonttools==4.66.1
       - run: python3 scripts/validate_schema.py .
+      # Every character in the torture deck resolves through its role's bundle-font fallback chain (PLAN 0.2).
+      - run: python3 scripts/build_torture_fonts.py --check
+      # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
+      - run: python3 scripts/build_bundle_fonts.py --check

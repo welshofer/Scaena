@@ -1,57 +1,103 @@
 //! `deck.json` document types (SPEC §3). The structural skeleton is typed; node
-//! properties are an ordered JSON map (`Props`) so that tracking, validation, and
-//! patching work generically today. Phase 1 task 1.1 introduces typed `NodeProps`
-//! generated together with `docs/schema/deck.schema.json`; the merge semantics in
-//! [`crate::tracking`] are written against `Props` so that change is local.
+//! properties are an ordered JSON map (`Props`), so tracking, validation, and patching
+//! work generically. What those maps may hold is typed in [`crate::model`], one struct per
+//! node type, and these types and those together generate `docs/schema/deck.schema.json`
+//! (PLAN 1.1).
 
+use crate::model;
 use indexmap::IndexMap;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 
 /// Ordered property bag for a node (whole, in `nodes`) or a delta (in `states[].props`).
 pub type Props = IndexMap<String, Value>;
 
-/// The canonical deck document.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states)
+/// over a narrative spine, rendered against a theme. See docs/SPEC.md §3.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(title = "Scaena deck document")]
 pub struct Deck {
-    /// Format version, e.g. `"0.1"`.
+    /// Format version (semver, major.minor[.patch]).
+    // The schema's pattern for it comes from `crate::FORMAT_VERSION`.
     pub scaena: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Meta>,
     pub canvas: Canvas,
+    /// Additional projections rendered from the same spine and nodes with other layout
+    /// template sets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Vec<model::Format>", extend("uniqueItems" = true))]
     pub formats: Vec<String>,
-    /// Path inside the bundle, or an inline theme object.
+    /// Path to a theme file inside the bundle, or an inline theme object (schema:
+    /// theme.schema.json).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<model::ThemeRef>")]
     pub theme: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<FontRef>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    #[schemars(extend("propertyNames" = {"$ref": "#/$defs/Id"}))]
     pub data: IndexMap<String, DataSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spine: Option<Spine>,
-    /// The scene graph: node id → node.
+    /// The scene graph. Keys are node ids, stable across the whole deck.
+    #[schemars(extend("propertyNames" = {"$ref": "#/$defs/Id"}))]
     pub nodes: IndexMap<String, Node>,
-    /// The cue list, in order.
+    /// The cue list, in order. Every click is a state.
+    #[schemars(length(min = 1))]
     pub states: Vec<State>,
+    /// Per node, props that win over its theme, its defaults, and every state: a delta merged
+    /// into the node as each state resolves it (SPEC §3.6). The only place raw pixel and
+    /// color values are theme-legal (lint W300 elsewhere).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    #[schemars(
+        with = "IndexMap<String, model::StateDeltaRef>",
+        extend("propertyNames" = {"$ref": "#/$defs/Id"})
+    )]
     pub overrides: IndexMap<String, Props>,
     #[serde(default, rename = "_comment", skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// `manifest.json` (SPEC §3.1): what a bundle held when it was last saved. Saving writes
+/// it; nothing in the render path reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(title = "Scaena bundle manifest")]
+pub struct Manifest {
+    /// The deck format version the bundle was saved in.
+    pub scaena: String,
+    /// The sha256 of `deck.json` as saved.
+    #[schemars(regex(pattern = r"^[0-9a-f]{64}$"))]
+    pub deck: String,
+    /// Every other file in the bundle, by its path in the bundle: its sha256.
+    #[schemars(extend("additionalProperties" = {"type": "string", "pattern": "^[0-9a-f]{64}$"}))]
+    pub files: IndexMap<String, String>,
+    /// When the bundle was first saved.
+    #[schemars(extend("format" = "date-time"))]
+    pub created: String,
+    /// When it was saved last.
+    #[schemars(extend("format" = "date-time"))]
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Meta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("format" = "date-time"))]
     pub created: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("format" = "date-time"))]
     pub modified: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("default" = "en-US"))]
     pub lang: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -60,10 +106,12 @@ pub struct Meta {
     pub extra: IndexMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Canvas {
+    #[schemars(extend("exclusiveMinimum" = 0))]
     pub width: f64,
+    #[schemars(extend("exclusiveMinimum" = 0))]
     pub height: f64,
     #[serde(default = "default_unit")]
     pub unit: Unit,
@@ -73,77 +121,94 @@ fn default_unit() -> Unit {
     Unit::Cu
 }
 
-/// Canvas units; 1 cu = 1 px at 1080p.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Canvas units. 1 cu = 1 px at 1080p.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Unit {
     #[default]
     Cu,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FontRef {
     pub family: String,
+    #[schemars(regex(pattern = r"^fonts/"))]
     pub file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 1000))]
     pub weight: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<model::FontStyle>")]
     pub style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axes: Option<IndexMap<String, [f64; 2]>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DataSource {
+    #[schemars(with = "model::SourceRef")]
     pub source: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<IndexMap<String, model::FieldType>>")]
     pub schema: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parse: Option<IndexMap<String, String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Spine {
     pub sections: Vec<Section>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Section {
+    #[schemars(with = "model::Id")]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[schemars(length(min = 1))]
     pub beats: Vec<Beat>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Beat {
+    #[schemars(with = "model::Id")]
     pub id: String,
+    /// One sentence the audience should leave with.
     pub claim: String,
+    /// @data refs, asset refs, or URLs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "model::IdList")]
     pub states: Vec<String>,
+    /// Speaker notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// Estimated seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
     pub duration: Option<f64>,
+    /// Projection hints (infographic priority, podcast script, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Map<String, Value>>")]
     pub media: Option<Value>,
 }
 
 /// Node types (SPEC §3.3).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeType {
     Text,
     Shape,
     Image,
     Chart,
+    Table,
     Shader,
     Stack,
     Grid,
@@ -166,8 +231,31 @@ pub struct Node {
     pub props: Props,
 }
 
+impl Node {
+    /// This node through its type's view: every property checked against what its type
+    /// may hold.
+    pub fn typed(&self) -> Result<model::TypedNode, serde_json::Error> {
+        serde_json::from_value(serde_json::to_value(self)?)
+    }
+}
+
+/// A node's schema is its type's ([`model::TypedNode`]).
+impl JsonSchema for Node {
+    fn schema_name() -> Cow<'static, str> {
+        model::TypedNode::schema_name()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        model::TypedNode::schema_id()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        model::TypedNode::json_schema(generator)
+    }
+}
+
 /// How a state relates to the one before it (SPEC §2.2).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum StateMode {
     /// Declare changes only; unchanged properties track forward.
@@ -178,30 +266,47 @@ pub enum StateMode {
 }
 
 /// One cue.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct State {
+    #[schemars(with = "model::Id")]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The slide this state builds on: its first state's id. A state without one starts a
+    /// slide named by its own id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<model::Id>")]
     pub slide: Option<String>,
-    /// Track from this state instead of the previous one.
+    /// Track from this state instead of the previous one (branch).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<model::Id>")]
     pub from: Option<String>,
     #[serde(default)]
     pub mode: StateMode,
+    /// Layout template name from the theme.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<model::Transition>")]
     pub transition: Option<Value>,
+    /// Per-node property deltas for this state. Keys are node ids.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    #[schemars(
+        with = "IndexMap<String, model::StateDeltaRef>",
+        extend("propertyNames" = {"$ref": "#/$defs/Id"})
+    )]
     pub props: IndexMap<String, Props>,
+    /// Nodes that exit in this state.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "model::IdList")]
     pub remove: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Vec<model::ChoreoItem>")]
     pub choreography: Vec<Value>,
+    /// Auto-advance dwell in ms (video and kiosk).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
     pub hold: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -210,6 +315,39 @@ pub struct State {
 }
 
 impl Deck {
+    /// The image files the deck's image nodes name (`src`), in their defaults, their
+    /// states, and their overrides: sorted, each once.
+    pub fn image_files(&self) -> Vec<String> {
+        let images = |id: &String| self.nodes.get(id).is_some_and(|n| n.node_type == NodeType::Image);
+        let props = self
+            .nodes
+            .iter()
+            .filter(|(id, _)| images(id))
+            .map(|(_, n)| &n.props)
+            .chain(self.states.iter().flat_map(|s| s.props.iter().filter(|(id, _)| images(id)).map(|(_, p)| p)))
+            .chain(self.overrides.iter().filter(|(id, _)| images(id)).map(|(_, p)| p));
+        let mut out: Vec<String> = props.filter_map(|p| p.get("src")?.as_str().map(String::from)).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The props a node's overrides set, as JSON pointers into the node: what makes it not
+    /// theme-safe (SPEC §3.6). An object counts by its keys, so `style: {size, color}` is
+    /// two overrides.
+    pub fn overridden(&self, id: &str) -> Vec<String> {
+        let esc = |k: &str| k.replace('~', "~0").replace('/', "~1");
+        let mut out = Vec::new();
+        for (key, value) in self.overrides.get(id).into_iter().flatten() {
+            let at = format!("/{}", esc(key));
+            match value {
+                Value::Object(map) if !map.is_empty() => out.extend(map.keys().map(|k| format!("{at}/{}", esc(k)))),
+                _ => out.push(at),
+            }
+        }
+        out
+    }
+
     /// Parse a `deck.json` string.
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
         serde_json::from_str(s)
@@ -240,7 +378,7 @@ mod tests {
     #[test]
     fn example_deck_round_trips() {
         let deck = Deck::from_json(EXAMPLE).expect("example parses");
-        assert_eq!(deck.scaena, "0.1");
+        assert_eq!(deck.scaena, crate::FORMAT_VERSION);
         assert_eq!(deck.states.len(), 4);
         assert_eq!(deck.nodes["rev"].node_type, NodeType::Chart);
         let again: Deck = serde_json::from_str(&deck.to_json().unwrap()).unwrap();

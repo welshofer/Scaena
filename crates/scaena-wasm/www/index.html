@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- PLAN 0.8: the engine as WASM, painting a bundle with vello on WebGPU.
+     `just wasm` builds www/pkg; serve the repository root and open this page, e.g.
+     /crates/scaena-wasm/www/?bundle=/tests/fixtures/torture.scaena -->
+<meta charset="utf-8">
+<title>Scaena · WebGPU spike</title>
+<style>
+  body { margin: 0; background: #1d1c1a; color: #ddd; font: 14px system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: auto; }
+  p { margin: 8px 12px; }
+</style>
+<canvas id="stage"></canvas>
+<p><select id="state"></select> <select id="format"><option value="">own canvas</option></select> <span id="status">loading…</span></p>
+<script type="module">
+  import init, { Player, Canvas } from "./pkg/scaena_wasm.js";
+  const status = document.getElementById("status");
+  try {
+    await init();
+    const bundle = new URLSearchParams(location.search).get("bundle") ?? "../../../tests/fixtures/torture.scaena";
+    const get = async (path) => {
+      const r = await fetch(`${bundle}/${path}`);
+      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+      return r;
+    };
+    const deckJson = await (await get("deck.json")).text();
+    const deck = JSON.parse(deckJson);
+    const player = new Player(deckJson, await (await get(deck.theme)).text());
+    for (const font of deck.fonts) player.addFont(font.file, new Uint8Array(await (await get(font.file)).arrayBuffer()));
+    for (const { source } of Object.values(deck.data ?? {}))
+      if (typeof source === "string") player.addData(source, new Uint8Array(await (await get(source)).arrayBuffer()));
+    for (const path of player.imageFiles()) player.addImage(path, new Uint8Array(await (await get(path)).arrayBuffer()));
+    const stage = document.getElementById("stage");
+    [stage.width, stage.height] = [deck.canvas.width, deck.canvas.height];
+    const canvas = await Canvas.attach(stage);
+    const select = document.getElementById("state");
+    for (const id of player.states()) select.add(new Option(id, id));
+    const show = (t = Infinity) => {
+      try { player.paint(canvas, select.value, t); status.textContent = `${select.value} · ${canvas.adapter}`; }
+      catch (e) { status.textContent = `${select.value}: ${e.message}`; }
+    };
+    // Another format lays the deck out again on its own canvas (SPEC §3.4).
+    const setFormat = (format) => {
+      player.setFormat(format || undefined);
+      const [w, h] = player.canvasSize();
+      [stage.width, stage.height] = [w, h];
+      canvas.resize(w, h);
+    };
+    const formats = document.getElementById("format");
+    for (const f of player.formats()) formats.add(new Option(f, f));
+    formats.onchange = () => { setFormat(formats.value); show(); };
+    // Choosing a state plays the transition into it, then rests.
+    select.onchange = () => {
+      const [state, d, start] = [select.value, player.duration(select.value), performance.now()];
+      const tick = (now) => { if (select.value !== state) return; show(now - start); if (now - start < d) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    };
+    show();
+    window.scaena = { player, canvas, select, show, setFormat, firstFrameMs: performance.now() };
+  } catch (e) {
+    status.textContent = `error: ${e.message ?? e}`;
+  }
+</script>

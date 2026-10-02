@@ -39,7 +39,8 @@ scaena-store  = { path = "crates/scaena-store" }
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-schemars   = "1.2"
+schemars   = { version = "1.2", features = ["indexmap2", "preserve_order"] }
+regex-lite = "0.1"
 jsonschema = "0.58"
 indexmap   = { version = "2.14", features = ["serde"] }
 postcard   = { version = "1.1", features = ["alloc"] }
@@ -47,23 +48,39 @@ postcard   = { version = "1.1", features = ["alloc"] }
 # errors / diagnostics
 thiserror = "2.0"
 anyhow    = "1.0"
-miette    = { version = "7.6", features = ["fancy"] }
+miette    = { version = "7.6", default-features = false, features = ["fancy-no-backtrace"] }
 
 # cli
 clap = { version = "4.6", features = ["derive"] }
 
-# text + layout + geometry (Linebender). Versions verified to resolve and compile together on 2026-10-01.
-parley   = "0.11.1"
-swash    = "0.2.10"
-fontique = "0.11.1"
-taffy    = "0.14.0"
+# text + layout + geometry (Linebender). Resolved versions are recorded in ADR-0004; Cargo.lock is the pin
+# (CI runs --locked). parley 0.11 shapes with harfrust and reads fonts with skrifa; it does not use swash.
+# `system` is off for parley and fontique: the render path must not be able to see system fonts (SPEC §13.3).
+parley   = { version = "0.11.1", default-features = false, features = ["std"] }
+fontique = { version = "0.11.1", default-features = false, features = ["std"] }
+skrifa   = { version = "0.44.0", default-features = false, features = ["std"] } # same minor as parley/vello
+taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
+# Hyphenation by `lang` (PLAN 1.8): TeX patterns under permissive licenses (LPPL, MPL, MIT, BSD-3),
+# embedded as tries. Seventeen languages; about 340 KB of the WASM engine, gzipped.
+hypher   = { version = "0.1.8", default-features = false, features = ["alloc", "english", "german", "french", "spanish", "italian", "portuguese", "dutch", "swedish", "danish", "finnish", "polish", "czech", "russian", "ukrainian", "turkish", "greek", "catalan"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
+# Pure-Rust cbrt/pow for color interpolation: the same bits on every platform, unlike the platform
+# math library behind f32::cbrt and f32::powf (SPEC §13). Already in the graph through the painters.
+libm     = "0.2.16"
 
 # painters
 vello     = "0.10.0"
 vello_cpu = "0.2.0"
 # wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
+
+# bundle I/O (PLAN 1.4): `.scaena` zips with pure-Rust deflate; fontations' subsetter (hb-subset's
+# Rust port, formerly klippa), which keeps layout tables, variations, and hinting; sha256 for content
+# addressing. skera reads fonts with its own, newer skrifa; the render path keeps the pinned one above.
+zip   = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+skera = "0.7.0"
+write-fonts = { version = "0.53.0", default-features = false, features = ["read"] } # skera's, for its input types
+sha2  = "0.10"
 
 # export
 krilla = "0.8.2"
@@ -79,8 +96,10 @@ loro = "1.16"
 # agent surface
 rmcp = "3.5"
 
-# wasm / ffi
+# wasm / ffi (versions as Cargo.lock already resolves them through wgpu)
 wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+web-sys = "0.3.106"
 
 [profile.release]
 lto = "fat"

@@ -1,166 +1,684 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.1.json",
+  "$id": "https://scaena.dev/schema/theme-0.4.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "type": "string", "pattern": "^0\\.1(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.4(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
-    "tokens": {
-      "type": "object", "required": ["color", "roles", "data", "space"], "additionalProperties": false,
+    "tokens": { "$ref": "#/$defs/Tokens" },
+    "type": { "$ref": "#/$defs/Typography" },
+    "grid": { "$ref": "#/$defs/Grid" },
+    "layouts": {
+      "type": "object",
+      "minProperties": 2,
+      "required": ["title", "full"],
+      "additionalProperties": { "$ref": "#/$defs/Layout" }
+    },
+    "formats": {
+      "description": "The grid in other formats than the deck's own (SPEC §3.4): `\"9:16\": { \"grid\": … }`. Each layout says its own slots there.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "16:9": { "$ref": "#/$defs/ThemeFormat" },
+        "1:1": { "$ref": "#/$defs/ThemeFormat" },
+        "4:3": { "$ref": "#/$defs/ThemeFormat" },
+        "9:16": { "$ref": "#/$defs/ThemeFormat" },
+        "A4": { "$ref": "#/$defs/ThemeFormat" },
+        "Letter": { "$ref": "#/$defs/ThemeFormat" }
+      }
+    },
+    "motion": { "$ref": "#/$defs/Motion" },
+    "shaders": { "$ref": "#/$defs/Shaders" },
+    "charts": { "$ref": "#/$defs/Charts" },
+    "tables": { "$ref": "#/$defs/Tables" },
+    "density": { "$ref": "#/$defs/Density" }
+  },
+  "$defs": {
+    "MeshParams": {
+      "description": "The `mesh` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "points": { "type": "integer", "minimum": 2, "maximum": 16 },
+        "drift": { "description": "In shorter sides of the rect.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientParams": {
+      "description": "The `gradient` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "description": "`linear` (the default), `radial`, or `conic`.", "$ref": "#/$defs/GradientShape" },
+        "angle": {
+          "description": "Degrees clockwise from up: a linear gradient's direction (180, the default, runs top to bottom), a conic one's start.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "x": {
+          "description": "A radial or conic gradient's center across the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "description": "A radial or conic gradient's center down the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "radius": {
+          "description": "A radial gradient's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4
+        },
+        "speed": {
+          "description": "Degrees a second a linear or conic gradient turns.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientShape": { "type": "string", "enum": ["linear", "radial", "conic"] },
+    "NoiseParams": {
+      "description": "The `noise` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": { "description": "Cycles per canvas unit.", "type": "number", "exclusiveMinimum": 0, "maximum": 0.1 },
+        "octaves": {
+          "description": "Layers of finer noise over the first (fractal Brownian motion); 1 is plain simplex noise.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "speed": {
+          "description": "How fast the field changes, in noise cycles a second.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "contrast": {
+          "description": "How far the field spreads across the palette.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GrainParams": {
+      "description": "The `grain` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "amount": { "description": "The strongest grain's opacity.", "type": "number", "minimum": 0, "maximum": 1 },
+        "fps": {
+          "description": "How many times a second the grain changes; 0 holds it still.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        }
+      }
+    },
+    "ParticlesParams": {
+      "description": "The `particles` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "size": {
+          "description": "A particle's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.25
+        },
+        "speed": { "description": "In shorter sides a second.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": {
+          "description": "How much of a particle's radius its edge fades over.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Tokens": {
+      "type": "object",
+      "required": ["color", "roles", "data", "space"],
+      "additionalProperties": false,
       "properties": {
         "color": { "type": "object", "minProperties": 2, "additionalProperties": { "$ref": "#/$defs/ColorLiteral" } },
         "roles": {
-          "type": "object", "required": ["surface", "onSurface", "accent", "onAccent"],
-          "additionalProperties": { "type": "string", "description": "Name of a color token." }
+          "description": "Color roles, each the name of a color token.",
+          "type": "object",
+          "required": ["surface", "onSurface", "accent", "onAccent"],
+          "additionalProperties": { "type": "string" }
         },
-        "data": {
-          "type": "object", "required": ["categorical"], "additionalProperties": false,
-          "properties": {
-            "categorical": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/ColorLiteral" } },
-            "sequential": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/ColorLiteral" } },
-            "diverging": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/ColorLiteral" } }
-          }
-        },
-        "space": {
-          "type": "object", "required": ["unit", "scale"], "additionalProperties": false,
-          "properties": { "unit": { "type": "number", "exclusiveMinimum": 0 }, "scale": { "type": "array", "minItems": 4, "items": { "type": "number", "minimum": 0 } } }
-        },
-        "radius": { "type": "object", "additionalProperties": false, "properties": { "scale": { "type": "array", "items": { "type": "number", "minimum": 0 } } } },
-        "stroke": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+        "data": { "$ref": "#/$defs/DataPalettes" },
+        "space": { "$ref": "#/$defs/Space" },
+        "radius": { "$ref": "#/$defs/Radius" },
+        "stroke": { "type": "object", "additionalProperties": { "$ref": "#/$defs/NonNegative" } }
       }
     },
-    "type": {
-      "type": "object", "required": ["families", "roles"], "additionalProperties": false,
+    "ColorLiteral": {
+      "description": "`#rrggbb[aa]`, `oklch(...)`, or `oklab(...)`.",
+      "type": "string",
+      "pattern": "^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|oklch\\(.*\\)|oklab\\(.*\\))$"
+    },
+    "DataPalettes": {
+      "type": "object",
+      "required": ["categorical"],
+      "additionalProperties": false,
       "properties": {
-        "families": {
-          "type": "object", "minProperties": 1,
-          "additionalProperties": {
-            "type": "object", "required": ["family", "file"], "additionalProperties": false,
-            "properties": {
-              "family": { "type": "string" },
-              "file": { "type": "string", "pattern": "^fonts/" },
-              "axes": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 } },
-              "fallback": { "type": "array", "items": { "type": "string" }, "description": "Other families in this theme, in order. Bundle-only; system fonts are never consulted." },
-              "features": { "type": "object", "additionalProperties": { "type": ["boolean", "integer"] } }
-            }
-          }
-        },
-        "scale": { "type": "object", "additionalProperties": false, "properties": { "ratio": { "type": "number", "exclusiveMinimum": 1 }, "base": { "type": "number", "exclusiveMinimum": 0 } } },
+        "categorical": { "type": "array", "items": { "$ref": "#/$defs/ColorLiteral" }, "minItems": 3 },
+        "sequential": { "type": "array", "items": { "$ref": "#/$defs/ColorLiteral" }, "minItems": 2 },
+        "diverging": { "type": "array", "items": { "$ref": "#/$defs/ColorLiteral" }, "minItems": 3 }
+      }
+    },
+    "Space": {
+      "type": "object",
+      "required": ["unit", "scale"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": { "type": "number", "exclusiveMinimum": 0 },
+        "scale": { "type": "array", "items": { "$ref": "#/$defs/NonNegative" }, "minItems": 4 }
+      }
+    },
+    "NonNegative": { "description": "A number at or above 0.", "type": "number", "minimum": 0 },
+    "Radius": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "scale": { "type": "array", "items": { "$ref": "#/$defs/NonNegative" } } }
+    },
+    "Typography": {
+      "type": "object",
+      "required": ["families", "roles"],
+      "additionalProperties": false,
+      "properties": {
+        "families": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Family" } },
+        "scale": { "$ref": "#/$defs/TypeScale" },
         "roles": {
-          "type": "object", "required": ["display", "headline", "body", "caption", "label", "numeral"],
+          "type": "object",
+          "required": ["display", "headline", "body", "caption", "label", "numeral"],
           "additionalProperties": { "$ref": "#/$defs/Role" }
         }
       }
     },
-    "grid": {
-      "type": "object", "required": ["columns", "gutter", "margin"], "additionalProperties": false,
+    "Family": {
+      "description": "A font family: its file in the bundle and how it may vary.",
+      "type": "object",
+      "required": ["family", "file"],
+      "additionalProperties": false,
       "properties": {
-        "columns": { "type": "integer", "minimum": 1 },
-        "rows": { "type": "integer", "minimum": 1, "default": 6 },
-        "gutter": { "type": "number", "minimum": 0 },
-        "margin": { "oneOf": [ { "type": "number", "minimum": 0 }, { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 4 } ] },
-        "baseline": { "type": "number", "exclusiveMinimum": 0, "description": "Baseline grid in cu; text leading snaps to multiples." }
+        "family": { "type": "string" },
+        "file": { "type": "string", "pattern": "^fonts/" },
+        "axes": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        },
+        "fallback": {
+          "description": "Other families in this theme, in order. Bundle-only; system fonts are never consulted.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } }
       }
     },
-    "layouts": {
-      "type": "object", "required": ["title", "full"], "minProperties": 2,
-      "additionalProperties": {
-        "type": "object", "required": ["slots"], "additionalProperties": false,
-        "properties": {
-          "description": { "type": "string" },
-          "formats": { "type": "object", "description": "Per-format overrides of slots (e.g. \"9:16\")." },
-          "slots": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Slot" } }
-        }
-      }
-    },
-    "motion": {
-      "type": "object", "required": ["durations", "easings", "springs", "presets"], "additionalProperties": false,
+    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
+    "TypeScale": {
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "durations": { "type": "object", "required": ["fast", "standard", "slow"], "additionalProperties": { "type": "number", "minimum": 0 } },
-        "easings": { "type": "object", "required": ["standard", "in", "out"], "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 } },
-        "springs": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "object", "required": ["stiffness", "damping"], "additionalProperties": false,
-          "properties": { "stiffness": { "type": "number", "exclusiveMinimum": 0 }, "damping": { "type": "number", "minimum": 0 }, "mass": { "type": "number", "exclusiveMinimum": 0 } } } },
-        "presets": { "type": "object", "required": ["fade", "rise", "grow"], "additionalProperties": { "$ref": "#/$defs/Preset" } },
-        "maxConcurrent": { "type": "integer", "minimum": 1, "default": 12 },
-        "maxBuild": { "type": "number", "minimum": 0, "default": 2500, "description": "Max total choreography per state, ms (lint W321)." }
+        "ratio": { "type": "number", "exclusiveMinimum": 1 },
+        "base": { "type": "number", "exclusiveMinimum": 0 }
       }
     },
-    "shaders": {
-      "type": "object", "additionalProperties": false,
-      "properties": {
-        "palettes": { "type": "object", "additionalProperties": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/ColorLiteral" } } },
-        "presets": { "type": "object", "additionalProperties": { "type": "object", "required": ["kind"], "properties": { "kind": { "enum": ["mesh", "gradient", "noise", "grain", "particles"] }, "params": { "type": "object" }, "palette": { "type": "string" } } } }
-      }
-    },
-    "charts": {
-      "type": "object", "additionalProperties": false,
-      "properties": {
-        "axis": { "type": "object", "properties": { "role": { "type": "string" }, "stroke": { "type": "string" }, "color": { "type": "string" } } },
-        "gridlines": { "type": "object", "properties": { "stroke": { "type": "string" }, "color": { "type": "string" }, "opacity": { "type": "number" } } },
-        "label": { "type": "object", "properties": { "role": { "type": "string" } } },
-        "strokeWidth": { "type": "string" },
-        "cornerRadius": { "type": "number", "minimum": 0 },
-        "barGap": { "type": "number", "minimum": 0, "maximum": 1 }
-      }
-    },
-    "density": { "type": "object", "additionalProperties": false, "properties": { "maxWordsPerState": { "type": "integer", "minimum": 1, "default": 40 } } }
-  },
-
-  "$defs": {
-    "ColorLiteral": { "type": "string", "pattern": "^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|oklch\\(.*\\)|oklab\\(.*\\))$" },
     "Role": {
-      "type": "object", "required": ["family", "size", "weight", "leading"], "additionalProperties": false,
+      "description": "What a text role looks like (SPEC §3.5).",
+      "type": "object",
+      "required": ["family", "size", "weight", "leading"],
+      "additionalProperties": false,
       "properties": {
-        "family": { "type": "string", "description": "Key in type.families." },
+        "family": { "description": "Key in `type.families`.", "type": "string" },
         "size": { "type": "number", "exclusiveMinimum": 0 },
         "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "leading": { "type": "number", "exclusiveMinimum": 0, "description": "Line height as a multiple of size." },
-        "tracking": { "type": "number", "description": "Em units; negative tightens." },
+        "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
+        "tracking": { "description": "Em units; negative tightens.", "type": "number" },
         "opsz": { "type": "number" },
         "axes": { "type": "object", "additionalProperties": { "type": "number" } },
-        "features": { "type": "object", "additionalProperties": { "type": ["boolean", "integer"] } },
-        "wrap": { "enum": ["greedy", "pretty", "balance"] },
-        "box": { "enum": ["cap", "line"] },
-        "measure": { "type": "number", "exclusiveMinimum": 0, "description": "Max characters per line." },
+        "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
+        "wrap": { "$ref": "#/$defs/Wrap" },
+        "box": { "$ref": "#/$defs/TextBox" },
+        "measure": { "description": "Max characters per line.", "type": "number", "exclusiveMinimum": 0 },
         "maxLines": { "type": "integer", "minimum": 1 },
         "minSize": { "type": "number", "exclusiveMinimum": 0 },
         "maxSize": { "type": "number", "exclusiveMinimum": 0 },
-        "case": { "enum": ["none", "upper", "lower", "title", "smallcaps"] },
-        "numeric": { "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"] },
+        "case": { "$ref": "#/$defs/Case" },
+        "numeric": { "$ref": "#/$defs/Numeric" },
         "minLastLineWords": { "type": "integer", "minimum": 1 },
         "opticalMargins": { "type": "boolean" },
         "hangingPunctuation": { "type": "boolean" },
         "hyphenate": { "type": "boolean" },
-        "color": { "type": "string", "description": "Color role or token; defaults to onSurface." }
+        "color": { "description": "Color role or token; defaults to onSurface.", "type": "string" }
+      }
+    },
+    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "TextBox": { "type": "string", "enum": ["cap", "line"] },
+    "Case": { "type": "string", "enum": ["none", "upper", "lower", "title", "smallcaps"] },
+    "Numeric": {
+      "type": "string",
+      "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"]
+    },
+    "Grid": {
+      "type": "object",
+      "required": ["columns", "gutter", "margin"],
+      "additionalProperties": false,
+      "properties": {
+        "columns": { "type": "integer", "minimum": 1 },
+        "rows": { "type": "integer", "minimum": 1, "default": 6 },
+        "gutter": { "type": "number", "minimum": 0 },
+        "margin": { "$ref": "#/$defs/Margin" },
+        "baseline": {
+          "description": "Baseline grid in cu; text leading snaps to multiples.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "Margin": {
+      "description": "One margin for every side, or 2–4 CSS-style.",
+      "anyOf": [
+        { "type": "number", "minimum": 0 },
+        { "type": "array", "items": { "$ref": "#/$defs/NonNegative" }, "minItems": 2, "maxItems": 4 }
+      ]
+    },
+    "Layout": {
+      "description": "A layout template: named slots on the grid.",
+      "type": "object",
+      "required": ["slots"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "formats": {
+          "description": "The slots that move in other formats (SPEC §3.4): `\"9:16\": { \"slots\": … }`.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "16:9": { "$ref": "#/$defs/LayoutFormat" },
+            "1:1": { "$ref": "#/$defs/LayoutFormat" },
+            "4:3": { "$ref": "#/$defs/LayoutFormat" },
+            "9:16": { "$ref": "#/$defs/LayoutFormat" },
+            "A4": { "$ref": "#/$defs/LayoutFormat" },
+            "Letter": { "$ref": "#/$defs/LayoutFormat" }
+          }
+        },
+        "slots": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Slot" } }
+      }
+    },
+    "LayoutFormat": {
+      "description": "A layout in another format: slots that take the place of its slots of the same names there. The rest stay as they are.",
+      "type": "object",
+      "required": ["slots"],
+      "additionalProperties": false,
+      "properties": {
+        "slots": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/Slot" } }
       }
     },
     "Slot": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "col": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 } ] },
-        "row": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 } ] },
-        "align": { "type": ["string", "object"] },
-        "role": { "type": "string", "description": "Default text role for nodes placed in this slot." },
+        "col": { "$ref": "#/$defs/Range" },
+        "row": { "$ref": "#/$defs/Range" },
+        "align": { "$ref": "#/$defs/Align" },
+        "role": { "description": "Default text role for nodes placed in this slot.", "type": "string" },
         "inset": { "type": "number" }
       }
     },
-    "Preset": {
-      "type": "object", "additionalProperties": false,
+    "Range": {
+      "description": "A grid index or an inclusive [start, end] range (1-based).",
+      "anyOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 }
+      ]
+    },
+    "Align": {
+      "description": "Alignment within a slot or cell. Vertical anchors include typographic ones (SPEC §3.4).",
+      "anyOf": [{ "$ref": "#/$defs/AlignX" }, { "$ref": "#/$defs/AlignAxes" }]
+    },
+    "AlignX": { "type": "string", "enum": ["start", "center", "end", "stretch"] },
+    "AlignAxes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "x": { "$ref": "#/$defs/AlignX" }, "y": { "$ref": "#/$defs/AlignY" } }
+    },
+    "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
+    "ThemeFormat": {
+      "description": "A theme in another format: the grid there.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "grid": { "$ref": "#/$defs/Grid" } }
+    },
+    "Motion": {
+      "type": "object",
+      "required": ["durations", "easings", "springs", "presets"],
+      "additionalProperties": false,
       "properties": {
-        "from": { "type": "object", "description": "Property values at the start (enter) or end (exit)." },
-        "to": { "type": "object" },
-        "duration": { "oneOf": [ { "type": "number", "minimum": 0 }, { "type": "string" } ] },
-        "ease": { "oneOf": [ { "type": "string" }, { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 } ] },
+        "durations": {
+          "type": "object",
+          "required": ["fast", "standard", "slow"],
+          "additionalProperties": { "$ref": "#/$defs/NonNegative" }
+        },
+        "easings": {
+          "type": "object",
+          "required": ["standard", "in", "out"],
+          "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+        },
+        "springs": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/SpringParams" } },
+        "presets": {
+          "type": "object",
+          "required": ["fade", "rise", "grow"],
+          "additionalProperties": { "$ref": "#/$defs/Preset" }
+        },
+        "maxConcurrent": { "type": "integer", "minimum": 1, "default": 12 },
+        "maxBuild": {
+          "description": "Max total choreography per state, ms (lint W321).",
+          "type": "number",
+          "minimum": 0,
+          "default": 2500
+        }
+      }
+    },
+    "SpringParams": {
+      "type": "object",
+      "required": ["stiffness", "damping"],
+      "additionalProperties": false,
+      "properties": {
+        "stiffness": { "type": "number", "exclusiveMinimum": 0 },
+        "damping": { "type": "number", "minimum": 0 },
+        "mass": { "type": "number", "exclusiveMinimum": 0, "default": 1 }
+      }
+    },
+    "Preset": {
+      "description": "A named entrance, exit, or emphasis: keyframes with parameters.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "The look an entrance starts from, or an exit ends at.",
+          "$ref": "#/$defs/PresetLook"
+        },
+        "to": { "description": "The look an emphasis goes out to.", "$ref": "#/$defs/PresetLook" },
+        "duration": { "$ref": "#/$defs/Duration" },
+        "ease": { "$ref": "#/$defs/Easing" },
         "spring": { "type": "string" },
-        "stagger": { "type": "number", "minimum": 0 },
-        "split": { "enum": ["lines", "words", "glyphs", "children", "marks"] },
+        "stagger": { "$ref": "#/$defs/NonNegative" },
+        "split": { "$ref": "#/$defs/SplitUnit" },
         "description": { "type": "string" }
       }
+    },
+    "PresetLook": {
+      "description": "A motion preset's look (SPEC §3.9), against the unit at rest: what an entrance starts from, an exit ends at, and an emphasis goes out to and comes back from.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opacity": { "description": "Multiplies the unit's own.", "type": "number", "minimum": 0, "maximum": 1 },
+        "transform": { "$ref": "#/$defs/LookTransform" },
+        "color": {
+          "description": "A theme color every paint the unit draws mixes toward, in Oklab, keeping its alpha.",
+          "$ref": "#/$defs/Color"
+        },
+        "params": { "$ref": "#/$defs/LookParams" }
+      }
+    },
+    "LookTransform": {
+      "description": "A look's transform: scale, then rotate, about `anchor`, then translate.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "translate": {
+          "description": "Canvas units.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scale": { "$ref": "#/$defs/Scale" },
+        "rotate": { "description": "Degrees, clockwise.", "type": "number" },
+        "anchor": {
+          "description": "Fractions of the unit's box; its center by default.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "Scale": {
+      "anyOf": [{ "type": "number" }, { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }]
+    },
+    "Color": {
+      "description": "Theme token name (e.g. \"accent\", \"color.ink\") or a literal (#rrggbb[aa], oklch(...)). Literals outside overrides are lint W300.",
+      "type": "string",
+      "minLength": 1
+    },
+    "LookParams": {
+      "description": "Numbers a look sets on what its unit draws.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "description": "How much of each outline a shape strokes is drawn, from where the outline starts.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Duration": {
+      "description": "Milliseconds, or a named theme duration (\"fast\", \"standard\", \"slow\").",
+      "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "string", "minLength": 1 }]
+    },
+    "Easing": {
+      "description": "Named theme easing or a cubic Bézier [x1, y1, x2, y2].",
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+      ]
+    },
+    "SplitUnit": {
+      "description": "What a choreographed entrance splits its target into.",
+      "type": "string",
+      "enum": ["lines", "words", "glyphs", "children", "marks"]
+    },
+    "Shaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "palettes": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/ColorLiteral" }, "minItems": 2 }
+        },
+        "presets": { "type": "object", "additionalProperties": { "$ref": "#/$defs/ShaderPreset" } }
+      }
+    },
+    "ShaderPreset": {
+      "description": "A shader a node can name (SPEC §3.8): its kind, and the palette and params a node of that kind takes unless it sets its own.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/ShaderKind" },
+        "params": { "type": "object", "additionalProperties": { "$ref": "#/$defs/ShaderParam" } },
+        "palette": { "description": "A shader palette from this theme.", "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "mesh" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/MeshParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "gradient" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GradientParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "noise" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/NoiseParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "grain" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GrainParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        }
+      ]
+    },
+    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderParam": {
+      "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
+      "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
+    "Charts": {
+      "description": "Chart styling: every chart draws with these, never with literals.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "axis": { "$ref": "#/$defs/ChartRule" },
+        "gridlines": { "$ref": "#/$defs/ChartRule" },
+        "label": { "$ref": "#/$defs/ChartLabel" },
+        "title": { "description": "Axis titles; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
+        "tickCount": {
+          "description": "About how many ticks a value axis shows (d3's tick count); 5 when unset.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "strokeWidth": { "type": "string" },
+        "cornerRadius": { "type": "number", "minimum": 0 },
+        "barGap": { "type": "number", "minimum": 0, "maximum": 1 },
+        "groupGap": {
+          "description": "Between the bars of one category's group, a fraction of each bar's slot; 0.1 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pointRadius": {
+          "description": "A dot on each point of a line; none when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "dotRadius": {
+          "description": "A dot plot's dots, and a scatter's at its largest size; 8 when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "donutHole": {
+          "description": "A donut's hole, a fraction of its radius; 0.6 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "legend": { "description": "Legend labels; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
+        "annotation": {
+          "description": "Annotations: rules, bands, callouts, and highlights.",
+          "$ref": "#/$defs/ChartAnnotation"
+        }
+      }
+    },
+    "ChartRule": {
+      "description": "A chart rule: the axis or the gridlines.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "stroke": { "type": "string" },
+        "color": { "type": "string" },
+        "opacity": { "type": "number" }
+      }
+    },
+    "ChartLabel": { "type": "object", "properties": { "role": { "type": "string" } } },
+    "ChartAnnotation": {
+      "description": "How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "description": "The text's role; the value labels' when unset.", "type": "string" },
+        "stroke": { "description": "A rule's and a callout's leader's stroke; `thin` when unset.", "type": "string" },
+        "color": {
+          "description": "The rules, the leaders, the bands, and the text; `accent` when unset.",
+          "type": "string"
+        },
+        "opacity": {
+          "description": "A rule's and a leader's opacity; 1 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "band": {
+          "description": "A band's fill opacity; 0.12 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dimmed": {
+          "description": "The opacity a highlight leaves the rest of the chart at; 0.3 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Tables": {
+      "description": "Table styles (SPEC §3.6), every one a role, a token, or a length.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "The header row's text: role `label` in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "cell": {
+          "description": "The cells' text: role `body` in its own color when unset. Numbers set in tabular lining figures.",
+          "$ref": "#/$defs/TableText"
+        },
+        "rule": {
+          "description": "The rule under the header: the `hairline` stroke in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/ChartRule"
+        },
+        "rowRule": { "description": "Rules between rows; none when unset.", "$ref": "#/$defs/ChartRule" },
+        "rowGap": {
+          "description": "Canvas units above and below each row's text; half a space unit when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "columnGap": {
+          "description": "Canvas units between columns; an em of the cell text when unset.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "TableText": {
+      "description": "A table's text: a role, and a color token or role.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "role": { "type": "string" }, "color": { "type": "string" } }
+    },
+    "Density": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "maxWordsPerState": { "type": "integer", "minimum": 1, "default": 40 } }
     }
   }
 }

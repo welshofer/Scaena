@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W302 clean: placed in a slot.",
+  "canvas": {"width": 1920, "height": 1080},
+  "formats": ["9:16"],
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Slot", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

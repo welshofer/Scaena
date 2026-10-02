@@ -1,0 +1,302 @@
+{
+  "scaena": "0.1",
+  "meta": {
+    "title": "Q4 2026 Board Update",
+    "lang": "en-US",
+    "description": "Revenue growth and product mix, Q1 2026 to Q4 2026, for the board."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [9, 144],
+        "SOFT": [0, 100],
+        "WONK": [0, 1]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [14, 32]
+      }
+    }
+  ],
+  "data": {
+    "revenue": {
+      "source": "data/q4-revenue.csv",
+      "schema": {
+        "quarter": "string",
+        "product": "string",
+        "revenue": "number",
+        "customers": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "opening",
+        "title": "Opening",
+        "beats": [
+          {
+            "id": "thesis",
+            "claim": "Revenue doubled since Q1 2026, and Pro grew from a quarter of it to over a third.",
+            "evidence": ["@revenue"],
+            "states": ["cover"],
+            "notes": "Lead with the answer. The next five cues prove it."
+          }
+        ]
+      },
+      {
+        "id": "growth",
+        "title": "Growth",
+        "beats": [
+          {
+            "id": "doubled",
+            "claim": "Q4 2026 revenue reached $69.6M, double Q1 2026’s $34.7M.",
+            "evidence": ["@revenue"],
+            "states": ["topline", "topline-meaning"],
+            "notes": "Up $34.9M in three quarters. Core, Pro, and Enterprise each grew in every quarter."
+          },
+          {
+            "id": "accelerated",
+            "claim": "Revenue grew every quarter from Q1 to Q4 2026: $34.7M, $43.3M, $57.6M, $69.6M.",
+            "evidence": ["@revenue"],
+            "states": ["quarters"],
+            "notes": "Quarterly totals $34.7M, $43.3M, $57.6M, $69.6M: up 25%, then 33%, then 21% quarter over quarter. Q4 added $12.0M, less than Q3’s $14.3M."
+          }
+        ]
+      },
+      {
+        "id": "mix-shift",
+        "title": "Mix shift",
+        "beats": [
+          {
+            "id": "pro-led",
+            "claim": "Pro added more revenue than any other product.",
+            "evidence": ["@revenue"],
+            "states": ["products"],
+            "notes": "Since Q1 2026: Pro +$15.9M, Enterprise +$13.2M, Core +$5.8M. Enterprise more than tripled, from a smaller base; Pro nearly tripled; Core grew 29%."
+          },
+          {
+            "id": "pro-third",
+            "claim": "Pro grew from a quarter of revenue to over a third.",
+            "evidence": ["@revenue"],
+            "states": ["mix"],
+            "notes": "Pro share by quarter: 26%, 29%, 34%, 36%. Enterprise rose from 17% to 28%. Core fell from 57% to 37% of revenue while still growing in dollars."
+          }
+        ]
+      },
+      {
+        "id": "closing",
+        "title": "Close",
+        "beats": [
+          {
+            "id": "takeaway",
+            "claim": "Revenue doubled, and Pro is now over a third of it.",
+            "evidence": ["@revenue"],
+            "states": ["close"],
+            "notes": "Restate the two facts, then take questions."
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "bg": {
+      "type": "shader",
+      "kind": "mesh",
+      "seed": 7,
+      "palette": "dusk",
+      "params": {
+        "points": 5,
+        "drift": 0.12,
+        "softness": 0.85,
+        "grain": 0.035
+      },
+      "at": { "in": "canvas" },
+      "z": -100,
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "title": {
+      "type": "text",
+      "role": "display",
+      "text": "Revenue doubled since Q1 2026",
+      "semantic": "claim",
+      "at": { "in": "title" }
+    },
+    "subtitle": {
+      "type": "text",
+      "role": "title",
+      "text": "Q4 2026 board update",
+      "semantic": "context",
+      "at": { "in": "subtitle" }
+    },
+    "q3-total": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$69.6M",
+      "semantic": "evidence",
+      "at": { "in": "number" }
+    },
+    "q3-total-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "Q4 2026 revenue, double Q1 2026’s $34.7M",
+      "semantic": "claim",
+      "at": { "in": "meaning" }
+    },
+    "q3-total-detail": {
+      "type": "text",
+      "role": "body",
+      "text": "Up $34.9M in three quarters, with every product growing every quarter.",
+      "semantic": "evidence",
+      "at": { "in": "aside" }
+    },
+    "headline": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue grew every quarter",
+      "semantic": "claim",
+      "at": { "in": "header" }
+    },
+    "rev-chart": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@revenue",
+      "x": { "field": "quarter", "type": "ordinal" },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.1f",
+        "domain": [0, null],
+        "title": "Revenue ($M)"
+      },
+      "series": { "field": "product", "type": "nominal" },
+      "color": { "field": "product", "type": "nominal", "scale": "categorical" },
+      "key": "product",
+      "labels": { "show": "ends" },
+      "legend": "top",
+      "alt": "Quarterly revenue by product, Q1 2026 to Q4 2026: Core $19.8M to $25.6M, Pro $8.9M to $24.8M, Enterprise $6.0M to $19.2M; total $34.7M to $69.6M.",
+      "semantic": "evidence",
+      "at": { "col": [1, 12], "row": [2, 5] }
+    },
+    "chart-source": {
+      "type": "text",
+      "role": "caption",
+      "text": "Revenue in $M by quarter and product.",
+      "semantic": "source",
+      "at": { "in": "footer" }
+    },
+    "pro-share": {
+      "type": "text",
+      "role": "numeral",
+      "text": "36%",
+      "semantic": "evidence",
+      "at": { "in": "number" }
+    },
+    "pro-share-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "Pro’s share of Q4 2026 revenue, up from 26% in Q1 2026",
+      "semantic": "claim",
+      "at": { "in": "meaning" }
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "layout": "title",
+      "props": {
+        "bg": {},
+        "title": {},
+        "subtitle": {}
+      },
+      "choreography": [
+        { "target": "title", "split": "words", "enter": "words", "timing": "with" },
+        { "target": "subtitle", "enter": "rise", "delay": 240 }
+      ]
+    },
+    {
+      "id": "topline",
+      "layout": "stat",
+      "transition": "standard",
+      "remove": ["bg", "title", "subtitle"],
+      "props": {
+        "q3-total": {}
+      },
+      "choreography": [
+        { "target": "q3-total", "enter": "rise", "timing": "with" }
+      ]
+    },
+    {
+      "id": "topline-meaning",
+      "slide": "topline",
+      "transition": "standard",
+      "props": {
+        "q3-total-meaning": {},
+        "q3-total-detail": {}
+      },
+      "choreography": [
+        { "target": "q3-total-meaning", "enter": "rise", "timing": "with" }
+      ]
+    },
+    {
+      "id": "quarters",
+      "layout": "full",
+      "transition": "standard",
+      "remove": ["q3-total", "q3-total-meaning", "q3-total-detail"],
+      "props": {
+        "headline": {},
+        "rev-chart": {},
+        "chart-source": {}
+      },
+      "choreography": [
+        { "target": "rev-chart", "enter": "grow", "timing": "after" }
+      ]
+    },
+    {
+      "id": "products",
+      "slide": "quarters",
+      "transition": "slow",
+      "props": {
+        "headline": { "text": "Pro added the most" },
+        "rev-chart": { "kind": "bar" }
+      }
+    },
+    {
+      "id": "mix",
+      "layout": "stat",
+      "transition": "slow",
+      "remove": ["headline", "chart-source"],
+      "props": {
+        "pro-share": {},
+        "pro-share-meaning": {},
+        "rev-chart": { "kind": "stackedBar", "at": { "col": [8, 12], "row": [2, 5] } }
+      },
+      "choreography": [
+        { "target": "pro-share", "enter": "rise", "timing": "with" }
+      ]
+    },
+    {
+      "id": "close",
+      "from": "cover",
+      "transition": "standard",
+      "props": {
+        "title": { "text": "Revenue doubled. Pro is over a third." },
+        "subtitle": { "text": "$69.6M in Q4 2026; Pro at 36%, up from 26%", "semantic": "evidence" }
+      }
+    }
+  ]
+}

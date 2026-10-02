@@ -1,0 +1,33 @@
+{
+  "scaena": "0.8",
+  "_comment": "E102 clean: every node, state, data source, file, theme name, container, and grid area it references exists (tests/lint/theme.json).",
+  "canvas": { "width": 1920, "height": 1080 },
+  "theme": "theme.json",
+  "fonts": [
+    { "family": "Display", "file": "fonts/Display.ttf" },
+    { "family": "Body", "file": "fonts/Body.ttf" }
+  ],
+  "data": { "q3": { "source": "data/q3.csv" } },
+  "nodes": {
+    "bg": { "type": "shader", "kind": "mesh", "palette": "ambient", "at": { "in": "canvas" } },
+    "title": { "type": "text", "role": "headline", "style": { "family": "body", "color": "accent" }, "text": "Q3 Review", "at": { "in": "title" }, "fill": "accent", "enter": "rise" },
+    "chart": { "type": "chart", "kind": "bar", "data": "@q3", "x": { "field": "quarter" }, "y": { "field": "revenue" }, "labels": { "show": "ends", "role": "numeral" } },
+    "photo": { "type": "image", "src": "assets/photo.png", "alt": "The team at launch", "at": { "in": "main" } },
+    "stats": { "type": "stack", "axis": "x", "at": { "in": "main" } },
+    "figure": { "type": "text", "text": "42%", "at": { "parent": "stats" } },
+    "board": { "type": "grid", "areas": ["head head", "left right"], "at": { "in": "main" } },
+    "cell": { "type": "text", "text": "Q3", "at": { "parent": "board", "area": "head" } }
+  },
+  "states": [
+    { "id": "intro", "layout": "title", "props": { "bg": {}, "title": {} } },
+    {
+      "id": "numbers",
+      "layout": "full",
+      "transition": { "duration": "standard", "ease": "out" },
+      "props": { "title": { "at": { "in": "grid", "row": 1 } }, "chart": { "at": { "in": "main" } } },
+      "choreography": [ { "target": "chart", "enter": { "preset": "grow", "spring": "snappy" } } ]
+    },
+    { "id": "photo", "layout": "full", "remove": ["chart"], "props": { "photo": {}, "stats": {}, "figure": {}, "board": {}, "cell": {} } }
+  ],
+  "overrides": { "title": { "style": { "size": 96, "color": "#C2410C" } } }
+}

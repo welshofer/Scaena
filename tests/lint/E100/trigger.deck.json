@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "E100 trigger: a display title that needs three lines in a one-row header.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "headline", "text": "A title far too long for its narrow header, alas", "at": {"in": "header"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"t": {}}}
+  ]
+}

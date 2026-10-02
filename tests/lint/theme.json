@@ -1,0 +1,41 @@
+{
+  "scaena-theme": "0.4",
+  "name": "Fixture",
+  "description": "The smallest complete theme: what the validation fixtures in tests/lint/ name.",
+  "tokens": {
+    "color": { "ink": "#111111", "paper": "#FAFAFA", "accent": "#FF6A3D" },
+    "roles": { "surface": "paper", "onSurface": "ink", "accent": "accent", "onAccent": "paper" },
+    "data": { "categorical": ["#FF6A3D", "#3A7BD5", "#2EC4B6"] },
+    "space": { "unit": 8, "scale": [0, 8, 16, 32] }
+  },
+  "type": {
+    "families": {
+      "display": { "family": "Display", "file": "fonts/Display.ttf" },
+      "body": { "family": "Body", "file": "fonts/Body.ttf" }
+    },
+    "roles": {
+      "display": { "family": "display", "size": 128, "weight": 700, "leading": 1.0 },
+      "headline": { "family": "display", "size": 72, "weight": 700, "leading": 1.05 },
+      "body": { "family": "body", "size": 32, "weight": 400, "leading": 1.4 },
+      "caption": { "family": "body", "size": 24, "weight": 400, "leading": 1.3 },
+      "label": { "family": "body", "size": 24, "weight": 600, "leading": 1.2 },
+      "numeral": { "family": "body", "size": 96, "weight": 600, "leading": 1.0 }
+    }
+  },
+  "grid": { "columns": 12, "gutter": 24, "margin": 96 },
+  "layouts": {
+    "title": { "slots": { "title": { "col": [1, 8], "row": 1 }, "subtitle": { "col": [1, 8], "row": 2 } } },
+    "full": { "slots": { "main": { "col": [1, 12] } } }
+  },
+  "motion": {
+    "durations": { "fast": 180, "standard": 420, "slow": 800 },
+    "easings": { "standard": [0.2, 0, 0, 1], "in": [0.4, 0, 1, 1], "out": [0, 0, 0, 1] },
+    "springs": { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 } },
+    "presets": {
+      "fade": { "from": { "opacity": 0 }, "duration": "standard" },
+      "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" },
+      "grow": { "from": { "transform": { "scale": 0 } }, "spring": "snappy" }
+    }
+  },
+  "shaders": { "palettes": { "ambient": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"] } }
+}

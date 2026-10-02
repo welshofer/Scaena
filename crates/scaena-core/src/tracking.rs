@@ -2,8 +2,8 @@
 //!
 //! A state declares deltas. Unchanged properties track forward from the previous
 //! state (or from `from`). `mode: absolute` starts from nothing. `remove` exits
-//! nodes. Per-state-only keys (currently `anim`) never track: an entrance track
-//! must not replay on the next cue.
+//! nodes. Per-state-only keys (`anim` and `emphasis`) never track: a motion must
+//! not replay on the next cue.
 //!
 //! Resolution is deterministic and depends only on the document.
 
@@ -14,7 +14,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 /// Property keys that belong to exactly one state and never track forward.
-pub const NON_TRACKING_KEYS: &[&str] = &["anim"];
+pub const NON_TRACKING_KEYS: &[&str] = &["anim", "emphasis"];
 
 #[derive(Debug, Error, PartialEq)]
 pub enum TrackingError {
@@ -44,26 +44,33 @@ pub struct Snapshot {
 pub fn resolve_states(deck: &Deck) -> Result<Vec<Snapshot>, TrackingError> {
     let mut out: Vec<Snapshot> = Vec::with_capacity(deck.states.len());
     for (i, state) in deck.states.iter().enumerate() {
-        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match (state.mode, &state.from) {
-            (StateMode::Absolute, _) => (IndexMap::new(), None),
-            (StateMode::Delta, Some(from)) => {
-                let j = deck
-                    .state_index(from)
-                    .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
-                if j >= i {
-                    return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
-                }
-                (strip_non_tracking(&out[j].nodes), out[j].layout.clone())
+        if let (StateMode::Delta, Some(from)) = (state.mode, &state.from) {
+            let j = deck
+                .state_index(from)
+                .ok_or_else(|| TrackingError::UnknownFrom { state: state.id.clone(), from: from.clone() })?;
+            if j >= i {
+                return Err(TrackingError::ForwardFrom { state: state.id.clone(), from: from.clone() });
             }
-            (StateMode::Delta, None) => match out.last() {
-                Some(prev) => (strip_non_tracking(&prev.nodes), prev.layout.clone()),
-                None => (IndexMap::new(), None),
-            },
+        }
+        let (base, base_layout): (IndexMap<String, Props>, Option<String>) = match tracks_from(deck, i) {
+            Some(j) => (strip_non_tracking(&out[j].nodes), out[j].layout.clone()),
+            None => (IndexMap::new(), None),
         };
         let snap = apply_state(deck, state, base, base_layout, out.last())?;
         out.push(snap);
     }
     Ok(out)
+}
+
+/// The state that `deck.states[i]` tracks from: its `from`, else the state before it. None
+/// in absolute mode, or for the first state.
+pub fn tracks_from(deck: &Deck, i: usize) -> Option<usize> {
+    let state = &deck.states[i];
+    match (state.mode, &state.from) {
+        (StateMode::Absolute, _) => None,
+        (StateMode::Delta, Some(from)) => deck.state_index(from),
+        (StateMode::Delta, None) => i.checked_sub(1),
+    }
 }
 
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
@@ -120,7 +127,9 @@ fn apply_state(
 }
 
 /// Shallow-merge `delta` into `base`: top-level keys replace; object values merge
-/// one level (so `at: {col}` can override just `col`); `null` deletes a key.
+/// one level (so `at: {col}` can override just `col`); `null` deletes a key. An object
+/// with nothing to merge into is taken as it is, less the keys it deletes. Deletes keep
+/// the order of what remains.
 pub fn merge_props(base: &mut Props, delta: &Props) {
     for (k, v) in delta {
         match v {
@@ -131,14 +140,15 @@ pub fn merge_props(base: &mut Props, delta: &Props) {
                 Some(Value::Object(bm)) => {
                     for (dk, dv) in dm {
                         if dv.is_null() {
-                            bm.remove(dk);
+                            bm.shift_remove(dk);
                         } else {
                             bm.insert(dk.clone(), dv.clone());
                         }
                     }
                 }
                 _ => {
-                    base.insert(k.clone(), v.clone());
+                    let kept = dm.iter().filter(|(_, dv)| !dv.is_null()).map(|(dk, dv)| (dk.clone(), dv.clone()));
+                    base.insert(k.clone(), Value::Object(kept.collect()));
                 }
             },
             _ => {
@@ -165,20 +175,22 @@ mod tests {
         // intro: bg, title, subtitle
         assert_eq!(snaps[0].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title", "subtitle"]);
         assert_eq!(snaps[0].entered, vec!["bg", "title", "subtitle"]);
-        // revenue: subtitle removed, rev + note entered, title text overridden
+        // revenue: subtitle and background removed, rev + note entered, title text overridden
         assert!(!snaps[1].nodes.contains_key("subtitle"));
-        assert_eq!(snaps[1].exited, vec!["subtitle"]);
+        assert_eq!(snaps[1].exited, vec!["bg", "subtitle"]);
         assert_eq!(snaps[1].entered, vec!["rev", "note"]);
         assert_eq!(snaps[1].nodes["title"]["text"], json!("Revenue doubled"));
         assert_eq!(snaps[1].nodes["title"]["at"], json!({"in": "header"}));
-        // mix: rev kind changed, bg tracked all the way from intro
+        // mix: rev kind changed, the layout tracked forward, the background still gone
         assert_eq!(snaps[2].nodes["rev"]["kind"], json!("stackedBar"));
         assert_eq!(snaps[2].nodes["rev"]["data"], json!("@q3"));
-        assert_eq!(snaps[2].nodes["bg"]["seed"], json!(7));
+        assert!(!snaps[2].nodes.contains_key("bg"), "a removed node stays removed");
         assert_eq!(snaps[2].slide_id, "revenue");
-        assert_eq!(snaps[2].layout.as_deref(), Some("full"), "layout tracks forward");
-        // close: rev/note removed
+        assert_eq!(snaps[2].layout.as_deref(), Some("figure"), "layout tracks forward");
+        // close: rev/note removed; the background re-enters from its node defaults
         assert_eq!(snaps[3].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title"]);
+        assert_eq!(snaps[3].entered, vec!["bg"]);
+        assert_eq!(snaps[3].nodes["bg"]["seed"], json!(7));
     }
 
     #[test]
@@ -193,12 +205,125 @@ mod tests {
     }
 
     #[test]
-    fn anim_does_not_track() {
+    fn anim_and_emphasis_do_not_track() {
         let mut deck = example();
-        deck.states[0].props.get_mut("title").unwrap().insert("anim".into(), json!({"opacity": [{"t": 0, "v": 0}]}));
+        let title = deck.states[0].props.get_mut("title").unwrap();
+        title.insert("anim".into(), json!({"opacity": [{"t": 0, "v": 0}]}));
+        title.insert("emphasis".into(), json!("pulse"));
         let snaps = resolve_states(&deck).unwrap();
-        assert!(snaps[0].nodes["title"].contains_key("anim"));
-        assert!(!snaps[1].nodes["title"].contains_key("anim"));
+        for key in ["anim", "emphasis"] {
+            assert!(snaps[0].nodes["title"].contains_key(key), "{key} in its own state");
+            assert!(!snaps[1].nodes["title"].contains_key(key), "{key} in the next");
+        }
+    }
+
+    /// A deck of `nodes` and `states`, written as JSON.
+    fn deck(nodes: serde_json::Value, states: serde_json::Value) -> Deck {
+        let doc = json!({ "scaena": crate::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": nodes, "states": states });
+        serde_json::from_value(doc).unwrap()
+    }
+
+    #[test]
+    fn an_object_with_nothing_to_merge_into_keeps_none_of_its_nulls() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" } }),
+            json!([{ "id": "a", "props": { "t": { "at": { "in": null, "col": [1, 6] } } } }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[0].nodes["t"]["at"], json!({ "col": [1, 6] }));
+    }
+
+    #[test]
+    fn null_deletes_and_the_deletion_tracks() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "alt": "a caption" } }),
+            json!([
+                { "id": "a", "props": { "t": {} } },
+                { "id": "b", "props": { "t": { "alt": null } } },
+                { "id": "c" }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[0].nodes["t"]["alt"], json!("a caption"));
+        assert!(!snaps[1].nodes["t"].contains_key("alt"));
+        assert!(!snaps[2].nodes["t"].contains_key("alt"), "a deletion tracks like any change");
+    }
+
+    #[test]
+    fn a_state_with_no_changes_repeats_the_one_before() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" } }),
+            json!([{ "id": "a", "props": { "t": { "text": "y" } } }, { "id": "b" }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes, snaps[0].nodes);
+        assert!(snaps[1].entered.is_empty() && snaps[1].exited.is_empty());
+    }
+
+    #[test]
+    fn a_node_that_reenters_starts_from_its_defaults() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "opacity": 1 } }),
+            json!([
+                { "id": "a", "props": { "t": { "text": "changed", "opacity": 0.5 } } },
+                { "id": "b", "remove": ["t"] },
+                { "id": "c", "props": { "t": { "opacity": 0.8 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert!(!snaps[1].nodes.contains_key("t"));
+        assert_eq!(snaps[1].exited, ["t"]);
+        assert_eq!(snaps[2].nodes["t"]["text"], json!("x"), "not the text it had when it left");
+        assert_eq!(snaps[2].nodes["t"]["opacity"], json!(0.8));
+        assert_eq!(snaps[2].entered, ["t"]);
+    }
+
+    #[test]
+    fn from_branches_from_an_earlier_state() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" }, "u": { "type": "text", "text": "u" } }),
+            json!([
+                { "id": "a", "layout": "title", "props": { "t": { "text": "a" } } },
+                { "id": "b", "layout": "full", "remove": ["t"], "props": { "u": {} } },
+                { "id": "c", "from": "a", "props": { "t": { "opacity": 0.5 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        // `c` is `a` plus its delta, layout included: `b` does not reach it.
+        assert_eq!(snaps[2].nodes.keys().collect::<Vec<_>>(), ["t"]);
+        assert_eq!(snaps[2].nodes["t"]["text"], json!("a"));
+        assert_eq!(snaps[2].nodes["t"]["opacity"], json!(0.5));
+        assert_eq!(snaps[2].layout.as_deref(), Some("title"));
+        // What enters and exits is against what was on screen: `b`.
+        assert_eq!(snaps[2].entered, ["t"]);
+        assert_eq!(snaps[2].exited, ["u"]);
+    }
+
+    #[test]
+    fn absolute_shows_exactly_its_own_props() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x" }, "u": { "type": "text", "text": "u" } }),
+            json!([
+                { "id": "a", "layout": "title", "props": { "t": { "text": "a" }, "u": {} } },
+                { "id": "b", "mode": "absolute", "props": { "t": { "opacity": 0.5 } } }
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes.keys().collect::<Vec<_>>(), ["t"]);
+        assert_eq!(snaps[1].nodes["t"]["text"], json!("x"), "node defaults, not what `a` set");
+        assert_eq!(snaps[1].nodes["t"]["opacity"], json!(0.5));
+        assert_eq!(snaps[1].layout, None, "nothing tracks, the layout included");
+        assert_eq!(snaps[1].exited, ["u"]);
+    }
+
+    #[test]
+    fn scene_graph_order_not_cue_order() {
+        let d = deck(
+            json!({ "back": { "type": "group" }, "front": { "type": "group" } }),
+            json!([{ "id": "a", "props": { "front": {} } }, { "id": "b", "props": { "back": {} } }]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert_eq!(snaps[1].nodes.keys().collect::<Vec<_>>(), ["back", "front"]);
     }
 
     #[test]

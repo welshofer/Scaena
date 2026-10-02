@@ -1,0 +1,63 @@
+{
+  "scaena": "0.8",
+  "_comment": "E103 trigger: charts and tables read fields their data does not have, or in types they cannot read, before or after a dataTransform, a source's values do not fit its schema, and annotations name a category, a series, or an x the data does not have.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "data": {
+    "q": {
+      "source": { "inline": [{ "quarter": "Q1", "rev": 12, "when": "2025-01" }, { "quarter": "Q2", "rev": 19, "when": "2025-04" }] },
+      "schema": { "quarter": "string", "rev": "number", "when": "date" }
+    },
+    "bad": { "source": { "inline": [{ "v": "seven" }] }, "schema": { "v": "number" } }
+  },
+  "nodes": {
+    "a": {
+      "type": "chart", "kind": "bar", "data": "@q", "key": "id",
+      "x": { "field": "qtr", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "b": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "quarter", "type": "ordinal", "format": "%b" }, "y": { "field": "quarter", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "c": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "when", "type": "temporal", "format": "%b %Y" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "d": {
+      "type": "chart", "kind": "bar", "data": "@q", "dataTransform": [{ "derive": { "m": "profit / rev" } }],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "m", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "e": {
+      "type": "chart", "kind": "bar", "data": "@q", "dataTransform": [{ "aggregate": { "total": "sum(rev)" }, "groupby": ["quarter"] }],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "g": {
+      "type": "chart", "kind": "line", "data": "@q",
+      "x": { "field": "quarter" }, "y": { "field": "rev" }, "series": { "field": "quarter" },
+      "annotations": [
+        { "kind": "callout", "at": { "x": "Q3", "series": "Q1" }, "text": "Late" },
+        { "kind": "highlight", "at": { "series": ["Q1", "Q9"] } }
+      ],
+      "at": { "in": "canvas" }
+    },
+    "h": {
+      "type": "chart", "kind": "line", "data": "@q",
+      "x": { "field": "when", "type": "temporal" }, "y": { "field": "rev" },
+      "annotations": [{ "kind": "rule", "at": { "x": "Q1" } }],
+      "at": { "in": "canvas" }
+    },
+    "f": {
+      "type": "table", "data": "@q", "key": "qtr",
+      "columns": [{ "field": "quarter" }, { "field": "revenue", "format": "$,.0f" }, { "field": "quarter", "format": ".1f" }],
+      "at": { "in": "canvas" }
+    }
+  },
+  "states": [
+    { "id": "one", "props": { "a": {}, "b": {}, "c": {}, "d": {}, "e": {}, "f": {}, "g": {}, "h": {} } },
+    { "id": "two", "props": { "c": { "y": { "field": "profit" } } } }
+  ]
+}

@@ -14,4 +14,17 @@ serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
 thiserror.workspace = true
-# Phase 0 (PLAN 0.1) adds: parley, swash, fontique, taffy, peniko, kurbo — pinned in the workspace.
+# Text, layout, geometry (PLAN 0.1, ADR-0004). Versions and feature choices live in the workspace manifest.
+parley.workspace = true
+fontique.workspace = true
+taffy.workspace = true
+hypher.workspace = true
+peniko.workspace = true
+kurbo.workspace = true
+libm.workspace = true
+# Image content ids (`sha256:…`), as bundles name assets (SPEC §3.1).
+sha2.workspace = true
+
+[dev-dependencies]
+# Torture tests map characters to glyph ids through the font's own cmap.
+skrifa.workspace = true

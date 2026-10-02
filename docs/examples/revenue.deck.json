@@ -1,5 +1,5 @@
 {
-  "scaena": "0.1",
+  "scaena": "0.8",
   "meta": {
     "title": "Q3 Review",
     "author": "Jay",
@@ -8,8 +8,8 @@
     "description": "Reference deck: one morph, one build, one shader background, one spine."
   },
   "canvas": {
-    "width": 1920,
-    "height": 1080,
+    "width": 1920.0,
+    "height": 1080.0,
     "unit": "cu"
   },
   "formats": [
@@ -23,12 +23,12 @@
       "file": "fonts/Fraunces-VF.ttf",
       "axes": {
         "wght": [
-          100,
-          900
+          100.0,
+          900.0
         ],
         "opsz": [
-          9,
-          144
+          9.0,
+          144.0
         ]
       }
     },
@@ -37,12 +37,22 @@
       "file": "fonts/Inter-VF.ttf",
       "axes": {
         "wght": [
-          100,
-          900
+          100.0,
+          900.0
         ],
         "opsz": [
-          14,
-          32
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
         ]
       }
     }
@@ -71,7 +81,7 @@
               "intro"
             ],
             "notes": "One beat. Let the title sit.",
-            "duration": 15
+            "duration": 15.0
           }
         ]
       },
@@ -90,7 +100,7 @@
               "mix"
             ],
             "notes": "Pause on the Q3 bar before the build. The mix shift is the point: Pro went from a fifth to a third.",
-            "duration": 60,
+            "duration": 60.0,
             "media": {
               "infographic": {
                 "priority": 1
@@ -112,7 +122,7 @@
             "states": [
               "close"
             ],
-            "duration": 5
+            "duration": 5.0
           }
         ]
       }
@@ -123,7 +133,7 @@
       "type": "shader",
       "kind": "mesh",
       "seed": 7,
-      "palette": "dusk",
+      "palette": "ambient",
       "params": {
         "points": 5,
         "drift": 0.12,
@@ -149,8 +159,8 @@
     "subtitle": {
       "type": "text",
       "role": "title",
-      "text": "Growth, mix, and what we do next",
-      "semantic": "context",
+      "text": "This quarter changed the shape of the business.",
+      "semantic": "claim",
       "at": {
         "in": "subtitle"
       }
@@ -182,7 +192,6 @@
         "type": "nominal",
         "scale": "categorical"
       },
-      "key": "product",
       "labels": {
         "show": "ends"
       },
@@ -190,14 +199,7 @@
       "alt": "Quarterly revenue by product, Q4 2025 through Q3 2026.",
       "semantic": "evidence",
       "at": {
-        "col": [
-          1,
-          12
-        ],
-        "row": [
-          2,
-          6
-        ]
+        "in": "main"
       }
     },
     "note": {
@@ -213,6 +215,7 @@
   "states": [
     {
       "id": "intro",
+      "mode": "delta",
       "layout": "title",
       "props": {
         "bg": {},
@@ -232,19 +235,17 @@
           "delay": 240
         }
       ],
-      "hold": 4000,
+      "hold": 4000.0,
       "notes": "Open on the title. Don't talk over the build."
     },
     {
       "id": "revenue",
-      "layout": "full",
+      "mode": "delta",
+      "layout": "figure",
       "transition": {
         "duration": "standard",
         "ease": "standard"
       },
-      "remove": [
-        "subtitle"
-      ],
       "props": {
         "title": {
           "text": "Revenue doubled",
@@ -257,6 +258,10 @@
         "rev": {},
         "note": {}
       },
+      "remove": [
+        "subtitle",
+        "bg"
+      ],
       "choreography": [
         {
           "target": "rev",
@@ -273,11 +278,12 @@
           "delay": 600
         }
       ],
-      "hold": 6000
+      "hold": 6000.0
     },
     {
       "id": "mix",
       "slide": "revenue",
+      "mode": "delta",
       "transition": "slow",
       "props": {
         "title": {
@@ -288,17 +294,15 @@
           "legend": "right"
         }
       },
-      "hold": 6000,
+      "hold": 6000.0,
       "notes": "Same bars, stacked. Pro is the orange band growing quarter over quarter."
     },
     {
       "id": "close",
+      "mode": "delta",
       "layout": "title",
-      "remove": [
-        "rev",
-        "note"
-      ],
       "props": {
+        "bg": {},
         "title": {
           "text": "Thank you",
           "role": "display",
@@ -308,7 +312,11 @@
           }
         }
       },
-      "hold": 3000
+      "remove": [
+        "rev",
+        "note"
+      ],
+      "hold": 3000.0
     }
   ]
 }

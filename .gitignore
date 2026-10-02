@@ -9,3 +9,6 @@ Cargo.lock.bak
 /tests/**/actual/
 .DS_Store
 .env
+__pycache__/
+/crates/scaena-wasm/www/pkg/
+/node_modules/

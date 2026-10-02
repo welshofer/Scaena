@@ -1,0 +1,3952 @@
+{
+  "scaena": "0.8",
+  "meta": {
+    "title": "Typography torture deck",
+    "author": "Scaena",
+    "created": "2026-10-01T00:00:00Z",
+    "lang": "en-US",
+    "description": "PLAN 0.2 / SPEC §15 benchmark B4. One state per case; README.md says which are kill criteria."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "formats": [
+    "9:16"
+  ],
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Roboto Serif",
+      "file": "fonts/RobotoSerif-VF.ttf",
+      "axes": {
+        "wdth": [
+          50,
+          150
+        ],
+        "opsz": [
+          8,
+          144
+        ],
+        "wght": [
+          100,
+          900
+        ],
+        "GRAD": [
+          -50,
+          100
+        ]
+      }
+    },
+    {
+      "family": "EB Garamond",
+      "file": "fonts/EBGaramond-VF.ttf",
+      "axes": {
+        "wght": [
+          400,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Hebrew",
+      "file": "fonts/NotoSansHebrew-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "wdth": [
+          62.5,
+          100
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans Arabic",
+      "file": "fonts/NotoSansArabic-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "wdth": [
+          62.5,
+          100
+        ]
+      }
+    },
+    {
+      "family": "Noto Color Emoji",
+      "file": "fonts/NotoColorEmoji-COLRv1.ttf"
+    }
+  ],
+  "data": {
+    "bars": {
+      "source": "data/bars.csv",
+      "schema": {
+        "label": "string",
+        "value": "number"
+      }
+    },
+    "bars-next": {
+      "source": "data/bars-next.csv",
+      "schema": {
+        "label": "string",
+        "value": "number"
+      }
+    },
+    "rev": {
+      "source": {
+        "inline": [
+          {
+            "q": "Q1",
+            "product": "Core",
+            "rev": 12
+          },
+          {
+            "q": "Q2",
+            "product": "Core",
+            "rev": 15
+          },
+          {
+            "q": "Q3",
+            "product": "Core",
+            "rev": 18
+          },
+          {
+            "q": "Q4",
+            "product": "Core",
+            "rev": 22
+          },
+          {
+            "q": "Q1",
+            "product": "Cloud",
+            "rev": 6
+          },
+          {
+            "q": "Q2",
+            "product": "Cloud",
+            "rev": 9
+          },
+          {
+            "q": "Q3",
+            "product": "Cloud",
+            "rev": 14
+          },
+          {
+            "q": "Q4",
+            "product": "Cloud",
+            "rev": 19
+          },
+          {
+            "q": "Q1",
+            "product": "Edge",
+            "rev": 3
+          },
+          {
+            "q": "Q2",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q3",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q4",
+            "product": "Edge",
+            "rev": 7
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number"
+      }
+    },
+    "rev-next": {
+      "source": {
+        "inline": [
+          {
+            "q": "Q2",
+            "product": "Core",
+            "rev": 15
+          },
+          {
+            "q": "Q3",
+            "product": "Core",
+            "rev": 18
+          },
+          {
+            "q": "Q4",
+            "product": "Core",
+            "rev": 22
+          },
+          {
+            "q": "Q5",
+            "product": "Core",
+            "rev": 24
+          },
+          {
+            "q": "Q2",
+            "product": "Cloud",
+            "rev": 9
+          },
+          {
+            "q": "Q3",
+            "product": "Cloud",
+            "rev": 14
+          },
+          {
+            "q": "Q4",
+            "product": "Cloud",
+            "rev": 19
+          },
+          {
+            "q": "Q5",
+            "product": "Cloud",
+            "rev": 25
+          },
+          {
+            "q": "Q2",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q3",
+            "product": "Edge",
+            "rev": 4
+          },
+          {
+            "q": "Q4",
+            "product": "Edge",
+            "rev": 7
+          },
+          {
+            "q": "Q5",
+            "product": "Edge",
+            "rev": 9
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number"
+      }
+    },
+    "pts": {
+      "source": {
+        "inline": [
+          {
+            "name": "Atlas",
+            "spend": 4.0,
+            "growth": 12.0,
+            "size": 30
+          },
+          {
+            "name": "Birch",
+            "spend": 7.5,
+            "growth": 3.0,
+            "size": 12
+          },
+          {
+            "name": "Cobalt",
+            "spend": 2.5,
+            "growth": 18.0,
+            "size": 8
+          },
+          {
+            "name": "Delta",
+            "spend": 9.0,
+            "growth": 9.0,
+            "size": 40
+          },
+          {
+            "name": "Ember",
+            "spend": 5.5,
+            "growth": -4.0,
+            "size": 16
+          },
+          {
+            "name": "Fjord",
+            "spend": 1.5,
+            "growth": 6.0,
+            "size": 4
+          },
+          {
+            "name": "Garnet",
+            "spend": 8.0,
+            "growth": 15.0,
+            "size": 22
+          },
+          {
+            "name": "Harbor",
+            "spend": 3.5,
+            "growth": -1.0,
+            "size": 10
+          }
+        ]
+      },
+      "schema": {
+        "spend": "number",
+        "growth": "number",
+        "size": "number"
+      }
+    },
+    "pts-next": {
+      "source": {
+        "inline": [
+          {
+            "name": "Atlas",
+            "spend": 5.0,
+            "growth": 14.0,
+            "size": 34
+          },
+          {
+            "name": "Birch",
+            "spend": 7.0,
+            "growth": 5.0,
+            "size": 14
+          },
+          {
+            "name": "Cobalt",
+            "spend": 3.5,
+            "growth": 21.0,
+            "size": 12
+          },
+          {
+            "name": "Delta",
+            "spend": 9.5,
+            "growth": 7.0,
+            "size": 38
+          },
+          {
+            "name": "Ember",
+            "spend": 5.0,
+            "growth": 1.0,
+            "size": 18
+          },
+          {
+            "name": "Fjord",
+            "spend": 2.0,
+            "growth": 8.0,
+            "size": 6
+          },
+          {
+            "name": "Garnet",
+            "spend": 8.5,
+            "growth": 16.0,
+            "size": 26
+          },
+          {
+            "name": "Harbor",
+            "spend": 4.0,
+            "growth": 2.0,
+            "size": 12
+          }
+        ]
+      },
+      "schema": {
+        "spend": "number",
+        "growth": "number",
+        "size": "number"
+      }
+    },
+    "share": {
+      "source": {
+        "inline": [
+          {
+            "channel": "Direct",
+            "share": 42
+          },
+          {
+            "channel": "Partners",
+            "share": 27
+          },
+          {
+            "channel": "Online",
+            "share": 19
+          },
+          {
+            "channel": "Retail",
+            "share": 12
+          }
+        ]
+      },
+      "schema": {
+        "share": "number"
+      }
+    },
+    "share-next": {
+      "source": {
+        "inline": [
+          {
+            "channel": "Direct",
+            "share": 38
+          },
+          {
+            "channel": "Online",
+            "share": 24
+          },
+          {
+            "channel": "Social",
+            "share": 22
+          },
+          {
+            "channel": "Retail",
+            "share": 16
+          }
+        ]
+      },
+      "schema": {
+        "share": "number"
+      }
+    },
+    "regions": {
+      "source": {
+        "inline": [
+          {
+            "region": "North America",
+            "rev": 1240.5,
+            "growth": 0.12
+          },
+          {
+            "region": "Europe",
+            "rev": 860,
+            "growth": -0.031
+          },
+          {
+            "region": "Asia Pacific",
+            "rev": 455.25,
+            "growth": 0.27
+          },
+          {
+            "region": "Latin America",
+            "rev": 212,
+            "growth": 0.08
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number",
+        "growth": "number"
+      }
+    }
+  },
+  "nodes": {
+    "case": {
+      "type": "text",
+      "role": "label",
+      "text": "Typography torture deck",
+      "semantic": "navigation",
+      "at": {
+        "in": "case"
+      }
+    },
+    "axes-wght-100": {
+      "type": "text",
+      "role": "wght-100",
+      "text": "Hamburgefonstiv · wght 100",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "axes-wght-900": {
+      "type": "text",
+      "role": "wght-900",
+      "text": "Hamburgefonstiv · wght 900",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "axes-wdth-50": {
+      "type": "text",
+      "role": "wdth-50",
+      "text": "Hamburgefonstiv · wdth 50",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "axes-wdth-150": {
+      "type": "text",
+      "role": "wdth-150",
+      "text": "Hamburgefonstiv · wdth 150",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "axes-opsz-8": {
+      "type": "text",
+      "role": "opsz-8",
+      "text": "Hamburgefonstiv · opsz 8",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 6
+      }
+    },
+    "axes-opsz-144": {
+      "type": "text",
+      "role": "opsz-144",
+      "text": "Hamburgefonstiv · opsz 144",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 7
+      }
+    },
+    "liga-on": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "office affluent fjord flight",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "liga-off": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "office affluent fjord flight",
+      "features": {
+        "liga": false
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "dlig-on": {
+      "type": "text",
+      "role": "dlig",
+      "text": "The strict act of attaching chickens, often.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "dlig-off": {
+      "type": "text",
+      "role": "garamond",
+      "text": "The strict act of attaching chickens, often.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "kern-on": {
+      "type": "text",
+      "role": "kern",
+      "text": "AVATAR To LT Wa Yo ff fi",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "kern-off": {
+      "type": "text",
+      "role": "kern",
+      "text": "AVATAR To LT Wa Yo ff fi",
+      "features": {
+        "kern": false
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "num-tab-lin": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "tabular-lining",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "num-tab-old": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "tabular-oldstyle",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "num-pro-lin": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "proportional-lining",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "num-pro-old": {
+      "type": "text",
+      "role": "figures",
+      "text": "1111 · 0000 · 3,456,789.12",
+      "numeric": "proportional-oldstyle",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "accents-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ærøskøbing · Łódź · Dvořák · São Tomé · façade",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "accents-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "naïve · Œuvre · Ðorđe · Przędzalnia · İzmir",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "accents-3": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ångström · Gödel · Şişli · Čeština · Žižkov",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "combining-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Tiếng Việt · Amélie · näive",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "combining-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Ångström · q̃ x́ ǰ",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "punct-1": {
+      "type": "text",
+      "role": "specimen",
+      "text": "“Smart” ‘quotes’ — an em dash",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "punct-2": {
+      "type": "text",
+      "role": "specimen",
+      "text": "1914–1918, an en dash; wait for it…",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "mixed-line": {
+      "type": "text",
+      "role": "run-regular",
+      "runs": [
+        {
+          "text": "Thin ",
+          "role": "run-thin"
+        },
+        {
+          "text": "Regular ",
+          "role": "run-regular"
+        },
+        {
+          "text": "Black ",
+          "role": "run-black"
+        },
+        {
+          "text": "Big ",
+          "role": "run-big"
+        },
+        {
+          "text": "small",
+          "role": "run-small"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "track-tight": {
+      "type": "text",
+      "role": "tight",
+      "text": "Tightly tracked display",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "track-loose": {
+      "type": "text",
+      "role": "loose",
+      "text": "LOOSELY TRACKED LABEL",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "hanging-quote": {
+      "type": "text",
+      "role": "hanging",
+      "text": "“Typography is the product itself.” Ts, Vs and Ws start lines; so does a ‘quoted’ opening, which hangs into the margin as far as the first quote. Ws and Vs align by eye.",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "balance-head": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue doubled while the product mix shifted",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "pretty-para": {
+      "type": "text",
+      "role": "body",
+      "text": "Greedy line breaking fills each line as far as it can. What remains falls to the last line, and so a single short word ends up alone at the bottom of the block, where it reads like a mistake.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "wrap-word": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Donaudampfschifffahrtsgesellschaftskapitänsmütze is one word.",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "wrap-link": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Specs at https://scaena.dev/docs/spec/typography/line-breaking?case=url&wrap=true#torture",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": [
+          2,
+          7
+        ]
+      }
+    },
+    "wrap-narrow-col": {
+      "type": "text",
+      "role": "narrow",
+      "text": "Narrow measures make every line break a decision, and most of them are bad ones.",
+      "at": {
+        "col": [
+          1,
+          2
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "emoji-line": {
+      "type": "text",
+      "role": "specimen-lg",
+      "text": "Ship it 🚀 🙂 👩🏽‍💻 🇺🇸 ❤️",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "bidi-he-line": {
+      "type": "text",
+      "role": "bidi-he",
+      "text": "שלום Scaena! הגרסה 0.1 מוכנה.",
+      "lang": "he",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "bidi-ar-line": {
+      "type": "text",
+      "role": "bidi-ar",
+      "text": "مرحبا Scaena! الإصدار 0.1 جاهز.",
+      "lang": "ar",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "fallback-run": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Alpha α, omega ω, shalom שלום, one run.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "anchor-cap-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "Cap 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-cap-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Cap 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-cap-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "Cap 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ],
+        "align": {
+          "y": "cap"
+        }
+      }
+    },
+    "anchor-base-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "Base 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          4,
+          5
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-base-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "Base 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          4,
+          5
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-base-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "Base 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          4,
+          5
+        ],
+        "align": {
+          "y": "baseline"
+        }
+      }
+    },
+    "anchor-x-112": {
+      "type": "text",
+      "role": "run-big",
+      "text": "axe 112",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
+    "anchor-x-64": {
+      "type": "text",
+      "role": "specimen",
+      "text": "axe 64",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
+    "anchor-x-28": {
+      "type": "text",
+      "role": "run-small",
+      "text": "axe 28",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ],
+        "align": {
+          "y": "x-height"
+        }
+      }
+    },
+    "bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@bars",
+      "x": {
+        "field": "label",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "value",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "key": "label",
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Six bars from Q1 2025 to Q2 2026; the last is the tallest.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "shape-panel": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "shape-pill": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.5",
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": 2
+      }
+    },
+    "shape-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          0
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thick",
+        "cap": "round"
+      },
+      "semantic": "annotation",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          3,
+          4
+        ]
+      }
+    },
+    "shape-ring": {
+      "type": "shape",
+      "kind": "ellipse",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "shape-rule": {
+      "type": "shape",
+      "kind": "line",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 5
+      }
+    },
+    "shape-dash": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "muted",
+        "width": "thin",
+        "dash": [
+          12,
+          8
+        ],
+        "cap": "round"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 6
+      }
+    },
+    "shape-tri": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0.5,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          1,
+          2
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "shape-star": {
+      "type": "shape",
+      "path": "M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z",
+      "fill": "accent",
+      "stroke": {
+        "paint": "onSurface",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "shape-oval": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "muted",
+      "semantic": "decoration",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "mesh-bg": {
+      "type": "shader",
+      "kind": "mesh",
+      "seed": 7,
+      "palette": "torture",
+      "params": {
+        "points": 5,
+        "drift": 0.12,
+        "softness": 0.85,
+        "grain": 0.035
+      },
+      "z": -100,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      }
+    },
+    "image-cover": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "alt": "The test card, cover: its middle bands and the focal disc fill the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-focal": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0,
+        0.5
+      ],
+      "alt": "The test card, cover around a focal point at its left edge: the left bands.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-contain": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "alt": "The whole test card, contained: all four corner marks inside the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-fill": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "fill",
+      "crop": [
+        0.25,
+        0,
+        0.5,
+        1
+      ],
+      "alt": "The middle half of the test card, cropped and stretched to fill the box.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "image-radius": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0.5,
+        1
+      ],
+      "radius": "radius.4",
+      "alt": "The bottom of the test card, rounded: its half-transparent strip over the page.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "image-tall": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "radius": "radius.3",
+      "alt": "The whole test card in a narrow box, contained, its corners rounded.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "image-zoom": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "crop": [
+        0,
+        0,
+        0.125,
+        0.125
+      ],
+      "alt": "The test card's checkerboard corner, magnified about ten times.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "stats": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "stat-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-a-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "42%",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-a"
+      }
+    },
+    "stat-a-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "of revenue now comes from subscriptions",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-a"
+      }
+    },
+    "stat-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-b-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "2.4x",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-b"
+      }
+    },
+    "stat-b-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "faster onboarding than a year ago",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-b"
+      }
+    },
+    "stat-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-c-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$18M",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-c"
+      }
+    },
+    "stat-c-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "net new annual recurring revenue",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-c"
+      }
+    },
+    "tally": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          11
+        ],
+        "row": 5
+      }
+    },
+    "tally-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "1,280",
+      "align": {
+        "y": "baseline"
+      },
+      "semantic": "evidence",
+      "at": {
+        "parent": "tally"
+      }
+    },
+    "tally-label": {
+      "type": "text",
+      "role": "body",
+      "text": "customers moved to the new plan",
+      "align": {
+        "y": "baseline"
+      },
+      "semantic": "evidence",
+      "at": {
+        "parent": "tally"
+      }
+    },
+    "board": {
+      "type": "grid",
+      "cols": [
+        "fraction(2)",
+        "fill"
+      ],
+      "rows": 2,
+      "gap": "space.4",
+      "areas": [
+        "photo note",
+        "photo mark"
+      ],
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "board-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "radius": "radius.3",
+      "alt": "The test card in a grid area two rows tall.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "board",
+        "area": "photo"
+      }
+    },
+    "board-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "The photo spans two rows; this note and the dot take the named areas beside it.",
+      "semantic": "annotation",
+      "at": {
+        "parent": "board",
+        "area": "note"
+      }
+    },
+    "board-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "size": {
+        "w": "space.6",
+        "h": "space.6"
+      },
+      "align": "center",
+      "semantic": "decoration",
+      "at": {
+        "parent": "board",
+        "area": "mark"
+      }
+    },
+    "card": {
+      "type": "frame",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "radius": "radius.3",
+      "padding": "space.4",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "card-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0,
+        0
+      ],
+      "radius": "radius.2",
+      "alt": "The test card's top-left corner, filling a frame.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "card"
+      }
+    },
+    "card-tag": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.5",
+      "fill": "accent",
+      "semantic": "decoration",
+      "z": 1,
+      "at": {
+        "parent": "card",
+        "rect": [
+          24,
+          24,
+          132,
+          44
+        ]
+      }
+    },
+    "card-tag-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Framed",
+      "style": {
+        "color": "onAccent"
+      },
+      "semantic": "annotation",
+      "z": 1,
+      "at": {
+        "parent": "card",
+        "rect": [
+          44,
+          35,
+          112,
+          30
+        ]
+      }
+    },
+    "marks": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration"
+    },
+    "marks-ring": {
+      "type": "shape",
+      "kind": "ellipse",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "marks",
+        "col": 12,
+        "row": 5
+      }
+    },
+    "marks-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "parent": "marks",
+        "col": 12,
+        "row": 5
+      }
+    },
+    "align-center": {
+      "type": "text",
+      "role": "hanging",
+      "align": {
+        "x": "center"
+      },
+      "wrap": "balance",
+      "text": "“Centered lines share the middle of the box,” and a quote that opens one stays inside it.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "align-end": {
+      "type": "text",
+      "role": "hanging",
+      "align": {
+        "x": "end"
+      },
+      "text": "End-aligned lines meet the right edge, and the quote that closes one hangs past it: “like this.”",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "align-rtl": {
+      "type": "text",
+      "role": "bidi-he",
+      "wrap": "pretty",
+      "lang": "he",
+      "text": "שלום, הגרסה מוכנה. שלום, הגרסה מוכנה. שלום, הגרסה מוכנה. שלום, הגרסה מוכנה.",
+      "at": {
+        "col": [
+          3,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "case-upper": {
+      "type": "text",
+      "role": "specimen",
+      "style": {
+        "case": "upper"
+      },
+      "text": "Upper case: Straße und Weg",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "case-title": {
+      "type": "text",
+      "role": "specimen",
+      "style": {
+        "case": "title"
+      },
+      "text": "title case capitalizes each word, (even) the 3rd",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "case-smallcaps": {
+      "type": "text",
+      "role": "garamond",
+      "style": {
+        "case": "smallcaps"
+      },
+      "text": "Small capitals come from the font",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "measure-centered": {
+      "type": "text",
+      "role": "body",
+      "measure": 24,
+      "align": {
+        "x": "center"
+      },
+      "wrap": "balance",
+      "text": "A measure of twenty-four characters keeps this paragraph narrow, and its lines centered across a wide box.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          8
+        ]
+      }
+    },
+    "fit-shrink": {
+      "type": "text",
+      "role": "headline",
+      "fit": "shrink",
+      "minSize": 40,
+      "text": "Shrink sets a long headline at the largest size its box can hold",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "fit-grow": {
+      "type": "text",
+      "role": "body",
+      "fit": "grow",
+      "maxSize": 400,
+      "text": "Grow",
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "fit-lines": {
+      "type": "text",
+      "role": "headline",
+      "fit": "shrink",
+      "maxLines": 1,
+      "text": "One line, however long it runs across the slide",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "hyph-on": {
+      "type": "text",
+      "role": "body",
+      "wrap": "pretty",
+      "hyphenate": true,
+      "lang": "en",
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "hyph-off": {
+      "type": "text",
+      "role": "body",
+      "wrap": "pretty",
+      "hyphenate": false,
+      "lang": "en",
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "hyph-end": {
+      "type": "text",
+      "role": "body",
+      "wrap": "greedy",
+      "hyphenate": true,
+      "lang": "en",
+      "align": {
+        "x": "end"
+      },
+      "hangingPunctuation": true,
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "k-grouped": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "alt": "Revenue by product and quarter, side by side."
+    },
+    "k-stacked": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Revenue by quarter, stacked by product, totals above."
+    },
+    "k-line": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          5,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "ends",
+        "collide": "nudge"
+      },
+      "legend": "none",
+      "alt": "Revenue by product over four quarters, as lines."
+    },
+    "k-area": {
+      "type": "chart",
+      "kind": "area",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          5,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": "none",
+      "alt": "Revenue by product over four quarters, stacked areas."
+    },
+    "k-scatter": {
+      "type": "chart",
+      "kind": "scatter",
+      "data": "@pts",
+      "key": "name",
+      "x": {
+        "field": "spend",
+        "type": "quantitative",
+        "title": "Spend, $M"
+      },
+      "y": {
+        "field": "growth",
+        "title": "Growth, %"
+      },
+      "sizeEncoding": {
+        "field": "size"
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "alt": "Eight accounts by spend and growth, sized by seats."
+    },
+    "k-dot": {
+      "type": "chart",
+      "kind": "dot",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": "bottom",
+      "alt": "Revenue by product per quarter, as dots."
+    },
+    "k-donut": {
+      "type": "chart",
+      "kind": "donut",
+      "data": "@share",
+      "x": {
+        "field": "channel"
+      },
+      "y": {
+        "field": "share",
+        "format": ".0f"
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "right",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      },
+      "alt": "Share of sales by channel."
+    },
+    "k-table": {
+      "type": "table",
+      "data": "@regions",
+      "key": "region",
+      "dataTransform": [
+        {
+          "sort": "-rev"
+        }
+      ],
+      "columns": [
+        {
+          "field": "region",
+          "title": "Region"
+        },
+        {
+          "field": "rev",
+          "title": "Revenue",
+          "format": "$,.0f"
+        },
+        {
+          "field": "growth",
+          "title": "Growth",
+          "format": "+.1%"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      },
+      "alt": "Revenue and growth by region."
+    },
+    "regroup": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "all"
+      },
+      "alt": "Revenue by product and quarter, grouped, then stacked."
+    },
+    "n-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": {
+        "title": "Product"
+      },
+      "annotations": [
+        {
+          "kind": "band",
+          "at": {
+            "x": [
+              "Q3",
+              "Q4"
+            ]
+          },
+          "text": "Launch"
+        },
+        {
+          "kind": "rule",
+          "at": {
+            "y": 20
+          },
+          "text": "Target"
+        },
+        {
+          "kind": "callout",
+          "at": {
+            "x": "Q4",
+            "series": "Cloud"
+          },
+          "text": "Record"
+        }
+      ],
+      "alt": "Revenue by product and quarter, with the launch quarters shaded, a target, and a callout."
+    },
+    "n-lines": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "ends",
+        "collide": "nudge"
+      },
+      "legend": {
+        "place": "right",
+        "title": "Product"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Cloud"
+          }
+        },
+        {
+          "kind": "callout",
+          "at": {
+            "x": "Q3",
+            "series": "Cloud"
+          },
+          "text": "Cloud doubles"
+        }
+      ],
+      "alt": "Revenue by product as lines, Cloud highlighted."
+    },
+    "sh-linear": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 1,
+      "palette": "torture",
+      "params": {
+        "angle": 120,
+        "grain": 0.02
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-radial": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 2,
+      "palette": "torture",
+      "params": {
+        "shape": "radial",
+        "x": 0.3,
+        "y": 0.4,
+        "radius": 1.0
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-conic": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 3,
+      "palette": "torture",
+      "params": {
+        "shape": "conic",
+        "angle": 30,
+        "speed": 12
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-noise": {
+      "type": "shader",
+      "kind": "noise",
+      "seed": 4,
+      "preset": "noise-soft",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-particles": {
+      "type": "shader",
+      "kind": "particles",
+      "seed": 5,
+      "palette": "torture",
+      "params": {
+        "count": 40,
+        "size": 0.03,
+        "speed": 0.05,
+        "softness": 0.6
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-grain-under": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "sh-grain": {
+      "type": "shader",
+      "kind": "grain",
+      "seed": 6,
+      "palette": "film",
+      "params": {
+        "amount": 0.35,
+        "fps": 12
+      },
+      "z": 1,
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          7
+        ]
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-linear": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": {
+        "gradient": {
+          "kind": "linear",
+          "angle": 90,
+          "stops": [
+            {
+              "at": 0,
+              "color": "accent"
+            },
+            {
+              "at": 1,
+              "color": "ink"
+            }
+          ]
+        }
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-radial": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": {
+        "gradient": {
+          "kind": "radial",
+          "center": [
+            0.35,
+            0.35
+          ],
+          "stops": [
+            {
+              "at": 0,
+              "color": "paper"
+            },
+            {
+              "at": 1,
+              "color": "accent"
+            }
+          ]
+        }
+      },
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "gp-conic": {
+      "type": "shape",
+      "kind": "rect",
+      "stroke": {
+        "paint": {
+          "gradient": {
+            "kind": "conic",
+            "stops": [
+              {
+                "at": 0,
+                "color": "accent"
+              },
+              {
+                "at": 0.5,
+                "color": "ink"
+              },
+              {
+                "at": 1,
+                "color": "accent"
+              }
+            ]
+          }
+        }
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": 8
+      },
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "mo-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Every word keeps its own time",
+      "semantic": "context",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          2
+        ]
+      }
+    },
+    "mo-cards": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mo-card-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-a-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "First, a card",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-a"
+      }
+    },
+    "mo-card-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-b-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "then the next",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-b"
+      }
+    },
+    "mo-card-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-cards"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "mo-card-c-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "then the last",
+      "semantic": "evidence",
+      "at": {
+        "parent": "mo-card-c"
+      }
+    },
+    "mo-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@share",
+      "x": {
+        "field": "channel",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Four channels' shares, their bars growing in one after another.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          4,
+          8
+        ]
+      }
+    },
+    "mo-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          1
+        ],
+        "row": [
+          8,
+          8
+        ]
+      }
+    },
+    "mf-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue grew this quarter",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          2
+        ]
+      }
+    },
+    "mf-tri": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0.5,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-star": {
+      "type": "shape",
+      "path": "M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z",
+      "fill": "accent",
+      "stroke": {
+        "paint": "ink",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-sky": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 8,
+      "palette": "torture",
+      "params": {
+        "angle": 0
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-pair": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration"
+    },
+    "mf-pair-a": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "mf-pair",
+        "col": [
+          10,
+          11
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "mf-pair-b": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "ink",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "mf-pair",
+        "col": [
+          11,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "mf-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0,
+          0.5
+        ],
+        [
+          1,
+          0.5
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thick",
+        "cap": "round"
+      },
+      "semantic": "annotation",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "mf-badge": {
+      "type": "text",
+      "role": "headline",
+      "text": "A record quarter",
+      "semantic": "takeaway",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "fm-claim": {
+      "type": "text",
+      "role": "headline",
+      "text": "Direct sales bring in the largest share of revenue",
+      "semantic": "claim",
+      "at": {
+        "in": "left"
+      }
+    },
+    "fm-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@share",
+      "x": {
+        "field": "channel",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "legend": "none",
+      "alt": "Four channels' shares as bars: beside the claim on the deck's canvas, under it in 9:16.",
+      "semantic": "evidence",
+      "at": {
+        "in": "right"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "axes",
+      "name": "Variable axes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "01 · Variable axes: wght, wdth, opsz · kill"
+        },
+        "axes-wght-100": {},
+        "axes-wght-900": {},
+        "axes-wdth-50": {},
+        "axes-wdth-150": {},
+        "axes-opsz-8": {},
+        "axes-opsz-144": {}
+      },
+      "notes": "Pass: each pair differs only on its axis. wght 100 vs 900 changes stroke weight; wdth 50 vs 150 changes set width; opsz 8 vs 144 at the same 64 cu size changes contrast and spacing (gate 0 criterion 2: opsz and wdth demonstrably change glyph shapes)."
+    },
+    {
+      "id": "liga",
+      "name": "Standard ligatures",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "02 · Standard ligatures (liga) · kill"
+        },
+        "liga-on": {},
+        "liga-off": {}
+      },
+      "notes": "Pass: the top line uses the ffi, ffl, fj and fl ligature glyphs; the bottom line (liga off) shows the same letters unjoined. Same font, same size."
+    },
+    {
+      "id": "dlig",
+      "name": "Discretionary ligatures",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "03 · Discretionary ligatures (dlig) · catalogue"
+        },
+        "dlig-on": {},
+        "dlig-off": {}
+      },
+      "notes": "Catalogue: EB Garamond with dlig on (top) forms Th, st, ct, tt, ch, ck and ft ligatures; the control line below has dlig off."
+    },
+    {
+      "id": "kern",
+      "name": "Kerning",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "04 · Kerning-sensitive pairs · kill"
+        },
+        "kern-on": {},
+        "kern-off": {}
+      },
+      "notes": "Pass: AV, To, LT, Wa and Yo close up in the top line (GPOS kern, -55 to -75 units/em in Roboto Serif) and sit loose in the bottom line with kern off."
+    },
+    {
+      "id": "numerals",
+      "name": "Numeral styles",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "05 · Numerals: tabular/proportional × lining/oldstyle · kill"
+        },
+        "num-tab-lin": {},
+        "num-tab-old": {},
+        "num-pro-lin": {},
+        "num-pro-old": {}
+      },
+      "notes": "Pass: in the tabular lines 1111 and 0000 are the same width; in the proportional lines 1111 is narrower. Oldstyle lines have ascending and descending figures (3, 4, 5, 7, 9 drop below the baseline); lining lines do not."
+    },
+    {
+      "id": "accents",
+      "name": "Accented Latin",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "06 · Accented Latin · kill"
+        },
+        "accents-1": {},
+        "accents-2": {},
+        "accents-3": {}
+      },
+      "notes": "Pass: every precomposed letter renders from Roboto Serif (no fallback, no .notdef), with accents correctly placed on capitals and lowercase."
+    },
+    {
+      "id": "combining",
+      "name": "Combining marks",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "07 · Combining marks (decomposed) · catalogue"
+        },
+        "combining-1": {},
+        "combining-2": {}
+      },
+      "notes": "Catalogue: decomposed sequences (NFD) shape to the same appearance as precomposed letters; stacked marks (ế, ệ) do not collide; marks on bases with no precomposed form (q̃, x́) are positioned by GPOS mark attachment."
+    },
+    {
+      "id": "punctuation",
+      "name": "Punctuation",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "08 · Smart quotes, dashes, ellipsis · recorded"
+        },
+        "punct-1": {},
+        "punct-2": {}
+      },
+      "notes": "Recorded: curly quotes, em and en dashes and the ellipsis come from the font (no straight-quote or three-period substitutes). The opening “ of the first line hangs outside the text edge, like every quote that opens a line (SPEC §3.5)."
+    },
+    {
+      "id": "mixed",
+      "name": "Mixed weights and sizes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "09 · Mixed weights and sizes in one line · kill"
+        },
+        "mixed-line": {}
+      },
+      "notes": "Pass: one line, five runs, one shared baseline; weights 100/400/900 at 56 cu, then 112 cu and 28 cu runs. Line height follows the tallest run."
+    },
+    {
+      "id": "tracking",
+      "name": "Tracking extremes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "10 · Tracking: -0.08 em and +0.40 em · kill"
+        },
+        "track-tight": {},
+        "track-loose": {}
+      },
+      "notes": "Pass: the top line is set 0.08 em tighter than default (letters nearly touching, none overlapping on this face); the bottom line is spaced 0.40 em. Tracking adds after every glyph; it must not break ligature or kerning shaping."
+    },
+    {
+      "id": "hanging",
+      "name": "Hanging punctuation and optical margins",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "11 · Hanging quotes · kill; optical margins · recorded"
+        },
+        "hanging-quote": {}
+      },
+      "notes": "Pass: every quotation mark that opens a line hangs outside the text edge, so the letter after it sits on the edge: the “ of line 1 and the ‘ of line 3, at x = −(quote advance). Line 1 fits the measure only because its quote is not counted (985 cu inside 998; 1009 with the quote). With optical margins, the V of line 2 and the W of line 5 start 5% of their advance left of the edge. The comma and period at line ends do not hang: the right edge is ragged, and nothing hangs at a ragged edge (SPEC §3.5)."
+    },
+    {
+      "id": "balance",
+      "name": "Balanced headline",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "12 · Balanced two-line headline · kill"
+        },
+        "balance-head": {}
+      },
+      "notes": "Pass: two lines of similar length (e.g. \"Revenue doubled while the / product mix shifted\"). Greedy breaking at this width gives 1642 cu + 521 cu; balance must fix that."
+    },
+    {
+      "id": "pretty",
+      "name": "Pretty paragraph, bait widow",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "13 · Pretty paragraph with a bait widow · kill"
+        },
+        "pretty-para": {}
+      },
+      "notes": "Pass: the last line carries at least two words (role minLastLineWords: 2). Bare greedy breaking (minLastLineWords: 1) at this width strands \"mistake.\" alone on line 3, robustly (±15 cu of measurement drift still strands it)."
+    },
+    {
+      "id": "wrap-longword",
+      "name": "Unbreakable word",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "14 · Wrap: one long unbreakable word · recorded"
+        },
+        "wrap-word": {}
+      },
+      "notes": "Recorded: the compound is wider than its 852 cu box. Record what happens: overflow (E100), emergency break, or clip. Nothing may draw outside the box silently."
+    },
+    {
+      "id": "wrap-url",
+      "name": "URL",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "15 · Wrap: a URL · recorded"
+        },
+        "wrap-link": {}
+      },
+      "notes": "Recorded: a URL wider than its box. Record where it breaks (after / ? & # are acceptable break points) and whether any break happens inside a path segment."
+    },
+    {
+      "id": "wrap-narrow",
+      "name": "Narrow measure",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "16 · Wrap: narrow measure · recorded"
+        },
+        "wrap-narrow-col": {}
+      },
+      "notes": "Recorded: a 268 cu column at 32 cu. Expect ragged short lines; record raggedness and any overflow."
+    },
+    {
+      "id": "emoji",
+      "name": "Emoji",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "17 · Emoji: COLRv1, ZWJ, skin tone, flag · catalogue"
+        },
+        "emoji-line": {}
+      },
+      "notes": "Catalogue: color glyphs from Noto Color Emoji (COLRv1 only; the SVG table is stripped). The ZWJ sequence and the skin tone form one glyph; VS16 is invisible. Trap: EB Garamond, earlier in the fallback chain, maps the regional indicator letters, so per-codepoint fallback draws 🇺🇸 as two monochrome Garamond letters. Fallback must be per cluster and honour default emoji presentation (UTS #51): one color flag."
+    },
+    {
+      "id": "bidi-hebrew",
+      "name": "Bidi: Hebrew",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "18 · Bidi: Hebrew with inline Latin · catalogue"
+        },
+        "bidi-he-line": {}
+      },
+      "notes": "Catalogue: right-to-left paragraph; \"Scaena\" and \"0.1\" stay left-to-right inside it; the final period sits at the left end. Glyphs from Noto Sans Hebrew (its own Latin)."
+    },
+    {
+      "id": "bidi-arabic",
+      "name": "Bidi: Arabic",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "19 · Bidi: Arabic with inline Latin · catalogue"
+        },
+        "bidi-ar-line": {}
+      },
+      "notes": "Catalogue: right-to-left with joined Arabic letterforms (initial/medial/final shapes) and the lam-alef ligature in الإصدار; Latin and digits stay left-to-right."
+    },
+    {
+      "id": "fallback",
+      "name": "Bundle-internal fallback",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "20 · Fallback within one run: 3 fonts · kill"
+        },
+        "fallback-run": {}
+      },
+      "notes": "Pass: a single run in Roboto Serif. α and ω (absent from Roboto Serif) fall back to EB Garamond, the Hebrew word to Noto Sans Hebrew, following the theme family fallback order. No system font, no .notdef."
+    },
+    {
+      "id": "anchors",
+      "name": "Typographic anchors",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "21 · Anchors: cap, baseline, x-height across sizes · recorded"
+        },
+        "anchor-cap-112": {},
+        "anchor-cap-64": {},
+        "anchor-cap-28": {},
+        "anchor-base-112": {},
+        "anchor-base-64": {},
+        "anchor-base-28": {},
+        "anchor-x-112": {},
+        "anchor-x-64": {},
+        "anchor-x-28": {}
+      },
+      "notes": "Recorded (PLAN 0.5): across 112, 64 and 28 cu, the first row's cap tops share one line (the cell top, 210 cu); the second row's baselines share one line (the cell bottom, 642 cu); the tops of the third row's x-height letters (a x e) share one line (780 cu). Every specimen is one line, and the rows do not touch. Cap height and x-height come from each font's OS/2 table, not glyph bounds."
+    },
+    {
+      "id": "chart-intro",
+      "name": "Bar chart, before its values",
+      "slide": "chart",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "22 · Bar chart: values in, then the next quarter · recorded"
+        }
+      },
+      "notes": "The slide before its chart: only the case label. The next state builds the chart in."
+    },
+    {
+      "id": "chart",
+      "name": "Bar chart: values animate in",
+      "slide": "chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "bars": {}
+      },
+      "notes": "Pass at rest: six bars keyed by label in the theme's first categorical color, square on a hairline baseline and rounded at the top; value labels above, quarter labels below, tabular lining figures. Pass in the transition from `chart-intro` (420 ms): every bar grows from the baseline while its label rides its top, counts up from 0, and fades in; the quarter labels and the baseline fade in. t = 0 is `chart-intro` at rest and t = 420 ms this state at rest, exactly."
+    },
+    {
+      "id": "chart-next",
+      "name": "Next quarter",
+      "slide": "chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "bars": {
+          "data": "@bars-next",
+          "alt": "Six bars from Q2 2025 to Q3 2026; the last is the tallest."
+        }
+      },
+      "notes": "Pass: the next quarter arrives and the window scrolls. Matched by label, 2025-Q2 to 2026-Q2 slide one band left and rescale to the new maximum (38). 2025-Q1 rides out with 2025-Q2 under the chart's left edge, shrinking onto the baseline as its label counts down to 0 and fades; 2026-Q3 rides in with 2026-Q2 from past the right edge, growing from the baseline as its label counts up to 38. Nothing overlaps; the chart clips at its sides only. Frames sample the two layouts and lay nothing out (gate 0 criterion 3)."
+    },
+    {
+      "id": "mesh",
+      "name": "Mesh background",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "23 · Mesh background · recorded"
+        },
+        "mesh-bg": {}
+      },
+      "notes": "Pass: a seeded mesh gradient fills the canvas under the case label, the four `torture` colors blending smoothly in Oklab with fine grain, at 0.84 s on the global timeline; every painter draws it within SPEC §13.5 (gate 0 criterion 4)."
+    },
+    {
+      "id": "shapes",
+      "name": "Shapes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "24 · Shapes · recorded"
+        },
+        "shape-panel": {},
+        "shape-pill": {},
+        "shape-arrow": {},
+        "shape-ring": {},
+        "shape-rule": {},
+        "shape-dash": {},
+        "shape-tri": {},
+        "shape-star": {},
+        "shape-oval": {}
+      },
+      "notes": "Pass: a rounded panel with a hairline, a pill, a ring, an arrow with its head, a rule and a dashed rule, a triangle, a star fitted from SVG path data, and an oval, each in its grid cell in theme colors; every painter draws them alike."
+    },
+    {
+      "id": "images",
+      "name": "Images",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "25 · Images · recorded"
+        },
+        "image-cover": {},
+        "image-focal": {},
+        "image-contain": {},
+        "image-fill": {},
+        "image-radius": {},
+        "image-tall": {},
+        "image-zoom": {}
+      },
+      "notes": "Pass: the test card (assets/test-card.png, 480 x 240) seven ways, each in its grid cell. Top row: cover keeps the middle bands and the disc; cover with focal [0, 0.5] keeps the left bands and the yellow corner mark; contain shows all four corner marks, centered; fill with crop [0.25, 0, 0.5, 1] stretches the middle four bands. Bottom row: cover with focal [0.5, 1] and radius.4 keeps the bottom, the half-transparent strip blending with the page, corners rounded; contain in a narrow box rounds the drawn image's corners, not the box's; crop [0, 0, 0.125, 0.125] magnifies the checkerboard about ten times, bilinear. Every painter draws them alike (SPEC §13.5)."
+    },
+    {
+      "id": "containers",
+      "name": "Containers",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "26 · Containers · recorded"
+        },
+        "stats": {},
+        "stat-a": {},
+        "stat-a-figure": {},
+        "stat-a-label": {},
+        "stat-b": {},
+        "stat-b-figure": {},
+        "stat-b-label": {},
+        "stat-c": {},
+        "stat-c-figure": {},
+        "stat-c-label": {},
+        "tally": {},
+        "tally-figure": {},
+        "tally-label": {},
+        "board": {},
+        "board-photo": {},
+        "board-note": {},
+        "board-dot": {},
+        "card": {},
+        "card-photo": {},
+        "card-tag": {},
+        "card-tag-label": {},
+        "marks": {},
+        "marks-ring": {},
+        "marks-dot": {}
+      },
+      "notes": "Pass: rows 2-4, a row stack of three cards sharing its width, each a padded, rounded column stack whose figure and caption sit at its foot, the captions wrapping inside the card. Row 5, a row stack whose 72 cu figure and 40 cu label share one baseline on the row's bottom edge, and at its right end a group of a ring and a dot at 0.6 opacity. Rows 6-8, a grid container whose photo spans two rows of its wider column, its note and dot in the named areas beside it (the dot 48 cu, centered); and a framed card whose photo fills its padding with a pill and its label placed by rect. Every box comes from taffy, laid out once for the state."
+    },
+    {
+      "id": "alignment",
+      "name": "Line alignment",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "27 · Line alignment · kill"
+        },
+        "align-center": {},
+        "align-end": {},
+        "align-rtl": {}
+      },
+      "notes": "Pass: rows 2-3, a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line (centered text has no aligned edge, so nothing hangs). Rows 4-5, end-aligned lines flush with the right edge of column 12; the last line's period and closing ” hang past that edge (the role sets hangingPunctuation), with the s of this on it. Rows 6-8, a Hebrew paragraph broken by pretty (no fallback to greedy), every line starting at the right edge of column 12."
+    },
+    {
+      "id": "case-measure",
+      "name": "Case and measure",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "28 · Case and measure · recorded"
+        },
+        "case-upper": {},
+        "case-title": {},
+        "case-smallcaps": {},
+        "measure-centered": {}
+      },
+      "notes": "Pass: row 2 in capitals, ß as SS; row 3 with each word's first letter capitalized, (Even) after a parenthesis, 3rd unchanged; row 4 in EB Garamond's own small capitals (smcp), none synthesized. Rows 5-8, a body paragraph held to 24 characters a line (24 × the advance of 0), balanced, each line centered across all 12 columns."
+    },
+    {
+      "id": "fit",
+      "name": "Fit policies",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "29 · Fit policies · recorded"
+        },
+        "fit-shrink": {},
+        "fit-grow": {},
+        "fit-lines": {}
+      },
+      "notes": "Pass: rows 2-5, left, a headline too long for its box at 96, set at the largest size at which it keeps to its role's two lines (shrink, maxLines 2 from the theme, no smaller than 40); right, a one-word body text grown until it fills the box, here its width (grow, no larger than 400). Rows 6-8, a headline held to one line (maxLines 1) by shrinking until it fits across the 12 columns. Nothing overflows; each size comes from bisection between the text's bounds, the same on every platform."
+    },
+    {
+      "id": "hyphenation",
+      "name": "Hyphenation",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "30 · Hyphenation · recorded"
+        },
+        "hyph-on": {},
+        "hyph-off": {},
+        "hyph-end": {}
+      },
+      "notes": "Pass: the same paragraph three times in four-column boxes, English patterns. Left, pretty with hyphenation: words break between syllables, each hyphen drawn in the line's own font and counted in its width, and no line passes the column's right edge. Middle, pretty without: no word breaks. Right, greedy, end-aligned with hanging punctuation: lines flush with the right edge, the hyphens and the closing stop hanging past it."
+    },
+    {
+      "id": "chart-kinds",
+      "name": "Chart kinds: bars, stacks, lines, areas",
+      "slide": "chart-kinds",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "31 · Chart kinds: bars, stacks, lines, areas · recorded"
+        },
+        "k-grouped": {},
+        "k-stacked": {},
+        "k-line": {},
+        "k-area": {}
+      },
+      "notes": "Pass: four charts over one long table of three products by quarter, each series in its categorical color in every chart. Grouped bars share each quarter, with a legend above and a value axis whose gridlines fall on round dollars. Stacked bars pile Core, Cloud, and Edge with each stack's total above it. Lines run through each series' points, their end labels nudged apart where they would touch. Areas stack in series order. No transition: a cut."
+    },
+    {
+      "id": "chart-kinds-next",
+      "name": "Chart kinds: the next quarter",
+      "slide": "chart-kinds",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "32 · Chart kinds: the next quarter · recorded"
+        },
+        "k-grouped": {
+          "data": "@rev-next"
+        },
+        "k-stacked": {
+          "data": "@rev-next"
+        },
+        "k-line": {
+          "data": "@rev-next"
+        },
+        "k-area": {
+          "data": "@rev-next"
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): the window advances a quarter by key in all four charts. Q1 rides out under the left edge and Q5 rides in from the right; bars and stacks grow from and shrink to the baseline as they go, stacks never gap, and a line's or an area's new point slides in off its end, level with where the line ended."
+    },
+    {
+      "id": "chart-kinds-2",
+      "name": "Chart kinds: scatter, dots, donut, table",
+      "slide": "chart-kinds-2",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "33 · Chart kinds: scatter, dots, donut, table · recorded"
+        },
+        "k-scatter": {},
+        "k-dot": {},
+        "k-donut": {},
+        "k-table": {}
+      },
+      "notes": "Pass: a scatter on round axes both ways, each dot's area by its seats; a dot plot with its legend below; a donut whose labels sit outside each slice, legend at the right; and a table sorted by revenue, numbers in tabular figures at their columns' ends, the region column taking the room to spare."
+    },
+    {
+      "id": "chart-kinds-2-next",
+      "name": "Chart kinds: data moves by key",
+      "slide": "chart-kinds-2",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "34 · Chart kinds: data moves by key · recorded"
+        },
+        "k-scatter": {
+          "data": "@pts-next"
+        },
+        "k-dot": {
+          "data": "@rev-next"
+        },
+        "k-donut": {
+          "data": "@share-next"
+        },
+        "k-table": {
+          "dataTransform": [
+            {
+              "sort": "-growth"
+            }
+          ]
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): scatter dots move to their new places by name; Partners closes as Social opens in the donut, the ring whole throughout, and every slice keeps its color; the table re-sorts by growth, rows moving to where they now stand."
+    },
+    {
+      "id": "regroup",
+      "name": "Bars that regroup",
+      "slide": "regroup",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "35 · Bars that regroup · recorded"
+        },
+        "regroup": {}
+      },
+      "notes": "Pass: grouped bars, three products to a quarter, value labels over each bar."
+    },
+    {
+      "id": "regroup-stacked",
+      "name": "Bars that regroup: stacked",
+      "slide": "regroup",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "36 · Bars that regroup: stacked · recorded"
+        },
+        "regroup": {
+          "kind": "stackedBar"
+        }
+      },
+      "notes": "Pass in the transition (frames @0.25 and @0.75): the bars regroup in two stages, as d3's do. First the heights: each bar rises to its place in its quarter's stack while still side by side. Then the widths: the bars slide together into one stack. Each stack's total counts up over its top segment."
+    },
+    {
+      "id": "annotations",
+      "name": "Chart annotations",
+      "slide": "annotations",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "37 · Chart annotations · recorded"
+        },
+        "n-bars": {},
+        "n-lines": {}
+      },
+      "notes": "Pass: left, grouped bars with a band behind Q3 and Q4 (the accent at 0.12, under the gridlines) reading “Launch” inside its top-left corner, a target rule across the plot at $20 in the accent with “Target” over its start, a callout whose leader rises from over Q4 Cloud's bar to “Record”, and gridlines between the quarters' bands; the legend starts with its title, “Product”, on the entries' baseline. Right, lines with only Cloud at full strength: Core and Edge, their end labels, and their legend entries dim to 0.3; a callout over Cloud's Q3 point reads “Cloud doubles”; gridlines run through each quarter; the legend stands at the right under its title."
+    },
+    {
+      "id": "annotations-next",
+      "name": "Chart annotations: they move",
+      "slide": "annotations",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "38 · Chart annotations: they move · recorded"
+        },
+        "n-bars": {
+          "annotations": [
+            {
+              "kind": "band",
+              "at": {
+                "x": [
+                  "Q4",
+                  "Q4"
+                ]
+              },
+              "text": "Launch"
+            },
+            {
+              "kind": "rule",
+              "at": {
+                "y": 25
+              },
+              "text": "Target"
+            },
+            {
+              "kind": "callout",
+              "at": {
+                "x": "Q4",
+                "series": "Core"
+              },
+              "text": "Record"
+            }
+          ]
+        },
+        "n-lines": {
+          "annotations": [
+            {
+              "kind": "highlight",
+              "at": {
+                "series": "Core"
+              }
+            },
+            {
+              "kind": "callout",
+              "at": {
+                "x": "Q4",
+                "series": "Core"
+              },
+              "text": "Core leads"
+            }
+          ]
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): each annotation moves to where this state puts it. The band narrows to Q4 alone, the target rule rises to $25 as the value axis widens to reach it, and the callout slides from Cloud's bar to Core's. On the right, Cloud dims as Core comes up, their end labels and legend entries with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from “Cloud doubles” to “Core leads”."
+    },
+    {
+      "id": "shaders",
+      "name": "Shaders and gradient paints",
+      "slide": "shaders",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "39 · Shaders and gradient paints · recorded"
+        },
+        "sh-linear": {},
+        "sh-radial": {},
+        "sh-conic": {},
+        "sh-noise": {},
+        "sh-particles": {},
+        "sh-grain-under": {},
+        "sh-grain": {},
+        "gp-linear": {},
+        "gp-radial": {},
+        "gp-conic": {}
+      },
+      "notes": "Pass: top row, three gradient shaders in the torture palette, blended in Oklab: a linear one at 120° with light grain, a radial one from left of center out past the corners, and a conic one turning 12° a second from 30° (shown at its time on the global timeline), its last color meeting its first without a seam. Middle row: soft noise from the theme preset `noise-soft`, forty seeded particles drifting over the surface, and film grain in ink and paper over an accent rect. Bottom row, gradient paints on shapes: a rounded rect from accent to ink left to right, an ellipse lit from its upper left, and a rounded rect whose 8 cu stroke turns from accent through ink and back."
+    },
+    {
+      "id": "motion",
+      "name": "Motion",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "40 · Motion on the cue clock · recorded"
+        },
+        "mo-title": {},
+        "mo-cards": {},
+        "mo-card-a": {},
+        "mo-card-a-label": {},
+        "mo-card-b": {},
+        "mo-card-b-label": {},
+        "mo-card-c": {},
+        "mo-card-c-label": {},
+        "mo-bars": {},
+        "mo-dot": {}
+      },
+      "choreography": [
+        {
+          "target": "mo-title",
+          "split": "words",
+          "enter": "rise",
+          "stagger": 60,
+          "timing": "with"
+        },
+        {
+          "target": "mo-cards",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 120,
+          "delay": 200,
+          "timing": "with"
+        },
+        {
+          "target": "mo-bars",
+          "enter": {
+            "preset": "grow",
+            "stagger": 80,
+            "spring": "snappy"
+          },
+          "delay": 400,
+          "timing": "with"
+        },
+        {
+          "target": "mo-dot",
+          "emphasis": "pulse",
+          "delay": 900
+        }
+      ],
+      "notes": "Pass: the state cuts in, and its motions run on its clock. The headline rises word by word, 60 ms apart. From 200 ms the three cards rise one after another, 120 ms apart, each card's caption riding with its card. From 400 ms the four bars grow from the baseline on the snappy spring, 80 ms apart, the axis fading in with the first. At 900 ms the dot pulses once on the gentle spring, to 1.25 times its size and back. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "morph-from",
+      "name": "Morphs: the state before",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "41 · Morphs: the state before · recorded"
+        },
+        "mf-title": {},
+        "mf-tri": {},
+        "mf-star": {},
+        "mf-sky": {},
+        "mf-pair": {},
+        "mf-pair-a": {},
+        "mf-pair-b": {},
+        "mf-badge": {}
+      },
+      "notes": "Pass: the state the next case morphs from, at rest. A headline, \"Revenue grew this quarter\". Row 4-6: an accent triangle standing on its base; an accent five-point star with a thin ink outline; a gradient from the torture palette running top to bottom; and a group at 0.6 opacity of an accent disc and an ink disc that overlap, composited as one layer, so where they overlap only the ink disc shows, at 0.6. Rows 7-8, right: \"A record quarter\" in ink."
+    },
+    {
+      "id": "morph",
+      "name": "Morphs",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "42 · Morphs · recorded"
+        },
+        "mf-title": {
+          "text": "Revenue grew fast this quarter"
+        },
+        "mf-tri": {
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              0.5,
+              1
+            ]
+          ],
+          "fill": "ink"
+        },
+        "mf-star": {
+          "path": "M12 2 L16.41 5.93 L21.51 8.91 L19.13 14.32 L17.88 20.09 L12 19.5 L6.12 20.09 L4.87 14.32 L2.49 8.91 L7.59 5.93 Z"
+        },
+        "mf-sky": {
+          "params": {
+            "angle": 90,
+            "grain": 0.04
+          }
+        },
+        "mf-pair": {
+          "opacity": 0.3
+        },
+        "mf-pair-b": {
+          "at": {
+            "col": [
+              10,
+              11
+            ]
+          }
+        },
+        "mf-arrow": {
+          "enter": "draw"
+        },
+        "mf-badge": {
+          "emphasis": "flash"
+        }
+      },
+      "notes": "Pass: the 420 ms transition from the case before, its frames at 0.25, 0.5, and 0.75 of the cue. \"Revenue grew\" and \"this quarter\" move apart as \"fast\" fades in between them; the case label's shared words move the same way. The triangle turns over point by point into an ink one standing on its tip, its fill mixing in Oklab. The star's points swell into a rounder star, vertex by vertex. The gradient turns from top-to-bottom to left-to-right and takes on grain, its uniforms moving, not cross-fading. The group fades to 0.3 as one layer while the ink disc slides left, further over the accent one, the accent never showing through it. The arrow draws on over 800 ms from its tail, its head riding the tip. After the transition, \"A record quarter\" warms to the accent and back over 400 ms. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "formats",
+      "name": "Formats: 16:9 and 9:16",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "43 · Formats: 16:9 and 9:16 · recorded"
+        },
+        "fm-claim": {},
+        "fm-bars": {}
+      },
+      "notes": "Pass: on the deck's 1920 × 1080 canvas, the claim stands left of the bar chart, each in half of the grid. In 9:16 (`render --format 9:16`, frame `formats~9x16`) the deck lays out again on a 1080 × 1920 canvas: the theme's 9:16 grid narrows the side margins to 64 cu, the specimen layout's `left` and `right` slots stack, the claim wraps across the full width on rows 2-4, and the chart takes the full width on rows 5-8. Nothing in the deck changes."
+    }
+  ],
+  "overrides": {
+    "marks-dot": {
+      "at": {
+        "inset": 30
+      }
+    },
+    "gp-linear": {
+      "radius": 12
+    },
+    "gp-conic": {
+      "radius": 12,
+      "stroke": {
+        "width": 8
+      }
+    }
+  }
+}

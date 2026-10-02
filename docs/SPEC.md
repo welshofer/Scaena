@@ -63,9 +63,9 @@ A deck owns one **scene graph**: a set of **nodes**, each with a stable `id` (a 
 
 A deck is an **ordered list of states**. A state is a named point on the timeline where the scene graph has particular property values. Every click is a state. The state list is the cue list; the engine's lineage is a theatrical lighting console, not a slide sorter.
 
-**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
+**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value. An object value with nothing to merge into (the node has none, or has a value of another kind) is taken as it is, less the keys it deletes. The schema's `StateDelta` says what a delta may hold: any node type's property, in any form it takes, an object value with every key optional, or `null` (§3.3). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (`anim` keyframe tracks and `emphasis`, deck format 0.7) never track: a motion must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
 
-**Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key is its own slide.
+**Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key starts a slide named by its own id; the states that build on it set `slide` to that id.
 
 ### 2.3 Transitions
 
@@ -75,13 +75,14 @@ A transition is the interpolation between two resolved snapshots over a duration
 - present only in the target → **enter** (preset or explicit keyframes)
 - present only in the source → **exit**
 
-Text morphs at word granularity (shared words move, others cross-fade). Charts morph at mark granularity (marks matched by data key; kind changes interpolate mark geometry). Shader nodes interpolate uniforms.
+Text morphs at word granularity (PLAN 1.12): the words both texts share, in order, move from where they stood to where they stand, mixing their color in Oklab, or, when their size or face changes, scaling between their two boxes as the two drawings cross-fade. The rest fade where they stand, words that leave over the first half of the transition and words that arrive over the second, so neither shows under the words moving past. Punctuation before or after a word is a word of its own: "grew" and "grew." share "grew". Shapes morph point by point when their outlines line up (§3.3), and shader nodes interpolate their uniforms (§3.8). Charts move their data at mark granularity: marks match by data key and interpolate, so values animate in, the next period arrives, and growth shows. A change of chart kind morphs only between kinds that draw the same marks (bars that regroup, `bar` ↔ `stackedBar`); any other change of kind cross-fades.
 
 ### 2.4 Time
 
-- `t` is milliseconds since the start of the *current* transition. `t ≥ transition.duration` means the state is at rest.
-- Within a state, nodes may own **keyframe tracks** and **choreography** (staggers, delays, sequences) that run after the transition completes or in parallel with it (`timing: "with" | "after"`).
-- A state MAY declare `hold` (ms) for auto-advance; this is how a deck becomes a video. The **global timeline** is the concatenation of (transition + choreography + hold) across states.
+- `t` is milliseconds since the start of the *current* state's cue: its transition, then its motions (§3.9). At or past the state's **span**, when both have ended, the state is at rest.
+- Within a state, nodes may own **keyframe tracks**, presets, and **choreography** (staggers, delays, sequences) that run with the transition or after it (`timing: "with" | "after"`).
+- A state MAY declare `hold` (ms) for auto-advance; this is how a deck becomes a video. The **global timeline** lays the states end to end: each state's span, then its hold. A frame `t` into a state is at the state's start plus `t`; at rest, at the moment the state comes to rest. Shaders keep this time (§3.8), video export samples it (§10), and a player auto-advances by it (`Player.timeline()`).
+- A state starts where the ones before it end. The engine works that out as far as a frame needs, and lays a state out for it only where a motion splits a node into what layout counts (lines, words, glyphs, a chart's marks); the rest is timed from the document.
 
 ### 2.5 The design system
 
@@ -97,66 +98,90 @@ Beneath the states sits a **spine**: sections → beats, each beat carrying a cl
 
 ### 3.1 Bundle
 
-A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`.
+A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`. Every command reads either, or a bare deck file, whose directory then stands in for the bundle.
 
 ```
 name.scaena/
-  manifest.json          # format version, deck.json hash, content hashes, created/modified
+  manifest.json          # format version, deck.json's sha256, every other file's, created/modified (docs/schema/manifest.schema.json)
   deck.json              # CANONICAL INTERCHANGE form of the logical document (schema: docs/schema/deck.schema.json)
   deck.scn               # OPTIONAL authoring projection (DSL); regenerated on save
   theme.json             # theme used by this deck (copied in; decks are self-contained)
   spine.json             # OPTIONAL externalized spine (if absent, lives in deck.json)
   data/                  # CSV/JSON data sources referenced by @name
   assets/<sha256>.<ext>  # images, content-addressed
-  fonts/<family>-<hash>.ttf|otf|woff2   # subsetted fonts, content-addressed
+  fonts/<family>-<hash>.ttf|otf|woff2   # subsetted fonts, content-addressed (hash: the subset's sha256, first 16 hex digits)
   history/deck.loro      # CRDT document: persistence authority + history while editing (absent in "flat" exports)
 ```
 
 Rules:
-- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
+- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. The JSON schemas in `docs/schema/` are generated from it and never edited by hand (ADR-0007). `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
 - Assets and fonts are referenced by content hash; the bundle is self-contained and portable.
 - Fonts are **subsetted** into the bundle at save time. The render path MUST NOT consult system fonts (§13). System fonts are only enumerated in editors for picking.
-- `manifest.json` records `"scaena": "<format version>"` (semver; majors break) and the hash of `deck.json` it was last written against.
+- **Saving** (`scaena save`, PLAN 1.4) writes `deck.json` and the theme file in canonical form. It subsets each font the deck or its theme names to what the deck can draw: the characters in its strings and data, plus ASCII, Latin-1, Latin Extended-A, and general punctuation. Every glyph keeps its id, so a saved bundle draws the frames it drew before (ADR-0004 finding 10). Fonts and images are named by their content and every reference is rewritten; other files are carried as they are. A zip lists its files in path order, each dated 1980-01-01, so the same bundle zips to the same bytes.
+- `manifest.json` records `"scaena": "<format version>"` (semver; majors break), the sha256 of `deck.json` and of every other file as last written, and when the bundle was created and last saved. Nothing in the render path reads it.
 
 ### 3.2 Top-level document
 
 ```jsonc
 {
-  "scaena": "0.1",
+  "scaena": "0.8",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
-  "formats": ["16:9", "9:16"],                               // additional projections (optional)
+  "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
   "theme":  "theme.json",                                     // path in bundle, or inline object
   "fonts":  [ { "family": "...", "file": "fonts/...", "axes": {...} } ],
   "data":   { "q3": { "source": "data/q3-revenue.csv", "schema": { ... } } },
   "spine":  { "sections": [ ... ] },
   "nodes":  { "<id>": { "type": "...", ... } },               // the scene graph
   "states": [ { "id": "...", ... } ],                         // the cue list, ordered
-  "overrides": { "<nodeId>": { "<prop>": value } }           // explicit, lintable pixel/theme overrides
+  "overrides": { "<nodeId>": { "<prop>": value } }           // a delta per node that wins in every state (§3.6)
 }
 ```
 
-**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique across `nodes`, across `states`, and across spine `beats`. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
+**Fonts.** `fonts` lists every font file the deck's theme names in its families: rendering registers only listed fonts (E102 otherwise, with the entry to add as its fix). Whether fonts should follow the theme instead, so a deck need not restate them, is open (§16 Q10).
+
+**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique within `nodes`, within `states`, and within spine `beats` (E105); a node and a state may share one. An id written twice as a key (`nodes`, `data`, a state's `props`) is E105 too: a parser would keep the second and drop the first. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
 
 ### 3.3 Node types
 
-Every node: `{ "type", "id" (implicit from key), "name"?, "alt"?, "semantic"?, "parent"?, "z"?, "tags"?: [...] }`.
+Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
 
 **Two semantic axes.** `role` (on text nodes) and the theme describe *what something looks like*. `semantic` describes *what it does in the argument*: `claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`. They are independent: a claim may be a `headline` on one state and a `caption` on another. `semantic` is optional in v1 and reserved for the narrative lint family (§7.5) — e.g. "this beat's claim has no visible expression" or "evidence outranks the claim in visual hierarchy". Agents SHOULD set it; nothing renders differently because of it.
 
 | type | purpose | key properties |
 |---|---|---|
-| `text` | typographic text | `role`, `runs` or `text`, `fit`, `balance`, `maxLines`, `align`, `box`, `features`, `axes`, `lang` |
-| `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon`, `fill`, `stroke`, `radius` |
-| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop` |
+| `text` | typographic text | `role`, `text` or `runs`, `fit`, `wrap: greedy\|pretty\|balance`, `maxLines`, `minSize`, `maxSize`, `box`, `features`, `axes`, `lang`, `measure`, `hyphenate`, `opticalMargins`, `hangingPunctuation`, `numeric`, `minLastLineWords`, `split` |
+| `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon\|path`, `points`, `radius` |
+| `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius` |
 | `chart` | data-bound visualization | §3.7 |
+| `table` | data-bound table | `data`, `dataTransform`, `columns` (`field`, `title`, `format`, `align`), `key`, `header` |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
-| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `align`, `distribute`, `padding`, `children` |
-| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `padding`, `children` (+ child `area`) |
-| `frame` | layout container (absolute) | `children` (+ child `rect`) |
-| `group` | transform-only grouping | `children` |
+| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `distribute`, `padding`, `radius` |
+| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `areas`, `padding`, `radius` (+ child `at.area`, `at.col`/`at.row`) |
+| `frame` | layout container (absolute) | `padding`, `radius` (+ child `at.rect`) |
+| `group` | nodes drawn together | (+ child placement as on the slide) |
 
-Deferred node types (not in v1 schema): `video`, `audio`, `table`, `code`, `embed`.
+A node is in a container when its `at.parent` names one (§3.4, ADR-0008); containers do not list their children.
+
+Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`.
+
+**Tables** (PLAN 1.9, deck format 0.5) set a data source's rows, through its `dataTransform` (§3.10), in the theme's `tables` styles (§3.6).
+- `columns` lists the columns in order. Each is a `field`, with an optional `title` (default: the field), `format` for numbers and dates (`docs/spec/format.md`), and `align` (`start`, `center`, `end`; numbers at the end and everything else at the start by default). Without `columns`, the table shows every column of its data.
+- The header row (`header`, default true) prints the titles in `tables.header` (role `label` in `onSurfaceMuted`) over a rule, `tables.rule`. Cells print in `tables.cell` (role `body`), numbers in tabular lining figures with the font's minus sign or a hyphen-minus. A null cell is empty.
+- Each column is as wide as its widest text, `tables.columnGap` apart (an em of the cell text by default). The first column takes the room the cell has to spare, so the rest keep together at its far side.
+- Each row is its tallest text with `tables.rowGap` (half a space unit by default) above and below, its cells' first baselines on one line. `tables.rowRule` rules between rows.
+- A table that needs more room than its cell is an error that says what to cut: columns across, or rows down (keep fewer with `dataTransform`'s `limit`).
+- Rows are identified by `key` (default: the first column), which must be unique. Between states a row moves to where it now stands. A cell whose text changed cross-fades, aligned to its column. Rows and columns on one side only fade in or out where they stand, and rules move with their rows.
+
+**Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are paints: a theme color (or `{ "solid": color }`), or a gradient across the shape's box, `{ "gradient": { "kind", "angle", "center", "stops" } }` (PLAN 1.10). A `linear` gradient runs along `angle`, degrees clockwise from up (default 180, top to bottom), through the box's middle and as long as the box is that way, as CSS's does; a `radial` one runs from `center` (fractions of the box, default `[0.5, 0.5]`) out to the box's farthest corner; a `conic` one turns about `center` from `angle` (default 0, up) all the way round. `stops` are `{ "at": 0–1, "color" }`, two or more, in theme colors, blended in Oklab. An arrow's head takes its stroke's paint. `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out. A shape whose outline also changes morphs point by point when the two line up (PLAN 1.12): the same kind; as many `points` (a line, an arrow, a polygon) or path data of the same commands in the same order; a fill and a stroke on both sides or neither, each paint a color on both or a gradient of one kind with as many stops; and strokes of the same cap, join, and number of dash lengths. Its box, a rect's radius, and each point move (a path's once both are fitted to the box reached), its paints mix in Oklab, and its stroke's width and dashes move. Anything else cross-fades.
+
+**Images** are PNG in v1: one pure-Rust decoder, the same pixels everywhere (§13); a JPEG is refused by name (§16 Q11). `src` is the file's path in the bundle (`assets/<sha256>.<ext>` once saved, §3.1), and the display list names the image by `sha256:` of its bytes. An image is at most 8192 px a side, vello's image atlas, which the engine checks when it registers the file. Pixels are sRGB, straight alpha, with no color profile applied. How the image meets its box:
+- `crop: [x, y, w, h]`, fractions of the image, cuts it first, so a sharper file of the same picture keeps the crop. Default: all of it.
+- `fit: cover` (default) scales the crop to fill the box and cuts what overflows; `contain` scales it to fit inside the box, the rest of the box empty; `fill` stretches it to the box.
+- `focal: [x, y]`, fractions of the crop (default `[0.5, 0.5]`), lines the box and the image up at that point, as CSS `object-position` does with percentages: under `cover` the focal point stays in view, and under `contain` it places the image in the box's spare room.
+- `radius` rounds the corners of what shows: the box under `cover` and `fill`, the drawn image under `contain`.
+
+Images are filtered bilinearly in every painter (vello's GPU path has no bicubic, so a finer CPU filter would only make the painters disagree), without mipmaps: an image drawn at under half its size aliases. Between two states an image's box and radius morph; a change of `src`, `fit`, `focal`, or `crop` is a new picture, which crossfades.
 
 Common animatable properties: `opacity`, `transform` (`translate`, `rotate`, `scale`, `skew`, `anchor`), `fill`, `stroke`, `blur`, `clip`, `blend`, `shadow`, plus type-specific ones (text content/style, chart data/encodings, shader uniforms).
 
@@ -171,27 +196,53 @@ Placement is declared with `at`, resolved against the state's **layout template*
 "at": { "parent": "stats", "index": 2 }            // child of a container node
 ```
 
-Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = flex (one axis), `grid` = CSS grid, `frame` = absolute. Sizing values: `fixed(cu)`, `fit`, `fill`, `fraction(n)`, `aspect(w:h)`, `min/max`.
+One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans the grid). A node with no `at` fills the grid's margin box. Besides its template's slots, every state has two: `canvas`, the whole canvas, and `grid`, the margin box.
 
-**Alignment** includes typographic anchors, not just box edges: `y: "cap"` aligns cap height, `y: "baseline"` aligns baselines, `y: "x-height"`. Text boxes trim to cap-height/baseline when `box: "cap"` (the `text-box-trim` idea) so optical alignment is precise.
+**Containers** follow CSS flex and grid as `taffy` implements them: `stack` is flex along one axis, `grid` is CSS grid, and `frame` places its children absolutely (ADR-0008).
+- **Membership.** A node is in a container when its `at.parent` names one; nothing else declares it. A container's children flow in `at.index` order (default 0), ties in `nodes` order, as CSS `order` does. A container must be in every state its children are in (E102), a node's `at.parent` must be a container (E106), and containers do not nest in a loop (E106). Inside a container, `at.offset` moves a node, and what is in it, after layout, and `at.inset` shrinks the node's own box, as they do on the slide.
+- **Roots.** A node with no container, or in a group, is a root: `at` places it on the theme grid as above. A root container lays its subtree out inside that box. Any root but text fills its box unless it has a `size`; then it takes that size inside the box and aligns there by its `align`.
+- **`stack`.** `axis: y` (the default) runs top to bottom, `x` left to right; `gap` sits between children, `padding` inside the edge, and `distribute` (`start` by default, `center`, `end`, `between`, `around`, `evenly`) places leftover room along the axis. Text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders, which have no size of their own, share what is left. Every child stretches across the stack unless its `size` or `align` says otherwise. An image keeps its picture's proportions as it stretches. Text in a row stays in a box the row's height, so `align: { y: "baseline" }` puts the last baselines of a row's texts on one line, and `cap` puts their cap tops on one line.
+- **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise, and never widens its track unless its `minW` or `minH` asks (CSS's `min-width: 0`): an image whose row sets its height does not ask for the width its picture's shape would take.
+- **`frame`.** A child's `at.rect` is `[x, y, w, h]` from the frame's padding edge. A child with no `rect` fills the padding box.
+- **`group`.** Its children are placed on the slide by the rest of their `at`, and composited together (PLAN 1.12): the group draws them into one layer, each at its own opacity, and that layer at the group's `opacity`, so two overlapping children never show through each other. Motions on the group move its layer, and it comes and goes with the transition as one; a `children` split moves each child inside it. A group lays nothing out, and cannot sit in a stack, grid, or frame.
+- **Sizing values** (`size: { w, h, minW, maxW, minH, maxH, aspect }`): a length (canvas units, a token, or a percentage of the container), `fit` (the content's size), `fill` (an equal share of the room), or `fraction(n)` (n shares). `aspect: "w:h"` fixes the proportions, and the bounds clamp.
+- **Panels.** A container with `fill` or `stroke` draws them as a rectangle with its `radius`, under its children.
+- **Order and timing.** Siblings paint by `z`, then `nodes` order, and a container paints under its children. Layout runs once per snapshot. A child that changes container between states morphs from one box to the other, like any box.
 
-**Text fit policy** (`fit`): `wrap` (default) | `shrink` (down to role `minSize`) | `grow` (up to role `maxSize`) | `clip` | `error`. Overflow under `wrap`/`clip` is lint **E100**; under `shrink` it is **W203** once the minimum is reached.
+**Formats** (PLAN 1.13, theme format 0.4). A deck is made for its `canvas`, and `formats` names the other shapes it is laid out in too: `16:9`, `4:3`, `9:16`, `1:1`, `A4` (210:297), and `Letter` (8.5:11), the paper sizes upright. A format the canvas already has is the canvas.
+- A format's canvas keeps the canvas's shorter side and sets the longer one by the format's proportions, in whole canvas units: a 1920 × 1080 deck is 1080 × 1920 in `9:16`, 1080 × 1080 in `1:1`, and 1080 × 1527 in `A4`.
+- Its template set is the theme's: `formats.<format>.grid` is the grid there, and a layout's `formats.<format>.slots` take the place of its slots of the same names there, the rest staying as they are (§3.6). A format the theme says nothing about keeps the theme's grid and slots.
+- Nodes, states, the spine, and every motion are shared; the deck lays out again on the format's canvas. A node placed in a slot moves with the slot, one placed by `col`/`row` takes those cells of the format's grid, and a `rect` stays where it is in canvas units. So a deck meant for several formats places by slot.
+- A frame names its format (`FrameRequest.format`, `scaena render --format 9:16`, `Player.setFormat`); one the deck does not list is an error. The global timeline is worked out per format: a cue on lines counts them after layout.
 
-**Baseline grid.** Themes MAY define a baseline grid; text roles snap leading to it; lint **W221** on violations.
+**Alignment** in a cell is `x: start|center|end|stretch` and `y: start|center|end|stretch|cap|baseline|x-height`; a single keyword sets both axes. The slot's `align` is the default, the node's `align` overrides it, and `at.align` overrides both; `start` when nobody says. For text, `x` aligns each line across the box, in the paragraph's direction: `start` is the left edge for left-to-right text and the right edge for right-to-left text, and `stretch` is `start`. Lines break at the box's width, or at the role's or node's `measure` if that is narrower, and still align across the whole box. The typographic anchors align text of any size to a shared line: `y: "cap"` and `y: "x-height"` put the first line's cap height or x-height on the cell's top edge, and `y: "baseline"` puts the last line's baseline on the cell's bottom edge. `box: "cap"` trims the text's box from the first line's cap height to the last line's baseline (CSS `text-box: trim-both cap alphabetic`), so a cap top can sit exactly on a grid line; `box: "line"` (default) uses line boxes. Cap height and x-height come from the font's OS/2 table, never from glyph bounds.
+
+**Text fit policy** (`fit`): `wrap` (default) | `shrink` (down to `minSize`) | `grow` (up to `maxSize`) | `clip` | `error`. Text fits when its box, as `box` trims it, is no taller than the cell, no line is wider, and it has no more lines than `maxLines`. `shrink` and `grow` set the text at the largest size between its bounds at which it fits, found by bisection (12 steps), so the same text in the same box always gets the same size. Every span scales together, with leading, tracking, and `measure` following. The bounds are the node's `minSize`/`maxSize`, else its role's, else half and twice its size. `clip` cuts the text to its cell; `error` refuses to draw a text that does not fit. Overflow under `wrap`/`clip` is lint **E100**; under `shrink` it is **W203** once the minimum is reached.
+
+**Baseline grid.** Themes MAY define a baseline grid (`grid.baseline`, cu). The engine does not snap text to it yet. Snapping waits on a typographic pass, and lint **W221** waits with it.
 
 ### 3.5 Typography
 
-Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
+Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). `measure` counts characters in `ch`, the advance of `0` in the text's look (CSS `ch`). `case` is `upper`, `lower`, `title` (each word's first letter capitalized), or `smallcaps`. Small capitals are the font's `smcp`, and none are synthesized: a family without them shows the letters as written. The case mappings are Unicode's defaults, the same in every language. A text node's `style` refines its role's look (§3.6). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
 
 The engine MUST implement:
-- Shaping via `swash` through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides.
+- Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
 - Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles).
-- Hyphenation by `lang` (optional, off by default for display roles).
-- Widow/orphan control: `minLastLineWords` (default 2 for body, 1 for display).
-- Hanging punctuation and optical margin alignment (`opticalMargins: true`), on by default for display roles.
+- Hyphenation by `lang`, where the node or its role sets `hyphenate` (off unless one does). Words break at the hyphenation points of the TeX patterns for the language of `lang` (its first subtag; the node's, else the deck's), through `hypher`, which carries 17: English, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Russian, Ukrainian, Turkish, Greek, and Catalan. Text in another language does not hyphenate.
+  - A soft hyphen (U+00AD) in the text is a hyphenation point in any language, and a word with soft hyphens of its own breaks only there.
+  - A line that ends inside a word draws a hyphen: `-` in the look of the text it ends, its width counted when lines break. `pretty` charges a line that ends in one half an extra line, so a hyphen has to buy real evenness. With `hangingPunctuation`, the hyphen hangs past an end-aligned edge. Right-to-left lines draw no hyphen.
+- Widow control: `minLastLineWords`, from the node, else its role, else 1. Themes set it per role (Dusk and the torture theme: 2 for body, 1 for display).
+  - Every breaking holds a paragraph's last line to that many words. `pretty` plans for it; `greedy` and `balance` move the break above the last line back, as few words as it takes, while both lines still fit.
+  - A word is the text between two places a line may break (UAX #14), with the punctuation and space after it. A word that hyphenation splits is one word, and its tail is not a word, so no paragraph ends on a tail alone, whatever the setting.
+  - A last line that cannot take enough words takes as many as fit, and the layout reports the widow (lint **W200**).
+  - Text does not flow from box to box in v1, so there are no orphans: no paragraph's first line is left at the foot of a column.
+- Hanging quotes, always: quotation marks (Unicode `Quotation_Mark`, less the CJK corner brackets and fullwidth forms, whose spacing JLREQ governs) hang outside an aligned edge, in every role. It is not a theme option. In start-aligned text, the marks that open a line hang outside its start edge; in end-aligned text, the marks that close a line hang outside its end edge. Nothing hangs at a ragged edge, so centered text hangs nothing. Breaking measures the line without its hung marks (CSS `hanging-punctuation`), so they take nothing from the measure and the letter beside them sits on the edge.
+- Hanging punctuation beyond quotes (`hangingPunctuation`) and optical margin alignment (`opticalMargins`), set per role or per node; themes turn them on for display roles, as Dusk and the torture theme do.
+  - With `hangingPunctuation`, these hang fully past an aligned edge, as quotation marks do: opening brackets at a start edge; closing brackets, stops and commas (CSS `allow-end`'s set), and hyphens at an end edge.
+  - With `opticalMargins`, when nothing hangs at an aligned edge, the character on it moves part of its advance past the edge: 5% for A T V W X Y v w x y, 70% for a period, 50% for a comma, colon, or hyphen. These are microtype's defaults for Latin text. Breaking does not count the protrusion, so it never changes where lines break.
 - Numeric styles: `tabular`/`proportional`, `lining`/`oldstyle`; charts default to tabular lining.
 - Vertical metrics by cap height and x-height from the font tables (not bounding boxes).
-- Text splitting for animation: `split: "lines" | "words" | "glyphs"`, exposing units to choreography (§3.9).
+- Text splitting for animation: `split: "lines" | "words" | "glyphs"` cuts a text into units that choreography moves one by one (§3.9): its lines; its words, as above, a hyphenated word one unit with its hyphen; or its clusters, a ligature one unit. Units come in reading order, also in right-to-left text. Only what sets ink is a unit: spaces and invisible characters belong to a line or a word, never to a unit of their own. Splitting reads the layout; it never lays out or shapes again (§5).
 - Bidi and script fallback via `fontique` restricted to bundle fonts.
 
 ### 3.6 Theme (design system) schema
@@ -200,7 +251,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.1",
+  "scaena-theme": "0.4",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -221,21 +272,33 @@ See `docs/schema/theme.schema.json`. Shape:
   "grid":   { "columns": 12, "gutter": 24, "margin": 96, "baseline": 8 },
   "layouts": {
     "title":  { "slots": { "title": {...}, "subtitle": {...} } },
-    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } } },
+    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } },
+                "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 3] }, "right": { "col": [1, 12], "row": [4, 6] } } } } },
     "full":   { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } }
   },
+  "formats": { "9:16": { "grid": { "columns": 12, "rows": 8, "gutter": 24, "margin": [96, 64] } } },
   "motion": {
     "durations": { "fast": 180, "standard": 420, "slow": 800 },
     "easings":   { "standard": [0.2, 0, 0, 1], "out": [0, 0, 0, 1], "in": [0.4, 0, 1, 1] },
     "springs":   { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 }, "gentle": { "stiffness": 170, "damping": 26, "mass": 1 } },
-    "presets":   { "rise": { "from": { "opacity": 0, "translate": [0, 24] }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
+    "presets":   { "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
-  "shaders": { "palettes": { "dusk": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
-  "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "strokeWidth": "thin", "cornerRadius": 2 }
+  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
+  "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "legend": { "role": "label" }, "strokeWidth": "thin",
+              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5,
+              "annotation": { "role": "label", "stroke": "thin", "color": "accent", "band": 0.12, "dimmed": 0.3 } },
+  "tables": { "header": { "role": "label", "color": "onSurfaceMuted" }, "cell": { "role": "body" }, "rule": { "stroke": "hairline" },
+              "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4 }
 }
 ```
 
-**Cascade** (later wins): theme role defaults → node `style` → state `props` → `overrides`. Only `overrides` may contain raw pixel/color literals; literals elsewhere are lint **W300**. Overrides are tracked per node so a client can show "3 overrides, not theme-safe."
+**Cascade** (later wins): theme role defaults → node `style` → state `props` → `overrides`. Only `overrides` may contain raw pixel/color literals; literals elsewhere are lint **W300**. Overrides are tracked per node so a client can show "3 overrides, not theme-safe." In detail (PLAN 1.6):
+
+- **`style`** is on text nodes and runs. It names role properties: `family` (a key in `type.families`), `size`, `weight`, `leading`, `tracking`, `opsz`, `case`, and `color` (a color token or role). Each replaces the role's value. A run set in the node's role starts from the node's look, so the node's `style` applies to it, and the run's own `style` comes on top. A run with its own `role` starts from that role alone. Any `size`, and any literal color, is a pixel value: theme-legal only in `overrides`.
+- **State props.** Tracking (§2.2) merges a node's defaults, its `style` included, with each state's delta. An object merges one level, so a state can change `style.color` alone.
+- **`overrides`** holds a delta per node, checked against the node's type like a state's (E106; E104 for `type`; E102 for a node that is not there). It merges into the node after tracking, in every state, the same way a delta does: it wins over the theme, the defaults, and every state, and `null` deletes. Each key it sets is one override, and an object counts by its keys, so `style: { size, color }` is two. `scaena inspect --resolved` shows each node's overrides and each text node's look, and lint I402 names them.
+- **Colors** are a token or color role the theme names (role → token → literal), or a literal written out: `#rrggbb[aa]`, `oklch(L C H [/ A])`, or `oklab(L a b [/ A])`, read as CSS Color 4 reads them. Oklab converts to sRGB through `libm` (§13), and a color outside sRGB is clipped.
+- **Names are the swap contract.** Two themes swap cleanly when they define the same names (roles, layouts and slots, presets, palettes), so name them for their job: a background palette is `ambient`, not `dusk`. `scaena theme --apply` reports what a swap breaks (§7.1).
 
 ### 3.7 Charts
 
@@ -246,8 +309,8 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "type": "chart",
   "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut
                                        // deferred (not v1, not scheduled): slope | waffle | range | heatmap
-  "data": "@q3",                       // data source ref, optionally with a transform pipeline
-  "transform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
+  "data": "@q3",                       // data source ref, optionally through a transform pipeline (§3.10)
+  "dataTransform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
   "x": { "field": "quarter", "type": "ordinal" },
   "y": { "field": "revenue", "type": "quantitative", "format": "$,.0f", "domain": [0, null] },
   "series": { "field": "product" },
@@ -255,8 +318,12 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "key": "product",                    // identity for morphing marks across states
   "axes": { "x": { "show": true }, "y": { "show": false, "gridlines": true } },
   "labels": { "show": "ends", "role": "numeral" },
-  "legend": "none",
-  "annotations": [ { "kind": "callout", "at": { "x": "Q3", "y": 42 }, "text": "Launch" } ],
+  "legend": "none",                    // or { "place": "right", "title": "Product" }
+  "annotations": [
+    { "kind": "callout", "at": { "x": "Q3", "y": 42 }, "text": "Launch" },
+    { "kind": "rule", "at": { "y": 50 }, "text": "Target" },
+    { "kind": "highlight", "at": { "series": "Cloud" } }
+  ],
   "enter": { "preset": "grow", "stagger": 40, "spring": "snappy" }
 }
 ```
@@ -264,15 +331,68 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
 Rules:
 - **Kinds are normative here.** v1 ships exactly `bar`, `stackedBar`, `line`, `area`, `scatter`, `dot`, `donut` (PLAN 1.9); the schema enum matches. `slope`, `waffle`, `range`, `heatmap` are deferred and unscheduled; adding one is a schema change plus a PLAN task.
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
-- Marks are matched by `key` across states; a change of `kind` interpolates mark geometry (bar → point → line). Axis rescaling animates.
-- Data updates interpolate values by key; added/removed keys enter/exit with the chart's presets.
-- Label collision is lint **W310**; the engine MAY auto-resolve with `labels.collide: "hide" | "nudge"`.
-- Number/date formatting uses a d3-format / ICU-compatible subset defined in `docs/spec/format.md` (Phase 1).
+- Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
+- A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
+- Value labels that overlap are lint **W310**, unless `labels.collide` resolves them (`"hide"` or `"nudge"`; Labels below).
+- Numbers and dates print through an encoding's `format`, in d3's grammar plus a compact type `k` (`$.2~k` prints `$1.2B`). They print in the deck's language (`meta.lang`), and identically on every platform (`docs/spec/format.md`).
+
+**Compile (PLAN 0.10, 1.9).** A chart compiles once per snapshot to keyed marks, labels, axes, and a legend; frames only sample them (§5).
+- **Data.** Each row is a datum. A null `y` is a gap: the row draws nothing. Any other `y` that is not a number is an error. Categories (the `x` values) and series keep the order they first appear in.
+- **Keys.** A datum's key is its `key` field (default: its `x` value), joined with its series when the chart has one, so `Q3` of `Cloud` is its own mark. A donut's keys are its categories. A key that repeats is an error that names it.
+- **Kinds.** Every kind draws one mark per datum.
+  - `bar`: a bar `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end. With a series, the series share that width side by side, each `1 − charts.groupGap` of its slot.
+  - `stackedBar`: each category's data stack in series order, positive values up from the baseline and negative values down. Only the outermost segment each way is rounded.
+  - `line`: a stroke per series (`charts.strokeWidth`, default `thin`) through its points in x order, with a dot of `charts.pointRadius` (default none) on each.
+  - `area`: like `line`, filled down to the baseline. With a series, the areas stack as bars do.
+  - `scatter`: a dot at each datum's x and y. Without `sizeEncoding` every dot is `charts.dotRadius` (default 8). With it, a dot's area is proportional to its size value, and the largest dot is `charts.dotRadius`.
+  - `dot`: a dot of `charts.dotRadius` at each category's value.
+  - `donut`: each datum a slice of a ring, its share of the total, clockwise from twelve o'clock in data order. The hole is `charts.donutHole` (default 0.6) of the radius. A negative value is an error. A donut has no axes.
+- **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else in the step's own format (`%b %-d` for days, `%b %Y` for months, `%Y` for years). Any other x is a category axis: a band per category.
+- **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
+- **Legend.** One entry per series, or per slice of a donut, when there are two or more. Each entry is a swatch, a square of the label's cap height rounded like the bars, on the label's baseline, in `charts.legend.role` (else the axis's role). `legend` places it: `auto` and `top` (the default) above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top; `none` hides it. `{ "place", "title" }` places it and gives it a title in `charts.title.role`: the first line of a column, or the start of a row, its entries wrapping under one another after it, every entry and the title on one baseline.
+- **Scale.** The value axis runs from `domain[0]` to `domain[1]`. An unset bound is the data's extent, and for kinds whose length is the value (`bar`, `stackedBar`, `area`) it includes 0. Stacked kinds take the extent of their stacks. The plot leaves room above the marks for value labels.
+- **Labels.** Category labels (or x ticks) sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) prints values in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format`. With no format they print as d3 prints a number: `0.1 + 0.2` prints `0.3`. `ends` labels each series' first and last datum. A bar's label sits one space unit above it (below a negative bar), and a point's sits above the point. A stack prints one label, its total, over its top segment: every stack with `all`, the first and last with `ends`. A donut's label sits outside its slice's middle, on that side of the ring. Every other value label, and every category label and x tick, is centered on its mark or tick but stays inside the plot's sides. Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
+- **Collisions.** Value labels collide when their cap-height boxes come within a quarter space unit of each other.
+  - `labels.collide: "hide"` keeps the labels of the largest values that touch no label kept before them (the earlier in data order on a tie), and hides the rest.
+  - `"nudge"` moves labels up and down as little as it can in all (least squares), keeping their order: labels whose spans across overlap form a column, and each run of a column that would touch moves as a block centered on where its labels want to be. A nudged label rides its mark at its new height.
+  - Without `collide`, the layout reports each pair that collides, for W310 (PLAN 1.15 runs layout lints).
+- **Axes** (PLAN 1.9). Category labels and x ticks show unless `axes.x.show` is false.
+  - `axes.y.show` adds the value axis: tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
+  - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one the baseline already rules. `axes.x.gridlines` rules the plot from its top to its foot: at each x tick on a continuous x; across a category axis, between the bands of bars and through each category of the other kinds. A category's gridline is keyed by the category after it, so it moves with its bars.
+  - With either one, the domain widens to round values at the tick step (d3's `nice`), and a `domain` bound the author sets stays. Ticks fall about `charts.tickCount` (default 5) to the axis, on d3's steps of 1, 2, and 5 × 10ⁿ.
+  - Tick labels print in `y.format` at the precision the step needs, as d3's `tickFormat` does: `$,f` ticks read `$0`, `$5`, and `s` and `k` ticks share one prefix. With no format they print as d3's `,f`.
+  - Titles (`axes.x.title` or `axes.y.title`, else the encoding's `title`) print in `charts.title.role`, else the axis's role. The value axis's title sits above the plot at the chart's left; the category axis's is centered under the category labels.
+  - In a transition the value axis rescales as d3's does. A tick on both sides moves. A tick on one side only rides from or to where its value sits on the other side's scale, fading.
+- **Clip.** A chart clips at its cell's sides, so marks that ride out of a scrolling window pass under them. When something sits beside the plot (a value-axis gutter, a legend at the right), the plot clips at its own sides instead, so a mark leaving passes under the plot's edge, not over the tick labels or the legend. Vertically it draws on the whole canvas, so a figure that overshoots the cap height keeps its top.
+- **Motion.** A matched mark interpolates its shape: a bar its box, a dot its center and radius, a slice its angles. Lines and areas are redrawn each frame through their marks as they move. A key on one side only comes from, or goes to, where it would stand on the other side, moving with its nearest matched neighbor (the earlier on a tie), so a window that advances a period scrolls:
+  - A bar grows from the baseline, or shrinks onto it.
+  - A point of a line or an area whose series runs on the other side lies on that series' path where its x falls, level with the path's end past it: a vertex bends out of the line, and a new period slides in off its end. With no such series, a line's point rises from the baseline and an area's span grows from it.
+  - A member of a stack (a stacked bar's segment, a stacked area's span, a donut's slice) opens or closes with no extent where it stands among the stack's members, in an order that keeps both sides' orders. A stack never gaps, and a donut sweeps open from twelve o'clock.
+  - A dot of a scatter or a dot plot opens or closes where it is.
+  - Bars that regroup (`bar` ↔ `stackedBar`) move in two stages, as d3's do: into a stack, heights and then widths; out of one, widths and then heights. Any other change of kind cross-fades the chart.
+
+  A value label rides its mark and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. Legend entries move and change color, and an entry on one side only fades. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
+- **Enter and exit** (`enter`, `exit`). Without them, marks grow in and shrink out as Motion says, with the transition.
+  - Either names a theme motion preset (`motion.presets`), or calls one: `{ "preset": "grow", "stagger": 40, "spring": "snappy" }`, whose `duration`, `ease`, `spring`, `stagger`, and `delay` override the preset's.
+  - A chart reads a preset one mark at a time. Its `from` look is where an entering mark starts and where a leaving one ends: `opacity`, `transform.translate` in canvas units, and `transform.scale`. A scale grows the mark from where it would stand with no value (Motion), whatever its `anchor`. A preset that does not scale keeps its marks whole: they ride in or out with their neighbors, fading or moving as it says.
+  - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
+  - A chart's own presets run with the transition, and choreography can move its marks too (`{ "target": "rev", "enter": "grow", "timing": "after" }`, §3.9). Either way the marks are units on the state's clock (PLAN 1.11): mark k starts `k × stagger` ms after the first and runs for the preset's `duration`, else the theme's `standard`, or for its spring's settle time, easing or springing as §3.9 says (`libm`, so every platform agrees). A long schedule extends the state's span; nothing is squeezed into the transition. The chart's axes, legend, and titles come in with its first mark and go with its last.
+  - A chart's own presets move its marks whatever the preset would split. A choreography item that moves the chart whole (no split) moves it as one, its values at rest. Marks take a look's opacity and translation, and a look that scales grows them from their baseline; its rotation, color, and params do not reach marks. A cue on the whole chart takes the whole look.
+- **Annotations** (`annotations`), drawn in `charts.annotation`: `stroke` (default `thin`) and `color` (default `accent`) for rules, leaders, and bands, `opacity` for the strokes, and `role` (default the value labels') for text, which prints in that color. An annotation stands at `at`: an `x` is a category, as the x column prints with no format, or on a continuous x a number or an ISO 8601 date; a `y` is a value; a `series` is a series. A value on the value axis widens it, as the data does, unless the author set that bound, when one past it is an error; an `x` on a continuous axis widens it too. A category, series, or x the data does not have is E103, and an annotation that stands where its kind cannot is E106 (`validate` finds both).
+  - `rule`: one `x` or one `y`. A `y` rules the plot across, its text half a space unit over the rule at the plot's start; an `x` rules it from top to foot through the category's middle, its text beside the rule's top, after it unless that passes the plot's end.
+  - `band`: from one `x` to another, or one `y` to another, under the gridlines, filled at `charts.annotation.band` (default 0.12) of the color. Across categories it covers both ends' bands. Its text sits inside its top-left corner, half a space unit in.
+  - `callout`: `text` at one `x`, and a `y` or the mark of a `series` there; with neither, the one mark at that `x`, an error if there are several. A leader rises from half a space unit over the point, or over the mark's value end and its value label, to two and a half space units under the text, which is centered on the point inside the plot's sides and stands three space units over the highest mark, line, or value label under it. Under a bar below the baseline, the leader and text go down.
+  - `highlight`: one or more `x`, `series`, or both, picking out the data that has them. The rest of the chart dims to `charts.annotation.dimmed` (default 0.3): every other mark and its value label, a line or an area with none of its marks picked, and a legend entry whose marks are none of them. It says nothing.
+  - A donut has no axes: it takes highlights of its slices (`at.x`) only.
+  - The plot leaves room above it for a callout's text and a rule's text, as it does for value labels.
+  - Annotations match from state to state by kind, axis, and place among the chart's annotations of both: the second `y` rule is the second `y` rule. A matched rule, band, or leader moves to its next place, as a new value moves the axis; changed text cross-fades as it moves; one on one side only fades where it is. A highlight that moves brightens and dims the marks, lines, labels, and legend entries it passes between.
+
+`axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
 ### 3.8 Shader nodes
 
 ```jsonc
-{ "type": "shader", "kind": "mesh", "seed": 7, "palette": "dusk",
+{ "type": "shader", "kind": "mesh", "seed": 7, "palette": "ambient",
   "params": { "points": 5, "drift": 0.15, "softness": 0.8, "grain": 0.04 } }
 ```
 
@@ -283,10 +403,102 @@ Requirements:
 - No arbitrary shader source in documents. Ever.
 - Uniforms are animatable properties like any other.
 - For PDF/SVG export, shaders rasterize at a declared DPI (default 2× canvas) and embed as images.
+- **Clock.** A shader's `t` is the frame's time on the global timeline (§2.4), in seconds, so a background that persists across states drifts on through every transition, motion, and hold instead of starting over. At rest, a state's shaders show the moment it comes to rest; a frame `t` past its span, in its hold, shows that later time.
+- **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
+
+**Presets** (deck format 0.6, theme format 0.2). A theme's `shaders.presets` name shaders a node can take whole: `{ "kind", "palette", "params" }`, its params typed by its kind as a node's are. A node names one with `preset`; the node's own `kind` must be the preset's (E106), its `palette` and each of its `params` win over the preset's, and a preset the theme lacks is E102.
+
+```jsonc
+// theme
+"shaders": { "presets": { "noise-fine": { "kind": "noise", "palette": "ember", "params": { "octaves": 4, "scale": 0.0015 } } } }
+// deck
+"bg": { "type": "shader", "kind": "noise", "preset": "noise-fine", "seed": 3, "params": { "contrast": 0.6 } }
+```
+
+**Params** are numbers, or a name a kind lists (a gradient's `shape`). The schema types them by kind, as the tables below do; the engine types them again when it resolves the node, and an unknown or out-of-range one is an error naming the node. A shader op carries numbers only: a name is its place in the kind's list (§6).
+
+**`mesh` (PLAN 0.11).** `points` palette colors (cycling the palette) sit at seeded, evenly spread places over the rect (the R2 low-discrepancy sequence from a seeded start) and drift on slow Lissajous paths of amplitude `drift` (0.2–0.45 rad/s per axis, seeded phases). Each pixel blends them in Oklab, weighting a point at distance d by 1/(1 + d²/σ²)² with σ = 0.6 × `softness`; distances are in units of the rect's shorter side, so circles stay round at any aspect. Alpha blends with the same weights. `grain` adds seeded noise of that amplitude to Oklab lightness, per device pixel.
+
+| param | type | range | default |
+|---|---|---|---|
+| `points` | integer | 2–16 | 5 |
+| `drift` | number, in shorter sides | 0–1 | 0.1 |
+| `softness` | number | above 0, up to 1 | 0.6 |
+| `grain` | number, in Oklab L | 0–0.25 | 0.03 |
+
+**`gradient` (PLAN 1.10).** The palette's colors (up to 16) run evenly spaced across the gradient, blended in Oklab. A `linear` gradient runs along `angle` over the rect's whole extent that way, as CSS's does; a `radial` one runs out from (`x`, `y`) to `radius` shorter sides of the rect, holding its last color beyond; a `conic` one turns about (`x`, `y`) from `angle` and runs on from its last color back to its first, so it has no seam. A linear or conic gradient turns `speed` degrees a second. Per pixel, a linear gradient is `+ − × ÷`; a radial one adds a square root and a conic one an arctangent, whose last bits a GPU may round differently (within §13.5).
+
+| param | type | range | default |
+|---|---|---|---|
+| `shape` | `linear`, `radial`, or `conic` | | `linear` |
+| `angle` | number, degrees clockwise from up | −360–360 | 180 |
+| `x`, `y` | number, across and down the rect | 0–1 | 0.5 |
+| `radius` | number, in shorter sides | above 0, up to 4 | 0.75 |
+| `speed` | number, degrees a second | −360–360 | 0 |
+| `grain` | number, in Oklab L | 0–0.25 | 0 |
+
+**`noise` (PLAN 1.10).** 3D simplex noise (Gustavson's, its gradients picked by a seeded integer hash) at each pixel's place in canvas units times `scale`, and at `speed` × t along the third axis, so the field changes as time runs rather than sliding. `octaves` layers finer noise over it, each at twice the frequency and half the amplitude. The sum, spread by `contrast`, picks a color along the palette's ramp (up to 16 colors), blended in Oklab. The seed moves the field and keys its hashes. Per pixel it is `+ − × ÷`, `floor`, comparisons, and integer hashing.
+
+| param | type | range | default |
+|---|---|---|---|
+| `scale` | number, cycles per canvas unit | above 0, up to 0.1 | 0.0015 |
+| `octaves` | integer | 1–8 | 4 |
+| `speed` | number, cycles a second | 0–2 | 0.05 |
+| `contrast` | number | 0–4 | 1 |
+| `grain` | number, in Oklab L | 0–0.25 | 0 |
+
+**`grain` (PLAN 1.10).** Film grain over what lies under it. Each device pixel takes seeded noise between −½ and ½: below zero it shows the palette's first color, above it the last, at an opacity up to `amount` as far as the noise is from zero. The grain changes `fps` times a second, so it shimmers rather than crawls; `0` holds it still.
+
+| param | type | range | default |
+|---|---|---|---|
+| `amount` | number, the strongest grain's opacity | 0–1 | 0.12 |
+| `fps` | number, changes a second | 0–60 | 12 |
+
+**`particles` (PLAN 1.10).** `count` soft discs start at seeded, evenly spread places (the R2 sequence) and drift in seeded directions at `speed` shorter sides a second, each at its own pace (½ to 1½ times). One that leaves a side comes back at the other once it is wholly out. Each is `size` shorter sides in radius (½ to 1½ times, seeded), its edge fading over `softness` of its radius, in the palette's colors in turn; later ones lie over earlier ones, blended in linear light. Places come from the seed and t once per frame (`libm`); per pixel it is `+ − × ÷` and comparisons.
+
+| param | type | range | default |
+|---|---|---|---|
+| `count` | integer | 1–64 | 24 |
+| `size` | number, in shorter sides | above 0, up to 0.25 | 0.01 |
+| `speed` | number, shorter sides a second | 0–1 | 0.02 |
+| `softness` | number, of the radius | 0–1 | 0.5 |
+
+Each kind's CPU reference and its WGSL twin are tested against each other on the GPU (`shader_parity`), per seed, time, transform, and parameters. Between two states a shader morphs by its uniforms (PLAN 1.12): with the same kind and seed and as many palette colors, its rect moves, its palette's colors mix in Oklab, and its params move from one value to the other, a param one side leaves out at its default. Three sorts of param do not move: a name a kind lists (a gradient's `shape`), a count (mesh `points`, noise `octaves`, particles `count`), which has nothing between, and a rate (`speed`, grain `fps`), whose phase on the global clock would race through (b − a)·t on the way. A shader whose kind, seed, or number of palette colors changes, or one of those params, cross-fades.
 
 ### 3.9 Animation
 
-**Properties and keyframes.** Any animatable property may carry a track inside a state:
+A state's **cue** starts with the transition into it (`t = 0`) and runs the transition and the state's **motions** on one clock (PLAN 1.11, deck format 0.7). Its **span** is when the transition and its last motion have both ended; from then on the state is at rest, and the global timeline moves on to its hold (§2.4).
+
+**Where motions come from.**
+- A node's own `enter` preset, as it enters (it is not on screen in the state before), and its `exit` preset, read from the state it leaves, as it leaves. Both run with the transition. A chart's own presets move its marks one at a time, also while the chart stays and its data changes (§3.7).
+- A node's `emphasis` (a preset) and `anim` (keyframe tracks) in a state. Neither tracks to the next state (§2.2): a motion never replays on the next cue. `anim` runs with the transition, `emphasis` after it.
+- The state's `choreography`. A node's own preset of a kind gives way to a choreography item of that kind on the node.
+
+```jsonc
+"choreography": [
+  { "target": "title", "split": "words", "enter": "rise", "stagger": 30, "timing": "with" },
+  { "target": "rev",   "enter": { "preset": "grow", "stagger": 40, "spring": "snappy" } },
+  { "sequence": [ { "target": "note", "enter": "fade" }, { "target": "arrow", "enter": "rise" } ], "delay": 200 }
+]
+```
+
+**Choreography.**
+- An item moves one or more targets with one motion: `enter`, `exit`, or `emphasis`, each a preset by name or a call with settings (`{ "preset": "grow", "stagger": 40, "spring": "snappy" }`), or `anim`. An item with none, or with more than one, is E106.
+- `timing: "with"` starts an item with the transition; `"after"`, the default, once the transition ends. `delay` (ms) waits that much more.
+- A `sequence` runs its items one after another: each starts when the one before it has ended, then waits its own `delay`. A `parallel` starts its items together, each after its own `delay`. A group's `timing` and `delay` place the group, and its items' own `timing` does not apply. A state's top-level items run side by side.
+- `split` divides each target into units: the `lines`, `words`, or `glyphs` of text (§3.5), a container's `children` in flow order (`at.index`, then the deck's order), or a chart's `marks` in data order. Without one, each target moves whole. A split the target's type does not have is E106.
+- Unit *k* of an item starts *k* × `stagger` ms after its first unit, counting across its targets in order.
+- Each setting comes from the most specific place that gives it: the item, then the preset call, then the theme's preset, then the theme's `standard` duration and easing. At one place a `spring` wins over an `ease`, and a unit on a spring runs for its settle time.
+
+**Presets** (theme `motion.presets`): a look (`from` or `to`) and timing (`duration`, `ease`, `spring`, `stagger`, `split`).
+- A look is relative to the unit at rest: `opacity` multiplies its own, and `transform` takes `translate` (`[x, y]` canvas units), `scale` (a number, or `[x, y]`), `rotate` (degrees, clockwise), and `anchor` (`[x, y]`, fractions of the unit's box, default its center), which scale and rotation turn about. A unit's box is its node's box, a child's box, or for text, its glyphs' advances across the line boxes they sit in.
+- `color` (a theme color) mixes every paint the unit draws toward it in Oklab, each keeping its alpha; images and shaders have no paint. `params.progress` (0–1) is how much of each outline a shape strokes is drawn, from where the outline starts, an arrow's head riding the tip and growing in over its own length; a shape's fill is drawn whole, and nodes that are not shapes are drawn whole. Colors and progress stop at their ends on a spring. Theme format 0.3 types the look, so any other key is a schema error (PLAN 1.12).
+- An `enter` runs from the preset's `from` look to rest; before it starts, its unit is not drawn. An `exit` runs from rest to the `from` look; once it ends, its unit is gone. An `emphasis` runs from rest to the `to` look and back: eased, out along the easing to its middle and back the same way; on a spring, as the spring answers a tap, reaching the look once and settling back (an under-damped spring swings past rest and back). Each reads the other key when its own is missing.
+- An entrance moves only what enters in the state, and an exit only what leaves. A `children` entrance on a stack that stays brings in only its new children, each at its place in the stagger. An entrance on a node that stays does nothing.
+- A node that enters or leaves with no motion fades in or out with the transition.
+- A call's `params` win over its preset's: `{ "preset": "draw", "params": { "progress": 0.3 } }` draws an outline on from 30%.
+
+**Keyframes** (`anim`). Per property (`opacity`, `translate`, `scale`, `rotate`, `progress`; deck format 0.8 names no other), keys `{ "t", "v", "ease" | "spring" }`, `t` in ms from the motion's start, values as looks are:
 
 ```jsonc
 "anim": {
@@ -295,27 +507,35 @@ Requirements:
 }
 ```
 
-**Presets** (`enter`, `exit`, `emphasis`) are theme-defined keyframe bundles with parameters. **Choreography** composes units:
+Before the first key a track holds the first value; after the last, the last value, until the state rests. Between two keys it follows the later key's curve (default the theme's `standard`), a spring fitted to the gap.
 
-```jsonc
-"choreography": [
-  { "target": "title", "split": "words", "enter": "rise", "stagger": 30, "timing": "after" },
-  { "target": "rev",   "enter": "grow",  "stagger": 40, "spring": "snappy", "timing": "with" },
-  { "sequence": [ { "target": "note", "enter": "fade" }, { "target": "arrow", "enter": "draw" } ], "delay": 200 }
-]
-```
+**Containers.** A motion on a container moves everything in it, and one on its children moves each child with everything in it. The container's own panel moves only with motions on the container. Looks compose from the outermost container in, a tint on a tint as one mix in Oklab and progress multiplying. A group's own motions move its composited layer instead (§3.4), and a draw-on reaches the shapes in it.
 
-- `timing: "with"` runs during the state transition; `"after"` runs once the transition rests.
-- Springs are solved analytically (damped harmonic oscillator); they terminate at a settle threshold recorded in the resolved timeline so durations are known ahead of time (required for video export).
-- Easing curves are cubic Béziers; named in the theme.
-- Interpolation rules: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure interpolate point-wise, else cross-fade; text by word diff; chart marks by key.
-- Lint **W320** flags more than N concurrent animated nodes (theme-tunable, default 12) and **W321** flags total choreography longer than the theme's `maxBuild` (default 2.5 s).
+**State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "spring": "snappy", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
+- A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
+- A `spring` takes the place of both: the transition follows the spring and lasts its settle time. An under-damped spring carries positions and sizes past their targets and back; opacity, colors, and chart data stop at their ends.
+- The transition into a state starts from the state before it in the cue list (what was on screen), whichever state it tracks `from`. Into the first state, every node enters.
+- `t ≤ 0` is the previous state at rest, and `t` at or past the span this state at rest, exactly.
+- Nodes present in both states interpolate (PLAN 0.10). Text whose layout is unchanged moves; changed text morphs word by word (§2.3). Shapes morph point by point (§3.3), shaders by their uniforms (§3.8), and chart marks match by key and move their data (§3.7).
 
-**State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
+**Curves.** Springs are solved analytically (a damped harmonic oscillator, through `libm`). One settles once it stays within 0.001 of its target, moving slower than 0.01 a second, for 50 ms; that settle time is part of the resolved timeline, so every duration is known ahead of time (video export). Easing curves are cubic Béziers, named in the theme. Interpolation: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure point-wise, else cross-faded; text by word diff; chart marks by key; shader params by kind (§3.8).
+
+Lint **W320** flags more than N concurrent animated nodes (theme-tunable, default 12) and **W321** flags total choreography longer than the theme's `maxBuild` (default 2.5 s).
 
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). Charts reference `@name` and MAY apply a transform pipeline (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts and tables reference `@name`.
+
+**Transforms** (PLAN 1.9). A chart or a table MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
+- `{ "filter": "<expr>" }` keeps the rows where the expression is true.
+- `{ "derive": { "<column>": "<expr>", … } }` adds a column per expression, in order, each able to read the ones before it. A name that is already a column replaces it.
+- `{ "sort": "<field>" }` or `{ "sort": ["<field>", "-<field>", …] }` sorts by each field in turn, `-` for descending. Rows that tie keep their order, nulls go last either way, and text sorts by code point.
+- `{ "limit": n }` keeps the first n rows.
+- `{ "aggregate": { "<column>": "<op>(<field>)", … }, "groupby": ["<field>", …] }` gives a row per group, in the order groups first appear, with its `groupby` fields and each aggregate; without `groupby`, every row is one group. The ops are `count()` (rows), `count(f)` (values), `distinct(f)`, `sum`, `mean`, `median`, `min`, `max`, `first`, and `last`. All but `count()` set nulls aside, and a sum of nothing is 0.
+- `{ "fold": ["<column>", …], "as": ["<key>", "<value>"] }` turns columns into rows, wide to long. Each row becomes one per folded column, with the column's name and its value (named `key` and `value` by default) beside the columns not folded. Folded columns hold one type.
+- `{ "pivot": "<field>", "value": "<field>", "groupby": […], "op": "<op>" }` turns rows into columns, long to wide: a row per group, and a column per value of the pivot field, in the order they first appear, holding `op` over the group's values (`sum` for numbers by default, else `first`). A cell no row reaches is null.
+
+Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before it left, and `validate` checks each expression, and each field the chart reads, against the table at that point. A column that is not there, or one of a type its use cannot read, is E103 at the step, or at the encoding. A malformed step, or an expression that does not parse, is E106. Every step keeps rows in a fixed order and sums in it, so a transform gives the same table on every platform (§13).
 
 ### 3.11 Spine
 
@@ -341,91 +561,162 @@ Requirements:
 - Every non-decorative node carries `alt` (text nodes default to their content). Images without `alt` are **W410**.
 - Reading order = spine order, then z-order within a state.
 - PDF export is tagged (structure from spine + nodes); HTML export carries ARIA from the same data.
-- Lint **E110**/**E111** enforce contrast (4.5:1 body, 3:1 display) against the resolved background.
+- Lint **E110**/**E111** enforce contrast (4.5:1 body, 3:1 display) against what is painted behind the text (§7.5).
 
 ---
 
 ## 4. DSL (`.scn`)
 
-The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`.
+The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`. `scaena compile` turns source into `deck.json`, and `scaena decompile` turns any deck into canonical source (§7.1). The compiler lives in `scaena-core::dsl`.
 
-**Round-trip guarantee is semantic, not textual.** The promise is
+**The round trip is semantic and exact, not textual.** The promise is
 
 ```
-compile(decompile(document)) == document        (always)
-decompile(compile(source))   == decompile(compile(decompile(compile(source))))   (decompilation is canonical)
+compile(decompile(document)) == document        (always, byte for byte as canonical JSON)
+decompile(compile(decompile(document))) == decompile(document)   (the canonical form is a fixed point)
 ```
 
-and explicitly **not** `decompile(compile(source)) == source`. Whitespace, key order, shorthand choices, multi-line formatting, and other syntactic sugar are not preserved. The decompiler emits one canonical form (fixed indentation, props in schema order, one node per line with continuation lines when a line would exceed 100 columns). Line comments are attached as `_comment` to the state, node, or beat they precede and are re-emitted there; that is the whole extent of comment preservation. If you want your formatting kept, keep your file and regenerate `deck.json` from it — the compiler is the stable direction.
+and explicitly **not** `decompile(compile(source)) == source`. "Always" means every document the typed model reads, valid or not, so an agent can decompile a broken deck and fix it in the DSL. Whitespace, blank lines, column alignment, the order of declarations, and the choice between shorthand and `key:value` are not preserved. Keys keep the order the source writes them in, and the decompiler keeps the deck's order, because canonical JSON keeps it.
+
+Comments: `#` starts a comment outside strings. Comment lines, and a line's trailing comment, become the `_comment` of the next deck header, node, override, state, or node line in a state, which is where the format has one. Comments anywhere else are dropped. The decompiler writes a `_comment` back as comment lines. If you want your formatting kept, keep your file and regenerate `deck.json` from it: the compiler is the stable direction.
 
 ### 4.1 Example
 
+This is `docs/examples/revenue.deck.scn`, the canonical source of `revenue.deck.json`. A test holds the two together in both directions.
+
 ```scn
-deck "Q3 Review" theme:dusk canvas:16:9
+deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 formats:[16:9, 9:16] author:Jay
+  created:"2026-10-01T18:00:00Z" lang:en-US
+  description:"Reference deck: one morph, one build, one shader background, one spine."
+
+font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
 
 data q3 "data/q3-revenue.csv"
+  schema:{quarter: string, product: string, revenue: number, customers: number}
+
+section open "Open"
+  beat opening "This quarter changed the shape of the business." states:[intro] duration:15s
+    notes "One beat. Let the title sit."
 
 section growth "Growth"
-  beat doubled "Revenue doubled year over year." evidence:@q3 states:[revenue, mix]
-    notes """
-      Pause on the Q3 bar. Mention the launch.
-    """
+  beat doubled "Revenue doubled year over year, and Pro drove it." evidence:[@q3]
+    states:[revenue, mix] duration:60s
+    media infographic:{priority: 1}
+      podcast:{script: "Revenue doubled, but the story is the mix: Pro grew three times faster than Core."}
+    notes "Pause on the Q3 bar before the build. The mix shift is the point: Pro went from a fifth to a third."
 
-state revenue layout:full
-  bg     shader:mesh seed:7 palette:dusk drift:0.15
-  title  text role:display "Revenue doubled"       at:col(1-7) row(1)
-  rev    chart:bar data:@q3 x:quarter y:revenue series:product key:product
-         at:col(1-12) row(2-6)
-         enter:grow stagger:40ms spring:snappy
-  transition: standard
+section end "Close"
+  beat thanks "Thank you." states:[close] duration:5s
 
-state mix slide:revenue            # a build on the same slide
-  title  "…and the mix shifted"    # same id → word-level morph
-  rev    chart:stackedBar          # marks matched by key, bars morph
+state intro layout:title hold:4s
+  bg shader:mesh seed:7 palette:ambient
+    params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035} at:in(canvas) z:-100 alt:""
+    semantic:decoration
+  title text role:display "Q3 Review" semantic:navigation at:in(title)
+  subtitle text role:title "This quarter changed the shape of the business." semantic:claim
+    at:in(subtitle)
+  choreo title split:words enter:words timing:with
+  choreo subtitle enter:rise delay:240ms
+  notes "Open on the title. Don't talk over the build."
 
-state close from:intro             # branch: tracks from `intro`, not `mix`
-  -rev                             # explicit exit
-  title  "Thank you" role:headline at:in(center)
+state revenue layout:figure transition:{duration: standard, ease: standard} hold:6s
+  -subtitle
+  -bg
+  title "Revenue doubled" role:headline semantic:claim at:in(header)
+  rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
+    y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
+    series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
+    labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
+    semantic:evidence at:in(main)
+  note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
+    at:in(footer)
+  choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
+  choreo note enter:fade delay:600ms
+
+state mix slide:revenue transition:slow hold:6s
+  title "…and the mix shifted"
+  rev kind:stackedBar legend:right
+  notes "Same bars, stacked. Pro is the orange band growing quarter over quarter."
+
+state close layout:title hold:3s
+  -rev
+  -note
+  bg
+  title "Thank you" role:display semantic:navigation at:in(title)
 ```
 
-### 4.2 Grammar (sketch)
+`bg`, `title`, `subtitle`, `rev`, and `note` are declared on the line that first shows them. In `revenue`, `title` is a change: the same id, so the text morphs. In `mix`, `rev` changes kind, and its marks are matched by key.
+
+### 4.2 Grammar
 
 ```
-file       := header? decl*
-header     := "deck" string prop* (NEWLINE INDENT (prop-line)* DEDENT)?
-decl       := font | data | section | state | comment
-font       := "font" id string prop*
-data       := "data" id string prop*
-section    := "section" id string NEWLINE INDENT beat+ DEDENT
-beat       := "beat" id string prop* (NEWLINE INDENT (notes | media | prop-line)* DEDENT)?
-state      := "state" id prop* NEWLINE INDENT line* DEDENT
-line       := node-line | remove-line | prop-line | choreo-line | notes | comment
-node-line  := id (type-spec)? value? prop* (NEWLINE INDENT prop-line* DEDENT)?   -- continuation lines are props
-type-spec  := ("text" | "shape" | "image" | "stack" | "grid" | "frame" | "group")
-            | ("chart" ":" kind) | ("shader" ":" kind)
-remove-line:= "-" id
-choreo-line:= "choreo" (id | "[" id ("," id)* "]") prop*          -- one choreography item
-media      := "media" prop*
-prop-line  := prop+
-prop       := key ":" value
-value      := string | number unit? | id | path | "@" id | list | map | call
-list       := "[" (value ("," value)*)? "]"
-map        := "{" (key ":" value ("," key ":" value)*)? "}"
-call       := id "(" arg ("," arg)* ")"          -- col(1-7), in(left), rect(120,80,900,420)
-notes      := "notes" (string | tripleString)
-comment    := "#" .* EOL
+file        := (declaration | comment | blank)*
+declaration := deck | font | data | node | override | section | state      -- at column 0
+block(x)    := the lines after a line that are indented deeper than it, each an x
+
+deck        := "deck" string? prop* block(prop-line)          -- once; `canvas` is required
+font        := "font" (word | string) string? prop* block(prop-line)
+data        := "data" id string? prop* block(prop-line)
+node        := "node" id type props block(props)
+override    := "override" id prop* block(prop-line)
+section     := "section" id string? prop* block(beat | prop-line)
+beat        := "beat" id string? prop* block(notes | media | prop-line)
+media       := "media" prop* block(prop-line)
+state       := "state" id prop* block(state-line)
+state-line  := "-" id                                         -- the node exits
+             | id type? props block(props)                    -- a node line
+             | "choreo" (id | list) prop* block(prop-line)    -- one choreography item
+             | "choreo" "=" value | "choreo" map              -- an item as its value
+             | ("sequence" | "parallel") prop* block(group-line)
+             | notes
+             | prop-line                                      -- the state's own keys
+group-line  := "choreo" … | ("sequence" | "parallel") … | prop-line
+notes       := "notes" string                                 -- `"""` for several lines
+type        := "text" | "shape" | "image" | "stack" | "grid" | "frame" | "group"
+             | ("chart" | "shader") (":" word)?               -- `chart:bar` is type and kind
+props       := (prop | string)*                               -- the string: see below
+prop-line   := prop+
+prop        := key ":" value
+key         := word | string
+id          := word | string
+value       := string | word | number | time | percent | ratio | "@" word
+             | "true" | "false" | "null" | list | map
+             | call+                                          -- `at:` only
+             | number "x" number                              -- `canvas:` only
+call        := word "(" arg ("," arg)* ")"                    -- arg: a value, or a range `1-7`
+list        := "[" (value ("," value)*)? "]"
+map         := "{" (key ":" value ("," key ":" value)*)? "}"
+time        := number ("ms" | "s")
+percent     := number "%"
+ratio       := number ":" number
+word        := [A-Za-z_][A-Za-z0-9_.-]*
+string      := a JSON string on one line | `"""`, a newline, lines, then `"""` alone on a line
 ```
 
 Rules:
-- A node line in a state sets that node's props for that state; the node is created in `nodes` on first mention with the given type; later mentions MUST NOT change the type (lint **E104**).
-- A bare string after the id sets the primary value (`text` for text nodes, `src` for images).
-- `-id` exits a node. Nodes not mentioned track forward (unless the state is `mode:absolute`). A node line with no props (`bg`) makes the node visible with its defaults (JSON: `"bg": {}`).
-- `choreo` lines compile to the state's `choreography` array in order; `choreo [a, b]` targets several nodes.
-- Reserved slots: `in(canvas)` is full-bleed (the whole canvas), `in(grid)` is the margin box; both exist in every layout template.
-- Units: `ms`, `s`, `cu` (default for lengths), `%`. Durations may be theme names (`standard`).
-- Decompilation is canonical (see the round-trip guarantee above); formatting is not preserved.
+- **The header.** `deck "Title"` sets `meta.title`. Of its keys, `scaena`, `theme`, `canvas`, `formats`, `spine`, and `meta` are the deck's; any other key is `meta`'s (`author:Jay` is `meta.author`). `canvas:1920x1080` is `{width, height}`. `scaena` defaults to the format version this build writes.
+- **Fonts and data.** `font Family "file" …` is `{family, file, …}`. `data id "path" …` is a data source whose `source` is the path; `data id inline:[…]` gives the rows inline.
+- **Declaring a node.** `node id type …` declares a node and its own props, wherever it stands. In a state, the first line that gives a node's type declares the node there: its props are the node's own (in `nodes`), and the state shows it as it is (JSON: `"bg": {}`). That is the usual way to write a deck: a node is introduced where it first appears.
+- **A node line in a state** without a type, or with the type the node already has, is the node's delta: what changes in this state (§2.2). A kind it names (`rev chart:line`) is part of the change; a different type is an error (**E104**). A node line with no props (`bg`) shows the node as it is (`"bg": {}`). A line for an id that is no node keeps its delta, and `validate` reports it (**E102**).
+- **A bare string** on a node line is a text node's `text` or an image's `src`, wherever it stands among the props. On any other node it is an error.
+- `-id` exits a node. Nodes not mentioned track forward (§2.2), unless the state is `mode:absolute`. A state's `props`, `remove`, and `choreography` are written as these lines, never as keys.
+- **Choreography.** `choreo` lines compile to the state's `choreography` in order. `choreo [a, b]` targets several nodes. `sequence` and `parallel` blocks nest. `choreo = value` writes an item as its JSON value, for an item the other forms cannot say.
+- **`at:` calls.** `col(1-7) row(2) in(title) rect(120, 80, 900, 420)` is `{col: [1, 7], row: 2, in: "title", rect: [120, 80, 900, 420]}`. One argument is the value, several make a list, and a range `a-b` is `[a, b]`. Reserved slots: `in(canvas)` is full-bleed (the whole canvas), and `in(grid)` is the margin box; both exist in every layout template.
+- **Units.** `ms` and `s` are times. A time is milliseconds in the deck (`1.5s` is `1500`), except a beat's `duration`, which is seconds (`15s` is `15`, `500ms` is `0.5`). `cu` is the canvas unit and the default (`12cu` is `12`). `50%` is the string `"50%"`, and `16:9` is the string `"16:9"`. There are no other units. Durations may also be theme names (`standard`).
+- Any key, and any id, may be quoted. A word is a string, except `true`, `false`, and `null`. `@q3` is the string `"@q3"`. A path is a string, so quote it.
+- The compiler reports an error with its line, its column, and, when it is about part of the deck, a JSON pointer into the compiled deck.
 
-The compiler reports errors with line/column and a JSON-pointer into the compiled document.
+### 4.3 Canonical form
+
+The decompiler's output is the canonical form. Every shorthand is used only where it compiles back to exactly what the deck holds:
+- Order: the header; fonts; data; `node` lines; overrides; sections; states. A blank line separates kinds, and comes before each section and state.
+- A node is declared in the state that first shows it when that state shows it unchanged, and when declaring it there keeps `nodes` in its order. Otherwise it gets a `node` line, placed so `nodes` keeps its order (between states if need be).
+- Keys keep the deck's order. A text node's `text`, and an image's `src`, are bare strings where they stand. `at` is written as calls when every key is a word.
+- An integer time takes a unit: `4s` for whole seconds, else `240ms`. This applies to `hold`, `transition`, and a choreography item's `delay`, `stagger`, and `duration`, and to a beat's `duration` (`15s`). A float stays a plain number, since a unit would read it back as an integer.
+- A string is bare when it reads back as itself: a word other than `true`, `false`, and `null`; `@` and a word; a percentage; or a ratio. Otherwise it is JSON-quoted. Notes with newlines are a `"""` block when that holds them exactly.
+- Lines fill to 100 columns. Props that do not fit continue on lines two deeper.
 
 ---
 
@@ -454,35 +745,42 @@ Stages are pure and cached:
 
 Design notes:
 - Interpolating resolved geometry (post-layout) is what makes morphs cheap and deterministic; text morph interpolates word boxes and cross-fades glyph runs, chart morph interpolates mark geometry.
-- Layout is per-snapshot, not per-frame. Frames only sample.
-- Multiple `formats` re-run layout with a different template set; the spine and nodes are shared.
-- The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, viewport) -> DisplayList`, `lint`, `patch`.
+- Layout is per-snapshot, not per-frame. Frames only sample. In code (PLAN 0.10), `Engine::transition` lays out a state and the one before it once, and `Transition::frame(t)` samples them. It holds no fonts or layout engine, so it cannot lay out.
+- Multiple `formats` re-run layout with a different template set; the spine and nodes are shared. `scaena_engine::project` puts the deck on the format's canvas and the theme on its template set before anything is laid out (PLAN 1.13), so layout itself knows nothing of formats.
+- The engine exposes a **C ABI** (`scaena-ffi`, via `cbindgen`) and a **WASM API** (`scaena-wasm`, via `wasm-bindgen`) with the same surface: load bundle, list states, resolve timeline, `frame(state, t, format) -> DisplayList`, `lint`, `patch`.
 
 ---
 
 ## 6. Display list
 
-A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). JSON for tests and tooling; a compact binary encoding (postcard) for runtime.
+A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). One type (`scaena_core::displaylist::DisplayList`), two encodings: JSON for tests and tooling, postcard for runtime. Coordinates are canvas units, `f32`.
 
 ```jsonc
-{ "dl": 1, "viewport": [1920, 1080], "ops": [
-  { "op": "layer", "opacity": 1.0, "blend": "normal", "clip": null, "ops": [ ... ] },
-  { "op": "transform", "m": [1,0,0,1,0,0] },
-  { "op": "fill",   "path": "M0 0 H1920 V1080 Z", "paint": { "solid": "#101014" } },
-  { "op": "shader", "kind": "mesh", "seed": 7, "params": {...}, "t": 0.25, "rect": [0,0,1920,1080] },
-  { "op": "glyphs", "font": "f0", "size": 128, "color": "#F2F2EA", "glyphs": [[gid, x, y], ...], "axes": { "wght": 650 } },
-  { "op": "image",  "asset": "sha256:...", "src": [0,0,w,h], "dst": [x,y,w,h], "quality": "high" },
-  { "op": "stroke", "path": "...", "paint": {...}, "width": 2, "cap": "round", "join": "round", "dash": null },
-  { "op": "gradient", "...": "..." }
+{ "dl": 1, "viewport": [1920, 1080],
+  "fonts": [ { "id": "fonts/RobotoSerif-VF.ttf", "index": 0 } ],     // bundle font ids, first-use order
+  "ops": [
+    { "fill":   { "path": "M0 0L1920 0L1920 1080L0 1080Z", "rule": "nonzero", "paint": { "solid": "#101014FF" } } },
+    { "shader": { "kind": "mesh", "seed": 7, "t": 0.25, "rect": [0, 0, 1920, 1080],
+                  "palette": ["#1B1430FF", "#3A1F4FFF", "#B0452CFF", "#FF6A3DFF"], "params": { "drift": 0.12, "points": 5 } } },
+    { "layer":  { "node": "title", "transform": [1, 0, 0, 1, 0, 0], "opacity": 1, "blend": "normal", "clip": null, "ops": [
+      { "glyphs": { "font": 0, "size": 128, "coords": [0, 8192, -4096], "paint": { "solid": "#F2F0E9FF" },
+                    "glyphs": [[38, 96, 300], [72, 131.5, 300]] } }
+    ] } },
+    { "image":  { "asset": "sha256:...", "src": [0, 0, 640, 480], "dst": [96, 96, 640, 480], "quality": "high" } },
+    { "stroke": { "path": "M0 0L10 0", "paint": { "linear": { "start": [0, 0], "end": [10, 0], "stops": [[0, "#FF6A3DFF"], [1, "#FF6A3D00"]] } },
+                  "width": 2, "cap": "round", "join": "round", "miterLimit": 4, "dash": [], "dashOffset": 0 } }
 ] }
 ```
 
 Rules:
-- Coordinates are in canvas units with the viewport transform applied by the painter.
-- Fonts are referenced by bundle font ID; painters receive the subset bytes once.
+- Ops are stateless and in paint order: later ops draw over earlier ones. A `layer` scopes `transform`, `clip`, `opacity`, and `blend` for its children and names the scene `node` it draws; painters isolate it only when they must (opacity below 1, a blend other than normal, or a clip). Layers nest: a group's layer holds its members' (§3.4). Nodes are drawn in ascending `z`, ties in scene-graph order (`paint_order`), so op order is a pure function of the document.
+- Coordinates are in canvas units; `viewport` is the canvas extent, and painters map it to their output pixels. Glyph positions are in their layer's coordinate space (a text node's layer translates to its box), so moving a node changes one transform, not every glyph.
+- Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**
-- Shader ops carry parameters, not pixels; a painter either runs the WGSL or the CPU reference.
-- The display list is the unit of golden testing (§14).
+- Gradient paints (`linear` from `start` to `end`, `radial` about `center` out to `radius`, `sweep` about `center` from `startAngle` to `endAngle`, radians from the positive x axis, clockwise with y down) blend their stops in Oklab with premultiplied alpha. A linear or radial gradient holds its end colors past its ends; a sweep repeats, so one that starts off the x axis runs all the way round. Both painters build them through peniko from one conversion (`scaena-paint`'s `convert`), which adds sRGB stops between the given ones, close enough that blending them in sRGB stays within 0.01 of the Oklab blend: vello's GPU ramp blends stops in sRGB whatever the gradient asks (ADR-0004 finding 12).
+- Shader ops carry parameters, not pixels: `kind`, `seed`, `t` (seconds on the global timeline), `rect` (in its layer's space), the resolved `palette`, and typed `params`, all numbers (a name a kind lists is its place in the list: a gradient's `shape` is 0 linear, 1 radial, 2 conic). A painter runs the kind's CPU reference or its WGSL twin (§3.8) at the centers of the device pixels the rect covers and places the result texel for pixel. Per-pixel noise such as grain is per device pixel, so it depends on the output size, which is a render input.
+- In JSON, colors are `#RRGGBBAA` (sRGB, straight alpha) and paths are absolute SVG path data (`M L Q C Z`); in postcard they are four bytes and an element list. Every number is finite: the encoders refuse NaN and infinities rather than writing `null`.
+- The display list is the unit of golden testing (§14). Goldens are written with `to_golden_json` (one op per line, one glyph per line, so a diff reads as "this op changed" or "this glyph moved") after `quantize` (§13).
 
 **Painters:** `vello` (GPU via wgpu — WebGPU, Metal, Vulkan, DX12), `vello_cpu` (headless, CI, agents, export), `pdf` (krilla: vector paths, real text with embedded subsets, shaders as images), `svg` (static frames), `png` (via vello_cpu), `video` (PNG/raw frame sequence piped to ffmpeg; frame `n` at `t = n / fps` over the global timeline).
 
@@ -493,21 +791,61 @@ Rules:
 ### 7.1 CLI (`scaena`)
 
 ```
-scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON
-scaena decompile <deck.json> [-o deck.scn]            # JSON → DSL (canonical form)
+scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
+scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> --state ID [--resolved]     # absolute snapshot, resolved styles, timeline
-scaena render    <bundle> --state ID [--t MS] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data]   # absolute snapshot, resolved styles, cue, rows
+scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
-scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
+scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
-scaena theme     <bundle> --apply theme.json          # re-theme; prints lint delta
+scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
+scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
 scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 
-All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
+Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`, `patch`); `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
+
+`--json` goes anywhere on the line. With it, stdout holds exactly one JSON value: the command's result, or, when the command stops with exit 2 or 3, `{ "error": { "exit", "message", "plan"? } }`. A usage error is one too. `compile` adds the `line` and `col` of source that does not compile, and the JSON pointer into the deck (`path`) when the error is about part of it. So an agent parses stdout, then reads the exit code. stderr is for people and is not part of the contract. The results:
+
+| Command | `--json` |
+|---|---|
+| `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, and `--data` adds `data` |
+| `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
+| `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
+| `decompile` | `{ out, scn? }` |
+| `render` | `{ state, format, t_ms, span_ms, painter, adapter, size, out, display_list, ms }`: `ms` holds the stage timings |
+| `save` | `{ renamed, subset, manifest }` |
+| `export` | `{ format, out, spine? }` |
+| `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
+| `patch` | `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta. An op that does not apply adds `op`, its index, to the error object |
+
+`inspect --timeline` shows each state's cue (§2.4, §3.9) in ms, worked out as `render` does, so it reads the bundle's fonts:
+- Where the state falls on the deck's timeline: `start`, `span` (its transition and motions), and `hold`.
+- Its `transition`: `duration`, `curve`, and `match`.
+- Each of its `motions` as placed on the state's clock: `node`, `motion` (`enter`, `exit`, `emphasis`, `anim`), `split` and `units`, `start`, `stagger`, `duration`, `end`, and `curve`.
+- The motion's look, as what it changes from rest: `from` (enter), `to` (exit), `peak` (emphasis), or `tracks` (anim).
+
+A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, mass } }`.
+
+`inspect --data` shows the rows each chart and table reads, after its `dataTransform`. Each is `{ source, columns, types, rows }`, and dates are ISO 8601.
+
+`diff` without `--json` prints a line per node: `+ id` enters, `- id` exits, and `~ id: keys` changes those keys.
+
+`export --states a,b` picks the states a frame export draws (png, pdf, svg, video, html). `spine` is the whole spine, and takes no `--states`.
+
+`validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
+
+`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
+
+`inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
+
+`compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
+
+`render` without `--t` renders the state at rest; `--t` is milliseconds into the state's cue (its transition, then its motions, §3.9), and `--json` reports the state's span (`span_ms`). `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
 
 ### 7.2 MCP tools
 
@@ -515,22 +853,61 @@ Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`
 
 ### 7.3 Patch semantics
 
-- **JSON Patch** (RFC 6902) against `deck.json` with JSON-pointer paths, plus **semantic ops** that compile to JSON Patch:
-  `add_node`, `remove_node`, `set_prop {state, node, prop, value}`, `add_state {after, id, slide?}`, `move_state`, `set_text`, `bind_data`, `apply_preset`, `retheme`.
-- Patches are validated before apply; a failed patch is atomic (nothing applied).
-- Every patch becomes a CRDT change (§8); `--dry-run` returns the lint delta without committing.
+A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patch.schema.json`, generated from `scaena-core::patch`). Each op is RFC 6902's, or a semantic op that compiles to RFC 6902's.
+
+- **JSON Patch** (RFC 6902): `add`, `remove`, `replace`, `move`, `copy`, `test`, with JSON Pointer paths into `deck.json`.
+  - A member moved within its object keeps its place, so a `move` there is a rename. The order of `nodes` is paint order at equal `z` (§3.4).
+  - `test` compares numbers by value.
+  - Members an op does not define are ignored, as RFC 6902 says.
+- **Semantic ops** say what an author means. Each compiles against the deck as the ops before it leave it, so a patch can add a node and then set its props.
+  - An op refuses what would not do what it says. The refusal names the op by its index (`op`, from 0) and what to do instead.
+  - A misspelled member is an error, not a change somewhere else.
+  - `state` names the state an op acts in, as a delta from that state on. Without it, an op acts on the node's own properties.
+
+| Op | Members | What it does |
+|---|---|---|
+| `add_node` | `id`, `node`, `state?`, `props?` | Adds a node, last in scene-graph order. With `state` it enters there, `props` its delta |
+| `remove_node` | `id` | Removes the node and every reference to it: deltas, exits, choreography (an item left with no target goes too), overrides. A container must be emptied first |
+| `rename_node` | `id`, `to` | Renames the id everywhere it is used. The node keeps its place, type, and properties, so tracking and morphs see the same node |
+| `show_node` | `node`, `state`, `props?` | The node enters in the state; one that leaves there stays instead |
+| `hide_node` | `node`, `state` | The node leaves in the state; one that would enter there does not |
+| `set_prop` | `node`, `prop`, `value`, `state?` | Sets a property (`kind`) or one key of one (`at/in`); a delta merges objects one level deep (§2.2). `null` takes it away. Refused for `type` (E104), and for a node not on screen in `state`, which a delta would make enter (`show_node` does that) |
+| `set_text` | `node`, `text`, `state?` | Sets a text node's `text`; its `runs` there go |
+| `bind_data` | `node`, `data`, `source?`, `state?` | A chart or table reads `@data`; `source` declares or replaces the data source. In a state, it is a data update (§3.7) |
+| `apply_preset` | `node`, `preset`, `motion?`, `state?` | With `motion` (`enter`, `exit`, `emphasis`), a theme motion preset as that motion. Without, a shader takes a theme shader preset whole: the preset's kind, and none of its own `palette` or `params` |
+| `add_state` | `state`, `after?` or `before?`, `beat?` | Adds a state there (else last); with `beat`, one of that beat's states |
+| `move_state` | `id`, `after` or `before` | Moves a state. A state in delta mode tracks from whichever state now comes before it |
+| `remove_state` | `id` | Removes a state and its place in the spine; the state after it tracks from the one before. Refused for a state that others build on (`slide`) or track from (`from`) |
+| `rename_state` | `id`, `to` | Renames the id everywhere: `slide`, `from`, the beats |
+| `retheme` | `theme` | Sets the deck's theme: a file in the bundle, or inline. `theme --apply` copies a file in |
+
+**`scaena patch` checks a patch before it writes it:**
+- It compiles the ops, then checks the deck they make as `validate` checks a bundle. A patch that adds a validation finding (E102–E106) is refused whole: exit 1, and nothing is written.
+- It reports the patch as RFC 6902 and the lint delta: what `lint` finds that it did not (`added`), and what it finds no more (`removed`).
+- A finding is the same before and after when its code, format, file, state, and node match, and its message matches but for its figures. A path that names a state by place counts by the state's id, and renamed ids count by their new names. So a state added early does not move every finding after it, and a widow that gains a word is the same widow.
+- `--dry-run` reports without writing. An op that does not apply exits 2 with its index (`op`).
+
+Every patch becomes a CRDT change (§8, PLAN 1.23).
 
 ### 7.4 Lint results
 
 ```jsonc
-{ "code": "E100", "severity": "error", "message": "Text overflows its box by 2 lines",
-  "path": "/states/3/props/title", "state": "revenue", "node": "title",
-  "measure": { "lines": 5, "maxLines": 3 },
-  "hint": "Shorten to ~18 words, or set fit:shrink (minSize 72).",
-  "fix": [ { "op": "replace", "path": "/nodes/title/fit", "value": "shrink" } ] }
+{ "code": "E100", "severity": "error", "message": "text `title` does not fit: it needs 141 cu of height in 2 lines, and its box has 128",
+  "path": "/nodes/title", "state": "revenue", "node": "title",   // "file": "theme.json" when path points into a file other than deck.json
+  "format": "9:16",                                                // when the deck was laid out in one of its formats, not its own
+  "measure": { "lines": 2, "height": 141, "width": 1120, "box": [1144, 128] },
+  "hint": "Shorten it, give it a larger slot, or let it shrink (`fit: shrink`, down to its role's `minSize`).",
+  "fix": [ { "op": "add", "path": "/nodes/title/fit", "value": "shrink" } ] }
 ```
 
-`fix` is optional and MUST be a valid patch; `lint --fix` applies all safe fixes (never content changes).
+`fix` is optional and MUST be a valid patch (§7.3). A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow. `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
+
+**What `lint` runs**, in order:
+- The bundle's validation, as `validate` runs it (E102–E106).
+- The document-level rules (`scaena-core::lint`), which read the deck, its theme, and its resolved states.
+- Once nothing above is an error, the layout-level rules (`scaena-engine::lint`). They lay out every state in the deck's own format and in each of its `formats`, and judge motion in its own.
+
+Layout lint lays out what a frame refuses: text under `fit: error` that does not fit, a table whose rows do not. It reports these instead of stopping at the first. Contrast (E110, E111) needs pixels, and the engine never paints, so the client lends a painter (`scaena_core::lint::Backdrop`); the CLI lends the CPU painter.
 
 ### 7.5 Lint catalog (initial)
 
@@ -538,42 +915,47 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 
 | Code | Sev | Rule |
 |---|---|---|
-| E100 | error | text overflow (wrap/clip) |
-| E101 | error | unintended collision between nodes in the same layer |
-| E102 | error | reference to unknown node/state/data/font/asset |
-| E103 | error | chart field missing in data / type mismatch |
-| E104 | error | node type changed across states |
-| E105 | error | duplicate id |
-| E110 | error | body text contrast < 4.5:1 |
-| E111 | error | display text contrast < 3:1 |
-| E120 | error | font lacks glyphs for content (after fallback within bundle) |
-| W200 | warn | widow/orphan |
-| W201 | warn | line exceeds role measure |
-| W202 | warn | display role exceeds `maxLines` |
-| W203 | warn | shrink reached `minSize` |
-| W210 | warn | density: words/slide above theme threshold |
-| W220 | warn | mixed alignment within a state |
-| W221 | warn | baseline-grid violation |
-| W300 | warn | style literal outside `overrides` |
-| W301 | warn | absolute `rect` placement in a template-managed state |
-| W310 | warn | chart label collision |
-| W320 | warn | too many concurrent animations |
-| W321 | warn | build exceeds `maxBuild` |
+| E100 | error | text that does not fit its box, under `wrap`, `clip`, `grow`, or `error`; a table whose rows do not fit its cell. Fix: `fit: shrink`, where it works |
+| E101 | error | two nodes that draw content (text, a chart, a table, an image) overlap in the same container at the same `z`, by more than 2 cu each way. Text counts by its lines as set, not its cell. What is meant to lie on top says so with a higher `z`; `semantic: decoration` is exempt |
+| E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
+| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have; two rows the chart knows as one mark (its `key`, else its category, with its series) |
+| E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
+| E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot; a choreography item that names no motion or more than one, or splits a target into what its type does not have |
+| E110 | error | body text whose contrast with what lies behind it is below 4.5:1 |
+| E111 | error | display text whose contrast with what lies behind it is below 3:1 |
+| E120 | error | characters a node sets (text, a table's cells, a chart's labels) that its family and its fallbacks have no glyph for |
+| W200 | warn | widow: a paragraph's last line short of `minLastLineWords`, which breaking could not fix |
+| W201 | warn | a line wider than its measure, inside its box: a word too long to break at the measure |
+| W202 | warn | text with more lines than its `maxLines` (the node's, else its role's). Fix: `fit: shrink`, where it works |
+| W203 | warn | `fit: shrink` reached its minimum size and the text still does not fit |
+| W210 | warn | density: more words on screen in a state than the theme's `density.maxWordsPerState` (40) |
+| W220 | warn | paragraphs (text of two lines or more) aligned more than one way in a state |
+| W221 | warn | *(reserved)* baseline-grid violation: waits on the engine snapping text to the grid (§3.4) |
+| W300 | warn | style literal outside `overrides`: a color written out where a theme color goes, a text `size`, a length in canvas units where a theme token goes (`radius`, `gap`, `padding`, `inset`, a stroke's `width`, a child's `size`) |
+| W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
+| W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |
+| W310 | warn | chart value labels within a quarter space unit of each other, unless `labels.collide` resolves them |
+| W320 | warn | more nodes moving at once than the theme's `motion.maxConcurrent` (12) |
+| W321 | warn | a state's motions run past the theme's `motion.maxBuild` (2500 ms) |
+| W322 | warn | a motion that moves nothing, yet takes its time: an entrance on a node that does not enter, an exit on one that does not leave (under `match: none`, every node does both), an emphasis or `anim` on a node not on screen, a draw-on (a look whose only change is `progress`) on a node that strokes no outline |
 | W401 | warn | state not referenced by any beat |
 | W410 | warn | image without `alt` |
-| W420 | warn | *(narrative, reserved)* beat's claim has no node with `semantic: claim` in its states |
-| W421 | warn | *(narrative, reserved)* evidence shown with no claim in the same state |
-| W422 | warn | *(narrative, reserved)* evidence outranks the claim in visual hierarchy (role size) |
-| W423 | warn | *(narrative, reserved)* beat cites `evidence` that no state shows |
-| W424 | warn | *(narrative, reserved)* claim density: more than N claims in one state |
-| W425 | warn | *(narrative, reserved)* two consecutive beats with identical claims |
+| W420 | warn | a beat whose states show no claim (a node whose `semantic` is `claim` or `takeaway`). A beat whose states show only signposts (`navigation`, `decoration`, `source`) is not judged |
+| W421 | warn | a slide whose last state shows evidence and no claim |
+| W422 | warn | at a slide's last state, evidence text set larger than its claim, by role size or `style.size`; a stat's numeral (role `numeral`) does not count |
+| W423 | warn | a beat citing a data source or an asset that none of its states shows (a chart or table reading the source, an image of the asset, or for a source any node marked `evidence`). URLs are not checked |
+| W424 | warn | more than one `claim` on screen at once |
+| W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
 | I400 | info | state identical to previous (no-op cue) |
 | I401 | info | node never visible |
 | I402 | info | override makes node theme-unsafe (count) |
 
-Reserved narrative rules are specified here so codes are stable; they are implemented in PLAN 1.15 only where `semantic` and the spine give them something to check, and are never errors in v1.
+**Contrast** (E110, E111) follows WCAG. What lies behind text is the state at rest with its text taken away, painted, and a shader is judged at rest and at the end of the state's hold. Each run of text is judged over the pixels under its glyphs: its color is laid on each pixel at its alpha times its node's opacity, and the run fails when more than 2% of those pixels fall below the line. **Display** text is WCAG's large text: 24 px or more, or 18.67 px at weight 700 or more, on a screen whose shorter side is 1080 px (on a 1920 × 1080 canvas, a canvas unit is a pixel). Everything else is body. Text nodes and table cells are judged; chart labels are not yet.
 
-Rules live in `crates/scaena-core/src/lint/` (document-level) and `crates/scaena-engine/src/lint/` (layout-level); each rule is a struct with `code`, `severity`, `check(&Context) -> Vec<Finding>` and a fixture deck under `tests/lint/`.
+The narrative rules are warnings, never errors, and read only what `semantic` and the spine say. A build may show its evidence before its claim, so W421 and W422 judge each slide at its last state, where the build is complete. W424 allows one claim at a time; a contrast that needs two is `semantic: comparison`. Whether a slide's words say what its beat claims is a question for the user's model (BYOK, §11), not a rule.
+
+Rules live in `crates/scaena-core/src/lint/` (document-level) and `crates/scaena-engine/src/lint/` (layout-level). Each rule is a struct implementing `Rule` with a stable code, and has fixtures under `tests/lint/<CODE>/`: one deck that triggers it, one that must not.
 
 ### 7.6 Skills
 
@@ -670,9 +1052,9 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 
 ```
 crates/
-  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), document-level lints
-  scaena-engine   theme cascade, layout (taffy), text (parley/swash), charts→marks, shaders (CPU ref + WGSL), timeline resolution, sampling, display list
-  scaena-paint    painters: vello (gpu), vello_cpu (cpu)
+  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader kinds (CPU reference + WGSL), document-level lints
+  scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shader nodes→ops, timeline resolution, sampling
+  scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver), html, spine
   scaena-cli      `scaena` binary
   scaena-mcp      MCP server (rmcp) over the same operations
@@ -692,10 +1074,11 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 
 1. No wall clock in the engine. `t` is an input.
 2. All randomness is seeded from the document (`seed` fields) and the node id.
-3. Fonts come from the bundle only. Shaping is `swash`; the same bytes produce the same glyph runs on every platform.
-4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding to 1/64 cu. (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
-5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask).
+3. Fonts come from the bundle only; system font discovery is not compiled into the engine. Shaping is `harfrust` via `parley`, font reading is `skrifa`; the same bytes produce the same glyph runs on every platform.
+4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
+5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask; and no pixel anywhere, edges included, differs by half the channel range (128/255) or more, so a hole or a misplaced glyph cannot hide in the mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
+7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Shader references compute theirs once per frame, and per pixel use only `+ − × ÷` and comparisons, in the same order as their WGSL twins; sRGB encoding compares against a table of 255 thresholds instead of calling `pow`. Springs (`scaena_core::timeline::Spring`) evaluate through `libm` too.
 
 ---
 
@@ -747,8 +1130,12 @@ Notes: the cold PNG budget and the video budgets are different workloads and are
 3. Font licensing: enforce embedding permissions bits at bundle time? (Proposal: warn, don't block.)
 4. Live data sources and refresh semantics.
 5. Direct-manipulation editing model and how it expresses patches in template-managed layouts.
-6. Multiple formats: how much per-format override is allowed before it's a second deck?
+6. Multiple formats: how much per-format override is allowed before it's a second deck? PLAN 1.13 settles the minimum: a format's template set moves slots and changes the grid, and nodes and states are shared. Open: per-format node props (a shorter headline in `9:16`), and a lint for nodes placed by `col`/`row` or `rect` in a deck with formats, which do not move with the slots.
 7. Collaboration conflict UX when it arrives.
+8. A very large font catalog (Jay, 2026-10-01). Proposal: a local, content-addressed font store with a searchable index (family, styles, axes, script coverage, license), filled on demand from catalog sources. Editors and agents pick from it (`scaena fonts search | add`, and the same over MCP), and saving subsets the chosen faces into the bundle. The render path is unchanged, bundle fonts only (§13), so the catalog's size never reaches layout or painting. Open: which sources, licensing (Q3), offline use, and drawing script fallback chains from the catalog.
+9. Copy that quotes data. Every figure in text, `alt`, claims, and notes is a literal, so a data update is a manual sweep, and nothing notices a claim the new data makes false. In the authorability spike (PLAN 0.13), rolling a chart forward was one field for the chart and 22 hand edits for the words. Proposal: a text run can bind a value, as in `{ "bind": "@revenue", "value": "sum(revenue) where quarter = last(quarter)", "format": "$,.1f" }`, written in `dataTransform`'s expression language (§3.10) and resolved per snapshot like any text, so a figure rolls forward with its data. Open: how big the expression language gets, how an editor shows a bound figure, the DSL spelling, and whether a claim about a trend ("growth accelerated") can be checked at all.
+10. Fonts that follow the theme. A deck's `fonts` restates the files its theme's families name, and rendering registers only what `fonts` lists. In the authorability spike no deck could render for that reason (finding 5); `validate` now catches it (E102, with the fix). Proposal: rendering registers every theme family's file, and `fonts` lists only the fonts the theme does not name. Trade: one list fewer to keep in step, against a deck that no longer says by itself which files it needs, since another theme names others. Saving already handles both (PLAN 1.4).
+11. Image formats and sizes. v1 reads PNG only, so a photo must be converted before it enters a bundle (§3.3). JPEG is the obvious second format: a pure-Rust baseline and progressive decoder (`zune-jpeg` or `jpeg-decoder`) gives the same pixels on every platform, but its IDCT must be checked for bit-exactness across SIMD paths before it can join the goldens. Separately, vello keeps every image a frame draws in one 8192 px square atlas and silently skips an image that does not fit, so six 12-megapixel photos on one slide would lose some on the GPU while the CPU draws them all. Proposal: painters receive each image already reduced to at most twice the device size it is drawn at, by one deterministic box filter in `scaena-paint` that both painters share; that bounds the atlas, removes minification aliasing, and keeps the painters on the same pixels. Open: whether saving should also store reduced copies, and what size an export at 4K needs.
 
 ---
 

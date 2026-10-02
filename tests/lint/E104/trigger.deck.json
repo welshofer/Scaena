@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "E104 trigger: a state tries to turn a text node into a chart, and its overrides to turn it into an image.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "nodes": {
+    "figure": { "type": "text", "text": "42%", "at": { "in": "canvas" } }
+  },
+  "states": [
+    { "id": "one", "props": { "figure": {} } },
+    { "id": "two", "props": { "figure": { "type": "chart" } } }
+  ],
+  "overrides": { "figure": { "type": "image" } }
+}

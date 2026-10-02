@@ -1,0 +1,49 @@
+{
+  "scaena-theme": "0.4",
+  "name": "Lint",
+  "description": "The bundle every lint fixture is checked in (tests/lint/README.md): two of the torture deck's families, dark ground, and low motion limits so small decks reach them.",
+  "tokens": {
+    "color": { "ink": "#F2F0E9", "paper": "#101014", "muted": "#9A9AA6", "line": "#2A2A33", "accent": "#FF6A3D" },
+    "roles": { "surface": "paper", "onSurface": "ink", "onSurfaceMuted": "muted", "accent": "accent", "onAccent": "paper", "line": "line" },
+    "data": { "categorical": ["#FF6A3D", "#3A7BD5", "#2EC4B6"] },
+    "space": { "unit": 8, "scale": [0, 8, 16, 32] },
+    "radius": { "scale": [0, 4, 8, 16] },
+    "stroke": { "hairline": 1, "thin": 2 }
+  },
+  "type": {
+    "families": {
+      "serif": { "family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf" },
+      "garamond": { "family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf" }
+    },
+    "roles": {
+      "display": { "family": "garamond", "size": 96, "weight": 600, "leading": 1.05, "maxLines": 2 },
+      "headline": { "family": "garamond", "size": 64, "weight": 600, "leading": 1.1, "minSize": 48 },
+      "body": { "family": "serif", "size": 28, "weight": 400, "leading": 1.4, "measure": 40, "minLastLineWords": 2 },
+      "caption": { "family": "serif", "size": 20, "weight": 400, "leading": 1.3, "color": "onSurfaceMuted" },
+      "label": { "family": "serif", "size": 20, "weight": 600, "leading": 1.2 },
+      "numeral": { "family": "garamond", "size": 160, "weight": 600, "leading": 1.0 }
+    }
+  },
+  "grid": { "columns": 12, "rows": 6, "gutter": 24, "margin": 96 },
+  "layouts": {
+    "title": { "slots": { "title": { "col": [1, 10], "row": [2, 4] }, "subtitle": { "col": [1, 8], "row": 5 } } },
+    "full": { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } },
+    "figure": { "slots": { "header": { "col": [1, 8], "row": 1 }, "main": { "col": [1, 12], "row": [2, 5] }, "footer": { "col": [1, 12], "row": 6, "role": "caption" } } },
+    "two": { "slots": { "left": { "col": [1, 6], "row": [1, 6] }, "right": { "col": [7, 12], "row": [1, 6] } } }
+  },
+  "motion": {
+    "durations": { "fast": 180, "standard": 420, "slow": 800 },
+    "easings": { "standard": [0.2, 0, 0, 1], "in": [0.4, 0, 1, 1], "out": [0, 0, 0, 1] },
+    "springs": { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 } },
+    "presets": {
+      "fade": { "from": { "opacity": 0 }, "duration": "standard" },
+      "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" },
+      "grow": { "from": { "transform": { "scale": 0 } }, "spring": "snappy" },
+      "draw": { "from": { "params": { "progress": 0 } }, "duration": "slow" }
+    },
+    "maxConcurrent": 3,
+    "maxBuild": 1500
+  },
+  "shaders": { "palettes": { "ambient": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"] } },
+  "density": { "maxWordsPerState": 30 }
+}

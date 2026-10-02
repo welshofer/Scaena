@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W300 clean: theme names, and the size in overrides, where it counts as one (I402).",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Tokens", "style": {"color": "accent"}, "at": {"in": "left"}},
+    "box": {"type": "shape", "kind": "rect", "fill": "accent", "at": {"in": "right"}}
+  },
+  "states": [
+    {"id": "a", "layout": "two", "props": {"t": {}, "box": {"radius": "radius.2"}}}
+  ]
+}

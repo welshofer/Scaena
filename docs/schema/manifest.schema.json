@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scaena.dev/schema/manifest-0.8.json",
+  "title": "Scaena bundle manifest",
+  "description": "`manifest.json` (SPEC §3.1): what a bundle held when it was last saved. Saving writes it; nothing in the render path reads it.",
+  "type": "object",
+  "required": ["scaena", "deck", "files", "created", "modified"],
+  "additionalProperties": false,
+  "properties": {
+    "scaena": {
+      "description": "The deck format version the bundle was saved in.",
+      "type": "string",
+      "pattern": "^0\\.8(\\.[0-9]+)?$"
+    },
+    "deck": { "description": "The sha256 of `deck.json` as saved.", "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "files": {
+      "description": "Every other file in the bundle, by its path in the bundle: its sha256.",
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "created": { "description": "When the bundle was first saved.", "type": "string", "format": "date-time" },
+    "modified": { "description": "When it was saved last.", "type": "string", "format": "date-time" }
+  }
+}
