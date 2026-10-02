@@ -110,7 +110,9 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
         .iter()
         .map(|(id, node)| (id, node.props.get("at"), format!("/nodes/{}/at/parent", esc(id))))
         .chain(deck.states.iter().enumerate().flat_map(|(i, s)| {
-            s.props.iter().map(move |(id, delta)| (id, delta.get("at"), format!("/states/{i}/props/{}/at/parent", esc(id))))
+            s.props
+                .iter()
+                .map(move |(id, delta)| (id, delta.get("at"), format!("/states/{i}/props/{}/at/parent", esc(id))))
         }))
         .chain(deck.overrides.iter().map(|(id, o)| (id, o.get("at"), format!("/overrides/{}/at/parent", esc(id)))));
     for (id, at, path) in placements {
@@ -654,7 +656,8 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
             let Some(parent) = parent_of(id) else { continue };
             let Some(container) = deck.nodes.get(parent) else { continue };
             if !snapshot.nodes.contains_key(parent) {
-                let message = format!("node `{id}` is in container `{parent}`, which state `{}` does not show", state.id);
+                let message =
+                    format!("node `{id}` is in container `{parent}`, which state `{}` does not show", state.id);
                 out.push(finding("E102", id, "parent", message));
                 continue;
             }

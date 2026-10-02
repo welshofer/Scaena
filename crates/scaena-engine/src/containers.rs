@@ -707,15 +707,13 @@ mod tests {
     }
 
     /// Text as 20 cu a character on 50 cu lines, wrapped at the width it gets.
-    fn fake_text(
-        deck: &Deck,
-    ) -> impl FnMut(&str, Size<Option<f32>>, Size<AvailableSpace>) -> Result<Size<f32>, EngineError> {
+    fn fake_text(deck: &Deck) -> Box<MeasureText<'static>> {
         let chars: HashMap<String, f32> = deck
             .nodes
             .iter()
             .filter_map(|(id, n)| Some((id.clone(), n.props.get("text")?.as_str()?.chars().count() as f32 * 20.0)))
             .collect();
-        move |id, known, available| {
+        Box::new(move |id, known, available| {
             let wide = chars[id];
             let room = known.width.or(match available.width {
                 AvailableSpace::Definite(w) => Some(w),
@@ -725,7 +723,7 @@ mod tests {
             let width = room.map_or(wide, |r| wide.min(r.max(20.0)));
             let lines = (wide / width).ceil().max(1.0);
             Ok(Size { width: known.width.unwrap_or(width), height: known.height.unwrap_or(50.0 * lines) })
-        }
+        })
     }
 
     fn place_deck(deck: &Deck) -> Result<Placement, EngineError> {
@@ -738,7 +736,7 @@ mod tests {
         png.extend(200u32.to_be_bytes());
         png.extend([8, 6, 0, 0, 0]);
         images.register("assets/photo.png", &png).unwrap();
-        place(deck, &theme, &grid, &images, snap, &mut fake_text(deck))
+        place(deck, &theme, &grid, &images, snap, &mut *fake_text(deck))
     }
 
     fn boxes(nodes: Value) -> HashMap<String, Rect> {
