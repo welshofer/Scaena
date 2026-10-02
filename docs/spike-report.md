@@ -1,7 +1,31 @@
 # Phase 0 spike report
 
-**Status:** in progress; PLAN 0.14 completes it with the go/no-go. Each section is written when its task lands.
-**Numbers:** Linux dev container (Intel Xeon @ 2.10 GHz, 4 vCPU), release builds. SPEC §15's reference machine is an M-series Mac and is not measured yet; Linux numbers are recorded, not gated.
+**Verdict: go.** All seven gate 0 exit criteria are met (table below). Text parity, the question that could have killed the project, held. vello_cpu, native vello, and vello on WebGPU in the browser agree on every kill case, and the display lists are bit-identical on x86-64 and arm64. Phase 1 starts at PLAN 1.1. What did not match, and what Phase 1 inherits from it, follows the table.
+
+**Numbers:** Linux dev container (Intel Xeon @ 2.10 GHz, 4 vCPU), release builds, unless a line says otherwise. SPEC §15's reference machine is an M-series Mac. The closest measured is CI's Apple Silicon runner (`Apple M1 (Virtual)`, 3 cores, macOS 26.6), which is what criterion 6's cold render is judged on. Linux numbers are recorded, not gated.
+
+## Gate 0
+
+| # | Exit criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Kill cases: bit-identical display lists on macOS and Linux; rasters within tolerance across vello_cpu, native vello, and WASM/WebGPU; catalogue recorded | met | **Display lists:** `raw_display_lists_are_bit_identical_across_platforms` hashes the unquantized display lists of all 25 torture states and 4 frames inside transitions, and every CI run passes it on x86-64 Linux and arm64 macOS (0.5). **Kill cases:** the 11 `kill_*` tests in `crates/scaena-engine/tests/torture.rs`. **Rasters:** the parity harness passes every state on every pair: vello_cpu, vello on lavapipe and on Metal, and vello on WebGPU (SwiftShader). The NEON rasters are byte-identical to the AVX2 goldens (0.6, 0.9). **Catalogue** (0.4): discretionary ligatures pass, bidi passes with a finding, combining marks are partial, emoji fails. |
+| 2 | OpenType features and variable axes demonstrably applied | met | **Ligatures:** `kill_standard_ligatures_form_and_switch_off`, 22 glyphs with `liga` and 28 without. **Axes:** `kill_variable_axes_reach_the_instance` drives wght, wdth, and opsz to their extremes; wdth 50 sets under 0.75× the width of wdth 150, and opsz 8 against 144 changes advances. **Seen:** the reviewed `liga`, `dlig`, and `axes` rasters (0.4, 0.6). |
+| 3 | Chart data motion at four sample points, no layout per frame | met | Goldens at t = 0, 0.25, 0.5, and 1 for values animating in and for the next quarter (0.10). `Transition::frame` takes `&self` and holds no fonts or layout engine, so a frame cannot lay out. |
+| 4 | Mesh CPU/GPU parity | met | `shader_parity`: 7 cases within one step on lavapipe and on Metal. The torture `mesh` state passes every painter pair (0.11). |
+| 5 | WASM engine ≤ 3.0 MB gzip | met | 1.08 MB: 1,083,673 bytes, `gzip -9`, no fonts (0.8, 0.11, re-measured for 0.14). |
+| 6 | Per-stage timings for B1 and B4; cold headless 1080p render ≤ 300 ms on an M-series Mac | met | B1 built for this (`tests/bench/b1.scaena`). Every SPEC §15 stage is timed in 0.14 below. Cold `scaena render` of B1 on CI's Apple Silicon runner: 32.6 ms median and 48.7 ms worst over its 40 states, against 300 ms. |
+| 7 | Authorability spike completed | met | 0.13: all five edits validate and lint clean, every patch is local, and identity survives (`docs/examples/agent-authorability.md`). |
+
+## What did not match
+
+- **Emoji (catalogue): fail.** Flags fall back to EB Garamond's regional-indicator letters, because parley queries the style's own font stack before the emoji family. Fix proposed for PLAN 1.8 (0.4).
+- **Combining marks (catalogue): partial.** `j` plus a caron keeps the j's dot: the font has no precomposed form to substitute. A font limitation, identical in both painters (0.4).
+- **Bidi (catalogue): a finding.** parley reports one space of trailing whitespace on an RTL line that has none. Glyphs land correctly; the line's measured width is short by one space. Upstream issue candidate (0.4).
+- **CPU paint on the Linux container is over budget on one thread.** B1's median frame paints in 14–20 ms there, varying between runs. The budget is 12 ms with 8 threads, and vello_cpu's multithreading is off. On Apple Silicon the same frames paint in 5.8 ms median and 12.0 ms worst on one thread, so the reference-class machine meets the budget with no threads at all. Threads are the headroom for B2 and B3. Whether threaded rasters stay byte-identical is a question PLAN 1.21's video path has to answer anyway.
+- **GPU paint alone is not measured.** Lavapipe emulates a GPU on the CPU, and CI's Metal device is paravirtualized. Both numbers, about 21 ms per B1 frame, include submit, wait, and readback. SPEC §15's 6 ms budget is for paint alone on an M-series Mac, which needs a physical machine and a paint-only timer.
+- **No criterion benches and no CI baseline.** SPEC §15 asks for both from Phase 0 onward. `stages` records medians and worst cases on demand; nothing fails on a regression. Proposed as PLAN 1.24.
+- **Benchmarks B2 and B3 do not exist.** They need multi-chart decks and the `grain` shader (PLAN 1.9, 1.10). B1 and B4 are the Phase 0 pair criterion 6 names.
+- **What lint does not check.** A deck can validate and lint clean and still fail to render: the renderer needs a font file for every theme family, and nothing checks for one. The 0.13 findings list this and the other gaps in "clean"; each points at its Phase 1 task.
 
 ## 0.1 Stack
 
@@ -258,3 +282,75 @@ The second hypothesis held: semantic text documents are naturally agent-authorab
   - `dataTransform` and `axesSpec`.
 
   Thirteen open findings point at their Phase 1 tasks, the chart sprint (1.9) and lint (1.15) foremost.
+
+## 0.14 Timings (SPEC §15)
+
+**B1 is new.** `tests/bench/b1.scaena` is SPEC §15's text-heavy benchmark: the manifesto as a talk.
+- **Content:** 40 states over 11 text nodes, no charts. Builds add the argument, then a line to remember, so 39 of the 40 transitions move and cross-fade text.
+- **Fonts:** Fraunces, Inter, JetBrains Mono, and Source Serif 4, 1.1 MB as subsets. `scripts/build_bench_fonts.py` builds them from the torture fonts' pinned google/fonts commit.
+- **Kept honest:** `crates/scaena-engine/tests/bench.rs` keeps B1 at 40 states in four fonts, with every state drawing.
+
+B4 is the torture deck: 25 states, five fonts, a bar chart, and a mesh.
+
+**How it was measured:**
+- `crates/scaena-cli/examples/stages.rs` times every SPEC §15 stage that Phase 0 has, in one process per deck. Each state's figure is the median of several runs; the table gives the median and the worst over states.
+- The cold render is the whole `scaena render` process, started once per state.
+- `crates/scaena-wasm/www/coldstart.mjs` times WASM to the first frame in fresh headless-Chromium contexts.
+- `just bench` runs all of it. The `bench` workflow runs the native stages on CI's Apple Silicon runner, on main and on every change to the bench files.
+
+**B1**
+
+| Stage | Linux container: median · worst | Apple Silicon runner: median · worst | SPEC §15 budget |
+|---|---|---|---|
+| Load bundle (deck, theme, 4 fonts 1096 KB) | 0.58 ms | 0.22 ms | cold start |
+| Register and check fonts | 0.43 ms | 0.05 ms | cold start |
+| Resolve + layout one snapshot, first pass (fresh engine) | 0.48 ms · 0.85 ms (`belief-5-line`) | 0.36 ms · 16.56 ms (`cover`) | — |
+| Resolve + layout all 40 snapshots, first pass | 19.26 ms | 33.55 ms | ≤ 400 ms (B1) |
+| Resolve + layout one snapshot, warm | 0.46 ms · 0.83 ms (`belief-6-line`) | 0.36 ms · 1.04 ms (`belief-1-line`) | ≤ 15 ms (B1) |
+| Resolve + layout all 40 snapshots, warm | 18.45 ms | 18.13 ms | ≤ 400 ms (B1) |
+| Build a transition (lay out both ends), 39 transitions | 0.71 ms · 1.98 ms (`belief-6-why`) | 0.50 ms · 2.14 ms (`belief-2-line`) | — |
+| Sample one frame (interpolate laid-out geometry) | 1.0 µs · 2.2 µs (`belief-6`) | 1.5 µs · 11.4 µs (`last-word`) | ≤ 1 ms (B1, B2) |
+| CPU paint, one frame at 1080p | 19.66 ms · 23.50 ms (`belief-8`) (vello_cpu, Avx2, 1 thread) | 5.84 ms · 11.99 ms (`belief-8-line`) (vello_cpu, Neon, 1 thread) | ≤ 12 ms with 8 threads (B1) |
+| PNG encode (fast compression) | 3.92 ms · 5.25 ms (`goal-bar`) | 3.56 ms · 7.94 ms (`refuse-2`) | — |
+| GPU paint + readback, one frame at 1080p | 21.45 ms · 28.00 ms (`belief-2-line`) (llvmpipe (LLVM 20.1.2, 256 bits), Vulkan) | 21.34 ms · 66.99 ms (`belief-4-why`) (Apple Paravirtual device, Metal) | ≤ 6 ms, paint alone (B1) |
+| Validate + document-level lint | 0.50 ms | 0.29 ms | ≤ 100 ms (B1) |
+| Headless PNG render, cold (`scaena render`, whole process) | 32.64 ms · 42.16 ms (`refuse-3`) | 32.59 ms · 48.71 ms (`belief-5-why`) | ≤ 300 ms (B1) |
+
+**B4, the torture deck**
+
+| Stage | Linux container: median · worst | Apple Silicon runner: median · worst | SPEC §15 budget |
+|---|---|---|---|
+| Load bundle (deck, theme, 5 fonts 2347 KB) | 0.62 ms | 0.41 ms | cold start |
+| Register and check fonts | 0.20 ms | 0.08 ms | cold start |
+| Resolve + layout one snapshot, first pass (fresh engine) | 0.39 ms · 0.84 ms (`axes`) | 0.42 ms · 1.69 ms (`axes`) | — |
+| Resolve + layout all 25 snapshots, first pass | 10.67 ms | 12.77 ms | ≤ 400 ms (B1) |
+| Resolve + layout one snapshot, warm | 0.34 ms · 0.60 ms (`chart`) | 0.20 ms · 0.37 ms (`chart`) | ≤ 15 ms (B1) |
+| Resolve + layout all 25 snapshots, warm | 9.26 ms | 5.64 ms | ≤ 400 ms (B1) |
+| Build a transition (lay out both ends), 2 transitions | 0.90 ms · 1.07 ms (`chart-next`) | 0.53 ms · 0.65 ms (`chart-next`) | — |
+| Sample one frame (interpolate laid-out geometry) | 3.8 µs · 3.9 µs (`chart`) | 4.9 µs · 4.9 µs (`chart`) | ≤ 1 ms (B1, B2) |
+| CPU paint, one frame at 1080p | 19.69 ms · 139.65 ms (`mesh`) (vello_cpu, Avx2, 1 thread) | 4.37 ms · 97.42 ms (`mesh`) (vello_cpu, Neon, 1 thread) | ≤ 12 ms with 8 threads (B1) |
+| PNG encode (fast compression) | 3.51 ms · 21.02 ms (`mesh`) | 2.52 ms · 20.91 ms (`mesh`) | — |
+| GPU paint + readback, one frame at 1080p | 20.13 ms · 112.56 ms (`mesh`) (llvmpipe (LLVM 20.1.2, 256 bits), Vulkan) | 23.63 ms · 61.58 ms (`bidi-hebrew`) (Apple Paravirtual device, Metal) | ≤ 6 ms, paint alone (B1) |
+| Validate + document-level lint | 0.43 ms | 0.38 ms | ≤ 100 ms (B1) |
+| Headless PNG render, cold (`scaena render`, whole process) | 33.45 ms · 168.78 ms (`mesh`) | 26.19 ms · 125.76 ms (`mesh`) | ≤ 300 ms (B1) |
+
+**In the browser.** Headless Chromium with SwiftShader WebGPU, on the Linux container; five cold starts per deck, each in a fresh context with nothing cached:
+
+| Stage | B1 | B4 | SPEC §15 budget |
+|---|---|---|---|
+| WASM load → first frame at 1080p | 162 ms median | 189 ms median | ≤ 500 ms (B1) |
+| WASM engine size (gzip, no fonts) | 1.08 MB | — | ≤ 3.0 MB |
+
+Reading them:
+- **The gated number has room.** On Apple Silicon, B1's cold render is 32.6 ms median and 48.7 ms worst, against 300 ms.
+- **Every other budget Phase 0 can measure is met on the Apple Silicon runner, except GPU paint.** CI cannot measure that one (below).
+- **Layout is not the cost.** A B1 snapshot lays out warm in 0.36 ms on Apple Silicon (budget 15 ms), and all 40 in 18 ms (budget 400 ms). A transition frame samples in 1.5 µs (budget 1 ms).
+- **The one slow first frame is set-up, not layout.** On Apple Silicon, `cover` takes 16.6 ms as a fresh engine's first frame. On Linux, where the binary was already warm, no first frame exceeds 1 ms.
+- **CPU paint on one thread meets the 8-thread budget on Apple Silicon:** 5.8 ms median, 12.0 ms worst. The Linux container is two to three times slower and varies between runs: 14.2 and 19.7 ms medians on two runs.
+- **GPU numbers bound nothing yet.** Both include submit, wait, and readback through a device that is emulated (lavapipe) or paravirtualized (CI's Metal). SPEC's 6 ms budget is for paint alone, and measuring it needs a physical M-series Mac and a paint-only timer.
+- **B4's worst cases are the mesh.** Its CPU reference paints in 97 ms on Apple Silicon, and its cold render takes 126 ms, inside the 300 ms render budget.
+- **Not measured, because the stages do not exist yet:**
+  - layout-level lint (PLAN 1.15);
+  - the MCP round trip (1.17);
+  - video export (1.21);
+  - decks B2 and B3 (1.9, 1.10).
