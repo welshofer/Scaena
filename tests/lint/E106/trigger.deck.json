@@ -1,5 +1,5 @@
 {
-  "scaena": "0.4",
+  "scaena": "0.5",
   "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, and two stacks inside each other.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {

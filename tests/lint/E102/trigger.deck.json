@@ -1,5 +1,5 @@
 {
-  "scaena": "0.4",
+  "scaena": "0.5",
   "_comment": "E102 trigger: E102/clean.deck.json with every kind of reference broken once.",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",

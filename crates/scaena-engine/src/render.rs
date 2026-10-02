@@ -18,6 +18,7 @@ use crate::layout::{AlignX, AlignY, Grid};
 use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
+use crate::tables;
 use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
@@ -153,6 +154,11 @@ impl Engine {
                         Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &colors };
                     let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
                     Content::Chart { cell: rect, chart: Box::new(chart) }
+                }
+                NodeType::Table => {
+                    let mut cx = Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data, colors: &[] };
+                    let table = tables::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
+                    Content::Table { cell: rect, table: Box::new(table) }
                 }
                 NodeType::Shader => {
                     Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)

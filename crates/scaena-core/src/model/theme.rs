@@ -34,6 +34,8 @@ pub struct Theme {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charts: Option<Charts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tables: Option<Tables>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<Density>,
 }
 
@@ -356,6 +358,43 @@ pub struct Charts {
     /// Legend labels; their role defaults to the axis's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legend: Option<ChartLabel>,
+}
+
+/// Table styles (SPEC §3.6), every one a role, a token, or a length.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Tables {
+    /// The header row's text: role `label` in `onSurfaceMuted` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<TableText>,
+    /// The cells' text: role `body` in its own color when unset. Numbers set in tabular
+    /// lining figures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<TableText>,
+    /// The rule under the header: the `hairline` stroke in `onSurfaceMuted` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<ChartRule>,
+    /// Rules between rows; none when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_rule: Option<ChartRule>,
+    /// Canvas units above and below each row's text; half a space unit when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
+    pub row_gap: Option<f64>,
+    /// Canvas units between columns; an em of the cell text when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
+    pub column_gap: Option<f64>,
+}
+
+/// A table's text: a role, and a color token or role.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TableText {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// A chart rule: the axis or the gridlines.

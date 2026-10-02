@@ -307,6 +307,54 @@ node! {
     }
 }
 
+node! {
+    /// A data-bound table (SPEC §3.3): rows from a data source, set in the theme's
+    /// `tables` styles, each row matched by `key` across states.
+    TableNode {
+        /// A data source, `@name`.
+        #[schemars(regex(pattern = r"^@[a-z][a-z0-9_-]*$"))]
+        pub data: String,
+        /// Steps run in order before the table reads its data (SPEC §3.10).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub data_transform: Option<Vec<IndexMap<String, Value>>>,
+        /// Its columns, in order; every column of the data when unset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(length(min = 1))]
+        pub columns: Option<Vec<TableColumn>>,
+        /// The field that identifies a row across states; the first column's when unset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub key: Option<String>,
+        /// The header row, shown unless false.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub header: Option<bool>,
+    }
+}
+
+/// One column of a table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TableColumn {
+    pub field: String,
+    /// The header's text; the field's name when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// How its numbers or dates print (docs/spec/format.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// Where its text sits across the column; `end` for numbers, else `start`, when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<ColumnAlign>,
+}
+
+/// Where a column's text sits across it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ColumnAlign {
+    Start,
+    Center,
+    End,
+}
+
 /// v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -533,6 +581,7 @@ pub enum TypedNode {
     Shape(Box<ShapeNode>),
     Image(Box<ImageNode>),
     Chart(Box<ChartNode>),
+    Table(Box<TableNode>),
     Shader(Box<ShaderNode>),
     Stack(Box<StackNode>),
     Grid(Box<GridNode>),

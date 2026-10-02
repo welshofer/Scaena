@@ -22,6 +22,7 @@
     "motion": { "$ref": "#/$defs/Motion" },
     "shaders": { "$ref": "#/$defs/Shaders" },
     "charts": { "$ref": "#/$defs/Charts" },
+    "tables": { "$ref": "#/$defs/Tables" },
     "density": { "$ref": "#/$defs/Density" }
   },
   "$defs": {
@@ -370,6 +371,42 @@
       }
     },
     "ChartLabel": { "type": "object", "properties": { "role": { "type": "string" } } },
+    "Tables": {
+      "description": "Table styles (SPEC §3.6), every one a role, a token, or a length.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "The header row's text: role `label` in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/TableText"
+        },
+        "cell": {
+          "description": "The cells' text: role `body` in its own color when unset. Numbers set in tabular lining figures.",
+          "$ref": "#/$defs/TableText"
+        },
+        "rule": {
+          "description": "The rule under the header: the `hairline` stroke in `onSurfaceMuted` when unset.",
+          "$ref": "#/$defs/ChartRule"
+        },
+        "rowRule": { "description": "Rules between rows; none when unset.", "$ref": "#/$defs/ChartRule" },
+        "rowGap": {
+          "description": "Canvas units above and below each row's text; half a space unit when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "columnGap": {
+          "description": "Canvas units between columns; an em of the cell text when unset.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "TableText": {
+      "description": "A table's text: a role, and a color token or role.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "role": { "type": "string" }, "color": { "type": "string" } }
+    },
     "Density": {
       "type": "object",
       "additionalProperties": false,

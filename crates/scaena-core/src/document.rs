@@ -208,6 +208,7 @@ pub enum NodeType {
     Shape,
     Image,
     Chart,
+    Table,
     Shader,
     Stack,
     Grid,

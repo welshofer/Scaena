@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.4.json",
+  "$id": "https://scaena.dev/schema/deck-0.5.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.4(\\.[0-9]+)?$"
+      "pattern": "^0\\.5(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -177,6 +177,7 @@
         { "$ref": "#/$defs/ShapeNode" },
         { "$ref": "#/$defs/ImageNode" },
         { "$ref": "#/$defs/ChartNode" },
+        { "$ref": "#/$defs/TableNode" },
         { "$ref": "#/$defs/ShaderNode" },
         { "$ref": "#/$defs/StackNode" },
         { "$ref": "#/$defs/GridNode" },
@@ -327,6 +328,33 @@
         "labels": { "$ref": "#/$defs/ChartLabels" },
         "legend": { "$ref": "#/$defs/Legend" },
         "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } }
+      }
+    },
+    "TableNode": {
+      "description": "A data-bound table (SPEC §3.3): rows from a data source, set in the theme's `tables` styles, each row matched by `key` across states.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type", "data"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "table" },
+        "data": { "description": "A data source, `@name`.", "type": "string", "pattern": "^@[a-z][a-z0-9_-]*$" },
+        "dataTransform": {
+          "description": "Steps run in order before the table reads its data (SPEC §3.10).",
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "columns": {
+          "description": "Its columns, in order; every column of the data when unset.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/TableColumn" },
+          "minItems": 1
+        },
+        "key": {
+          "description": "The field that identifies a row across states; the first column's when unset.",
+          "type": "string"
+        },
+        "header": { "description": "The header row, shown unless false.", "type": "boolean" }
       }
     },
     "ShaderNode": {
@@ -800,6 +828,26 @@
       }
     },
     "AnnotationKind": { "type": "string", "enum": ["callout", "rule", "band", "highlight"] },
+    "TableColumn": {
+      "description": "One column of a table.",
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string" },
+        "title": { "description": "The header's text; the field's name when unset.", "type": "string" },
+        "format": { "description": "How its numbers or dates print (docs/spec/format.md).", "type": "string" },
+        "align": {
+          "description": "Where its text sits across the column; `end` for numbers, else `start`, when unset.",
+          "$ref": "#/$defs/ColumnAlign"
+        }
+      }
+    },
+    "ColumnAlign": {
+      "description": "Where a column's text sits across it.",
+      "type": "string",
+      "enum": ["start", "center", "end"]
+    },
     "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
     "Axis": { "type": "string", "enum": ["x", "y"] },
     "Distribute": { "type": "string", "enum": ["start", "center", "end", "between", "around", "evenly"] },
@@ -978,6 +1026,10 @@
         "annotations": {
           "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Annotation" } }, { "type": "null" }]
         },
+        "columns": {
+          "anyOf": [{ "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/TableColumn" } }, { "type": "null" }]
+        },
+        "header": { "type": ["boolean", "null"] },
         "seed": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
         "palette": { "type": ["string", "null"] },
         "params": {

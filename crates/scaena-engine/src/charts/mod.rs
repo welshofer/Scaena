@@ -586,32 +586,38 @@ impl Numerals {
 
 /// `text` with its minus signs as `minus`: U+2212 where the font has it, else the
 /// hyphen-minus.
-fn typeset_minus(text: String, minus: char) -> String {
+pub(crate) fn typeset_minus(text: String, minus: char) -> String {
     if minus == MINUS { text } else { text.replace(MINUS, &minus.to_string()) }
 }
 
 /// How a category prints: a date column through a date format, a number column through
 /// a number format.
-enum CategoryFormat {
+pub(crate) enum CategoryFormat {
     Number(NumberFormat),
     Date(DateFormat),
 }
 
 impl CategoryFormat {
-    /// `spec` for a column of type `kind`; a string column takes no format.
-    fn parse(spec: &str, kind: ColumnType, field: &str) -> Result<CategoryFormat, EngineError> {
-        let bad = |e: scaena_core::format::FormatError| EngineError::Layout(format!("`x.format`: {e}"));
+    /// `spec`, the format of `channel` (`x`, `columns[2]`), for a column of type `kind`;
+    /// a string column takes no format.
+    pub(crate) fn parse(
+        spec: &str,
+        kind: ColumnType,
+        field: &str,
+        channel: &str,
+    ) -> Result<CategoryFormat, EngineError> {
+        let bad = |e: scaena_core::format::FormatError| EngineError::Layout(format!("`{channel}.format`: {e}"));
         match kind {
             ColumnType::Number => Ok(CategoryFormat::Number(NumberFormat::parse(spec).map_err(bad)?)),
             ColumnType::Date => Ok(CategoryFormat::Date(DateFormat::parse(spec).map_err(bad)?)),
             _ => Err(EngineError::Layout(format!(
-                "`x.format` formats numbers and dates; `{field}` is a {} column",
+                "`{channel}.format` formats numbers and dates; `{field}` is a {} column",
                 kind.name()
             ))),
         }
     }
 
-    fn print(&self, d: &Datum, locale: &Locale) -> String {
+    pub(crate) fn print(&self, d: &Datum, locale: &Locale) -> String {
         match (self, d) {
             (CategoryFormat::Number(f), Datum::Number(n)) => f.format(*n, locale),
             (CategoryFormat::Date(f), Datum::Date(t)) => f.format(*t, locale),

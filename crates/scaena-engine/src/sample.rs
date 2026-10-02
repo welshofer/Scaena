@@ -35,6 +35,7 @@ use crate::images::ImageNode;
 use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
+use crate::tables::{Cell, TableLayout};
 use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
@@ -74,6 +75,7 @@ pub struct SceneNode {
 pub enum Content {
     Text(PlacedText),
     Chart { cell: Rect, chart: Box<ChartLayout> },
+    Table { cell: Rect, table: Box<TableLayout> },
     Shader(ShaderNode),
     Shape(ShapeNode),
     Image(ImageNode),
@@ -132,6 +134,10 @@ impl SceneNode {
             Content::Shape(s) => layer(Some(&self.id), [s.rect[0], s.rect[1]], opacity, s.ops()),
             Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
             Content::Text(placed) => text_layer(dl, &self.id, placed, placed.origin, opacity),
+            Content::Table { cell, table } => {
+                let ops = table_ops(dl, table);
+                layer(Some(&self.id), [cell[0], cell[1]], opacity, ops)
+            }
             Content::Chart { cell, chart } => {
                 let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
                 let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
@@ -242,6 +248,8 @@ enum Track {
     /// A chart: its parts match by key. With one side missing, the chart enters
     /// (grows its values in) or exits (shrinks them out).
     Chart { from: Option<usize>, to: Option<usize>, plan: Box<ChartPlan> },
+    /// A table in both: its cells match by row and column, its rules by the row above.
+    Table { from: usize, to: usize, plan: Box<TablePlan> },
 }
 
 /// How a chart's parts get from one snapshot to the next, matched by key.
@@ -302,7 +310,11 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: Some(i), to: None, plan: Box::new(ChartPlan::new(Some(chart), None)) }
                     }
-                    Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Exit(i),
+                    Content::Text(_)
+                    | Content::Shader(_)
+                    | Content::Shape(_)
+                    | Content::Image(_)
+                    | Content::Table { .. } => Track::Exit(i),
                 };
                 tracks.push((a.paint.clone(), track));
             }
@@ -314,7 +326,11 @@ impl Transition {
                     Content::Chart { chart, .. } => {
                         Track::Chart { from: None, to: Some(j), plan: Box::new(ChartPlan::new(None, Some(chart))) }
                     }
-                    Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Enter(j),
+                    Content::Text(_)
+                    | Content::Shader(_)
+                    | Content::Shape(_)
+                    | Content::Image(_)
+                    | Content::Table { .. } => Track::Enter(j),
                 },
                 (Some(_), Policy::Cut) => Track::Cut(j),
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
@@ -325,6 +341,9 @@ impl Transition {
                     (Content::Image(x), Content::Image(y)) if x.same_image(y) => Track::Move { from: i, to: j },
                     // Charts morph mark by mark between kinds that draw the same
                     // marks; any other change of kind cross-fades.
+                    (Content::Table { table: x, .. }, Content::Table { table: y, .. }) => {
+                        Track::Table { from: i, to: j, plan: Box::new(TablePlan::new(x, y)) }
+                    }
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) if x.kind.morphs_to(y.kind) => {
                         Track::Chart { from: Some(i), to: Some(j), plan: Box::new(ChartPlan::new(Some(x), Some(y))) }
                     }
@@ -409,9 +428,80 @@ impl Transition {
                     let op = chart_layer(id, origin, width, dl.viewport[1], opacity, ops);
                     dl.ops.push(op);
                 }
+                Track::Table { from: i, to: j, plan } => {
+                    let (x, y) = (&from[*i], &to[*j]);
+                    let (Content::Table { cell: ca, table: a }, Content::Table { cell: cb, table: b }) =
+                        (&x.content, &y.content)
+                    else {
+                        unreachable!("Table tracks pair tables")
+                    };
+                    let origin = lerp2([ca[0], ca[1]], [cb[0], cb[1]], p);
+                    let ops = plan.sample(&mut dl, a, b, p);
+                    dl.ops.push(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops));
+                }
             }
         }
         dl
+    }
+}
+
+/// How a table's parts get from one snapshot to the next: cells by row and column (the
+/// header's by column), rules by the row above them (the header's rule by none).
+#[derive(Debug, Clone, PartialEq)]
+struct TablePlan {
+    cells: Vec<Pair>,
+    rules: Vec<Pair>,
+}
+
+impl TablePlan {
+    fn new(a: &TableLayout, b: &TableLayout) -> TablePlan {
+        let cells = |t: &TableLayout| -> Vec<String> {
+            t.header.iter().chain(&t.cells).map(|c| format!("{}\u{1f}{}", c.row, c.column)).collect()
+        };
+        let rules = |t: &TableLayout| -> Vec<String> {
+            t.rule.iter().map(|_| "\u{1f}".to_string()).chain(t.row_rules.iter().map(|(k, _)| k.clone())).collect()
+        };
+        TablePlan { cells: pair(&cells(a), &cells(b), |k| k), rules: pair(&rules(a), &rules(b), |k| k) }
+    }
+
+    /// The table's ops `p` of the way from `a` to `b`: a cell on both sides moves, and
+    /// cross-fades if its text changed; one on one side only fades where it is, as rows
+    /// and columns come and go. Rules move, or fade.
+    fn sample(&self, dl: &mut DisplayList, a: &TableLayout, b: &TableLayout, p: f32) -> Vec<Op> {
+        let all = |t: &TableLayout| -> Vec<Rule> {
+            t.rule.iter().chain(t.row_rules.iter().map(|(_, r)| r)).cloned().collect()
+        };
+        let (ra, rb) = (all(a), all(b));
+        let mut ops = Vec::new();
+        for &(i, j) in &self.rules {
+            match (i.map(|i| &ra[i]), j.map(|j| &rb[j])) {
+                (Some(x), Some(y)) => ops.push(rule_op(&lerp_rule(x, y, p), 1.0)),
+                (Some(x), None) => ops.push(rule_op(x, 1.0 - p)),
+                (None, Some(y)) => ops.push(rule_op(y, p)),
+                (None, None) => {}
+            }
+        }
+        let (ca, cb): (Vec<&Cell>, Vec<&Cell>) =
+            (a.header.iter().chain(&a.cells).collect(), b.header.iter().chain(&b.cells).collect());
+        let mut cell = |at: Point, alpha: f32, c: &Cell| ops.push(layer(None, at, alpha, text_ops(dl, &c.text.runs)));
+        for &(i, j) in &self.cells {
+            match (i.map(|i| ca[i]), j.map(|j| cb[j])) {
+                (Some(x), Some(y)) if x.text.text == y.text.text && x.text.runs == y.text.runs => {
+                    cell(lerp2(x.origin, y.origin, p), 1.0, y)
+                }
+                // Changed text: both keep to the anchor as it moves.
+                (Some(x), Some(y)) => {
+                    let at = lerp2(x.anchor, y.anchor, p);
+                    let place = |c: &Cell| [at[0] + c.origin[0] - c.anchor[0], at[1] + c.origin[1] - c.anchor[1]];
+                    cell(place(x), 1.0 - p, x);
+                    cell(place(y), p, y);
+                }
+                (Some(x), None) => cell(x.origin, 1.0 - p, x),
+                (None, Some(y)) => cell(y.origin, p, y),
+                (None, None) => {}
+            }
+        }
+        ops
     }
 }
 
@@ -419,10 +509,20 @@ impl Transition {
 fn chart(node: Option<&SceneNode>) -> Option<(&SceneNode, Rect, &ChartLayout)> {
     node.map(|n| match &n.content {
         Content::Chart { cell, chart } => (n, *cell, &**chart),
-        Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => {
+        Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) | Content::Table { .. } => {
             unreachable!("Chart tracks pair charts")
         }
     })
+}
+
+/// A table's ops: its rules under its text, the header's and then the body's.
+fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
+    let rules = table.rule.iter().chain(table.row_rules.iter().map(|(_, r)| r));
+    let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
+    for cell in table.header.iter().chain(&table.cells) {
+        ops.push(layer(None, cell.origin, 1.0, text_ops(dl, &cell.text.runs)));
+    }
+    ops
 }
 
 fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64) {

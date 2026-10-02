@@ -32,6 +32,7 @@ pub mod sample;
 pub mod scale;
 pub mod shaders;
 pub mod shapes;
+pub mod tables;
 pub mod text;
 pub mod theme;
 

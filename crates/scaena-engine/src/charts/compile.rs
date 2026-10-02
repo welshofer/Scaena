@@ -162,7 +162,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         return Err(EngineError::Data(format!("`{x_field}` must hold numbers or dates to run along a continuous x")));
     }
     let x_format = (x.get("format").and_then(Value::as_str))
-        .map(|f| CategoryFormat::parse(f, table.types[xc], x_field))
+        .map(|f| CategoryFormat::parse(f, table.types[xc], x_field, "x"))
         .transpose()?;
     let series_col = field(series_enc).map(col).transpose()?;
     let color_col = field(color_enc).map(col).transpose()?;

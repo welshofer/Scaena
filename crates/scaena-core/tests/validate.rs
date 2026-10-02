@@ -64,6 +64,9 @@ fn e103_fields_charts_cannot_read() {
             "/nodes/b/y/type",
             "/nodes/d/dataTransform/0/derive/m",
             "/nodes/e/y/field",
+            "/nodes/f/columns/1/field",
+            "/nodes/f/columns/2/format",
+            "/nodes/f/key",
             "/states/1/props/c/y/field",
         ],
     );
@@ -75,6 +78,7 @@ fn e103_fields_charts_cannot_read() {
     // A transform's expression reads a column that is not there; a chart reads one its
     // transform does not leave.
     assert!(say("/nodes/d/dataTransform/0/derive/m").contains("no column `profit`"));
+    assert!(say("/nodes/f/columns/2/format").contains("`columns[2].format` prints numbers and dates"));
     let after = say("/nodes/e/y/field");
     assert!(after.contains("after its `dataTransform` has no column `rev`; it has `quarter`, `total`"), "{after}");
 }
@@ -96,7 +100,8 @@ fn a_format_that_does_not_parse_is_e106() {
     let found = validate_bundle(&deck, &Fixtures).unwrap();
     let codes: Vec<(String, String)> =
         found.iter().map(|f| (f.code.clone(), f.path.clone().unwrap_or_default())).collect();
-    assert_eq!(codes, [("E106".to_string(), "/nodes/a/y/format".to_string())], "{found:#?}");
+    let e106 = |path: &str| ("E106".to_string(), path.to_string());
+    assert_eq!(codes, [e106("/nodes/a/y/format"), e106("/nodes/tb/columns/1/format")], "{found:#?}");
     assert!(found[0].message.contains("not a number type"));
 }
 

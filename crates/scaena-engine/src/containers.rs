@@ -353,7 +353,9 @@ impl Flow<'_> {
             NodeType::Group => {
                 return Err(in_node(id, "a group cannot sit in a stack, grid, or frame".into()));
             }
-            NodeType::Shape | NodeType::Chart | NodeType::Shader => self.tree.new_leaf(style).map_err(taffy_error)?,
+            NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader => {
+                self.tree.new_leaf(style).map_err(taffy_error)?
+            }
         };
         self.ids.insert(node, id.to_string());
         Ok(node)
@@ -390,9 +392,10 @@ fn natural_size(images: &BundleImages, props: &Props) -> Option<(f32, f32)> {
     (w > 0.0 && h > 0.0).then_some((w, h))
 }
 
-/// Shapes, charts, and shaders have no size of their own: in a stack they share the room.
+/// Shapes, charts, tables, and shaders have no size of their own: in a stack they share
+/// the room.
 fn grows(kind: NodeType) -> bool {
-    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Shader)
+    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader)
 }
 
 /// A node's style as a child of `within`: its `size` and its alignment.

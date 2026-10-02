@@ -414,6 +414,26 @@ impl LoadedTheme {
                 need(self.stroke(stroke), "stroke", stroke, "/charts/strokeWidth".into());
             }
         }
+        if let Some(tables) = &t.tables {
+            for (key, text) in [("header", &tables.header), ("cell", &tables.cell)] {
+                let Some(text) = text else { continue };
+                if let Some(role) = &text.role {
+                    need(t.typography.roles.contains_key(role), "text role", role, format!("/tables/{key}/role"));
+                }
+                if let Some(color) = &text.color {
+                    need(self.color(color), "color", color, format!("/tables/{key}/color"));
+                }
+            }
+            for (key, rule) in [("rule", &tables.rule), ("rowRule", &tables.row_rule)] {
+                let Some(rule) = rule else { continue };
+                if let Some(color) = &rule.color {
+                    need(self.color(color), "color", color, format!("/tables/{key}/color"));
+                }
+                if let Some(stroke) = &rule.stroke {
+                    need(self.stroke(stroke), "stroke", stroke, format!("/tables/{key}/stroke"));
+                }
+            }
+        }
         out
     }
 
@@ -736,7 +756,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
     for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
         for (id, props) in &snapshot.nodes {
             let Some(node) = deck.nodes.get(id) else { continue };
-            if node.node_type != NodeType::Chart {
+            if !matches!(node.node_type, NodeType::Chart | NodeType::Table) {
                 continue;
             }
             let Some(name) = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@')) else {
@@ -754,7 +774,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     );
                 }
             };
-            // The table the chart reads: the source, through its transform.
+            // The table the chart or table reads: the source, through its transform.
             let steps = props.get("dataTransform").and_then(Value::as_array);
             let transformed;
             let table = match steps.map(|steps| transform::apply(source.clone(), steps)) {
@@ -784,11 +804,27 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             {
                 found("E103", here("key", ""), missing(key));
             }
-            for channel in ["x", "y", "series", "color", "sizeEncoding"] {
-                let Some(encoding) = props.get(channel).and_then(Value::as_object) else { continue };
+            // What reads a field: a chart's channels, or a table's columns, each with the
+            // key its path starts at, the rest of the path, and its name in a message.
+            let readers: Vec<(&str, String, String, &Map<String, Value>)> = match node.node_type {
+                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding"]
+                    .into_iter()
+                    .filter_map(|c| {
+                        props.get(c).and_then(Value::as_object).map(|e| (c, String::new(), c.to_string(), e))
+                    })
+                    .collect(),
+                _ => (props.get("columns").and_then(Value::as_array).into_iter().flatten().enumerate())
+                    .filter_map(|(k, c)| {
+                        c.as_object().map(|e| ("columns", format!("/{k}"), format!("columns[{k}]"), e))
+                    })
+                    .collect(),
+            };
+            for (key, at, channel, encoding) in readers {
+                let channel = channel.as_str();
+                let here = |rest: &str| here(key, &format!("{at}{rest}"));
                 let Some(field) = encoding.get("field").and_then(Value::as_str) else { continue };
                 let Some(kind) = column(field) else {
-                    found("E103", here(channel, "/field"), missing(field));
+                    found("E103", here("/field"), missing(field));
                     continue;
                 };
                 let wants = match encoding.get("type").and_then(Value::as_str) {
@@ -805,7 +841,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         article(kind.name()),
                         wants.name()
                     );
-                    found("E103", here(channel, "/type"), message);
+                    found("E103", here("/type"), message);
                 }
                 if let Some(spec) = encoding.get("format").and_then(Value::as_str) {
                     let parsed = match kind {
@@ -816,12 +852,12 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                                 "`{channel}.format` prints numbers and dates; `{field}` is {} column",
                                 article(kind.name())
                             );
-                            found("E103", here(channel, "/format"), message);
+                            found("E103", here("/format"), message);
                             continue;
                         }
                     };
                     if let Err(e) = parsed {
-                        found("E106", here(channel, "/format"), e.to_string());
+                        found("E106", here("/format"), e.to_string());
                     }
                 }
             }

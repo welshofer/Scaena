@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
 /// The node types a node line can name.
-pub const TYPES: [&str; 9] = ["text", "shape", "image", "chart", "shader", "stack", "grid", "frame", "group"];
+pub const TYPES: [&str; 10] = ["text", "shape", "image", "chart", "table", "shader", "stack", "grid", "frame", "group"];
 /// The types whose name takes a kind: `chart:bar`, `shader:mesh`.
 pub const KINDED: [&str; 2] = ["chart", "shader"];
 /// Words that start a line in a state's body other than a node line.

@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.4",
+  "scaena": "0.5",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -153,6 +153,7 @@ Every node has a `type`, an id (its key in `nodes`), and the properties every ty
 | `shape` | vector geometry | `path` (SVG path data) or `kind: rect\|ellipse\|line\|arrow\|polygon\|path`, `points`, `radius` |
 | `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius` |
 | `chart` | data-bound visualization | §3.7 |
+| `table` | data-bound table | `data`, `dataTransform`, `columns` (`field`, `title`, `format`, `align`), `key`, `header` |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
 | `stack` | layout container (axis) | `axis: x\|y`, `gap`, `distribute`, `padding`, `radius` |
 | `grid` | layout container (grid) | `cols`, `rows`, `gap`, `areas`, `padding`, `radius` (+ child `at.area`, `at.col`/`at.row`) |
@@ -161,7 +162,15 @@ Every node has a `type`, an id (its key in `nodes`), and the properties every ty
 
 A node is in a container when its `at.parent` names one (§3.4, ADR-0008); containers do not list their children.
 
-Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`. `table` arrives with the chart and table sprint (PLAN 1.9) and joins the schema there.
+Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`.
+
+**Tables** (PLAN 1.9, deck format 0.5) set a data source's rows, through its `dataTransform` (§3.10), in the theme's `tables` styles (§3.6).
+- `columns` lists the columns in order. Each is a `field`, with an optional `title` (default: the field), `format` for numbers and dates (`docs/spec/format.md`), and `align` (`start`, `center`, `end`; numbers at the end and everything else at the start by default). Without `columns`, the table shows every column of its data.
+- The header row (`header`, default true) prints the titles in `tables.header` (role `label` in `onSurfaceMuted`) over a rule, `tables.rule`. Cells print in `tables.cell` (role `body`), numbers in tabular lining figures with the font's minus sign or a hyphen-minus. A null cell is empty.
+- Each column is as wide as its widest text, `tables.columnGap` apart (an em of the cell text by default). The first column takes the room the cell has to spare, so the rest keep together at its far side.
+- Each row is its tallest text with `tables.rowGap` (half a space unit by default) above and below, its cells' first baselines on one line. `tables.rowRule` rules between rows.
+- A table that needs more room than its cell is an error that says what to cut: columns across, or rows down (keep fewer with `dataTransform`'s `limit`).
+- Rows are identified by `key` (default: the first column), which must be unique. Between states a row moves to where it now stands. A cell whose text changed cross-fades, aligned to its column. Rows and columns on one side only fade in or out where they stand, and rules move with their rows.
 
 **Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are theme colors; `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out.
 
@@ -267,7 +276,9 @@ See `docs/schema/theme.schema.json`. Shape:
   },
   "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "legend": { "role": "label" }, "strokeWidth": "thin",
-              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5 }
+              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5 },
+  "tables": { "header": { "role": "label", "color": "onSurfaceMuted" }, "cell": { "role": "body" }, "rule": { "stroke": "hairline" },
+              "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4 }
 }
 ```
 
@@ -421,9 +432,9 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts reference `@name`.
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts and tables reference `@name`.
 
-**Transforms** (PLAN 1.9). A chart MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
+**Transforms** (PLAN 1.9). A chart or a table MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
 - `{ "filter": "<expr>" }` keeps the rows where the expression is true.
 - `{ "derive": { "<column>": "<expr>", … } }` adds a column per expression, in order, each able to read the ones before it. A name that is already a column replaces it.
 - `{ "sort": "<field>" }` or `{ "sort": ["<field>", "-<field>", …] }` sorts by each field in turn, `-` for descending. Rows that tie keep their order, nulls go last either way, and text sorts by code point.
@@ -744,7 +755,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E100 | error | text overflow (wrap/clip) |
 | E101 | error | unintended collision between nodes in the same layer |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
-| E103 | error | what a chart reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format |
+| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
 | E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse |
@@ -900,7 +911,7 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 4. Floating point: layout and interpolation use `f32` with a fixed evaluation order; display lists are compared bit-for-bit after rounding lengths to 1/64 cu and transform linear parts to 2⁻¹⁶ (`quantize`; rounding a rotation's sine to 1/64 would erase it). (If platform `f32` drift appears in practice, the golden test rounds; the contract does not.)
 5. GPU vs CPU raster parity is tested per fixture with a tolerance (ΔE in Oklab ≤ 1.0 on 99.9% of pixels; AA edges excluded by a 1-px dilation mask; and no pixel anywhere, edges included, differs by half the channel range (128/255) or more, so a hole or a misplaced glyph cannot hide in the mask).
 6. Export frames are produced by the CPU painter unless the caller opts into GPU.
-7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Shader references compute theirs once per frame, and per pixel use only `+ − × ÷` and comparisons, in the same order as their WGSL twins; sRGB encoding compares against a table of 255 thresholds instead of calling `pow`. Springs (`scaena_core::timeline::Spring`) still call `std` and must move to `libm` before they drive frames (PLAN 1.11).
+7. Transcendental math in the render path (`cbrt`, `pow`, `exp`, `sin`, …) goes through `libm`'s pure-Rust implementations, not `std`. The `std` float methods call the platform's math library, whose last bits differ between Linux, macOS, and WASM. Geometry avoids transcendentals where it can: rounded corners are arithmetic Béziers. Shader references compute theirs once per frame, and per pixel use only `+ − × ÷` and comparisons, in the same order as their WGSL twins; sRGB encoding compares against a table of 255 thresholds instead of calling `pow`. Springs (`scaena_core::timeline::Spring`) evaluate through `libm` too.
 
 ---
 

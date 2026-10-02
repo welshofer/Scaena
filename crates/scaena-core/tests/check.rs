@@ -100,7 +100,7 @@ fn a_node_is_checked_as_its_own_type() {
         |d| d["nodes"]["x"] = json!({"type": "video"}),
         "/nodes/x/type",
         Kind::Value,
-        "`\"video\"` is not a node type: one of text, shape, image, chart, shader, stack, grid, frame, group",
+        "`\"video\"` is not a node type: one of text, shape, image, chart, table, shader, stack, grid, frame, group",
     );
     says(|d| d["nodes"]["img"] = json!({"type": "image"}), "/nodes/img/src", Kind::Missing, "missing `src`");
 }
