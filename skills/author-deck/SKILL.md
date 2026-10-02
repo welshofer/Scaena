@@ -23,5 +23,7 @@ You are writing a Scaena document (`deck.json`, schema at `docs/schema/deck.sche
 - Never put a literal color, size, or coordinate anywhere but `overrides`, and avoid `overrides`.
 - Every beat's states include a node with `semantic: claim` that expresses the claim.
 - Charts: no style fields. `kind` ∈ v1 kinds only. Always set `key`.
+- Name ids for what a node is for, not what it says today: `total`, not `q3-total`. Ids are identity; they outlive the copy and the period.
+- Figures in copy (text, `alt`, beat claims, notes) are literals. When the data changes, re-derive every one from the data and re-read every claim: lint notices neither a stale figure nor a claim the new data makes false (SPEC §16, question 9).
 - Keep `maxWordsPerState` (theme `density`) — this is a presentation, not a document.
 - Do not invent fonts: use the theme's families.

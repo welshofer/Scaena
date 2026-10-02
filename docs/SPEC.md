@@ -63,9 +63,9 @@ A deck owns one **scene graph**: a set of **nodes**, each with a stable `id` (a 
 
 A deck is an **ordered list of states**. A state is a named point on the timeline where the scene graph has particular property values. Every click is a state. The state list is the cue list; the engine's lineage is a theatrical lighting console, not a slide sorter.
 
-**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
+**Tracking.** By default a state declares only *changes* relative to the previous state; unchanged properties carry forward ("track"). A delta replaces each property it names, except an object value, which merges one level into the one it tracks: `at: { "col": [1, 6] }` moves a node's columns and keeps its row. `null` deletes a property, or one key of an object value (the hand-written schema cannot say `null` yet: PLAN 1.1). A node that is not visible in the state a delta starts from enters with its node defaults under the delta, not with the props it had when it left; to bring a look back, track `from` the state that had it. A state MAY instead declare `from` (branch from an arbitrary earlier state) or `mode: "absolute"` (no tracking; everything explicit). The state's `layout` template tracks the same way, so a build on the same slide need not restate it. Per-state-only properties (keyframe `anim` tracks) never track: an entrance must not replay on the next cue. The engine resolves every state to an **absolute snapshot** before layout. Authors edit deltas; the engine thinks in snapshots; tooling shows both.
 
-**Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key is its own slide.
+**Slides.** A `slide` key groups consecutive states for navigation and export (a build sequence is one slide with several states). A state with no `slide` key starts a slide named by its own id; the states that build on it set `slide` to that id.
 
 ### 2.3 Transitions
 
@@ -136,7 +136,7 @@ Rules:
 }
 ```
 
-**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique across `nodes`, across `states`, and across spine `beats`. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
+**IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique within `nodes`, within `states`, and within spine `beats` (E105); a node and a state may share one. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
 
 ### 3.3 Node types
 
@@ -170,6 +170,8 @@ Placement is declared with `at`, resolved against the state's **layout template*
 "at": { "rect": [120, 80, 900, 420] }              // canvas units — an OVERRIDE (lint W301)
 "at": { "parent": "stats", "index": 2 }            // child of a container node
 ```
+
+One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans the grid). A node with no `at` fills the grid's margin box. Besides its template's slots, every state has two: `canvas`, the whole canvas, and `grid`, the margin box.
 
 Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = flex (one axis), `grid` = CSS grid, `frame` = absolute. Sizing values: `fixed(cu)`, `fit`, `fill`, `fraction(n)`, `aspect(w:h)`, `min/max`.
 
@@ -248,7 +250,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut
                                        // deferred (not v1, not scheduled): slope | waffle | range | heatmap
   "data": "@q3",                       // data source ref, optionally with a transform pipeline
-  "transform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
+  "dataTransform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
   "x": { "field": "quarter", "type": "ordinal" },
   "y": { "field": "revenue", "type": "quantitative", "format": "$,.0f", "domain": [0, null] },
   "series": { "field": "product" },
@@ -276,9 +278,9 @@ Rules:
 - **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each bar (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures. Without a `format`, integers print bare and other numbers in shortest round-trip form.
 - **Clip.** A chart clips at its cell's sides, so bars that ride out of a scrolling window pass under them. Vertically it draws on the whole canvas, so a figure that overshoots the cap height keeps its top.
 - **Motion.** A matched bar interpolates its shape. A new key grows from the baseline and a removed one shrinks onto it, each moving with its nearest matched neighbor (the earlier on a tie), so a window that advances a period scrolls. A value label rides its bar and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
-- **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, `format`, and `transform` return NotImplemented until the chart and table sprint (PLAN 1.9).
+- **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, `format`, and `dataTransform` return NotImplemented until the chart and table sprint (PLAN 1.9).
 
-Open (PLAN 1.1): the chart `axes` object above collides in the schema with text `axes` (variable-font axes, numbers only) in `NodeProps`, so a chart cannot declare axes settings until node props are typed per node type.
+Open (PLAN 1.1): the chart `axes` object above collides in the schema with text `axes` (variable-font axes, numbers only) in `NodeProps`, so a chart cannot declare axes settings until node props are typed per node type. The schema holds the place with `axesSpec`, an untyped object that nothing reads yet.
 
 ### 3.8 Shader nodes
 
@@ -344,7 +346,7 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types `number`, `string`, and `boolean` parse in Phase 0; `date` and `parse` arrive in PLAN 1.9. Charts reference `@name` and MAY apply a transform pipeline (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types `number`, `string`, and `boolean` parse in Phase 0; `date` and `parse` arrive in PLAN 1.9. Charts reference `@name` and MAY apply a transform pipeline, `dataTransform` (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
 
 ### 3.11 Spine
 
@@ -788,6 +790,7 @@ Notes: the cold PNG budget and the video budgets are different workloads and are
 6. Multiple formats: how much per-format override is allowed before it's a second deck?
 7. Collaboration conflict UX when it arrives.
 8. A very large font catalog (Jay, 2026-10-01). Proposal: a local, content-addressed font store with a searchable index (family, styles, axes, script coverage, license), filled on demand from catalog sources. Editors and agents pick from it (`scaena fonts search | add`, and the same over MCP), and saving subsets the chosen faces into the bundle. The render path is unchanged, bundle fonts only (§13), so the catalog's size never reaches layout or painting. Open: which sources, licensing (Q3), offline use, and drawing script fallback chains from the catalog.
+9. Copy that quotes data. Every figure in text, `alt`, claims, and notes is a literal, so a data update is a manual sweep, and nothing notices a claim the new data makes false. In the authorability spike (PLAN 0.13), rolling a chart forward was one field for the chart and 22 hand edits for the words. Proposal: a text run can bind a value, as in `{ "bind": "@revenue", "value": "sum(revenue) where quarter = last(quarter)", "format": "$,.1f" }`, written in `dataTransform`'s expression language (§3.10) and resolved per snapshot like any text, so a figure rolls forward with its data. Open: how big the expression language gets, how an editor shows a bound figure, the DSL spelling, and whether a claim about a trend ("growth accelerated") can be checked at all.
 
 ---
 
