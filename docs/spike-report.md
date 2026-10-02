@@ -224,3 +224,37 @@ A shader op carries parameters, not pixels (SPEC §6). Each kind's CPU reference
   - A shader whose kind, seed, palette, or params change between states cross-fades. Uniform interpolation is PLAN 1.12.
   - Grain is per device pixel, so a 2× render has finer grain than a 1× render. The viewport is a render input (SPEC §1, principle 1).
 - **Not yet.** The CPU reference is single-threaded; its rows are independent, so threads would divide it. A shader rect wider than 8,192 device pixels overflows vello's image atlas and will need tiling.
+
+## 0.13 Authorability
+
+The second hypothesis held: semantic text documents are naturally agent-authorable. Five fresh agents made PLAN 0.13's five edits to one deck, each knowing the format only from SPEC, the schemas, the examples, the skills, and CLI help. All five validate and lint clean, every patch is local, and identity survives, so gate 0 criterion 7 is met. The record is `docs/examples/agent-authorability.md`. The bundle, the agents' transcript, and the deck after each edit are in `docs/examples/authorability/`.
+
+- **The edits were small because the document is semantic:**
+  - The data roll repointed one data source by name.
+  - The retheme swapped one file.
+  - The headline was one node default plus its beat's claim.
+  - The build added a state and trimmed one.
+
+  Tracking did the rest. In every edit, every state outside its reach resolved exactly as before.
+- **The agents checked their own work.** After `validate` and `lint`, `inspect` and `diff` were their main tools. `inspect` caught the one real trap: object values merge across states, which SPEC did not mention.
+- **Clean is a low bar today.** `validate` and `lint` read nothing in the bundle besides the deck. All of these pass:
+  - a missing data file;
+  - a chart field that is not in the data;
+  - a theme without the slots a deck uses;
+  - a theme whose ink is the color of its paper.
+
+  The judge checked theme names and resolved snapshots with `scripts/judge_edit.py`, and recomputed every figure from the data. Nothing checks that a deck renders. This one lists two of its theme's three font families, as two agents decided on purpose, and `render` refuses every state until the third is added.
+- **Copy is literal.** Rolling the chart forward to the next quarter was one field. The words took 22 edits, and lint stayed clean over a headline the new data made false. SPEC §16 question 9 proposes figures bound to data.
+- **Contrast over a shader, measured.**
+  - The agents estimated the Dusk cover's title at 2.3–2.5:1 over the mesh's orange stop.
+  - Rendered and compared with the mesh beneath it, glyph pixel by glyph pixel, the minimum is 3.41:1. That passes the 3:1 display bar by 0.4, at rest.
+  - E111 should make that same measurement, against the shader's CPU reference (PLAN 1.15).
+- **SPEC fixed where it was silent about what the code does:**
+  - object values merge one level, and `null` deletes;
+  - placement precedence and the built-in slots;
+  - a re-entering node starts from its node defaults;
+  - how a build names its slide;
+  - the scope of id uniqueness;
+  - `dataTransform` and `axesSpec`.
+
+  Thirteen open findings point at their Phase 1 tasks, the chart sprint (1.9) and lint (1.15) foremost.

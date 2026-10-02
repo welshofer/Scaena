@@ -7,6 +7,9 @@ theme_schema = json.load(open(root / 'docs/schema/theme.schema.json'))
 Draft202012Validator.check_schema(deck_schema); Draft202012Validator.check_schema(theme_schema)
 # Every example, plus every fixture bundle under tests/fixtures/ (deck.json and its theme.json).
 targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema)]
+# The deck the authorability spike's agents wrote (PLAN 0.13), and the themes it moved between.
+targets += [('docs/examples/authorability/deck.json', deck_schema)]
+targets += [(str(p.relative_to(root)), theme_schema) for p in sorted((root / 'docs/examples/authorability/themes').glob('*.theme.json'))]
 for bundle in sorted((root / 'tests/fixtures').glob('*.scaena')):
     targets.append((str((bundle / 'deck.json').relative_to(root)), deck_schema))
     if (bundle / 'theme.json').exists():
