@@ -7,8 +7,11 @@
 //! Every rule ships with fixtures under `tests/lint/<CODE>/` (one deck that
 //! triggers it, one that must not) — see PLAN working agreement 5.
 
+mod delta;
 mod document;
 mod narrative;
+
+pub use delta::{Delta, delta};
 
 use crate::displaylist::DisplayList;
 use crate::document::Deck;

@@ -1,0 +1,1600 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scaena.dev/schema/patch-0.8.json",
+  "title": "Scaena patch",
+  "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/Op" },
+  "$defs": {
+    "Op": {
+      "description": "One op: RFC 6902's, or a semantic op, which compiles to RFC 6902's.",
+      "anyOf": [{ "$ref": "#/$defs/JsonOp" }, { "$ref": "#/$defs/SemanticOp" }]
+    },
+    "JsonOp": {
+      "description": "RFC 6902's ops.",
+      "oneOf": [
+        {
+          "description": "Put `value` at `path`: a member of an object (one already there is replaced, in its place), or an item of an array, at an index or at its end (`-`).",
+          "type": "object",
+          "required": ["op", "path", "value"],
+          "properties": {
+            "path": { "$ref": "#/$defs/Pointer" },
+            "value": true,
+            "op": { "type": "string", "const": "add" }
+          }
+        },
+        {
+          "description": "Take away what is at `path`.",
+          "type": "object",
+          "required": ["op", "path"],
+          "properties": { "path": { "$ref": "#/$defs/Pointer" }, "op": { "type": "string", "const": "remove" } }
+        },
+        {
+          "description": "Replace what is at `path`, which must be there.",
+          "type": "object",
+          "required": ["op", "path", "value"],
+          "properties": {
+            "path": { "$ref": "#/$defs/Pointer" },
+            "value": true,
+            "op": { "type": "string", "const": "replace" }
+          }
+        },
+        {
+          "description": "`remove` at `from`, then `add` at `path`. A member moved within its object keeps its place: a rename.",
+          "type": "object",
+          "required": ["op", "from", "path"],
+          "properties": {
+            "from": { "$ref": "#/$defs/Pointer" },
+            "path": { "$ref": "#/$defs/Pointer" },
+            "op": { "type": "string", "const": "move" }
+          }
+        },
+        {
+          "description": "`add` at `path` what is at `from`.",
+          "type": "object",
+          "required": ["op", "from", "path"],
+          "properties": {
+            "from": { "$ref": "#/$defs/Pointer" },
+            "path": { "$ref": "#/$defs/Pointer" },
+            "op": { "type": "string", "const": "copy" }
+          }
+        },
+        {
+          "description": "Fail the patch unless `path` holds `value` (numbers equal by value: 1 is 1.0).",
+          "type": "object",
+          "required": ["op", "path", "value"],
+          "properties": {
+            "path": { "$ref": "#/$defs/Pointer" },
+            "value": true,
+            "op": { "type": "string", "const": "test" }
+          }
+        }
+      ]
+    },
+    "Pointer": {
+      "description": "A JSON Pointer (RFC 6901): empty, the whole document, or `/`-separated tokens, `~1` for a `/` and `~0` for a `~` inside one.",
+      "type": "string",
+      "pattern": "^(/.*)?$"
+    },
+    "SemanticOp": {
+      "description": "What an author means, compiled to RFC 6902 against the deck as the ops before it leave it (SPEC §7.3). `state` names the state an op acts in, from it on; without one, an op acts on the node's own properties, its defaults. An op on a node in a state needs the node on screen there.",
+      "oneOf": [
+        {
+          "description": "A node new to the scene graph, last in its order (painted over the others at its `z`). With `state`, it enters there, `props` its delta in that state.",
+          "type": "object",
+          "required": ["op", "id", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "node": { "$ref": "#/$defs/Node" },
+            "state": { "$ref": "#/$defs/Id" },
+            "props": { "$ref": "#/$defs/StateDelta" },
+            "op": { "type": "string", "const": "add_node" }
+          }
+        },
+        {
+          "description": "A node, and everything that names it: its deltas, its exits, its choreography, and its overrides. A container must be emptied first.",
+          "type": "object",
+          "required": ["op", "id"],
+          "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "remove_node" } }
+        },
+        {
+          "description": "A node's id, everywhere it is used: the node keeps its place, its type, and every property, so it stays the same node to tracking and to a morph.",
+          "type": "object",
+          "required": ["op", "id", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "to": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "rename_node" }
+          }
+        },
+        {
+          "description": "A node already in the scene graph enters in a state, `props` its delta there: one that left comes back.",
+          "type": "object",
+          "required": ["op", "node", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "state": { "$ref": "#/$defs/Id" },
+            "props": { "$ref": "#/$defs/StateDelta" },
+            "op": { "type": "string", "const": "show_node" }
+          }
+        },
+        {
+          "description": "A node leaves in a state: it exits there, or, if it would enter there, it does not.",
+          "type": "object",
+          "required": ["op", "node", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "hide_node" }
+          }
+        },
+        {
+          "description": "One property (`kind`), or one key of an object property (`at/in`), set to `value`: in a state, as its delta, or in the node's defaults. `null` takes it away: from the node's defaults, or, in a state, from what the node tracks (SPEC §2.2).",
+          "type": "object",
+          "required": ["op", "node", "prop", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "prop": { "type": "string", "pattern": "^[^/]+(/[^/]+)?$" },
+            "value": true,
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "set_prop" }
+          }
+        },
+        {
+          "description": "A text node's `text`, in a state or in its defaults. `runs` there go, so the text is what shows.",
+          "type": "object",
+          "required": ["op", "node", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "text": { "type": "string" },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "set_text" }
+          }
+        },
+        {
+          "description": "A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data update, morphed by key) or in its defaults. `source` declares it, or replaces it if the deck has it.",
+          "type": "object",
+          "required": ["op", "node", "data"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "data": { "type": "string", "pattern": "^@?[a-z][a-z0-9_-]{0,63}$" },
+            "source": { "$ref": "#/$defs/DataSource" },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "bind_data" }
+          }
+        },
+        {
+          "description": "A theme preset. With `motion`, a motion preset becomes the node's `enter`, `exit`, or `emphasis`. Without, a shader takes a shader preset whole: the preset's kind, and none of its own `palette` or `params`, which would win over the preset's.",
+          "type": "object",
+          "required": ["op", "node", "preset"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "preset": { "type": "string", "minLength": 1 },
+            "motion": { "$ref": "#/$defs/Motion" },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "apply_preset" }
+          }
+        },
+        {
+          "description": "A state, `after` or `before` another, else last. With `beat`, it joins that beat's states.",
+          "type": "object",
+          "required": ["op", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "state": { "$ref": "#/$defs/State" },
+            "after": { "$ref": "#/$defs/Id" },
+            "before": { "$ref": "#/$defs/Id" },
+            "beat": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "add_state" }
+          }
+        },
+        {
+          "description": "A state, moved `after` or `before` another. A state in delta mode tracks from the state before it, wherever that is now.",
+          "type": "object",
+          "required": ["op", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "after": { "$ref": "#/$defs/Id" },
+            "before": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "move_state" }
+          }
+        },
+        {
+          "description": "A state, and its place in the spine's beats. The state after it tracks from the one before it. A state that others build on (`slide`) or track from (`from`) stays.",
+          "type": "object",
+          "required": ["op", "id"],
+          "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "remove_state" } }
+        },
+        {
+          "description": "A state's id, everywhere it is used: the states that build on it or track from it, and the spine's beats.",
+          "type": "object",
+          "required": ["op", "id", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "to": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "rename_state" }
+          }
+        },
+        {
+          "description": "The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in), or a theme inline.",
+          "type": "object",
+          "required": ["op", "theme"],
+          "additionalProperties": false,
+          "properties": { "theme": { "$ref": "#/$defs/ThemeRef" }, "op": { "type": "string", "const": "retheme" } }
+        }
+      ]
+    },
+    "Motion": {
+      "description": "The motion a motion preset is for.",
+      "type": "string",
+      "enum": ["enter", "exit", "emphasis"]
+    },
+    "MeshParams": {
+      "description": "The `mesh` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "points": { "type": "integer", "minimum": 2, "maximum": 16 },
+        "drift": { "description": "In shorter sides of the rect.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientParams": {
+      "description": "The `gradient` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": { "description": "`linear` (the default), `radial`, or `conic`.", "$ref": "#/$defs/GradientShape" },
+        "angle": {
+          "description": "Degrees clockwise from up: a linear gradient's direction (180, the default, runs top to bottom), a conic one's start.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "x": {
+          "description": "A radial or conic gradient's center across the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "description": "A radial or conic gradient's center down the rect, 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "radius": {
+          "description": "A radial gradient's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4
+        },
+        "speed": {
+          "description": "Degrees a second a linear or conic gradient turns.",
+          "type": "number",
+          "minimum": -360,
+          "maximum": 360
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GradientShape": { "type": "string", "enum": ["linear", "radial", "conic"] },
+    "NoiseParams": {
+      "description": "The `noise` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scale": { "description": "Cycles per canvas unit.", "type": "number", "exclusiveMinimum": 0, "maximum": 0.1 },
+        "octaves": {
+          "description": "Layers of finer noise over the first (fractal Brownian motion); 1 is plain simplex noise.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "speed": {
+          "description": "How fast the field changes, in noise cycles a second.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "contrast": {
+          "description": "How far the field spreads across the palette.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "grain": { "description": "In Oklab lightness.", "type": "number", "minimum": 0, "maximum": 0.25 }
+      }
+    },
+    "GrainParams": {
+      "description": "The `grain` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "amount": { "description": "The strongest grain's opacity.", "type": "number", "minimum": 0, "maximum": 1 },
+        "fps": {
+          "description": "How many times a second the grain changes; 0 holds it still.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
+        }
+      }
+    },
+    "ParticlesParams": {
+      "description": "The `particles` shader's params (SPEC §3.8).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "size": {
+          "description": "A particle's radius, in shorter sides of the rect.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.25
+        },
+        "speed": { "description": "In shorter sides a second.", "type": "number", "minimum": 0, "maximum": 1 },
+        "softness": {
+          "description": "How much of a particle's radius its edge fades over.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "ThemeRef": {
+      "description": "A theme file inside the bundle, or an inline theme object (schema: theme.schema.json).",
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "object", "additionalProperties": true }]
+    },
+    "DataSource": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "$ref": "#/$defs/SourceRef" },
+        "schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FieldType" } },
+        "parse": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "SourceRef": {
+      "description": "A data file in the bundle, or rows inline.",
+      "anyOf": [{ "type": "string", "pattern": "^data/" }, { "$ref": "#/$defs/InlineRows" }]
+    },
+    "InlineRows": {
+      "type": "object",
+      "required": ["inline"],
+      "additionalProperties": false,
+      "properties": { "inline": { "type": "array", "items": true } }
+    },
+    "FieldType": { "type": "string", "enum": ["number", "string", "date", "boolean"] },
+    "Id": {
+      "description": "A slug: unique within its collection (SPEC §3.2).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "IdList": {
+      "description": "Ids, each at most once.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Id" },
+      "uniqueItems": true
+    },
+    "Node": {
+      "description": "A node in the scene graph: its `type` and that type's properties. A node's type never changes across states (E104).",
+      "oneOf": [
+        { "$ref": "#/$defs/TextNode" },
+        { "$ref": "#/$defs/ShapeNode" },
+        { "$ref": "#/$defs/ImageNode" },
+        { "$ref": "#/$defs/ChartNode" },
+        { "$ref": "#/$defs/TableNode" },
+        { "$ref": "#/$defs/ShaderNode" },
+        { "$ref": "#/$defs/StackNode" },
+        { "$ref": "#/$defs/GridNode" },
+        { "$ref": "#/$defs/FrameNode" },
+        { "$ref": "#/$defs/GroupNode" }
+      ]
+    },
+    "NodeProps": {
+      "description": "The properties every node type has (SPEC §3.3); each type adds its own.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "alt": {
+          "description": "Accessible description; text nodes default to their content (SPEC §3.12).",
+          "type": "string"
+        },
+        "semantic": { "$ref": "#/$defs/Semantic" },
+        "z": { "type": "integer" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "visible": { "type": "boolean" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "transform": { "$ref": "#/$defs/Transform" },
+        "fill": { "$ref": "#/$defs/Paint" },
+        "stroke": { "$ref": "#/$defs/Stroke" },
+        "blur": { "$ref": "#/$defs/NonNegative" },
+        "shadow": { "type": "object", "additionalProperties": true },
+        "clip": { "$ref": "#/$defs/Clip" },
+        "blend": { "$ref": "#/$defs/Blend" },
+        "at": { "$ref": "#/$defs/Placement" },
+        "size": { "$ref": "#/$defs/Size" },
+        "align": { "$ref": "#/$defs/Align" },
+        "transition": { "$ref": "#/$defs/NodeTransition" },
+        "enter": { "$ref": "#/$defs/PresetRef" },
+        "exit": { "$ref": "#/$defs/PresetRef" },
+        "emphasis": { "$ref": "#/$defs/PresetRef" },
+        "anim": { "$ref": "#/$defs/AnimTracks" },
+        "_comment": { "type": "string" }
+      }
+    },
+    "TextNode": {
+      "description": "Typographic text (SPEC §3.5): `text` or `runs`, set in a theme role.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "text" },
+        "role": { "type": "string" },
+        "style": {
+          "description": "What this node changes about its role's look (SPEC §3.6).",
+          "$ref": "#/$defs/TextStyle"
+        },
+        "text": { "type": "string" },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/Run" }, "minItems": 1 },
+        "fit": { "$ref": "#/$defs/TextFit" },
+        "wrap": { "$ref": "#/$defs/Wrap" },
+        "maxLines": { "type": "integer", "minimum": 1 },
+        "minSize": { "type": "number", "exclusiveMinimum": 0 },
+        "maxSize": { "type": "number", "exclusiveMinimum": 0 },
+        "box": { "$ref": "#/$defs/TextBox" },
+        "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
+        "axes": {
+          "description": "Variable-font axis values by tag.",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "lang": { "type": "string" },
+        "measure": {
+          "description": "Max line length in characters (overrides the role's).",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "hyphenate": { "type": "boolean" },
+        "opticalMargins": { "type": "boolean" },
+        "hangingPunctuation": { "type": "boolean" },
+        "numeric": { "$ref": "#/$defs/Numeric" },
+        "minLastLineWords": { "type": "integer", "minimum": 1 },
+        "split": { "$ref": "#/$defs/TextSplit" }
+      },
+      "anyOf": [{ "required": ["text"] }, { "required": ["runs"] }]
+    },
+    "ShapeNode": {
+      "description": "Vector geometry: `path` (SVG path data) or a `kind`.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "shape" },
+        "kind": { "$ref": "#/$defs/ShapeKind" },
+        "path": { "description": "SVG path data.", "type": "string" },
+        "points": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        },
+        "radius": { "$ref": "#/$defs/Length" }
+      }
+    },
+    "ImageNode": {
+      "description": "An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type", "src"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "image" },
+        "src": {
+          "description": "The image file's path in the bundle; `assets/<sha256>.<ext>` once saved.",
+          "type": "string"
+        },
+        "fit": { "$ref": "#/$defs/ImageFit" },
+        "focal": {
+          "description": "The point of the image that lines up with the same point of the box, in fractions of the crop, as CSS `object-position`; default [0.5, 0.5].",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "crop": {
+          "description": "The part of the image to show, [x, y, w, h] in fractions of the image.",
+          "$ref": "#/$defs/Rect"
+        },
+        "radius": { "description": "Rounds the corners of what shows.", "$ref": "#/$defs/Length" }
+      }
+    },
+    "ChartNode": {
+      "description": "A data-bound chart (SPEC §3.7): a declarative spec compiled to marks.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type", "kind", "data"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "chart" },
+        "kind": { "$ref": "#/$defs/ChartKind" },
+        "data": { "description": "A data source, `@name`.", "type": "string", "pattern": "^@[a-z][a-z0-9_-]*$" },
+        "dataTransform": {
+          "description": "Steps run in order before the chart reads its data: filter, derive, sort, limit, aggregate, fold, pivot (SPEC §3.10; expressions in docs/spec/expr.md).",
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "x": { "$ref": "#/$defs/Encoding" },
+        "y": { "$ref": "#/$defs/Encoding" },
+        "series": { "$ref": "#/$defs/Encoding" },
+        "color": { "$ref": "#/$defs/Encoding" },
+        "sizeEncoding": { "$ref": "#/$defs/Encoding" },
+        "key": { "description": "The field that identifies a mark across states.", "type": "string" },
+        "axes": { "$ref": "#/$defs/ChartAxes" },
+        "labels": { "$ref": "#/$defs/ChartLabels" },
+        "legend": { "$ref": "#/$defs/Legend" },
+        "annotations": { "type": "array", "items": { "$ref": "#/$defs/Annotation" } }
+      }
+    },
+    "TableNode": {
+      "description": "A data-bound table (SPEC §3.3): rows from a data source, set in the theme's `tables` styles, each row matched by `key` across states.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type", "data"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "table" },
+        "data": { "description": "A data source, `@name`.", "type": "string", "pattern": "^@[a-z][a-z0-9_-]*$" },
+        "dataTransform": {
+          "description": "Steps run in order before the table reads its data (SPEC §3.10).",
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "columns": {
+          "description": "Its columns, in order; every column of the data when unset.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/TableColumn" },
+          "minItems": 1
+        },
+        "key": {
+          "description": "The field that identifies a row across states; the first column's when unset.",
+          "type": "string"
+        },
+        "header": { "description": "The header row, shown unless false.", "type": "boolean" }
+      }
+    },
+    "ShaderNode": {
+      "description": "A parametric background or fill (SPEC §3.8): a kind, a seed, a theme palette, and typed params, its own or a theme preset's. No shader source, ever.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type", "kind"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "shader" },
+        "kind": { "$ref": "#/$defs/ShaderKind" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "palette": { "description": "A shader palette from the theme; the preset's when unset.", "type": "string" },
+        "preset": {
+          "description": "A shader preset from the theme, of this kind: its palette and params are this node's, unless the node sets its own.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Typed per kind (SPEC §3.8): `mesh` takes `MeshParams`, `gradient` `GradientParams`, `noise` `NoiseParams`, `grain` `GrainParams`, and `particles` `ParticlesParams`.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/ShaderParam" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "mesh" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/MeshParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "gradient" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GradientParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "noise" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/NoiseParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "grain" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/GrainParams" } } }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "particles" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/ParticlesParams" } } }
+        }
+      ]
+    },
+    "StackNode": {
+      "description": "A layout container along one axis (CSS flex, SPEC §3.4). Its children name it in `at.parent`.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "stack" },
+        "axis": {
+          "description": "`y` (the default) stacks children top to bottom, `x` left to right.",
+          "$ref": "#/$defs/Axis"
+        },
+        "gap": { "$ref": "#/$defs/Length" },
+        "distribute": {
+          "description": "Where leftover space along the axis goes: `start` (the default), `center`, `end`, or between and around the children.",
+          "$ref": "#/$defs/Distribute"
+        },
+        "padding": { "$ref": "#/$defs/Padding" },
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
+      }
+    },
+    "GridNode": {
+      "description": "A layout container on a grid of its own (CSS grid, SPEC §3.4). Its children name it in `at.parent` and take an `area`, a `col`/`row` range, or the next free cell.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "grid" },
+        "cols": { "$ref": "#/$defs/Tracks" },
+        "rows": { "$ref": "#/$defs/Tracks" },
+        "gap": { "$ref": "#/$defs/Length" },
+        "areas": {
+          "description": "Named areas, one string per row of cells, as CSS `grid-template-areas`: `[\"head head\", \"left right\"]`; `.` leaves a cell unnamed.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "padding": { "$ref": "#/$defs/Padding" },
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
+      }
+    },
+    "FrameNode": {
+      "description": "A layout container whose children place themselves by `at.rect`, relative to its padding (SPEC §3.4). Its children name it in `at.parent`.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "type": "string", "const": "frame" },
+        "padding": { "$ref": "#/$defs/Padding" },
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
+      }
+    },
+    "GroupNode": {
+      "description": "Nodes drawn together, each placed on the slide by its own `at` (SPEC §3.4). Its children name it in `at.parent`.",
+      "$ref": "#/$defs/NodeProps",
+      "type": "object",
+      "required": ["type"],
+      "unevaluatedProperties": false,
+      "properties": { "type": { "type": "string", "const": "group" } }
+    },
+    "Semantic": {
+      "description": "Communicative function, independent of visual role (SPEC §3.3). Reserved for narrative lints; optional.",
+      "type": "string",
+      "enum": [
+        "claim",
+        "evidence",
+        "annotation",
+        "context",
+        "comparison",
+        "takeaway",
+        "source",
+        "navigation",
+        "decoration"
+      ]
+    },
+    "Transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "translate": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "rotate": { "description": "Degrees.", "type": "number" },
+        "scale": { "$ref": "#/$defs/Scale" },
+        "skew": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "anchor": {
+          "description": "Normalized [0..1, 0..1] within the node's box.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "Scale": {
+      "anyOf": [{ "type": "number" }, { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }]
+    },
+    "Paint": {
+      "anyOf": [{ "$ref": "#/$defs/Color" }, { "$ref": "#/$defs/SolidPaint" }, { "$ref": "#/$defs/GradientPaint" }]
+    },
+    "Color": {
+      "description": "Theme token name (e.g. \"accent\", \"color.ink\") or a literal (#rrggbb[aa], oklch(...)). Literals outside overrides are lint W300.",
+      "type": "string",
+      "minLength": 1
+    },
+    "SolidPaint": {
+      "type": "object",
+      "required": ["solid"],
+      "additionalProperties": false,
+      "properties": { "solid": { "$ref": "#/$defs/Color" } }
+    },
+    "GradientPaint": {
+      "type": "object",
+      "required": ["gradient"],
+      "additionalProperties": false,
+      "properties": { "gradient": { "$ref": "#/$defs/Gradient" } }
+    },
+    "Gradient": {
+      "type": "object",
+      "required": ["kind", "stops"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/GradientKind" },
+        "angle": { "type": "number" },
+        "center": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "stops": { "type": "array", "items": { "$ref": "#/$defs/GradientStop" }, "minItems": 2 }
+      }
+    },
+    "GradientKind": { "type": "string", "enum": ["linear", "radial", "conic"] },
+    "GradientStop": {
+      "type": "object",
+      "required": ["at", "color"],
+      "additionalProperties": false,
+      "properties": { "at": { "type": "number", "minimum": 0, "maximum": 1 }, "color": { "$ref": "#/$defs/Color" } }
+    },
+    "Stroke": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paint": { "$ref": "#/$defs/Paint" },
+        "width": { "$ref": "#/$defs/Length" },
+        "cap": { "$ref": "#/$defs/Cap" },
+        "join": { "$ref": "#/$defs/Join" },
+        "dash": { "type": "array", "items": { "$ref": "#/$defs/NonNegative" } }
+      }
+    },
+    "Length": {
+      "description": "A length in canvas units, a token reference (e.g. \"space.4\"), or a percentage string.",
+      "anyOf": [{ "type": "number" }, { "type": "string", "pattern": "^([a-z][a-z0-9_.-]*|-?[0-9.]+(cu|%))$" }]
+    },
+    "Cap": { "type": "string", "enum": ["butt", "round", "square"] },
+    "Join": { "type": "string", "enum": ["miter", "round", "bevel"] },
+    "NonNegative": { "description": "A number at or above 0.", "type": "number", "minimum": 0 },
+    "Clip": {
+      "description": "Clip to the node's box, or to SVG path data.",
+      "anyOf": [{ "type": "boolean" }, { "type": "string" }]
+    },
+    "Blend": {
+      "type": "string",
+      "enum": ["normal", "multiply", "screen", "overlay", "darken", "lighten", "difference"]
+    },
+    "Placement": {
+      "description": "Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4). Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in template-managed states). In a container (`parent`), `col`/`row` and `area` are its grid's, `rect` is relative to a frame's padding, and a stack places its children itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "col": { "$ref": "#/$defs/Range" },
+        "row": { "$ref": "#/$defs/Range" },
+        "in": { "description": "Named slot in the state's layout template, or `canvas` or `grid`.", "type": "string" },
+        "parent": {
+          "description": "The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008).",
+          "$ref": "#/$defs/Id"
+        },
+        "index": {
+          "description": "Order among the container's children, as CSS `order`: ascending, default 0, ties in `nodes` order.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "area": { "description": "A named area of the grid container this node is in.", "type": "string" },
+        "rect": { "$ref": "#/$defs/Rect" },
+        "align": { "$ref": "#/$defs/Align" },
+        "inset": { "$ref": "#/$defs/Length" },
+        "offset": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+      }
+    },
+    "Range": {
+      "description": "A grid index or an inclusive [start, end] range (1-based).",
+      "anyOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 }
+      ]
+    },
+    "Rect": {
+      "description": "[x, y, w, h] in canvas units.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "Align": {
+      "description": "Alignment within a slot or cell. Vertical anchors include typographic ones (SPEC §3.4).",
+      "anyOf": [{ "$ref": "#/$defs/AlignX" }, { "$ref": "#/$defs/AlignAxes" }]
+    },
+    "AlignX": { "type": "string", "enum": ["start", "center", "end", "stretch"] },
+    "AlignAxes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "x": { "$ref": "#/$defs/AlignX" }, "y": { "$ref": "#/$defs/AlignY" } }
+    },
+    "AlignY": { "type": "string", "enum": ["start", "center", "end", "stretch", "cap", "baseline", "x-height"] },
+    "Size": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "w": { "$ref": "#/$defs/SizeValue" },
+        "h": { "$ref": "#/$defs/SizeValue" },
+        "minW": { "$ref": "#/$defs/Length" },
+        "maxW": { "$ref": "#/$defs/Length" },
+        "minH": { "$ref": "#/$defs/Length" },
+        "maxH": { "$ref": "#/$defs/Length" },
+        "aspect": { "type": "string", "pattern": "^[0-9.]+:[0-9.]+$" }
+      }
+    },
+    "SizeValue": {
+      "anyOf": [
+        { "$ref": "#/$defs/Length" },
+        { "$ref": "#/$defs/SizeKeyword" },
+        { "type": "string", "pattern": "^fraction\\([0-9.]+\\)$" }
+      ]
+    },
+    "SizeKeyword": { "type": "string", "enum": ["fit", "fill"] },
+    "NodeTransition": {
+      "description": "How this node moves between two states that both show it (SPEC §3.9).",
+      "type": "string",
+      "enum": ["morph", "crossfade", "cut"]
+    },
+    "PresetRef": {
+      "description": "A theme motion preset by name, or a preset with parameters.",
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/PresetCall" }]
+    },
+    "PresetCall": {
+      "type": "object",
+      "required": ["preset"],
+      "additionalProperties": false,
+      "properties": {
+        "preset": { "type": "string" },
+        "duration": { "$ref": "#/$defs/Duration" },
+        "ease": { "$ref": "#/$defs/Easing" },
+        "spring": { "$ref": "#/$defs/Spring" },
+        "stagger": { "$ref": "#/$defs/NonNegative" },
+        "delay": { "$ref": "#/$defs/NonNegative" },
+        "split": { "$ref": "#/$defs/SplitUnit" },
+        "params": { "description": "Over the preset's look's own.", "$ref": "#/$defs/LookParams" }
+      }
+    },
+    "Duration": {
+      "description": "Milliseconds, or a named theme duration (\"fast\", \"standard\", \"slow\").",
+      "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "string", "minLength": 1 }]
+    },
+    "Easing": {
+      "description": "Named theme easing or a cubic Bézier [x1, y1, x2, y2].",
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+      ]
+    },
+    "Spring": {
+      "description": "Named theme spring or explicit parameters.",
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/SpringParams" }]
+    },
+    "SpringParams": {
+      "type": "object",
+      "required": ["stiffness", "damping"],
+      "additionalProperties": false,
+      "properties": {
+        "stiffness": { "type": "number", "exclusiveMinimum": 0 },
+        "damping": { "type": "number", "minimum": 0 },
+        "mass": { "type": "number", "exclusiveMinimum": 0, "default": 1 }
+      }
+    },
+    "SplitUnit": {
+      "description": "What a choreographed entrance splits its target into.",
+      "type": "string",
+      "enum": ["lines", "words", "glyphs", "children", "marks"]
+    },
+    "LookParams": {
+      "description": "Numbers a look sets on what its unit draws.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "description": "How much of each outline a shape strokes is drawn, from where the outline starts.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "AnimTracks": {
+      "description": "Per-property keyframe tracks within a state, each property a look's (SPEC §3.9): `opacity`, `translate`, `scale`, `rotate`, and `progress`. They never track to the next state.",
+      "type": "object",
+      "propertyNames": { "enum": ["opacity", "translate", "scale", "rotate", "progress"] },
+      "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/Keyframe" }, "minItems": 1 }
+    },
+    "Keyframe": {
+      "type": "object",
+      "required": ["t", "v"],
+      "additionalProperties": false,
+      "properties": {
+        "t": { "description": "Milliseconds from the start of the track.", "type": "number", "minimum": 0 },
+        "v": { "description": "Value; its type must match the property." },
+        "ease": { "$ref": "#/$defs/Easing" },
+        "spring": { "$ref": "#/$defs/Spring" }
+      }
+    },
+    "TextStyle": {
+      "description": "What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own properties, by name; each replaces the role's. `family` names a theme family and `color` a theme color token or role. A literal color, and any `size`, is a pixel value: theme-legal only in `overrides` (lint W300 elsewhere).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "family": { "description": "Key in the theme's `type.families`.", "type": "string" },
+        "size": { "type": "number", "exclusiveMinimum": 0 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
+        "tracking": { "description": "Em units; negative tightens.", "type": "number" },
+        "opsz": { "type": "number" },
+        "case": { "$ref": "#/$defs/Case" },
+        "color": { "$ref": "#/$defs/Color" }
+      }
+    },
+    "Case": { "type": "string", "enum": ["none", "upper", "lower", "title", "smallcaps"] },
+    "Run": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "role": { "type": "string" },
+        "emphasis": { "$ref": "#/$defs/Emphasis" },
+        "style": {
+          "description": "What this run changes about its role's look, after the node's `style` when the run is set in the node's role (SPEC §3.6).",
+          "$ref": "#/$defs/TextStyle"
+        },
+        "lang": { "type": "string" }
+      }
+    },
+    "Emphasis": { "type": "string", "enum": ["high", "low"] },
+    "TextFit": {
+      "description": "What a text node does when its text does not fit (SPEC §3.4).",
+      "type": "string",
+      "enum": ["wrap", "shrink", "grow", "clip", "error"]
+    },
+    "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
+    "TextBox": { "type": "string", "enum": ["cap", "line"] },
+    "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
+    "Numeric": {
+      "type": "string",
+      "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"]
+    },
+    "TextSplit": {
+      "description": "What a text node's own `split` divides it into for motion.",
+      "type": "string",
+      "enum": ["lines", "words", "glyphs"]
+    },
+    "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
+    "ImageFit": {
+      "description": "How an image meets its box.",
+      "oneOf": [
+        { "description": "Fills the box, cutting what overflows (the default).", "type": "string", "const": "cover" },
+        { "description": "Fits inside the box, whole.", "type": "string", "const": "contain" },
+        { "description": "Stretched to the box.", "type": "string", "const": "fill" }
+      ]
+    },
+    "ChartKind": {
+      "description": "v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.",
+      "type": "string",
+      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut"]
+    },
+    "Encoding": {
+      "description": "One chart channel bound to a data field.",
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string" },
+        "type": { "$ref": "#/$defs/FieldKind" },
+        "format": { "description": "d3-format / strftime-style (Phase 1; PLAN 1.9).", "type": "string" },
+        "domain": { "type": "array", "items": { "type": ["number", "string", "null"] }, "minItems": 2, "maxItems": 2 },
+        "scale": {
+          "description": "Theme data palette name for color encodings (categorical | sequential | diverging).",
+          "type": "string"
+        },
+        "sort": { "$ref": "#/$defs/Sort" },
+        "title": { "type": "string" }
+      }
+    },
+    "FieldKind": { "type": "string", "enum": ["quantitative", "ordinal", "nominal", "temporal"] },
+    "Sort": {
+      "description": "A sort direction, or a field to sort by.",
+      "anyOf": [{ "$ref": "#/$defs/SortDirection" }, { "type": "string" }]
+    },
+    "SortDirection": { "type": "string", "enum": ["ascending", "descending"] },
+    "ChartAxes": {
+      "description": "The chart's axes (PLAN 1.9 draws them).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "x": { "$ref": "#/$defs/AxisSpec" }, "y": { "$ref": "#/$defs/AxisSpec" } }
+    },
+    "AxisSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "show": { "type": "boolean" },
+        "gridlines": { "type": "boolean" },
+        "title": { "type": "string" }
+      }
+    },
+    "ChartLabels": {
+      "description": "Value labels on the marks.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "show": { "$ref": "#/$defs/LabelShow" },
+        "role": { "type": "string" },
+        "collide": {
+          "description": "How labels that collide resolve (lint W310 otherwise).",
+          "$ref": "#/$defs/LabelCollide"
+        }
+      }
+    },
+    "LabelShow": { "type": "string", "enum": ["all", "ends", "none"] },
+    "LabelCollide": { "type": "string", "enum": ["hide", "nudge"] },
+    "Legend": {
+      "description": "Where a chart's legend stands, alone or with a title (SPEC §3.7).",
+      "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "$ref": "#/$defs/LegendSpec" }]
+    },
+    "LegendPlace": { "type": "string", "enum": ["none", "auto", "top", "bottom", "right"] },
+    "LegendSpec": {
+      "description": "A legend with a title: `{ \"place\": \"right\", \"title\": \"Product\" }`.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "place": { "description": "`top` when unset.", "$ref": "#/$defs/LegendPlace" },
+        "title": { "description": "Printed before the entries, in the legend's role.", "type": "string" }
+      }
+    },
+    "Annotation": {
+      "description": "A chart annotation (SPEC §3.7): a rule, a band, a callout, or a highlight, in the theme's `charts.annotation` style.",
+      "type": "object",
+      "required": ["kind", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/AnnotationKind" },
+        "at": {
+          "description": "Where it stands, by kind: a rule at `x` or `y`, a band from one to another of either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x` and series.",
+          "$ref": "#/$defs/AnnotationAt"
+        },
+        "text": { "description": "What it says; a highlight says nothing.", "type": "string" },
+        "role": { "description": "The text's role; `charts.annotation.role` when unset.", "type": "string" }
+      }
+    },
+    "AnnotationKind": { "type": "string", "enum": ["callout", "rule", "band", "highlight"] },
+    "AnnotationAt": {
+      "description": "An annotation's place: a category or an x value (a number, or a date as ISO 8601), a value on the value axis, and a series, each one or several by kind.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "$ref": "#/$defs/Place" },
+        "y": { "$ref": "#/$defs/Place" },
+        "series": { "$ref": "#/$defs/Place" }
+      }
+    },
+    "Place": {
+      "description": "One value, or several: a band's two ends, or what a highlight picks out.",
+      "anyOf": [
+        { "$ref": "#/$defs/Scalar" },
+        { "type": "array", "items": { "$ref": "#/$defs/Scalar" }, "minItems": 1 }
+      ]
+    },
+    "Scalar": {
+      "description": "A number, or text: a category, a series, or a date.",
+      "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
+    "TableColumn": {
+      "description": "One column of a table.",
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string" },
+        "title": { "description": "The header's text; the field's name when unset.", "type": "string" },
+        "format": { "description": "How its numbers or dates print (docs/spec/format.md).", "type": "string" },
+        "align": {
+          "description": "Where its text sits across the column; `end` for numbers, else `start`, when unset.",
+          "$ref": "#/$defs/ColumnAlign"
+        }
+      }
+    },
+    "ColumnAlign": {
+      "description": "Where a column's text sits across it.",
+      "type": "string",
+      "enum": ["start", "center", "end"]
+    },
+    "ShaderKind": { "type": "string", "enum": ["mesh", "gradient", "noise", "grain", "particles"] },
+    "ShaderParam": {
+      "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
+      "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
+    "Axis": { "type": "string", "enum": ["x", "y"] },
+    "Distribute": { "type": "string", "enum": ["start", "center", "end", "between", "around", "evenly"] },
+    "Padding": {
+      "description": "One length for every side, or 2–4 lengths CSS-style.",
+      "anyOf": [
+        { "$ref": "#/$defs/Length" },
+        { "type": "array", "items": { "$ref": "#/$defs/Length" }, "minItems": 2, "maxItems": 4 }
+      ]
+    },
+    "Tracks": {
+      "description": "A count of equal tracks, or each track's size.",
+      "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "array", "items": { "$ref": "#/$defs/SizeValue" } }]
+    },
+    "State": {
+      "description": "One cue.",
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string" },
+        "slide": {
+          "description": "The slide this state builds on: its first state's id. A state without one starts a slide named by its own id.",
+          "$ref": "#/$defs/Id"
+        },
+        "from": { "description": "Track from this state instead of the previous one (branch).", "$ref": "#/$defs/Id" },
+        "mode": { "$ref": "#/$defs/StateMode", "default": "delta" },
+        "layout": { "description": "Layout template name from the theme.", "type": "string" },
+        "transition": { "$ref": "#/$defs/Transition" },
+        "props": {
+          "description": "Per-node property deltas for this state. Keys are node ids.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": { "$ref": "#/$defs/StateDelta" }
+        },
+        "remove": { "description": "Nodes that exit in this state.", "$ref": "#/$defs/IdList" },
+        "choreography": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
+        "hold": { "description": "Auto-advance dwell in ms (video and kiosk).", "type": "number", "minimum": 0 },
+        "notes": { "type": "string" },
+        "_comment": { "type": "string" }
+      }
+    },
+    "StateMode": {
+      "description": "How a state relates to the one before it (SPEC §2.2).",
+      "oneOf": [
+        {
+          "description": "Declare changes only; unchanged properties track forward.",
+          "type": "string",
+          "const": "delta"
+        },
+        { "description": "Everything explicit; nothing tracks.", "type": "string", "const": "absolute" }
+      ]
+    },
+    "Transition": {
+      "description": "The transition into a state: a bare duration, or the object form (SPEC §3.9). A state without one cuts.",
+      "anyOf": [{ "$ref": "#/$defs/Duration" }, { "$ref": "#/$defs/TransitionSpec" }]
+    },
+    "TransitionSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": { "$ref": "#/$defs/Duration" },
+        "ease": { "$ref": "#/$defs/Easing" },
+        "spring": { "$ref": "#/$defs/Spring" },
+        "match": { "$ref": "#/$defs/MatchBy", "default": "id" }
+      }
+    },
+    "MatchBy": { "type": "string", "enum": ["id", "none"] },
+    "StateDelta": {
+      "description": "The delta a state applies to one node: any node type's property, or null to delete it. An object value merges one level into the tracked one (the …Delta forms), so its keys are optional and null deletes one. An empty delta shows the node with its defaults (SPEC §2.2). Whether a property belongs to the node's type is checked on the resolved state (PLAN 1.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "alt": { "type": ["string", "null"] },
+        "semantic": { "anyOf": [{ "$ref": "#/$defs/Semantic" }, { "type": "null" }] },
+        "z": { "type": ["integer", "null"] },
+        "tags": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] },
+        "visible": { "type": ["boolean", "null"] },
+        "opacity": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
+        "transform": { "anyOf": [{ "$ref": "#/$defs/TransformDelta" }, { "type": "null" }] },
+        "fill": { "anyOf": [{ "$ref": "#/$defs/PaintDelta" }, { "type": "null" }] },
+        "stroke": { "anyOf": [{ "$ref": "#/$defs/StrokeDelta" }, { "type": "null" }] },
+        "blur": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
+        "shadow": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }] },
+        "clip": { "anyOf": [{ "$ref": "#/$defs/Clip" }, { "type": "null" }] },
+        "blend": { "anyOf": [{ "$ref": "#/$defs/Blend" }, { "type": "null" }] },
+        "at": { "anyOf": [{ "$ref": "#/$defs/PlacementDelta" }, { "type": "null" }] },
+        "size": { "anyOf": [{ "$ref": "#/$defs/SizeDelta" }, { "type": "null" }] },
+        "align": { "anyOf": [{ "$ref": "#/$defs/AlignDelta" }, { "type": "null" }] },
+        "transition": { "anyOf": [{ "$ref": "#/$defs/NodeTransition" }, { "type": "null" }] },
+        "enter": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
+        "exit": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
+        "emphasis": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
+        "anim": { "anyOf": [{ "$ref": "#/$defs/AnimTracksDelta" }, { "type": "null" }] },
+        "_comment": { "type": ["string", "null"] },
+        "role": { "type": ["string", "null"] },
+        "style": { "anyOf": [{ "$ref": "#/$defs/TextStyleDelta" }, { "type": "null" }] },
+        "text": { "type": ["string", "null"] },
+        "runs": {
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Run" }, "minItems": 1 }, { "type": "null" }]
+        },
+        "fit": { "anyOf": [{ "$ref": "#/$defs/TextFit" }, { "$ref": "#/$defs/ImageFit" }, { "type": "null" }] },
+        "wrap": { "anyOf": [{ "$ref": "#/$defs/Wrap" }, { "type": "null" }] },
+        "maxLines": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "minSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "maxSize": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "box": { "anyOf": [{ "$ref": "#/$defs/TextBox" }, { "type": "null" }] },
+        "features": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/FeatureValue" }, { "type": "null" }] }
+            },
+            { "type": "null" }
+          ]
+        },
+        "axes": {
+          "anyOf": [
+            { "additionalProperties": { "type": ["number", "null"] }, "type": "object" },
+            { "$ref": "#/$defs/ChartAxesDelta" },
+            { "type": "null" }
+          ]
+        },
+        "lang": { "type": ["string", "null"] },
+        "measure": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
+        "hyphenate": { "type": ["boolean", "null"] },
+        "opticalMargins": { "type": ["boolean", "null"] },
+        "hangingPunctuation": { "type": ["boolean", "null"] },
+        "numeric": { "anyOf": [{ "$ref": "#/$defs/Numeric" }, { "type": "null" }] },
+        "minLastLineWords": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "split": { "anyOf": [{ "$ref": "#/$defs/TextSplit" }, { "type": "null" }] },
+        "kind": {
+          "anyOf": [
+            { "$ref": "#/$defs/ShapeKind" },
+            { "$ref": "#/$defs/ChartKind" },
+            { "$ref": "#/$defs/ShaderKind" },
+            { "type": "null" }
+          ]
+        },
+        "path": { "type": ["string", "null"] },
+        "points": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+            },
+            { "type": "null" }
+          ]
+        },
+        "radius": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "src": { "type": ["string", "null"] },
+        "focal": {
+          "anyOf": [
+            { "maxItems": 2, "type": "array", "items": { "type": "number" }, "minItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "crop": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
+        "data": { "anyOf": [{ "pattern": "^@[a-z][a-z0-9_-]*$", "type": "string" }, { "type": "null" }] },
+        "dataTransform": {
+          "anyOf": [
+            { "items": { "type": "object", "additionalProperties": true }, "type": "array" },
+            { "type": "null" }
+          ]
+        },
+        "x": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "y": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "series": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "color": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "sizeEncoding": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "key": { "type": ["string", "null"] },
+        "labels": { "anyOf": [{ "$ref": "#/$defs/ChartLabelsDelta" }, { "type": "null" }] },
+        "legend": { "anyOf": [{ "$ref": "#/$defs/LegendDelta" }, { "type": "null" }] },
+        "annotations": {
+          "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Annotation" } }, { "type": "null" }]
+        },
+        "columns": {
+          "anyOf": [{ "minItems": 1, "type": "array", "items": { "$ref": "#/$defs/TableColumn" } }, { "type": "null" }]
+        },
+        "header": { "type": ["boolean", "null"] },
+        "seed": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "palette": { "type": ["string", "null"] },
+        "preset": { "type": ["string", "null"] },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/ShaderParam" }, { "type": "null" }] },
+              "type": "object"
+            },
+            { "type": "null" }
+          ]
+        },
+        "axis": { "anyOf": [{ "$ref": "#/$defs/Axis" }, { "type": "null" }] },
+        "gap": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "distribute": { "anyOf": [{ "$ref": "#/$defs/Distribute" }, { "type": "null" }] },
+        "padding": { "anyOf": [{ "$ref": "#/$defs/Padding" }, { "type": "null" }] },
+        "cols": { "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }] },
+        "rows": { "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }] },
+        "areas": { "anyOf": [{ "items": { "type": "string" }, "type": "array" }, { "type": "null" }] }
+      }
+    },
+    "TransformDelta": {
+      "description": "`Transform` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "translate": {
+          "anyOf": [
+            { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "rotate": { "type": ["number", "null"] },
+        "scale": { "anyOf": [{ "$ref": "#/$defs/Scale" }, { "type": "null" }] },
+        "skew": {
+          "anyOf": [
+            { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "anchor": {
+          "anyOf": [
+            { "maxItems": 2, "type": "array", "items": { "type": "number" }, "minItems": 2 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "PaintDelta": {
+      "description": "`Paint` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [
+        { "$ref": "#/$defs/Color" },
+        { "$ref": "#/$defs/SolidPaintDelta" },
+        { "$ref": "#/$defs/GradientPaintDelta" }
+      ]
+    },
+    "SolidPaintDelta": {
+      "description": "`SolidPaint` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "solid": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] } }
+    },
+    "GradientPaintDelta": {
+      "description": "`GradientPaint` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "gradient": { "anyOf": [{ "$ref": "#/$defs/Gradient" }, { "type": "null" }] } }
+    },
+    "StrokeDelta": {
+      "description": "`Stroke` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paint": { "anyOf": [{ "$ref": "#/$defs/Paint" }, { "type": "null" }] },
+        "width": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "cap": { "anyOf": [{ "$ref": "#/$defs/Cap" }, { "type": "null" }] },
+        "join": { "anyOf": [{ "$ref": "#/$defs/Join" }, { "type": "null" }] },
+        "dash": { "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/NonNegative" } }, { "type": "null" }] }
+      }
+    },
+    "PlacementDelta": {
+      "description": "`Placement` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "col": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
+        "row": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
+        "in": { "type": ["string", "null"] },
+        "parent": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "index": { "anyOf": [{ "minimum": 0, "type": "integer" }, { "type": "null" }] },
+        "area": { "type": ["string", "null"] },
+        "rect": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
+        "align": { "anyOf": [{ "$ref": "#/$defs/Align" }, { "type": "null" }] },
+        "inset": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "offset": {
+          "anyOf": [
+            { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "SizeDelta": {
+      "description": "`Size` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "w": { "anyOf": [{ "$ref": "#/$defs/SizeValue" }, { "type": "null" }] },
+        "h": { "anyOf": [{ "$ref": "#/$defs/SizeValue" }, { "type": "null" }] },
+        "minW": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "maxW": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "minH": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "maxH": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
+        "aspect": { "anyOf": [{ "type": "string", "pattern": "^[0-9.]+:[0-9.]+$" }, { "type": "null" }] }
+      }
+    },
+    "AlignDelta": {
+      "description": "`Align` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "$ref": "#/$defs/AlignX" }, { "$ref": "#/$defs/AlignAxesDelta" }]
+    },
+    "AlignAxesDelta": {
+      "description": "`AlignAxes` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "anyOf": [{ "$ref": "#/$defs/AlignX" }, { "type": "null" }] },
+        "y": { "anyOf": [{ "$ref": "#/$defs/AlignY" }, { "type": "null" }] }
+      }
+    },
+    "PresetRefDelta": {
+      "description": "`PresetRef` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/PresetCallDelta" }]
+    },
+    "PresetCallDelta": {
+      "description": "`PresetCall` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset": { "type": ["string", "null"] },
+        "duration": { "anyOf": [{ "$ref": "#/$defs/Duration" }, { "type": "null" }] },
+        "ease": { "anyOf": [{ "$ref": "#/$defs/Easing" }, { "type": "null" }] },
+        "spring": { "anyOf": [{ "$ref": "#/$defs/Spring" }, { "type": "null" }] },
+        "stagger": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
+        "delay": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
+        "split": { "anyOf": [{ "$ref": "#/$defs/SplitUnit" }, { "type": "null" }] },
+        "params": { "anyOf": [{ "$ref": "#/$defs/LookParams" }, { "type": "null" }] }
+      }
+    },
+    "AnimTracksDelta": {
+      "description": "`AnimTracks` in a state's delta: it merges one level into the tracked value, so null deletes a key (SPEC §2.2).",
+      "type": "object",
+      "propertyNames": { "enum": ["opacity", "translate", "scale", "rotate", "progress"] },
+      "additionalProperties": {
+        "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Keyframe" }, "minItems": 1 }, { "type": "null" }]
+      }
+    },
+    "TextStyleDelta": {
+      "description": "`TextStyle` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "family": { "type": ["string", "null"] },
+        "size": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "weight": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 1000 }, { "type": "null" }] },
+        "leading": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
+        "tracking": { "type": ["number", "null"] },
+        "opsz": { "type": ["number", "null"] },
+        "case": { "anyOf": [{ "$ref": "#/$defs/Case" }, { "type": "null" }] },
+        "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] }
+      }
+    },
+    "EncodingDelta": {
+      "description": "`Encoding` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": ["string", "null"] },
+        "type": { "anyOf": [{ "$ref": "#/$defs/FieldKind" }, { "type": "null" }] },
+        "format": { "type": ["string", "null"] },
+        "domain": {
+          "anyOf": [
+            { "type": "array", "items": { "type": ["number", "string", "null"] }, "minItems": 2, "maxItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "scale": { "type": ["string", "null"] },
+        "sort": { "anyOf": [{ "$ref": "#/$defs/Sort" }, { "type": "null" }] },
+        "title": { "type": ["string", "null"] }
+      }
+    },
+    "ChartAxesDelta": {
+      "description": "`ChartAxes` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "anyOf": [{ "$ref": "#/$defs/AxisSpec" }, { "type": "null" }] },
+        "y": { "anyOf": [{ "$ref": "#/$defs/AxisSpec" }, { "type": "null" }] }
+      }
+    },
+    "ChartLabelsDelta": {
+      "description": "`ChartLabels` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "show": { "anyOf": [{ "$ref": "#/$defs/LabelShow" }, { "type": "null" }] },
+        "role": { "type": ["string", "null"] },
+        "collide": { "anyOf": [{ "$ref": "#/$defs/LabelCollide" }, { "type": "null" }] }
+      }
+    },
+    "LegendDelta": {
+      "description": "`Legend` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "$ref": "#/$defs/LegendSpecDelta" }]
+    },
+    "LegendSpecDelta": {
+      "description": "`LegendSpec` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "place": { "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "type": "null" }] },
+        "title": { "type": ["string", "null"] }
+      }
+    },
+    "ChoreoItem": {
+      "description": "One unit of a state's choreography: a target's motion, or a sequence or parallel group.",
+      "anyOf": [
+        { "$ref": "#/$defs/ChoreoTarget" },
+        { "$ref": "#/$defs/ChoreoSequence" },
+        { "$ref": "#/$defs/ChoreoParallel" }
+      ]
+    },
+    "ChoreoTarget": {
+      "type": "object",
+      "required": ["target"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/Targets" },
+        "split": { "$ref": "#/$defs/SplitUnit" },
+        "enter": { "$ref": "#/$defs/PresetRef" },
+        "exit": { "$ref": "#/$defs/PresetRef" },
+        "emphasis": { "$ref": "#/$defs/PresetRef" },
+        "anim": { "$ref": "#/$defs/AnimTracks" },
+        "stagger": { "$ref": "#/$defs/NonNegative" },
+        "delay": { "$ref": "#/$defs/NonNegative" },
+        "duration": { "$ref": "#/$defs/Duration" },
+        "ease": { "$ref": "#/$defs/Easing" },
+        "spring": { "$ref": "#/$defs/Spring" },
+        "timing": { "$ref": "#/$defs/Timing", "default": "after" }
+      }
+    },
+    "Targets": {
+      "description": "One node, or several.",
+      "anyOf": [{ "$ref": "#/$defs/Id" }, { "$ref": "#/$defs/IdList" }]
+    },
+    "Timing": {
+      "description": "Whether choreography runs during the state's transition or once it rests.",
+      "type": "string",
+      "enum": ["with", "after"]
+    },
+    "ChoreoSequence": {
+      "type": "object",
+      "required": ["sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
+        "delay": { "$ref": "#/$defs/NonNegative" },
+        "timing": { "$ref": "#/$defs/Timing" }
+      }
+    },
+    "ChoreoParallel": {
+      "type": "object",
+      "required": ["parallel"],
+      "additionalProperties": false,
+      "properties": {
+        "parallel": { "type": "array", "items": { "$ref": "#/$defs/ChoreoItem" } },
+        "delay": { "$ref": "#/$defs/NonNegative" },
+        "timing": { "$ref": "#/$defs/Timing" }
+      }
+    }
+  }
+}
