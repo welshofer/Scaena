@@ -883,8 +883,8 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 - `scaena://schema/deck`, `scaena://schema/theme`, and `scaena://schema/patch`;
 - `scaena://lint/catalog` (§7.5);
 - `scaena://spec`: this document;
-- `scaena://skills/author-deck`;
-- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme.
+- `scaena://skills/<name>`: the five skills (§7.6);
+- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme; and `trails.deck.json`, fifteen slides that use most of what a deck can hold.
 
 They are compiled into the binary, so they describe the format it reads.
 
@@ -996,7 +996,15 @@ Rules live in `crates/scaena-core/src/lint/` (document-level) and `crates/scaena
 
 ### 7.6 Skills
 
-Prompts and procedures for agents ship in-repo as skills (`skills/<name>/SKILL.md`): `author-deck` (interview → spine → states → lint loop), `retheme`, `tighten-copy`, `chart-from-data`, `motion-pass`. Skills call the CLI/MCP; they are versioned with the format.
+Prompts and procedures for agents ship in-repo as skills (`skills/<name>/SKILL.md`, PLAN 1.18). Each is a procedure an agent follows through either surface: every step names the command (§7.1) and the MCP tool (§7.2) that does it.
+
+- `author-deck`: brief → spine → states → lint loop → look.
+- `retheme`: swap the theme, then resolve what lint finds differently.
+- `chart-from-data`: a data file → a chart or table that makes one point.
+- `motion-pass`: transitions, entrances, builds, and emphasis that explain, within the theme's limits.
+- `tighten-copy`: one claim per slide, in as few words as carry it.
+
+Skills are versioned with the format, and the MCP server serves each as `scaena://skills/<name>`. A test (`crates/scaena-cli/tests/skills.rs`) holds every skill to what exists: the commands and flags it shows, the MCP tools and resources it names, its lint codes, its files, and its SPEC sections.
 
 ---
 

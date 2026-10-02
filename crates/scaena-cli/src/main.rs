@@ -150,7 +150,7 @@ struct RenderArgs {
     bundle: PathBuf,
     #[arg(long)]
     state: String,
-    /// Milliseconds into the transition into the state. Omitted: the state at rest.
+    /// Milliseconds into the state's cue: its transition, then its motions. Omitted: the state at rest.
     #[arg(long)]
     t: Option<f64>,
     /// Lay the deck out in one of its `formats` (`9:16`) on that format's canvas.
