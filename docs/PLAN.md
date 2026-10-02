@@ -153,11 +153,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Not yet in the engine:*
       - *contrast and size checks for chart text (1.27);*
       - *forms the guide asks for, proposed for Jay to schedule (1H): dashed forecasts and estimates (1.28), horizontal bars (1.29), slopegraphs and dumbbells (1.30), small multiples (1.31).*
-  - *Open: Jay's review of the gallery and trails renders, then the tick. Next candidates, by the same rule:*
+  - *Third pass, after Jay's review of the torture chart renders (2026-10-02): every series named, every label clear of the marks, one signal color to a chart (SPEC §3.7):*
+    - *Names, not keys. A dot plot names its series beside its last dots, a scatter each series beside its own last point, a donut each slice beside its value. Names take the legend's text color, and a highlight's signal. Only bars grouped side by side keep a key over the plot.*
+    - *Labels clear of marks. A value label that would cover another mark goes under its dot, or leans off a bar it is wider than. One that still would hides, or, where the chart asked for its values, is W310.*
+    - *Annotations clear of text. A rule, or a leader, breaks where it would cross a label, a name, or another annotation's text; a moving rule breaks only while it crosses. A callout's text rises past a rule it would sit on, its leader crossing it, and a band's text steps under one.*
+    - *A key that turns into names, as grouped bars regroup into stacks, fades where it stands instead of crossing the plot.*
+    - *Sized scatter dots run from `charts.dotRadius` to 2.5 times it, so the smallest still reads.*
+    - *A format's own decimals are the most a tick takes: `$10`, not `$10.0`.*
+    - *The torture theme takes the guide's palette: graphite and quiet grays, Measured Blue as the signal, annotations in it too. Its charts drop the value axes, vertical gridlines, and right-hand legend they had asked for where the marks carry their values, and a rule says its value ("Target: $20"). Every chart golden moved. The revenue example's labels lean clear of the bars beside them.*
+    - *Engine tests: `charts.rs` (43).*
+  - *Open: Jay's review of the torture, gallery, and trails renders, then the tick. Next candidates, by the same rule:*
     - *range frames for the value axis;*
     - *white gridlines knocked through bars;*
-    - *direct labels for donuts and scatters (a scatter's series in quiet grays are told apart only by a legend);*
-    - *value labels that clear other series' marks (the torture dot plot's `$3` touches the `$6` dot);*
     - *a rule over a table's total row.)*
 
 - [x] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets. *(Done. In `scaena-core::shader`, SPEC §3.8:*

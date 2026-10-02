@@ -55,14 +55,14 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Put the headline in `header` and the source in `footer`, as `semantic: source`.
    - Give the chart `alt`: what a listener needs to hear, with the numbers that matter.
 7. **Point at the answer with `annotations`**, only when the headline needs help:
-   - `rule` at a `y` (a target, a plan) or an `x`.
+   - `rule` at a `y` (a target, a plan) or an `x`. Its `text` says the value and what it means (`"Target: $20"`): a chart that prints its values has no axis to read the rule's value off.
    - `band` across x or y (a period, a range).
    - `callout`, with `text` at one x and, if needed, a series.
    - `highlight` of an x or a series: it takes the signal color, and the rest dims. In a theme whose data palette is quiet, as Dusk's is, it is how a chart shows which series or category the headline is about.
    - A line prints only its first and last values. A point about a middle one, such as a peak, needs a `callout` there, or `labels: { "show": "all" }`.
    - A callout's `text` is a literal, like any figure in copy: re-derive it when the data changes.
 8. **Check and look.**
-   - Lint for E103 (fields, types, keys), W310 (labels that collide, when you set `labels.show`), and E100 and E101 (the chart's cell).
+   - Lint for E103 (fields, types, keys), W310 (labels that collide or cover a mark, when you set `labels.show`), and E100 and E101 (the chart's cell).
    - Render, and read it as the audience will: is the point visible in two seconds?
 9. **Move the data, not the chart.**
    - For "next quarter" or "after the change", add a state that changes the chart's `data` or `dataTransform` (a new `filter`), not a new chart.
@@ -72,6 +72,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 ## Rules
 
 - No style fields on the chart. Colors, strokes, sizes, and label roles are the theme's.
+- Leave `axes` unset where every mark prints its value: an axis beside labeled bars says each number twice.
 - Leave `labels` and `legend` unset unless the slide needs otherwise. When it does:
   - `labels: { show: "all" | "ends" | "none" }`;
   - `legend: "direct" | "top" | "bottom" | "right" | "none"`.

@@ -406,7 +406,21 @@ pub struct Note {
     pub band: Option<([f32; 4], Color)>,
     /// A rule, or a callout's leader.
     pub rule: Option<Rule>,
+    /// Where the rule breaks for text it would cross.
+    pub gaps: Vec<Gap>,
     pub label: Option<Label>,
+}
+
+/// A stretch a rule leaves out where it crosses text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gap {
+    /// The text's key: what the gap matches in the next state.
+    pub key: String,
+    /// The stretch left out along the rule: x across a level rule, y up an upright one.
+    pub along: [f32; 2],
+    /// Where across the rule the text stands: a moving rule breaks only while it is
+    /// there.
+    pub across: [f32; 2],
 }
 
 /// What a value label shows and where it rides on its mark.
@@ -670,6 +684,10 @@ pub struct ChartLayout {
     /// Value labels that overlap as laid out, by their marks' keys (lint W310); none
     /// when `labels.collide` resolves them.
     pub collisions: Vec<(String, String)>,
+    /// Value labels that cover another mark as laid out, by the label's mark's key and
+    /// the covered mark's (lint W310); none when the labels were not asked for, since
+    /// those hide.
+    pub covers: Vec<(String, String)>,
     /// Annotations: bands under the gridlines, rules and callouts over the marks.
     pub notes: Vec<Note>,
 }

@@ -9,7 +9,8 @@
       "paper-2": "#F1EEE6",
       "accent": "#C2410C",
       "muted": "#6B675E",
-      "line": "#DAD5C9"
+      "line": "#DAD5C9",
+      "signal": "#3F718C"
     },
     "roles": {
       "surface": "paper",
@@ -22,24 +23,24 @@
     },
     "data": {
       "categorical": [
-        "#C2410C",
-        "#0F766E",
-        "#4338CA",
-        "#A16207",
-        "#BE185D",
-        "#15803D"
+        "#333333",
+        "#808079",
+        "#B5B5AF",
+        "#5A5A55",
+        "#9B9B95",
+        "#CFCFC9"
       ],
       "sequential": [
         "#F1EEE6",
-        "#F5C451",
-        "#E07A3F",
-        "#C2410C",
-        "#7C2D12"
+        "#B6D4E5",
+        "#7FA6BF",
+        "#3F718C",
+        "#24485C"
       ],
       "diverging": [
-        "#0F766E",
+        "#3F718C",
         "#F1EEE6",
-        "#C2410C"
+        "#B66C3D"
       ]
     },
     "space": {
@@ -447,6 +448,28 @@
         "leading": 1.5,
         "wrap": "greedy",
         "box": "line"
+      },
+      "axis": {
+        "family": "serif",
+        "size": 24,
+        "weight": 400,
+        "leading": 1.2,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "value": {
+        "family": "serif",
+        "size": 26,
+        "weight": 500,
+        "leading": 1.2,
+        "opsz": 26,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurface"
       }
     }
   },
@@ -748,8 +771,9 @@
     }
   },
   "charts": {
+    "signal": "signal",
     "axis": {
-      "role": "label",
+      "role": "axis",
       "stroke": "hairline",
       "color": "line"
     },
@@ -759,11 +783,25 @@
       "opacity": 0.6
     },
     "label": {
-      "role": "label"
+      "role": "value"
     },
     "strokeWidth": "thin",
     "cornerRadius": 2,
-    "barGap": 0.28
+    "barGap": 0.28,
+    "legend": {
+      "role": "value"
+    },
+    "annotation": {
+      "color": "signal"
+    }
+  },
+  "tables": {
+    "header": {
+      "role": "axis"
+    },
+    "cell": {
+      "role": "value"
+    }
   },
   "density": {
     "maxWordsPerState": 80

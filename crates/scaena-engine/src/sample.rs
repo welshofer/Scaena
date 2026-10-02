@@ -32,8 +32,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath, Shape,
-    ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Gap, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath,
+    Shape, ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -189,7 +189,9 @@ impl SceneNode {
                 let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
                 let mut plot: Vec<Op> = chart.paths.iter().filter_map(|s| path_op(s, &shapes, s.color, 1.0)).collect();
                 plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
-                plot.extend(chart.notes.iter().filter_map(|n| n.rule.as_ref()).map(|r| rule_op(r, 1.0)));
+                for note in &chart.notes {
+                    plot.extend(note.rule.as_ref().and_then(|r| broken_rule_op(r, &spans(&note.gaps), 1.0)));
+                }
                 let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
                 for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
                     plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
@@ -1549,12 +1551,17 @@ impl ChartPlan {
             drawn.push(shape);
         }
         for &(x, y) in &notes {
-            match (x.and_then(|n| n.rule.as_ref()), y.and_then(|n| n.rule.as_ref())) {
-                (Some(r), Some(s)) => plot.push(rule_op(&lerp_rule(r, s, p), 1.0)),
-                (Some(r), None) => plot.push(rule_op(r, 1.0 - p)),
-                (None, Some(s)) => plot.push(rule_op(s, p)),
-                (None, None) => {}
-            }
+            let (ga, gb) = (x.map_or(&[][..], |n| &n.gaps), y.map_or(&[][..], |n| &n.gaps));
+            let rule = match (x.and_then(|n| n.rule.as_ref()), y.and_then(|n| n.rule.as_ref())) {
+                (Some(r), Some(s)) => {
+                    let rule = lerp_rule(r, s, p);
+                    broken_rule_op(&rule, &lerp_gaps(ga, gb, p, &rule), 1.0)
+                }
+                (Some(r), None) => broken_rule_op(r, &spans(ga), 1.0 - p),
+                (None, Some(s)) => broken_rule_op(s, &spans(gb), p),
+                (None, None) => None,
+            };
+            plot.extend(rule);
         }
         // A value label rides its mark: the target's when the kind changed.
         let mut sampled = Vec::with_capacity(self.marks.len());
@@ -1618,10 +1625,16 @@ impl ChartPlan {
         for &(i, j) in &self.titles {
             text_between(dl, &mut ops, i.map(|i| &ta[i]), j.map(|j| &tb[j]), p);
         }
-        // Legend entries move and change color; one on one side only fades.
+        // Legend entries move and change color; one on one side only fades, and so does
+        // one that turns from a key's entry to a direct name or back, where it is.
         let (ea, eb) = (legend_of(a), legend_of(b));
+        let named = |e: &LegendEntry| !(e.swatch.w > 0.0 && e.swatch.h > 0.0);
         for &(i, j) in &self.legend {
             match (i.map(|i| &ea[i]), j.map(|j| &eb[j])) {
+                (Some(x), Some(y)) if named(x) != named(y) => {
+                    ops.extend(legend_ops(dl, x.swatch, x.color, &x.label, x.label.origin, 1.0 - p, x.label.opacity));
+                    ops.extend(legend_ops(dl, y.swatch, y.color, &y.label, y.label.origin, p, y.label.opacity));
+                }
                 (Some(x), Some(y)) => {
                     let swatch = RoundRect::lerp(x.swatch, y.swatch, p);
                     let at = lerp2(x.label.origin, y.label.origin, p);
@@ -2209,8 +2222,56 @@ fn path_op(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f
 }
 
 fn rule_op(rule: &Rule, alpha: f32) -> Op {
+    rule_path_op(rule, Path(vec![PathEl::MoveTo(rule.from), PathEl::LineTo(rule.to)]), alpha)
+}
+
+/// `rule` with `gaps` left out of it, stretches along its long axis (x across a level
+/// rule, y up an upright one); `None` where nothing of it is left.
+fn broken_rule_op(rule: &Rule, gaps: &[[f32; 2]], alpha: f32) -> Option<Op> {
+    let along = usize::from((rule.to[0] - rule.from[0]).abs() < (rule.to[1] - rule.from[1]).abs());
+    let (a, b) = (rule.from[along], rule.to[along]);
+    let (lo, hi) = (a.min(b), a.max(b));
+    let mut cuts: Vec<[f32; 2]> = gaps.iter().map(|g| [g[0].max(lo), g[1].min(hi)]).filter(|g| g[1] > g[0]).collect();
+    if cuts.is_empty() {
+        return Some(rule_op(rule, alpha));
+    }
+    cuts.sort_by(|g, h| g[0].total_cmp(&h[0]));
+    let point = |at: f32| lerp2(rule.from, rule.to, (at - a) / (b - a));
+    let (mut els, mut at) = (Vec::new(), lo);
+    for [start, end] in cuts.into_iter().chain([[hi, hi]]) {
+        if start > at {
+            els.extend([PathEl::MoveTo(point(at)), PathEl::LineTo(point(start))]);
+        }
+        at = at.max(end);
+    }
+    (!els.is_empty()).then(|| rule_path_op(rule, Path(els), alpha))
+}
+
+/// The stretches `gaps` leave out of a rule.
+fn spans(gaps: &[Gap]) -> Vec<[f32; 2]> {
+    gaps.iter().map(|g| g.along).collect()
+}
+
+/// The stretches `rule`, `p` of the way across, leaves out between gaps `a` and `b`: the
+/// gap for the same text on both sides moves; one on one side only closes on its
+/// middle, or opens from it. A gap holds only while the rule crosses where its text
+/// stands.
+fn lerp_gaps(a: &[Gap], b: &[Gap], p: f32, rule: &Rule) -> Vec<[f32; 2]> {
+    let across = usize::from((rule.to[0] - rule.from[0]).abs() >= (rule.to[1] - rule.from[1]).abs());
+    let at = rule.from[across];
+    let mid = |g: [f32; 2]| [0.5 * (g[0] + g[1]); 2];
+    let from = a.iter().map(|g| match b.iter().find(|h| h.key == g.key) {
+        Some(h) => (lerp2(g.along, h.along, p), lerp2(g.across, h.across, p)),
+        None => (lerp2(g.along, mid(g.along), p), g.across),
+    });
+    let to =
+        (b.iter()).filter(|h| !a.iter().any(|g| g.key == h.key)).map(|h| (lerp2(mid(h.along), h.along, p), h.across));
+    from.chain(to).filter(|(_, [lo, hi])| at > *lo && at < *hi).map(|(along, _)| along).collect()
+}
+
+fn rule_path_op(rule: &Rule, path: Path, alpha: f32) -> Op {
     Op::Stroke {
-        path: Path(vec![PathEl::MoveTo(rule.from), PathEl::LineTo(rule.to)]),
+        path,
         paint: Paint::Solid(fade(rule.color, alpha)),
         width: rule.width,
         cap: Cap::Butt,
@@ -2343,6 +2404,7 @@ mod tests {
             x_grid: Vec::new(),
             notes: Vec::new(),
             collisions: Vec::new(),
+            covers: Vec::new(),
         }
     }
 
