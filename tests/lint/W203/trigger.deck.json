@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "W203 trigger: a headline that shrinks to its 48 cu minimum and still does not fit its header.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "headline", "text": "Extraordinarily unreasonable headline lengths inevitably overwhelm comparatively narrow headers regardless, notwithstanding wholehearted typographical accommodations", "fit": "shrink", "at": {"in": "header"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"t": {}}}
+  ]
+}

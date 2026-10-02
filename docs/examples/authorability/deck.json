@@ -192,7 +192,6 @@
       },
       "series": { "field": "product", "type": "nominal" },
       "color": { "field": "product", "type": "nominal", "scale": "categorical" },
-      "key": "product",
       "labels": { "show": "ends" },
       "legend": "top",
       "alt": "Quarterly revenue by product, Q1 2026 to Q4 2026: Core $19.8M to $25.6M, Pro $8.9M to $24.8M, Enterprise $6.0M to $19.2M; total $34.7M to $69.6M.",

@@ -30,6 +30,7 @@ pub mod format;
 pub mod ids;
 pub mod lint;
 pub mod model;
+pub mod patch;
 pub mod shader;
 pub mod timeline;
 pub mod tracking;

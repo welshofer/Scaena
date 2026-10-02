@@ -4,7 +4,7 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::data::{self, ColumnType, DataError, SourceFiles, Table};
+use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
 use crate::document::{Deck, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
@@ -929,6 +929,29 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             let series = (field("series").and_then(|f| table.column(f))).or_else(|| {
                 field("color").and_then(|f| table.column(f)).filter(|&c| table.types[c] != ColumnType::Number)
             });
+            // A mark is known by its key (SPEC §3.7): `key`'s value, else its category, with
+            // its series beside it; two rows the chart knows as one would be one mark twice.
+            let y = field("y").and_then(|f| table.column(f));
+            let key_col = props.get("key").and_then(Value::as_str).and_then(|f| table.column(f));
+            if let (Some(xc), Some(yc)) = (x, y) {
+                let mut ids = HashSet::new();
+                for row in table.rows.iter().filter(|row| !matches!(row[yc], Datum::Null)) {
+                    let base = key_col.map_or_else(|| row[xc].label(), |c| row[c].label());
+                    let id = match series {
+                        Some(s) if kind != "donut" && Some(s) != key_col => format!("{base} · {}", row[s].label()),
+                        _ => base,
+                    };
+                    if !ids.insert(id.clone()) {
+                        let at = if key_col.is_some() { here("key", "") } else { here("x", "/field") };
+                        let message = format!(
+                            "{read} has two rows the chart knows as `{id}`; each mark needs its own identity \
+                             (`key`, else the category, with the series)"
+                        );
+                        found("E103", at, message);
+                        break;
+                    }
+                }
+            }
             // A continuous x, as the chart compiler reads one (SPEC §3.7).
             let continuous = x.is_some_and(|c| {
                 let numeric = matches!(table.types[c], ColumnType::Number | ColumnType::Date);

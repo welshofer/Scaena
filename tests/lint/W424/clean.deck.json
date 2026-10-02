@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W424 clean: one claim, and its comparison.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "a": {"type": "text", "role": "headline", "text": "Revenue doubled", "semantic": "claim", "at": {"in": "left"}},
+    "b": {"type": "text", "role": "headline", "text": "Costs fell", "semantic": "comparison", "at": {"in": "right"}}
+  },
+  "states": [
+    {"id": "s", "layout": "two", "props": {"a": {}, "b": {}}}
+  ]
+}

@@ -37,7 +37,8 @@ fn compile(deck: &Deck) -> ChartLayout {
     }
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let (mut text, data) = (TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck, data: &data, colors: &[] };
+    let mut cx =
+        Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck, data: &data, colors: &[], lenient: false };
     charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap()
 }
 
@@ -489,7 +490,15 @@ fn by_series_err(kind: &str, extra: Value) -> String {
     }
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let (mut text, data) = (TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &deck, data: &data, colors: &[] };
+    let mut cx = Ctx {
+        text: &mut text,
+        fonts: &mut fonts,
+        theme: &theme,
+        deck: &deck,
+        data: &data,
+        colors: &[],
+        lenient: false,
+    };
     charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap_err().to_string()
 }
 

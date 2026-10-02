@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W422 trigger: the evidence in display, the claim in body.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "c": {"type": "text", "role": "body", "text": "Revenue doubled", "semantic": "claim", "at": {"in": "footer"}},
+    "e": {"type": "text", "role": "display", "text": "$69.6M", "semantic": "evidence", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"c": {}, "e": {}}}
+  ]
+}

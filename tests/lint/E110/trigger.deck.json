@@ -1,0 +1,13 @@
+{
+  "scaena": "0.8",
+  "_comment": "E110 trigger: caption text (20 cu, body for contrast) in the theme's line color, on its dark surface.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "caption", "text": "Hard to read", "style": {"color": "line"}, "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

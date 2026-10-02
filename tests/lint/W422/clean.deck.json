@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W422 clean: the claim in headline, over evidence in body; a stat's numeral would not count.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "c": {"type": "text", "role": "headline", "text": "Revenue doubled", "semantic": "claim", "at": {"in": "header"}},
+    "e": {"type": "text", "role": "body", "text": "$69.6M in Q4", "semantic": "evidence", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "figure", "props": {"c": {}, "e": {}}}
+  ]
+}

@@ -309,6 +309,37 @@
         }
       }
     },
+    "figure": {
+      "description": "A headline, the figure that shows it, and its source, each in its own rows.",
+      "slots": {
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 1,
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            2,
+            5
+          ]
+        },
+        "footer": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 6,
+          "role": "caption"
+        }
+      }
+    },
     "split": {
       "description": "Text left, figure right.",
       "slots": {

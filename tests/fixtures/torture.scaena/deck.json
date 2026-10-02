@@ -1180,7 +1180,7 @@
     "shape-pill": {
       "type": "shape",
       "kind": "rect",
-      "radius": 999,
+      "radius": "radius.5",
       "fill": "accent",
       "semantic": "decoration",
       "at": {
@@ -1697,8 +1697,8 @@
       "kind": "ellipse",
       "fill": "accent",
       "size": {
-        "w": 48,
-        "h": 48
+        "w": "space.6",
+        "h": "space.6"
       },
       "align": "center",
       "semantic": "decoration",
@@ -1745,9 +1745,10 @@
     "card-tag": {
       "type": "shape",
       "kind": "rect",
-      "radius": 999,
+      "radius": "radius.5",
       "fill": "accent",
       "semantic": "decoration",
+      "z": 1,
       "at": {
         "parent": "card",
         "rect": [
@@ -1766,6 +1767,7 @@
         "color": "onAccent"
       },
       "semantic": "annotation",
+      "z": 1,
       "at": {
         "parent": "card",
         "rect": [
@@ -1803,8 +1805,7 @@
       "at": {
         "parent": "marks",
         "col": 12,
-        "row": 5,
-        "inset": 30
+        "row": 5
       }
     },
     "align-center": {
@@ -2615,7 +2616,6 @@
     "gp-linear": {
       "type": "shape",
       "kind": "rect",
-      "radius": 12,
       "fill": {
         "gradient": {
           "kind": "linear",
@@ -2677,7 +2677,6 @@
     "gp-conic": {
       "type": "shape",
       "kind": "rect",
-      "radius": 12,
       "stroke": {
         "paint": {
           "gradient": {
@@ -2697,8 +2696,7 @@
               }
             ]
           }
-        },
-        "width": 8
+        }
       },
       "at": {
         "col": [
@@ -3934,5 +3932,21 @@
       },
       "notes": "Pass: on the deck's 1920 × 1080 canvas, the claim stands left of the bar chart, each in half of the grid. In 9:16 (`render --format 9:16`, frame `formats~9x16`) the deck lays out again on a 1080 × 1920 canvas: the theme's 9:16 grid narrows the side margins to 64 cu, the specimen layout's `left` and `right` slots stack, the claim wraps across the full width on rows 2-4, and the chart takes the full width on rows 5-8. Nothing in the deck changes."
     }
-  ]
+  ],
+  "overrides": {
+    "marks-dot": {
+      "at": {
+        "inset": 30
+      }
+    },
+    "gp-linear": {
+      "radius": 12
+    },
+    "gp-conic": {
+      "radius": 12,
+      "stroke": {
+        "width": 8
+      }
+    }
+  }
 }

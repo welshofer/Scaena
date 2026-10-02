@@ -1,0 +1,14 @@
+{
+  "scaena": "0.8",
+  "_comment": "W420 clean: the state shows the claim.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "spine": {"sections": [{"id": "only", "beats": [{"id": "one", "claim": "Revenue doubled.", "states": ["a"]}]}]},
+  "nodes": {
+    "t": {"type": "text", "role": "headline", "text": "Revenue doubled.", "semantic": "claim", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

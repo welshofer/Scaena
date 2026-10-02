@@ -24,6 +24,9 @@ pub struct TableLayout {
     pub rule: Option<Rule>,
     /// The rules between rows, each keyed by the row above it.
     pub row_rules: Vec<(String, Rule)>,
+    /// Why its rows do not fit its cell, when lint laid it out anyway (E100); a frame
+    /// refuses such a table.
+    pub overflow: Option<String>,
 }
 
 /// One cell's text, where it stands.
@@ -206,7 +209,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
 
     // Rows: each its tallest text with `row_gap` above and below, the cells' first
     // baselines on one line.
-    let mut out = TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new() };
+    let mut out =
+        TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
     let mut y = 0.0_f32;
     let place = |cells: Vec<Option<TextLayout>>, row: &str, y: &mut f32| -> Vec<Cell> {
         let baseline = cells.iter().flatten().filter_map(|t| t.lines.first()).map(|l| l.baseline).fold(0.0, f32::max);
@@ -239,10 +243,14 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
         let head = out.rule.as_ref().map_or(0.0, |r| r.from[1]);
         let pitch = (y - head) / rows.max(1) as f32;
         let fits = ((size[1] - head) / pitch).floor().max(0.0);
-        return Err(EngineError::Layout(format!(
+        let why = format!(
             "table shows {rows} rows in {y:.0} cu, and its cell is {:.0} high: keep about {fits:.0} with `dataTransform` ({{ \"limit\": {fits:.0} }}), or give it more room",
             size[1]
-        )));
+        );
+        if !cx.lenient {
+            return Err(EngineError::Layout(why));
+        }
+        out.overflow = Some(why);
     }
     Ok(out)
 }

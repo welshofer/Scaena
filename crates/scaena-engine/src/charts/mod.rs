@@ -699,6 +699,9 @@ pub struct Ctx<'a> {
     /// ([`color_keys`]), so a series keeps its color from state to state. A key not
     /// here takes its place in this state's own order.
     pub colors: &'a [String],
+    /// Lay out what a frame would refuse (a table whose rows do not fit), so lint can
+    /// report it.
+    pub lenient: bool,
 }
 
 mod compile;

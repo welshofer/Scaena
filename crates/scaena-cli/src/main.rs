@@ -281,19 +281,20 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Lint { bundle, state, severity, fix } => {
-            if fix {
-                return Ok(not_yet(cli.json, "lint --fix", "1.15"));
-            }
             let b = open(&bundle)?;
+            if fix {
+                return lint_fix(&bundle, &b, cli.json);
+            }
             let min: Severity = severity.into();
-            let findings: Vec<Finding> = scaena_core::lint::lint_document(&b.deck)
+            let (found, laid) = lint_bundle(&b, &b.deck, &b.files, b.theme_json.as_deref())?;
+            let findings: Vec<Finding> = found
                 .into_iter()
                 .filter(|f| f.severity >= min)
                 .filter(|f| state.as_ref().is_none_or(|s| f.state.as_deref() == Some(s)))
                 .collect();
             report(&findings, cli.json);
-            if !cli.json {
-                eprintln!("(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)");
+            if !laid && !cli.json {
+                eprintln!("(the layout rules run once the errors above are fixed)");
             }
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
@@ -565,17 +566,12 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result
         None => None,
     };
 
-    let findings = |deck: &scaena_core::Deck, files: &dyn scaena_core::validate::BundleFiles| -> Result<Vec<Finding>> {
-        let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
-        found.extend(scaena_core::lint::lint_document(deck));
-        Ok(found)
-    };
-    let before = findings(&b.deck, &b.files)?;
+    let before = lint_bundle(&b, &b.deck, &b.files, b.theme_json.as_deref())?.0;
     let mut deck = b.deck.clone();
     deck.theme = Some(serde_json::Value::String(rel.clone()));
-    let after = findings(&deck, &Overlay { base: &b.files, path: &rel, text: &text })?;
+    let after = lint_bundle(&b, &deck, &Overlay { base: &b.files, path: &rel, text: &text }, Some(&text))?.0;
 
-    let key = |f: &Finding| (f.code.clone(), f.file.clone(), f.path.clone(), f.message.clone());
+    let key = |f: &Finding| (f.code.clone(), f.file.clone(), f.path.clone(), f.format.clone(), f.message.clone());
     let added: Vec<&Finding> = after.iter().filter(|f| !before.iter().any(|g| key(g) == key(f))).collect();
     let removed: Vec<&Finding> = before.iter().filter(|f| !after.iter().any(|g| key(g) == key(f))).collect();
     let errors = after.iter().filter(|f| f.severity == Severity::Error).count();
@@ -614,6 +610,73 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result
         }
     }
     Ok(if errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// What `lint` finds in a bundle (SPEC §7.5): its validation, the document rules, and,
+/// once it has no errors, the layout rules in its own format and each of its `formats`,
+/// contrast painted by the CPU painter. `deck`, `files`, and `theme` may be the bundle
+/// as it would be (`theme --apply`); its fonts, images, and data are the bundle's. The
+/// flag: whether the layout rules ran.
+fn lint_bundle(
+    b: &Bundle,
+    deck: &scaena_core::Deck,
+    files: &dyn scaena_core::validate::BundleFiles,
+    theme: Option<&str>,
+) -> Result<(Vec<Finding>, bool)> {
+    let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
+    let model: Option<scaena_core::model::theme::Theme> = theme.and_then(|t| serde_json::from_str(t).ok());
+    found.extend(scaena_core::lint::check(deck, model.as_ref()));
+    let laid = theme.is_some() && !found.iter().any(|f| f.severity == Severity::Error);
+    if let (true, Some(text)) = (laid, theme) {
+        let theme = Theme::from_json(text)?;
+        let mut assets = Assets::new();
+        let mut engine = engine_with(b, &theme, Some(&mut assets))?;
+        let data = data_files(b)?;
+        let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets: &assets };
+        found.extend(scaena_engine::lint::lint(&mut engine, deck, &theme, &data, Some(&mut backdrop))?);
+    }
+    scaena_core::lint::sort(&mut found);
+    Ok((found, laid))
+}
+
+/// `scaena lint --fix`: apply every fix lint offers (each checked by laying its state out
+/// with it, never a change of content), write the deck, and lint again. Under `--json`:
+/// `{ "fixed": [findings], "findings": [what remains] }`.
+fn lint_fix(path: &Path, b: &Bundle, json: bool) -> Result<ExitCode> {
+    let (found, _) = lint_bundle(b, &b.deck, &b.files, b.theme_json.as_deref())?;
+    let mut doc = serde_json::to_value(&b.deck)?;
+    let mut fixed: Vec<&Finding> = Vec::new();
+    for f in found.iter().filter(|f| f.fix.is_some()) {
+        // Two findings can carry one fix (the same text in two states); it applies once.
+        let patch = f.fix.as_deref().unwrap_or_default();
+        let mut next = doc.clone();
+        if scaena_core::patch::apply(&mut next, patch).is_ok() {
+            doc = next;
+            fixed.push(f);
+        }
+    }
+    let deck = scaena_core::Deck::from_json(&doc.to_string()).context("the fixed deck")?;
+    if !fixed.is_empty() {
+        let mut files = std::collections::BTreeMap::new();
+        files.insert(b.deck_file.clone(), (deck.to_json()? + "\n").into_bytes());
+        b.write(&files).with_context(|| format!("writing {}", path.display()))?;
+    }
+    let (after, _) = lint_bundle(b, &deck, &b.files, b.theme_json.as_deref())?;
+    if json {
+        let v = serde_json::json!({ "fixed": fixed, "findings": after });
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        for f in &fixed {
+            let ops: Vec<String> = f.fix.iter().flatten().map(|op| op.to_string()).collect();
+            println!("fixed {} {}: {}", f.code, f.node.as_deref().unwrap_or_default(), ops.join(" "));
+        }
+        if fixed.is_empty() {
+            println!("nothing to fix");
+        }
+        report(&after, false);
+    }
+    let errors = after.iter().any(|f| f.severity == Severity::Error);
+    Ok(if errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
 /// A bundle's files with one more, or one replaced: the bundle as it would be.
@@ -663,7 +726,7 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
     // timeline needs the engine, with the bundle's fonts and images, as `render` does.
     let mut cues = match (&theme, views.timeline) {
         (Some(theme), true) => {
-            let mut engine = engine(b, theme)?;
+            let mut engine = engine_with(b, theme, None)?;
             let timeline = engine.timeline(&b.deck, theme, &files)?;
             Some((engine, timeline))
         }
@@ -1015,16 +1078,23 @@ fn data_files(b: &Bundle) -> Result<DataFiles> {
     Ok(data)
 }
 
-/// An engine with the bundle's fonts and images registered, for what only layout knows.
-fn engine(b: &Bundle, theme: &Theme) -> Result<Engine> {
+/// An engine with the bundle's fonts and images registered, for what only layout knows;
+/// and, given a store, the same fonts and images for a painter.
+fn engine_with(b: &Bundle, theme: &Theme, mut store: Option<&mut Assets>) -> Result<Engine> {
     let mut fonts = BundleFonts::new();
     for (id, bytes) in b.read_fonts()? {
+        if let Some(store) = store.as_deref_mut() {
+            store.insert_font(&id, bytes.clone());
+        }
         fonts.register(&id, bytes)?;
     }
     fonts.check_theme(theme)?;
     let mut images = BundleImages::new();
     for (path, bytes) in b.read_images()? {
-        images.register(&path, &bytes)?;
+        let info = images.register(&path, &bytes)?;
+        if let Some(store) = store.as_deref_mut() {
+            store.insert_image(&info.id, &bytes)?;
+        }
     }
     Ok(Engine::new(fonts).with_images(images))
 }
@@ -1205,9 +1275,14 @@ fn report(findings: &[Finding], json: bool) {
             Some(file) => format!("{file} {}", f.path.as_deref().unwrap_or("")),
             None => f.path.clone().unwrap_or_default(),
         };
-        println!("{sev} {} {loc}: {}", f.code, f.message);
+        let format = f.format.as_deref().map(|f| format!(" [{f}]")).unwrap_or_default();
+        println!("{sev} {}{format} {loc}: {}", f.code, f.message);
         if let Some(h) = &f.hint {
             println!("        hint: {h}");
+        }
+        if let Some(fix) = &f.fix {
+            let ops: Vec<String> = fix.iter().map(|op| op.to_string()).collect();
+            println!("        fix: {} (`lint --fix` applies it)", ops.join(" "));
         }
     }
 }

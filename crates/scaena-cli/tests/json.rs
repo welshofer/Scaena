@@ -37,11 +37,11 @@ fn every_command_prints_one_json_value() {
     let dir = scratch("every");
     let png = dir.join("pretty.png");
     let saved = dir.join("saved.scaena");
-    let theme = format!("{TORTURE}/theme.json");
+    let theme = "../../docs/examples/themes/dusk.theme.json".to_string();
     let scn = "../../docs/examples/revenue.deck.scn";
     let cases: Vec<(Vec<&str>, i32, Check)> = vec![
         (vec!["validate", TORTURE], 0, |v| v.as_array().is_some_and(Vec::is_empty)),
-        (vec!["lint", TORTURE, "--severity", "error"], 0, Value::is_array),
+        (vec!["lint", EXAMPLE], 0, |v| v.as_array().is_some_and(Vec::is_empty)),
         (vec!["inspect", TORTURE, "--state", "chart"], 0, |v| v[0]["state_id"] == "chart"),
         (vec!["diff", TORTURE, "--from", "chart", "--to", "chart-next"], 0, Value::is_object),
         (vec!["compile", scn], 0, |v| {
@@ -55,7 +55,7 @@ fn every_command_prints_one_json_value() {
         }),
         (vec!["save", TORTURE, "--to", saved.to_str().unwrap()], 0, |v| v["manifest"].is_object()),
         (vec!["export", EXAMPLE, "--format", "spine"], 0, |v| v["format"] == "spine" && v["spine"].is_object()),
-        (vec!["theme", TORTURE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
+        (vec!["theme", EXAMPLE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
     ];
     for (args, code, check) in &cases {
         let (got, v) = json(args);
@@ -75,7 +75,6 @@ fn a_command_that_stops_prints_an_error_object() {
         (vec!["export", EXAMPLE, "--format", "spine", "--states", "intro"], 2, None),
         (vec!["export", EXAMPLE, "--format", "gif"], 2, None),
         (vec!["inspect", TORTURE, "--no-such-flag"], 2, None),
-        (vec!["lint", TORTURE, "--fix"], 3, Some("1.15")),
         (vec!["patch", TORTURE, "--ops", ops.to_str().unwrap()], 3, Some("1.16")),
         (vec!["mcp"], 3, Some("1.17")),
         (vec!["export", EXAMPLE, "--format", "pdf"], 3, Some("1.20")),

@@ -242,3 +242,28 @@ fn a_theme_name_the_theme_does_not_define_is_e102_in_the_theme_file() {
 fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
     assert!(validate_bundle("{ \"scaena\": ", &Fixtures).is_err());
 }
+
+#[test]
+fn e103_two_rows_one_mark() {
+    // A mark is known by its key, else its category, with its series beside it.
+    let deck = serde_json::json!({
+        "scaena": "0.8",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": {
+            "source": { "inline": [{ "q": "Q1", "p": "A", "v": 1 }, { "q": "Q1", "p": "B", "v": 2 }, { "q": "Q2", "p": "A", "v": 3 }] },
+            "schema": { "v": "number" }
+        } },
+        "nodes": {
+            "keyed": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                       "series": { "field": "p" }, "key": "p", "alt": "", "at": { "in": "main" } },
+            "unseried": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                          "alt": "", "at": { "in": "main" } },
+            "fine": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "q" }, "y": { "field": "v" },
+                      "series": { "field": "p" }, "alt": "", "at": { "in": "main" } }
+        },
+        "states": [{ "id": "a", "layout": "full", "props": { "keyed": {}, "unseried": {}, "fine": {} } }]
+    });
+    assert_eq!(findings(&deck.to_string()), ["E103 /nodes/keyed/key", "E103 /nodes/unseried/x/field"]);
+}

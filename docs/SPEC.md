@@ -219,7 +219,7 @@ One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans th
 
 **Text fit policy** (`fit`): `wrap` (default) | `shrink` (down to `minSize`) | `grow` (up to `maxSize`) | `clip` | `error`. Text fits when its box, as `box` trims it, is no taller than the cell, no line is wider, and it has no more lines than `maxLines`. `shrink` and `grow` set the text at the largest size between its bounds at which it fits, found by bisection (12 steps), so the same text in the same box always gets the same size. Every span scales together, with leading, tracking, and `measure` following. The bounds are the node's `minSize`/`maxSize`, else its role's, else half and twice its size. `clip` cuts the text to its cell; `error` refuses to draw a text that does not fit. Overflow under `wrap`/`clip` is lint **E100**; under `shrink` it is **W203** once the minimum is reached.
 
-**Baseline grid.** Themes MAY define a baseline grid; text roles snap leading to it; lint **W221** on violations.
+**Baseline grid.** Themes MAY define a baseline grid (`grid.baseline`, cu). The engine does not snap text to it yet. Snapping waits on a typographic pass, and lint **W221** waits with it.
 
 ### 3.5 Typography
 
@@ -561,7 +561,7 @@ Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before
 - Every non-decorative node carries `alt` (text nodes default to their content). Images without `alt` are **W410**.
 - Reading order = spine order, then z-order within a state.
 - PDF export is tagged (structure from spine + nodes); HTML export carries ARIA from the same data.
-- Lint **E110**/**E111** enforce contrast (4.5:1 body, 3:1 display) against the resolved background.
+- Lint **E110**/**E111** enforce contrast (4.5:1 body, 3:1 display) against what is painted behind the text (§7.5).
 
 ---
 
@@ -615,19 +615,21 @@ state intro layout:title hold:4s
     params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035} at:in(canvas) z:-100 alt:""
     semantic:decoration
   title text role:display "Q3 Review" semantic:navigation at:in(title)
-  subtitle text role:title "Growth, mix, and what we do next" semantic:context at:in(subtitle)
+  subtitle text role:title "This quarter changed the shape of the business." semantic:claim
+    at:in(subtitle)
   choreo title split:words enter:words timing:with
   choreo subtitle enter:rise delay:240ms
   notes "Open on the title. Don't talk over the build."
 
-state revenue layout:full transition:{duration: standard, ease: standard} hold:6s
+state revenue layout:figure transition:{duration: standard, ease: standard} hold:6s
   -subtitle
+  -bg
   title "Revenue doubled" role:headline semantic:claim at:in(header)
   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     y:{field: revenue, type: quantitative, format: "$,.1f", domain: [0, null], title: "Revenue ($M)"}
     series:{field: product, type: nominal} color:{field: product, type: nominal, scale: categorical}
     labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
-    semantic:evidence at:col(1-12) row(2-6)
+    semantic:evidence at:in(main)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
     at:in(footer)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
@@ -641,6 +643,7 @@ state mix slide:revenue transition:slow hold:6s
 state close layout:title hold:3s
   -rev
   -note
+  bg
   title "Thank you" role:display semantic:navigation at:in(title)
 ```
 
@@ -809,7 +812,7 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 
 | Command | `--json` |
 |---|---|
-| `validate`, `lint` | an array of findings (§7.4) |
+| `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
 | `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, and `--data` adds `data` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
@@ -857,14 +860,22 @@ Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`
 ### 7.4 Lint results
 
 ```jsonc
-{ "code": "E100", "severity": "error", "message": "Text overflows its box by 2 lines",
-  "path": "/states/3/props/title", "state": "revenue", "node": "title",   // "file": "theme.json" when path points into a file other than deck.json
-  "measure": { "lines": 5, "maxLines": 3 },
-  "hint": "Shorten to ~18 words, or set fit:shrink (minSize 72).",
-  "fix": [ { "op": "replace", "path": "/nodes/title/fit", "value": "shrink" } ] }
+{ "code": "E100", "severity": "error", "message": "text `title` does not fit: it needs 141 cu of height in 2 lines, and its box has 128",
+  "path": "/nodes/title", "state": "revenue", "node": "title",   // "file": "theme.json" when path points into a file other than deck.json
+  "format": "9:16",                                                // when the deck was laid out in one of its formats, not its own
+  "measure": { "lines": 2, "height": 141, "width": 1120, "box": [1144, 128] },
+  "hint": "Shorten it, give it a larger slot, or let it shrink (`fit: shrink`, down to its role's `minSize`).",
+  "fix": [ { "op": "add", "path": "/nodes/title/fit", "value": "shrink" } ] }
 ```
 
-`fix` is optional and MUST be a valid patch; `lint --fix` applies all safe fixes (never content changes).
+`fix` is optional and MUST be a valid patch (§7.3). A fix never changes content, and lint keeps one only after laying its state out again with it applied: the text fits, within its lines, at a size its bounds allow. `lint --fix` applies every fix, each at most once, writes the deck canonically, and lints again. Under `--json` it prints `{ "fixed": [findings], "findings": [what remains] }`.
+
+**What `lint` runs**, in order:
+- The bundle's validation, as `validate` runs it (E102–E106).
+- The document-level rules (`scaena-core::lint`), which read the deck, its theme, and its resolved states.
+- Once nothing above is an error, the layout-level rules (`scaena-engine::lint`). They lay out every state in the deck's own format and in each of its `formats`, and judge motion in its own.
+
+Layout lint lays out what a frame refuses: text under `fit: error` that does not fit, a table whose rows do not. It reports these instead of stopping at the first. Contrast (E110, E111) needs pixels, and the engine never paints, so the client lends a painter (`scaena_core::lint::Backdrop`); the CLI lends the CPU painter.
 
 ### 7.5 Lint catalog (initial)
 
@@ -872,43 +883,47 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 
 | Code | Sev | Rule |
 |---|---|---|
-| E100 | error | text overflow (wrap/clip) |
-| E101 | error | unintended collision between nodes in the same layer |
+| E100 | error | text that does not fit its box, under `wrap`, `clip`, `grow`, or `error`; a table whose rows do not fit its cell. Fix: `fit: shrink`, where it works |
+| E101 | error | two nodes that draw content (text, a chart, a table, an image) overlap in the same container at the same `z`, by more than 2 cu each way. Text counts by its lines as set, not its cell. What is meant to lie on top says so with a higher `z`; `semantic: decoration` is exempt |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
-| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have |
+| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have; two rows the chart knows as one mark (its `key`, else its category, with its series) |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
 | E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot; a choreography item that names no motion or more than one, or splits a target into what its type does not have |
-| E110 | error | body text contrast < 4.5:1 |
-| E111 | error | display text contrast < 3:1 |
-| E120 | error | font lacks glyphs for content (after fallback within bundle) |
-| W200 | warn | widow: a paragraph's last line short of `minLastLineWords` |
-| W201 | warn | line exceeds role measure |
-| W202 | warn | display role exceeds `maxLines` |
-| W203 | warn | shrink reached `minSize` |
-| W210 | warn | density: words/slide above theme threshold |
-| W220 | warn | mixed alignment within a state |
-| W221 | warn | baseline-grid violation |
-| W300 | warn | style literal outside `overrides` |
-| W301 | warn | absolute `rect` placement in a template-managed state |
+| E110 | error | body text whose contrast with what lies behind it is below 4.5:1 |
+| E111 | error | display text whose contrast with what lies behind it is below 3:1 |
+| E120 | error | characters a node sets (text, a table's cells, a chart's labels) that its family and its fallbacks have no glyph for |
+| W200 | warn | widow: a paragraph's last line short of `minLastLineWords`, which breaking could not fix |
+| W201 | warn | a line wider than its measure, inside its box: a word too long to break at the measure |
+| W202 | warn | text with more lines than its `maxLines` (the node's, else its role's). Fix: `fit: shrink`, where it works |
+| W203 | warn | `fit: shrink` reached its minimum size and the text still does not fit |
+| W210 | warn | density: more words on screen in a state than the theme's `density.maxWordsPerState` (40) |
+| W220 | warn | paragraphs (text of two lines or more) aligned more than one way in a state |
+| W221 | warn | *(reserved)* baseline-grid violation: waits on the engine snapping text to the grid (§3.4) |
+| W300 | warn | style literal outside `overrides`: a color written out where a theme color goes, a text `size`, a length in canvas units where a theme token goes (`radius`, `gap`, `padding`, `inset`, a stroke's `width`, a child's `size`) |
+| W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
+| W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |
 | W310 | warn | chart value labels within a quarter space unit of each other, unless `labels.collide` resolves them |
-| W320 | warn | too many concurrent animations |
-| W321 | warn | build exceeds `maxBuild` |
+| W320 | warn | more nodes moving at once than the theme's `motion.maxConcurrent` (12) |
+| W321 | warn | a state's motions run past the theme's `motion.maxBuild` (2500 ms) |
+| W322 | warn | a motion that moves nothing, yet takes its time: an entrance on a node that does not enter, an exit on one that does not leave (under `match: none`, every node does both), an emphasis or `anim` on a node not on screen, a draw-on (a look whose only change is `progress`) on a node that strokes no outline |
 | W401 | warn | state not referenced by any beat |
 | W410 | warn | image without `alt` |
-| W420 | warn | *(narrative, reserved)* beat's claim has no node with `semantic: claim` in its states |
-| W421 | warn | *(narrative, reserved)* evidence shown with no claim in the same state |
-| W422 | warn | *(narrative, reserved)* evidence outranks the claim in visual hierarchy (role size) |
-| W423 | warn | *(narrative, reserved)* beat cites `evidence` that no state shows |
-| W424 | warn | *(narrative, reserved)* claim density: more than N claims in one state |
-| W425 | warn | *(narrative, reserved)* two consecutive beats with identical claims |
+| W420 | warn | a beat whose states show no claim (a node whose `semantic` is `claim` or `takeaway`). A beat whose states show only signposts (`navigation`, `decoration`, `source`) is not judged |
+| W421 | warn | a slide whose last state shows evidence and no claim |
+| W422 | warn | at a slide's last state, evidence text set larger than its claim, by role size or `style.size`; a stat's numeral (role `numeral`) does not count |
+| W423 | warn | a beat citing a data source or an asset that none of its states shows (a chart or table reading the source, an image of the asset, or for a source any node marked `evidence`). URLs are not checked |
+| W424 | warn | more than one `claim` on screen at once |
+| W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
 | I400 | info | state identical to previous (no-op cue) |
 | I401 | info | node never visible |
 | I402 | info | override makes node theme-unsafe (count) |
 
-Reserved narrative rules are specified here so codes are stable; they are implemented in PLAN 1.15 only where `semantic` and the spine give them something to check, and are never errors in v1.
+**Contrast** (E110, E111) follows WCAG. What lies behind text is the state at rest with its text taken away, painted, and a shader is judged at rest and at the end of the state's hold. Each run of text is judged over the pixels under its glyphs: its color is laid on each pixel at its alpha times its node's opacity, and the run fails when more than 2% of those pixels fall below the line. **Display** text is WCAG's large text: 24 px or more, or 18.67 px at weight 700 or more, on a screen whose shorter side is 1080 px (on a 1920 × 1080 canvas, a canvas unit is a pixel). Everything else is body. Text nodes and table cells are judged; chart labels are not yet.
 
-Rules live in `crates/scaena-core/src/lint/` (document-level) and `crates/scaena-engine/src/lint/` (layout-level); each rule is a struct with `code`, `severity`, `check(&Context) -> Vec<Finding>` and a fixture deck under `tests/lint/`.
+The narrative rules are warnings, never errors, and read only what `semantic` and the spine say. A build may show its evidence before its claim, so W421 and W422 judge each slide at its last state, where the build is complete. W424 allows one claim at a time; a contrast that needs two is `semantic: comparison`. Whether a slide's words say what its beat claims is a question for the user's model (BYOK, §11), not a rule.
+
+Rules live in `crates/scaena-core/src/lint/` (document-level) and `crates/scaena-engine/src/lint/` (layout-level). Each rule is a struct implementing `Rule` with a stable code, and has fixtures under `tests/lint/<CODE>/`: one deck that triggers it, one that must not.
 
 ### 7.6 Skills
 

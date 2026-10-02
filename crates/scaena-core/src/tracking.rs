@@ -168,20 +168,22 @@ mod tests {
         // intro: bg, title, subtitle
         assert_eq!(snaps[0].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title", "subtitle"]);
         assert_eq!(snaps[0].entered, vec!["bg", "title", "subtitle"]);
-        // revenue: subtitle removed, rev + note entered, title text overridden
+        // revenue: subtitle and background removed, rev + note entered, title text overridden
         assert!(!snaps[1].nodes.contains_key("subtitle"));
-        assert_eq!(snaps[1].exited, vec!["subtitle"]);
+        assert_eq!(snaps[1].exited, vec!["bg", "subtitle"]);
         assert_eq!(snaps[1].entered, vec!["rev", "note"]);
         assert_eq!(snaps[1].nodes["title"]["text"], json!("Revenue doubled"));
         assert_eq!(snaps[1].nodes["title"]["at"], json!({"in": "header"}));
-        // mix: rev kind changed, bg tracked all the way from intro
+        // mix: rev kind changed, the layout tracked forward, the background still gone
         assert_eq!(snaps[2].nodes["rev"]["kind"], json!("stackedBar"));
         assert_eq!(snaps[2].nodes["rev"]["data"], json!("@q3"));
-        assert_eq!(snaps[2].nodes["bg"]["seed"], json!(7));
+        assert!(!snaps[2].nodes.contains_key("bg"), "a removed node stays removed");
         assert_eq!(snaps[2].slide_id, "revenue");
-        assert_eq!(snaps[2].layout.as_deref(), Some("full"), "layout tracks forward");
-        // close: rev/note removed
+        assert_eq!(snaps[2].layout.as_deref(), Some("figure"), "layout tracks forward");
+        // close: rev/note removed; the background re-enters from its node defaults
         assert_eq!(snaps[3].nodes.keys().collect::<Vec<_>>(), vec!["bg", "title"]);
+        assert_eq!(snaps[3].entered, vec!["bg"]);
+        assert_eq!(snaps[3].nodes["bg"]["seed"], json!(7));
     }
 
     #[test]
