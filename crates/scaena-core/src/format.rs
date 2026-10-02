@@ -844,6 +844,18 @@ impl DateFormat {
             .map(|f| DateFormat::parse(f).expect("ISO formats parse"))
     }
 
+    /// Whether the format reads a date's month, quarter, day, or weekday but not its
+    /// year, so that every date it reads falls in 1900. A time of day alone reads no
+    /// date, and is not.
+    pub fn misses_year(&self) -> bool {
+        let reads = |f: &dyn Fn(Field) -> bool| self.0.iter().any(|p| matches!(p, Piece::Field(x, _) if f(*x)));
+        let calendar = |f: Field| {
+            use Field::*;
+            matches!(f, ShortWeekday | Weekday | ShortMonth | Month | Day | MonthNumber | Quarter | DayOfYear)
+        };
+        reads(&calendar) && !reads(&|f| matches!(f, Field::Year | Field::ShortYear))
+    }
+
     pub fn parse(spec: &str) -> Result<DateFormat, FormatError> {
         let mut pieces = Vec::new();
         let mut text = String::new();
