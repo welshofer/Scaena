@@ -122,7 +122,7 @@ fn the_value_axis_widens_to_round_ticks_and_rules_them() {
     assert_eq!(titles, [("y", "Revenue"), ("x", "Quarter")]);
     assert!(layout.titles[0].origin[1] + layout.titles[0].text.height < top);
     // Bands share the plot, not the gutter.
-    let first = &layout.marks[0].shape;
+    let scaena_engine::charts::Shape::Bar(first) = layout.marks[0].shape else { panic!("bars") };
     assert!(first.x > left && (first.center_x() - (left + width / 6.0)).abs() < 1e-3);
 }
 
@@ -139,4 +139,174 @@ fn a_bound_the_author_sets_stays_and_gridlines_can_show_alone() {
     assert!(bare.y_axis.is_empty() && bare.titles.len() == 1);
     let hidden = compile(&bars(json!({ "x": { "show": false } }), json!([0, null])));
     assert!(hidden.ticks.is_empty());
+}
+
+use scaena_engine::charts::Shape;
+
+/// Three products over four quarters.
+fn revenue() -> Value {
+    let quarters = ["Q1", "Q2", "Q3", "Q4"];
+    let products = [("Core", [12, 15, 18, 22]), ("Cloud", [6, 9, 14, 19]), ("Edge", [3, 4, 4, 7])];
+    let rows: Vec<Value> = products
+        .iter()
+        .flat_map(|(p, v)| quarters.iter().zip(v).map(move |(q, v)| json!({ "q": q, "product": p, "rev": v })))
+        .collect();
+    json!(rows)
+}
+
+fn by_series(kind: &str, extra: Value) -> ChartLayout {
+    let mut chart = json!({ "type": "chart", "kind": kind, "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
+                            "series": { "field": "product" } });
+    chart.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    compile(&deck("en-US", revenue(), json!({ "rev": "number" }), Value::Null, chart))
+}
+
+fn bar(s: &Shape) -> scaena_engine::charts::RoundRect {
+    match s {
+        Shape::Bar(r) => *r,
+        other => panic!("not a bar: {other:?}"),
+    }
+}
+
+#[test]
+fn grouped_bars_share_their_category_and_the_legend_names_each_series() {
+    let layout = by_series("bar", json!({}));
+    assert_eq!(layout.marks.len(), 12);
+    assert_eq!(layout.marks[0].key, "Q1\u{1f}Core");
+    // Within Q1: Core, Cloud, Edge side by side, left to right, same width.
+    let q1: Vec<_> = ["Core", "Cloud", "Edge"]
+        .iter()
+        .map(|p| bar(&layout.marks.iter().find(|m| m.key == format!("Q1\u{1f}{p}")).unwrap().shape))
+        .collect();
+    assert!(q1[0].x + q1[0].w < q1[1].x && q1[1].x + q1[1].w < q1[2].x, "{q1:?}");
+    assert!((q1[0].w - q1[2].w).abs() < 1e-4);
+    let legend: Vec<&str> = layout.legend.iter().map(|e| e.key.as_str()).collect();
+    assert_eq!(legend, ["Core", "Cloud", "Edge"]);
+    // Each series in its palette color, and its legend swatch in the same.
+    let core = layout.marks.iter().find(|m| m.key == "Q4\u{1f}Core").unwrap();
+    assert_eq!(core.color, layout.legend[0].color);
+    assert_ne!(layout.legend[0].color, layout.legend[1].color);
+    // A single series needs no legend.
+    let one = compile(&bars(json!({}), json!([0, null])));
+    assert!(one.legend.is_empty());
+}
+
+#[test]
+fn a_legend_stands_above_the_plot_at_its_foot_or_beside_it() {
+    let top = by_series("bar", json!({}));
+    let [_, plot_top, ..] = top.plot;
+    assert!(top.legend.iter().all(|e| e.swatch.y + e.swatch.h < plot_top), "above the plot by default");
+    let foot = by_series("bar", json!({ "legend": "bottom" }));
+    let [_, y, _, h] = foot.plot;
+    assert!(foot.legend.iter().all(|e| e.swatch.y > y + h), "under the plot");
+    assert!(foot.plot[1] < top.plot[1], "the plot takes the room the legend left");
+    // At the right: a column beside the plot, which narrows and clips at its side.
+    let right = by_series("bar", json!({ "legend": "right" }));
+    let [x, y, w, _] = right.plot;
+    let column: Vec<f32> = right.legend.iter().map(|e| e.swatch.x).collect();
+    assert!(column.iter().all(|&c| c == column[0] && c > x + w), "{column:?}");
+    let rows: Vec<f32> = right.legend.iter().map(|e| e.swatch.y).collect();
+    assert!(rows.windows(2).all(|r| r[0] < r[1]) && rows[0] >= y, "one entry per line from the plot's top");
+    assert!(w < top.plot[2] && right.clipped && !top.clipped);
+    assert!(right.ticks.iter().all(|t| t.origin[0] + t.text.width <= x + w + 1e-3), "labels stay in the plot");
+    let none = by_series("bar", json!({ "legend": "none" }));
+    assert!(none.legend.is_empty() && none.plot[1] < top.plot[1]);
+}
+
+#[test]
+fn stacked_bars_pile_up_by_series_and_label_their_totals() {
+    let layout = by_series("stackedBar", json!({ "labels": { "show": "all" }, "axes": { "y": { "show": true } } }));
+    assert_eq!(layout.y_scale.domain, [0.0, 50.0], "the tallest stack, 48, widens to 50");
+    for q in ["Q1", "Q2", "Q3", "Q4"] {
+        let seg = |p: &str| bar(&layout.marks.iter().find(|m| m.key == format!("{q}\u{1f}{p}")).unwrap().shape);
+        let (core, cloud, edge) = (seg("Core"), seg("Cloud"), seg("Edge"));
+        assert!((core.top() - cloud.bottom()).abs() < 1e-3 && (cloud.top() - edge.bottom()).abs() < 1e-3, "{q}");
+        assert!((core.bottom() - layout.base).abs() < 1e-3);
+        // A segment grows from the stack under it.
+        let mark = layout.marks.iter().find(|m| m.key == format!("{q}\u{1f}Cloud")).unwrap();
+        assert_eq!(mark.base, Some(cloud.bottom()));
+    }
+    let totals: Vec<&str> = layout.labels.iter().map(|l| l.text.text.as_str()).collect();
+    assert_eq!(totals, ["21", "28", "36", "48"]);
+}
+
+#[test]
+fn lines_and_areas_run_through_their_series_points() {
+    let lines = by_series("line", json!({}));
+    assert_eq!(lines.paths.len(), 3);
+    let core = &lines.paths[0];
+    assert_eq!((core.key.as_str(), core.marks.len()), ("Core", 4));
+    assert!(core.stroke.is_some(), "a line strokes");
+    assert!(lines.marks.iter().all(|m| matches!(m.shape, Shape::Dot { r, .. } if r == 0.0)), "no dots by default");
+    // A line's points sit at its categories' centers, like bars.
+    let xs: Vec<f32> =
+        core.marks.iter().map(|k| lines.marks.iter().find(|m| &m.key == k).unwrap().shape.center_x()).collect();
+    assert!(xs.windows(2).all(|w| w[0] < w[1]));
+    // Areas stack: each series' base is the top of the one under it.
+    let areas = by_series("area", json!({}));
+    let span = |key: &str| match areas.marks.iter().find(|m| m.key == key).unwrap().shape {
+        Shape::Span { top, base, .. } => (top, base),
+        other => panic!("{other:?}"),
+    };
+    let (core_top, core_base) = span("Q2\u{1f}Core");
+    let (_, cloud_base) = span("Q2\u{1f}Cloud");
+    assert!((core_base - areas.base).abs() < 1e-3 && (cloud_base - core_top).abs() < 1e-3);
+    assert!(areas.paths.iter().all(|p| p.stroke.is_none()), "an area fills");
+}
+
+#[test]
+fn a_scatter_sizes_dots_by_area_on_round_axes() {
+    let rows = json!([{ "n": "a", "x": 12, "y": 4, "s": 30 }, { "n": "b", "x": 85, "y": 18.5, "s": 120 }]);
+    let chart = json!({ "type": "chart", "kind": "scatter", "data": "@q", "key": "n", "x": { "field": "x", "type": "quantitative" },
+                        "y": { "field": "y" }, "sizeEncoding": { "field": "s" } });
+    let layout =
+        compile(&deck("en-US", rows, json!({ "x": "number", "y": "number", "s": "number" }), Value::Null, chart));
+    let radius = |k: &str| match layout.marks.iter().find(|m| m.key == k).unwrap().shape {
+        Shape::Dot { r, .. } => r,
+        other => panic!("{other:?}"),
+    };
+    // The largest at the theme's dot radius (8 by default), the rest by area.
+    assert_eq!(radius("b"), 8.0);
+    assert!((radius("a") - 8.0 * (30.0_f32 / 120.0).sqrt()).abs() < 1e-4);
+    let a = layout.marks[0].shape.center_x();
+    assert!(a > layout.plot[0] + 8.0, "x widens to round values: no dot on the plot's edge");
+}
+
+#[test]
+fn a_donut_turns_each_value_into_its_share_of_a_ring() {
+    let rows = json!([{ "c": "Direct", "v": 42 }, { "c": "Partners", "v": 27 }, { "c": "Online", "v": 19 }, { "c": "Retail", "v": 12 }]);
+    let chart = json!({ "type": "chart", "kind": "donut", "data": "@q", "x": { "field": "c" }, "y": { "field": "v" },
+                        "labels": { "show": "all" } });
+    let layout = compile(&deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart));
+    let arcs: Vec<(f32, f32, f32, f32)> = layout
+        .marks
+        .iter()
+        .map(|m| match m.shape {
+            Shape::Arc { start, end, inner, outer, .. } => (start, end, inner, outer),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(arcs[0].0, 0.0);
+    assert!((arcs[0].1 - 0.42).abs() < 1e-6 && (arcs[3].1 - 1.0).abs() < 1e-6, "{arcs:?}");
+    assert!(arcs.windows(2).all(|w| w[0].1 == w[1].0), "slices meet");
+    assert!((arcs[0].2 - 0.6 * arcs[0].3).abs() < 1e-3, "the theme's hole");
+    assert!(layout.baseline.is_none() && layout.y_axis.is_empty() && layout.ticks.is_empty());
+    assert_eq!(layout.legend.len(), 4);
+    // Labels sit outside, on their slice's side: Direct (the right half) starts at its
+    // point, Online (the left) ends at its.
+    let align = |k: &str| layout.labels.iter().find(|l| l.key == k).unwrap().value.unwrap().align;
+    assert_eq!((align("Direct"), align("Online")), (0.0, 1.0));
+}
+
+#[test]
+fn a_time_axis_ticks_on_calendar_boundaries() {
+    let rows: Vec<Value> =
+        (1..=12).map(|m| json!({ "m": format!("2024-{m:02}"), "v": f64::from(m) / 2.0 + 4.0 })).collect();
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q", "x": { "field": "m", "type": "temporal" },
+                        "y": { "field": "v" } });
+    let layout = compile(&deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), Value::Null, chart));
+    let ticks: Vec<&str> = layout.ticks.iter().map(|t| t.text.text.as_str()).collect();
+    assert_eq!(ticks, ["Jan 2024", "Apr 2024", "Jul 2024", "Oct 2024"]);
+    // The first label would hang past the plot's left edge: it starts there instead.
+    assert_eq!(layout.ticks[0].origin[0], layout.plot[0]);
 }

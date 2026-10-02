@@ -4,7 +4,7 @@
 //! formatting, so an axis lands on the same bits on every platform (SPEC §13), which a
 //! platform `log10` or `pow` would not promise.
 
-use scaena_core::format::exponent_of;
+use scaena_core::format::{DateTime, exponent_of};
 
 /// √50, √10, √2: where d3 rounds a tick step up to 10, 5, and 2 times its magnitude.
 const E10: f64 = 7.071_067_811_865_475_5;
@@ -134,6 +134,141 @@ pub fn nice(mut lo: f64, mut hi: f64, count: usize, widen: [bool; 2]) -> (f64, f
     (lo, hi)
 }
 
+/// A calendar step for ticks along time (d3-time's intervals, fewer of them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Interval {
+    Hours(u32),
+    Days(u32),
+    Months(u32),
+    Years(u32),
+}
+
+impl Interval {
+    /// Its length in seconds, months and years at their average.
+    fn seconds(self) -> f64 {
+        match self {
+            Interval::Hours(n) => 3_600.0 * f64::from(n),
+            Interval::Days(n) => 86_400.0 * f64::from(n),
+            Interval::Months(n) => 2_629_746.0 * f64::from(n),
+            Interval::Years(n) => 31_556_952.0 * f64::from(n),
+        }
+    }
+
+    /// How a tick at this step prints by default (`docs/spec/format.md`).
+    pub fn format(self) -> &'static str {
+        match self {
+            Interval::Hours(_) => "%-I %p",
+            Interval::Days(_) => "%b %-d",
+            Interval::Months(_) => "%b %Y",
+            Interval::Years(_) => "%Y",
+        }
+    }
+
+    /// The first boundary of this step at or after `t`, then each one after.
+    fn boundaries(self, from: DateTime, to: DateTime) -> Vec<DateTime> {
+        let c = from.civil();
+        let mut out = Vec::new();
+        match self {
+            // Hours of the day divisible by `n`.
+            Interval::Hours(n) => {
+                let step = 3_600 * i64::from(n);
+                let mut t = from.0.div_euclid(step) * step;
+                if t < from.0 {
+                    t += step;
+                }
+                while t <= to.0 {
+                    out.push(DateTime(t));
+                    t += step;
+                }
+            }
+            // Midnights: every day, every other day of the month (the 1st, 3rd, …) as
+            // d3's `timeDay.every(2)`, or each Sunday as d3's `timeWeek`.
+            Interval::Days(n) => {
+                let mut t = from.0.div_euclid(86_400) * 86_400;
+                if t < from.0 {
+                    t += 86_400;
+                }
+                while t <= to.0 {
+                    let day = DateTime(t);
+                    let keep = match n {
+                        7 => day.weekday() == 0,
+                        1 => true,
+                        n => (day.civil().day - 1).is_multiple_of(n),
+                    };
+                    if keep {
+                        out.push(day);
+                    }
+                    t += 86_400;
+                }
+            }
+            Interval::Months(n) => {
+                let n = i64::from(n);
+                let mut m = (c.year * 12 + i64::from(c.month) - 1).div_euclid(n) * n;
+                loop {
+                    let t = DateTime::ymd(m.div_euclid(12), (m.rem_euclid(12) + 1) as u32, 1).expect("a month's first");
+                    if t > to {
+                        break;
+                    }
+                    if t >= from {
+                        out.push(t);
+                    }
+                    m += n;
+                }
+            }
+            Interval::Years(n) => {
+                let n = i64::from(n);
+                let mut y = c.year.div_euclid(n) * n;
+                loop {
+                    let t = DateTime::ymd(y, 1, 1).expect("a year's first");
+                    if t > to {
+                        break;
+                    }
+                    if t >= from {
+                        out.push(t);
+                    }
+                    y += n;
+                }
+            }
+        }
+        out
+    }
+}
+
+const INTERVALS: [Interval; 16] = [
+    Interval::Hours(1),
+    Interval::Hours(3),
+    Interval::Hours(6),
+    Interval::Hours(12),
+    Interval::Days(1),
+    Interval::Days(2),
+    Interval::Days(7),
+    Interval::Months(1),
+    Interval::Months(3),
+    Interval::Months(6),
+    Interval::Years(1),
+    Interval::Years(2),
+    Interval::Years(5),
+    Interval::Years(10),
+    Interval::Years(25),
+    Interval::Years(100),
+];
+
+/// About `count` ticks on calendar boundaries from `from` to `to`, and their step: the
+/// step nearest `(to − from) / count` by ratio, as d3's time scale picks it.
+pub fn time_ticks(from: DateTime, to: DateTime, count: usize) -> (Vec<DateTime>, Interval) {
+    let (from, to) = if to < from { (to, from) } else { (from, to) };
+    let target = (to.0 - from.0) as f64 / count.max(1) as f64;
+    let interval = INTERVALS
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            let off = |i: &Interval| (i.seconds() / target.max(1.0)).max(target.max(1.0) / i.seconds());
+            off(a).total_cmp(&off(b))
+        })
+        .expect("intervals");
+    (interval.boundaries(from, to), interval)
+}
+
 /// Values in `domain` to positions in `range`, linearly: `range[0]` at `domain[0]`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinearScale {
@@ -175,6 +310,24 @@ mod tests {
         assert_eq!(nice(-0.13, 0.87, 5, [true, true]), (-0.2, 1.0));
         assert_eq!(nice(0.0, 38.0, 5, [true, false]), (0.0, 38.0), "the author's top stays");
         assert_eq!(nice(5.0, 5.0, 5, [true, true]), (5.0, 5.0));
+    }
+
+    #[test]
+    fn time_ticks_fall_on_calendar_boundaries() {
+        let d = |y, m, day| DateTime::ymd(y, m, day).unwrap();
+        let (ticks, step) = time_ticks(d(2024, 1, 15), d(2025, 6, 1), 5);
+        assert_eq!(step, Interval::Months(3));
+        assert_eq!(ticks, [d(2024, 4, 1), d(2024, 7, 1), d(2024, 10, 1), d(2025, 1, 1), d(2025, 4, 1)]);
+        let (ticks, step) = time_ticks(d(2001, 1, 1), d(2025, 1, 1), 5);
+        assert_eq!(step, Interval::Years(5));
+        assert_eq!(ticks, [d(2005, 1, 1), d(2010, 1, 1), d(2015, 1, 1), d(2020, 1, 1), d(2025, 1, 1)]);
+        let (ticks, step) = time_ticks(d(2025, 3, 1), d(2025, 3, 11), 5);
+        assert_eq!(step, Interval::Days(2));
+        assert_eq!(ticks, [d(2025, 3, 1), d(2025, 3, 3), d(2025, 3, 5), d(2025, 3, 7), d(2025, 3, 9), d(2025, 3, 11)]);
+        let (ticks, step) = time_ticks(d(2025, 3, 1), d(2025, 4, 30), 8);
+        assert_eq!(step, Interval::Days(7));
+        assert!(ticks.iter().all(|t| t.weekday() == 0) && ticks[0] == d(2025, 3, 2), "Sundays");
+        assert_eq!(Interval::Months(1).format(), "%b %Y");
     }
 
     #[test]

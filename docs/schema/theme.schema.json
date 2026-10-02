@@ -333,7 +333,30 @@
         },
         "strokeWidth": { "type": "string" },
         "cornerRadius": { "type": "number", "minimum": 0 },
-        "barGap": { "type": "number", "minimum": 0, "maximum": 1 }
+        "barGap": { "type": "number", "minimum": 0, "maximum": 1 },
+        "groupGap": {
+          "description": "Between the bars of one category's group, a fraction of each bar's slot; 0.1 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pointRadius": {
+          "description": "A dot on each point of a line; none when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "dotRadius": {
+          "description": "A dot plot's dots, and a scatter's at its largest size; 8 when unset.",
+          "type": "number",
+          "minimum": 0
+        },
+        "donutHole": {
+          "description": "A donut's hole, a fraction of its radius; 0.6 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "legend": { "description": "Legend labels; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" }
       }
     },
     "ChartRule": {

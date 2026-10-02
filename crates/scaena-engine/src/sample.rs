@@ -27,7 +27,9 @@
 //!   target at rest, exactly: both ends draw a scene, not an interpolation.
 
 use crate::EngineError;
-use crate::charts::{AxisTick, ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
+use crate::charts::{
+    AxisTick, ChartLayout, Label, LegendEntry, Mark, Numerals, RoundRect, Rule, SeriesPath, Shape, ValueLabel, lerp,
+};
 use crate::images::ImageNode;
 use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
@@ -130,19 +132,25 @@ impl SceneNode {
             Content::Image(i) => layer(Some(&self.id), [i.rect[0], i.rect[1]], opacity, i.ops()),
             Content::Text(placed) => text_layer(dl, &self.id, placed, placed.origin, opacity),
             Content::Chart { cell, chart } => {
-                let mut ops: Vec<Op> =
-                    chart.y_axis.iter().filter_map(|t| t.rule.as_ref()).map(|r| rule_op(r, 1.0)).collect();
+                let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
+                let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
                 if let Some(rule) = &chart.baseline {
                     ops.push(rule_op(rule, 1.0));
                 }
-                let mut plot: Vec<Op> = chart.marks.iter().map(|m| mark_op(m.shape, m.color, 1.0)).collect();
+                let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
+                let mut plot: Vec<Op> = chart.paths.iter().filter_map(|s| path_op(s, &shapes, s.color, 1.0)).collect();
+                plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
                 for label in chart.ticks.iter().chain(&chart.labels) {
                     plot.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
                 }
                 let [left, _, width, _] = chart.plot;
-                ops.extend(plot_layer([left, left + width], [-cell[1], dl.viewport[1]], plot));
+                let clip = chart.clipped.then_some([left, left + width]);
+                ops.extend(plot_layer(clip, [-cell[1], dl.viewport[1]], plot));
                 for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
                     ops.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
+                }
+                for entry in &chart.legend {
+                    ops.extend(legend_ops(dl, entry.swatch, entry.color, &entry.label, entry.label.origin, 1.0));
                 }
                 chart_layer(&self.id, [cell[0], cell[1]], cell[2], dl.viewport[1], opacity, ops)
             }
@@ -232,7 +240,7 @@ enum Track {
     Cut(usize),
     /// A chart: its parts match by key. With one side missing, the chart enters
     /// (grows its values in) or exits (shrinks them out).
-    Chart { from: Option<usize>, to: Option<usize>, plan: ChartPlan },
+    Chart { from: Option<usize>, to: Option<usize>, plan: Box<ChartPlan> },
 }
 
 /// How a chart's parts get from one snapshot to the next, matched by key.
@@ -241,10 +249,15 @@ struct ChartPlan {
     baseline: Pair,
     /// Each mark with its key's value labels on either side.
     marks: Vec<(Keyed, Pair)>,
+    /// Lines and areas by series.
+    paths: Vec<Pair>,
     ticks: Vec<Keyed>,
     /// Value-axis ticks by their text, and axis titles by axis.
     y_axis: Vec<Pair>,
     titles: Vec<Pair>,
+    /// Gridlines across a continuous x by tick, and legend entries by series.
+    x_grid: Vec<Pair>,
+    legend: Vec<Pair>,
 }
 
 /// A keyed chart part on either side and, for a part on one side only, the nearest
@@ -276,7 +289,7 @@ impl Transition {
             if partner.is_none() {
                 let track = match &a.content {
                     Content::Chart { chart, .. } => {
-                        Track::Chart { from: Some(i), to: None, plan: ChartPlan::new(Some(chart), None) }
+                        Track::Chart { from: Some(i), to: None, plan: Box::new(ChartPlan::new(Some(chart), None)) }
                     }
                     Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Exit(i),
                 };
@@ -288,7 +301,7 @@ impl Transition {
             let track = match (partner, b.policy) {
                 (None, _) => match &b.content {
                     Content::Chart { chart, .. } => {
-                        Track::Chart { from: None, to: Some(j), plan: ChartPlan::new(None, Some(chart)) }
+                        Track::Chart { from: None, to: Some(j), plan: Box::new(ChartPlan::new(None, Some(chart))) }
                     }
                     Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Enter(j),
                 },
@@ -300,7 +313,7 @@ impl Transition {
                     (Content::Shape(x), Content::Shape(y)) if x.same_shape(y) => Track::Move { from: i, to: j },
                     (Content::Image(x), Content::Image(y)) if x.same_image(y) => Track::Move { from: i, to: j },
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) => {
-                        Track::Chart { from: Some(i), to: Some(j), plan: ChartPlan::new(Some(x), Some(y)) }
+                        Track::Chart { from: Some(i), to: Some(j), plan: Box::new(ChartPlan::new(Some(x), Some(y))) }
                     }
                     _ => Track::Crossfade { from: i, to: j },
                 },
@@ -418,9 +431,12 @@ impl ChartPlan {
                 .into_iter()
                 .map(|k| (k, (label(a, k.pair.0), label(b, k.pair.1))))
                 .collect(),
+            paths: pair(paths_of(a), paths_of(b), |s| &s.key),
             ticks: rides(pair(ticks_of(a), ticks_of(b), |l| &l.key)),
             y_axis: pair(axis_of(a), axis_of(b), |t| &t.key),
             titles: pair(titles_of(a), titles_of(b), |l| &l.key),
+            x_grid: pair(a.map_or(&[][..], |c| &c.x_grid), b.map_or(&[][..], |c| &c.x_grid), |t| &t.key),
+            legend: pair(legend_of(a), legend_of(b), |e| &e.key),
         }
     }
 
@@ -453,6 +469,16 @@ impl ChartPlan {
                 (None, None) => {}
             }
         }
+        // Gridlines across a continuous x move by tick, and fade on one side only.
+        let (xa, xb) = (a.map_or(&[][..], |c| &c.x_grid), b.map_or(&[][..], |c| &c.x_grid));
+        for &(i, j) in &self.x_grid {
+            match (i.and_then(|i| xa[i].rule.as_ref()), j.and_then(|j| xb[j].rule.as_ref())) {
+                (Some(x), Some(y)) => ops.push(rule_op(&lerp_rule(x, y, p), 1.0)),
+                (Some(x), None) => ops.push(rule_op(x, 1.0 - p)),
+                (None, Some(y)) => ops.push(rule_op(y, p)),
+                (None, None) => {}
+            }
+        }
         match (a.and_then(|c| c.baseline.as_ref()), b.and_then(|c| c.baseline.as_ref())) {
             (Some(x), Some(y)) => ops.push(rule_op(
                 &Rule {
@@ -473,21 +499,73 @@ impl ChartPlan {
         let mut plot = Vec::new();
         let (ma, mb) = (marks_of(a), marks_of(b));
         let (base_a, base_b) = (a.or(b).map_or(0.0, |c| c.base), b.or(a).map_or(0.0, |c| c.base));
-        let mut shapes = Vec::with_capacity(self.marks.len());
+        // Each mark at this frame, and how opaque, by key, for the paths through them.
+        let mut shapes: Vec<(&str, Shape, Color, f32)> = Vec::with_capacity(self.marks.len());
         for &(Keyed { pair: (i, j), ride }, _) in &self.marks {
             let dx = ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
-            let (shape, color) = match (i, j) {
-                (Some(i), Some(j)) => (RoundRect::lerp(ma[i].shape, mb[j].shape, p), mix(ma[i].color, mb[j].color, p)),
-                (Some(i), None) => {
-                    (RoundRect::lerp(ma[i].shape, ma[i].shape.shifted(dx).collapsed(base_b), p), ma[i].color)
+            let gone = |m: &Mark, base: f32| m.shape.shifted(dx).collapsed(m.base.unwrap_or(base));
+            let come = |m: &Mark, base: f32| m.shape.shifted(-dx).collapsed(m.base.unwrap_or(base));
+            match (i.map(|i| &ma[i]), j.map(|j| &mb[j])) {
+                (Some(x), Some(y)) => match Shape::lerp(x.shape, y.shape, p) {
+                    Some(shape) => shapes.push((&y.key, shape, mix(x.color, y.color, p), 1.0)),
+                    // Two kinds of mark: the old one shrinks out as the new one grows in.
+                    None => {
+                        shapes.push((
+                            &x.key,
+                            Shape::lerp(x.shape, gone(x, base_b), p).unwrap_or(x.shape),
+                            x.color,
+                            1.0,
+                        ));
+                        shapes.push((
+                            &y.key,
+                            Shape::lerp(come(y, base_a), y.shape, p).unwrap_or(y.shape),
+                            y.color,
+                            1.0,
+                        ));
+                    }
+                },
+                (Some(x), None) => {
+                    shapes.push((&x.key, Shape::lerp(x.shape, gone(x, base_b), p).unwrap_or(x.shape), x.color, 1.0))
                 }
-                (None, Some(j)) => {
-                    (RoundRect::lerp(mb[j].shape.shifted(-dx).collapsed(base_a), mb[j].shape, p), mb[j].color)
+                (None, Some(y)) => {
+                    shapes.push((&y.key, Shape::lerp(come(y, base_a), y.shape, p).unwrap_or(y.shape), y.color, 1.0))
                 }
                 (None, None) => unreachable!("a pair has a side"),
+            }
+        }
+        // Lines and areas run through their marks where this frame puts them; a series
+        // on one side only fades.
+        let (pa, pb) = (paths_of(a), paths_of(b));
+        let at: Vec<(&str, Shape)> = shapes.iter().map(|&(k, s, ..)| (k, s)).collect();
+        for &(i, j) in &self.paths {
+            let path = match (i.map(|i| &pa[i]), j.map(|j| &pb[j])) {
+                (Some(x), Some(y)) => {
+                    let mut merged = y.clone();
+                    merged.marks.extend(x.marks.iter().filter(|k| !y.marks.contains(k)).cloned());
+                    merged.stroke = match (x.stroke, y.stroke) {
+                        (Some(w), Some(v)) => Some(lerp(w, v, p)),
+                        (_, v) => v,
+                    };
+                    path_op(&merged, &at, mix(x.color, y.color, p), 1.0)
+                }
+                (Some(x), None) => path_op(x, &at, x.color, 1.0 - p),
+                (None, Some(y)) => path_op(y, &at, y.color, p),
+                (None, None) => None,
             };
-            plot.push(mark_op(shape, color, 1.0));
-            shapes.push(shape);
+            plot.extend(path);
+        }
+        let mut drawn = Vec::with_capacity(self.marks.len());
+        for &(_, shape, color, alpha) in &shapes {
+            plot.extend(mark_op(shape, color, alpha));
+            drawn.push(shape);
+        }
+        // A value label rides its mark: the target's when the kind changed.
+        let mut sampled = Vec::with_capacity(self.marks.len());
+        let mut k = 0;
+        for &(Keyed { pair: (i, j), .. }, _) in &self.marks {
+            let two = matches!((i, j), (Some(i), Some(j)) if Shape::lerp(ma[i].shape, mb[j].shape, p).is_none());
+            sampled.push(drawn[if two { k + 1 } else { k }]);
+            k += if two { 2 } else { 1 };
         }
         // Category labels move; a new or removed one rides along and fades.
         let (ta, tb) = (ticks_of(a), ticks_of(b));
@@ -511,16 +589,18 @@ impl ChartPlan {
         // Value labels ride their marks and count.
         let numerals = b.and_then(|c| c.numerals.as_ref()).or_else(|| a.and_then(|c| c.numerals.as_ref()));
         let (la, lb) = (a.map_or(&[][..], |c| &c.labels), b.map_or(&[][..], |c| &c.labels));
-        for (&(marks, (i, j)), shape) in self.marks.iter().zip(&shapes) {
+        for (&(marks, (i, j)), shape) in self.marks.iter().zip(&sampled) {
             value_label(dl, &mut plot, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
         }
-        let edge = |c: Option<&ChartLayout>| c.map(|c| [c.plot[0], c.plot[0] + c.plot[2]]);
-        let span = match (edge(a), edge(b)) {
-            (Some(x), Some(y)) => lerp2(x, y, p),
-            (Some(e), None) | (None, Some(e)) => e,
-            (None, None) => [0.0, 0.0],
+        // The plot clips while either side's does, its sides moving from one to the
+        // other's.
+        let edge = |c: &ChartLayout| [c.plot[0], c.plot[0] + c.plot[2]];
+        let clip = match (a, b) {
+            (Some(x), Some(y)) => (x.clipped || y.clipped).then(|| lerp2(edge(x), edge(y), p)),
+            (Some(c), None) | (None, Some(c)) => c.clipped.then(|| edge(c)),
+            (None, None) => None,
         };
-        ops.extend(plot_layer(span, clip_y, plot));
+        ops.extend(plot_layer(clip, clip_y, plot));
         // Value-axis labels ride with their ticks.
         for &(x, y) in &ticks {
             let (lx, ly) = (x.and_then(|t| t.label.as_ref()), y.and_then(|t| t.label.as_ref()));
@@ -550,6 +630,20 @@ impl ChartPlan {
                 (None, None) => {}
             }
         }
+        // Legend entries move and change color; one on one side only fades.
+        let (ea, eb) = (legend_of(a), legend_of(b));
+        for &(i, j) in &self.legend {
+            match (i.map(|i| &ea[i]), j.map(|j| &eb[j])) {
+                (Some(x), Some(y)) => {
+                    let swatch = RoundRect::lerp(x.swatch, y.swatch, p);
+                    let at = lerp2(x.label.origin, y.label.origin, p);
+                    ops.extend(legend_ops(dl, swatch, mix(x.color, y.color, p), &y.label, at, 1.0));
+                }
+                (Some(x), None) => ops.extend(legend_ops(dl, x.swatch, x.color, &x.label, x.label.origin, 1.0 - p)),
+                (None, Some(y)) => ops.extend(legend_ops(dl, y.swatch, y.color, &y.label, y.label.origin, p)),
+                (None, None) => {}
+            }
+        }
         ops
     }
 }
@@ -562,13 +656,20 @@ fn ticks_of(c: Option<&ChartLayout>) -> &[Label] {
     c.map_or(&[], |c| &c.ticks)
 }
 
-/// The plot's ops: in a layer clipped to the plot's width, `[left, right]`, when a
-/// value-axis gutter sits beside it, so a mark or label riding out of the window passes
-/// under the plot's edge rather than over the axis labels; else as they are.
-fn plot_layer(span: [f32; 2], clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op> {
-    if span[0] <= 0.0 {
-        return ops;
-    }
+fn paths_of(c: Option<&ChartLayout>) -> &[SeriesPath] {
+    c.map_or(&[], |c| &c.paths)
+}
+
+fn legend_of(c: Option<&ChartLayout>) -> &[LegendEntry] {
+    c.map_or(&[], |c| &c.legend)
+}
+
+/// The plot's ops: in a layer clipped to the plot's sides, `[left, right]`, when
+/// something sits beside it (a value-axis gutter, a legend), so a mark or label riding
+/// out of the window passes under the plot's edge rather than over them; else as they
+/// are.
+fn plot_layer(span: Option<[f32; 2]>, clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op> {
+    let Some(span) = span else { return ops };
     vec![Op::Layer {
         node: None,
         transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
@@ -626,14 +727,14 @@ fn value_label(
     ops: &mut Vec<Op>,
     (x, y): (Option<&Label>, Option<&Label>),
     marks: Pair,
-    shape: &RoundRect,
+    shape: &Shape,
     numerals: Option<&Numerals>,
     p: f32,
 ) {
     let ride = |l: &Label| l.value.expect("value labels carry their value");
     let at = |text: &TextLayout, v: ValueLabel| {
         let [cx, baseline] = v.anchor(shape);
-        [cx - 0.5 * text.width, baseline - text.lines.first().map_or(0.0, |l| l.baseline)]
+        [cx - v.align * text.width, baseline - text.lines.first().map_or(0.0, |l| l.baseline)]
     };
     if let (Some(x), Some(y)) = (x, y)
         && x.text == y.text
@@ -646,13 +747,14 @@ fn value_label(
     if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
         && let Some((runs, width)) = numerals.compose(&numerals.count(start, end, p))
     {
-        let [cx, baseline] = ride(label).anchor(shape);
+        let v = ride(label);
+        let [cx, baseline] = v.anchor(shape);
         let alpha = match marks {
             (None, _) => p,
             (_, None) => 1.0 - p,
             _ => 1.0,
         };
-        ops.push(layer(None, [cx - 0.5 * width, baseline - numerals.baseline], alpha, text_ops(dl, &runs)));
+        ops.push(layer(None, [cx - v.align * width, baseline - numerals.baseline], alpha, text_ops(dl, &runs)));
         return;
     }
     if let Some(x) = x {
@@ -761,8 +863,36 @@ fn fade(color: Color, alpha: f32) -> Color {
     Color([r, g, b, (f32::from(a) * alpha.max(0.0)).round() as u8])
 }
 
-fn mark_op(shape: RoundRect, color: Color, alpha: f32) -> Op {
-    Op::Fill { path: shape.path(), rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
+fn mark_op(shape: Shape, color: Color, alpha: f32) -> Option<Op> {
+    Some(Op::Fill { path: shape.path()?, rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) })
+}
+
+/// A legend entry: its swatch filled in `color`, its label at `at`, both at `alpha`.
+fn legend_ops(dl: &mut DisplayList, swatch: RoundRect, color: Color, label: &Label, at: Point, alpha: f32) -> Vec<Op> {
+    let mut ops: Vec<Op> = mark_op(Shape::Bar(swatch), color, alpha).into_iter().collect();
+    ops.push(layer(None, at, alpha, text_ops(dl, &label.text.runs)));
+    ops
+}
+
+/// A series' line or area through its marks' `shapes` (by key) in `color`.
+fn path_op(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f32) -> Option<Op> {
+    let mine: Vec<Shape> =
+        shapes.iter().filter(|(k, _)| series.marks.iter().any(|m| m == k)).map(|&(_, s)| s).collect();
+    let path = series.path(&mine)?;
+    let paint = Paint::Solid(fade(color, alpha));
+    Some(match series.stroke {
+        Some(width) => Op::Stroke {
+            path,
+            paint,
+            width,
+            cap: Cap::Round,
+            join: Join::Round,
+            miter_limit: 4.0,
+            dash: Vec::new(),
+            dash_offset: 0.0,
+        },
+        None => Op::Fill { path, rule: FillRule::NonZero, paint },
+    })
 }
 
 fn rule_op(rule: &Rule, alpha: f32) -> Op {

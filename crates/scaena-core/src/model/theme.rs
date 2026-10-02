@@ -336,6 +336,26 @@ pub struct Charts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0, max = 1))]
     pub bar_gap: Option<f64>,
+    /// Between the bars of one category's group, a fraction of each bar's slot; 0.1 when
+    /// unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub group_gap: Option<f64>,
+    /// A dot on each point of a line; none when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
+    pub point_radius: Option<f64>,
+    /// A dot plot's dots, and a scatter's at its largest size; 8 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
+    pub dot_radius: Option<f64>,
+    /// A donut's hole, a fraction of its radius; 0.6 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub donut_hole: Option<f64>,
+    /// Legend labels; their role defaults to the axis's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legend: Option<ChartLabel>,
 }
 
 /// A chart rule: the axis or the gridlines.
