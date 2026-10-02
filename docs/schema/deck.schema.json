@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.7.json",
+  "$id": "https://scaena.dev/schema/deck-0.8.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.7(\\.[0-9]+)?$"
+      "pattern": "^0\\.8(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -774,7 +774,7 @@
         "stagger": { "$ref": "#/$defs/NonNegative" },
         "delay": { "$ref": "#/$defs/NonNegative" },
         "split": { "$ref": "#/$defs/SplitUnit" },
-        "params": { "type": "object", "additionalProperties": true }
+        "params": { "description": "Over the preset's look's own.", "$ref": "#/$defs/LookParams" }
       }
     },
     "Duration": {
@@ -807,9 +807,23 @@
       "type": "string",
       "enum": ["lines", "words", "glyphs", "children", "marks"]
     },
-    "AnimTracks": {
-      "description": "Per-property keyframe tracks within a state. They never track to the next state.",
+    "LookParams": {
+      "description": "Numbers a look sets on what its unit draws.",
       "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "description": "How much of each outline a shape strokes is drawn, from where the outline starts.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "AnimTracks": {
+      "description": "Per-property keyframe tracks within a state, each property a look's (SPEC §3.9): `opacity`, `translate`, `scale`, `rotate`, and `progress`. They never track to the next state.",
+      "type": "object",
+      "propertyNames": { "enum": ["opacity", "translate", "scale", "rotate", "progress"] },
       "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/Keyframe" }, "minItems": 1 }
     },
     "Keyframe": {
@@ -1342,12 +1356,13 @@
         "stagger": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
         "delay": { "anyOf": [{ "$ref": "#/$defs/NonNegative" }, { "type": "null" }] },
         "split": { "anyOf": [{ "$ref": "#/$defs/SplitUnit" }, { "type": "null" }] },
-        "params": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }] }
+        "params": { "anyOf": [{ "$ref": "#/$defs/LookParams" }, { "type": "null" }] }
       }
     },
     "AnimTracksDelta": {
       "description": "`AnimTracks` in a state's delta: it merges one level into the tracked value, so null deletes a key (SPEC §2.2).",
       "type": "object",
+      "propertyNames": { "enum": ["opacity", "translate", "scale", "rotate", "progress"] },
       "additionalProperties": {
         "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Keyframe" }, "minItems": 1 }, { "type": "null" }]
       }

@@ -274,11 +274,12 @@ pub struct Motion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Preset {
-    /// Property values at the start (enter) or end (exit).
+    /// The look an entrance starts from, or an exit ends at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from: Option<IndexMap<String, Value>>,
+    pub from: Option<super::values::PresetLook>,
+    /// The look an emphasis goes out to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to: Option<IndexMap<String, Value>>,
+    pub to: Option<super::values::PresetLook>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<super::values::Duration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

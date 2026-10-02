@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.2.json",
+  "$id": "https://scaena.dev/schema/theme-0.3.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.2(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.3(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -379,17 +379,74 @@
       "additionalProperties": false,
       "properties": {
         "from": {
-          "description": "Property values at the start (enter) or end (exit).",
-          "type": "object",
-          "additionalProperties": true
+          "description": "The look an entrance starts from, or an exit ends at.",
+          "$ref": "#/$defs/PresetLook"
         },
-        "to": { "type": "object", "additionalProperties": true },
+        "to": { "description": "The look an emphasis goes out to.", "$ref": "#/$defs/PresetLook" },
         "duration": { "$ref": "#/$defs/Duration" },
         "ease": { "$ref": "#/$defs/Easing" },
         "spring": { "type": "string" },
         "stagger": { "$ref": "#/$defs/NonNegative" },
         "split": { "$ref": "#/$defs/SplitUnit" },
         "description": { "type": "string" }
+      }
+    },
+    "PresetLook": {
+      "description": "A motion preset's look (SPEC §3.9), against the unit at rest: what an entrance starts from, an exit ends at, and an emphasis goes out to and comes back from.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opacity": { "description": "Multiplies the unit's own.", "type": "number", "minimum": 0, "maximum": 1 },
+        "transform": { "$ref": "#/$defs/LookTransform" },
+        "color": {
+          "description": "A theme color every paint the unit draws mixes toward, in Oklab, keeping its alpha.",
+          "$ref": "#/$defs/Color"
+        },
+        "params": { "$ref": "#/$defs/LookParams" }
+      }
+    },
+    "LookTransform": {
+      "description": "A look's transform: scale, then rotate, about `anchor`, then translate.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "translate": {
+          "description": "Canvas units.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scale": { "$ref": "#/$defs/Scale" },
+        "rotate": { "description": "Degrees, clockwise.", "type": "number" },
+        "anchor": {
+          "description": "Fractions of the unit's box; its center by default.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "Scale": {
+      "anyOf": [{ "type": "number" }, { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }]
+    },
+    "Color": {
+      "description": "Theme token name (e.g. \"accent\", \"color.ink\") or a literal (#rrggbb[aa], oklch(...)). Literals outside overrides are lint W300.",
+      "type": "string",
+      "minLength": 1
+    },
+    "LookParams": {
+      "description": "Numbers a look sets on what its unit draws.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "description": "How much of each outline a shape strokes is drawn, from where the outline starts.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
       }
     },
     "Duration": {

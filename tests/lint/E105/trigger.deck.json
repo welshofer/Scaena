@@ -1,5 +1,5 @@
 {
-  "scaena": "0.7",
+  "scaena": "0.8",
   "_comment": "E105 trigger: a state id twice, a node id twice, a beat id twice, an id that is not a slug, and a choreography target listed twice.",
   "canvas": { "width": 1920, "height": 1080 },
   "spine": { "sections": [ { "id": "open", "beats": [ { "id": "hello", "claim": "We say hello.", "states": ["cover"] }, { "id": "hello", "claim": "There is more.", "states": ["more"] } ] } ] },

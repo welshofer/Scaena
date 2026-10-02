@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.2",
+  "scaena-theme": "0.3",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -68,7 +68,7 @@
       "fade":  { "from": { "opacity": 0 }, "duration": "standard", "ease": "out", "description": "Opacity only." },
       "rise":  { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "duration": "standard", "ease": "out", "description": "Fade up from 24cu below." },
       "grow":  { "from": { "transform": { "scale": [1, 0], "anchor": [0.5, 1] } }, "spring": "snappy", "split": "marks", "stagger": 40, "description": "Bars grow from their baseline." },
-      "draw":  { "from": { "params": { "progress": 0 } }, "duration": "slow", "ease": "standard", "description": "Strokes draw on; lines reveal left to right." },
+      "draw":  { "from": { "params": { "progress": 0 } }, "duration": "slow", "ease": "standard", "description": "A shape's outline draws on from where it starts." },
       "words": { "from": { "opacity": 0, "transform": { "translate": [0, 12] } }, "split": "words", "stagger": 28, "ease": "out", "duration": "fast", "description": "Word-by-word rise." },
       "pulse": { "to": { "transform": { "scale": 1.04 } }, "spring": "gentle", "description": "Emphasis: a single soft pulse." }
     },

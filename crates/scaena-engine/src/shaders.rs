@@ -95,14 +95,34 @@ impl ShaderNode {
         }
     }
 
-    /// The same shader moved to `rect`.
-    pub fn at(&self, rect: Rect) -> ShaderNode {
-        ShaderNode { rect, ..self.clone() }
+    /// Whether this shader can become `other` by its uniforms (SPEC §3.8): the same kind
+    /// and seed, a palette as long, and every param [`shader::interpolates`] refuses
+    /// equal, a param either side leaves out taking its default. Anything else
+    /// cross-fades.
+    pub fn morphs_to(&self, other: &ShaderNode) -> bool {
+        (self.kind, self.seed, self.palette.len()) == (other.kind, other.seed, other.palette.len())
+            && (self.params.keys().chain(other.params.keys()))
+                .all(|k| shader::interpolates(self.kind, k) || self.param(k) == other.param(k))
     }
 
-    /// Whether `other` is this shader, wherever it sits.
-    pub fn same_shader(&self, other: &ShaderNode) -> bool {
-        (self.kind, self.seed, &self.palette, &self.params) == (other.kind, other.seed, &other.palette, &other.params)
+    /// `a` to `b` (which [`ShaderNode::morphs_to`] it): the rect `geo` of the way, which
+    /// a spring may carry past 1; palette colors mixed in Oklab, and params, `p` of the way.
+    pub fn lerp(a: &ShaderNode, b: &ShaderNode, geo: f32, p: f32) -> ShaderNode {
+        let [x, y, w, h] = [0, 1, 2, 3].map(|k| a.rect[k] + (b.rect[k] - a.rect[k]) * geo);
+        let palette = a.palette.iter().zip(&b.palette).map(|(u, v)| crate::sample::mix(*u, *v, p)).collect();
+        // Clamped to the two values, so rounding never carries a param out of its range.
+        let params = (a.params.keys().chain(b.params.keys()))
+            .map(|k| {
+                let (u, v) = (a.param(k), b.param(k));
+                (k.clone(), (u + (v - u) * p).clamp(u.min(v), u.max(v)))
+            })
+            .collect();
+        ShaderNode { kind: b.kind, seed: b.seed, palette, params, rect: [x, y, w.max(0.0), h.max(0.0)] }
+    }
+
+    /// Param `k` as the op draws it: the node's, else its kind's default.
+    fn param(&self, k: &str) -> f32 {
+        (self.params.get(k).copied()).or_else(|| shader::default(self.kind, k)).unwrap_or(f32::NAN)
     }
 }
 

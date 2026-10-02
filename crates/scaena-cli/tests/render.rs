@@ -134,26 +134,37 @@ fn edited_bundle(dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> PathB
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
     let dir = scratch("unimplemented");
-    // A preset called with `params` waits for PLAN 1.12, at rest too: the state's motions
-    // set when it comes to rest.
-    let params = edited_bundle(&dir, |deck| {
-        let mesh = deck["states"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "mesh").unwrap();
-        mesh["choreography"] =
-            serde_json::json!([{ "target": "mesh-bg", "emphasis": { "preset": "fade", "params": { "k": 1 } } }]);
-    });
-    let mut cases = vec![(params, vec!["--state", "mesh"], "PLAN 1.12")];
+    let ops = dir.join("ops.json");
+    std::fs::write(&ops, "[]").unwrap();
+    let out = scaena(&["patch", BUNDLE, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(code(&out), 3, "{}", stderr(&out));
+    assert!(stderr(&out).contains("1.16"), "{}", stderr(&out));
     // Without the `gpu` feature the GPU painter is not compiled in.
     if cfg!(not(feature = "gpu")) {
-        cases.push((PathBuf::from(BUNDLE), vec!["--state", "axes", "--painter", "gpu"], "--features gpu"));
-    }
-    for (bundle, args, task) in cases {
         let png = dir.join("x.png");
-        let out =
-            scaena(&[&["render", bundle.to_str().unwrap(), "--out", png.to_str().unwrap()], args.as_slice()].concat());
-        assert_eq!(code(&out), 3, "{args:?}: {}", stderr(&out));
-        assert!(stderr(&out).contains(task), "{args:?}: {}", stderr(&out));
-        assert!(!png.exists(), "{args:?} wrote a PNG");
+        let args = ["render", BUNDLE, "--out", png.to_str().unwrap(), "--state", "axes", "--painter", "gpu"];
+        let out = scaena(&args);
+        assert_eq!(code(&out), 3, "{}", stderr(&out));
+        assert!(stderr(&out).contains("--features gpu"), "{}", stderr(&out));
+        assert!(!png.exists(), "wrote a PNG");
     }
+}
+
+#[test]
+fn a_preset_called_with_params_renders() {
+    // A call's `params` set its look's (PLAN 1.12): here, how much of a shape's outline
+    // is drawn, which the mesh does not have, so nothing changes.
+    let dir = scratch("params");
+    let bundle = edited_bundle(&dir, |deck| {
+        let mesh = deck["states"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "mesh").unwrap();
+        mesh["choreography"] = serde_json::json!([
+            { "target": "mesh-bg", "emphasis": { "preset": "fade", "params": { "progress": 0.5 } } }
+        ]);
+    });
+    let png = dir.join("x.png");
+    let out = scaena(&["render", bundle.to_str().unwrap(), "--out", png.to_str().unwrap(), "--state", "mesh"]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    assert!(png.exists());
 }
 
 #[test]

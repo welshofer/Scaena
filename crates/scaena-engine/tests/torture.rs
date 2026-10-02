@@ -27,8 +27,10 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// own: the chart's values animating in, and the next quarter arriving. PLAN 1.9 adds
 /// every kind's data motion mid-way, the two stages of bars that regroup, and
 /// annotations that move. PLAN 1.11 adds case 40's motions on the cue clock: words
-/// rising in turn, then cards, then bars on a spring, then a pulse.
-const MORPH: [(&str, f64); 12] = [
+/// rising in turn, then cards, then bars on a spring, then a pulse. PLAN 1.12 adds case
+/// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
+/// color that comes and goes.
+const MORPH: [(&str, f64); 15] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -41,6 +43,9 @@ const MORPH: [(&str, f64); 12] = [
     ("motion", 0.15),
     ("motion", 0.35),
     ("motion", 0.65),
+    ("morph", 0.25),
+    ("morph", 0.5),
+    ("morph", 0.75),
 ];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";

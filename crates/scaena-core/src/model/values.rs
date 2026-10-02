@@ -310,13 +310,63 @@ pub struct Keyframe {
     pub spring: Option<Spring>,
 }
 
-/// Per-property keyframe tracks within a state. They never track to the next state.
+/// Per-property keyframe tracks within a state, each property a look's (SPEC §3.9):
+/// `opacity`, `translate`, `scale`, `rotate`, and `progress`. They never track to the
+/// next state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct AnimTracks(
-    #[schemars(extend("additionalProperties" = {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Keyframe"}}))]
+    #[schemars(extend(
+        "propertyNames" = {"enum": ["opacity", "translate", "scale", "rotate", "progress"]},
+        "additionalProperties" = {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Keyframe"}}
+    ))]
     pub IndexMap<String, Vec<Keyframe>>,
 );
+
+/// A motion preset's look (SPEC §3.9), against the unit at rest: what an entrance starts
+/// from, an exit ends at, and an emphasis goes out to and comes back from.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PresetLook {
+    /// Multiplies the unit's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<LookTransform>,
+    /// A theme color every paint the unit draws mixes toward, in Oklab, keeping its alpha.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<LookParams>,
+}
+
+/// A look's transform: scale, then rotate, about `anchor`, then translate.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LookTransform {
+    /// Canvas units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translate: Option<Point>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<Scale>,
+    /// Degrees, clockwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotate: Option<f64>,
+    /// Fractions of the unit's box; its center by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Point>,
+}
+
+/// Numbers a look sets on what its unit draws.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LookParams {
+    /// How much of each outline a shape strokes is drawn, from where the outline starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub progress: Option<f64>,
+}
 
 /// A theme motion preset by name, or a preset with parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -342,8 +392,9 @@ pub struct PresetCall {
     pub delay: Option<NonNegative>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split: Option<SplitUnit>,
+    /// Over the preset's look's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<IndexMap<String, Value>>,
+    pub params: Option<LookParams>,
 }
 
 /// What a choreographed entrance splits its target into.

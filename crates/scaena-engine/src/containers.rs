@@ -50,16 +50,22 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// A node's opacity times its containers'.
+    /// A node's opacity times its containers', up to its group: a group composites what
+    /// is in it as one layer, at its own opacity (SPEC §3.4).
     pub fn opacity(&self, snap: &Snapshot, id: &str) -> f32 {
         let own = |id: &str| snap.nodes[id].get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32;
         let mut opacity = own(id);
         let mut at = id;
-        while let Some(parent) = self.parents.get(at) {
+        while let Some(parent) = self.parents.get(at).filter(|p| !self.is_group(p)) {
             opacity *= own(parent);
             at = parent;
         }
         opacity
+    }
+
+    /// Whether `id` is a group: a node with no box of its own.
+    pub fn is_group(&self, id: &str) -> bool {
+        !self.boxes.contains_key(id)
     }
 }
 
@@ -868,7 +874,7 @@ mod tests {
         let snap = &scaena_core::resolve_states(&deck(json!({ "g": { "type": "group", "opacity": 0.5 },
             "b": { "type": "shape", "at": { "parent": "g" }, "opacity": 0.5 } })))
         .unwrap()[0];
-        assert_eq!(p.opacity(snap, "b"), 0.25, "a group's opacity multiplies into its children");
+        assert_eq!((p.opacity(snap, "b"), p.opacity(snap, "g")), (0.5, 0.5), "a group composites at its own opacity");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.7",
+  "scaena": "0.8",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -2857,6 +2857,184 @@
           8
         ]
       }
+    },
+    "mf-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue grew this quarter",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          2
+        ]
+      }
+    },
+    "mf-tri": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0.5,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-star": {
+      "type": "shape",
+      "path": "M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z",
+      "fill": "accent",
+      "stroke": {
+        "paint": "ink",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-sky": {
+      "type": "shader",
+      "kind": "gradient",
+      "seed": 8,
+      "palette": "torture",
+      "params": {
+        "angle": 0
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          4,
+          6
+        ]
+      }
+    },
+    "mf-pair": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration"
+    },
+    "mf-pair-a": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "mf-pair",
+        "col": [
+          10,
+          11
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "mf-pair-b": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "ink",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "mf-pair",
+        "col": [
+          11,
+          12
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "mf-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0,
+          0.5
+        ],
+        [
+          1,
+          0.5
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thick",
+        "cap": "round"
+      },
+      "semantic": "annotation",
+      "alt": "",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "mf-badge": {
+      "type": "text",
+      "role": "headline",
+      "text": "A record quarter",
+      "semantic": "takeaway",
+      "at": {
+        "col": [
+          8,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -3626,6 +3804,83 @@
         }
       ],
       "notes": "Pass: the state cuts in, and its motions run on its clock. The headline rises word by word, 60 ms apart. From 200 ms the three cards rise one after another, 120 ms apart, each card's caption riding with its card. From 400 ms the four bars grow from the baseline on the snappy spring, 80 ms apart, the axis fading in with the first. At 900 ms the dot pulses once on the gentle spring, to 1.25 times its size and back. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "morph-from",
+      "name": "Morphs: the state before",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "41 · Morphs: the state before · recorded"
+        },
+        "mf-title": {},
+        "mf-tri": {},
+        "mf-star": {},
+        "mf-sky": {},
+        "mf-pair": {},
+        "mf-pair-a": {},
+        "mf-pair-b": {},
+        "mf-badge": {}
+      },
+      "notes": "Pass: the state the next case morphs from, at rest. A headline, \"Revenue grew this quarter\". Row 4-6: an accent triangle standing on its base; an accent five-point star with a thin ink outline; a gradient from the torture palette running top to bottom; and a group at 0.6 opacity of an accent disc and an ink disc that overlap, composited as one layer, so where they overlap only the ink disc shows, at 0.6. Rows 7-8, right: \"A record quarter\" in ink."
+    },
+    {
+      "id": "morph",
+      "name": "Morphs",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "42 · Morphs · recorded"
+        },
+        "mf-title": {
+          "text": "Revenue grew fast this quarter"
+        },
+        "mf-tri": {
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              0.5,
+              1
+            ]
+          ],
+          "fill": "ink"
+        },
+        "mf-star": {
+          "path": "M12 2 L16.41 5.93 L21.51 8.91 L19.13 14.32 L17.88 20.09 L12 19.5 L6.12 20.09 L4.87 14.32 L2.49 8.91 L7.59 5.93 Z"
+        },
+        "mf-sky": {
+          "params": {
+            "angle": 90,
+            "grain": 0.04
+          }
+        },
+        "mf-pair": {
+          "opacity": 0.3
+        },
+        "mf-pair-b": {
+          "at": {
+            "col": [
+              10,
+              11
+            ]
+          }
+        },
+        "mf-arrow": {
+          "enter": "draw"
+        },
+        "mf-badge": {
+          "emphasis": "flash"
+        }
+      },
+      "notes": "Pass: the 420 ms transition from the case before, its frames at 0.25, 0.5, and 0.75 of the cue. \"Revenue grew\" and \"this quarter\" move apart as \"fast\" fades in between them; the case label's shared words move the same way. The triangle turns over point by point into an ink one standing on its tip, its fill mixing in Oklab. The star's points swell into a rounder star, vertex by vertex. The gradient turns from top-to-bottom to left-to-right and takes on grain, its uniforms moving, not cross-fading. The group fades to 0.3 as one layer while the ink disc slides left, further over the accent one, the accent never showing through it. The arrow draws on over 800 ms from its tail, its head riding the tip. After the transition, \"A record quarter\" warms to the accent and back over 400 ms. At rest, everything stands where the layout puts it."
     }
   ]
 }

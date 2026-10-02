@@ -15,14 +15,12 @@ use scaena_core::document::{NodeType, State};
 use scaena_core::model::states::{ChoreoItem, ChoreoTarget, Targets, Timing};
 use scaena_core::model::theme::Preset;
 use scaena_core::model::values::{
-    AnimTracks, Duration, Easing, Keyframe, NonNegative, PresetCall, PresetRef, SplitUnit, Spring,
+    AnimTracks, Duration, Easing, Keyframe, LookParams, NonNegative, PresetCall, PresetLook, PresetRef, Scale,
+    SplitUnit, Spring,
 };
 use scaena_core::timeline::{Cue, Curve, Item, Key, Keys, Look, Motion};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
-
-const LOOKS: &str =
-    "a preset or `anim` moves opacity and transform (translate, scale, rotate, anchor); other properties — PLAN 1.12";
 
 /// What a cue does, before its look is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,11 +175,9 @@ fn preset_cue(
         PresetRef::Named(name) => (name.as_str(), None),
         PresetRef::With(call) => (call.preset.as_str(), Some(&**call)),
     };
-    if call.is_some_and(|c| c.params.is_some()) {
-        return Err(EngineError::NotImplemented("preset `params` — PLAN 1.12"));
-    }
     let p = theme.preset(name).ok_or_else(|| EngineError::Theme(format!("no motion preset `{name}`")))?;
-    let look = |values: Option<&indexmap::IndexMap<String, Value>>| look(name, values);
+    let given = call.and_then(|c| c.params.as_ref());
+    let look = |values: Option<&PresetLook>| look(theme, values, given);
     let motion = match kind {
         Kind::Enter => Motion::Enter(look(p.from.as_ref().or(p.to.as_ref()))?),
         Kind::Exit => Motion::Exit(look(p.from.as_ref().or(p.to.as_ref()))?),
@@ -271,7 +267,17 @@ fn keys_cue(
                     .collect::<Result<Vec<_>, EngineError>>()?;
                 if property == "scale" { keys.scale = list } else { keys.translate = list }
             }
-            _ => return Err(EngineError::NotImplemented(LOOKS)),
+            "progress" => {
+                keys.progress = frames
+                    .iter()
+                    .map(|k| Ok(Key { t: k.t, v: fraction(&k.v).ok_or_else(|| bad(k))?, curve: curve(k)? }))
+                    .collect::<Result<Vec<_>, EngineError>>()?;
+            }
+            _ => {
+                return Err(EngineError::Layout(format!(
+                    "`anim.{property}`: a track moves `opacity`, `translate`, `scale`, `rotate`, or `progress`"
+                )));
+            }
         }
     }
     let duration = keys.duration();
@@ -287,29 +293,37 @@ fn keys_cue(
     })
 }
 
-/// A preset's `from` or `to` as a look: `opacity`, and `transform`'s `translate`,
-/// `scale` (one number, or x and y), `rotate` (degrees), and `anchor`.
-fn look(name: &str, values: Option<&indexmap::IndexMap<String, Value>>) -> Result<Look, EngineError> {
+/// A preset's `from` or `to` as a look: `opacity`; `transform`'s `translate`, `scale`,
+/// `rotate` (degrees), and `anchor`; `color`, a theme color its paints mix toward; and
+/// `params`, how much of its strokes is drawn. A call's `params` (`given`) win over
+/// the preset's.
+fn look(theme: &Theme, values: Option<&PresetLook>, given: Option<&LookParams>) -> Result<Look, EngineError> {
     let mut look = Look::REST;
-    let bad = |what: &str, v: &Value| EngineError::Theme(format!("preset `{name}`: `{what}` {v}"));
-    for (key, value) in values.into_iter().flatten() {
-        match (key.as_str(), value) {
-            ("opacity", v) => look.opacity = v.as_f64().ok_or_else(|| bad("opacity", v))?,
-            ("transform", Value::Object(t)) => {
-                for (key, v) in t {
-                    match key.as_str() {
-                        "translate" => look.translate = pair(v, false).ok_or_else(|| bad("translate", v))?,
-                        "scale" => look.scale = pair(v, true).ok_or_else(|| bad("scale", v))?,
-                        "rotate" => look.rotate = v.as_f64().ok_or_else(|| bad("rotate", v))?,
-                        "anchor" => look.anchor = pair(v, false).ok_or_else(|| bad("anchor", v))?,
-                        _ => return Err(EngineError::NotImplemented(LOOKS)),
-                    }
-                }
-            }
-            _ => return Err(EngineError::NotImplemented(LOOKS)),
-        }
+    let values = values.cloned().unwrap_or_default();
+    if let Some(opacity) = values.opacity {
+        look.opacity = opacity;
+    }
+    let t = values.transform.unwrap_or_default();
+    look.translate = t.translate.unwrap_or(look.translate);
+    look.rotate = t.rotate.unwrap_or(look.rotate);
+    look.anchor = t.anchor.unwrap_or(look.anchor);
+    look.scale = match t.scale {
+        Some(Scale::Uniform(k)) => [k, k],
+        Some(Scale::Xy(xy)) => xy,
+        None => look.scale,
+    };
+    if let Some(color) = &values.color {
+        look.tint = Some((theme.color(&color.0)?, 1.0));
+    }
+    for params in [values.params.as_ref(), given].into_iter().flatten() {
+        look.progress = params.progress.unwrap_or(look.progress);
     }
     Ok(look)
+}
+
+/// A number from 0 to 1.
+fn fraction(v: &Value) -> Option<f64> {
+    v.as_f64().filter(|f| (0.0..=1.0).contains(f))
 }
 
 /// `[x, y]`, or with `one`, a single number for both.

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.7",
+  "scaena": "0.8",
   "_comment": "E103 trigger: charts and tables read fields their data does not have, or in types they cannot read, before or after a dataTransform, a source's values do not fit its schema, and annotations name a category, a series, or an x the data does not have.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {

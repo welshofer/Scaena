@@ -527,7 +527,8 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> HashMap<String, 
         let rect = placement.boxes.get(id).copied().unwrap_or([0.0; 4]);
         let parent = placement.parents.get(id).cloned();
         let children = children(deck, snap, id).into_iter().map(String::from).collect();
-        tree.insert(id.clone(), Place { parent, rect, children });
+        let composite = placement.is_group(id).then(|| placement.opacity(snap, id));
+        tree.insert(id.clone(), Place { parent, rect, children, composite });
     }
     // A group's box spans what its members draw, nested groups included.
     for (id, _) in placement.order.iter().rev() {

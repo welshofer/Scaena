@@ -75,7 +75,7 @@ A transition is the interpolation between two resolved snapshots over a duration
 - present only in the target → **enter** (preset or explicit keyframes)
 - present only in the source → **exit**
 
-Text morphs at word granularity (shared words move, others cross-fade). Charts move their data at mark granularity: marks match by data key and interpolate, so values animate in, the next period arrives, and growth shows. A change of chart kind morphs only between kinds that draw the same marks (bars that regroup, `bar` ↔ `stackedBar`); any other change of kind cross-fades. Shader nodes interpolate uniforms.
+Text morphs at word granularity (PLAN 1.12): the words both texts share, in order, move from where they stood to where they stand, mixing their color in Oklab, or, when their size or face changes, scaling between their two boxes as the two drawings cross-fade. The rest fade where they stand, words that leave over the first half of the transition and words that arrive over the second, so neither shows under the words moving past. Punctuation before or after a word is a word of its own: "grew" and "grew." share "grew". Shapes morph point by point when their outlines line up (§3.3), and shader nodes interpolate their uniforms (§3.8). Charts move their data at mark granularity: marks match by data key and interpolate, so values animate in, the next period arrives, and growth shows. A change of chart kind morphs only between kinds that draw the same marks (bars that regroup, `bar` ↔ `stackedBar`); any other change of kind cross-fades.
 
 ### 2.4 Time
 
@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.7",
+  "scaena": "0.8",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -173,7 +173,7 @@ Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`.
 - A table that needs more room than its cell is an error that says what to cut: columns across, or rows down (keep fewer with `dataTransform`'s `limit`).
 - Rows are identified by `key` (default: the first column), which must be unique. Between states a row moves to where it now stands. A cell whose text changed cross-fades, aligned to its column. Rows and columns on one side only fade in or out where they stand, and rules move with their rows.
 
-**Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are paints: a theme color (or `{ "solid": color }`), or a gradient across the shape's box, `{ "gradient": { "kind", "angle", "center", "stops" } }` (PLAN 1.10). A `linear` gradient runs along `angle`, degrees clockwise from up (default 180, top to bottom), through the box's middle and as long as the box is that way, as CSS's does; a `radial` one runs from `center` (fractions of the box, default `[0.5, 0.5]`) out to the box's farthest corner; a `conic` one turns about `center` from `angle` (default 0, up) all the way round. `stops` are `{ "at": 0–1, "color" }`, two or more, in theme colors, blended in Oklab. An arrow's head takes its stroke's paint. `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out.
+**Shapes** fill their box (§3.4). A `rect` is the box, its corners rounded by `radius` (a length or a `radius.*` token, at most half the shorter side); an `ellipse` is inscribed in it. `line`, `arrow`, and `polygon` join `points`, given as fractions of the box: `[0, 0]` is its top-left, `[1, 1]` its bottom-right. A line or arrow with no `points` crosses the box's middle, left to right; an arrow ends in a filled head sized from its stroke width. A `path` (`kind: "path"`, or `path` alone) is SVG path data, scaled uniformly to fit the box and centered in it, so its own coordinates only need to agree with each other. `fill` and `stroke.paint` are paints: a theme color (or `{ "solid": color }`), or a gradient across the shape's box, `{ "gradient": { "kind", "angle", "center", "stops" } }` (PLAN 1.10). A `linear` gradient runs along `angle`, degrees clockwise from up (default 180, top to bottom), through the box's middle and as long as the box is that way, as CSS's does; a `radial` one runs from `center` (fractions of the box, default `[0.5, 0.5]`) out to the box's farthest corner; a `conic` one turns about `center` from `angle` (default 0, up) all the way round. `stops` are `{ "at": 0–1, "color" }`, two or more, in theme colors, blended in Oklab. An arrow's head takes its stroke's paint. `stroke.width` is a length or a stroke token, and `cap`, `join`, and `dash` read as in SVG. A stroke that names no paint is `onSurface`, and one with no width is the theme's `thin` stroke. A line or arrow with no `stroke` draws that thin rule; a closed shape draws only the fill and stroke it is given. The geometry is made for whatever box the shape has, so a shape whose box changes between states morphs, and its frames make it again at the box they reach, laying nothing out. A shape whose outline also changes morphs point by point when the two line up (PLAN 1.12): the same kind; as many `points` (a line, an arrow, a polygon) or path data of the same commands in the same order; a fill and a stroke on both sides or neither, each paint a color on both or a gradient of one kind with as many stops; and strokes of the same cap, join, and number of dash lengths. Its box, a rect's radius, and each point move (a path's once both are fitted to the box reached), its paints mix in Oklab, and its stroke's width and dashes move. Anything else cross-fades.
 
 **Images** are PNG in v1: one pure-Rust decoder, the same pixels everywhere (§13); a JPEG is refused by name (§16 Q11). `src` is the file's path in the bundle (`assets/<sha256>.<ext>` once saved, §3.1), and the display list names the image by `sha256:` of its bytes. An image is at most 8192 px a side, vello's image atlas, which the engine checks when it registers the file. Pixels are sRGB, straight alpha, with no color profile applied. How the image meets its box:
 - `crop: [x, y, w, h]`, fractions of the image, cuts it first, so a sharper file of the same picture keeps the crop. Default: all of it.
@@ -204,7 +204,7 @@ One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans th
 - **`stack`.** `axis: y` (the default) runs top to bottom, `x` left to right; `gap` sits between children, `padding` inside the edge, and `distribute` (`start` by default, `center`, `end`, `between`, `around`, `evenly`) places leftover room along the axis. Text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders, which have no size of their own, share what is left. Every child stretches across the stack unless its `size` or `align` says otherwise. An image keeps its picture's proportions as it stretches. Text in a row stays in a box the row's height, so `align: { y: "baseline" }` puts the last baselines of a row's texts on one line, and `cap` puts their cap tops on one line.
 - **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise.
 - **`frame`.** A child's `at.rect` is `[x, y, w, h]` from the frame's padding edge. A child with no `rect` fills the padding box.
-- **`group`.** Its children are placed on the slide by the rest of their `at`, and drawn together: the group's `opacity` multiplies into each child's. This is not group compositing: two overlapping children each fade on their own. A group lays nothing out, and cannot sit in a stack, grid, or frame.
+- **`group`.** Its children are placed on the slide by the rest of their `at`, and composited together (PLAN 1.12): the group draws them into one layer, each at its own opacity, and that layer at the group's `opacity`, so two overlapping children never show through each other. Motions on the group move its layer, and it comes and goes with the transition as one; a `children` split moves each child inside it. A group lays nothing out, and cannot sit in a stack, grid, or frame.
 - **Sizing values** (`size: { w, h, minW, maxW, minH, maxH, aspect }`): a length (canvas units, a token, or a percentage of the container), `fit` (the content's size), `fill` (an equal share of the room), or `fraction(n)` (n shares). `aspect: "w:h"` fixes the proportions, and the bounds clamp.
 - **Panels.** A container with `fill` or `stroke` draws them as a rectangle with its `radius`, under its children.
 - **Order and timing.** Siblings paint by `z`, then `nodes` order, and a container paints under its children. Layout runs once per snapshot. A child that changes container between states morphs from one box to the other, like any box.
@@ -245,7 +245,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.2",
+  "scaena-theme": "0.3",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -273,7 +273,7 @@ See `docs/schema/theme.schema.json`. Shape:
     "durations": { "fast": 180, "standard": 420, "slow": 800 },
     "easings":   { "standard": [0.2, 0, 0, 1], "out": [0, 0, 0, 1], "in": [0.4, 0, 1, 1] },
     "springs":   { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 }, "gentle": { "stiffness": 170, "damping": 26, "mass": 1 } },
-    "presets":   { "rise": { "from": { "opacity": 0, "translate": [0, 24] }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
+    "presets":   { "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
   "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "legend": { "role": "label" }, "strokeWidth": "thin",
@@ -369,7 +369,7 @@ Rules:
   - A chart reads a preset one mark at a time. Its `from` look is where an entering mark starts and where a leaving one ends: `opacity`, `transform.translate` in canvas units, and `transform.scale`. A scale grows the mark from where it would stand with no value (Motion), whatever its `anchor`. A preset that does not scale keeps its marks whole: they ride in or out with their neighbors, fading or moving as it says.
   - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
   - A chart's own presets run with the transition, and choreography can move its marks too (`{ "target": "rev", "enter": "grow", "timing": "after" }`, §3.9). Either way the marks are units on the state's clock (PLAN 1.11): mark k starts `k × stagger` ms after the first and runs for the preset's `duration`, else the theme's `standard`, or for its spring's settle time, easing or springing as §3.9 says (`libm`, so every platform agrees). A long schedule extends the state's span; nothing is squeezed into the transition. The chart's axes, legend, and titles come in with its first mark and go with its last.
-  - A chart's own presets move its marks whatever the preset would split. A choreography item that moves the chart whole (no split) moves it as one, its values at rest. A look that moves anything but opacity, translate, and scale returns NotImplemented (PLAN 1.12).
+  - A chart's own presets move its marks whatever the preset would split. A choreography item that moves the chart whole (no split) moves it as one, its values at rest. Marks take a look's opacity and translation, and a look that scales grows them from their baseline; its rotation, color, and params do not reach marks. A cue on the whole chart takes the whole look.
 - **Annotations** (`annotations`), drawn in `charts.annotation`: `stroke` (default `thin`) and `color` (default `accent`) for rules, leaders, and bands, `opacity` for the strokes, and `role` (default the value labels') for text, which prints in that color. An annotation stands at `at`: an `x` is a category, as the x column prints with no format, or on a continuous x a number or an ISO 8601 date; a `y` is a value; a `series` is a series. A value on the value axis widens it, as the data does, unless the author set that bound, when one past it is an error; an `x` on a continuous axis widens it too. A category, series, or x the data does not have is E103, and an annotation that stands where its kind cannot is E106 (`validate` finds both).
   - `rule`: one `x` or one `y`. A `y` rules the plot across, its text half a space unit over the rule at the plot's start; an `x` rules it from top to foot through the category's middle, its text beside the rule's top, after it unless that passes the plot's end.
   - `band`: from one `x` to another, or one `y` to another, under the gridlines, filled at `charts.annotation.band` (default 0.12) of the color. Across categories it covers both ends' bands. Its text sits inside its top-left corner, half a space unit in.
@@ -455,7 +455,7 @@ Requirements:
 | `speed` | number, shorter sides a second | 0–1 | 0.02 |
 | `softness` | number, of the radius | 0–1 | 0.5 |
 
-Each kind's CPU reference and its WGSL twin are tested against each other on the GPU (`shader_parity`), per seed, time, transform, and parameters. A shader whose kind, seed, palette, or params change between states cross-fades until uniforms interpolate (PLAN 1.12); the same shader in both states stays drawn and moves with its rect.
+Each kind's CPU reference and its WGSL twin are tested against each other on the GPU (`shader_parity`), per seed, time, transform, and parameters. Between two states a shader morphs by its uniforms (PLAN 1.12): with the same kind and seed and as many palette colors, its rect moves, its palette's colors mix in Oklab, and its params move from one value to the other, a param one side leaves out at its default. Three sorts of param do not move: a name a kind lists (a gradient's `shape`), a count (mesh `points`, noise `octaves`, particles `count`), which has nothing between, and a rate (`speed`, grain `fps`), whose phase on the global clock would race through (b − a)·t on the way. A shader whose kind, seed, or number of palette colors changes, or one of those params, cross-fades.
 
 ### 3.9 Animation
 
@@ -484,12 +484,13 @@ A state's **cue** starts with the transition into it (`t = 0`) and runs the tran
 
 **Presets** (theme `motion.presets`): a look (`from` or `to`) and timing (`duration`, `ease`, `spring`, `stagger`, `split`).
 - A look is relative to the unit at rest: `opacity` multiplies its own, and `transform` takes `translate` (`[x, y]` canvas units), `scale` (a number, or `[x, y]`), `rotate` (degrees, clockwise), and `anchor` (`[x, y]`, fractions of the unit's box, default its center), which scale and rotation turn about. A unit's box is its node's box, a child's box, or for text, its glyphs' advances across the line boxes they sit in.
+- `color` (a theme color) mixes every paint the unit draws toward it in Oklab, each keeping its alpha; images and shaders have no paint. `params.progress` (0–1) is how much of each outline a shape strokes is drawn, from where the outline starts, an arrow's head riding the tip and growing in over its own length; a shape's fill is drawn whole, and nodes that are not shapes are drawn whole. Colors and progress stop at their ends on a spring. Theme format 0.3 types the look, so any other key is a schema error (PLAN 1.12).
 - An `enter` runs from the preset's `from` look to rest; before it starts, its unit is not drawn. An `exit` runs from rest to the `from` look; once it ends, its unit is gone. An `emphasis` runs from rest to the `to` look and back: eased, out along the easing to its middle and back the same way; on a spring, as the spring answers a tap, reaching the look once and settling back (an under-damped spring swings past rest and back). Each reads the other key when its own is missing.
 - An entrance moves only what enters in the state, and an exit only what leaves. A `children` entrance on a stack that stays brings in only its new children, each at its place in the stagger. An entrance on a node that stays does nothing.
 - A node that enters or leaves with no motion fades in or out with the transition.
-- A look that moves anything but opacity and transform, or a call's `params`, returns NotImplemented (PLAN 1.12).
+- A call's `params` win over its preset's: `{ "preset": "draw", "params": { "progress": 0.3 } }` draws an outline on from 30%.
 
-**Keyframes** (`anim`). Per property (`opacity`, `translate`, `scale`, `rotate`), keys `{ "t", "v", "ease" | "spring" }`, `t` in ms from the motion's start, values as looks are:
+**Keyframes** (`anim`). Per property (`opacity`, `translate`, `scale`, `rotate`, `progress`; deck format 0.8 names no other), keys `{ "t", "v", "ease" | "spring" }`, `t` in ms from the motion's start, values as looks are:
 
 ```jsonc
 "anim": {
@@ -498,18 +499,18 @@ A state's **cue** starts with the transition into it (`t = 0`) and runs the tran
 }
 ```
 
-Before the first key a track holds the first value; after the last, the last value, until the state rests. Between two keys it follows the later key's curve (default the theme's `standard`), a spring fitted to the gap. Other properties wait for PLAN 1.12.
+Before the first key a track holds the first value; after the last, the last value, until the state rests. Between two keys it follows the later key's curve (default the theme's `standard`), a spring fitted to the gap.
 
-**Containers.** A motion on a container moves everything in it, and one on its children moves each child with everything in it. The container's own panel moves only with motions on the container. Looks compose from the outermost container in.
+**Containers.** A motion on a container moves everything in it, and one on its children moves each child with everything in it. The container's own panel moves only with motions on the container. Looks compose from the outermost container in, a tint on a tint as one mix in Oklab and progress multiplying. A group's own motions move its composited layer instead (§3.4), and a draw-on reaches the shapes in it.
 
 **State transition** (per state): `"transition": { "duration": "standard", "ease": "standard", "spring": "snappy", "match": "id" }`. Per node: `"transition": "morph" | "crossfade" | "cut"`.
 - A state without `transition` cuts. A bare duration (`"transition": "slow"`, or ms) sets the duration; the object form defaults `duration` and `ease` to the theme's `standard`.
 - A `spring` takes the place of both: the transition follows the spring and lasts its settle time. An under-damped spring carries positions and sizes past their targets and back; opacity, colors, and chart data stop at their ends.
 - The transition into a state starts from the state before it in the cue list (what was on screen), whichever state it tracks `from`. Into the first state, every node enters.
 - `t ≤ 0` is the previous state at rest, and `t` at or past the span this state at rest, exactly.
-- Nodes present in both states interpolate (PLAN 0.10). Text whose layout is unchanged moves; changed text cross-fades until word-level morphs (PLAN 1.12). Chart marks match by key and move their data (§3.7).
+- Nodes present in both states interpolate (PLAN 0.10). Text whose layout is unchanged moves; changed text morphs word by word (§2.3). Shapes morph point by point (§3.3), shaders by their uniforms (§3.8), and chart marks match by key and move their data (§3.7).
 
-**Curves.** Springs are solved analytically (a damped harmonic oscillator, through `libm`). One settles once it stays within 0.001 of its target, moving slower than 0.01 a second, for 50 ms; that settle time is part of the resolved timeline, so every duration is known ahead of time (video export). Easing curves are cubic Béziers, named in the theme. Interpolation: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure point-wise, else cross-faded; text by word diff; chart marks by key.
+**Curves.** Springs are solved analytically (a damped harmonic oscillator, through `libm`). One settles once it stays within 0.001 of its target, moving slower than 0.01 a second, for 50 ms; that settle time is part of the resolved timeline, so every duration is known ahead of time (video export). Easing curves are cubic Béziers, named in the theme. Interpolation: numbers linear; colors in Oklab; transforms decomposed; paths with equal command structure point-wise, else cross-faded; text by word diff; chart marks by key; shader params by kind (§3.8).
 
 Lint **W320** flags more than N concurrent animated nodes (theme-tunable, default 12) and **W321** flags total choreography longer than the theme's `maxBuild` (default 2.5 s).
 
@@ -761,7 +762,7 @@ A serializable, painter-agnostic description of a frame. Versioned (`"dl": 1`). 
 ```
 
 Rules:
-- Ops are stateless and in paint order: later ops draw over earlier ones. A `layer` scopes `transform`, `clip`, `opacity`, and `blend` for its children and names the scene `node` it draws; painters isolate it only when they must (opacity below 1, a blend other than normal, or a clip). Nodes are drawn in ascending `z`, ties in scene-graph order (`paint_order`), so op order is a pure function of the document.
+- Ops are stateless and in paint order: later ops draw over earlier ones. A `layer` scopes `transform`, `clip`, `opacity`, and `blend` for its children and names the scene `node` it draws; painters isolate it only when they must (opacity below 1, a blend other than normal, or a clip). Layers nest: a group's layer holds its members' (§3.4). Nodes are drawn in ascending `z`, ties in scene-graph order (`paint_order`), so op order is a pure function of the document.
 - Coordinates are in canvas units; `viewport` is the canvas extent, and painters map it to their output pixels. Glyph positions are in their layer's coordinate space (a text node's layer translates to its box), so moving a node changes one transform, not every glyph.
 - Fonts are referenced by index into `fonts` (bundle font ids, in first-use order); painters receive the subset bytes once. A variable instance is its normalized coordinates (F2Dot14, in the font's `fvar` axis order), the exact values `vello` and `vello_cpu` take.
 - Glyph positions are final (post-shaping, post-kerning); painters never shape text. **This is the parity guarantee.**

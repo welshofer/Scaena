@@ -345,11 +345,13 @@
         [141,73.34375,20.71875]
       ]}}
     ]}},
-    {"layer":{"node":"marks-ring","transform":[1.0,0.0,0.0,1.0,1702.0,552.0],"opacity":0.6,"blend":"normal","clip":null,"ops":[
-      {"stroke":{"path":"M122 45C122 69.859375 94.6875 90 61 90C27.3125 90 0 69.859375 0 45C0 20.140625 27.3125 0 61 0C94.6875 0 122 20.140625 122 45","paint":{"solid":"#C2410CFF"},"width":4.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
-    ]}},
-    {"layer":{"node":"marks-dot","transform":[1.0,0.0,0.0,1.0,1732.0,582.0],"opacity":0.6,"blend":"normal","clip":null,"ops":[
-      {"fill":{"path":"M62 15C62 23.28125 48.125 30 31 30C13.875 30 0 23.28125 0 15C0 6.71875 13.875 0 31 0C48.125 0 62 6.71875 62 15","rule":"nonzero","paint":{"solid":"#C2410CFF"}}}
+    {"layer":{"node":"marks","transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":0.6,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":"marks-ring","transform":[1.0,0.0,0.0,1.0,1702.0,552.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"stroke":{"path":"M122 45C122 69.859375 94.6875 90 61 90C27.3125 90 0 69.859375 0 45C0 20.140625 27.3125 0 61 0C94.6875 0 122 20.140625 122 45","paint":{"solid":"#C2410CFF"},"width":4.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}}
+      ]}},
+      {"layer":{"node":"marks-dot","transform":[1.0,0.0,0.0,1.0,1732.0,582.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"fill":{"path":"M62 15C62 23.28125 48.125 30 31 30C13.875 30 0 23.28125 0 15C0 6.71875 13.875 0 31 0C48.125 0 62 6.71875 62 15","rule":"nonzero","paint":{"solid":"#C2410CFF"}}}
+      ]}}
     ]}}
   ]
 }

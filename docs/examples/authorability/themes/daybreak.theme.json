@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.2",
+  "scaena-theme": "0.3",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -526,7 +526,7 @@
         },
         "duration": "slow",
         "ease": "standard",
-        "description": "Strokes draw on; lines reveal left to right."
+        "description": "A shape's outline draws on from where it starts."
       },
       "words": {
         "from": {

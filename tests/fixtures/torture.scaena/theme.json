@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.2",
+  "scaena-theme": "0.3",
   "name": "Torture",
   "description": "Fixture theme for the typography torture deck (PLAN 0.2). Every case-specific typographic setting lives here as a role, so the deck itself references roles only.",
   "tokens": {
@@ -637,6 +637,24 @@
         },
         "spring": "gentle",
         "description": "Emphasis: one soft pulse, out and back."
+      },
+      "draw": {
+        "from": {
+          "params": {
+            "progress": 0
+          }
+        },
+        "duration": "slow",
+        "ease": "standard",
+        "description": "A shape's outline draws on from where it starts."
+      },
+      "flash": {
+        "to": {
+          "color": "accent"
+        },
+        "duration": 400,
+        "ease": "standard",
+        "description": "Emphasis: every paint warms to the accent and back."
       }
     },
     "maxConcurrent": 12,

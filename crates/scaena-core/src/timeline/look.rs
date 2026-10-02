@@ -4,6 +4,7 @@
 //! children, or marks its cue splits it into.
 
 use super::{CubicBezier, Spring};
+use crate::displaylist::Color;
 
 /// How a motion moves through its time: along an easing, or as a spring.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,6 +90,9 @@ impl Clock {
 /// A unit's look against itself at rest: `opacity` multiplies its own, `translate`
 /// moves it (canvas units), and `scale` and `rotate` (degrees, clockwise) turn it about
 /// `anchor`, a point given in fractions of its box (`[0.5, 1]` is its bottom middle).
+/// `tint` mixes every paint it draws toward a color in Oklab, so far (0–1), and
+/// `progress` is how much of each outline it strokes is drawn, from where the outline
+/// starts (0–1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Look {
     pub opacity: f64,
@@ -96,6 +100,8 @@ pub struct Look {
     pub scale: [f64; 2],
     pub rotate: f64,
     pub anchor: [f64; 2],
+    pub tint: Option<(Color, f64)>,
+    pub progress: f64,
 }
 
 impl Default for Look {
@@ -106,10 +112,18 @@ impl Default for Look {
 
 impl Look {
     /// The unit as it is laid out.
-    pub const REST: Look = Look { opacity: 1.0, translate: [0.0; 2], scale: [1.0; 2], rotate: 0.0, anchor: [0.5; 2] };
+    pub const REST: Look = Look {
+        opacity: 1.0,
+        translate: [0.0; 2],
+        scale: [1.0; 2],
+        rotate: 0.0,
+        anchor: [0.5; 2],
+        tint: None,
+        progress: 1.0,
+    };
 
     /// `w` of the way from rest to this look. Past 1 (or below 0) the transform goes on
-    /// past it, as a spring overshoots; opacity stays within 0–1.
+    /// past it, as a spring overshoots; opacity, tint, and progress stay within 0–1.
     pub fn toward(&self, w: f64) -> Look {
         let mix = |rest: f64, to: f64| rest + (to - rest) * w;
         Look {
@@ -118,12 +132,19 @@ impl Look {
             scale: self.scale.map(|v| mix(1.0, v)),
             rotate: mix(0.0, self.rotate),
             anchor: self.anchor,
+            tint: self.tint.map(|(color, q)| (color, mix(0.0, q).clamp(0.0, 1.0))),
+            progress: mix(1.0, self.progress).clamp(0.0, 1.0),
         }
     }
 
     /// Whether this look leaves the unit as it is laid out.
     pub fn is_rest(&self) -> bool {
-        self.opacity == 1.0 && self.translate == [0.0; 2] && self.scale == [1.0; 2] && self.rotate == 0.0
+        self.opacity == 1.0
+            && self.translate == [0.0; 2]
+            && self.scale == [1.0; 2]
+            && self.rotate == 0.0
+            && self.tint.is_none_or(|(_, q)| q == 0.0)
+            && self.progress == 1.0
     }
 
     /// The look as a map of canvas points, `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`), for
@@ -160,12 +181,20 @@ pub struct Keys {
     pub translate: Vec<Key<[f64; 2]>>,
     pub scale: Vec<Key<[f64; 2]>>,
     pub rotate: Vec<Key<f64>>,
+    pub progress: Vec<Key<f64>>,
     pub anchor: [f64; 2],
 }
 
 impl Default for Keys {
     fn default() -> Self {
-        Keys { opacity: vec![], translate: vec![], scale: vec![], rotate: vec![], anchor: Look::REST.anchor }
+        Keys {
+            opacity: vec![],
+            translate: vec![],
+            scale: vec![],
+            rotate: vec![],
+            progress: vec![],
+            anchor: Look::REST.anchor,
+        }
     }
 }
 
@@ -213,6 +242,7 @@ impl Keys {
                 self.translate.last().map(|k| k.t),
                 self.scale.last().map(|k| k.t),
                 self.rotate.last().map(|k| k.t),
+                self.progress.last().map(|k| k.t),
             ]
             .into_iter()
             .flatten(),
@@ -228,6 +258,8 @@ impl Keys {
             scale: sample(&self.scale, t).unwrap_or([1.0; 2]),
             rotate: sample(&self.rotate, t).unwrap_or(0.0),
             anchor: self.anchor,
+            tint: None,
+            progress: sample(&self.progress, t).unwrap_or(1.0).clamp(0.0, 1.0),
         }
     }
 }
@@ -346,6 +378,18 @@ mod tests {
         let moved = Look { translate: [5.0, -5.0], ..Look::REST };
         assert_eq!(map(moved.affine(rect), [0.0, 0.0]), [5.0, -5.0]);
         assert!(Look::REST.is_rest() && !moved.is_rest());
+    }
+
+    #[test]
+    fn a_tint_and_a_draw_on_stay_between_rest_and_the_look() {
+        let accent = Color([255, 80, 0, 255]);
+        let look = Look { tint: Some((accent, 1.0)), progress: 0.0, ..Look::REST };
+        assert_eq!(look.toward(0.25).tint, Some((accent, 0.25)));
+        assert_eq!(look.toward(0.25).progress, 0.75);
+        // A spring past the look carries neither past its end.
+        assert_eq!((look.toward(1.3).tint, look.toward(1.3).progress), (Some((accent, 1.0)), 0.0));
+        assert_eq!((look.toward(-0.2).tint, look.toward(-0.2).progress), (Some((accent, 0.0)), 1.0));
+        assert!(look.toward(0.0).is_rest() && !look.toward(0.01).is_rest());
     }
 
     #[test]

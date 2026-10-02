@@ -7,9 +7,13 @@
 //! [`Transition::frame`] takes `&self` and owns no fonts or layout engine: frames
 //! only sample (SPEC §5, CLAUDE.md invariant 3), by construction.
 //!
-//! Phase 0 rules (PLAN 0.10; the rest of SPEC §3.9 is PLAN 1.11–1.12):
-//! - Nodes match by id. Text whose layout is unchanged moves; changed text
-//!   cross-fades (word-level text morphs are PLAN 1.12).
+//! The rules (PLAN 0.10, 1.11, 1.12; SPEC §2.3, §3.9):
+//! - Nodes match by id. Text whose layout is unchanged moves; changed text morphs
+//!   word by word: shared words move, recoloring or scaling between their boxes, and
+//!   the rest fade where they stand (`WordPlan`).
+//! - A shape whose outline lines up morphs point by point, its paints mixing; a
+//!   shader with the same kind and seed morphs its uniforms. Anything else
+//!   cross-fades.
 //! - Charts move data. Marks match by key and interpolate: a corrected figure, the
 //!   next month's values, the axis rescaling. A key that appears grows from the
 //!   baseline and one that disappears shrinks onto it, each riding along with its
@@ -18,8 +22,8 @@
 //!   other. Value labels ride their marks and count through the numbers. A chart that
 //!   enters grows its values in; one that exits shrinks them out.
 //! - A shader shows the frame's time on the global timeline, so it drifts on through
-//!   a transition. The same shader in both states stays drawn (moving with its rect);
-//!   a changed one cross-fades (interpolating its uniforms is PLAN 1.12).
+//!   a transition, moving with its rect as its uniforms move.
+//! - A group composites its members in one layer, which its own looks move.
 //! - Any other node only in the target fades in; one only in the source fades out.
 //! - Numbers interpolate linearly; colors in Oklab (SPEC §3.9), through `libm`, whose
 //!   pure-Rust math gives the same bits on every platform.
@@ -67,6 +71,9 @@ pub struct Place {
     pub rect: Rect,
     /// In flow order: `at.index`, then the deck's order.
     pub children: Vec<String>,
+    /// A group's opacity: it composites what is in it as one layer at this opacity, and
+    /// its own looks move that layer (SPEC §3.4). `None` for any other node.
+    pub composite: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +82,7 @@ pub struct SceneNode {
     /// Paint order: `(z, nodes index)` for each node from its root container down to
     /// this one (`containers::Placement::order`); keys sort in paint order.
     pub paint: Vec<(i64, usize)>,
-    /// Its own opacity times its containers'.
+    /// Its own opacity times its containers', up to its group.
     pub opacity: f32,
     /// The node's `transition` property (SPEC §3.9).
     pub policy: Policy,
@@ -122,7 +129,28 @@ impl Scene {
             let op = node.draw(&mut dl, node.opacity, time);
             dl.ops.push(op);
         }
+        let ops = std::mem::take(&mut dl.ops).into_iter().map(|op| (false, op)).collect();
+        dl.ops = grouped(
+            ops,
+            |id, _| self.groups(id).into_iter().map(|g| (g, false)).collect(),
+            |(g, _)| self.tree[g].composite.map(|opacity| (opacity, Seen::REST)),
+        );
         dl
+    }
+
+    /// The groups `id` sits in, outermost first.
+    fn groups(&self, id: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut at = self.tree.get(id).and_then(|p| p.parent.as_deref());
+        while let Some(parent) = at {
+            let place = self.tree.get(parent);
+            if place.is_some_and(|p| p.composite.is_some()) {
+                out.push(parent.to_string());
+            }
+            at = place.and_then(|p| p.parent.as_deref());
+        }
+        out.reverse();
+        out
     }
 
     /// Only the surface: where a transition into the first state starts.
@@ -279,6 +307,8 @@ enum Track {
     Chart { from: Option<usize>, to: Option<usize>, plan: Box<ChartPlan> },
     /// A table in both: its cells match by row and column, its rules by the row above.
     Table { from: usize, to: usize, plan: Box<TablePlan> },
+    /// Text in both whose layout changed: its words match by their text.
+    Words { from: usize, to: usize, plan: Box<WordPlan> },
 }
 
 /// How a chart's parts get from one snapshot to the next, matched by key.
@@ -334,19 +364,60 @@ pub struct Transition {
     start: f64,
 }
 
-/// A look as a map of canvas points and an opacity: what the cues make of a node.
+/// What the cues make of a node: a map of canvas points, an opacity, a color its paints
+/// mix toward and how far, and how much of a shape's outline is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Seen {
     map: [f64; 6],
     opacity: f64,
+    tint: Option<(Color, f64)>,
+    progress: f64,
 }
 
 impl Seen {
-    const REST: Seen = Seen { map: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], opacity: 1.0 };
+    const REST: Seen = Seen { map: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], opacity: 1.0, tint: None, progress: 1.0 };
+
+    /// Whether this leaves a node's layer as it is: what [`looked`] applies is at rest.
+    fn leaves_layer(&self) -> bool {
+        (self.map, self.opacity, self.tint) == (Seen::REST.map, 1.0, None)
+    }
 
     /// This, with `look` on a unit whose box at rest is `rect` inside it.
     fn within(self, look: &Look, rect: Rect) -> Seen {
-        Seen { map: compose(self.map, look.affine(rect)), opacity: self.opacity * look.opacity }
+        Seen {
+            map: compose(self.map, look.affine(rect)),
+            opacity: self.opacity * look.opacity,
+            tint: tints(look.tint, self.tint),
+            progress: self.progress * look.progress,
+        }
+    }
+}
+
+/// An inner tint and then an outer one, as one. Mixing is linear in Oklab, so mixing
+/// toward `c1` by `q1` and then toward `c2` by `q2` is mixing by `q = 1 − (1 − q1)(1 − q2)`
+/// toward `c1` and `c2` mixed by `q2 / q`. A tint of nothing is none.
+fn tints(inner: Option<(Color, f64)>, outer: Option<(Color, f64)>) -> Option<(Color, f64)> {
+    match (inner.filter(|t| t.1 > 0.0), outer.filter(|t| t.1 > 0.0)) {
+        (None, t) | (t, None) => t,
+        (Some((c1, q1)), Some((c2, q2))) => {
+            let q = 1.0 - (1.0 - q1) * (1.0 - q2);
+            Some((mix(c1, c2, (q2 / q) as f32), q))
+        }
+    }
+}
+
+/// Every paint `op` draws, mixed `q` of the way toward `color`, each keeping its alpha.
+fn tint(op: &mut Op, color: Color, q: f32) {
+    let toward = |c: &mut Color| *c = mix(*c, Color([color.0[0], color.0[1], color.0[2], c.0[3]]), q);
+    match op {
+        Op::Layer { ops, .. } => ops.iter_mut().for_each(|op| tint(op, color, q)),
+        Op::Fill { paint, .. } | Op::Stroke { paint, .. } | Op::Glyphs { paint, .. } => match paint {
+            Paint::Solid(c) => toward(c),
+            Paint::Linear { stops, .. } | Paint::Radial { stops, .. } | Paint::Sweep { stops, .. } => {
+                stops.iter_mut().for_each(|s| toward(&mut s.1))
+            }
+        },
+        _ => {}
     }
 }
 
@@ -362,14 +433,69 @@ fn compose(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
     ]
 }
 
-/// A node's layer, through what its cues make of it.
+/// A node's layer, through what its cues make of it. How much of a shape's outline is
+/// drawn is the shape's to draw (`progress`); the rest is here.
 fn looked(op: Op, seen: Seen) -> Op {
-    if seen == Seen::REST {
+    if seen.leaves_layer() {
         return op;
     }
-    let Op::Layer { node, transform, opacity, blend, clip, ops } = op else { return op };
+    let Op::Layer { node, transform, opacity, blend, clip, mut ops } = op else { return op };
+    if let Some((color, q)) = seen.tint {
+        ops.iter_mut().for_each(|op| tint(op, color, q as f32));
+    }
     let transform = compose(seen.map, transform.map(f64::from)).map(|v| v as f32);
     Op::Layer { node, transform, opacity: opacity * seen.opacity as f32, blend, clip, ops }
+}
+
+/// A group as the fold below keys it: its id, and whether its layer is the one in the
+/// state being left (a group that leaves, or every group under `match: none`).
+type GroupKey = (String, bool);
+
+/// `ops` in paint order, each with whether it was drawn from the state being left, with
+/// each group's members gathered into one layer for the group (SPEC §3.4). `groups`
+/// names the groups an op's node sits in, outermost first; `look` gives a group's
+/// opacity and what its own cues make of it, or `None` where it is not drawn, nor
+/// anything in it. A group that changes nothing (opaque, at rest) adds no layer.
+fn grouped(
+    ops: Vec<(bool, Op)>,
+    groups: impl Fn(&str, bool) -> Vec<GroupKey>,
+    look: impl Fn(&GroupKey) -> Option<(f32, Seen)>,
+) -> Vec<Op> {
+    // The groups open at this point in paint order, innermost last, with what each has gathered.
+    let mut open: Vec<(GroupKey, Vec<Op>)> = Vec::new();
+    let mut out = Vec::new();
+    let close = |open: &mut Vec<(GroupKey, Vec<Op>)>, out: &mut Vec<Op>| {
+        let (key, ops) = open.pop().expect("a group is open");
+        let Some((opacity, seen)) = look(&key) else { return };
+        let into = match open.last_mut() {
+            Some((_, ops)) => ops,
+            None => out,
+        };
+        if opacity == 1.0 && seen.leaves_layer() {
+            into.extend(ops);
+        } else {
+            into.push(looked(layer(Some(&key.0), [0.0, 0.0], opacity, ops), seen));
+        }
+    };
+    for (source, op) in ops {
+        let path = match &op {
+            Op::Layer { node: Some(id), .. } => groups(id, source),
+            _ => Vec::new(),
+        };
+        let keep = open.iter().zip(&path).take_while(|((g, _), h)| g == *h).count();
+        while open.len() > keep {
+            close(&mut open, &mut out);
+        }
+        open.extend(path[keep..].iter().map(|g| (g.clone(), Vec::new())));
+        match open.last_mut() {
+            Some((_, ops)) => ops.push(op),
+            None => out.push(op),
+        }
+    }
+    while !open.is_empty() {
+        close(&mut open, &mut out);
+    }
+    out
 }
 
 /// Every cue in `items`, groups opened.
@@ -451,8 +577,11 @@ impl Transition {
                 (Some(i), Policy::Crossfade) => Track::Crossfade { from: i, to: j },
                 (Some(i), Policy::Morph) => match (&source[i].content, &b.content) {
                     (Content::Text(x), Content::Text(y)) if x.text == y.text => Track::Move { from: i, to: j },
-                    (Content::Shader(x), Content::Shader(y)) if x.same_shader(y) => Track::Move { from: i, to: j },
-                    (Content::Shape(x), Content::Shape(y)) if x.same_shape(y) => Track::Move { from: i, to: j },
+                    (Content::Text(x), Content::Text(y)) => {
+                        Track::Words { from: i, to: j, plan: Box::new(WordPlan::new(&x.text, &y.text)) }
+                    }
+                    (Content::Shader(x), Content::Shader(y)) if x.morphs_to(y) => Track::Move { from: i, to: j },
+                    (Content::Shape(x), Content::Shape(y)) if x.morphs_to(y) => Track::Move { from: i, to: j },
                     (Content::Image(x), Content::Image(y)) if x.same_image(y) => Track::Move { from: i, to: j },
                     // Charts morph mark by mark between kinds that draw the same
                     // marks; any other change of kind cross-fades.
@@ -548,12 +677,21 @@ impl Transition {
     fn seen(&self, id: &str, source: bool, t: f64) -> (Option<Seen>, bool) {
         let scene = if source { self.from.as_ref() } else { Some(&self.to) };
         let Some(scene) = scene else { return (Some(Seen::REST), false) };
+        // Up to the group it sits in, if any: the group's layer takes the group's own
+        // looks (SPEC §3.4). What reaches its members is how much of their outlines is
+        // drawn, and whether they come and go with it.
+        let group = |n: &str| scene.tree.get(n).is_some_and(|p| p.composite.is_some());
         let mut chain = vec![id];
         while let Some(parent) = chain.last().and_then(|n| scene.tree.get(*n)).and_then(|p| p.parent.as_deref()) {
             chain.push(parent);
+            if group(parent) {
+                break;
+            }
         }
         chain.reverse();
-        let (mut seen, mut governed) = (Seen::REST, false);
+        let in_group = chain.len() > 1 && group(chain[0]);
+        let edge = if source { Motion::Exit(Look::REST) } else { Motion::Enter(Look::REST) };
+        let (mut seen, mut governed) = (Seen::REST, in_group && self.applies(&edge, chain[0]));
         for (depth, &node) in chain.iter().enumerate() {
             for cue in self.schedule.of(node) {
                 if matches!(cue.motion, Motion::Exit(_)) != source {
@@ -576,6 +714,7 @@ impl Transition {
                 let Some((k, rect)) = unit else { continue };
                 governed |= comes_or_goes;
                 match cue.motion.look(&cue.clock(k), t) {
+                    Some(look) if depth == 0 && in_group && cue.split.is_none() => seen.progress *= look.progress,
                     Some(look) => seen = seen.within(&look, rect),
                     None => return (None, true),
                 }
@@ -620,7 +759,13 @@ impl Transition {
 
     /// Draws `node` at rest, through its cues, `t` ms into the state's cue.
     fn put(&self, dl: &mut DisplayList, node: &SceneNode, seen: Seen, opacity: f32, source: bool, t: f64) {
-        let op = node.draw(dl, opacity, self.start + t / 1000.0);
+        let op = match &node.content {
+            Content::Shape(shape) if seen.progress < 1.0 => {
+                let shape = shape.drawn(seen.progress as f32);
+                layer(Some(&node.id), [shape.rect[0], shape.rect[1]], opacity, shape.ops())
+            }
+            _ => node.draw(dl, opacity, self.start + t / 1000.0),
+        };
         let op = self.units(dl, op, node, source, t);
         dl.ops.push(looked(op, seen));
     }
@@ -645,7 +790,10 @@ impl Transition {
         let from = self.from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         let to = &self.to.nodes;
         let mut dl = self.to.ground();
+        // Where each track's ops start, to tell which were drawn from the state being left.
+        let mut starts = Vec::with_capacity(self.tracks.len());
         for track in &self.tracks {
+            starts.push(dl.ops.len());
             match track {
                 Track::Exit(i) => {
                     let node = &from[*i];
@@ -689,12 +837,11 @@ impl Transition {
                             text_layer(&mut dl, &to[*j].id, b, origin, opacity)
                         }
                         (Content::Shader(a), Content::Shader(b)) => {
-                            let [x, y, w, h] = [0, 1, 2, 3].map(|k| lerp(a.rect[k], b.rect[k], geo));
-                            let shader = b.at([x, y, w.max(0.0), h.max(0.0)]);
-                            layer(Some(&to[*j].id), [x, y], opacity, vec![shader.op(time)])
+                            let shader = ShaderNode::lerp(a, b, geo, p);
+                            layer(Some(&to[*j].id), [shader.rect[0], shader.rect[1]], opacity, vec![shader.op(time)])
                         }
                         (Content::Shape(a), Content::Shape(b)) => {
-                            let shape = ShapeNode::lerp(a, b, geo);
+                            let shape = ShapeNode::lerp(a, b, geo, p).drawn(seen.progress as f32);
                             layer(Some(&to[*j].id), [shape.rect[0], shape.rect[1]], opacity, shape.ops())
                         }
                         (Content::Image(a), Content::Image(b)) => {
@@ -765,10 +912,237 @@ impl Transition {
                     let ops = plan.sample(&mut dl, a, b, p);
                     dl.ops.push(looked(layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops), seen));
                 }
+                Track::Words { from: i, to: j, plan } => {
+                    let (x, y) = (&from[*i], &to[*j]);
+                    let (Some(seen), _) = self.seen(&y.id, false, t_ms) else { continue };
+                    if !moving {
+                        self.put(&mut dl, y, seen, y.opacity, false, t_ms);
+                        continue;
+                    }
+                    let (Content::Text(a), Content::Text(b)) = (&x.content, &y.content) else {
+                        unreachable!("Words tracks pair text")
+                    };
+                    let origin = lerp2(a.origin, b.origin, geo);
+                    let ops = plan.sample(&mut dl, [a.origin, b.origin], origin, p, geo);
+                    // Clipped text stays clipped where it stands at either end.
+                    let clip = (a.clip.is_some() && b.clip.is_some())
+                        .then(|| b.clip.map(|[x, y, w, h]| Path::rect([x - origin[0], y - origin[1], w, h])))
+                        .flatten();
+                    let Op::Layer { node, transform, opacity, blend, ops, .. } =
+                        layer(Some(&y.id), origin, lerp(x.opacity, y.opacity, p), ops)
+                    else {
+                        unreachable!("`layer` makes layers")
+                    };
+                    dl.ops.push(looked(Op::Layer { node, transform, opacity, blend, clip, ops }, seen));
+                }
             }
         }
+        // Ops drawn from the state being left: its own groups gather those.
+        let mut left = vec![false; dl.ops.len()];
+        for (k, (track, &start)) in self.tracks.iter().zip(&starts).enumerate() {
+            let end = starts.get(k + 1).copied().unwrap_or(dl.ops.len());
+            match track {
+                Track::Exit(_) | Track::Chart { to: None, .. } => left[start..end].fill(true),
+                // A cross-fade draws what leaves first.
+                Track::Crossfade { .. } if moving && end > start => left[start] = true,
+                _ => {}
+            }
+        }
+        let ops = left.into_iter().zip(std::mem::take(&mut dl.ops)).collect();
+        dl.ops = grouped(ops, |id, source| self.groups_of(id, source), |key| self.group_layer(key, t_ms, moving, p));
         dl
     }
+
+    /// The groups the node `id` sits in, outermost first, in the state it is drawn from:
+    /// a group in both states, under `match: id`, is one layer.
+    fn groups_of(&self, id: &str, source: bool) -> Vec<GroupKey> {
+        let scene = if source { self.from.as_ref() } else { Some(&self.to) };
+        let stays = |g: &str| self.timing.matched && self.to.tree.contains_key(g);
+        (scene.map(|s| s.groups(id)).unwrap_or_default().into_iter())
+            .map(|g| {
+                let left = source && !stays(&g);
+                (g, left)
+            })
+            .collect()
+    }
+
+    /// A group's layer `t` ms into the cue: its opacity, moving between its two states
+    /// or fading as it comes or goes with the transition, and what its own cues make of
+    /// it. `None` where it is not drawn.
+    fn group_layer(&self, (g, left): &GroupKey, t: f64, moving: bool, p: f32) -> Option<(f32, Seen)> {
+        let composite = |s: Option<&Scene>| s.and_then(|s| s.tree.get(g.as_str())).and_then(|place| place.composite);
+        let (before, now) = (composite(self.from.as_ref()), composite(Some(&self.to)));
+        let (seen, governed) = self.seen(g, *left, t);
+        let seen = seen?;
+        let opacity = if *left {
+            let a = before?;
+            match (governed, moving) {
+                (true, _) => a,
+                (false, true) => a * (1.0 - p),
+                (false, false) => return None,
+            }
+        } else {
+            let b = now?;
+            match before.filter(|_| self.timing.matched) {
+                Some(a) if moving => lerp(a, b, p),
+                Some(_) => b,
+                None if governed || !moving => b,
+                None => b * p,
+            }
+        };
+        Some((opacity, seen))
+    }
+}
+
+/// How a text node's words get from one layout to the next (SPEC §2.3). Words match in
+/// order by their text (a longest common subsequence, spaces and soft hyphens aside, and
+/// the punctuation around a word a word of its own). A shared word that draws the same
+/// moves from its old place to its new one, its color mixing in Oklab; one that draws
+/// differently (another size, font, or instance) maps between its two boxes as its two
+/// drawings cross-fade. A word on one side only fades where it stands: one that leaves
+/// over the first half of the transition, one that arrives over the second.
+#[derive(Debug, Clone, PartialEq)]
+struct WordPlan {
+    pairs: Vec<WordPair>,
+    /// Words of the source alone, and of the target alone.
+    gone: Vec<Word>,
+    came: Vec<Word>,
+}
+
+/// One word's glyphs, run by run, and its box: relative to its text's top-left corner.
+#[derive(Debug, Clone, PartialEq)]
+struct Word {
+    runs: Vec<GlyphRun>,
+    rect: Rect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct WordPair {
+    a: Word,
+    b: Word,
+    /// Whether both draw the same glyphs the same way, colors aside.
+    same: bool,
+}
+
+impl WordPlan {
+    fn new(a: &TextLayout, b: &TextLayout) -> WordPlan {
+        // A word's ink: its glyphs less the spaces after it, which draw nothing, so a word
+        // that ends a line on one side and not the other is still the same drawing. The
+        // punctuation before and after a word is a word of its own, so "grew." is "grew"
+        // with a period after it, and the period can stay at the end of the sentence.
+        let words = |t: &TextLayout| -> Vec<(String, Word)> {
+            let ink = |r: usize, g: usize| !t.text[t.runs[r].clusters[g]..].starts_with(char::is_whitespace);
+            let mut out = Vec::new();
+            for u in t.units(TextSplit::Words) {
+                let text = &t.text[u.text.clone()];
+                let first = text.find(char::is_alphanumeric).unwrap_or(text.len());
+                let last =
+                    text.char_indices().rfind(|(_, c)| c.is_alphanumeric()).map_or(first, |(i, c)| i + c.len_utf8());
+                for (lo, hi) in [(0, first), (first, last), (last, text.len())] {
+                    let range = u.text.start + lo..u.text.start + hi;
+                    let key: String =
+                        t.text[range.clone()].chars().filter(|c| *c != '\u{AD}' && !c.is_whitespace()).collect();
+                    let glyphs: Vec<(usize, usize)> = (u.glyphs.iter().copied())
+                        .filter(|&(r, g)| ink(r, g) && range.contains(&t.runs[r].clusters[g]))
+                        .collect();
+                    if key.is_empty() || glyphs.is_empty() {
+                        continue;
+                    }
+                    let runs = subset(t, |r, g| glyphs.contains(&(r, g)));
+                    out.push((key, Word { runs, rect: unit_box(t, &glyphs) }));
+                }
+            }
+            out
+        };
+        let (wa, wb) = (words(a), words(b));
+        // The longest common subsequence of the two word lists, by their text.
+        let (n, m) = (wa.len(), wb.len());
+        let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                lcs[i][j] = if wa[i].0 == wb[j].0 { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+            }
+        }
+        let (mut plan, mut i, mut j) = (WordPlan { pairs: Vec::new(), gone: Vec::new(), came: Vec::new() }, 0, 0);
+        while i < n || j < m {
+            if i < n && j < m && wa[i].0 == wb[j].0 {
+                let (a, b) = (wa[i].1.clone(), wb[j].1.clone());
+                plan.pairs.push(WordPair { same: same_glyphs(&a, &b), a, b });
+                (i, j) = (i + 1, j + 1);
+            } else if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+                plan.came.push(wb[j].1.clone());
+                j += 1;
+            } else {
+                plan.gone.push(wa[i].1.clone());
+                i += 1;
+            }
+        }
+        plan
+    }
+
+    /// The words `p` of the way across (`geo` for where they stand, which a spring may
+    /// carry past 1), in a layer at `origin`: the source's words laid out at `origins[0]`,
+    /// the target's at `origins[1]`.
+    fn sample(&self, dl: &mut DisplayList, origins: [Point; 2], origin: Point, p: f32, geo: f32) -> Vec<Op> {
+        let at = |o: Point| [o[0] - origin[0], o[1] - origin[1]];
+        let (from, to) = (at(origins[0]), at(origins[1]));
+        let word = |dl: &mut DisplayList, runs: &[GlyphRun], transform: [f32; 6], opacity: f32| Op::Layer {
+            node: None,
+            transform,
+            opacity,
+            blend: Blend::Normal,
+            clip: None,
+            ops: text_ops(dl, runs),
+        };
+        let shift = |d: Point| [1.0, 0.0, 0.0, 1.0, d[0], d[1]];
+        let mut ops = Vec::with_capacity(self.pairs.len() + self.gone.len() + self.came.len());
+        // Words that leave fade out over the first half, and words that arrive fade in over
+        // the second, so neither shows under the words moving to make or take the room.
+        for (words, at, opacity) in [(&self.gone, from, 1.0 - 2.0 * p), (&self.came, to, 2.0 * p - 1.0)] {
+            if opacity > 0.0 {
+                ops.extend(words.iter().map(|w| word(dl, &w.runs, shift(at), opacity)));
+            }
+        }
+        for pair in &self.pairs {
+            let (ra, rb) = (pair.a.rect, pair.b.rect);
+            // Where the word's box stands, in the layer: from the source's to the target's.
+            let start = [from[0] + ra[0], from[1] + ra[1], ra[2], ra[3]];
+            let end = [to[0] + rb[0], to[1] + rb[1], rb[2], rb[3]];
+            let now = [0, 1, 2, 3].map(|k| lerp(start[k], end[k], geo));
+            if pair.same {
+                let runs: Vec<GlyphRun> = (pair.a.runs.iter().zip(&pair.b.runs))
+                    .map(|(x, y)| GlyphRun { color: mix(x.color, y.color, p), ..y.clone() })
+                    .collect();
+                ops.push(word(dl, &runs, shift([now[0] - rb[0], now[1] - rb[1]]), 1.0));
+            } else {
+                // Each drawing scaled from its own box onto the box between.
+                let onto = |r: Rect| {
+                    let (sx, sy) = (now[2] / r[2].max(1e-6), now[3] / r[3].max(1e-6));
+                    [sx, 0.0, 0.0, sy, now[0] - r[0] * sx, now[1] - r[1] * sy]
+                };
+                ops.push(word(dl, &pair.a.runs, onto(ra), 1.0 - p));
+                ops.push(word(dl, &pair.b.runs, onto(rb), p));
+            }
+        }
+        ops
+    }
+}
+
+/// Whether two words draw the same glyphs the same way, colors aside: run by run, the
+/// same font, size, and instance, and each glyph the same where it stands in its box.
+fn same_glyphs(a: &Word, b: &Word) -> bool {
+    a.runs.len() == b.runs.len()
+        && a.runs.iter().zip(&b.runs).all(|(x, y)| {
+            x.font == y.font
+                && x.size == y.size
+                && x.coords == y.coords
+                && x.glyphs.len() == y.glyphs.len()
+                && x.glyphs.iter().zip(&y.glyphs).all(|(g, h)| {
+                    g.id == h.id
+                        && ((g.x - a.rect[0]) - (h.x - b.rect[0])).abs() < 1e-3
+                        && ((g.y - a.rect[1]) - (h.y - b.rect[1])).abs() < 1e-3
+                })
+        })
 }
 
 /// A text node's glyphs as its cue's units, each in its own layer through its look,
@@ -782,7 +1156,10 @@ fn unit_ops(dl: &mut DisplayList, text: &TextLayout, split: TextSplit, cue: &Pla
         taken.extend(unit.glyphs.iter().copied());
         let Some(look) = cue.motion.look(&cue.clock(k), t) else { continue };
         let runs = subset(text, |r, g| unit.glyphs.contains(&(r, g)));
-        let ops = text_ops(dl, &runs);
+        let mut ops = text_ops(dl, &runs);
+        if let Some((color, q)) = look.tint.filter(|t| t.1 > 0.0) {
+            ops.iter_mut().for_each(|op| tint(op, color, q as f32));
+        }
         let [a, b, c, d, e, f] = look.affine(unit_box(text, &unit.glyphs)).map(|v| v as f32);
         let transform = [a, b, c, d, e, f];
         let opacity = look.opacity as f32;

@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.2",
+  "scaena-theme": "0.3",
   "name": "B1 bench",
   "description": "Dusk with a fourth family, Source Serif 4, for quotations: the SPEC §15 B1 benchmark theme.",
   "tokens": {
@@ -552,7 +552,7 @@
         },
         "duration": "slow",
         "ease": "standard",
-        "description": "Strokes draw on; lines reveal left to right."
+        "description": "A shape's outline draws on from where it starts."
       },
       "words": {
         "from": {

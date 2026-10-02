@@ -148,6 +148,64 @@ pub fn named(kind: ShaderKind, param: &str, name: &str) -> Result<f32, ShaderErr
     }
 }
 
+/// Whether `param` of `kind` moves through the values between when a shader morphs
+/// from one state to the next (SPEC §3.8). A name (a gradient's `shape`) and a count
+/// (mesh `points`, noise `octaves`, particles `count`) have nothing between, and a rate
+/// (`speed`, grain `fps`) on the global clock would race its phase through (b − a)·t
+/// on the way (SPEC §3.9): two shaders that differ in one of these cross-fade.
+pub fn interpolates(kind: ShaderKind, param: &str) -> bool {
+    !matches!(
+        (kind, param),
+        (ShaderKind::Mesh, "points")
+            | (ShaderKind::Gradient, "shape" | "speed")
+            | (ShaderKind::Noise, "octaves" | "speed")
+            | (ShaderKind::Grain, "fps")
+            | (ShaderKind::Particles, "count" | "speed")
+    )
+}
+
+/// The value `param` of `kind` takes when a document leaves it out, as an op carries it;
+/// `None` for a param the kind does not take.
+pub fn default(kind: ShaderKind, param: &str) -> Option<f32> {
+    let values: Vec<(&str, f32)> = match kind {
+        ShaderKind::Mesh => {
+            let p = mesh::Params::default();
+            vec![("points", p.points as f32), ("drift", p.drift), ("softness", p.softness), ("grain", p.grain)]
+        }
+        ShaderKind::Gradient => {
+            let p = gradient::Params::default();
+            vec![
+                ("shape", p.shape as u32 as f32),
+                ("angle", p.angle),
+                ("x", p.x),
+                ("y", p.y),
+                ("radius", p.radius),
+                ("speed", p.speed),
+                ("grain", p.grain),
+            ]
+        }
+        ShaderKind::Noise => {
+            let p = noise::Params::default();
+            vec![
+                ("scale", p.scale),
+                ("octaves", p.octaves as f32),
+                ("speed", p.speed),
+                ("contrast", p.contrast),
+                ("grain", p.grain),
+            ]
+        }
+        ShaderKind::Grain => {
+            let p = grain::Params::default();
+            vec![("amount", p.amount), ("fps", p.fps)]
+        }
+        ShaderKind::Particles => {
+            let p = particles::Params::default();
+            vec![("count", p.count as f32), ("size", p.size), ("speed", p.speed), ("softness", p.softness)]
+        }
+    };
+    values.into_iter().find(|(name, _)| *name == param).map(|(_, v)| v)
+}
+
 /// The box's pixels, row-major, from `pixel(x, y)`.
 fn render(bbox: [u32; 4], pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let [_, _, w, h] = bbox;
@@ -416,6 +474,38 @@ mod tests {
         assert_eq!(device_box([200.0, 0.0, 10.0, 10.0], id, [100, 100]), None);
         assert_eq!(invert([2.0, 0.0, 0.0, 4.0, 1.0, 1.0]), Some([0.5, 0.0, 0.0, 0.25, -0.5, -0.25]));
         assert_eq!(invert([1.0, 2.0, 2.0, 4.0, 0.0, 0.0]), None);
+    }
+
+    #[test]
+    fn defaults_are_what_each_kind_takes_when_a_param_is_left_out() {
+        let kinds = [
+            (ShaderKind::Mesh, &["points", "drift", "softness", "grain"][..]),
+            (ShaderKind::Gradient, &["shape", "angle", "x", "y", "radius", "speed", "grain"]),
+            (ShaderKind::Noise, &["scale", "octaves", "speed", "contrast", "grain"]),
+            (ShaderKind::Grain, &["amount", "fps"]),
+            (ShaderKind::Particles, &["count", "size", "speed", "softness"]),
+        ];
+        for (kind, params) in kinds {
+            let all: BTreeMap<String, f32> = params
+                .iter()
+                .map(|p| (p.to_string(), default(kind, p).unwrap_or_else(|| panic!("{kind:?} {p}"))))
+                .collect();
+            // Written out, the defaults are a valid op, and draw what leaving them out draws.
+            check(kind, &all).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+            let rect = [0.0, 0.0, 8.0, 8.0];
+            let op = |params: BTreeMap<String, f32>| Op::Shader {
+                kind,
+                seed: 3,
+                t: 1.5,
+                rect,
+                palette: vec![Color([230, 50, 25, 255]), Color([25, 75, 200, 255])],
+                params,
+            };
+            let draw = |op: &Op| Job::new(op, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [8, 8]).unwrap().unwrap().render();
+            assert_eq!(draw(&op(all)), draw(&op(BTreeMap::new())), "{kind:?}");
+            assert_eq!(default(kind, "nonsense"), None);
+        }
+        assert!(interpolates(ShaderKind::Gradient, "angle") && !interpolates(ShaderKind::Gradient, "speed"));
     }
 
     #[test]

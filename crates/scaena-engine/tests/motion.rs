@@ -323,3 +323,220 @@ fn states_lie_end_to_end_with_their_holds_and_shaders_keep_that_time() {
     assert_eq!(clock(&fx.dl("two", 1200.0)), 2.2);
     assert_eq!(clock(&fx.dl("one", f64::INFINITY)), 0.0);
 }
+
+/// Every paint inside `op`, in order.
+fn paints(op: &Op) -> Vec<scaena_core::displaylist::Paint> {
+    match op {
+        Op::Layer { ops, .. } => ops.iter().flat_map(paints).collect(),
+        Op::Fill { paint, .. } | Op::Stroke { paint, .. } | Op::Glyphs { paint, .. } => vec![paint.clone()],
+        _ => vec![],
+    }
+}
+
+#[test]
+fn a_color_look_mixes_every_paint_toward_it_and_back() {
+    let nodes = json!({ "a": text("Alpha", "main") });
+    let states = json!([
+        { "id": "one", "layout": "specimen", "props": { "a": {} } },
+        { "id": "two", "transition": "fast", "props": { "a": { "emphasis": "flash" } } }
+    ]);
+    let flash = |t: &mut Value| {
+        t["motion"]["presets"]["flash"] = json!({ "to": { "color": "accent" }, "duration": 400, "ease": "linear" })
+    };
+    let mut fx = Fx::new(deck(nodes, states), theme(flash));
+    let solid = |fx: &mut Fx, t: f64| match paints(layer(&fx.dl("two", t), "a").unwrap())[..] {
+        [scaena_core::displaylist::Paint::Solid(c)] => c,
+        ref other => panic!("{other:?}"),
+    };
+    let (ink, accent) = (solid(&mut fx, 0.0), fx.theme.color("accent").unwrap());
+    // `after` the 180 ms transition: out to the accent for 200 ms, and back.
+    assert_eq!(solid(&mut fx, 380.0), accent, "at its peak, the accent");
+    let between = solid(&mut fx, 280.0);
+    assert!(between != ink && between != accent, "{between:?}");
+    assert_eq!(solid(&mut fx, f64::INFINITY), ink);
+}
+
+/// An arrow's shaft end and its head's tip, along x.
+fn arrow(dl: &DisplayList, node: &str) -> (f32, f32) {
+    use scaena_core::displaylist::PathEl;
+    let Some(Op::Layer { ops, .. }) = layer(dl, node) else { panic!("no layer for `{node}`") };
+    match &ops[..] {
+        [Op::Stroke { path, .. }, Op::Fill { path: head, .. }] => match (path.0.last(), head.0.first()) {
+            (Some(PathEl::LineTo(end)), Some(PathEl::MoveTo(tip))) => (end[0], tip[0]),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+fn drawn_arrow(node: Value) -> Fx {
+    let mut nodes = json!({ "x": { "type": "shape", "kind": "arrow", "points": [[0, 0.5], [1, 0.5]],
+                                   "stroke": { "paint": "accent", "width": 4 }, "at": { "col": [1, 4], "row": 2 } } });
+    nodes["x"].as_object_mut().unwrap().extend(node.as_object().unwrap().clone());
+    let states = json!([
+        { "id": "one", "layout": "specimen" },
+        { "id": "two", "transition": "fast", "props": { "x": {} } }
+    ]);
+    let draw = |t: &mut Value| {
+        t["motion"]["presets"]["draw"] =
+            json!({ "from": { "params": { "progress": 0 } }, "duration": 400, "ease": "linear" })
+    };
+    Fx::new(deck(nodes, states), theme(draw))
+}
+
+#[test]
+fn a_draw_look_strokes_a_shape_on_with_its_arrow_head_riding_the_tip() {
+    let mut fx = drawn_arrow(json!({ "enter": "draw" }));
+    let (_, full) = arrow(&fx.dl("two", f64::INFINITY), "x");
+    let (end, tip) = arrow(&fx.dl("two", 200.0), "x");
+    assert!((tip - full / 2.0).abs() < 1e-2, "halfway: the tip at {tip} of {full}");
+    assert!((tip - end - 16.0).abs() < 1e-3, "the shaft stops at the head, four stroke widths back: {end}");
+    // Early on, the head grows in over its own length.
+    let (end, tip) = arrow(&fx.dl("two", 4.0), "x");
+    assert!(tip - end > 0.0 && tip - end < 16.0, "{end} {tip}");
+    // A call's params set the look's: from halfway.
+    let mut fx = drawn_arrow(json!({ "enter": { "preset": "draw", "params": { "progress": 0.5 } } }));
+    let (_, tip) = arrow(&fx.dl("two", 0.001), "x");
+    assert!((tip - full / 2.0).abs() < 0.1, "{tip}");
+    // So does an `anim` track.
+    let anim = json!({ "anim": { "progress": [{ "t": 0, "v": 0 }, { "t": 200, "v": 1, "ease": "linear" }] } });
+    let mut fx = drawn_arrow(anim);
+    let (_, tip) = arrow(&fx.dl("two", 100.0), "x");
+    assert!((tip - full / 2.0).abs() < 1e-2, "{tip}");
+}
+
+#[test]
+fn a_look_names_what_it_takes() {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["motion"]["presets"]["blurry"] = json!({ "from": { "blur": 8 } });
+    let err = Theme::from_json(&t.to_string()).unwrap_err().to_string();
+    assert!(err.contains("`blur`") && err.contains("`opacity`, `transform`, `color`"), "{err}");
+}
+
+/// A group at half opacity holding two overlapping squares, the first outlined.
+fn squares(group: Value, states: Value) -> Fx {
+    let mut g = json!({ "type": "group", "opacity": 0.5 });
+    g.as_object_mut().unwrap().extend(group.as_object().unwrap().clone());
+    let nodes = json!({
+        "g": g,
+        "p": { "type": "shape", "kind": "rect", "fill": "accent", "stroke": { "paint": "ink", "width": 4 },
+               "at": { "parent": "g", "rect": [100, 100, 200, 200] } },
+        "q": { "type": "shape", "kind": "rect", "fill": "ink", "at": { "parent": "g", "rect": [200, 200, 200, 200] } }
+    });
+    let draw = |t: &mut Value| {
+        t["motion"]["presets"]["draw"] =
+            json!({ "from": { "params": { "progress": 0 } }, "duration": 400, "ease": "linear" })
+    };
+    Fx::new(deck(nodes, states), theme(draw))
+}
+
+/// `group`'s layer: its transform, its opacity, and its members' layers' nodes and opacities.
+fn group_layer(dl: &DisplayList, group: &str) -> ([f32; 6], f32, Vec<(String, f32)>) {
+    let Some(Op::Layer { transform, opacity, ops, .. }) = layer(dl, group) else { panic!("no layer for `{group}`") };
+    let members = (ops.iter())
+        .filter_map(|op| match op {
+            Op::Layer { node: Some(n), opacity, .. } => Some((n.clone(), *opacity)),
+            _ => None,
+        })
+        .collect();
+    (*transform, *opacity, members)
+}
+
+const ALL: fn() -> Value = || json!({ "g": {}, "p": {}, "q": {} });
+
+#[test]
+fn a_group_composites_its_members_as_one_layer() {
+    let mut fx = squares(json!({}), json!([{ "id": "s", "layout": "specimen", "props": ALL() }]));
+    let (_, opacity, members) = group_layer(&fx.dl("s", f64::INFINITY), "g");
+    assert_eq!(opacity, 0.5);
+    assert_eq!(members, [("p".to_string(), 1.0), ("q".to_string(), 1.0)], "each member at its own opacity");
+}
+
+#[test]
+fn a_group_comes_and_goes_as_one_layer() {
+    let states = json!([
+        { "id": "one", "layout": "specimen" },
+        { "id": "two", "transition": "fast", "props": ALL() },
+        { "id": "three", "transition": "fast", "remove": ["g", "p", "q"] }
+    ]);
+    let mut fx = squares(json!({}), states.clone());
+    // With the transition: the group's layer fades, its members whole inside it.
+    let (_, opacity, members) = group_layer(&fx.dl("two", 90.0), "g");
+    assert!(opacity > 0.0 && opacity < 0.5, "{opacity}");
+    assert_eq!(members.iter().map(|m| m.1).collect::<Vec<_>>(), [1.0, 1.0]);
+    let (_, opacity, _) = group_layer(&fx.dl("three", 90.0), "g");
+    assert!(opacity > 0.0 && opacity < 0.5, "and out: {opacity}");
+    assert!(layer(&fx.dl("three", 180.0), "g").is_none(), "gone");
+    // With its own entrance: the layer moves and fades by the preset, not the transition.
+    let mut fx = squares(json!({ "enter": "rise" }), states);
+    let (transform, opacity, members) = group_layer(&fx.dl("two", 90.0), "g");
+    assert!(transform[5] > 0.0 && opacity > 0.0 && opacity < 0.5, "{transform:?} {opacity}");
+    let still = |dl: &DisplayList| match layer(dl, "g") {
+        Some(Op::Layer { ops, .. }) => {
+            ops.iter().all(|op| matches!(op, Op::Layer { transform, .. } if transform[0] == 1.0))
+        }
+        _ => false,
+    };
+    assert!(still(&fx.dl("two", 90.0)) && members.len() == 2, "the members stay put inside it");
+}
+
+#[test]
+fn a_cue_on_a_groups_children_moves_each_inside_the_groups_layer() {
+    let states = json!([
+        { "id": "one", "layout": "specimen" },
+        { "id": "two", "transition": "fast", "props": ALL(), "choreography": [
+            { "target": "g", "split": "children", "enter": "fade", "stagger": 300, "timing": "with" }
+        ] }
+    ]);
+    let mut fx = squares(json!({}), states);
+    let (_, opacity, members) = group_layer(&fx.dl("two", 200.0), "g");
+    assert_eq!(opacity, 0.5, "the group comes in with its children's cue, not the transition");
+    assert_eq!(members.len(), 1, "the second square has not started: {members:?}");
+    assert!(members[0].1 > 0.0 && members[0].1 < 1.0, "{members:?}");
+}
+
+#[test]
+fn a_draw_look_on_a_group_draws_its_members_outlines_on() {
+    let states = json!([
+        { "id": "one", "layout": "specimen" },
+        { "id": "two", "transition": "fast", "props": ALL() }
+    ]);
+    let mut fx = squares(json!({ "enter": "draw" }), states);
+    let outline = |dl: &DisplayList| {
+        let Some(Op::Layer { ops, .. }) = layer(dl, "g") else { panic!() };
+        let Some(Op::Layer { ops, .. }) = ops.first() else { panic!() };
+        match &ops[..] {
+            [Op::Fill { .. }, Op::Stroke { path, .. }] => path.0.len(),
+            other => panic!("{other:?}"),
+        }
+    };
+    // A quarter of the way, the outline has run along its first side only.
+    assert_eq!(outline(&fx.dl("two", 100.0)), 2, "a move and one line");
+    assert_eq!(outline(&fx.dl("two", f64::INFINITY)), 5, "the whole closed rect at rest");
+}
+
+#[test]
+fn a_color_look_reaches_split_units() {
+    let nodes = json!({ "a": text("Alpha beta", "main") });
+    let states = json!([
+        { "id": "one", "layout": "specimen" },
+        { "id": "two", "transition": "fast", "props": { "a": {} }, "choreography": [
+            { "target": "a", "split": "words", "enter": "warm", "stagger": 100, "timing": "with" }
+        ] }
+    ]);
+    let warm = |t: &mut Value| {
+        t["motion"]["presets"]["warm"] = json!({ "from": { "color": "accent" }, "duration": 400, "ease": "linear" })
+    };
+    let mut fx = Fx::new(deck(nodes, states), theme(warm));
+    let accent = fx.theme.color("accent").unwrap();
+    let first = |dl: &DisplayList| match layer(dl, "a") {
+        Some(Op::Layer { ops, .. }) => paints(&ops[0]),
+        _ => panic!(),
+    };
+    assert_eq!(
+        first(&fx.dl("two", 0.001))[0],
+        scaena_core::displaylist::Paint::Solid(accent),
+        "it starts in the accent"
+    );
+    assert_ne!(first(&fx.dl("two", 200.0))[0], scaena_core::displaylist::Paint::Solid(accent));
+}

@@ -413,6 +413,6 @@ mod tests {
         assert!(matches!(err, Error::AfterFrame), "{err}");
         let err = s.add_image("assets/late.png", vec![]).unwrap_err();
         assert!(matches!(err, Error::AfterFrame), "{err}");
-        assert_eq!(s.states().len(), 42);
+        assert_eq!(s.states().len(), 44);
     }
 }
