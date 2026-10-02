@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.3.json",
+  "$id": "https://scaena.dev/schema/deck-0.4.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.3(\\.[0-9]+)?$"
+      "pattern": "^0\\.4(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -194,7 +194,6 @@
           "type": "string"
         },
         "semantic": { "$ref": "#/$defs/Semantic" },
-        "parent": { "$ref": "#/$defs/Id" },
         "z": { "type": "integer" },
         "tags": { "type": "array", "items": { "type": "string" } },
         "visible": { "type": "boolean" },
@@ -362,23 +361,31 @@
       }
     },
     "StackNode": {
-      "description": "A layout container along one axis (flex).",
+      "description": "A layout container along one axis (CSS flex, SPEC §3.4). Its children name it in `at.parent`.",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type"],
       "unevaluatedProperties": false,
       "properties": {
         "type": { "type": "string", "const": "stack" },
-        "axis": { "$ref": "#/$defs/Axis" },
+        "axis": {
+          "description": "`y` (the default) stacks children top to bottom, `x` left to right.",
+          "$ref": "#/$defs/Axis"
+        },
         "gap": { "$ref": "#/$defs/Length" },
-        "distribute": { "$ref": "#/$defs/Distribute" },
+        "distribute": {
+          "description": "Where leftover space along the axis goes: `start` (the default), `center`, `end`, or between and around the children.",
+          "$ref": "#/$defs/Distribute"
+        },
         "padding": { "$ref": "#/$defs/Padding" },
-        "radius": { "$ref": "#/$defs/Length" },
-        "children": { "$ref": "#/$defs/IdList" }
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
       }
     },
     "GridNode": {
-      "description": "A layout container on a grid (CSS grid).",
+      "description": "A layout container on a grid of its own (CSS grid, SPEC §3.4). Its children name it in `at.parent` and take an `area`, a `col`/`row` range, or the next free cell.",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type"],
@@ -388,14 +395,20 @@
         "cols": { "$ref": "#/$defs/Tracks" },
         "rows": { "$ref": "#/$defs/Tracks" },
         "gap": { "$ref": "#/$defs/Length" },
-        "areas": { "type": "array", "items": { "type": "string" } },
+        "areas": {
+          "description": "Named areas, one string per row of cells, as CSS `grid-template-areas`: `[\"head head\", \"left right\"]`; `.` leaves a cell unnamed.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "padding": { "$ref": "#/$defs/Padding" },
-        "radius": { "$ref": "#/$defs/Length" },
-        "children": { "$ref": "#/$defs/IdList" }
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
       }
     },
     "FrameNode": {
-      "description": "A layout container whose children place themselves by `rect`.",
+      "description": "A layout container whose children place themselves by `at.rect`, relative to its padding (SPEC §3.4). Its children name it in `at.parent`.",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type"],
@@ -403,17 +416,19 @@
       "properties": {
         "type": { "type": "string", "const": "frame" },
         "padding": { "$ref": "#/$defs/Padding" },
-        "radius": { "$ref": "#/$defs/Length" },
-        "children": { "$ref": "#/$defs/IdList" }
+        "radius": {
+          "description": "Rounds the corners of the container's `fill` and `stroke`.",
+          "$ref": "#/$defs/Length"
+        }
       }
     },
     "GroupNode": {
-      "description": "Transform-only grouping.",
+      "description": "Nodes drawn together, each placed on the slide by its own `at` (SPEC §3.4). Its children name it in `at.parent`.",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type"],
       "unevaluatedProperties": false,
-      "properties": { "type": { "type": "string", "const": "group" }, "children": { "$ref": "#/$defs/IdList" } }
+      "properties": { "type": { "type": "string", "const": "group" } }
     },
     "Semantic": {
       "description": "Communicative function, independent of visual role (SPEC §3.3). Reserved for narrative lints; optional.",
@@ -515,16 +530,23 @@
       "enum": ["normal", "multiply", "screen", "overlay", "darken", "lighten", "difference"]
     },
     "Placement": {
-      "description": "Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4). Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in template-managed states).",
+      "description": "Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4). Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in template-managed states). In a container (`parent`), `col`/`row` and `area` are its grid's, `rect` is relative to a frame's padding, and a stack places its children itself.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "col": { "$ref": "#/$defs/Range" },
         "row": { "$ref": "#/$defs/Range" },
         "in": { "description": "Named slot in the state's layout template, or `canvas` or `grid`.", "type": "string" },
-        "parent": { "description": "Container node id.", "$ref": "#/$defs/Id" },
-        "index": { "type": "integer", "minimum": 0 },
-        "area": { "description": "Named grid area inside a grid container.", "type": "string" },
+        "parent": {
+          "description": "The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008).",
+          "$ref": "#/$defs/Id"
+        },
+        "index": {
+          "description": "Order among the container's children, as CSS `order`: ascending, default 0, ties in `nodes` order.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "area": { "description": "A named area of the grid container this node is in.", "type": "string" },
         "rect": { "$ref": "#/$defs/Rect" },
         "align": { "$ref": "#/$defs/Align" },
         "inset": { "$ref": "#/$defs/Length" },
@@ -855,7 +877,6 @@
         "name": { "type": ["string", "null"] },
         "alt": { "type": ["string", "null"] },
         "semantic": { "anyOf": [{ "$ref": "#/$defs/Semantic" }, { "type": "null" }] },
-        "parent": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "z": { "type": ["integer", "null"] },
         "tags": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] },
         "visible": { "type": ["boolean", "null"] },
@@ -966,10 +987,9 @@
         "gap": { "anyOf": [{ "$ref": "#/$defs/Length" }, { "type": "null" }] },
         "distribute": { "anyOf": [{ "$ref": "#/$defs/Distribute" }, { "type": "null" }] },
         "padding": { "anyOf": [{ "$ref": "#/$defs/Padding" }, { "type": "null" }] },
-        "children": { "anyOf": [{ "$ref": "#/$defs/IdList" }, { "type": "null" }] },
         "cols": { "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }] },
         "rows": { "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }] },
-        "areas": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }] }
+        "areas": { "anyOf": [{ "items": { "type": "string" }, "type": "array" }, { "type": "null" }] }
       }
     },
     "TransformDelta": {
@@ -1040,7 +1060,7 @@
         "row": { "anyOf": [{ "$ref": "#/$defs/Range" }, { "type": "null" }] },
         "in": { "type": ["string", "null"] },
         "parent": { "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
-        "index": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "index": { "anyOf": [{ "minimum": 0, "type": "integer" }, { "type": "null" }] },
         "area": { "type": ["string", "null"] },
         "rect": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
         "align": { "anyOf": [{ "$ref": "#/$defs/Align" }, { "type": "null" }] },

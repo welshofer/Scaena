@@ -1,14 +1,17 @@
 {
-  "scaena": "0.3",
-  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, and overrides that do the same.",
+  "scaena": "0.4",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, and two stacks inside each other.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {
     "headline": { "type": "text", "text": "Growth", "fit": "cover", "at": { "in": "canvas" } },
     "photo": { "type": "image", "src": "assets/photo.png", "role": "body", "alt": "A photo", "alt": "A better photo", "at": { "in": "canvas" } },
-    "logo": { "type": "image", "alt": "Logo", "style": { "color": "accent" }, "at": { "in": "canvas" } }
+    "logo": { "type": "image", "alt": "Logo", "style": { "color": "accent" }, "at": { "in": "canvas" } },
+    "badge": { "type": "text", "text": "New", "at": { "parent": "headline" } },
+    "left": { "type": "stack", "at": { "parent": "right" } },
+    "right": { "type": "stack", "at": { "parent": "left" } }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {} } },
+    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {} } },
     { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null } } }
   ],
   "overrides": { "photo": { "kind": "bar", "fit": "stretch" }, "headline": { "style": { "weight": 1200 } } }

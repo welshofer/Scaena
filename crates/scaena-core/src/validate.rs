@@ -104,16 +104,23 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
             );
         }
     }
-    for (id, node) in &deck.nodes {
-        if let Some(Value::String(parent)) = node.props.get("parent")
+    // A container named in `at.parent`, wherever a node's `at` is written.
+    let placements = deck
+        .nodes
+        .iter()
+        .map(|(id, node)| (id, node.props.get("at"), format!("/nodes/{}/at/parent", esc(id))))
+        .chain(deck.states.iter().enumerate().flat_map(|(i, s)| {
+            s.props.iter().map(move |(id, delta)| (id, delta.get("at"), format!("/states/{i}/props/{}/at/parent", esc(id))))
+        }))
+        .chain(deck.overrides.iter().map(|(id, o)| (id, o.get("at"), format!("/overrides/{}/at/parent", esc(id)))));
+    for (id, at, path) in placements {
+        if let Some(Value::String(parent)) = at.and_then(|at| at.get("parent"))
             && !deck.nodes.contains_key(parent)
         {
-            out.push(
-                err("E102", format!("node `{id}` has unknown parent `{parent}`"))
-                    .at(format!("/nodes/{id}/parent"))
-                    .node(id.clone()),
-            );
+            out.push(err("E102", format!("node `{id}` is in unknown container `{parent}`")).at(path).node(id.clone()));
         }
+    }
+    for (id, node) in &deck.nodes {
         if let Some(Value::String(data)) = node.props.get("data") {
             let name = data.trim_start_matches('@');
             if !deck.data.contains_key(name) {
@@ -214,6 +221,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         let snapshots = resolve_states(&deck).ok();
         if let Some(snapshots) = &snapshots {
             out.extend(resolved_types(&deck, snapshots));
+            out.extend(containers(&deck, snapshots));
         }
         out.extend(override_types(&deck));
         if let Some(theme) = &theme {
@@ -621,6 +629,67 @@ fn resolved_types(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                 out.push(
                     Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
                 );
+            }
+        }
+    }
+    out
+}
+
+/// Each state's containers (SPEC §3.4, ADR-0008): a node's `at.parent` is a container the
+/// state shows (E102) and of a container type (E106), containers do not nest in a loop
+/// (E106), and an `at.area` is one of its grid's areas (E102). Each finding points at
+/// the `at` that placed the node in the state: its delta, or the node itself.
+fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        let parent_of = |id: &str| snapshot.nodes.get(id)?.get("at")?.get("parent")?.as_str();
+        let here = |id: &str, key: &str| match state.props.get(id).and_then(|d| d.get("at")) {
+            Some(at) if at.get(key).is_some() => format!("/states/{i}/props/{}/at/{key}", esc(id)),
+            _ => format!("/nodes/{}/at/{key}", esc(id)),
+        };
+        let finding = |code: &str, id: &str, key: &str, message: String| {
+            Finding::new(code, Severity::Error, message).at(here(id, key)).state(state.id.clone()).node(id.to_string())
+        };
+        for id in snapshot.nodes.keys() {
+            let Some(parent) = parent_of(id) else { continue };
+            let Some(container) = deck.nodes.get(parent) else { continue };
+            if !snapshot.nodes.contains_key(parent) {
+                let message = format!("node `{id}` is in container `{parent}`, which state `{}` does not show", state.id);
+                out.push(finding("E102", id, "parent", message));
+                continue;
+            }
+            let kind = container.node_type;
+            if !matches!(kind, NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group) {
+                let message = format!(
+                    "node `{id}` is placed in `{parent}`, {} node; a container is a stack, grid, frame, or group",
+                    article(&type_name(kind))
+                );
+                out.push(finding("E106", id, "parent", message));
+                continue;
+            }
+            // Up the chain: a loop comes back to `id` within as many steps as there are nodes.
+            let mut chain = vec![id.as_str(), parent];
+            while let Some(next) = parent_of(chain[chain.len() - 1]) {
+                if next == id {
+                    chain.push(next);
+                    let message = format!("containers nest in a loop: {}", chain.join(" → "));
+                    out.push(finding("E106", id, "parent", message));
+                    break;
+                }
+                if chain.len() > snapshot.nodes.len() {
+                    break;
+                }
+                chain.push(next);
+            }
+            if let Some(area) = snapshot.nodes[id].get("at").and_then(|at| at.get("area")).and_then(Value::as_str) {
+                let areas = snapshot.nodes[parent].get("areas").and_then(Value::as_array);
+                let named = areas.is_some_and(|rows| {
+                    rows.iter().filter_map(Value::as_str).any(|row| row.split_whitespace().any(|cell| cell == area))
+                });
+                if kind != NodeType::Grid || !named {
+                    let message = format!("area `{area}` is not one of the areas of {} `{parent}`", type_name(kind));
+                    out.push(finding("E102", id, "area", message));
+                }
             }
         }
     }

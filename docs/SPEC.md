@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.3",
+  "scaena": "0.4",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -143,7 +143,7 @@ Rules:
 
 ### 3.3 Node types
 
-Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `parent`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
+Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
 
 **Two semantic axes.** `role` (on text nodes) and the theme describe *what something looks like*. `semantic` describes *what it does in the argument*: `claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`. They are independent: a claim may be a `headline` on one state and a `caption` on another. `semantic` is optional in v1 and reserved for the narrative lint family (§7.5) — e.g. "this beat's claim has no visible expression" or "evidence outranks the claim in visual hierarchy". Agents SHOULD set it; nothing renders differently because of it.
 
@@ -154,10 +154,12 @@ Every node has a `type`, an id (its key in `nodes`), and the properties every ty
 | `image` | raster/vector image | `src` (asset ref), `fit: cover\|contain\|fill`, `focal: [x,y]`, `crop`, `radius` |
 | `chart` | data-bound visualization | §3.7 |
 | `shader` | GPU/CPU parametric background or fill | §3.8 |
-| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `distribute`, `padding`, `radius`, `children` |
-| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `areas`, `padding`, `radius`, `children` (+ child `at.area`) |
-| `frame` | layout container (absolute) | `padding`, `radius`, `children` (+ child `at.rect`) |
-| `group` | transform-only grouping | `children` |
+| `stack` | layout container (axis) | `axis: x\|y`, `gap`, `distribute`, `padding`, `radius` |
+| `grid` | layout container (grid) | `cols`, `rows`, `gap`, `areas`, `padding`, `radius` (+ child `at.area`, `at.col`/`at.row`) |
+| `frame` | layout container (absolute) | `padding`, `radius` (+ child `at.rect`) |
+| `group` | nodes drawn together | (+ child placement as on the slide) |
+
+A node is in a container when its `at.parent` names one (§3.4, ADR-0008); containers do not list their children.
 
 Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`. `table` arrives with the chart and table sprint (PLAN 1.9) and joins the schema there.
 
@@ -186,7 +188,16 @@ Placement is declared with `at`, resolved against the state's **layout template*
 
 One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans the grid). A node with no `at` fills the grid's margin box. Besides its template's slots, every state has two: `canvas`, the whole canvas, and `grid`, the margin box.
 
-Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = flex (one axis), `grid` = CSS grid, `frame` = absolute. Sizing values: `fixed(cu)`, `fit`, `fill`, `fraction(n)`, `aspect(w:h)`, `min/max`.
+**Containers** follow CSS flex and grid as `taffy` implements them: `stack` is flex along one axis, `grid` is CSS grid, and `frame` places its children absolutely (ADR-0008).
+- **Membership.** A node is in a container when its `at.parent` names one; nothing else declares it. A container's children flow in `at.index` order (default 0), ties in `nodes` order, as CSS `order` does. A container must be in every state its children are in (E102), a node's `at.parent` must be a container (E106), and containers do not nest in a loop (E106). Inside a container, `at.offset` moves a node, and what is in it, after layout, and `at.inset` shrinks the node's own box, as they do on the slide.
+- **Roots.** A node with no container, or in a group, is a root: `at` places it on the theme grid as above. A root container lays its subtree out inside that box. Any root but text fills its box unless it has a `size`; then it takes that size inside the box and aligns there by its `align`.
+- **`stack`.** `axis: y` (the default) runs top to bottom, `x` left to right; `gap` sits between children, `padding` inside the edge, and `distribute` (`start` by default, `center`, `end`, `between`, `around`, `evenly`) places leftover room along the axis. Text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders, which have no size of their own, share what is left. Every child stretches across the stack unless its `size` or `align` says otherwise. An image keeps its picture's proportions as it stretches. Text in a row stays in a box the row's height, so `align: { y: "baseline" }` puts the last baselines of a row's texts on one line, and `cap` puts their cap tops on one line.
+- **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise.
+- **`frame`.** A child's `at.rect` is `[x, y, w, h]` from the frame's padding edge. A child with no `rect` fills the padding box.
+- **`group`.** Its children are placed on the slide by the rest of their `at`, and drawn together: the group's `opacity` multiplies into each child's. This is not group compositing: two overlapping children each fade on their own. A group lays nothing out, and cannot sit in a stack, grid, or frame.
+- **Sizing values** (`size: { w, h, minW, maxW, minH, maxH, aspect }`): a length (canvas units, a token, or a percentage of the container), `fit` (the content's size), `fill` (an equal share of the room), or `fraction(n)` (n shares). `aspect: "w:h"` fixes the proportions, and the bounds clamp.
+- **Panels.** A container with `fill` or `stroke` draws them as a rectangle with its `radius`, under its children.
+- **Order and timing.** Siblings paint by `z`, then `nodes` order, and a container paints under its children. Layout runs once per snapshot. A child that changes container between states morphs from one box to the other, like any box.
 
 **Alignment** in a cell is `x: start|center|end|stretch` and `y: start|center|end|stretch|cap|baseline|x-height`; a single keyword sets both axes. The slot's `align` is the default, the node's `align` overrides it, and `at.align` overrides both; `start` when nobody says. `start`/`center`/`end` align the text's box. The typographic anchors align text of any size to a shared line: `y: "cap"` and `y: "x-height"` put the first line's cap height or x-height on the cell's top edge, and `y: "baseline"` puts the last line's baseline on the cell's bottom edge. `box: "cap"` trims the text's box from the first line's cap height to the last line's baseline (CSS `text-box: trim-both cap alphabetic`), so a cap top can sit exactly on a grid line; `box: "line"` (default) uses line boxes. Cap height and x-height come from the font's OS/2 table, never from glyph bounds.
 

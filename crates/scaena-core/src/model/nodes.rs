@@ -78,8 +78,6 @@ macro_rules! node {
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub semantic: Option<Semantic>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub parent: Option<Id>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
             pub z: Option<i64>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub tags: Option<Vec<String>>,
@@ -438,20 +436,23 @@ pub struct MeshParams {
 }
 
 node! {
-    /// A layout container along one axis (flex).
+    /// A layout container along one axis (CSS flex, SPEC §3.4). Its children name it in
+    /// `at.parent`.
     StackNode {
+        /// `y` (the default) stacks children top to bottom, `x` left to right.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub axis: Option<Axis>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub gap: Option<Length>,
+        /// Where leftover space along the axis goes: `start` (the default), `center`,
+        /// `end`, or between and around the children.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub distribute: Option<Distribute>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub padding: Option<Padding>,
+        /// Rounds the corners of the container's `fill` and `stroke`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub children: Option<IdList>,
     }
 }
 
@@ -474,7 +475,8 @@ pub enum Distribute {
 }
 
 node! {
-    /// A layout container on a grid (CSS grid).
+    /// A layout container on a grid of its own (CSS grid, SPEC §3.4). Its children name it
+    /// in `at.parent` and take an `area`, a `col`/`row` range, or the next free cell.
     GridNode {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub cols: Option<Tracks>,
@@ -482,14 +484,15 @@ node! {
         pub rows: Option<Tracks>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub gap: Option<Length>,
+        /// Named areas, one string per row of cells, as CSS `grid-template-areas`:
+        /// `["head head", "left right"]`; `.` leaves a cell unnamed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub areas: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub padding: Option<Padding>,
+        /// Rounds the corners of the container's `fill` and `stroke`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub children: Option<IdList>,
     }
 }
 
@@ -502,23 +505,21 @@ pub enum Tracks {
 }
 
 node! {
-    /// A layout container whose children place themselves by `rect`.
+    /// A layout container whose children place themselves by `at.rect`, relative to its
+    /// padding (SPEC §3.4). Its children name it in `at.parent`.
     FrameNode {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub padding: Option<Padding>,
+        /// Rounds the corners of the container's `fill` and `stroke`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub radius: Option<Length>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub children: Option<IdList>,
     }
 }
 
 node! {
-    /// Transform-only grouping.
-    GroupNode {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub children: Option<IdList>,
-    }
+    /// Nodes drawn together, each placed on the slide by its own `at` (SPEC §3.4). Its
+    /// children name it in `at.parent`.
+    GroupNode {}
 }
 
 /// A node in the scene graph: its `type` and that type's properties. A node's type never

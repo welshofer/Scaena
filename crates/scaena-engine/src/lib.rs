@@ -13,13 +13,15 @@
 //! [`sample::Transition`] samples two of them, moving chart data by key (frames never
 //! lay out or shape). `mesh` shader nodes resolve to shader ops at their time on the
 //! global timeline. Every node passes through the theme cascade (1.6, [`cascade`]): its
-//! role, its `style`, the state, then the deck's `overrides`. Other shader kinds (1.10),
-//! choreography (1.11), containers (1.7),
+//! role, its `style`, the state, then the deck's `overrides`. Shapes and PNG images draw
+//! in their boxes, and `stack`, `grid`, and `frame` containers lay their children out
+//! with `taffy` (1.7, [`containers`]). Other shader kinds (1.10), choreography (1.11),
 //! and the chart and table sprint (1.9) are still to come. Nothing here may read a
 //! clock, system fonts, or the filesystem (SPEC §13).
 
 pub mod cascade;
 pub mod charts;
+pub mod containers;
 pub mod data;
 pub mod error;
 pub mod fonts;

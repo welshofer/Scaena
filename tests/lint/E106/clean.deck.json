@@ -1,13 +1,15 @@
 {
-  "scaena": "0.3",
-  "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes.",
+  "scaena": "0.4",
+  "_comment": "E106 clean: every node, at rest and in each state, holds only its own type's properties, in forms its type takes, and sits in a container.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {
     "headline": { "type": "text", "text": "Growth", "fit": "shrink", "at": { "in": "canvas" } },
-    "photo": { "type": "image", "src": "assets/photo.png", "fit": "cover", "alt": "A photo", "at": { "in": "canvas" } }
+    "photo": { "type": "image", "src": "assets/photo.png", "fit": "cover", "alt": "A photo", "at": { "in": "canvas" } },
+    "card": { "type": "frame", "padding": 24, "at": { "in": "canvas" } },
+    "tag": { "type": "text", "text": "New", "at": { "parent": "card", "rect": [0, 0, 200, 60] } }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {} } },
+    { "id": "one", "props": { "headline": {}, "photo": {}, "card": {}, "tag": {} } },
     { "id": "two", "props": { "headline": { "fit": "wrap", "alt": null }, "photo": { "fit": "contain" } } }
   ]
 }

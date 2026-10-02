@@ -10,6 +10,7 @@
 use crate::EngineError;
 use crate::cascade;
 use crate::charts::{self, Ctx};
+use crate::containers::{self, Placement};
 use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::images::{BundleImages, ImageNode};
@@ -19,10 +20,11 @@ use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::text::{Span, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
-use scaena_core::displaylist::{Color, DisplayList, Rect, paint_order};
+use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct FrameRequest<'a> {
@@ -122,42 +124,39 @@ impl Engine {
         let canvas = canvas(deck);
         let grid = Grid::from_theme(theme, canvas)?;
         let snap = &cascade::with_overrides(deck, snap);
+        let placement = self.place(deck, theme, &grid, snap)?;
         let mut nodes = Vec::with_capacity(snap.nodes.len());
-        for id in paint_order(snap) {
+        for (id, paint) in &placement.order {
+            let id = id.as_str();
             let props = &snap.nodes[id];
+            let Some(&rect) = placement.boxes.get(id) else { continue };
             let content = match deck.nodes[id].node_type {
-                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, &grid, snap, id)?),
+                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, snap, id, rect)?),
                 NodeType::Chart => {
-                    let cell =
-                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
                     let mut cx = Ctx { text: &mut self.text, fonts: &mut self.fonts, theme, deck, data };
-                    let chart = charts::compile(&mut cx, props, [cell[2], cell[3]]).map_err(|e| in_node(id, e))?;
-                    Content::Chart { cell, chart }
+                    let chart = charts::compile(&mut cx, props, [rect[2], rect[3]]).map_err(|e| in_node(id, e))?;
+                    Content::Chart { cell: rect, chart }
                 }
                 NodeType::Shader => {
-                    let rect =
-                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
                     Content::Shader(ShaderNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
                 }
-                NodeType::Shape => {
-                    let rect =
-                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
-                    Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?)
-                }
+                NodeType::Shape => Content::Shape(ShapeNode::resolve(props, theme, rect).map_err(|e| in_node(id, e))?),
                 NodeType::Image => {
-                    let rect =
-                        grid.place(theme, snap.layout.as_deref(), props.get("at")).map_err(|e| in_node(id, e))?;
                     Content::Image(ImageNode::resolve(props, theme, &self.images, rect).map_err(|e| in_node(id, e))?)
                 }
-                NodeType::Stack | NodeType::Grid | NodeType::Frame | NodeType::Group => {
-                    return Err(EngineError::NotImplemented("container nodes — PLAN 1.7"));
+                // A container draws its `fill` and `stroke` under its children, if it has them.
+                NodeType::Stack | NodeType::Grid | NodeType::Frame => {
+                    match container_panel(props, theme, rect).map_err(|e| in_node(id, e))? {
+                        Some(panel) => Content::Shape(panel),
+                        None => continue,
+                    }
                 }
+                NodeType::Group => continue,
             };
             nodes.push(SceneNode {
                 id: id.to_string(),
-                z: props.get("z").and_then(Value::as_i64).unwrap_or(0),
-                order: deck.nodes.get_index_of(id).expect("snapshot nodes are deck nodes"),
-                opacity: props.get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32,
+                paint: paint.clone(),
+                opacity: placement.opacity(snap, id),
                 policy: Policy::parse(props.get("transition")).map_err(|e| in_node(id, e))?,
                 content,
             });
@@ -180,21 +179,39 @@ impl Engine {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
         let grid = Grid::from_theme(req.theme, canvas(req.deck))?;
-        self.layout_text_node(req.deck, req.theme, &grid, snap, node)
+        let placement = self.place(req.deck, req.theme, &grid, snap)?;
+        self.layout_text_node(req.deck, req.theme, snap, node, placement.boxes[node])
+    }
+
+    /// Every node's box in `snap` (overrides merged), its container, and paint order:
+    /// roots on the theme grid, containers' children through `taffy`, text measured here.
+    fn place(&mut self, deck: &Deck, theme: &Theme, grid: &Grid, snap: &Snapshot) -> Result<Placement, EngineError> {
+        let (text, fonts) = (&mut self.text, &mut self.fonts);
+        let mut specs: HashMap<String, (TextSpec, TextBox)> = HashMap::new();
+        let mut measure = |id: &str, known: taffy::Size<Option<f32>>, available: taffy::Size<taffy::AvailableSpace>| {
+            if !specs.contains_key(id) {
+                let props = &snap.nodes[id];
+                let spec = text_spec(deck, theme, props, None).map_err(|e| in_node(id, e))?;
+                let trim = typed_prop::<TextBox>(props, "box")?.unwrap_or(spec.role.text_box);
+                specs.insert(id.to_string(), (spec, trim));
+            }
+            let (spec, trim) = &specs[id];
+            measure_text(text, fonts, theme, spec, *trim, known, available).map_err(|e| in_node(id, e))
+        };
+        containers::place(deck, theme, grid, &self.images, snap, &mut measure)
     }
 
     fn layout_text_node(
         &mut self,
         deck: &Deck,
         theme: &Theme,
-        grid: &Grid,
         snap: &Snapshot,
         id: &str,
+        cell: Rect,
     ) -> Result<PlacedText, EngineError> {
         let props = &snap.nodes[id];
         let template = snap.layout.as_deref();
         let at = props.get("at");
-        let cell = grid.place(theme, template, at).map_err(|e| in_node(id, e))?;
         let spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
             .map_err(|e| in_node(id, e))?;
         let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
@@ -245,6 +262,58 @@ fn text_top(cell: Rect, align: AlignY, text: &TextLayout, trim: TextBox) -> f32 
         AlignY::XHeight => cell_top - above_baseline(first.and_then(|l| l.x_height)),
         AlignY::Baseline => cell_bottom - text.lines.last().map_or(0.0, |l| l.baseline),
     }
+}
+
+/// Where a text leaf's box ends past its widest line, canvas units: room for the sums of
+/// advances to come out a hair wider when the text is laid out again at that width.
+const FIT_SLACK: f32 = 1.0 / 64.0;
+
+/// A text node's size in a container (SPEC §3.4): the lines it breaks into at the width it
+/// is given, or that `available` allows; its height, the box its `box` trims to. Its
+/// narrowest and widest sizes break greedily, which `balance` and `pretty` never change.
+fn measure_text(
+    text: &mut TextEngine,
+    fonts: &mut BundleFonts,
+    theme: &Theme,
+    spec: &TextSpec,
+    trim: TextBox,
+    known: taffy::Size<Option<f32>>,
+    available: taffy::Size<taffy::AvailableSpace>,
+) -> Result<taffy::Size<f32>, EngineError> {
+    if let (Some(width), Some(height)) = (known.width, known.height) {
+        return Ok(taffy::Size { width, height });
+    }
+    let (width, greedy) = match (known.width, available.width) {
+        (Some(w), _) | (None, taffy::AvailableSpace::Definite(w)) => (w, false),
+        (None, taffy::AvailableSpace::MinContent) => (0.0, true),
+        (None, taffy::AvailableSpace::MaxContent) => (1.0e7, true),
+    };
+    let laid = if greedy {
+        let spec = TextSpec { wrap: Some(Wrap::Greedy), ..spec.clone() };
+        text.layout(fonts, theme, &spec, width)?
+    } else {
+        text.layout(fonts, theme, spec, width)?
+    };
+    let (top, bottom) = laid.trimmed(trim);
+    Ok(taffy::Size {
+        width: known.width.unwrap_or(laid.width + FIT_SLACK),
+        height: known.height.unwrap_or(bottom - top),
+    })
+}
+
+/// A container's panel: its `fill` and `stroke` as a rectangle with its `radius`.
+fn container_panel(props: &Props, theme: &Theme, rect: Rect) -> Result<Option<ShapeNode>, EngineError> {
+    if props.get("fill").is_none() && props.get("stroke").is_none() {
+        return Ok(None);
+    }
+    let mut panel = Props::new();
+    panel.insert("kind".into(), Value::from("rect"));
+    for key in ["fill", "stroke", "radius"] {
+        if let Some(v) = props.get(key) {
+            panel.insert(key.into(), v.clone());
+        }
+    }
+    ShapeNode::resolve(&panel, theme, rect).map(Some)
 }
 
 fn state_index(snapshots: &[Snapshot], state: &str) -> Result<usize, EngineError> {

@@ -91,10 +91,10 @@ fn a_node_is_checked_as_its_own_type() {
         "`role` is not a property of a chart node; text nodes have it",
     );
     says(
-        |d| d["nodes"]["title"]["children"] = json!(["a"]),
-        "/nodes/title/children",
+        |d| d["nodes"]["title"]["padding"] = json!(24),
+        "/nodes/title/padding",
         Kind::Unknown,
-        "`children` is not a property of a text node; stack, grid, frame, and group nodes have it",
+        "`padding` is not a property of a text node; stack, grid, and frame nodes have it",
     );
     says(
         |d| d["nodes"]["x"] = json!({"type": "video"}),

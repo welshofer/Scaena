@@ -1,5 +1,5 @@
 {
-  "scaena": "0.3",
+  "scaena": "0.4",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -1155,6 +1155,318 @@
           8
         ]
       }
+    },
+    "stats": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          4
+        ]
+      }
+    },
+    "stat-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-a-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "42%",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-a"
+      }
+    },
+    "stat-a-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "of revenue now comes from subscriptions",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-a"
+      }
+    },
+    "stat-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-b-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "2.4x",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-b"
+      }
+    },
+    "stat-b-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "faster onboarding than a year ago",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-b"
+      }
+    },
+    "stat-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.3",
+      "distribute": "end",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stats"
+      },
+      "size": {
+        "w": "fill"
+      }
+    },
+    "stat-c-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$18M",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-c"
+      }
+    },
+    "stat-c-label": {
+      "type": "text",
+      "role": "caption",
+      "text": "net new annual recurring revenue",
+      "semantic": "evidence",
+      "at": {
+        "parent": "stat-c"
+      }
+    },
+    "tally": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          11
+        ],
+        "row": 5
+      }
+    },
+    "tally-figure": {
+      "type": "text",
+      "role": "numeral",
+      "text": "1,280",
+      "align": {
+        "y": "baseline"
+      },
+      "semantic": "evidence",
+      "at": {
+        "parent": "tally"
+      }
+    },
+    "tally-label": {
+      "type": "text",
+      "role": "body",
+      "text": "customers moved to the new plan",
+      "align": {
+        "y": "baseline"
+      },
+      "semantic": "evidence",
+      "at": {
+        "parent": "tally"
+      }
+    },
+    "board": {
+      "type": "grid",
+      "cols": [
+        "fraction(2)",
+        "fill"
+      ],
+      "rows": 2,
+      "gap": "space.4",
+      "areas": [
+        "photo note",
+        "photo mark"
+      ],
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "board-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "radius": "radius.3",
+      "alt": "The test card in a grid area two rows tall.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "board",
+        "area": "photo"
+      }
+    },
+    "board-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "The photo spans two rows; this note and the dot take the named areas beside it.",
+      "semantic": "annotation",
+      "at": {
+        "parent": "board",
+        "area": "note"
+      }
+    },
+    "board-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "size": {
+        "w": 48,
+        "h": 48
+      },
+      "align": "center",
+      "semantic": "decoration",
+      "at": {
+        "parent": "board",
+        "area": "mark"
+      }
+    },
+    "card": {
+      "type": "frame",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "radius": "radius.3",
+      "padding": "space.4",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "card-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "focal": [
+        0,
+        0
+      ],
+      "radius": "radius.2",
+      "alt": "The test card's top-left corner, filling a frame.",
+      "semantic": "evidence",
+      "at": {
+        "parent": "card"
+      }
+    },
+    "card-tag": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": 999,
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "parent": "card",
+        "rect": [
+          24,
+          24,
+          132,
+          44
+        ]
+      }
+    },
+    "card-tag-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Framed",
+      "style": {
+        "color": "onAccent"
+      },
+      "semantic": "annotation",
+      "at": {
+        "parent": "card",
+        "rect": [
+          44,
+          35,
+          112,
+          30
+        ]
+      }
+    },
+    "marks": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration"
+    },
+    "marks-ring": {
+      "type": "shape",
+      "kind": "ellipse",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "marks",
+        "col": 12,
+        "row": 5
+      }
+    },
+    "marks-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "at": {
+        "parent": "marks",
+        "col": 12,
+        "row": 5,
+        "inset": 30
+      }
     }
   },
   "states": [
@@ -1549,6 +1861,42 @@
         "image-zoom": {}
       },
       "notes": "Pass: the test card (assets/test-card.png, 480 x 240) seven ways, each in its grid cell. Top row: cover keeps the middle bands and the disc; cover with focal [0, 0.5] keeps the left bands and the yellow corner mark; contain shows all four corner marks, centered; fill with crop [0.25, 0, 0.5, 1] stretches the middle four bands. Bottom row: cover with focal [0.5, 1] and radius.4 keeps the bottom, the half-transparent strip blending with the page, corners rounded; contain in a narrow box rounds the drawn image's corners, not the box's; crop [0, 0, 0.125, 0.125] magnifies the checkerboard about ten times, bilinear. Every painter draws them alike (SPEC §13.5)."
+    },
+    {
+      "id": "containers",
+      "name": "Containers",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "26 · Containers · recorded"
+        },
+        "stats": {},
+        "stat-a": {},
+        "stat-a-figure": {},
+        "stat-a-label": {},
+        "stat-b": {},
+        "stat-b-figure": {},
+        "stat-b-label": {},
+        "stat-c": {},
+        "stat-c-figure": {},
+        "stat-c-label": {},
+        "tally": {},
+        "tally-figure": {},
+        "tally-label": {},
+        "board": {},
+        "board-photo": {},
+        "board-note": {},
+        "board-dot": {},
+        "card": {},
+        "card-photo": {},
+        "card-tag": {},
+        "card-tag-label": {},
+        "marks": {},
+        "marks-ring": {},
+        "marks-dot": {}
+      },
+      "notes": "Pass: rows 2-4, a row stack of three cards sharing its width, each a padded, rounded column stack whose figure and caption sit at its foot, the captions wrapping inside the card. Row 5, a row stack whose 72 cu figure and 40 cu label share one baseline on the row's bottom edge, and at its right end a group of a ring and a dot at 0.6 opacity. Rows 6-8, a grid container whose photo spans two rows of its wider column, its note and dot in the named areas beside it (the dot 48 cu, centered); and a framed card whose photo fills its padding with a pill and its label placed by rect. Every box comes from taffy, laid out once for the state."
     }
   ]
 }

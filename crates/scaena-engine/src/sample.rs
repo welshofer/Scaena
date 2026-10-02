@@ -57,9 +57,10 @@ pub struct Scene {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneNode {
     pub id: String,
-    /// Paint order: `z`, then position in the scene graph (`order`).
-    pub z: i64,
-    pub order: usize,
+    /// Paint order: `(z, nodes index)` for each node from its root container down to
+    /// this one (`containers::Placement::order`); keys sort in paint order.
+    pub paint: Vec<(i64, usize)>,
+    /// Its own opacity times its containers'.
     pub opacity: f32,
     /// The node's `transition` property (SPEC §3.9).
     pub policy: Policy,
@@ -260,7 +261,7 @@ pub struct Transition {
 
 impl Transition {
     pub fn new(from: Option<Scene>, to: Scene, timing: Timing) -> Transition {
-        let mut tracks: Vec<(i64, usize, Track)> = Vec::new();
+        let mut tracks: Vec<(Vec<(i64, usize)>, Track)> = Vec::new();
         let source = from.as_ref().map_or(&[][..], |s| &s.nodes[..]);
         for (i, a) in source.iter().enumerate() {
             let partner = to.nodes.iter().position(|b| b.id == a.id).filter(|_| timing.matched);
@@ -271,7 +272,7 @@ impl Transition {
                     }
                     Content::Text(_) | Content::Shader(_) | Content::Shape(_) | Content::Image(_) => Track::Exit(i),
                 };
-                tracks.push((a.z, a.order, track));
+                tracks.push((a.paint.clone(), track));
             }
         }
         for (j, b) in to.nodes.iter().enumerate() {
@@ -296,11 +297,11 @@ impl Transition {
                     _ => Track::Crossfade { from: i, to: j },
                 },
             };
-            tracks.push((b.z, b.order, track));
+            tracks.push((b.paint.clone(), track));
         }
         // Stable: within one paint position, an exiting node draws under its successor.
-        tracks.sort_by_key(|&(z, order, _)| (z, order));
-        Transition { from, to, timing, tracks: tracks.into_iter().map(|(.., t)| t).collect() }
+        tracks.sort_by(|a, b| a.0.cmp(&b.0));
+        Transition { from, to, timing, tracks: tracks.into_iter().map(|(_, t)| t).collect() }
     }
 
     pub fn duration_ms(&self) -> f64 {

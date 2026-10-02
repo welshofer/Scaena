@@ -88,7 +88,22 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Colors written as `oklch(…)` or `oklab(…)` render, read as CSS Color 4 reads them, through `libm`, and clipped to sRGB. An oklch palette no longer exits 3.*
   - *Shader palettes are named for their job: `dusk` is now `ambient` in the examples and fixtures (authorability finding 17).*
   - *Not done: W300 (a literal outside `overrides`) is lint work, PLAN 1.15. Whether fonts follow the theme stays SPEC §16 Q10.)*
-- [ ] 1.7 Layout templates + `taffy` containers; `at` resolution; alignment anchors (cap/baseline/x-height).
+- [x] 1.7 Layout templates + `taffy` containers; `at` resolution; alignment anchors (cap/baseline/x-height). *(Done:*
+  - *Layout templates, `at` resolution on the theme grid, and the cap, baseline, and x-height anchors came with Phase 0 (0.4, 0.5). This task adds the node types a layout places and the containers that place them.*
+  - *Shapes: `rect` with `radius`, `ellipse`, `line`, `arrow`, `polygon`, and SVG `path` data fitted to the box. Points are fractions of the box, so a shape morphs when its box changes. Fill and stroke are theme colors.*
+  - *Images: PNG only, content-addressed (`sha256:`), with `fit`, `focal`, `crop`, and `radius` (SPEC §3.3). At most 8192 px a side, vello's atlas. Every painter decodes once and filters bilinearly.*
+  - *Containers (`scaena-engine::containers`, ADR-0008):*
+    - *`stack`, `grid`, and `frame` lay out with `taffy`, once per snapshot. Text is measured with parley, and images by the part of the picture they show. Positions are unrounded and the same bits on every platform.*
+    - *A child names its container in `at.parent`, ordered by `at.index`. `children` and the node-level `parent` are gone (deck format 0.4).*
+    - *Sizing values (`fit`, `fill`, `fraction(n)`, lengths, `aspect`, bounds), grid areas and lines, frame rects from the padding edge, groups, panels from a container's `fill` and `stroke`, and tree paint order.*
+    - *Text in a row stack shares its last baseline through `align: { y: baseline }`.*
+    - *Validation reports a missing or hidden container (E102), a node placed in a non-container (E106), a loop (E106), and an unknown area (E102).*
+  - *Evidence:*
+    - *Torture cases 24 (`shapes`), 25 (`images`, a generated test card seven ways), and 26 (`containers`: cards, a baseline row, a grid with areas, a frame, a group) have display-list and raster goldens.*
+    - *All three painters agree on every one within SPEC §13.5.*
+    - *An engine test moves a child between containers and finds it halfway at t = 0.5, with the at-rest paint order.*
+    - *No earlier golden changed.*
+  - *Not done: centered and end-aligned text (1.8); group compositing, which needs nested layers in sampling (1.12); JPEG and per-frame image budgets (SPEC §16 Q11).)*
 - [ ] 1.8 Text: roles, runs, fit policies, widows/orphans, hanging punctuation beyond quotes (quotes hang since Phase 0, SPEC §3.5), optical margins, hyphenation (by `lang`), text splitting units.
 - [ ] 1.9 **Chart and table sprint.** Jay sets an opinionated aesthetic for charts and tables, and the theme carries it. Charts → marks: exactly the v1 kinds in SPEC §3.7 (bar, stackedBar, line, area, scatter, dot, donut); scales; axes/labels/legend from theme; number and date formats; data motion by key (values in, the next period, growth) with enter/exit presets and stagger; label collision handling. Tables: `table` becomes a node type (schema, SPEC §3.3), styled by the theme like charts. Deferred kinds (slope, waffle, range, heatmap) are out of scope for this phase and the schema rejects them. E103 (an encoding's field missing from its data, or of the wrong type) arrives here, where data is read for encodings.
 - [ ] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets.

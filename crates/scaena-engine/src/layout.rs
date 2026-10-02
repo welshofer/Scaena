@@ -1,9 +1,10 @@
-//! Layout (SPEC §3.4): templates, slots, grid placement, containers via `taffy`,
-//! typographic alignment anchors (cap / baseline / x-height).
+//! Layout (SPEC §3.4): the theme grid, its templates and slots, and the typographic
+//! alignment anchors (cap / baseline / x-height).
 //!
-//! Phase 0 places nodes on the theme grid only: `at: { in: slot | canvas | grid }`,
-//! `at: { col, row }`, and the `rect` override, with `inset` and `offset`.
-//! Containers (`at: { parent }`, `stack`, `grid`, `frame`) are PLAN 1.7.
+//! A node outside any container, or in a group, is placed on the theme grid:
+//! `at: { in: slot | canvas | grid }`, `at: { col, row }`, or the `rect` override, with
+//! `inset` and `offset`. Containers lay their children out themselves
+//! ([`crate::containers`]).
 //!
 //! Layout is per snapshot, never per frame; frames only sample (SPEC §5).
 
@@ -61,8 +62,8 @@ impl Grid {
     /// The box `at` names, in a state whose layout template is `template`.
     pub fn place(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
         let Some(at) = at else { return Ok(self.margin_box()) };
-        if at.get("parent").is_some() || at.get("area").is_some() {
-            return Err(EngineError::NotImplemented("container placement (`at.parent`, `at.area`) — PLAN 1.7"));
+        if at.get("area").is_some() {
+            return Err(EngineError::Layout("`at.area` names an area of a grid container".into()));
         }
         let mut rect = if let Some(rect) = at.get("rect") {
             let v: Vec<f32> =
@@ -262,6 +263,11 @@ mod tests {
         assert!(err(json!({"col": [0, 3]}), None).contains("outside the grid"));
         assert!(err(json!({"in": "nope"}), Some("specimen")).contains("slot `nope`"));
         assert!(err(json!({"in": "case"}), None).contains("needs the state to have a layout template"));
-        assert!(err(json!({"parent": "stack"}), None).contains("PLAN 1.7"));
+        assert!(err(json!({"area": "head"}), None).contains("grid container"));
+        // A group's child is placed on the slide by the rest of its `at`.
+        assert_eq!(
+            grid.place(&t, None, Some(&json!({"parent": "g", "in": "canvas"}))).unwrap(),
+            [0.0, 0.0, 1920.0, 1080.0]
+        );
     }
 }

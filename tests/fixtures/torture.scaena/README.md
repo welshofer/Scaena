@@ -4,7 +4,7 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        27 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
+  deck.json        28 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
@@ -54,6 +54,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 23 | `mesh` | Mesh background | recorded (gate 0 criterion 4) | A seeded mesh (`torture` palette, 5 points, drift 0.12, softness 0.85, grain 0.035) fills the canvas under the case label, at 0.84 s on the global timeline (the two chart transitions before it). cpu, gpu, and web paint it within SPEC §13.5, and the CPU reference and the WGSL agree within one step (`shader_parity`). |
 | 24 | `shapes` | Shapes | recorded (added with PLAN 1.7) | A rounded panel with a hairline, a pill, a ring, an arrow ending in its head, a rule and a dashed rule, a triangle, a star fitted from SVG path data, and an oval, each in its grid cell in theme colors. cpu, gpu, and web draw them within SPEC §13.5. |
 | 25 | `images` | Images | recorded (added with PLAN 1.7) | The test card seven ways. Top row: `cover` keeps the middle bands and the disc; `cover` with `focal: [0, 0.5]` keeps the left bands and the yellow corner mark; `contain` shows all four corner marks, centered; `fill` with `crop: [0.25, 0, 0.5, 1]` stretches the middle four bands. Bottom row: `cover` with `focal: [0.5, 1]` and `radius.4` keeps the bottom, its half-transparent strip blending with the page (straight alpha, premultiplied once), corners rounded; `contain` in a narrow box rounds the drawn image's corners, not the box's; `crop: [0, 0, 0.125, 0.125]` magnifies the 2 px checkerboard about ten times, bilinear. cpu, gpu, and web draw them within SPEC §13.5. |
+| 26 | `containers` | Containers | recorded (added with PLAN 1.7) | Rows 2–4: a row stack of three cards sharing its width, each a padded, rounded column stack whose figure and caption sit at its foot (`distribute: end`). Row 5: a row stack whose 72 cu figure and 40 cu label share one baseline on the row's bottom edge (`align: { y: baseline }`), and at its right end a group of a ring and a dot at 0.6 opacity. Rows 6–8: a grid container whose photo spans two rows of its `fraction(2)` column, its note and its 48 cu centered dot in the named areas beside it; and a framed card (fill, hairline, radius) whose photo fills its padding, with a pill and its label placed by `rect`. Every box comes from `taffy`, laid out once for the state; cpu, gpu, and web draw it within SPEC §13.5. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

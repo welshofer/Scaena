@@ -229,7 +229,8 @@ pub struct AlignAxes {
 
 /// Where a node goes. One placement wins: `rect`, else `in`, else `col`/`row` (SPEC §3.4).
 /// Grid cells and slots are theme-managed; `rect` is an explicit override (lint W301 in
-/// template-managed states).
+/// template-managed states). In a container (`parent`), `col`/`row` and `area` are its
+/// grid's, `rect` is relative to a frame's padding, and a stack places its children itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Placement {
@@ -240,12 +241,14 @@ pub struct Placement {
     /// Named slot in the state's layout template, or `canvas` or `grid`.
     #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<String>,
-    /// Container node id.
+    /// The container this node is in: a `stack`, `grid`, `frame`, or `group` (ADR-0008).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
+    /// Order among the container's children, as CSS `order`: ascending, default 0, ties
+    /// in `nodes` order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
-    /// Named grid area inside a grid container.
+    /// A named area of the grid container this node is in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub area: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
