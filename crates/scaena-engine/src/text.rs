@@ -16,16 +16,24 @@
 //!   last line held to `minLastLineWords`, realized by handing parley's breaker one
 //!   width per line and checking it broke where planned.
 //!
-//! `balance` and `pretty` fall back to greedy for right-to-left paragraphs and for
-//! text with hard line breaks, and say so in [`TextLayout::fallback`]: parley aligns
-//! lines broken at per-line widths inside those narrower widths, which puts RTL
-//! lines at the wrong edge (PLAN 1.8 lifts this).
+//! `balance` and `pretty` fall back to greedy for text with hard line breaks, and say
+//! so in [`TextLayout::fallback`].
 //!
-//! Hanging quotes: quotation marks that open a line hang outside its start edge, in
-//! every role (SPEC §3.5). All three breakings measure a line without them, so they
-//! take nothing from the measure, and the letter after them sits on the edge. Role
-//! `measure`, hyphenation, the rest of hanging punctuation (`hangingPunctuation`),
-//! and optical margins are PLAN 1.8.
+//! Lines break at the box width, or at `measure` characters (`ch`, the advance of `0`)
+//! if that is narrower, and align across the box (SPEC §3.4): `start`, `center`, or
+//! `end`, in the paragraph's direction. The engine places each line itself, from parley's
+//! left-aligned lines, so lines broken at widths of their own (`pretty`, hanging quotes)
+//! align like any other, in either direction.
+//!
+//! Hanging quotes: quotation marks hang outside an aligned edge, never a ragged one
+//! (SPEC §3.5). In start-aligned text the marks that open a line hang outside its start
+//! edge; in end-aligned text the marks that close a line hang outside its end edge;
+//! centered text has no aligned edge. All three breakings measure a line without its
+//! hung marks, so they take nothing from the measure, and the letter beside them sits on
+//! the edge.
+//!
+//! `case` sets the text in capitals, lower case, or title case before shaping, and
+//! small capitals through the font's `smcp` (nothing is synthesized).
 
 use crate::EngineError;
 use crate::fonts::BundleFonts;
@@ -37,6 +45,7 @@ use parley::{
     StyleProperty, WordBreak,
 };
 use scaena_core::displaylist::{Color, FontRef, Glyph};
+use scaena_core::model::theme::Case;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -76,6 +85,39 @@ pub struct TextSpec {
     pub wrap: Option<Wrap>,
     pub min_last_line_words: Option<u32>,
     pub lang: Option<String>,
+    /// How lines sit across the box.
+    pub align: TextAlign,
+    /// The most characters a line may hold, in `ch` of the node's look; the node's or
+    /// its role's `measure`.
+    pub measure: Option<f32>,
+}
+
+/// How a paragraph's lines sit across its box, in the paragraph's direction (SPEC §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+/// The edge quotation marks hang outside of: the aligned one (SPEC §3.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Edge {
+    Start,
+    End,
+    /// Both edges are ragged.
+    Neither,
+}
+
+impl From<TextAlign> for Edge {
+    fn from(align: TextAlign) -> Edge {
+        match align {
+            TextAlign::Start => Edge::Start,
+            TextAlign::End => Edge::End,
+            TextAlign::Center => Edge::Neither,
+        }
+    }
 }
 
 /// A shaped, broken, positioned paragraph. Coordinates are canvas units relative to
@@ -106,11 +148,16 @@ pub struct LineBox {
     pub height: f32,
     pub ascent: f32,
     pub descent: f32,
-    /// Advance without trailing whitespace and without `hang`: what sits inside the measure.
+    /// Advance without trailing whitespace and without hung marks: what sits inside the
+    /// measure.
     pub width: f32,
-    /// Advance of the quotation marks hung outside the start edge: they sit at `-hang..0`
-    /// on a left-to-right line, past the right edge of the measure on a right-to-left one.
+    /// Where that part of the line starts, from the box's left edge.
+    pub x: f32,
+    /// Advance of the quotation marks hung outside the start edge (start-aligned text):
+    /// left of `x` on a left-to-right line, right of `x + width` on a right-to-left one.
     pub hang: f32,
+    /// Advance of the quotation marks hung outside the end edge (end-aligned text).
+    pub hang_end: f32,
     /// Byte range in the node's text (spans concatenated).
     pub text: Range<usize>,
     /// From the line's first run (OS/2), when the font provides it.
@@ -167,6 +214,8 @@ impl TextSpec {
             wrap: None,
             min_last_line_words: None,
             lang: None,
+            align: TextAlign::Start,
+            measure: None,
         }
     }
 }
@@ -176,24 +225,30 @@ impl TextEngine {
         Self::default()
     }
 
-    /// Shape `spec` with the bundle's fonts and break it into lines at most `max_width` wide.
+    /// Shape `spec` with the bundle's fonts, break it into lines at most `width` wide (or
+    /// `measure` characters, if that is narrower), and align the lines across `width`.
     pub fn layout(
         &mut self,
         fonts: &mut BundleFonts,
         theme: &Theme,
         spec: &TextSpec,
-        max_width: f32,
+        width: f32,
     ) -> Result<TextLayout, EngineError> {
         let base = &spec.role;
-        let text: String = spec.spans.iter().map(|s| s.text.as_str()).collect();
+        let cased: Vec<Cow<str>> = spec.spans.iter().map(|s| set_case(&s.text, s.style.case)).collect();
+        let text: String = cased.iter().map(|t| t.as_ref()).collect();
+        let max_width = match spec.measure {
+            Some(chars) => width.min(chars * self.ch(fonts, theme, spec)?),
+            None => width,
+        };
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
             for prop in style_props(theme, base, spec)? {
                 builder.push_default(prop);
             }
             let mut at = 0;
-            for span in &spec.spans {
-                let range = at..at + span.text.len();
+            for (span, t) in spec.spans.iter().zip(&cased) {
+                let range = at..at + t.len();
                 at = range.end;
                 if span.style != spec.role {
                     for prop in style_props(theme, &span.style, spec)? {
@@ -205,35 +260,76 @@ impl TextEngine {
         };
 
         let rtl = layout.is_rtl();
+        let edge = Edge::from(spec.align);
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
             Wrap::Greedy => None,
-            _ if rtl => Some("right-to-left paragraph"),
             _ if text.contains(['\n', '\r', '\u{2028}', '\u{2029}']) => Some("hard line break"),
             _ => None,
         };
         let min_words = spec.min_last_line_words.or(base.min_last_line_words).unwrap_or(1) as usize;
         let wrap = match (requested, fallback) {
             (_, Some(_)) | (Wrap::Greedy, _) => {
-                greedy(&mut layout, &text, max_width, rtl);
+                greedy(&mut layout, &text, max_width, rtl, edge);
                 Wrap::Greedy
             }
             (Wrap::Balance, None) => {
-                balance(&mut layout, &text, max_width, rtl);
+                balance(&mut layout, &text, max_width, rtl, edge);
                 Wrap::Balance
             }
             (Wrap::Pretty, None) => {
-                if pretty(&mut layout, &text, max_width, min_words, rtl) {
+                if pretty(&mut layout, &text, max_width, min_words, rtl, edge) {
                     Wrap::Pretty
                 } else {
                     fallback = Some("parley did not break where the pretty plan said");
-                    greedy(&mut layout, &text, max_width, rtl);
+                    greedy(&mut layout, &text, max_width, rtl, edge);
                     Wrap::Greedy
                 }
             }
         };
-        layout.align(Alignment::Start, AlignmentOptions::default());
-        read_layout(&layout, &text, fonts, wrap, fallback, rtl)
+        // Every line's ink from x = 0, in either direction; `read_layout` places it.
+        layout.align(Alignment::Left, AlignmentOptions { align_when_overflowing: true });
+        read_layout(&layout, &text, fonts, Paragraph { wrap, fallback, rtl, align: spec.align, width })
+    }
+
+    /// `ch` in the node's look: the advance of `0` (CSS `ch`), which `measure` counts in.
+    fn ch(&mut self, fonts: &mut BundleFonts, theme: &Theme, spec: &TextSpec) -> Result<f32, EngineError> {
+        let mut builder = self.lcx.ranged_builder(&mut fonts.cx, "0", 1.0, false);
+        for prop in style_props(theme, &spec.role, spec)? {
+            builder.push_default(prop);
+        }
+        let mut layout = builder.build("0");
+        layout.break_all_lines(None);
+        Ok(layout.width())
+    }
+}
+
+/// `text` in `case`: capitals, lower case, or each word's first letter capitalized.
+/// Small capitals are the font's `smcp` (`style_props`), so the letters stay as written.
+/// The mappings are Unicode's defaults, the same in every language.
+fn set_case(text: &str, case: Option<Case>) -> Cow<'_, str> {
+    match case {
+        Some(Case::Upper) => Cow::Owned(text.to_uppercase()),
+        Some(Case::Lower) => Cow::Owned(text.to_lowercase()),
+        Some(Case::Title) => {
+            let mut out = String::with_capacity(text.len());
+            let mut word_start = true;
+            for c in text.chars() {
+                if word_start && c.is_alphabetic() {
+                    out.extend(c.to_uppercase());
+                    word_start = false;
+                    continue;
+                }
+                if c.is_whitespace() {
+                    word_start = true;
+                } else if c.is_alphanumeric() {
+                    word_start = false;
+                }
+                out.push(c);
+            }
+            Cow::Owned(out)
+        }
+        Some(Case::None | Case::Smallcaps) | None => Cow::Borrowed(text),
     }
 }
 
@@ -266,6 +362,9 @@ fn style_props(
     features.extend(role.features.iter().map(|(k, v)| (k.clone(), *v)));
     if let Some(numeric) = spec.numeric.or(role.numeric) {
         features.extend(numeric.features().map(|(k, v)| (k.to_string(), v)));
+    }
+    if role.case == Some(Case::Smallcaps) {
+        features.insert("smcp".into(), 1);
     }
     features.extend(spec.features.iter().map(|(k, v)| (k.clone(), *v)));
     let features: Vec<FontFeature> =
@@ -329,6 +428,41 @@ fn hang_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f
     hang
 }
 
+/// What a line over `line` hangs past its end edge: the advance of the quotation marks it
+/// closes with, before any trailing whitespace, set in the paragraph's direction. A quote
+/// that ends a ligature stays inside.
+fn hang_end_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f32 {
+    let mut hang = 0.0;
+    let mut next = line.end.checked_sub(1).and_then(|last| Cluster::from_byte_index(layout, last));
+    let mut trailing = true;
+    while let Some(cluster) = next {
+        let range = cluster.text_range();
+        if range.end <= line.start || range.is_empty() {
+            break;
+        }
+        let chars = &text[range.clone()];
+        next = cluster.previous_logical();
+        if trailing && chars.chars().all(char::is_whitespace) {
+            continue;
+        }
+        trailing = false;
+        if !chars.chars().all(is_hanging_quote) || cluster.is_rtl() != rtl || cluster.is_ligature_continuation() {
+            break;
+        }
+        hang += cluster.advance();
+    }
+    hang
+}
+
+/// What a line over `line` hangs outside the aligned `edge`.
+fn hang_of(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool, edge: Edge) -> f32 {
+    match edge {
+        Edge::Start => hang_at(layout, text, line, rtl),
+        Edge::End => hang_end_at(layout, text, line, rtl),
+        Edge::Neither => 0.0,
+    }
+}
+
 /// Breaks with line `k` at most `max_width + hangs[k]` wide (`max_width` past the end of
 /// `hangs`).
 fn break_with(layout: &mut Layout<Ink>, max_width: f32, hangs: &[f32]) {
@@ -344,14 +478,15 @@ fn break_with(layout: &mut Layout<Ink>, max_width: f32, hangs: &[f32]) {
     breaker.finish();
 }
 
-/// Greedy breaking at `max_width`, each line measured without the quotes it hangs.
+/// Greedy breaking at `max_width`, each line measured without the quotes it hangs at
+/// `edge`.
 ///
-/// A line's hang depends on where it starts, which depends on the lines above, so each
-/// pass breaks with the hangs the previous pass found. Line `k` breaks right once line
-/// `k - 1` has, so the hangs settle within one pass per line; with no quote opening a
-/// line, the first pass is plain greedy and the last.
-fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool) {
-    if !text.contains(is_hanging_quote) {
+/// A line's hang depends on where it starts and ends, which depends on the lines above,
+/// so each pass breaks with the hangs the previous pass found. Line `k` breaks right once
+/// line `k - 1` has, so the hangs settle within one pass per line; with no quote at an
+/// aligned edge, the first pass is plain greedy and the last.
+fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge: Edge) {
+    if edge == Edge::Neither || !text.contains(is_hanging_quote) {
         layout.break_all_lines(Some(max_width));
         return;
     }
@@ -360,7 +495,7 @@ fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool) {
     // keeps a change in parley from becoming a hang in the render path.
     for _ in 0..text.len() + 2 {
         break_with(layout, max_width, &hangs);
-        let found: Vec<f32> = layout.lines().map(|line| hang_at(layout, text, line.text_range(), rtl)).collect();
+        let found: Vec<f32> = layout.lines().map(|line| hang_of(layout, text, line.text_range(), rtl, edge)).collect();
         let settled = found.iter().enumerate().all(|(k, &hang)| hang == hangs.get(k).copied().unwrap_or(0.0));
         if settled {
             return;
@@ -370,8 +505,8 @@ fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool) {
 }
 
 /// Narrowest width at which greedy breaking keeps the line count it has at `max_width`.
-fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool) {
-    greedy(layout, text, max_width, rtl);
+fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge: Edge) {
+    greedy(layout, text, max_width, rtl, edge);
     let lines = layout.len();
     if lines < 2 {
         return;
@@ -379,14 +514,14 @@ fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool) {
     let (mut lo, mut hi) = (0.0_f32, max_width);
     for _ in 0..BALANCE_STEPS {
         let mid = 0.5 * (lo + hi);
-        greedy(layout, text, mid, rtl);
+        greedy(layout, text, mid, rtl, edge);
         if layout.len() <= lines {
             hi = mid;
         } else {
             lo = mid;
         }
     }
-    greedy(layout, text, hi, rtl);
+    greedy(layout, text, hi, rtl, edge);
 }
 
 /// An unbreakable stretch of text between two break opportunities.
@@ -395,15 +530,17 @@ struct Segment {
     full: f32,
     /// Advance without trailing whitespace (what it adds at the end of a line).
     bare: f32,
-    /// What a line starting with this segment hangs (see [`hang_at`]).
+    /// What a line starting with this segment hangs at its start edge (see [`hang_at`]).
     hang: f32,
+    /// What a line ending with this segment hangs at its end edge (see [`hang_end_at`]).
+    hang_end: f32,
     text: Range<usize>,
 }
 
 /// Minimum-raggedness breaking with the last line held to `min_words` segments, each
 /// line measured without the quotes it hangs. Returns false when parley's breaker did
 /// not reproduce the plan.
-fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize, rtl: bool) -> bool {
+fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize, rtl: bool, edge: Edge) -> bool {
     // Probe: at (almost) zero width parley breaks at every UAX #14 opportunity, so each
     // probe line is exactly one segment. Shaping happens before breaking, so segment
     // widths add up to line widths exactly.
@@ -415,14 +552,15 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
             Segment {
                 full: m.advance,
                 bare: m.advance - m.trailing_whitespace,
-                hang: hang_at(layout, text, line.text_range(), rtl),
+                hang: if edge == Edge::Start { hang_at(layout, text, line.text_range(), rtl) } else { 0.0 },
+                hang_end: if edge == Edge::End { hang_end_at(layout, text, line.text_range(), rtl) } else { 0.0 },
                 text: line.text_range(),
             }
         })
         .collect();
     let n = segments.len();
     if n < 2 {
-        greedy(layout, text, max_width, rtl);
+        greedy(layout, text, max_width, rtl, edge);
         return true;
     }
 
@@ -439,7 +577,7 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
             let width = leading + segments[j - 1].bare;
             // The quotes a line hangs take no room. A segment hangs no more than its own
             // advance, so starting a line earlier still only widens it.
-            let room = max_width + segments[i].hang;
+            let room = max_width + segments[i].hang + segments[j - 1].hang_end;
             if width > room && i < j - 1 {
                 break; // more segments only widen the line
             }
@@ -472,13 +610,14 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
     // Realize: one width per planned line. parley requires line widths to stay within
     // 1 cu of the layout width, so a single overflowing segment is capped (it cannot
     // break anyway).
-    let most = plan.iter().map(|line| segments[line.start].hang).fold(0.0, f32::max);
+    let hung = |line: &Range<usize>| segments[line.start].hang + segments[line.end - 1].hang_end;
+    let most = plan.iter().map(hung).fold(0.0, f32::max);
     let mut breaker = layout.break_lines();
     breaker.state_mut().set_layout_max_advance(max_width + most);
     for line in &plan {
         let width: f32 =
             segments[line.start..line.end - 1].iter().map(|s| s.full).sum::<f32>() + segments[line.end - 1].bare;
-        let room = max_width + segments[line.start].hang;
+        let room = max_width + hung(line);
         breaker.state_mut().set_line_max_advance((width + FIT_SLACK).min(room + FIT_SLACK));
         breaker.break_next();
     }
@@ -489,25 +628,41 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
     broke == planned
 }
 
-fn read_layout(
-    layout: &Layout<Ink>,
-    text: &str,
-    fonts: &BundleFonts,
+/// How a paragraph was broken and how its lines sit.
+struct Paragraph {
     wrap: Wrap,
     fallback: Option<&'static str>,
     rtl: bool,
-) -> Result<TextLayout, EngineError> {
+    align: TextAlign,
+    /// The box the lines align across.
+    width: f32,
+}
+
+fn read_layout(layout: &Layout<Ink>, text: &str, fonts: &BundleFonts, p: Paragraph) -> Result<TextLayout, EngineError> {
+    let edge = Edge::from(p.align);
     let mut lines = Vec::new();
     let mut runs = Vec::new();
     let mut synthesized = false;
     let mut top = 0.0_f32;
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
-        let hang = hang_at(layout, text, line.text_range(), rtl);
-        // A left-to-right line is set from its start edge, so its hung quotes move out
-        // past it. A right-to-left line was broken in a box `hang` wider than the measure
-        // and start-aligned to that box's right edge, which already put them outside.
-        let shift = if rtl { 0.0 } else { hang };
+        let (hang, hang_end) = match edge {
+            Edge::Start => (hang_at(layout, text, line.text_range(), p.rtl), 0.0),
+            Edge::End => (0.0, hang_end_at(layout, text, line.text_range(), p.rtl)),
+            Edge::Neither => (0.0, 0.0),
+        };
+        // parley set the line's ink from x = 0; trailing whitespace hangs past its end.
+        let ink = m.advance - m.trailing_whitespace;
+        let width = ink - hang - hang_end;
+        // Where the part inside the measure starts. Hung marks sit outside it, at the
+        // logical start or end: the left or the right of the line by its direction.
+        let x = match (p.align, p.rtl) {
+            (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
+            (TextAlign::Start, true) | (TextAlign::End, false) => p.width - width,
+            (TextAlign::Center, _) => 0.5 * (p.width - width),
+        };
+        let left_hang = if p.rtl { hang_end } else { hang };
+        let shift = x - left_hang;
         let (mut cap_height, mut x_height) = (None, None);
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
@@ -523,7 +678,7 @@ fn read_layout(
                 size: run.font_size(),
                 coords: run.normalized_coords().to_vec(),
                 color: Color(glyph_run.style().brush),
-                glyphs: glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x - shift, y: g.y }).collect(),
+                glyphs: glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y }).collect(),
                 line: index,
             });
         }
@@ -536,8 +691,10 @@ fn read_layout(
             height: m.line_height,
             ascent: m.ascent,
             descent: m.descent,
-            width: m.advance - m.trailing_whitespace - hang,
+            width,
+            x,
             hang,
+            hang_end,
             text: line.text_range(),
             cap_height,
             x_height,
@@ -545,5 +702,14 @@ fn read_layout(
         top += m.line_height;
     }
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
-    Ok(TextLayout { lines, runs, width, height: layout.height(), wrap, fallback, rtl, synthesized })
+    Ok(TextLayout {
+        lines,
+        runs,
+        width,
+        height: layout.height(),
+        wrap: p.wrap,
+        fallback: p.fallback,
+        rtl: p.rtl,
+        synthesized,
+    })
 }

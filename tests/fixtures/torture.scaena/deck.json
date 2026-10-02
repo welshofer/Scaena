@@ -1467,6 +1467,125 @@
         "row": 5,
         "inset": 30
       }
+    },
+    "align-center": {
+      "type": "text",
+      "role": "hanging",
+      "align": {
+        "x": "center"
+      },
+      "wrap": "balance",
+      "text": "“Centered lines share the middle of the box,” and a quote that opens one stays inside it.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "align-end": {
+      "type": "text",
+      "role": "hanging",
+      "align": {
+        "x": "end"
+      },
+      "text": "End-aligned lines meet the right edge, and the quote that closes one hangs past it: “like this.”",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "align-rtl": {
+      "type": "text",
+      "role": "bidi-he",
+      "wrap": "pretty",
+      "lang": "he",
+      "text": "שלום, הגרסה מוכנה. שלום, הגרסה מוכנה. שלום, הגרסה מוכנה. שלום, הגרסה מוכנה.",
+      "at": {
+        "col": [
+          3,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "case-upper": {
+      "type": "text",
+      "role": "specimen",
+      "style": {
+        "case": "upper"
+      },
+      "text": "Upper case: Straße und Weg",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2
+      }
+    },
+    "case-title": {
+      "type": "text",
+      "role": "specimen",
+      "style": {
+        "case": "title"
+      },
+      "text": "title case capitalizes each word, (even) the 3rd",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 3
+      }
+    },
+    "case-smallcaps": {
+      "type": "text",
+      "role": "garamond",
+      "style": {
+        "case": "smallcaps"
+      },
+      "text": "Small capitals come from the font",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 4
+      }
+    },
+    "measure-centered": {
+      "type": "text",
+      "role": "body",
+      "measure": 24,
+      "align": {
+        "x": "center"
+      },
+      "wrap": "balance",
+      "text": "A measure of twenty-four characters keeps this paragraph narrow, and its lines centered across a wide box.",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          5,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -1897,6 +2016,37 @@
         "marks-dot": {}
       },
       "notes": "Pass: rows 2-4, a row stack of three cards sharing its width, each a padded, rounded column stack whose figure and caption sit at its foot, the captions wrapping inside the card. Row 5, a row stack whose 72 cu figure and 40 cu label share one baseline on the row's bottom edge, and at its right end a group of a ring and a dot at 0.6 opacity. Rows 6-8, a grid container whose photo spans two rows of its wider column, its note and dot in the named areas beside it (the dot 48 cu, centered); and a framed card whose photo fills its padding with a pill and its label placed by rect. Every box comes from taffy, laid out once for the state."
+    },
+    {
+      "id": "alignment",
+      "name": "Line alignment",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "27 · Line alignment · kill"
+        },
+        "align-center": {},
+        "align-end": {},
+        "align-rtl": {}
+      },
+      "notes": "Pass: rows 2-3, a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line (centered text has no aligned edge, so nothing hangs). Rows 4-5, end-aligned lines flush with the right edge of column 12, and the closing ” of the last line past that edge, with the period on it. Rows 6-8, a Hebrew paragraph broken by pretty (no fallback to greedy), every line starting at the right edge of column 12."
+    },
+    {
+      "id": "case-measure",
+      "name": "Case and measure",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "28 · Case and measure · recorded"
+        },
+        "case-upper": {},
+        "case-title": {},
+        "case-smallcaps": {},
+        "measure-centered": {}
+      },
+      "notes": "Pass: row 2 in capitals, ß as SS; row 3 with each word's first letter capitalized, (Even) after a parenthesis, 3rd unchanged; row 4 in EB Garamond's own small capitals (smcp), none synthesized. Rows 5-8, a body paragraph held to 24 characters a line (24 × the advance of 0), balanced, each line centered across all 12 columns."
     }
   ]
 }

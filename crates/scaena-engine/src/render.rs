@@ -18,7 +18,7 @@ use crate::layout::{AlignX, AlignY, Grid};
 use crate::sample::{Content, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
-use crate::text::{Span, TextEngine, TextLayout, TextSpec};
+use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
@@ -212,18 +212,20 @@ impl Engine {
         let props = &snap.nodes[id];
         let template = snap.layout.as_deref();
         let at = props.get("at");
-        let spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
+        let mut spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
             .map_err(|e| in_node(id, e))?;
+        let (align_x, align_y) = Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?;
+        spec.align = match align_x {
+            AlignX::Start | AlignX::Stretch => TextAlign::Start,
+            AlignX::Center => TextAlign::Center,
+            AlignX::End => TextAlign::End,
+        };
         let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
         if text.synthesized {
             return Err(EngineError::Font(format!(
                 "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
                  use a weight or style the family provides"
             )));
-        }
-        let (align_x, align_y) = Grid::alignment(theme, template, props).map_err(|e| in_node(id, e))?;
-        if matches!(align_x, AlignX::Center | AlignX::End) {
-            return Err(EngineError::NotImplemented("centered and end-aligned text — PLAN 1.8"));
         }
         let trim = match typed_prop::<TextBox>(props, "box")? {
             Some(trim) => trim,
@@ -365,6 +367,7 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let role = cascade::node_role(theme, props, slot_role)?;
+    let role_measure = role.measure;
     let spans = match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs
             .iter()
@@ -402,6 +405,8 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         wrap: typed_prop::<Wrap>(props, "wrap")?,
         min_last_line_words: props.get("minLastLineWords").and_then(Value::as_u64).map(|n| n as u32),
         lang: str_prop("lang").map(String::from).or_else(|| deck.meta.as_ref().and_then(|m| m.lang.clone())),
+        align: TextAlign::Start,
+        measure: props.get("measure").and_then(Value::as_f64).map(|m| m as f32).or(role_measure),
     })
 }
 
