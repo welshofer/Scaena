@@ -28,7 +28,6 @@
 
 use crate::EngineError;
 use crate::charts::{ChartLayout, Label, Mark, Numerals, RoundRect, Rule, ValueLabel, lerp};
-use crate::data;
 use crate::images::ImageNode;
 use crate::render::PlacedText;
 use crate::shaders::ShaderNode;
@@ -517,7 +516,7 @@ fn value_label(
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
     let end = y.map(|l| ride(l).value).or(marks.1.is_none().then_some(0.0));
     if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
-        && let Some((runs, width)) = numerals.compose(&count(start, end, p))
+        && let Some((runs, width)) = numerals.compose(&numerals.count(start, end, p))
     {
         let [cx, baseline] = ride(label).anchor(shape);
         let alpha = match marks {
@@ -534,12 +533,6 @@ fn value_label(
     if let Some(y) = y {
         ops.push(layer(None, at(&y.text, ride(y)), p, text_ops(dl, &y.text.runs)));
     }
-}
-
-/// The number `p` of the way from `a` to `b`, to as many places as either shows.
-fn count(a: f64, b: f64, p: f32) -> String {
-    let places = data::decimals(a).max(data::decimals(b));
-    data::format_fixed(a + (b - a) * f64::from(p), places)
 }
 
 /// Match two keyed lists: items only in `a` first (they exit under the rest), then

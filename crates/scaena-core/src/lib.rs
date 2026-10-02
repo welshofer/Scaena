@@ -11,6 +11,8 @@
 //! - [`timeline`] — easing curves and springs with settle-time computation (SPEC §3.9).
 //! - [`displaylist`] — the painter-agnostic frame description (SPEC §6).
 //! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
+//! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
+//! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
@@ -19,9 +21,11 @@
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
 pub mod color;
+pub mod data;
 pub mod displaylist;
 pub mod document;
 pub mod dsl;
+pub mod format;
 pub mod ids;
 pub mod lint;
 pub mod model;

@@ -1,0 +1,28 @@
+{
+  "scaena": "0.4",
+  "_comment": "E103 clean: every field a chart reads is a column of its data, of a type its channel reads, and every value fits the schema and its parse format.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "data": {
+    "q": {
+      "source": { "inline": [{ "quarter": "Q1", "rev": 12, "when": "Jan 2025" }, { "quarter": "Q2", "rev": 19, "when": "Apr 2025" }] },
+      "schema": { "quarter": "string", "rev": "number", "when": "date" },
+      "parse": { "when": "%b %Y" }
+    }
+  },
+  "nodes": {
+    "a": {
+      "type": "chart", "kind": "bar", "data": "@q", "key": "quarter",
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative", "format": "$,.0f" },
+      "at": { "in": "canvas" }
+    },
+    "c": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "when", "type": "temporal", "format": "Q%q %Y" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    }
+  },
+  "states": [
+    { "id": "one", "props": { "a": {}, "c": {} } },
+    { "id": "two", "props": { "c": { "y": { "format": ".1~k" } } } }
+  ]
+}

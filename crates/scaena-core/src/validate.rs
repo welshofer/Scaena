@@ -4,7 +4,9 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
+use crate::data::{self, ColumnType, DataError, SourceFiles, Table};
 use crate::document::{Deck, NodeType, Props};
+use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
 use crate::model::Theme;
@@ -13,7 +15,8 @@ use crate::model::values::{Duration, Easing};
 use crate::tracking::{Snapshot, resolve_states};
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 /// Validate `deck` and return every problem as an E-finding.
@@ -224,6 +227,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         if let Some(snapshots) = &snapshots {
             out.extend(resolved_types(&deck, snapshots));
             out.extend(containers(&deck, snapshots));
+            out.extend(encodings(&deck, snapshots, files));
         }
         out.extend(override_types(&deck));
         if let Some(theme) = &theme {
@@ -692,6 +696,114 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                 if kind != NodeType::Grid || !named {
                     let message = format!("area `{area}` is not one of the areas of {} `{parent}`", type_name(kind));
                     out.push(finding("E102", id, "area", message));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// E103: what charts read from their data. Each encoding's `field`, and the chart's
+/// `key`, is a column of its source that the encoding can read: a `quantitative` channel
+/// reads numbers and a `temporal` one dates, and a `format` prints numbers or dates. A
+/// source whose values do not fit its schema or its `parse` formats is E103 too, at the
+/// source. A `format` that does not parse is E106. Each finding points at what set the
+/// field in the state: its delta, or the node. A chart with a `dataTransform` reads
+/// columns the transform makes, so its fields are checked once transforms run (PLAN 1.9e).
+fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Vec<Finding> {
+    struct Text<'a>(&'a dyn BundleFiles);
+    impl SourceFiles for Text<'_> {
+        fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
+            self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
+        }
+    }
+    let mut out = Vec::new();
+    let mut tables: BTreeMap<&str, Table> = BTreeMap::new();
+    for name in deck.data.keys() {
+        match data::load(deck, &Text(files), name) {
+            Ok(table) => {
+                tables.insert(name, table);
+            }
+            Err(DataError::Bad(message)) => {
+                out.push(Finding::new("E103", Severity::Error, message).at(format!("/data/{}/source", esc(name))));
+            }
+            // A missing source or file is E102's.
+            Err(_) => {}
+        }
+    }
+    let mut seen = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            let Some(node) = deck.nodes.get(id) else { continue };
+            if node.node_type != NodeType::Chart || props.contains_key("dataTransform") {
+                continue;
+            }
+            let Some(name) = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@')) else {
+                continue;
+            };
+            let Some(table) = tables.get(name) else { continue };
+            let here = |key: &str, rest: &str| match state.props.get(id).and_then(|d| d.get(key)) {
+                Some(_) => format!("/states/{i}/props/{}/{key}{rest}", esc(id)),
+                None => format!("/nodes/{}/{key}{rest}", esc(id)),
+            };
+            let mut found = |code: &str, path: String, message: String| {
+                if seen.insert((path.clone(), message.clone())) {
+                    out.push(
+                        Finding::new(code, Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                    );
+                }
+            };
+            let column = |field: &str| table.column(field).map(|c| table.types[c]);
+            let missing = |field: &str| {
+                format!(
+                    "`@{name}` has no column `{field}`; it has {}",
+                    table.columns.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+                )
+            };
+            if let Some(key) = props.get("key").and_then(Value::as_str)
+                && column(key).is_none()
+            {
+                found("E103", here("key", ""), missing(key));
+            }
+            for channel in ["x", "y", "series", "color", "sizeEncoding"] {
+                let Some(encoding) = props.get(channel).and_then(Value::as_object) else { continue };
+                let Some(field) = encoding.get("field").and_then(Value::as_str) else { continue };
+                let Some(kind) = column(field) else {
+                    found("E103", here(channel, "/field"), missing(field));
+                    continue;
+                };
+                let wants = match encoding.get("type").and_then(Value::as_str) {
+                    Some("quantitative") => Some(ColumnType::Number),
+                    Some("temporal") => Some(ColumnType::Date),
+                    _ => None,
+                };
+                if let Some(wants) = wants
+                    && kind != wants
+                {
+                    let message = format!(
+                        "`{channel}` reads `{field}` as {}, but `@{name}` types it {}; declare it `{}` in the source's schema",
+                        encoding["type"].as_str().unwrap_or_default(),
+                        article(kind.name()),
+                        wants.name()
+                    );
+                    found("E103", here(channel, "/type"), message);
+                }
+                if let Some(spec) = encoding.get("format").and_then(Value::as_str) {
+                    let parsed = match kind {
+                        ColumnType::Number => NumberFormat::parse(spec).map(|_| ()),
+                        ColumnType::Date => DateFormat::parse(spec).map(|_| ()),
+                        _ => {
+                            let message = format!(
+                                "`{channel}.format` prints numbers and dates; `{field}` is {} column",
+                                article(kind.name())
+                            );
+                            found("E103", here(channel, "/format"), message);
+                            continue;
+                        }
+                    };
+                    if let Err(e) = parsed {
+                        found("E106", here(channel, "/format"), e.to_string());
+                    }
                 }
             }
         }

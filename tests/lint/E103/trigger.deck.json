@@ -1,0 +1,33 @@
+{
+  "scaena": "0.4",
+  "_comment": "E103 trigger: charts read fields their data does not have, or in types they cannot read, and a source's values do not fit its schema.",
+  "canvas": { "width": 1920, "height": 1080 },
+  "data": {
+    "q": {
+      "source": { "inline": [{ "quarter": "Q1", "rev": 12, "when": "2025-01" }, { "quarter": "Q2", "rev": 19, "when": "2025-04" }] },
+      "schema": { "quarter": "string", "rev": "number", "when": "date" }
+    },
+    "bad": { "source": { "inline": [{ "v": "seven" }] }, "schema": { "v": "number" } }
+  },
+  "nodes": {
+    "a": {
+      "type": "chart", "kind": "bar", "data": "@q", "key": "id",
+      "x": { "field": "qtr", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "b": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "quarter", "type": "ordinal", "format": "%b" }, "y": { "field": "quarter", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "c": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "x": { "field": "when", "type": "temporal", "format": "%b %Y" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    }
+  },
+  "states": [
+    { "id": "one", "props": { "a": {}, "b": {}, "c": {} } },
+    { "id": "two", "props": { "c": { "y": { "field": "profit" } } } }
+  ]
+}

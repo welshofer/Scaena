@@ -3,29 +3,29 @@
 //! value (SPEC §2.3): one period to the next, values animating in, growth.
 //!
 //! Phase 0 (PLAN 0.10) compiles bar charts with one series, which is enough to prove
-//! data motion on the timeline. Every other kind, multiple series, color encodings,
-//! legends, axes settings, number formats, and data transforms wait for the chart and
-//! table sprint (PLAN 1.9) and return `NotImplemented`.
+//! data motion on the timeline. Labels print numbers and dates through the encodings'
+//! formats (`docs/spec/format.md`) in the deck's language. Every other kind, multiple
+//! series, color encodings, legends, axes settings, and data transforms wait for the
+//! rest of the chart and table sprint (PLAN 1.9) and return `NotImplemented`.
 //!
 //! Geometry is relative to the chart's cell and uses only `+ − × ÷`, never `sin` or
 //! `cos`, whose last bits differ between platform math libraries, so chart display
 //! lists stay bit-identical across platforms (SPEC §13).
 
 use crate::EngineError;
-use crate::data::{self, DataFiles, Datum};
+use crate::data::{self, ColumnType, DataFiles, Datum};
 use crate::fonts::BundleFonts;
 use crate::text::{GlyphRun, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme};
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl};
 use scaena_core::document::Props;
+use scaena_core::format::{DateFormat, Locale, MINUS, NumberFormat};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
-/// What a counting label is spelled from.
-const FIGURES: &str = "0123456789-.,";
 
 /// A rectangle with one radius for its top corners and one for its bottom corners.
 /// A bar is square on its baseline and rounded at its free end.
@@ -164,6 +164,12 @@ pub struct Numerals {
     figures: Vec<(char, Figure)>,
     /// From the top of the text to its baseline.
     pub baseline: f32,
+    /// How a counting label spells a number: the encoding's format, else as many places
+    /// as either end shows.
+    format: Option<NumberFormat>,
+    locale: &'static Locale,
+    /// The minus sign the label's font sets: U+2212, else the hyphen-minus.
+    minus: char,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,28 +183,51 @@ struct Figure {
 }
 
 impl Numerals {
-    /// Shape the figures as they sit inside a number: the digits in a row, a separator
-    /// between two digits, the sign before one. Fonts substitute some of them in
-    /// context (Roboto Serif sets a tabular period between figures), so a figure
-    /// shaped alone can be the wrong glyph. `None` if a sample does not shape to one
-    /// glyph per character.
-    fn shape(mut set: impl FnMut(String) -> Result<TextLayout, EngineError>) -> Result<Option<Numerals>, EngineError> {
-        let mut figures = Vec::with_capacity(FIGURES.len());
+    /// Shape the figures as they sit inside a number: the digits in a row, a sign before
+    /// one, and every other character the format can print (`alphabet`: separators,
+    /// currency, percent, suffixes) between two. Fonts substitute some of them in
+    /// context (Roboto Serif sets a tabular period between figures), so a figure shaped
+    /// alone can be the wrong glyph. `None` if the digits do not shape to one glyph each;
+    /// another character that does not is left out, and a label that needs it
+    /// cross-fades.
+    fn shape(
+        alphabet: &str,
+        format: Option<NumberFormat>,
+        locale: &'static Locale,
+        minus: char,
+        mut set: impl FnMut(String) -> Result<TextLayout, EngineError>,
+    ) -> Result<Option<Numerals>, EngineError> {
+        let mut figures: Vec<(char, Figure)> = Vec::new();
         let mut baseline = 0.0;
         // (sample, which of its characters to take)
-        let samples = [("01234567890", 0..10), ("0.0", 1..2), ("0,0", 1..2), ("-0", 0..1)];
-        for (sample, take) in samples {
-            let text = set(sample.to_string())?;
+        let mut samples = vec![("01234567890".to_string(), 0..10)];
+        for c in alphabet.chars().map(|c| if c == MINUS { minus } else { c }) {
+            if figures.iter().any(|(k, _)| *k == c) || samples.iter().any(|(s, t)| s[t.clone()].contains(c)) {
+                continue;
+            }
+            samples.push(match c {
+                '-' | MINUS | '+' | '(' => (format!("{c}0"), 0..c.len_utf8()),
+                _ => (format!("0{c}0"), 1..1 + c.len_utf8()),
+            });
+        }
+        for (i, (sample, take)) in samples.iter().enumerate() {
+            let text = set(sample.clone())?;
             let glyphs: Vec<(&GlyphRun, &Glyph)> =
                 text.runs.iter().flat_map(|r| r.glyphs.iter().map(move |g| (r, g))).collect();
             if glyphs.len() != sample.chars().count() {
-                return Ok(None);
+                if i == 0 {
+                    return Ok(None);
+                }
+                continue;
             }
             baseline = text.lines.first().map_or(0.0, |l| l.baseline);
-            for (i, c) in sample.chars().enumerate().skip(take.start).take(take.len()) {
-                let (run, glyph) = glyphs[i];
+            for (k, (at, c)) in sample.char_indices().enumerate() {
+                if !take.contains(&at) {
+                    continue;
+                }
+                let (run, glyph) = glyphs[k];
                 // Every taken figure has a figure after it, so its advance is the gap.
-                let advance = glyphs[i + 1].1.x - glyph.x;
+                let advance = glyphs[k + 1].1.x - glyph.x;
                 let figure = Figure {
                     font: run.font.clone(),
                     size: run.size,
@@ -210,11 +239,28 @@ impl Numerals {
                 figures.push((c, figure));
             }
         }
-        Ok(Some(Numerals { figures, baseline }))
+        Ok(Some(Numerals { figures, baseline, format, locale, minus }))
+    }
+
+    /// The number `p` of the way from `a` to `b`, as its label spells it: in the
+    /// encoding's format, else to as many places as either end shows.
+    pub fn count(&self, a: f64, b: f64, p: f32) -> String {
+        let v = a + (b - a) * f64::from(p);
+        let text = match &self.format {
+            Some(f) => f.format(v, self.locale),
+            None => {
+                let places = |x: f64| {
+                    let s = NumberFormat::plain().format(x, self.locale);
+                    s.split_once(self.locale.decimal).map_or(0, |(_, f)| f.len())
+                };
+                NumberFormat::fixed(places(a).max(places(b))).format(v, self.locale)
+            }
+        };
+        typeset_minus(text, self.minus)
     }
 
     /// `text` spelled from the figures, as glyph runs relative to the text's top-left
-    /// corner, and its advance. `None` if a character is not one of [`FIGURES`].
+    /// corner, and its advance. `None` if a character has no figure.
     pub fn compose(&self, text: &str) -> Option<(Vec<GlyphRun>, f32)> {
         let mut runs: Vec<GlyphRun> = Vec::new();
         let mut x = 0.0;
@@ -239,6 +285,42 @@ impl Numerals {
             x += f.advance;
         }
         Some((runs, x))
+    }
+}
+
+/// `text` with its minus signs as `minus`: U+2212 where the font has it, else the
+/// hyphen-minus.
+fn typeset_minus(text: String, minus: char) -> String {
+    if minus == MINUS { text } else { text.replace(MINUS, &minus.to_string()) }
+}
+
+/// How a category prints: a date column through a date format, a number column through
+/// a number format.
+enum CategoryFormat {
+    Number(NumberFormat),
+    Date(DateFormat),
+}
+
+impl CategoryFormat {
+    /// `spec` for a column of type `kind`; a string column takes no format.
+    fn parse(spec: &str, kind: ColumnType, field: &str) -> Result<CategoryFormat, EngineError> {
+        let bad = |e: scaena_core::format::FormatError| EngineError::Layout(format!("`x.format`: {e}"));
+        match kind {
+            ColumnType::Number => Ok(CategoryFormat::Number(NumberFormat::parse(spec).map_err(bad)?)),
+            ColumnType::Date => Ok(CategoryFormat::Date(DateFormat::parse(spec).map_err(bad)?)),
+            _ => Err(EngineError::Layout(format!(
+                "`x.format` formats numbers and dates; `{field}` is a {} column",
+                kind.name()
+            ))),
+        }
+    }
+
+    fn print(&self, d: &Datum, locale: &Locale) -> String {
+        match (self, d) {
+            (CategoryFormat::Number(f), Datum::Number(n)) => f.format(*n, locale),
+            (CategoryFormat::Date(f), Datum::Date(t)) => f.format(*t, locale),
+            (_, d) => d.label(),
+        }
     }
 }
 
@@ -297,9 +379,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     if matches!(x.get("type").and_then(Value::as_str), Some("quantitative" | "temporal")) {
         return Err(EngineError::NotImplemented("continuous x scales — PLAN 1.9"));
     }
-    if y.contains_key("format") {
-        return Err(EngineError::NotImplemented("number formats — PLAN 1.9"));
-    }
+    let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
+    let y_format = (y.get("format").and_then(Value::as_str))
+        .map(|f| NumberFormat::parse(f).map_err(|e| EngineError::Layout(format!("`y.format`: {e}"))))
+        .transpose()?;
     let field =
         |e: &serde_json::Map<String, Value>| e.get("field").and_then(Value::as_str).unwrap_or_default().to_string();
     let (x_field, y_field) = (field(x), field(y));
@@ -310,6 +393,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let table = data::load(cx.deck, cx.data, source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?)?;
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
     let (xc, yc, kc) = (col(&x_field)?, col(&y_field)?, col(&key_field)?);
+    let x_format = (x.get("format").and_then(Value::as_str))
+        .map(|f| CategoryFormat::parse(f, table.types[xc], &x_field))
+        .transpose()?;
     let mut rows: Vec<(String, f64, String)> = Vec::with_capacity(table.rows.len());
     let mut seen = BTreeSet::new();
     for row in &table.rows {
@@ -320,7 +406,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         if !seen.insert(key.clone()) {
             return Err(EngineError::Data(format!("key `{key}` repeats; chart keys must be unique")));
         }
-        rows.push((row[xc].label(), v, key));
+        let category = match &x_format {
+            Some(f) => f.print(&row[xc], locale),
+            None => row[xc].label(),
+        };
+        rows.push((category, v, key));
     }
     if rows.is_empty() {
         return Err(EngineError::Data("chart data has no rows".into()));
@@ -364,12 +454,23 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(cx.theme.text_role(role)?, text) };
         cx.text.layout(cx.fonts, cx.theme, &spec, f32::INFINITY)
     };
+    let value_format = y_format.clone().unwrap_or_else(NumberFormat::plain);
+    let labelled_any = (0..rows.len()).map(&labelled).collect::<Result<Vec<_>, _>>()?.into_iter().any(|l| l);
+    // The minus sign the labels' font sets: U+2212 if it has one.
+    let minus = match labelled_any {
+        true => {
+            let probe = set(format!("{MINUS}0"), &label_role)?;
+            if probe.runs.iter().flat_map(|r| &r.glyphs).any(|g| g.id == 0) { '-' } else { MINUS }
+        }
+        false => MINUS,
+    };
     let mut values = Vec::new();
     for (i, (_, v, _)) in rows.iter().enumerate() {
-        values.push(if labelled(i)? { Some(set(data::format_number(*v), &label_role)?) } else { None });
+        let text = typeset_minus(value_format.format(*v, locale), minus);
+        values.push(if labelled(i)? { Some(set(text, &label_role)?) } else { None });
     }
-    let numerals = match values.iter().any(Option::is_some) {
-        true => Numerals::shape(|c| set(c, &label_role))?,
+    let numerals = match labelled_any {
+        true => Numerals::shape(&value_format.alphabet(locale), y_format, locale, minus, |c| set(c, &label_role))?,
         false => None,
     };
     let ticks: Vec<TextLayout> = rows.iter().map(|(c, ..)| set(c.clone(), &tick_role)).collect::<Result<_, _>>()?;

@@ -716,7 +716,9 @@ fn counting_figures_spell_numbers_as_shaping_does() {
     let numerals = numerals(&mut fx, "chart");
     let mut fonts = bundle_fonts(&fx.deck, false);
     let mut engine = TextEngine::new();
-    let samples = ["-7", "0.5", "12.25", "1,024", "-0.75", "100.5", "-1,000.25", "38.0"];
+    // The chart has no `format`, so labels count in the default form: no grouping, and a
+    // hyphen-minus, since these fonts have no U+2212.
+    let samples = ["-7", "0.5", "12.25", "1024", "-0.75", "100.5", "-1000.25", "38.0"];
     for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
         let spec = TextSpec {
             numeric: Some(scaena_engine::theme::Numeric::TabularLining),

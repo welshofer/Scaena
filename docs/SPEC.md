@@ -308,15 +308,15 @@ Rules:
 - Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
 - A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
 - Label collision is lint **W310**; the engine MAY auto-resolve with `labels.collide: "hide" | "nudge"`.
-- Number/date formatting uses a d3-format / ICU-compatible subset defined in `docs/spec/format.md` (Phase 1).
+- Numbers and dates print through an encoding's `format`, in d3's grammar plus a compact type `k` (`$.2~k` prints `$1.2B`). They print in the deck's language (`meta.lang`), and identically on every platform (`docs/spec/format.md`).
 
 **Phase 0 compile (PLAN 0.10).** `bar` with one series on an ordinal `x`.
 - **Marks.** Every datum is a bar keyed by `key` (default: the `x` field), in the theme's first `data.categorical` color, `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end.
 - **Scale.** `y` runs from `domain[0]` (else `min(0, data)`) to `domain[1]` (else the data maximum). The plot leaves room above the bars for value labels.
-- **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each bar (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures. Without a `format`, integers print bare and other numbers in shortest round-trip form.
+- **Labels.** Category labels sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) puts value labels one space unit above each bar (below a negative bar), in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format` (else as d3 prints a number with no format: `0.1 + 0.2` prints `0.3`). Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
 - **Clip.** A chart clips at its cell's sides, so bars that ride out of a scrolling window pass under them. Vertically it draws on the whole canvas, so a figure that overshoots the cap height keeps its top.
 - **Motion.** A matched bar interpolates its shape. A new key grows from the baseline and a removed one shrinks onto it, each moving with its nearest matched neighbor (the earlier on a tie), so a window that advances a period scrolls. A value label rides its bar and counts at as many decimals as either end shows, from 0 for a new key and to 0 for a removed one, fading in or out with it. A chart that enters grows its values in; one that exits shrinks them out. Counting labels are spelled from the label's figures shaped once per snapshot, so frames never shape (§5); text the figures cannot spell cross-fades.
-- **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, `format`, and `dataTransform` return NotImplemented until the chart and table sprint (PLAN 1.9).
+- **Later.** Every other kind, multiple series, color encodings, legends, `axes` settings, and `dataTransform` return NotImplemented until the rest of the chart and table sprint (PLAN 1.9).
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -384,7 +384,7 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "field": "number|string|date|boolean" }, "parse": { "date": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types `number`, `string`, and `boolean` parse in Phase 0; `date` and `parse` arrive in PLAN 1.9. Charts reference `@name` and MAY apply a transform pipeline, `dataTransform` (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts reference `@name` and MAY apply a transform pipeline, `dataTransform` (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
 
 ### 3.11 Spine
 
@@ -654,7 +654,7 @@ scaena mcp                                            # stdio MCP server exposin
 
 All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
 
-`validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
+`validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
 `theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
 
@@ -696,7 +696,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E100 | error | text overflow (wrap/clip) |
 | E101 | error | unintended collision between nodes in the same layer |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
-| E103 | error | chart field missing in data / type mismatch |
+| E103 | error | what a chart reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates); a value that does not fit its column's schema type or `parse` format |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
 | E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take) |

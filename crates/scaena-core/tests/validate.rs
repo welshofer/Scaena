@@ -42,12 +42,44 @@ fn triggers(code: &str, deck: &str, paths: &[&str]) {
 fn clean_fixtures_validate() {
     for (code, deck) in [
         ("E102", fixture!("E102", "clean")),
+        ("E103", fixture!("E103", "clean")),
         ("E104", fixture!("E104", "clean")),
         ("E105", fixture!("E105", "clean")),
         ("E106", fixture!("E106", "clean")),
     ] {
         assert_eq!(findings(deck), Vec::<String>::new(), "tests/lint/{code}/clean.deck.json");
     }
+}
+
+#[test]
+fn e103_fields_charts_cannot_read() {
+    triggers(
+        "E103",
+        fixture!("E103", "trigger"),
+        &[
+            "/data/bad/source",
+            "/nodes/a/key",
+            "/nodes/a/x/field",
+            "/nodes/b/x/format",
+            "/nodes/b/y/type",
+            "/states/1/props/c/y/field",
+        ],
+    );
+    let found = validate_bundle(fixture!("E103", "trigger"), &Fixtures).unwrap();
+    let say = |path: &str| found.iter().find(|f| f.path.as_deref() == Some(path)).unwrap().message.clone();
+    assert!(say("/nodes/a/x/field").contains("has no column `qtr`; it has `quarter`, `rev`, `when`"));
+    assert!(say("/nodes/b/y/type").contains("declare it `number`"), "{}", say("/nodes/b/y/type"));
+    assert!(say("/data/bad/source").contains("`seven` is not a number"));
+}
+
+#[test]
+fn a_format_that_does_not_parse_is_e106() {
+    let deck = fixture!("E103", "clean").replace("\"$,.0f\"", "\"$,.0q\"");
+    let found = validate_bundle(&deck, &Fixtures).unwrap();
+    let codes: Vec<(String, String)> =
+        found.iter().map(|f| (f.code.clone(), f.path.clone().unwrap_or_default())).collect();
+    assert_eq!(codes, [("E106".to_string(), "/nodes/a/y/format".to_string())], "{found:#?}");
+    assert!(found[0].message.contains("not a number type"));
 }
 
 #[test]
