@@ -1,0 +1,140 @@
+# Authorability transcript
+
+## (a) Create the deck
+
+### Request (verbatim)
+
+> "Here's our revenue by quarter and product (data/q3-revenue.csv). Q3 2026 revenue reached $57.6M, double Q4 2025's $28.7M, and Pro grew from a fifth of revenue to a third. Build a six-state deck for the board that shows the growth and the mix shift."
+
+Constraints given: exactly six states, dusk theme, follow `skills/author-deck/SKILL.md`, `validate` and `lint` clean.
+
+Read first: SPEC §0–§17 (focus on §2–§4 and §7), `deck.schema.json`, `theme.schema.json`, `docs/examples/revenue.deck.json`, both skills, `data/q3-revenue.csv`, and `themes/dusk.theme.json`.
+
+### CLI commands
+
+All commands were run from `docs/examples/authorability/` with `S=/home/user/Scaena/target/debug/scaena`.
+
+| # | Command | Exit | Output |
+|---|---|---|---|
+| 1 | `scaena --help` | 0 | command list: validate, lint, inspect, diff work; compile/decompile/patch/theme/serve/mcp point at PLAN tasks |
+| 2 | `scaena validate --help`, `lint --help`, `inspect --help`, `diff --help`, `render --help`, `export --help` | 0 each | usage only. `lint` has `--state`, `--severity`, `--fix` (PLAN 1.15). `inspect` without `--state` shows all states. |
+| 3 | `scaena validate deck.json` (first draft) | 0 | `ok: no findings` |
+| 4 | `scaena lint deck.json --json` | 0 | `[]` |
+| 5 | `scaena validate .` | 0 | `ok: no findings` |
+| 6 | `scaena lint .` | 0 | `ok: no findings` / `(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)` |
+| 7 | `scaena lint deck.json --severity info` | 0 | same as 6 |
+| 8 | `scaena inspect deck.json --state <id>` for all six states | 0 each | tracking as intended, except in `mix`: `rev-chart at={"col":[1,12],"row":[2,5],"in":"…` |
+| 9 | `scaena inspect deck.json --state mix --json` | 0 | the chart's resolved `at` was `{"col":[1,12],"row":[2,5],"in":"aside"}`. The state delta was merged key by key into the tracked object, not replaced. **Fixed:** the delta became `at: {col:[8,12], row:[2,5]}`. |
+| 10 | `scaena validate deck.json` | 0 | `ok: no findings` |
+| 11 | `scaena lint deck.json --json` | 0 | `[]` |
+| 12 | `scaena inspect deck.json --state mix` | 0 | `rev-chart kind=stackedBar … at={"col":[8,12],"row":[2,5]}`, + pro-share, + pro-share-meaning, exited headline, chart-source |
+| 13 | `scaena inspect deck.json --state close --json` | 0 | layout `title` (tracked from `cover`). Entered bg, title (claim), subtitle (evidence). Exited rev-chart, pro-share, pro-share-meaning. |
+| 14 | `scaena diff deck.json --from cover --to topline` | 0 | enter q3-total, q3-total-meaning, q3-total-detail; exit bg, title, subtitle |
+| 15 | `scaena diff deck.json --from topline --to quarters` | 0 | enter headline, rev-chart, chart-source; exit q3-total, q3-total-meaning, q3-total-detail |
+| 16 | `scaena diff deck.json --from quarters --to products` | 0 | `{"headline":{"change":{"text":"Pro added the most"}},"rev-chart":{"change":{"kind":"bar"}}}`: the build changes only these two |
+| 17 | `scaena diff deck.json --from products --to mix` | 0 | rev-chart change `kind: stackedBar`, `at: {col:[8,12],row:[2,5]}`; enter pro-share, pro-share-meaning; exit headline, chart-source |
+| 18 | `scaena diff deck.json --from mix --to close` | 0 | enter bg, title, subtitle; exit rev-chart, pro-share, pro-share-meaning |
+| 19 | `scaena inspect deck.json` | 0 | all six states, slides: cover, topline, quarters (quarters + products), mix, close |
+| 20 | `scaena inspect deck.json --json` (inside the copy-fit script below) | 0 | the snapshots the script read |
+| 21 | **Final:** `scaena validate deck.json` / `--json` | 0 / 0 | `ok: no findings` / `[]` |
+| 22 | **Final:** `scaena lint deck.json --json` / plain | 0 / 0 | `[]` / `ok: no findings` plus the PLAN 1.15 note |
+
+`render` was not run, as instructed. The bundle has no font files.
+
+Checks outside the scaena CLI (python3):
+- Figures from the CSV:
+  - Totals: $28.7M, $34.7M, $43.3M, $57.6M. Ratio 2.007. Change +$28.9M.
+  - Quarter-over-quarter growth: +20.9%, +24.8%, +33.0%.
+  - Pro share: 21.3%, 25.6%, 29.3%, 33.7%. Growth 3.18×, +$13.3M.
+  - Enterprise share: 15.3% to 24.8%. Growth 3.25×, +$9.9M.
+  - Core share: 63.4% to 41.5%. Growth 1.31×, +$5.7M.
+  - Every product grew in every quarter.
+- `jsonschema` (Draft 2020-12): `deck.json` is valid against `deck.schema.json`, and `themes/dusk.theme.json` is valid against `theme.schema.json`.
+- Script checks: no id is used in more than one collection (nodes, states, sections, beats, data), and each state is in exactly one beat.
+- Copy fit by character count against role `measure` and `maxLines` (greedy): every text is within its limits. Words per state: 9, 19, 9, 11, 13, 16 (limit 40).
+
+### Decisions
+
+- Bundle: `theme: themes/dusk.theme.json`; canvas 1920×1080 cu; no `formats` (a 16:9 board deck only); `meta` has title, lang, and description, with no invented author or date.
+- `fonts`: Fraunces and Inter, with files and axes copied from the theme's `display` and `body` families (as in the example deck). The mono family is unused.
+- Data: id `revenue` → `data/q3-revenue.csv`. Schema: quarter and product are `string`; revenue and customers are `number`.
+- Spine (one beat per state, 6 beats in 4 sections):
+  - opening/`thesis` [cover]
+  - growth/`doubled` [topline]
+  - growth/`accelerated` [quarters]
+  - mix-shift/`pro-led` [products]
+  - mix-shift/`pro-third` [mix]
+  - closing/`takeaway` [close]
+  - Every beat has `evidence: ["@revenue"]`, and its notes carry the derived figures.
+- Ids are globally unique across nodes, states, sections, beats, and data.
+- States and layouts:
+  - `cover`: title layout
+  - `topline`: stat layout
+  - `quarters`: full layout
+  - `products`: build on `quarters` (`slide: "quarters"`, layout tracked)
+  - `mix`: stat layout
+  - `close`: `from: "cover"`, with the layout and nodes tracked from the cover
+- Nodes:
+  - `bg`: shader/mesh
+  - `title`, `subtitle`: text
+  - `q3-total`, `q3-total-meaning`, `q3-total-detail`: text
+  - `headline`: text
+  - `rev-chart`: chart
+  - `chart-source`: text
+  - `pro-share`, `pro-share-meaning`: text
+- Text placement uses slots: title/subtitle, number/meaning/aside, header/footer. Each text node sets its role explicitly, matching the slot's default role.
+- Chart: one persistent node, `rev-chart`, keeps its identity through three states. Its kind goes `stackedBar` (quarters) → `bar` (products: the bars regroup) → `stackedBar` (mix: it restacks and moves aside).
+- Chart encodings:
+  - `x`: quarter, ordinal
+  - `y`: revenue, quantitative; `format: "$,.1f"`; `domain: [0, null]`; `title: "Revenue ($M)"`
+  - `series` and `color`: product, with the `categorical` scale
+  - `labels.show: ends`; `legend: top`
+  - `alt` gives each product's figures, start to end
+- Chart key: `key: "product"`, following the example deck. Marks are presumably identified by (quarter, product).
+- Chart placement uses grid cells, `col [1,12] row [2,5]`, not `in: main`. In the theme, `main` spans rows 1–6, which would overlap the `header` (row 1) and `footer` (row 6) slots.
+- In `mix` the chart goes to `col [8,12] row [2,5]`, the theme's `stat.aside` geometry. A grid range, not `in: aside`, because of the merge finding (finding 1).
+- The `headline` node persists across the build: "Growth accelerated" becomes "Pro added the most". The `chart-source` caption persists, unchanged.
+- The mix shift is shown with absolute data (Pro's band in the stacked bars, plus the "34%" stat), not a 100%-stacked chart (finding 2).
+- Transitions:
+  - `cover`: none (the first state cuts)
+  - `topline`, `quarters`, `close`: `standard`
+  - `products`, `mix`: `slow` (the bars regroup, then the chart moves and restacks)
+- Choreography gives one entrance per new focal object:
+  - `cover`: `words` on title (`with`), then `rise` on subtitle with delay 240
+  - `topline`: `rise` on q3-total
+  - `quarters`: `grow` on rev-chart (`after`)
+  - `mix`: `rise` on pro-share
+  - None on `products` (the morph is the motion) or on `close`.
+- No `hold`: the deck is presented live to a board, not exported to video. The skill makes `hold` conditional on video.
+- `bg` (mesh, seed 7, palette `dusk`, the params of the theme's `mesh-soft` preset, z −100, `alt: ""`, `decoration`) appears on cover and close only. It is removed for the data states for legibility; `close` gets it back through `from: "cover"`.
+- Semantics: exactly one `claim` node per state (title, q3-total-meaning, headline ×2, pro-share-meaning, title). Numbers and the chart are `evidence`, the caption is `source`, the subtitle is `context` on the cover and `evidence` on the close, and `bg` is `decoration`.
+- Speaker notes live on beats only, not on states, to avoid duplicating them.
+- Copy was checked against the data:
+  - "Pro added the most" (in dollars), not "grew fastest": Enterprise grew 3.25× against Pro's 3.18×.
+  - "In three quarters": Q4 2025 → Q3 2026 is three quarter-steps, so not "year over year" as in the example deck.
+  - "Growth accelerated": quarter-over-quarter growth was +21%, +25%, +33%.
+- Typographic apostrophes (’) are used in copy.
+- Skill step 1 ("ask one question if the brief is thin") was not needed; the brief plus the CSV were enough. Skill step 7 (render) was skipped as instructed; `inspect` and `diff` were used instead.
+
+### Could not express, or ambiguous
+
+1. **Object-valued props merge across states.** A state delta `at: {in: "aside"}` on a node tracked with `at: {col, row}` resolved to `{col, row, in}`, and validate and lint both passed it. The schema has no way to unset a tracked key (`null` is not a valid `Range`), so a node can't switch between grid-cell and slot placement without restating grid cells (or using `mode: absolute`). SPEC §2.2 says unchanged *properties* carry forward. It does not say that object values merge, or which of `in` and `col`/`row` wins when both are present.
+2. **No share-of-total chart from the CSV.**
+   - There is no normalize / 100%-stack option.
+   - The schema has `dataTransform`, but the derive/aggregate expression language is unspecified (Phase 1).
+   - A hand-computed inline share dataset would go stale when the CSV changes, so I didn't add one.
+   - SPEC §3.7 calls the pipeline `transform`. In the schema, `transform` is the geometric Transform, and the pipeline is `dataTransform`.
+3. **Multi-series `key`.** The SPEC and the example use `key: "product"` with `x: quarter`, so four marks share each key value. Mark identity is presumably (x, key) but is not stated, and `key` takes a single field.
+4. **`labels.show: "ends"` on stacked or grouped bars.** Unspecified whether the label is per segment or per stack total.
+5. **Category → color order is unspecified.** There is no way to give Pro the accent color, and `Encoding.domain` holds only 2 items. The example deck's notes call Pro "the orange band", although Pro is not the first product in the data.
+6. **Chart axes.** SPEC §3.7 says charts can't declare axes settings until PLAN 1.1. The schema's `axesSpec` has no documented meaning, so I left the defaults.
+7. **`format` can't append a unit** (`$57.6M`), and `docs/spec/format.md` doesn't exist. I used `$,.1f`, plus the y title "Revenue ($M)" and the caption.
+8. **Theme shader presets can't be referenced.** A node has no field to name a theme shader preset (`mesh-soft`), so I copied its params.
+9. **Id uniqueness scope.** SPEC §3.2 says ids are unique "across `nodes`, across `states`, and across spine `beats`". That could mean within each collection or across all of them, and sections and data ids aren't mentioned. I kept every id globally unique.
+10. **`slide`.** The example sets `slide: <first state id>` only on the follow-on build states. Not stated: whether the first state should carry it too, and whether slide ids share the state namespace. I followed the example; inspect shows `slide=quarters` for both states.
+11. **Re-entering nodes.** Not stated whether a removed node resumes its last tracked props or its node defaults when it re-enters. I avoided the question with `from: "cover"` on `close`; inspect confirms the cover's props.
+12. **Where speaker notes go.** Notes can live on beats or on states, and the docs don't say which one a presenter view reads.
+13. **W422 vs. the stat layout.** The reserved rule W422 (evidence outranks the claim by role size) conflicts with the `stat` layout: a numeral `evidence` above a `title`-role `claim` would trip it. The rule isn't implemented yet.
+14. **`takeaway` semantic vs. the claim rule.** The close's title is semantically a `takeaway`, but it is marked `claim` to satisfy the skill rule that each beat's states include a claim node.
+15. **What "clean" covers.** `validate` and `lint` don't check that the font files listed in `fonts` exist (the bundle has none, and both are clean). Lint has no layout-level rules yet (overflow, contrast, collisions: PLAN 1.15). Copy fit, slot overlaps, and contrast over the mesh are therefore unverified; ink over the mesh's `#FF6A3D` stop is about 2.5:1 by hand calculation.
+16. **Choreography timing.** Unspecified whether a node with an `after` choreography `enter` stays hidden until it runs, or fades in with the transition first.
