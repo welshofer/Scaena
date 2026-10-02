@@ -2,6 +2,11 @@
 //! theme's table styles once per snapshot. Every cell is laid-out text keyed by its row
 //! and its column, so a transition moves a row that persists to where it now stands and
 //! fades rows and columns in and out ([`crate::sample`]).
+//!
+//! A table is set ([`set`]) before it has a box, so it has a size of its own, as text
+//! does: its columns across and its rows down. A container measures it by that
+//! ([`crate::containers`], SPEC §3.4), and [`Typeset::place`] lays it out in the box it
+//! gets.
 
 use crate::EngineError;
 use crate::charts::{CategoryFormat, Ctx, Rule, typeset_minus};
@@ -58,8 +63,37 @@ struct Column {
     numeric: bool,
 }
 
+/// A table set for one snapshot before it has a box: its columns, every cell's text, and
+/// its rules. Its size as content ([`Typeset::width`], [`Typeset::height`]) is what it
+/// asks a container for (SPEC §3.4).
+pub struct Typeset {
+    columns: Vec<Column>,
+    /// Each body row's key.
+    keys: Vec<String>,
+    /// The header row's text by column; none without a header.
+    header: Option<Vec<Option<TextLayout>>>,
+    /// Each body row's text by column; a null or empty cell has none.
+    body: Vec<Vec<Option<TextLayout>>>,
+    /// Each column's width: its widest text.
+    widths: Vec<f32>,
+    column_gap: f32,
+    row_gap: f32,
+    stretch: bool,
+    /// The rule under the header, and the rules between rows: a stroke and a color, which
+    /// [`Typeset::place`] lays where they go.
+    header_rule: Rule,
+    row_rule: Option<Rule>,
+}
+
 /// Lay out a table node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayout, EngineError> {
+    let lenient = cx.lenient;
+    set(cx, props)?.place(size, lenient)
+}
+
+/// Set a table node's resolved props: its rows through `dataTransform`, its columns, and
+/// every cell's text in the theme's table styles.
+pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("table has no `data`".into()))?;
     let table = data::transform(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
@@ -143,7 +177,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
         let Color([red, green, blue, a]) = theme.color(r.color.as_deref().unwrap_or("onSurfaceMuted"))?;
         let opacity = r.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
         let color = Color([red, green, blue, (f64::from(a) * opacity).round() as u8]);
-        Ok(Rule { from: [0.0, 0.0], to: [size[0], 0.0], width, color })
+        Ok(Rule { from: [0.0, 0.0], to: [0.0, 0.0], width, color })
     };
     let default_rule = scaena_core::model::theme::ChartRule { role: None, stroke: None, color: None, opacity: None };
     let header_rule = rule_of(styles.and_then(|t| t.rule.as_ref()).unwrap_or(&default_rule))?;
@@ -163,11 +197,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
         }
         false => MINUS,
     };
-    let show_header = props.get("header").and_then(Value::as_bool).unwrap_or(true);
-    let header: Vec<Option<TextLayout>> = columns
-        .iter()
-        .map(|c| if show_header { set(c.title.clone(), &head_role, false).map(Some) } else { Ok(None) })
-        .collect::<Result<_, _>>()?;
+    let header: Option<Vec<Option<TextLayout>>> = match props.get("header").and_then(Value::as_bool).unwrap_or(true) {
+        true => {
+            Some(columns.iter().map(|c| set(c.title.clone(), &head_role, false).map(Some)).collect::<Result<_, _>>()?)
+        }
+        false => None,
+    };
     let mut body: Vec<Vec<Option<TextLayout>>> = Vec::with_capacity(table.rows.len());
     for row in &table.rows {
         let mut cells = Vec::with_capacity(columns.len());
@@ -186,80 +221,117 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
 
     // Widths: each column as wide as its widest text.
     let mut widths: Vec<f32> = vec![0.0; columns.len()];
-    for row in std::iter::once(&header).chain(&body) {
+    for row in header.iter().chain(&body) {
         for (w, cell) in widths.iter_mut().zip(row) {
             *w = w.max(cell.as_ref().map_or(0.0, |t| t.width));
         }
     }
-    let need = widths.iter().sum::<f32>() + column_gap * (columns.len() - 1) as f32;
-    if need > size[0] {
-        return Err(EngineError::Layout(format!(
-            "table needs {need:.0} cu across for its {} columns, and its cell is {:.0}: show fewer columns, or give it more room",
-            columns.len(),
-            size[0]
-        )));
-    }
-    // As wide as its columns, at the cell's start; a theme that stretches its tables
-    // gives the first column the room the cell has to spare.
     let stretch = styles.and_then(|t| t.stretch).unwrap_or(false);
-    if stretch {
-        widths[0] += size[0] - need;
-    }
-    let span = if stretch { size[0] } else { need };
-    let lefts: Vec<f32> = widths
-        .iter()
-        .scan(0.0, |x, w| {
-            let at = *x;
-            *x += w + column_gap;
-            Some(at)
-        })
-        .collect();
+    Ok(Typeset { columns, keys, header, body, widths, column_gap, row_gap, stretch, header_rule, row_rule })
+}
 
-    // Rows: each its tallest text with `row_gap` above and below, the cells' first
-    // baselines on one line.
-    let mut out =
-        TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
-    let mut y = 0.0_f32;
-    let place = |cells: Vec<Option<TextLayout>>, row: &str, index: u32, y: &mut f32| -> Vec<Cell> {
-        let baseline = cells.iter().flatten().filter_map(|t| t.lines.first()).map(|l| l.baseline).fold(0.0, f32::max);
-        let height = cells.iter().flatten().map(|t| t.height).fold(0.0_f32, f32::max);
-        let mut placed = Vec::new();
-        for (k, ((c, text), (left, width))) in columns.iter().zip(cells).zip(lefts.iter().zip(&widths)).enumerate() {
-            let Some(text) = text else { continue };
-            let first = text.lines.first().map_or(0.0, |l| l.baseline);
-            let origin = [left + c.align * (width - text.width), *y + row_gap + baseline - first];
-            let anchor = [left + c.align * width, *y + row_gap + baseline];
-            let at = [index, k as u32];
-            placed.push(Cell { row: row.to_string(), column: c.field.clone(), at, origin, anchor, text });
-        }
-        *y += row_gap + height + row_gap;
-        placed
-    };
-    if show_header {
-        out.header = place(header, "", 0, &mut y);
-        out.rule = Some(Rule { from: [0.0, y], to: [span, y], ..header_rule });
+/// How far a row reaches down: its tallest text, with `row_gap` above and below.
+fn row_depth(row_gap: f32, cells: &[Option<TextLayout>]) -> f32 {
+    let tallest = cells.iter().flatten().map(|t| t.height).fold(0.0_f32, f32::max);
+    row_gap + tallest + row_gap
+}
+
+impl Typeset {
+    /// How wide its columns are together, `tables.columnGap` apart: the width it needs.
+    pub fn width(&self) -> f32 {
+        self.widths.iter().sum::<f32>() + self.column_gap * (self.widths.len() - 1) as f32
     }
-    let rows = body.len();
-    for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
-        out.cells.extend(place(cells, key, r as u32 + 1, &mut y));
-        if let Some(rule) = &row_rule
-            && r + 1 < rows
-        {
-            out.row_rules.push((key.clone(), Rule { from: [0.0, y], to: [span, y], ..rule.clone() }));
-        }
+
+    /// How tall its rows are, the header's included, each its tallest text with
+    /// `tables.rowGap` above and below. Rules lie on the lines between rows and take no
+    /// room of their own.
+    pub fn height(&self) -> f32 {
+        self.header.iter().chain(&self.body).fold(0.0, |y, row| y + row_depth(self.row_gap, row))
     }
-    if y > size[1] + 0.5 {
-        let head = out.rule.as_ref().map_or(0.0, |r| r.from[1]);
-        let pitch = (y - head) / rows.max(1) as f32;
-        let fits = ((size[1] - head) / pitch).floor().max(0.0);
-        let why = format!(
-            "table shows {rows} rows in {y:.0} cu, and its cell is {:.0} high: keep about {fits:.0} with `dataTransform` ({{ \"limit\": {fits:.0} }}), or give it more room",
-            size[1]
-        );
-        if !cx.lenient {
-            return Err(EngineError::Layout(why));
-        }
-        out.overflow = Some(why);
+
+    /// Whether it spans its cell (`tables.stretch`) rather than standing as wide as its
+    /// columns at the cell's start.
+    pub fn stretches(&self) -> bool {
+        self.stretch
     }
-    Ok(out)
+
+    /// Lay the table out in a cell `size` wide and high. A table that needs more room
+    /// than that is an error that says what to cut; under `lenient`, rows that do not fit
+    /// are laid out anyway, and why kept for lint (E100).
+    pub fn place(self, size: [f32; 2], lenient: bool) -> Result<TableLayout, EngineError> {
+        let need = self.width();
+        let Typeset { columns, keys, header, body, mut widths, column_gap, row_gap, stretch, header_rule, row_rule } =
+            self;
+        if need > size[0] {
+            return Err(EngineError::Layout(format!(
+                "table needs {need:.0} cu across for its {} columns, and its cell is {:.0}: show fewer columns, or give it more room",
+                columns.len(),
+                size[0]
+            )));
+        }
+        // As wide as its columns, at the cell's start; a theme that stretches its tables
+        // gives the first column the room the cell has to spare.
+        if stretch {
+            widths[0] += size[0] - need;
+        }
+        let span = if stretch { size[0] } else { need };
+        let lefts: Vec<f32> = widths
+            .iter()
+            .scan(0.0, |x, w| {
+                let at = *x;
+                *x += w + column_gap;
+                Some(at)
+            })
+            .collect();
+
+        // Rows: each its tallest text with `row_gap` above and below, the cells' first
+        // baselines on one line.
+        let mut out =
+            TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
+        let mut y = 0.0_f32;
+        let place = |cells: Vec<Option<TextLayout>>, row: &str, index: u32, y: &mut f32| -> Vec<Cell> {
+            let baseline =
+                cells.iter().flatten().filter_map(|t| t.lines.first()).map(|l| l.baseline).fold(0.0, f32::max);
+            let depth = row_depth(row_gap, &cells);
+            let mut placed = Vec::new();
+            for (k, ((c, text), (left, width))) in columns.iter().zip(cells).zip(lefts.iter().zip(&widths)).enumerate()
+            {
+                let Some(text) = text else { continue };
+                let first = text.lines.first().map_or(0.0, |l| l.baseline);
+                let origin = [left + c.align * (width - text.width), *y + row_gap + baseline - first];
+                let anchor = [left + c.align * width, *y + row_gap + baseline];
+                let at = [index, k as u32];
+                placed.push(Cell { row: row.to_string(), column: c.field.clone(), at, origin, anchor, text });
+            }
+            *y += depth;
+            placed
+        };
+        if let Some(header) = header {
+            out.header = place(header, "", 0, &mut y);
+            out.rule = Some(Rule { from: [0.0, y], to: [span, y], ..header_rule });
+        }
+        let rows = body.len();
+        for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
+            out.cells.extend(place(cells, key, r as u32 + 1, &mut y));
+            if let Some(rule) = &row_rule
+                && r + 1 < rows
+            {
+                out.row_rules.push((key.clone(), Rule { from: [0.0, y], to: [span, y], ..rule.clone() }));
+            }
+        }
+        if y > size[1] + 0.5 {
+            let head = out.rule.as_ref().map_or(0.0, |r| r.from[1]);
+            let pitch = (y - head) / rows.max(1) as f32;
+            let fits = ((size[1] - head) / pitch).floor().max(0.0);
+            let why = format!(
+                "table shows {rows} rows in {y:.0} cu, and its cell is {:.0} high: keep about {fits:.0} with `dataTransform` ({{ \"limit\": {fits:.0} }}), or give it more room",
+                size[1]
+            );
+            if !lenient {
+                return Err(EngineError::Layout(why));
+            }
+            out.overflow = Some(why);
+        }
+        Ok(out)
+    }
 }

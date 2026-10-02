@@ -153,6 +153,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Not yet in the engine:*
       - *contrast and size checks for chart text (1.27);*
       - *forms the guide asks for, proposed for Jay to schedule (1H): dashed forecasts and estimates (1.28), horizontal bars (1.29), slopegraphs and dumbbells (1.30), small multiples (1.31).*
+  - *After the thirty-three-slide deck: a table with `size: { h: "fit" }` got a 0-high box (E100, "its cell is 0 high"), since containers measured only text and images. A table now has a size of its own, as text does (SPEC §3.3, §3.4; ADR-0008 amended):*
+    - *its columns across, or under `tables.stretch` the width it is given, and its rows down: the header and each row, with `rowGap` above and below; rules take no room. `tables::set` sets it before it has a box, and what a container measures adds up the rows `Typeset::place` lays out, in the same order, so its box ends at its last row;*
+    - *in a stack it takes its rows, with or without `size: fit`, so a total band sits a `gap` under its last row, and `fill` shares what is left as before;*
+    - *short of room, it takes what is left and E100 says how many rows fit. It asks for no more than it is offered and needs none of it, where CSS's automatic minimum would push what follows past the stack's end.*
+    - *Tests: `containers.rs` in the engine, 2 unit and 2 end to end with the torture deck's fonts. No golden moved: no deck in the repository put a table in a container.*
   - *Open: Jay's review of the gallery and trails renders, then the tick. Next candidates, by the same rule:*
     - *range frames for the value axis;*
     - *white gridlines knocked through bars;*

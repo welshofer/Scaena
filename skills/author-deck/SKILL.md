@@ -48,7 +48,7 @@ Errors:
    - Create each object once, with a meaningful id, a `type`, a `role` (text), and a `semantic` (`claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`).
    - Place a node in a slot of the theme's layout templates with `at: { in: <slot> }` (the theme's `layouts`), or on its grid with `at: { col, row }`.
    - For rows of cards, stat blocks, and photo grids, place a container (`stack`, `grid`, `frame`) like any node, then put each child in it with `at: { parent: <container> }`. The child goes nowhere else, and `at.index` reorders.
-   - In a stack, text and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares).
+   - In a stack, text, tables, and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares). A table takes its rows, so a total band after it sits a `gap` under its last row.
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
 4. **States.**
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
