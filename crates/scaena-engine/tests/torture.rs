@@ -456,12 +456,16 @@ fn kill_quotes_that_open_a_line_hang_outside_the_text_edge() {
         first.width <= p.cell[2] && first.width + first.hang > p.cell[2],
         "fits only with its quote hung: {first:?}"
     );
-    // A hung quote sits at -hang with the next letter on the edge; other lines start on it.
+    // A hung quote sits at -hang with the next letter on the edge; other lines start on it,
+    // or, with optical margins (the role sets them), a little past it: the V of line 2 and
+    // the W of line 5 move out 5% of their advance (PLAN 1.8).
+    let optical: Vec<bool> = p.text.lines.iter().map(|l| l.optical > 0.0).collect();
+    assert_eq!(optical, [false, true, false, false, true], "{lines:?}");
     for (k, line) in p.text.lines.iter().enumerate() {
         let mut xs: Vec<f32> =
             p.text.runs.iter().filter(|r| r.line == k).flat_map(|r| r.glyphs.iter().map(|g| g.x)).collect();
         xs.sort_by(f32::total_cmp);
-        let starts = if line.hang > 0.0 { vec![-line.hang, 0.0] } else { vec![0.0] };
+        let starts = if line.hang > 0.0 { vec![-line.hang, 0.0] } else { vec![-line.optical] };
         assert_eq!(xs[..starts.len()], starts, "line {k}: {}", lines[k]);
     }
     // Not a role option: `specimen` sets neither `hangingPunctuation` nor `opticalMargins`.

@@ -90,6 +90,12 @@ pub struct TextSpec {
     /// The most characters a line may hold, in `ch` of the node's look; the node's or
     /// its role's `measure`.
     pub measure: Option<f32>,
+    /// `hangingPunctuation`: brackets, stops, commas, and hyphens hang at an aligned edge
+    /// as quotation marks always do.
+    pub hanging_punctuation: bool,
+    /// `opticalMargins`: letters and punctuation at an aligned edge move part of their
+    /// width past it, so the edge looks straight.
+    pub optical_margins: bool,
 }
 
 /// How a paragraph's lines sit across its box, in the paragraph's direction (SPEC §3.4).
@@ -116,6 +122,43 @@ impl From<TextAlign> for Edge {
             TextAlign::Start => Edge::Start,
             TextAlign::End => Edge::End,
             TextAlign::Center => Edge::Neither,
+        }
+    }
+}
+
+/// What hangs outside the aligned edge (SPEC §3.5): quotation marks always; with
+/// `hangingPunctuation`, opening brackets at a start edge, and closing brackets, stops,
+/// commas, and hyphens at an end edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Hang {
+    edge: Edge,
+    punctuation: bool,
+}
+
+impl Hang {
+    fn opens(self, c: char) -> bool {
+        is_hanging_quote(c) || (self.punctuation && matches!(c, '(' | '[' | '{'))
+    }
+
+    fn closes(self, c: char) -> bool {
+        is_hanging_quote(c) || (self.punctuation && is_hanging_stop(c))
+    }
+
+    /// Whether anything in `text` could hang at all.
+    fn possible(self, text: &str) -> bool {
+        match self.edge {
+            Edge::Start => text.chars().any(|c| self.opens(c)),
+            Edge::End => text.chars().any(|c| self.closes(c)),
+            Edge::Neither => false,
+        }
+    }
+
+    /// What a line over `line` hangs outside the aligned edge.
+    fn at(self, layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f32 {
+        match self.edge {
+            Edge::Start => hang_start(layout, text, line, rtl, |c| self.opens(c)),
+            Edge::End => hang_end(layout, text, line, rtl, |c| self.closes(c)),
+            Edge::Neither => 0.0,
         }
     }
 }
@@ -156,8 +199,11 @@ pub struct LineBox {
     /// Advance of the quotation marks hung outside the start edge (start-aligned text):
     /// left of `x` on a left-to-right line, right of `x + width` on a right-to-left one.
     pub hang: f32,
-    /// Advance of the quotation marks hung outside the end edge (end-aligned text).
+    /// Advance of the quotation marks hung outside the end edge (end-aligned text), and
+    /// with `hangingPunctuation`, of the stops, commas, hyphens, and brackets.
     pub hang_end: f32,
+    /// How far optical margins moved the line past its aligned edge (`opticalMargins`).
+    pub optical: f32,
     /// Byte range in the node's text (spans concatenated).
     pub text: Range<usize>,
     /// From the line's first run (OS/2), when the font provides it.
@@ -216,6 +262,8 @@ impl TextSpec {
             lang: None,
             align: TextAlign::Start,
             measure: None,
+            hanging_punctuation: false,
+            optical_margins: false,
         }
     }
 }
@@ -260,7 +308,7 @@ impl TextEngine {
         };
 
         let rtl = layout.is_rtl();
-        let edge = Edge::from(spec.align);
+        let hang = Hang { edge: Edge::from(spec.align), punctuation: spec.hanging_punctuation };
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
             Wrap::Greedy => None,
@@ -270,26 +318,27 @@ impl TextEngine {
         let min_words = spec.min_last_line_words.or(base.min_last_line_words).unwrap_or(1) as usize;
         let wrap = match (requested, fallback) {
             (_, Some(_)) | (Wrap::Greedy, _) => {
-                greedy(&mut layout, &text, max_width, rtl, edge);
+                greedy(&mut layout, &text, max_width, rtl, hang);
                 Wrap::Greedy
             }
             (Wrap::Balance, None) => {
-                balance(&mut layout, &text, max_width, rtl, edge);
+                balance(&mut layout, &text, max_width, rtl, hang);
                 Wrap::Balance
             }
             (Wrap::Pretty, None) => {
-                if pretty(&mut layout, &text, max_width, min_words, rtl, edge) {
+                if pretty(&mut layout, &text, max_width, min_words, rtl, hang) {
                     Wrap::Pretty
                 } else {
                     fallback = Some("parley did not break where the pretty plan said");
-                    greedy(&mut layout, &text, max_width, rtl, edge);
+                    greedy(&mut layout, &text, max_width, rtl, hang);
                     Wrap::Greedy
                 }
             }
         };
         // Every line's ink from x = 0, in either direction; `read_layout` places it.
         layout.align(Alignment::Left, AlignmentOptions { align_when_overflowing: true });
-        read_layout(&layout, &text, fonts, Paragraph { wrap, fallback, rtl, align: spec.align, width })
+        let optical = spec.optical_margins;
+        read_layout(&layout, &text, fonts, Paragraph { wrap, fallback, rtl, align: spec.align, hang, optical, width })
     }
 
     /// `ch` in the node's look: the advance of `0` (CSS `ch`), which `measure` counts in.
@@ -410,15 +459,37 @@ fn is_hanging_quote(c: char) -> bool {
     matches!(c, '"' | '\'' | '«' | '»' | '\u{2018}'..='\u{201F}' | '‹' | '›' | '\u{2E42}')
 }
 
+/// What `hangingPunctuation` hangs past an aligned end edge besides quotation marks:
+/// closing brackets, the stops and commas of CSS `hanging-punctuation: allow-end`, and
+/// hyphens.
+fn is_hanging_stop(c: char) -> bool {
+    matches!(
+        c,
+        ')' | ']'
+            | '}'
+            | '.'
+            | ','
+            | '-'
+            | '\u{2010}'
+            | '\u{2011}'
+            | '\u{060C}'
+            | '\u{06D4}'
+            | '\u{3001}'
+            | '\u{3002}'
+            | '\u{FF0C}'
+            | '\u{FF0E}'
+    )
+}
+
 /// What a line over `line` (a byte range of `text`) hangs: the advance of the quotation
 /// marks it opens with, when they are set in the paragraph's direction and so sit on its
 /// start edge. A quote that starts a ligature stays inside.
-fn hang_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f32 {
+fn hang_start(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool, hangs: impl Fn(char) -> bool) -> f32 {
     let mut hang = 0.0;
     let mut next = Cluster::from_byte_index(layout, line.start);
     while let Some(cluster) = next {
         let range = cluster.text_range();
-        let quote = !range.is_empty() && text[range.clone()].chars().all(is_hanging_quote);
+        let quote = !range.is_empty() && text[range.clone()].chars().all(&hangs);
         if range.start >= line.end || !quote || cluster.is_rtl() != rtl || cluster.is_ligature_start() {
             break;
         }
@@ -431,7 +502,7 @@ fn hang_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f
 /// What a line over `line` hangs past its end edge: the advance of the quotation marks it
 /// closes with, before any trailing whitespace, set in the paragraph's direction. A quote
 /// that ends a ligature stays inside.
-fn hang_end_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) -> f32 {
+fn hang_end(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool, hangs: impl Fn(char) -> bool) -> f32 {
     let mut hang = 0.0;
     let mut next = line.end.checked_sub(1).and_then(|last| Cluster::from_byte_index(layout, last));
     let mut trailing = true;
@@ -446,21 +517,12 @@ fn hang_end_at(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool) 
             continue;
         }
         trailing = false;
-        if !chars.chars().all(is_hanging_quote) || cluster.is_rtl() != rtl || cluster.is_ligature_continuation() {
+        if !chars.chars().all(&hangs) || cluster.is_rtl() != rtl || cluster.is_ligature_continuation() {
             break;
         }
         hang += cluster.advance();
     }
     hang
-}
-
-/// What a line over `line` hangs outside the aligned `edge`.
-fn hang_of(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool, edge: Edge) -> f32 {
-    match edge {
-        Edge::Start => hang_at(layout, text, line, rtl),
-        Edge::End => hang_end_at(layout, text, line, rtl),
-        Edge::Neither => 0.0,
-    }
 }
 
 /// Breaks with line `k` at most `max_width + hangs[k]` wide (`max_width` past the end of
@@ -485,8 +547,8 @@ fn break_with(layout: &mut Layout<Ink>, max_width: f32, hangs: &[f32]) {
 /// so each pass breaks with the hangs the previous pass found. Line `k` breaks right once
 /// line `k - 1` has, so the hangs settle within one pass per line; with no quote at an
 /// aligned edge, the first pass is plain greedy and the last.
-fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge: Edge) {
-    if edge == Edge::Neither || !text.contains(is_hanging_quote) {
+fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, hang: Hang) {
+    if !hang.possible(text) {
         layout.break_all_lines(Some(max_width));
         return;
     }
@@ -495,7 +557,7 @@ fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge:
     // keeps a change in parley from becoming a hang in the render path.
     for _ in 0..text.len() + 2 {
         break_with(layout, max_width, &hangs);
-        let found: Vec<f32> = layout.lines().map(|line| hang_of(layout, text, line.text_range(), rtl, edge)).collect();
+        let found: Vec<f32> = layout.lines().map(|line| hang.at(layout, text, line.text_range(), rtl)).collect();
         let settled = found.iter().enumerate().all(|(k, &hang)| hang == hangs.get(k).copied().unwrap_or(0.0));
         if settled {
             return;
@@ -505,8 +567,8 @@ fn greedy(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge:
 }
 
 /// Narrowest width at which greedy breaking keeps the line count it has at `max_width`.
-fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge: Edge) {
-    greedy(layout, text, max_width, rtl, edge);
+fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, hang: Hang) {
+    greedy(layout, text, max_width, rtl, hang);
     let lines = layout.len();
     if lines < 2 {
         return;
@@ -514,14 +576,14 @@ fn balance(layout: &mut Layout<Ink>, text: &str, max_width: f32, rtl: bool, edge
     let (mut lo, mut hi) = (0.0_f32, max_width);
     for _ in 0..BALANCE_STEPS {
         let mid = 0.5 * (lo + hi);
-        greedy(layout, text, mid, rtl, edge);
+        greedy(layout, text, mid, rtl, hang);
         if layout.len() <= lines {
             hi = mid;
         } else {
             lo = mid;
         }
     }
-    greedy(layout, text, hi, rtl, edge);
+    greedy(layout, text, hi, rtl, hang);
 }
 
 /// An unbreakable stretch of text between two break opportunities.
@@ -530,9 +592,9 @@ struct Segment {
     full: f32,
     /// Advance without trailing whitespace (what it adds at the end of a line).
     bare: f32,
-    /// What a line starting with this segment hangs at its start edge (see [`hang_at`]).
+    /// What a line starting with this segment hangs at its start edge (see [`hang_start`]).
     hang: f32,
-    /// What a line ending with this segment hangs at its end edge (see [`hang_end_at`]).
+    /// What a line ending with this segment hangs at its end edge (see [`hang_end`]).
     hang_end: f32,
     text: Range<usize>,
 }
@@ -540,7 +602,7 @@ struct Segment {
 /// Minimum-raggedness breaking with the last line held to `min_words` segments, each
 /// line measured without the quotes it hangs. Returns false when parley's breaker did
 /// not reproduce the plan.
-fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize, rtl: bool, edge: Edge) -> bool {
+fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize, rtl: bool, hang: Hang) -> bool {
     // Probe: at (almost) zero width parley breaks at every UAX #14 opportunity, so each
     // probe line is exactly one segment. Shaping happens before breaking, so segment
     // widths add up to line widths exactly.
@@ -552,15 +614,15 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
             Segment {
                 full: m.advance,
                 bare: m.advance - m.trailing_whitespace,
-                hang: if edge == Edge::Start { hang_at(layout, text, line.text_range(), rtl) } else { 0.0 },
-                hang_end: if edge == Edge::End { hang_end_at(layout, text, line.text_range(), rtl) } else { 0.0 },
+                hang: if hang.edge == Edge::Start { hang.at(layout, text, line.text_range(), rtl) } else { 0.0 },
+                hang_end: if hang.edge == Edge::End { hang.at(layout, text, line.text_range(), rtl) } else { 0.0 },
                 text: line.text_range(),
             }
         })
         .collect();
     let n = segments.len();
     if n < 2 {
-        greedy(layout, text, max_width, rtl, edge);
+        greedy(layout, text, max_width, rtl, hang);
         return true;
     }
 
@@ -628,27 +690,81 @@ fn pretty(layout: &mut Layout<Ink>, text: &str, max_width: f32, min_words: usize
     broke == planned
 }
 
+/// How far the cluster on a line's aligned `edge` reaches past it with optical margins:
+/// a fraction of its advance by [`protrusion_of`], on the side that faces the edge.
+fn protrusion(layout: &Layout<Ink>, text: &str, line: Range<usize>, rtl: bool, edge: Edge) -> f32 {
+    let cluster = match edge {
+        Edge::Start => Cluster::from_byte_index(layout, line.start),
+        _ => {
+            // The last cluster before any trailing whitespace.
+            let mut next = line.end.checked_sub(1).and_then(|last| Cluster::from_byte_index(layout, last));
+            loop {
+                match next {
+                    Some(c)
+                        if c.text_range().start >= line.start
+                            && text[c.text_range()].chars().all(char::is_whitespace) =>
+                    {
+                        next = c.previous_logical();
+                    }
+                    other => break other,
+                }
+            }
+        }
+    };
+    let Some(cluster) = cluster.filter(|c| c.text_range().start >= line.start && c.is_rtl() == rtl) else {
+        return 0.0;
+    };
+    let Some(c) = text[cluster.text_range()].chars().next() else { return 0.0 };
+    let (left, right) = protrusion_of(c);
+    // The side facing the edge: a line's start is its left in left-to-right text.
+    let left_side = matches!((edge, rtl), (Edge::Start, false) | (Edge::End, true));
+    (if left_side { left } else { right }) * cluster.advance()
+}
+
+/// How much of a character's advance protrudes past an aligned edge, `(left, right)`:
+/// microtype's defaults for Latin text (pdfTeX's `\rpcode`/`\lpcode` in thousandths).
+fn protrusion_of(c: char) -> (f32, f32) {
+    match c {
+        'A' | 'T' | 'V' | 'W' | 'X' | 'Y' | 'v' | 'w' | 'x' | 'y' => (0.05, 0.05),
+        'J' => (0.05, 0.0),
+        'F' | 'K' | 'L' | 'k' | 'r' => (0.0, 0.05),
+        't' => (0.0, 0.07),
+        '.' | '\u{3002}' => (0.0, 0.7),
+        ',' | '\u{3001}' | '\u{060C}' => (0.0, 0.5),
+        ':' => (0.0, 0.5),
+        ';' => (0.0, 0.3),
+        '!' | '?' => (0.0, 0.1),
+        '-' | '\u{2010}' | '\u{2011}' => (0.0, 0.5),
+        '\u{2013}' => (0.2, 0.2),
+        '\u{2014}' => (0.15, 0.15),
+        _ => (0.0, 0.0),
+    }
+}
+
 /// How a paragraph was broken and how its lines sit.
 struct Paragraph {
     wrap: Wrap,
     fallback: Option<&'static str>,
     rtl: bool,
     align: TextAlign,
+    hang: Hang,
+    /// `opticalMargins`.
+    optical: bool,
     /// The box the lines align across.
     width: f32,
 }
 
 fn read_layout(layout: &Layout<Ink>, text: &str, fonts: &BundleFonts, p: Paragraph) -> Result<TextLayout, EngineError> {
-    let edge = Edge::from(p.align);
     let mut lines = Vec::new();
     let mut runs = Vec::new();
     let mut synthesized = false;
     let mut top = 0.0_f32;
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
-        let (hang, hang_end) = match edge {
-            Edge::Start => (hang_at(layout, text, line.text_range(), p.rtl), 0.0),
-            Edge::End => (0.0, hang_end_at(layout, text, line.text_range(), p.rtl)),
+        let hung = p.hang.at(layout, text, line.text_range(), p.rtl);
+        let (hang, hang_end) = match p.hang.edge {
+            Edge::Start => (hung, 0.0),
+            Edge::End => (0.0, hung),
             Edge::Neither => (0.0, 0.0),
         };
         // parley set the line's ink from x = 0; trailing whitespace hangs past its end.
@@ -662,7 +778,15 @@ fn read_layout(layout: &Layout<Ink>, text: &str, fonts: &BundleFonts, p: Paragra
             (TextAlign::Center, _) => 0.5 * (p.width - width),
         };
         let left_hang = if p.rtl { hang_end } else { hang };
-        let shift = x - left_hang;
+        // Optical margins: what sits on the aligned edge, when nothing hangs there, moves
+        // part of its width past it. Outward is left at a left edge, right at a right one.
+        let optical = match p.hang.edge {
+            Edge::Neither => 0.0,
+            _ if !p.optical || hung > 0.0 => 0.0,
+            edge => protrusion(layout, text, line.text_range(), p.rtl, edge),
+        };
+        let left_edge = matches!((p.hang.edge, p.rtl), (Edge::Start, false) | (Edge::End, true));
+        let shift = x - left_hang + if left_edge { -optical } else { optical };
         let (mut cap_height, mut x_height) = (None, None);
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
@@ -695,6 +819,7 @@ fn read_layout(layout: &Layout<Ink>, text: &str, fonts: &BundleFonts, p: Paragra
             x,
             hang,
             hang_end,
+            optical,
             text: line.text_range(),
             cap_height,
             x_height,

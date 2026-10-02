@@ -131,3 +131,62 @@ fn case_sets_capitals_title_case_and_the_fonts_small_capitals() {
     assert_ne!(cased("garamond", Case::Smallcaps, "small capitals"), plain("garamond", "small capitals"));
     assert_eq!(cased("specimen", Case::Smallcaps, "small capitals"), plain("specimen", "small capitals"));
 }
+
+#[test]
+fn hanging_punctuation_hangs_brackets_stops_commas_and_hyphens_at_an_aligned_edge() {
+    let width = 1600.0;
+    let punct = |s: &mut TextSpec| s.hanging_punctuation = true;
+    // At a start edge, an opening bracket hangs like a quote.
+    let start = set("specimen", "(Brackets open lines too)", width, punct);
+    let bracket = set("specimen", "(", width, |_| {}).width;
+    assert!((start.lines[0].hang - bracket).abs() < 1e-3, "{:?}", start.lines[0]);
+    assert!((span(&start, 0).0 + bracket).abs() < 1e-3, "the bracket sits left of the edge");
+    // At an end edge, the stop hangs, then nothing else: the letter before it is on the edge.
+    let end = set("specimen", "Stops hang past the edge.", width, |s| {
+        punct(s);
+        s.align = TextAlign::End;
+    });
+    let stop = set("specimen", ".", width, |_| {}).width;
+    let line = &end.lines[0];
+    assert!((line.hang_end - stop).abs() < 1e-3 && (line.x + line.width - width).abs() < 1e-3, "{line:?}");
+    // Without the setting, only quotation marks hang.
+    let plain = set("specimen", "Stops hang past the edge.", width, |s| s.align = TextAlign::End);
+    assert_eq!(plain.lines[0].hang_end, 0.0);
+    // Nothing hangs at a ragged edge: start-aligned, the stop stays inside.
+    assert_eq!(set("specimen", "Stops hang past the edge.", width, punct).lines[0].hang_end, 0.0);
+}
+
+#[test]
+fn optical_margins_move_edge_letters_and_stops_part_way_out() {
+    let width = 1600.0;
+    let optical = |s: &mut TextSpec| s.optical_margins = true;
+    let v = set("specimen", "V", width, |_| {}).width;
+    let layout = set("specimen", "Vowels lean out", width, optical);
+    // 5% of the V's advance as set, kerned against the o: a little less than V alone.
+    let leans = layout.lines[0].optical;
+    assert!(leans > 0.04 * v && leans <= 0.05 * v + 1e-3, "{leans} for a V of {v}");
+    assert!((span(&layout, 0).0 + layout.lines[0].optical).abs() < 1e-3);
+    // A letter that does not lean stays on the edge.
+    assert_eq!(set("specimen", "Mountains stand", width, optical).lines[0].optical, 0.0);
+    // At an end edge, a stop moves out 70% of its advance; a hung mark moves out all of it
+    // instead, and then nothing protrudes as well.
+    let stop = set("specimen", ".", width, |_| {}).width;
+    let end = set("specimen", "Ends on a stop.", width, |s| {
+        optical(s);
+        s.align = TextAlign::End;
+    });
+    assert!((end.lines[0].optical - 0.7 * stop).abs() < 1e-3, "{:?}", end.lines[0]);
+    assert!((span(&end, 0).1 + stop - (width + 0.7 * stop)).abs() < 1e-3, "{:?}", span(&end, 0));
+    let both = set("specimen", "Ends on a stop.", width, |s| {
+        optical(s);
+        s.hanging_punctuation = true;
+        s.align = TextAlign::End;
+    });
+    assert_eq!((both.lines[0].optical, both.lines[0].hang_end > 0.0), (0.0, true));
+    // Centered text has no aligned edge.
+    let centered = set("specimen", "Vowels lean out", width, |s| {
+        optical(s);
+        s.align = TextAlign::Center;
+    });
+    assert_eq!(centered.lines[0].optical, 0.0);
+}

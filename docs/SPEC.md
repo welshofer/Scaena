@@ -215,7 +215,9 @@ The engine MUST implement:
 - Hyphenation by `lang` (optional, off by default for display roles).
 - Widow/orphan control: `minLastLineWords` (default 2 for body, 1 for display).
 - Hanging quotes, always: quotation marks (Unicode `Quotation_Mark`, less the CJK corner brackets and fullwidth forms, whose spacing JLREQ governs) hang outside an aligned edge, in every role. It is not a theme option. In start-aligned text, the marks that open a line hang outside its start edge; in end-aligned text, the marks that close a line hang outside its end edge. Nothing hangs at a ragged edge, so centered text hangs nothing. Breaking measures the line without its hung marks (CSS `hanging-punctuation`), so they take nothing from the measure and the letter beside them sits on the edge.
-- Hanging punctuation beyond quotes (`hangingPunctuation`: stops, commas, hyphens, brackets) and optical margin alignment (`opticalMargins`), on by default for display roles.
+- Hanging punctuation beyond quotes (`hangingPunctuation`) and optical margin alignment (`opticalMargins`), set per role or per node; themes turn them on for display roles, as Dusk and the torture theme do.
+  - With `hangingPunctuation`, these hang fully past an aligned edge, as quotation marks do: opening brackets at a start edge; closing brackets, stops and commas (CSS `allow-end`'s set), and hyphens at an end edge.
+  - With `opticalMargins`, when nothing hangs at an aligned edge, the character on it moves part of its advance past the edge: 5% for A T V W X Y v w x y, 70% for a period, 50% for a comma, colon, or hyphen. These are microtype's defaults for Latin text. Breaking does not count the protrusion, so it never changes where lines break.
 - Numeric styles: `tabular`/`proportional`, `lining`/`oldstyle`; charts default to tabular lining.
 - Vertical metrics by cap height and x-height from the font tables (not bounding boxes).
 - Text splitting for animation: `split: "lines" | "words" | "glyphs"`, exposing units to choreography (§3.9).

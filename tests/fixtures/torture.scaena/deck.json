@@ -1746,7 +1746,7 @@
         },
         "hanging-quote": {}
       },
-      "notes": "Pass: every quotation mark that opens a line hangs outside the text edge, so the letter after it sits on the edge: the “ of line 1 and the ‘ of line 3, at x = −(quote advance). Line 1 fits the measure only because its quote is not counted (985 cu inside 998; 1009 with the quote). Recorded: T, V and W at line starts are not yet optically aligned, and the comma and period at line ends do not hang (PLAN 1.8)."
+      "notes": "Pass: every quotation mark that opens a line hangs outside the text edge, so the letter after it sits on the edge: the “ of line 1 and the ‘ of line 3, at x = −(quote advance). Line 1 fits the measure only because its quote is not counted (985 cu inside 998; 1009 with the quote). With optical margins, the V of line 2 and the W of line 5 start 5% of their advance left of the edge. The comma and period at line ends do not hang: the right edge is ragged, and nothing hangs at a ragged edge (SPEC §3.5)."
     },
     {
       "id": "balance",
@@ -2030,7 +2030,7 @@
         "align-end": {},
         "align-rtl": {}
       },
-      "notes": "Pass: rows 2-3, a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line (centered text has no aligned edge, so nothing hangs). Rows 4-5, end-aligned lines flush with the right edge of column 12, and the closing ” of the last line past that edge, with the period on it. Rows 6-8, a Hebrew paragraph broken by pretty (no fallback to greedy), every line starting at the right edge of column 12."
+      "notes": "Pass: rows 2-3, a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line (centered text has no aligned edge, so nothing hangs). Rows 4-5, end-aligned lines flush with the right edge of column 12; the last line's period and closing ” hang past that edge (the role sets hangingPunctuation), with the s of this on it. Rows 6-8, a Hebrew paragraph broken by pretty (no fallback to greedy), every line starting at the right edge of column 12."
     },
     {
       "id": "case-measure",
