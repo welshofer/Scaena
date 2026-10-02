@@ -43,13 +43,17 @@ fn try_compile(deck: &Deck) -> Result<ChartLayout, String> {
 }
 
 fn try_compile_in(theme: &Theme, deck: &Deck) -> Result<ChartLayout, String> {
+    compile_sized(theme, deck, [1600.0, 700.0])
+}
+
+fn compile_sized(theme: &Theme, deck: &Deck, size: [f32; 2]) -> Result<ChartLayout, String> {
     let mut fonts = BundleFonts::new();
     for font in &deck.fonts {
         fonts.register(&font.file, read(&font.file)).unwrap();
     }
     let (mut text, data) = (TextEngine::new(), DataFiles::new());
     let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme, deck, data: &data, colors: &[], lenient: false };
-    charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).map_err(|e| e.to_string())
+    charts::compile(&mut cx, &deck.nodes["c"].props, size).map_err(|e| e.to_string())
 }
 
 fn compile(deck: &Deck) -> ChartLayout {
@@ -474,6 +478,56 @@ fn a_donut_turns_each_value_into_its_share_of_a_ring() {
     // point, Online (the left) ends at its.
     let align = |k: &str| layout.labels.iter().find(|l| l.key == k).unwrap().value.unwrap().align;
     assert_eq!((align("Direct"), align("Online")), (0.0, 1.0));
+}
+
+#[test]
+fn a_donut_leaves_its_values_room_on_every_side() {
+    // Wide values on a square cell: the ring shrinks until each stays inside the chart,
+    // the ones at its sides too, not only those over and under it.
+    let rows = json!([{ "c": "Grants", "v": 184000 }, { "c": "Members", "v": 124000 },
+                      { "c": "Partners", "v": 60000 }, { "c": "Events", "v": 32000 }]);
+    let chart = json!({ "type": "chart", "kind": "donut", "data": "@q", "x": { "field": "c" },
+                        "y": { "field": "v", "format": "$,.0f" }, "legend": "none" });
+    let d = deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart);
+    let layout = compile_sized(&themed(json!({})), &d, [600.0, 600.0]).unwrap();
+    assert_eq!(layout.labels.len(), 4);
+    for l in &layout.labels {
+        let (x, y) = (l.origin[0], l.origin[1]);
+        assert!(
+            x >= 0.0 && x + l.text.width <= 600.0 && y >= 0.0 && y + l.text.height <= 600.0,
+            "{}: {:?}",
+            l.key,
+            l.origin
+        );
+    }
+    // And no smaller than that: one value touches its side.
+    let Shape::Arc { outer, .. } = layout.marks[0].shape else { panic!("arcs") };
+    let snug =
+        layout.labels.iter().any(|l| (l.origin[0] + l.text.width - 600.0).abs() < 0.5 || l.origin[0].abs() < 0.5);
+    assert!(snug && outer < 300.0, "outer {outer}");
+}
+
+#[test]
+fn a_lines_end_values_stand_away_from_it() {
+    // A line leaves its first point and comes to its last, so the first value ends at
+    // its point and the last begins there: neither crosses the line.
+    let lines = by_series("line", json!({}));
+    let x = |key: &str| match lines.marks.iter().find(|m| m.key == key).unwrap().shape {
+        Shape::Dot { x, .. } => x,
+        other => panic!("{other:?}"),
+    };
+    let label = |key: &str| lines.labels.iter().find(|l| l.key == key).unwrap();
+    assert_eq!(lines.paths.len(), 3);
+    for path in &lines.paths {
+        let (first, last) = (&path.marks[0], path.marks.last().unwrap());
+        let (a, b) = (label(first), label(last));
+        assert!((a.origin[0] + a.text.width - x(first)).abs() < 0.01, "{first} ends at its point");
+        assert!((b.origin[0] - x(last)).abs() < 0.01, "{last} begins at its point");
+    }
+    // The names stand a space past the widest of them.
+    let column = lines.legend.iter().map(|e| e.label.origin[0]).fold(f32::INFINITY, f32::min);
+    let reach = lines.labels.iter().map(|l| l.origin[0] + l.text.width).fold(0.0_f32, f32::max);
+    assert!(column >= reach, "names at {column}, values reach {reach}");
 }
 
 #[test]

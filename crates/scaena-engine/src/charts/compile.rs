@@ -636,10 +636,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // Beside the plot, a gutter as wide as the widest value-axis label.
     let left = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(|l| l.width + gap).fold(0.0_f32, f32::max);
     let widest = legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max);
-    // How far past a series' end its name starts: a space, or on a line, past the value
-    // label centered over its last point.
+    // How far past a series' end its name starts: a space, or on a line, a space past
+    // the value label that begins at its last point.
     let lead = match kind {
-        Kind::Line => values.iter().flatten().map(|t| 0.5 * (t.width + gap)).fold(gap, f32::max),
+        Kind::Line => values.iter().flatten().map(|t| t.width + gap).fold(gap, f32::max),
         _ => gap,
     };
     let legend_width = match (beside, direct, legend_texts.is_empty()) {
@@ -823,27 +823,34 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
 
     // Marks.
     // A value label over its mark (under a bar below its foot), centered on `cx`.
-    let label_at =
-        |out: &mut ChartLayout, value: Option<TextLayout>, key: &str, shape: &Shape, cx: f32, v: f64, below: bool| {
-            let Some(text) = value else { return };
-            let first = &text.lines[0];
-            let (offset, origin_y) = match shape {
-                Shape::Bar(r) if below => {
-                    let origin_y = r.bottom() + gap - text.trimmed(TextBox::Cap).0;
-                    (origin_y + first.baseline - r.bottom(), origin_y)
-                }
-                Shape::Bar(r) => (-gap, r.top() - gap - first.baseline),
-                _ => {
-                    let at = ValueLabel { value: v, below: false, offset: -gap, align: 0.5, drop: 0.0 };
-                    (-gap, at.anchor(shape)[1] - first.baseline)
-                }
-            };
-            // Centered on its mark, unless that would put it past the plot's side.
-            let x0 = (cx - 0.5 * text.width).clamp(left, (right - text.width).max(left));
-            let align = if x0 == cx - 0.5 * text.width { 0.5 } else { (cx - x0) / text.width.max(f32::EPSILON) };
-            let value = ValueLabel { value: v, below, offset, align, drop: 0.0 };
-            out.labels.push(Label::new(key, [x0, origin_y], text, Some(value)));
+    let label_at = |out: &mut ChartLayout,
+                    value: Option<TextLayout>,
+                    key: &str,
+                    shape: &Shape,
+                    cx: f32,
+                    v: f64,
+                    below: bool,
+                    side: f32| {
+        let Some(text) = value else { return };
+        let first = &text.lines[0];
+        let (offset, origin_y) = match shape {
+            Shape::Bar(r) if below => {
+                let origin_y = r.bottom() + gap - text.trimmed(TextBox::Cap).0;
+                (origin_y + first.baseline - r.bottom(), origin_y)
+            }
+            Shape::Bar(r) => (-gap, r.top() - gap - first.baseline),
+            _ => {
+                let at = ValueLabel { value: v, below: false, offset: -gap, align: 0.5, drop: 0.0 };
+                (-gap, at.anchor(shape)[1] - first.baseline)
+            }
         };
+        // Centered on its mark (or ending or beginning there, as `side` says), unless
+        // that would put it past the plot's side.
+        let x0 = (cx - side * text.width).clamp(left, (right - text.width).max(left));
+        let align = if x0 == cx - side * text.width { side } else { (cx - x0) / text.width.max(f32::EPSILON) };
+        let value = ValueLabel { value: v, below, offset, align, drop: 0.0 };
+        out.labels.push(Label::new(key, [x0, origin_y], text, Some(value)));
+    };
     match kind {
         Kind::Bar | Kind::StackedBar => {
             let groups = if kind == Kind::Bar { series.len().max(1) } else { 1 };
@@ -893,7 +900,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     Kind::StackedBar => totals.iter().find(|(k, _)| *k == r.category).map_or(r.y, |t| t.1),
                     _ => r.y,
                 };
-                label_at(&mut out, value, &r.key, &shape, cx, v, below);
+                label_at(&mut out, value, &r.key, &shape, cx, v, below, 0.5);
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
         }
@@ -901,7 +908,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             let stack_areas = kind == Kind::Area && !series.is_empty();
             let mut stacks: Vec<f64> = vec![0.0; categories.len()];
             let size_max = rows.iter().filter_map(|r| r.size).fold(0.0_f64, f64::max);
-            for (r, value) in rows.iter().zip(values) {
+            for (i, (r, value)) in rows.iter().zip(values).enumerate() {
                 let x = center_of(r);
                 let mut place = None;
                 let shape = match kind {
@@ -925,7 +932,20 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     Kind::Dot => Shape::Dot { x, y: to_y(r.y), r: dot_radius },
                     _ => Shape::Dot { x, y: to_y(r.y), r: point_radius },
                 };
-                label_at(&mut out, value, &r.key, &shape, x, r.y, false);
+                // A line's first value ends at its point and its last begins there, away
+                // from the line, which leaves the one and comes to the other.
+                let side = match kind {
+                    Kind::Line => {
+                        let same = |o: &&Row| o.series == r.series;
+                        match (rows[..i].iter().any(|o| same(&o)), rows[i + 1..].iter().any(|o| same(&o))) {
+                            (false, true) => 1.0,
+                            (true, false) => 0.0,
+                            _ => 0.5,
+                        }
+                    }
+                    _ => 0.5,
+                };
+                label_at(&mut out, value, &r.key, &shape, x, r.y, false, side);
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
             if matches!(kind, Kind::Line | Kind::Area) {
@@ -945,28 +965,56 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
         Kind::Donut => {
             let total: f64 = rows.iter().map(|r| r.y).sum();
-            let label_h = values.iter().flatten().map(|t| t.height).fold(0.0_f32, f32::max);
-            let outer =
-                (0.5 * (right - left).min(bottom - top) - if label_h > 0.0 { label_h + gap } else { 0.0 }).max(1.0);
             let (cx, cy) = (left + 0.5 * (right - left), top + 0.5 * (bottom - top));
+            // Each slice's start and end, as fractions of the turn.
             let mut at = 0.0_f64;
-            for (r, value) in rows.iter().zip(values) {
-                let start = if total > 0.0 { (at / total) as f32 } else { 0.0 };
-                at += r.y;
-                let end = if total > 0.0 { (at / total) as f32 } else { 0.0 };
+            let turns: Vec<(f32, f32)> = (rows.iter())
+                .map(|r| {
+                    let start = if total > 0.0 { (at / total) as f32 } else { 0.0 };
+                    at += r.y;
+                    (start, if total > 0.0 { (at / total) as f32 } else { 0.0 })
+                })
+                .collect();
+            // A value stands outside its slice's middle, on its side of the ring: its
+            // start there on the right, its end on the left, its middle at the top and
+            // foot, the middle of its cap height level with the point.
+            let side = |sin: f32| match sin {
+                s if s > 0.05 => 0.0,
+                s if s < -0.05 => 1.0,
+                _ => 0.5,
+            };
+            // The ring is as large as the plot, less the room its values need: the
+            // largest radius at which each stays inside the plot, on every side.
+            let mut outer = 0.5 * (right - left).min(bottom - top);
+            for (&(start, end), text) in turns.iter().zip(&values) {
+                let Some(text) = text else { continue };
+                let mid = 0.5 * (start + end) * core::f32::consts::TAU;
+                let (sin, cos) = (libm::sinf(mid), libm::cosf(mid));
+                let (align, w) = (side(sin), text.width);
+                // From the point to the text's top, and to its foot.
+                let up = text.lines[0].baseline - 0.5 * cap(text);
+                let down = text.height - up;
+                let mut reach = f32::INFINITY;
+                if sin > 0.0 {
+                    reach = reach.min((right - cx - (1.0 - align) * w) / sin);
+                }
+                if sin < 0.0 {
+                    reach = reach.min((cx - left - align * w) / -sin);
+                }
+                if cos > 0.0 {
+                    reach = reach.min((cy - top - up) / cos);
+                }
+                if cos < 0.0 {
+                    reach = reach.min((bottom - cy - down) / -cos);
+                }
+                outer = outer.min(reach - gap);
+            }
+            let outer = outer.max(1.0);
+            for ((r, value), &(start, end)) in rows.iter().zip(values).zip(&turns) {
                 let shape = Shape::Arc { cx, cy, inner: outer * hole, outer, start, end };
                 if let Some(text) = value {
-                    // Outside the slice's middle, on its side of the donut, the middle of
-                    // its cap height level with the point.
                     let mid = 0.5 * (start + end) * core::f32::consts::TAU;
-                    let sin = libm::sinf(mid);
-                    let align = if sin > 0.05 {
-                        0.0
-                    } else if sin < -0.05 {
-                        1.0
-                    } else {
-                        0.5
-                    };
+                    let align = side(libm::sinf(mid));
                     let value = ValueLabel { value: r.y, below: false, offset: gap, align, drop: 0.5 * cap(&text) };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
