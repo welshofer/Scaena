@@ -37,5 +37,5 @@
       "grow": { "from": { "scale": 0 }, "spring": "snappy" }
     }
   },
-  "shaders": { "palettes": { "dusk": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"] } }
+  "shaders": { "palettes": { "ambient": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"] } }
 }

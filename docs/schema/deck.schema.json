@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.2.json",
+  "$id": "https://scaena.dev/schema/deck-0.3.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.2(\\.[0-9]+)?$"
+      "pattern": "^0\\.3(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -44,10 +44,10 @@
       "minItems": 1
     },
     "overrides": {
-      "description": "Explicit theme-bypassing literals per node. The only place raw pixel and color values are theme-legal (lint W300 elsewhere).",
+      "description": "Per node, props that win over its theme, its defaults, and every state: a delta merged into the node as each state resolves it (SPEC §3.6). The only place raw pixel and color values are theme-legal (lint W300 elsewhere).",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/Id" },
-      "additionalProperties": { "type": "object", "additionalProperties": true }
+      "additionalProperties": { "$ref": "#/$defs/StateDelta" }
     },
     "_comment": { "type": "string" }
   },
@@ -214,11 +214,6 @@
         "exit": { "$ref": "#/$defs/PresetRef" },
         "emphasis": { "$ref": "#/$defs/PresetRef" },
         "anim": { "$ref": "#/$defs/AnimTracks" },
-        "style": {
-          "description": "Role-level style refinements (tokens, not literals).",
-          "type": "object",
-          "additionalProperties": true
-        },
         "_comment": { "type": "string" }
       }
     },
@@ -231,6 +226,10 @@
       "properties": {
         "type": { "type": "string", "const": "text" },
         "role": { "type": "string" },
+        "style": {
+          "description": "What this node changes about its role's look (SPEC §3.6).",
+          "$ref": "#/$defs/TextStyle"
+        },
         "text": { "type": "string" },
         "runs": { "type": "array", "items": { "$ref": "#/$defs/Run" }, "minItems": 1 },
         "fit": { "$ref": "#/$defs/TextFit" },
@@ -636,6 +635,22 @@
         "spring": { "$ref": "#/$defs/Spring" }
       }
     },
+    "TextStyle": {
+      "description": "What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own properties, by name; each replaces the role's. `family` names a theme family and `color` a theme color token or role. A literal color, and any `size`, is a pixel value: theme-legal only in `overrides` (lint W300 elsewhere).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "family": { "description": "Key in the theme's `type.families`.", "type": "string" },
+        "size": { "type": "number", "exclusiveMinimum": 0 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
+        "tracking": { "description": "Em units; negative tightens.", "type": "number" },
+        "opsz": { "type": "number" },
+        "case": { "$ref": "#/$defs/Case" },
+        "color": { "$ref": "#/$defs/Color" }
+      }
+    },
+    "Case": { "type": "string", "enum": ["none", "upper", "lower", "title", "smallcaps"] },
     "Run": {
       "type": "object",
       "required": ["text"],
@@ -644,7 +659,10 @@
         "text": { "type": "string" },
         "role": { "type": "string" },
         "emphasis": { "$ref": "#/$defs/Emphasis" },
-        "style": { "type": "object", "additionalProperties": true },
+        "style": {
+          "description": "What this run changes about its role's look, after the node's `style` when the run is set in the node's role (SPEC §3.6).",
+          "$ref": "#/$defs/TextStyle"
+        },
         "lang": { "type": "string" }
       }
     },
@@ -842,9 +860,9 @@
         "exit": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
         "emphasis": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
         "anim": { "anyOf": [{ "$ref": "#/$defs/AnimTracksDelta" }, { "type": "null" }] },
-        "style": { "anyOf": [{ "additionalProperties": true, "type": "object" }, { "type": "null" }] },
         "_comment": { "type": ["string", "null"] },
         "role": { "type": ["string", "null"] },
+        "style": { "anyOf": [{ "$ref": "#/$defs/TextStyleDelta" }, { "type": "null" }] },
         "text": { "type": ["string", "null"] },
         "runs": {
           "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Run" }, "minItems": 1 }, { "type": "null" }]
@@ -1071,6 +1089,21 @@
       "type": "object",
       "additionalProperties": {
         "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Keyframe" }, "minItems": 1 }, { "type": "null" }]
+      }
+    },
+    "TextStyleDelta": {
+      "description": "`TextStyle` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "family": { "type": ["string", "null"] },
+        "size": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
+        "weight": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 1000 }, { "type": "null" }] },
+        "leading": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
+        "tracking": { "type": ["number", "null"] },
+        "opsz": { "type": ["number", "null"] },
+        "case": { "anyOf": [{ "$ref": "#/$defs/Case" }, { "type": "null" }] },
+        "color": { "anyOf": [{ "$ref": "#/$defs/Color" }, { "type": "null" }] }
       }
     },
     "EncodingDelta": {

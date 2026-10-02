@@ -118,9 +118,6 @@ macro_rules! node {
             pub emphasis: Option<PresetRef>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub anim: Option<AnimTracks>,
-            /// Role-level style refinements (tokens, not literals).
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub style: Option<IndexMap<String, Value>>,
             #[serde(rename = "_comment", default, skip_serializing_if = "Option::is_none")]
             pub comment: Option<String>,
             $($body)*
@@ -134,6 +131,9 @@ node! {
     TextNode {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub role: Option<String>,
+        /// What this node changes about its role's look (SPEC §3.6).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub style: Option<TextStyle>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

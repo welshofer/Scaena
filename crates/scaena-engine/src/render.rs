@@ -8,6 +8,7 @@
 //! rather than drawing a placeholder a golden would freeze.
 
 use crate::EngineError;
+use crate::cascade;
 use crate::charts::{self, Ctx};
 use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
@@ -111,6 +112,7 @@ impl Engine {
     ) -> Result<Scene, EngineError> {
         let canvas = canvas(deck);
         let grid = Grid::from_theme(theme, canvas)?;
+        let snap = &cascade::with_overrides(deck, snap);
         let mut nodes = Vec::with_capacity(snap.nodes.len());
         for id in paint_order(snap) {
             let props = &snap.nodes[id];
@@ -157,7 +159,7 @@ impl Engine {
     /// layout-level lints (E100 overflow, W200 widows) read.
     pub fn text_layout(&mut self, req: &FrameRequest, node: &str) -> Result<PlacedText, EngineError> {
         let snapshots = scaena_core::resolve_states(req.deck)?;
-        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let snap = &cascade::with_overrides(req.deck, &snapshots[state_index(&snapshots, req.state)?]);
         if !snap.nodes.contains_key(node) {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
@@ -177,7 +179,8 @@ impl Engine {
         let template = snap.layout.as_deref();
         let at = props.get("at");
         let cell = grid.place(theme, template, at).map_err(|e| in_node(id, e))?;
-        let spec = text_spec(deck, props, Grid::slot_role(theme, template, at)).map_err(|e| in_node(id, e))?;
+        let spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
+            .map_err(|e| in_node(id, e))?;
         let text = self.text.layout(&mut self.fonts, theme, &spec, cell[2]).map_err(|e| in_node(id, e))?;
         if text.synthesized {
             return Err(EngineError::Font(format!(
@@ -191,7 +194,7 @@ impl Engine {
         }
         let trim = match typed_prop::<TextBox>(props, "box")? {
             Some(trim) => trim,
-            None => theme.text_role(&spec.role)?.text_box,
+            None => spec.role.text_box,
         };
         let origin = [cell[0], text_top(cell, align_y, &text, trim)];
         Ok(PlacedText { cell, origin, text })
@@ -268,27 +271,24 @@ fn in_node(id: &str, e: EngineError) -> EngineError {
 }
 
 fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
-    let hex = theme.color(name).ok_or_else(|| EngineError::Theme(format!("unknown color `{name}`")))?;
-    Color::from_hex(hex).map_err(|e| EngineError::Theme(e.to_string()))
+    theme.color(name)
 }
 
-/// The cascade for a text node, Phase 0 subset: node props (state deltas already
-/// merged) over the slot's default role; `lang` falls back to the deck's.
-fn text_spec(deck: &Deck, props: &Props, slot_role: Option<String>) -> Result<TextSpec, EngineError> {
+/// A text node through the cascade (SPEC §3.6): its props (state deltas and overrides
+/// already merged) set it in its role, or the slot's, refined by its `style`, and each run
+/// in its own; `lang` falls back to the deck's.
+fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
-    let role = str_prop("role")
-        .map(String::from)
-        .or(slot_role)
-        .ok_or_else(|| EngineError::Layout("text node has no `role` and its slot gives none".into()))?;
+    let role = cascade::node_role(theme, props, slot_role)?;
     let spans = match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs
             .iter()
-            .map(|run| Span {
-                text: run.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
-                role: run.get("role").and_then(Value::as_str).unwrap_or(&role).to_string(),
+            .map(|run| {
+                let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+                Ok(Span { text, style: cascade::run_role(theme, &role, run)? })
             })
-            .collect(),
-        None => vec![Span { text: str_prop("text").unwrap_or_default().to_string(), role: role.clone() }],
+            .collect::<Result<_, EngineError>>()?,
+        None => vec![Span { text: str_prop("text").unwrap_or_default().to_string(), style: role.clone() }],
     };
     let features = props
         .get("features")

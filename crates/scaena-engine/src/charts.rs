@@ -14,7 +14,7 @@
 use crate::EngineError;
 use crate::data::{self, DataFiles, Datum};
 use crate::fonts::BundleFonts;
-use crate::text::{GlyphRun, Span, TextEngine, TextLayout, TextSpec};
+use crate::text::{GlyphRun, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme};
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl};
@@ -325,40 +325,29 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     }
 
     // Theme: chart styles, all tokens.
-    let charts = cx.theme.raw.get("charts").cloned().unwrap_or(Value::Null);
-    let style = |path: &[&str]| path.iter().try_fold(&charts, |v, k| v.get(*k));
-    let stroke = |name: &str| {
-        cx.theme
-            .raw
-            .pointer(&format!("/tokens/stroke/{name}"))
-            .and_then(Value::as_f64)
-            .map(|w| w as f32)
-            .ok_or_else(|| EngineError::Theme(format!("unknown stroke token `{name}`")))
-    };
-    let color = |name: &str| -> Result<Color, EngineError> {
-        let hex = cx.theme.color(name).ok_or_else(|| EngineError::Theme(format!("unknown color `{name}`")))?;
-        Color::from_hex(hex).map_err(|e| EngineError::Theme(e.to_string()))
-    };
-    let axis_width = stroke(style(&["axis", "stroke"]).and_then(Value::as_str).unwrap_or("hairline"))?;
-    let axis_color = color(style(&["axis", "color"]).and_then(Value::as_str).unwrap_or("onSurfaceMuted"))?;
-    let corner = style(&["cornerRadius"]).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-    let bar_gap = style(&["barGap"]).and_then(Value::as_f64).unwrap_or(0.2) as f32;
+    let charts = cx.theme.charts.as_ref();
+    let axis = charts.and_then(|c| c.axis.as_ref());
+    let axis_width = cx.theme.stroke(axis.and_then(|a| a.stroke.as_deref()).unwrap_or("hairline"))?;
+    let axis_color = cx.theme.color(axis.and_then(|a| a.color.as_deref()).unwrap_or("onSurfaceMuted"))?;
+    let corner = charts.and_then(|c| c.corner_radius).unwrap_or(0.0) as f32;
+    let bar_gap = charts.and_then(|c| c.bar_gap).unwrap_or(0.2) as f32;
     let ink = cx
         .theme
-        .raw
-        .pointer("/tokens/data/categorical/0")
-        .and_then(Value::as_str)
+        .tokens
+        .data
+        .categorical
+        .first()
         .ok_or_else(|| EngineError::Theme("charts need tokens.data.categorical".into()))?;
-    let ink = Color::from_hex(ink).map_err(|e| EngineError::Theme(e.to_string()))?;
-    let gap = cx.theme.raw.pointer("/tokens/space/unit").and_then(Value::as_f64).unwrap_or(8.0) as f32;
+    let ink = scaena_core::color::parse(&ink.0).map_err(EngineError::Theme)?;
+    let gap = cx.theme.tokens.space.unit as f32;
     let labels = props.get("labels");
     let label_role = labels
         .and_then(|l| l.get("role"))
-        .or_else(|| style(&["label", "role"]))
         .and_then(Value::as_str)
+        .or_else(|| charts.and_then(|c| c.label.as_ref()).and_then(|l| l.role.as_deref()))
         .unwrap_or("label")
         .to_string();
-    let tick_role = style(&["axis", "role"]).and_then(Value::as_str).unwrap_or("label").to_string();
+    let tick_role = axis.and_then(|a| a.role.as_deref()).unwrap_or("label").to_string();
     let show = labels.and_then(|l| l.get("show")).and_then(Value::as_str).unwrap_or("none");
     let labelled = |i: usize| match show {
         "all" => Ok(true),
@@ -369,12 +358,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
 
     // Text first: the plot is what the labels leave.
     let mut set = |text: String, role: &str| -> Result<TextLayout, EngineError> {
-        let spec = TextSpec {
-            spans: vec![Span { text, role: role.to_string() }],
-            role: role.to_string(),
-            numeric: Some(Numeric::TabularLining),
-            ..TextSpec::default()
-        };
+        let spec =
+            TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(cx.theme.text_role(role)?, text) };
         cx.text.layout(cx.fonts, cx.theme, &spec, f32::INFINITY)
     };
     let mut values = Vec::new();

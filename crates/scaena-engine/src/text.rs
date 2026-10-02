@@ -55,20 +55,20 @@ const LINE_PENALTY: f32 = 10.0;
 /// Bisection steps for `balance`: the found width is within `width / 2^24` of optimal.
 const BALANCE_STEPS: u32 = 24;
 
-/// One span of a text node and the role that sets it.
+/// One span of a text node, and the look it is set in (its role after the cascade).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub text: String,
-    pub role: String,
+    pub style: TextRole,
 }
 
 /// A text node after the cascade, ready to lay out.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextSpec {
     pub spans: Vec<Span>,
-    /// The node's role. Paragraph settings (wrap, `minLastLineWords`) come from it;
-    /// each span's own role sets its glyphs.
-    pub role: String,
+    /// The node's look: its role after its style. Paragraph settings (wrap,
+    /// `minLastLineWords`) come from it; each span's own look sets its glyphs.
+    pub role: TextRole,
     /// Node-level settings layered over every span's role.
     pub features: BTreeMap<String, u16>,
     pub axes: BTreeMap<String, f32>,
@@ -155,6 +155,22 @@ impl Default for TextEngine {
     }
 }
 
+impl TextSpec {
+    /// `text` in one look, with no node-level settings.
+    pub fn plain(role: TextRole, text: impl Into<String>) -> TextSpec {
+        TextSpec {
+            spans: vec![Span { text: text.into(), style: role.clone() }],
+            role,
+            features: BTreeMap::new(),
+            axes: BTreeMap::new(),
+            numeric: None,
+            wrap: None,
+            min_last_line_words: None,
+            lang: None,
+        }
+    }
+}
+
 impl TextEngine {
     pub fn new() -> Self {
         Self::default()
@@ -168,19 +184,19 @@ impl TextEngine {
         spec: &TextSpec,
         max_width: f32,
     ) -> Result<TextLayout, EngineError> {
-        let base = theme.text_role(&spec.role)?;
+        let base = &spec.role;
         let text: String = spec.spans.iter().map(|s| s.text.as_str()).collect();
         let mut layout = {
             let mut builder = self.lcx.ranged_builder(&mut fonts.cx, &text, 1.0, false);
-            for prop in style_props(theme, &base, spec)? {
+            for prop in style_props(theme, base, spec)? {
                 builder.push_default(prop);
             }
             let mut at = 0;
             for span in &spec.spans {
                 let range = at..at + span.text.len();
                 at = range.end;
-                if span.role != spec.role {
-                    for prop in style_props(theme, &theme.text_role(&span.role)?, spec)? {
+                if span.style != spec.role {
+                    for prop in style_props(theme, &span.style, spec)? {
                         builder.push(prop, range.clone());
                     }
                 }
@@ -242,12 +258,12 @@ fn style_props(
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
 
     // Features, later wins: family defaults, role, numeral style (node over role), node.
-    let families = theme.families()?;
-    let mut features: BTreeMap<String, u16> = families
-        .get(&role.family)
-        .map(|f| f.features.iter().map(|(k, v)| (k.clone(), v.value())).collect())
-        .unwrap_or_default();
-    features.extend(role.features.iter().map(|(k, v)| (k.clone(), v.value())));
+    let mut features: BTreeMap<String, u16> = match theme.families().get(&role.family) {
+        Some(f) => crate::theme::features(f.features.as_ref())
+            .map_err(|e| EngineError::Theme(format!("family `{}`: {e}", role.family)))?,
+        None => BTreeMap::new(),
+    };
+    features.extend(role.features.iter().map(|(k, v)| (k.clone(), *v)));
     if let Some(numeric) = spec.numeric.or(role.numeric) {
         features.extend(numeric.features().map(|(k, v)| (k.to_string(), v)));
     }
@@ -266,8 +282,7 @@ fn style_props(
         axes.iter().map(|(k, v)| Ok(FontVariation::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
 
     let color_name = role.color.as_deref().unwrap_or("onSurface");
-    let hex = theme.color(color_name).ok_or_else(|| EngineError::Theme(format!("unknown color `{color_name}`")))?;
-    let ink = Color::from_hex(hex).map_err(|e| EngineError::Theme(e.to_string()))?.0;
+    let ink = theme.color(color_name)?.0;
     let locale = match &spec.lang {
         Some(lang) => Some(Language::parse(lang).map_err(|e| EngineError::Theme(format!("lang `{lang}`: {e}")))?),
         None => None,

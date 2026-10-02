@@ -46,15 +46,22 @@ fn the_example_source_is_its_decks_canonical_source() {
     let deck = Deck::from_json(&std::fs::read_to_string(format!("{root}/revenue.deck.json")).unwrap()).unwrap();
     let path = format!("{root}/revenue.deck.scn");
     let source = decompile(&deck);
+    // SPEC §4.1 shows it whole.
+    let spec_path = format!("{root}/../SPEC.md");
+    let shown = |spec: &str| -> (String, String, String) {
+        let (before, rest) = spec.split_once("```scn\n").unwrap();
+        let (shown, after) = rest.split_once("```").unwrap();
+        (before.into(), shown.into(), after.into())
+    };
     if std::env::var_os("SCAENA_BLESS").is_some() {
         std::fs::write(&path, &source).unwrap();
+        let (before, _, after) = shown(&std::fs::read_to_string(&spec_path).unwrap());
+        std::fs::write(&spec_path, format!("{before}```scn\n{source}```{after}")).unwrap();
     }
     assert_eq!(std::fs::read_to_string(&path).unwrap(), source, "SCAENA_BLESS=1 rewrites it");
     assert_eq!(compile(&source).unwrap().to_json().unwrap(), deck.to_json().unwrap());
-    // SPEC §4.1 shows it whole.
-    let spec = std::fs::read_to_string(format!("{root}/../SPEC.md")).unwrap();
-    let shown = spec.split("```scn\n").nth(1).and_then(|rest| rest.split("```").next()).unwrap();
-    assert_eq!(shown, source, "SPEC §4.1 shows the example as it is");
+    let (_, in_spec, _) = shown(&std::fs::read_to_string(&spec_path).unwrap());
+    assert_eq!(in_spec, source, "SPEC §4.1 shows the example as it is; SCAENA_BLESS=1 rewrites it");
 }
 
 #[test]

@@ -11,6 +11,8 @@ use crate::EngineError;
 use crate::theme::Theme;
 use scaena_core::displaylist::Rect;
 use scaena_core::document::Props;
+use scaena_core::model::theme::{Margin, Slot};
+use scaena_core::model::values::Range;
 use serde_json::Value;
 
 /// The theme grid resolved against the canvas, in canvas units.
@@ -28,19 +30,15 @@ impl Grid {
     /// `margin` with CSS shorthand semantics (one value, or vertical/horizontal, or
     /// top/horizontal/bottom, or top/right/bottom/left).
     pub fn from_theme(theme: &Theme, canvas: [f32; 2]) -> Result<Grid, EngineError> {
-        let grid = theme.raw.get("grid").ok_or_else(|| EngineError::Theme("no `grid`".into()))?;
-        let count = |key: &str, default: Option<u64>| -> Result<usize, EngineError> {
-            let n = grid.get(key).and_then(Value::as_u64).or(default);
-            n.filter(|n| *n >= 1)
-                .map(|n| n as usize)
-                .ok_or_else(|| EngineError::Theme(format!("grid.{key} must be ≥ 1")))
+        let grid = &theme.grid;
+        let count = |key: &str, n: u32| -> Result<usize, EngineError> {
+            (n >= 1).then_some(n as usize).ok_or_else(|| EngineError::Theme(format!("grid.{key} must be ≥ 1")))
         };
-        let (columns, rows) = (count("columns", None)?, count("rows", Some(6))?);
-        let gutter = grid.get("gutter").and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        let margin: Vec<f32> = match grid.get("margin") {
-            Some(Value::Number(n)) => vec![n.as_f64().unwrap_or(0.0) as f32],
-            Some(Value::Array(a)) => a.iter().filter_map(Value::as_f64).map(|v| v as f32).collect(),
-            _ => vec![0.0],
+        let (columns, rows) = (count("columns", grid.columns)?, count("rows", grid.rows.unwrap_or(6))?);
+        let gutter = grid.gutter as f32;
+        let margin: Vec<f32> = match &grid.margin {
+            Margin::All(all) => vec![*all as f32],
+            Margin::Sides(sides) => sides.iter().map(|v| v.0 as f32).collect(),
         };
         let [top, right, bottom, left] = match margin[..] {
             [all] => [all; 4],
@@ -85,7 +83,9 @@ impl Grid {
                     let slot = slots.get(name).ok_or_else(|| {
                         EngineError::Layout(format!("slot `{name}` is not in layout template `{template}`"))
                     })?;
-                    self.cells(slot.get("col"), slot.get("row"))?
+                    let range =
+                        |r: &Option<Range>| r.as_ref().map(|r| serde_json::to_value(r).expect("a range is JSON"));
+                    self.cells(range(&slot.col).as_ref(), range(&slot.row).as_ref())?
                 }
             }
         } else {
@@ -102,22 +102,24 @@ impl Grid {
     }
 
     /// The slot definition `at` names in layout template `template`, if it names one.
-    pub fn slot(theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Option<Value> {
+    pub fn slot<'t>(theme: &'t Theme, template: Option<&str>, at: Option<&Value>) -> Option<&'t Slot> {
         let name = at?.get("in")?.as_str()?;
-        theme.slots(template?)?.get(name).cloned()
+        theme.slots(template?)?.get(name)
     }
 
     /// The default text role a slot gives nodes placed in it.
     pub fn slot_role(theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Option<String> {
-        Some(Self::slot(theme, template, at)?.get("role")?.as_str()?.to_string())
+        Self::slot(theme, template, at)?.role.clone()
     }
 
     /// How a node aligns in its cell: the slot's default, then the node's `align`, then
     /// `at.align`, later wins; `start` on both axes when nobody says.
     pub fn alignment(theme: &Theme, template: Option<&str>, props: &Props) -> Result<(AlignX, AlignY), EngineError> {
         let at = props.get("at");
-        let slot = Self::slot(theme, template, at);
-        let sources = [slot.as_ref().and_then(|s| s.get("align")), props.get("align"), at.and_then(|a| a.get("align"))];
+        let slot = Self::slot(theme, template, at)
+            .and_then(|s| s.align.as_ref())
+            .map(|a| serde_json::to_value(a).expect("an alignment is JSON"));
+        let sources = [slot.as_ref(), props.get("align"), at.and_then(|a| a.get("align"))];
         let (mut x, mut y) = (AlignX::Start, AlignY::Start);
         for value in sources.into_iter().flatten() {
             match value {

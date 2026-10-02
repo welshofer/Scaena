@@ -95,6 +95,15 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
             }
         }
     }
+    for id in deck.overrides.keys() {
+        if !deck.nodes.contains_key(id) {
+            out.push(
+                err("E102", format!("overrides for unknown node `{id}`"))
+                    .at(format!("/overrides/{id}"))
+                    .node(id.clone()),
+            );
+        }
+    }
     for (id, node) in &deck.nodes {
         if let Some(Value::String(parent)) = node.props.get("parent")
             && !deck.nodes.contains_key(parent)
@@ -206,6 +215,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         if let Some(snapshots) = &snapshots {
             out.extend(resolved_types(&deck, snapshots));
         }
+        out.extend(override_types(&deck));
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
@@ -217,6 +227,12 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
     out.retain(|f| seen.insert((f.code.clone(), f.file.clone(), f.path.clone(), f.message.clone())));
     let mut placed = HashSet::new();
     out.retain(|f| f.code != "E105" || placed.insert((f.file.clone(), f.path.clone())));
+    // A value no node type takes fails the schema and its node's type both; the type's
+    // check, which comes later, says it in the node's terms.
+    let mut typed = HashSet::new();
+    out.reverse();
+    out.retain(|f| f.code != "E106" || typed.insert((f.file.clone(), f.path.clone())));
+    out.reverse();
     Ok(out)
 }
 
@@ -271,11 +287,12 @@ fn locate(mut finding: Finding, doc: &Value, path: &str) -> Finding {
     finding
 }
 
-/// The key a path names inside a state's delta (`/states/2/props/title/type` → `type`).
+/// The key a path names inside a state's delta or a node's overrides
+/// (`/states/2/props/title/type`, `/overrides/title/type` → `type`).
 fn delta_key(path: &str) -> Option<&str> {
     let parts: Vec<&str> = path.split('/').collect();
     match parts.as_slice() {
-        ["", "states", _, "props", _, key] => Some(key),
+        ["", "states", _, "props", _, key] | ["", "overrides", _, key] => Some(key),
         _ => None,
     }
 }
@@ -451,9 +468,23 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
     }
 }
 
-/// E104: a node's type never changes, so a state's delta cannot set `type`.
+/// E104: a node's type never changes, so neither a state's delta nor the node's overrides
+/// can set `type`.
 fn type_changes(deck: &Deck) -> Vec<Finding> {
     let mut out = Vec::new();
+    for (id, over) in &deck.overrides {
+        let (Some(node), Some(_)) = (deck.nodes.get(id), over.get("type")) else { continue };
+        let is = type_name(node.node_type);
+        out.push(
+            Finding::new(
+                "E104",
+                Severity::Error,
+                format!("`{id}` is {} node; overrides cannot set `type`", article(&is)),
+            )
+            .at(child(&format!("/overrides/{}", esc(id)), "type"))
+            .node(id.clone()),
+        );
+    }
     for (i, state) in deck.states.iter().enumerate() {
         for (id, delta) in &state.props {
             let (Some(node), Some(new)) = (deck.nodes.get(id), delta.get("type")) else { continue };
@@ -525,6 +556,42 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
     out
 }
 
+/// E106: each node with its overrides merged in, against its type. Overrides are a delta
+/// with no `type` (as a state's is), so another type's property, or a value this type does
+/// not take, shows only once they meet the node; each is reported where the overrides
+/// wrote it.
+fn override_types(deck: &Deck) -> Vec<Finding> {
+    let checker = Checker::deck();
+    let defs: HashMap<String, String> = checker.node_types().into_iter().map(|(def, tag)| (tag, def)).collect();
+    let mut out = Vec::new();
+    for (id, over) in &deck.overrides {
+        let Some(node) = deck.nodes.get(id) else { continue };
+        let tag = type_name(node.node_type);
+        let Some(def) = defs.get(&tag) else { continue };
+        let mut props = node.props.clone();
+        crate::tracking::merge_props(&mut props, over);
+        let mut resolved = Map::new();
+        resolved.insert("type".into(), Value::from(tag.as_str()));
+        resolved.extend(props.into_iter().filter(|(k, _)| k != "type"));
+        for v in checker.check_def(def, &Value::Object(resolved), "") {
+            let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
+            if prop == "type" || !over.contains_key(&prop) {
+                continue;
+            }
+            let message = match v.kind {
+                Kind::Missing => format!("{tag} nodes need `{prop}`; the overrides delete it"),
+                _ => v.message,
+            };
+            out.push(
+                Finding::new("E106", Severity::Error, message)
+                    .at(format!("/overrides/{}{}", esc(id), v.path))
+                    .node(id.clone()),
+            );
+        }
+    }
+    out
+}
+
 /// E106: each state resolved, each node against its type. A delta carries no `type`, so
 /// another type's property, or a value this type does not take, shows only in the
 /// resolved state. Each is reported at the delta that wrote it; node defaults were checked
@@ -584,6 +651,11 @@ fn theme_names(deck: &Deck, snapshots: Option<&[Snapshot]>, theme: &LoadedTheme)
             if let Some(node) = deck.nodes.get(id) {
                 names.props(delta, node.node_type, &format!("{at}/props/{}", esc(id)), Some(&state.id), id);
             }
+        }
+    }
+    for (id, over) in &deck.overrides {
+        if let Some(node) = deck.nodes.get(id) {
+            names.props(over, node.node_type, &format!("/overrides/{}", esc(id)), None, id);
         }
     }
     // A slot belongs to the layout of the state that shows the node. Each node, slot, and
@@ -655,9 +727,15 @@ impl Names<'_> {
             if let Some(role) = props.get("role").and_then(Value::as_str) {
                 self.need(roles(role), "text role", role, format!("{at}/role"), state, node_);
             }
+            if let Some(style) = props.get("style") {
+                self.style(style, &format!("{at}/style"), state, node_);
+            }
             for (i, run) in props.get("runs").and_then(Value::as_array).into_iter().flatten().enumerate() {
                 if let Some(role) = run.get("role").and_then(Value::as_str) {
                     self.need(roles(role), "text role", role, format!("{at}/runs/{i}/role"), state, node_);
+                }
+                if let Some(style) = run.get("style") {
+                    self.style(style, &format!("{at}/runs/{i}/style"), state, node_);
                 }
             }
         }
@@ -693,6 +771,18 @@ impl Names<'_> {
         }
         if let Some(paint) = props.get("stroke").and_then(|s| s.get("paint")) {
             self.paint(paint, &format!("{at}/stroke/paint"), state, node_);
+        }
+    }
+
+    /// A text style's family and color.
+    fn style(&mut self, style: &Value, at: &str, state: Option<&str>, node: Option<&str>) {
+        if let Some(family) = style.get("family").and_then(Value::as_str) {
+            let defined = self.theme.theme.typography.families.contains_key(family);
+            self.need(defined, "font family", family, format!("{at}/family"), state, node);
+        }
+        if let Some(color) = style.get("color").and_then(Value::as_str) {
+            let defined = self.theme.color(color);
+            self.need(defined, "color", color, format!("{at}/color"), state, node);
         }
     }
 

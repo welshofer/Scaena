@@ -10,6 +10,7 @@
 //! - [`tracking`] — resolves the ordered cue list into absolute snapshots (SPEC §2.2).
 //! - [`timeline`] — easing curves and springs with settle-time computation (SPEC §3.9).
 //! - [`displaylist`] — the painter-agnostic frame description (SPEC §6).
+//! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
@@ -17,6 +18,7 @@
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
+pub mod color;
 pub mod displaylist;
 pub mod document;
 pub mod dsl;
@@ -34,7 +36,7 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.2";
+pub const FORMAT_VERSION: &str = "0.3";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
 pub const THEME_FORMAT_VERSION: &str = "0.1";

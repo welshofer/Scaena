@@ -210,6 +210,33 @@ impl Bundle {
 
 /// A zip of `files`, sorted by path, each deflated and dated 1980-01-01, so the same
 /// bundle zips to the same bytes.
+impl Bundle {
+    /// Write `files` (bundle path → bytes) into the bundle where it is, each replacing what
+    /// is there: in its directory, or into its zip, which is rewritten. Nothing else changes;
+    /// a save ([`Bundle::save`]) is what puts a bundle in canonical form.
+    pub fn write(&self, files: &BTreeMap<String, Vec<u8>>) -> Result<(), StoreError> {
+        match &self.files {
+            Files::Dir(root) => {
+                for (rel, bytes) in files {
+                    let path = crate::inside(root, rel)?;
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(path, bytes)?;
+                }
+                Ok(())
+            }
+            Files::Zip(entries) => {
+                let mut all = (**entries).clone();
+                for (rel, bytes) in files {
+                    all.insert(crate::normal(rel)?, bytes.clone());
+                }
+                write_zip(&self.root, &all)
+            }
+        }
+    }
+}
+
 fn write_zip(to: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<(), StoreError> {
     let zip_error = |source| StoreError::Zip { path: to.to_path_buf(), source };
     let mut zip = zip::ZipWriter::new(std::fs::File::create(to)?);

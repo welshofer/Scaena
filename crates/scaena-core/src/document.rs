@@ -49,11 +49,12 @@ pub struct Deck {
     /// The cue list, in order. Every click is a state.
     #[schemars(length(min = 1))]
     pub states: Vec<State>,
-    /// Explicit theme-bypassing literals per node. The only place raw pixel and color values
-    /// are theme-legal (lint W300 elsewhere).
+    /// Per node, props that win over its theme, its defaults, and every state: a delta merged
+    /// into the node as each state resolves it (SPEC §3.6). The only place raw pixel and
+    /// color values are theme-legal (lint W300 elsewhere).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     #[schemars(
-        with = "IndexMap<String, serde_json::Map<String, Value>>",
+        with = "IndexMap<String, model::StateDeltaRef>",
         extend("propertyNames" = {"$ref": "#/$defs/Id"})
     )]
     pub overrides: IndexMap<String, Props>,
@@ -313,6 +314,22 @@ pub struct State {
 }
 
 impl Deck {
+    /// The props a node's overrides set, as JSON pointers into the node: what makes it not
+    /// theme-safe (SPEC §3.6). An object counts by its keys, so `style: {size, color}` is
+    /// two overrides.
+    pub fn overridden(&self, id: &str) -> Vec<String> {
+        let esc = |k: &str| k.replace('~', "~0").replace('/', "~1");
+        let mut out = Vec::new();
+        for (key, value) in self.overrides.get(id).into_iter().flatten() {
+            let at = format!("/{}", esc(key));
+            match value {
+                Value::Object(map) if !map.is_empty() => out.extend(map.keys().map(|k| format!("{at}/{}", esc(k)))),
+                _ => out.push(at),
+            }
+        }
+        out
+    }
+
     /// Parse a `deck.json` string.
     pub fn from_json(s: &str) -> Result<Deck, serde_json::Error> {
         serde_json::from_str(s)

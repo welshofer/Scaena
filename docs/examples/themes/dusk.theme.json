@@ -77,11 +77,11 @@
   },
   "shaders": {
     "palettes": {
-      "dusk": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"],
+      "ambient": ["#1B1430", "#3A1F4F", "#B0452C", "#FF6A3D"],
       "ember": ["#0E0C14", "#2B1A1A", "#7A2E1E", "#FFC857"]
     },
     "presets": {
-      "mesh-soft": { "kind": "mesh", "palette": "dusk", "params": { "points": 5, "drift": 0.12, "softness": 0.85, "grain": 0.035 } },
+      "mesh-soft": { "kind": "mesh", "palette": "ambient", "params": { "points": 5, "drift": 0.12, "softness": 0.85, "grain": 0.035 } },
       "noise-fine": { "kind": "noise", "palette": "ember", "params": { "octaves": 4, "scale": 0.0015, "speed": 0.05, "contrast": 0.6 } }
     }
   },

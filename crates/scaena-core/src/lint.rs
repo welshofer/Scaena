@@ -80,6 +80,10 @@ impl Finding {
         self.hint = Some(h.into());
         self
     }
+    pub fn measure(mut self, m: Value) -> Self {
+        self.measure = Some(m);
+        self
+    }
     pub fn fix(mut self, ops: Vec<Value>) -> Self {
         self.fix = Some(ops);
         self
@@ -234,14 +238,22 @@ impl Rule for I402OverrideCount {
             .overrides
             .iter()
             .filter(|(_, o)| !o.is_empty())
-            .map(|(id, o)| {
+            .map(|(id, _)| {
+                let props = cx.deck.overridden(id);
+                let named: Vec<String> = props.iter().map(|p| format!("`{}`", &p[1..])).collect();
+                let n = props.len();
                 Finding::new(
                     self.code(),
                     self.severity(),
-                    format!("node `{id}` has {} override(s); it is not theme-safe", o.len()),
+                    format!(
+                        "node `{id}` has {n} override{} ({}); it is not theme-safe",
+                        if n == 1 { "" } else { "s" },
+                        named.join(", ")
+                    ),
                 )
                 .at(format!("/overrides/{id}"))
                 .node(id.clone())
+                .measure(serde_json::json!({ "overrides": props }))
             })
             .collect()
     }

@@ -43,21 +43,7 @@ impl ShaderNode {
             .get("palette")
             .and_then(Value::as_str)
             .ok_or_else(|| EngineError::Layout("a shader needs `palette`, a theme shader palette".into()))?;
-        let colors = theme
-            .raw
-            .pointer(&format!("/shaders/palettes/{name}"))
-            .and_then(Value::as_array)
-            .ok_or_else(|| EngineError::Theme(format!("no shader palette `{name}`")))?;
-        let palette = colors
-            .iter()
-            .map(|c| {
-                let c = c.as_str().unwrap_or_default();
-                Color::from_hex(c).map_err(|_| match c.starts_with("okl") {
-                    true => EngineError::NotImplemented("oklch and oklab palette colors — PLAN 1.6"),
-                    false => EngineError::Theme(format!("palette `{name}`: `{c}` is not a color")),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let palette = theme.palette(name)?;
         let mut params = BTreeMap::new();
         if let Some(p) = props.get("params") {
             let p = p.as_object().ok_or_else(|| EngineError::Layout(format!("`params` {p}: expected an object")))?;
@@ -102,9 +88,10 @@ mod tests {
     use serde_json::json;
 
     fn theme() -> Theme {
-        let mut t = Theme::from_json(include_str!("../../../tests/fixtures/torture.scaena/theme.json")).unwrap();
-        t.raw["shaders"]["palettes"]["lab"] = json!(["oklch(70% 0.1 200)", "#000000"]);
-        t
+        let mut t: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/torture.scaena/theme.json")).unwrap();
+        t["shaders"]["palettes"]["lab"] = json!(["oklch(70% 0.1 200)", "#000000"]);
+        Theme::from_json(&t.to_string()).unwrap()
     }
 
     fn props(v: serde_json::Value) -> Props {
@@ -123,12 +110,18 @@ mod tests {
     }
 
     #[test]
+    fn a_palette_may_be_written_in_oklch() {
+        let node = props(json!({"kind": "mesh", "palette": "lab"}));
+        let s = ShaderNode::resolve(&node, &theme(), [0.0, 0.0, 1920.0, 1080.0]).unwrap();
+        assert_eq!(s.palette, [Color::from_hex("#40B1B7").unwrap(), Color::from_hex("#000000").unwrap()]);
+    }
+
+    #[test]
     fn what_a_mesh_cannot_draw_says_why() {
         let err = |v| ShaderNode::resolve(&props(v), &theme(), [0.0, 0.0, 10.0, 10.0]).unwrap_err().to_string();
         assert!(err(json!({"kind": "noise", "palette": "torture"})).contains("PLAN 1.10"));
         assert!(err(json!({"kind": "mesh"})).contains("palette"));
         assert!(err(json!({"kind": "mesh", "palette": "nope"})).contains("no shader palette `nope`"));
-        assert!(err(json!({"kind": "mesh", "palette": "lab"})).contains("PLAN 1.6"));
         assert!(err(json!({"kind": "mesh", "palette": "torture", "params": {"points": 40}})).contains("points"));
         assert!(err(json!({"kind": "mesh", "palette": "torture", "seed": -1})).contains("seed"));
     }

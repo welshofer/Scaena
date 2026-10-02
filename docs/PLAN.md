@@ -71,7 +71,23 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *SPEC §4 now gives the grammar as built (§4.2) and the canonical form (§4.3).)*
 
 ### 1B Engine
-- [ ] 1.6 Theme cascade (SPEC §3.6) with override tracking.
+- [x] 1.6 Theme cascade (SPEC §3.6) with override tracking. *(Done:*
+  - *The engine reads the theme as the typed model (`scaena-core::model::theme`); the JSON-backed theme is gone, and every golden is unchanged.*
+  - *The cascade (`scaena-engine::cascade`):*
+    - *A text node is set in its role, or its slot's, refined by its `style`.*
+    - *A run in the node's role takes the node's look, then its own `style`; a run with a role of its own starts from that role.*
+    - *Tracking merges each state's props as before, and the deck's `overrides` then merge into every node, in every state, as a delta does.*
+    - *A test renders the example deck with a style, a state change, and an override, and reads the order back out of the display list.*
+  - *Deck format 0.3:*
+    - *`style` is typed (`family`, `size`, `weight`, `leading`, `tracking`, `opsz`, `case`, `color`) and exists only on text nodes and runs.*
+    - *`overrides` are deltas, validated like a state's: E102 for a node that is not there, E104 for `type`, E106 against the node's type, and their theme names.*
+  - *Override tracking: `Deck::overridden` lists what a node's overrides set. I402 names each one, and `scaena inspect --resolved` shows each text node's look and its overrides.*
+  - *`scaena theme <bundle> --apply theme.json [--dry-run]` re-themes a directory or a zip and reports the delta in what `validate` and `lint` find.*
+    - *Retheming the example deck to Daybreak changes no finding.*
+    - *The same holds from a saved zip, where Daybreak's families find the bundle's content-named fonts by family name.*
+  - *Colors written as `oklch(…)` or `oklab(…)` render, read as CSS Color 4 reads them, through `libm`, and clipped to sRGB. An oklch palette no longer exits 3.*
+  - *Shader palettes are named for their job: `dusk` is now `ambient` in the examples and fixtures (authorability finding 17).*
+  - *Not done: W300 (a literal outside `overrides`) is lint work, PLAN 1.15. Whether fonts follow the theme stays SPEC §16 Q10.)*
 - [ ] 1.7 Layout templates + `taffy` containers; `at` resolution; alignment anchors (cap/baseline/x-height).
 - [ ] 1.8 Text: roles, runs, fit policies, widows/orphans, hanging punctuation beyond quotes (quotes hang since Phase 0, SPEC §3.5), optical margins, hyphenation (by `lang`), text splitting units.
 - [ ] 1.9 **Chart and table sprint.** Jay sets an opinionated aesthetic for charts and tables, and the theme carries it. Charts → marks: exactly the v1 kinds in SPEC §3.7 (bar, stackedBar, line, area, scatter, dot, donut); scales; axes/labels/legend from theme; number and date formats; data motion by key (values in, the next period, growth) with enter/exit presets and stagger; label collision handling. Tables: `table` becomes a node type (schema, SPEC §3.3), styled by the theme like charts. Deferred kinds (slope, waffle, range, heatmap) are out of scope for this phase and the schema rejects them. E103 (an encoding's field missing from its data, or of the wrong type) arrives here, where data is read for encodings.

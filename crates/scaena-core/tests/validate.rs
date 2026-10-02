@@ -64,6 +64,10 @@ fn e102_unknown_references() {
             "/nodes/title/enter",
             "/nodes/title/fill",
             "/nodes/title/role",
+            "/nodes/title/style/color",
+            "/nodes/title/style/family",
+            "/overrides/chart/labels/role",
+            "/overrides/ghost",
             "/states/0/layout",
             "/states/1/choreography/0/enter/preset",
             "/states/1/choreography/0/enter/spring",
@@ -78,7 +82,7 @@ fn e102_unknown_references() {
 
 #[test]
 fn e104_a_state_cannot_change_a_type() {
-    triggers("E104", fixture!("E104", "trigger"), &["/states/1/props/figure/type"]);
+    triggers("E104", fixture!("E104", "trigger"), &["/overrides/figure/type", "/states/1/props/figure/type"]);
 }
 
 #[test]
@@ -105,8 +109,12 @@ fn e106_schema_and_resolved_types() {
         &[
             "/nodes/headline/fit",
             "/nodes/logo/src",
+            "/nodes/logo/style",
             "/nodes/photo/alt",
             "/nodes/photo/role",
+            "/overrides/headline/style/weight",
+            "/overrides/photo/fit",
+            "/overrides/photo/kind",
             "/states/1/props/headline/fit",
             "/states/1/props/photo/src",
         ],

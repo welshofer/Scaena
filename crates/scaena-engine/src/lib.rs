@@ -12,10 +12,13 @@
 //! caller hands over; each snapshot lays out once into a [`sample::Scene`], and a
 //! [`sample::Transition`] samples two of them, moving chart data by key (frames never
 //! lay out or shape). `mesh` shader nodes resolve to shader ops at their time on the
-//! global timeline. Other shader kinds (1.10), choreography (1.11), containers (1.7),
+//! global timeline. Every node passes through the theme cascade (1.6, [`cascade`]): its
+//! role, its `style`, the state, then the deck's `overrides`. Other shader kinds (1.10),
+//! choreography (1.11), containers (1.7),
 //! and the chart and table sprint (1.9) are still to come. Nothing here may read a
 //! clock, system fonts, or the filesystem (SPEC §13).
 
+pub mod cascade;
 pub mod charts;
 pub mod data;
 pub mod error;

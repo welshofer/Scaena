@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.2",
+  "scaena": "0.3",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // additional projections (optional)
@@ -133,7 +133,7 @@ Rules:
   "spine":  { "sections": [ ... ] },
   "nodes":  { "<id>": { "type": "...", ... } },               // the scene graph
   "states": [ { "id": "...", ... } ],                         // the cue list, ordered
-  "overrides": { "<nodeId>": { "<prop>": value } }           // explicit, lintable pixel/theme overrides
+  "overrides": { "<nodeId>": { "<prop>": value } }           // a delta per node that wins in every state (§3.6)
 }
 ```
 
@@ -143,7 +143,7 @@ Rules:
 
 ### 3.3 Node types
 
-Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `parent`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim`, `style` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
+Every node has a `type`, an id (its key in `nodes`), and the properties every type shares: `name`, `alt`, `semantic`, `parent`, `z`, `tags`, `visible`, `opacity`, `transform`, `fill`, `stroke`, `blur`, `shadow`, `clip`, `blend`, `at`, `size`, `align`, `transition`, `enter`, `exit`, `emphasis`, `anim` (`NodeProps` in the schema). Each type adds its own, below; a property of another type is an error, so a chart's `axes` (axis settings) and a text node's `axes` (variable-font axis values) are two properties that share a name. A state's delta is not typed by node (it carries no `type`): the schema checks each property's forms there, and validation checks the resolved state against the node's type (PLAN 1.2).
 
 **Two semantic axes.** `role` (on text nodes) and the theme describe *what something looks like*. `semantic` describes *what it does in the argument*: `claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`. They are independent: a claim may be a `headline` on one state and a `caption` on another. `semantic` is optional in v1 and reserved for the narrative lint family (§7.5) — e.g. "this beat's claim has no visible expression" or "evidence outranks the claim in visual hierarchy". Agents SHOULD set it; nothing renders differently because of it.
 
@@ -186,7 +186,7 @@ Containers follow CSS flex/grid semantics as implemented by `taffy`: `stack` = f
 
 ### 3.5 Typography
 
-Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
+Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). A text node's `style` refines its role's look (§3.6). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
@@ -236,12 +236,18 @@ See `docs/schema/theme.schema.json`. Shape:
     "springs":   { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 }, "gentle": { "stiffness": 170, "damping": 26, "mass": 1 } },
     "presets":   { "rise": { "from": { "opacity": 0, "translate": [0, 24] }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
-  "shaders": { "palettes": { "dusk": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
+  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "strokeWidth": "thin", "cornerRadius": 2 }
 }
 ```
 
-**Cascade** (later wins): theme role defaults → node `style` → state `props` → `overrides`. Only `overrides` may contain raw pixel/color literals; literals elsewhere are lint **W300**. Overrides are tracked per node so a client can show "3 overrides, not theme-safe."
+**Cascade** (later wins): theme role defaults → node `style` → state `props` → `overrides`. Only `overrides` may contain raw pixel/color literals; literals elsewhere are lint **W300**. Overrides are tracked per node so a client can show "3 overrides, not theme-safe." In detail (PLAN 1.6):
+
+- **`style`** is on text nodes and runs. It names role properties: `family` (a key in `type.families`), `size`, `weight`, `leading`, `tracking`, `opsz`, `case`, and `color` (a color token or role). Each replaces the role's value. A run set in the node's role starts from the node's look, so the node's `style` applies to it, and the run's own `style` comes on top. A run with its own `role` starts from that role alone. Any `size`, and any literal color, is a pixel value: theme-legal only in `overrides`.
+- **State props.** Tracking (§2.2) merges a node's defaults, its `style` included, with each state's delta. An object merges one level, so a state can change `style.color` alone.
+- **`overrides`** holds a delta per node, checked against the node's type like a state's (E106; E104 for `type`; E102 for a node that is not there). It merges into the node after tracking, in every state, the same way a delta does: it wins over the theme, the defaults, and every state, and `null` deletes. Each key it sets is one override, and an object counts by its keys, so `style: { size, color }` is two. `scaena inspect --resolved` shows each node's overrides and each text node's look, and lint I402 names them.
+- **Colors** are a token or color role the theme names (role → token → literal), or a literal written out: `#rrggbb[aa]`, `oklch(L C H [/ A])`, or `oklab(L a b [/ A])`, read as CSS Color 4 reads them. Oklab converts to sRGB through `libm` (§13), and a color outside sRGB is clipped.
+- **Names are the swap contract.** Two themes swap cleanly when they define the same names (roles, layouts and slots, presets, palettes), so name them for their job: a background palette is `ambient`, not `dusk`. `scaena theme --apply` reports what a swap breaks (§7.1).
 
 ### 3.7 Charts
 
@@ -288,7 +294,7 @@ Rules:
 ### 3.8 Shader nodes
 
 ```jsonc
-{ "type": "shader", "kind": "mesh", "seed": 7, "palette": "dusk",
+{ "type": "shader", "kind": "mesh", "seed": 7, "palette": "ambient",
   "params": { "points": 5, "drift": 0.15, "softness": 0.8, "grain": 0.04 } }
 ```
 
@@ -425,8 +431,9 @@ section end "Close"
   beat thanks "Thank you." states:[close] duration:5s
 
 state intro layout:title hold:4s
-  bg shader:mesh seed:7 palette:dusk params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035}
-    at:in(canvas) z:-100 alt:"" semantic:decoration
+  bg shader:mesh seed:7 palette:ambient
+    params:{points: 5, drift: 0.12, softness: 0.85, grain: 0.035} at:in(canvas) z:-100 alt:""
+    semantic:decoration
   title text role:display "Q3 Review" semantic:navigation at:in(title)
   subtitle text role:title "Growth, mix, and what we do next" semantic:context at:in(subtitle)
   choreo title split:words enter:words timing:with
@@ -611,7 +618,7 @@ scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b
 scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
-scaena theme     <bundle> --apply theme.json          # re-theme; prints lint delta
+scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
 scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
@@ -619,6 +626,10 @@ scaena mcp                                            # stdio MCP server exposin
 All commands support `--json`; exit codes: `0` ok, `1` lint errors, `2` invalid input, `3` internal.
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
+
+`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
+
+`inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
@@ -657,9 +668,9 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E101 | error | unintended collision between nodes in the same layer |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
 | E103 | error | chart field missing in data / type mismatch |
-| E104 | error | node type changed across states (a state's delta sets `type`) |
+| E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
-| E106 | error | the deck or its theme does not match its schema, or a resolved state does not match its node's type (another type's property, a value this type does not take) |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take) |
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |

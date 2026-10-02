@@ -585,7 +585,7 @@
   },
   "shaders": {
     "palettes": {
-      "dusk": [
+      "ambient": [
         "#1B1430",
         "#3A1F4F",
         "#B0452C",
@@ -601,7 +601,7 @@
     "presets": {
       "mesh-soft": {
         "kind": "mesh",
-        "palette": "dusk",
+        "palette": "ambient",
         "params": {
           "points": 5,
           "drift": 0.12,

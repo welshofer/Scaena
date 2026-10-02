@@ -4,6 +4,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use scaena_core::validate::BundleFiles;
 use scaena_core::{Finding, Severity};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
@@ -50,6 +51,10 @@ enum Cmd {
         bundle: PathBuf,
         #[arg(long)]
         state: Option<String>,
+        /// Through the theme cascade: each node with the deck's overrides merged in, each
+        /// text node's look (role, family, size, color), and what its overrides set.
+        #[arg(long)]
+        resolved: bool,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -106,11 +111,16 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Re-theme (PLAN 1.6).
+    /// Re-theme: point the deck at another theme, copied into the bundle, and say what
+    /// changes in what `validate` and `lint` find.
     Theme {
         bundle: PathBuf,
+        /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
         #[arg(long)]
         apply: PathBuf,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Dev server with live preview (PLAN 2.x).
     Serve {
@@ -224,12 +234,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state } => {
+        Cmd::Inspect { bundle, state, resolved } => {
             let b = open(&bundle)?;
             let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
             let selected: Vec<_> = snaps.iter().filter(|s| state.as_ref().is_none_or(|id| &s.state_id == id)).collect();
             if selected.is_empty() {
                 anyhow::bail!("unknown state `{}`", state.unwrap_or_default());
+            }
+            if resolved {
+                return inspect_resolved(&b, &selected, cli.json);
             }
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&selected)?);
@@ -307,7 +320,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { .. } => not_yet("patch", "1.16"),
-        Cmd::Theme { .. } => not_yet("theme --apply", "1.6"),
+        Cmd::Theme { bundle, apply, dry_run } => theme_apply(&bundle, &apply, dry_run, cli.json),
         Cmd::Serve { .. } => not_yet("serve", "2.x"),
         Cmd::Mcp => not_yet("mcp", "1.17"),
     }
@@ -425,6 +438,182 @@ fn line_col(source: &str, offset: usize) -> (usize, usize) {
     let before = &source[..offset.min(source.len())];
     let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
     (before.matches('\n').count() + 1, col)
+}
+
+/// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
+/// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
+/// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
+/// its `theme`. Findings after it, if any are errors, exit 1.
+fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
+    use std::collections::BTreeMap;
+    let b = open(bundle)?;
+    let mut text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", theme.display()))?;
+    // A family whose file the bundle does not hold is set in the bundle's font of that
+    // family, if it has one: a saved bundle names its fonts by their content.
+    let mut mapped = Vec::new();
+    for (key, family) in parsed.pointer_mut("/type/families").and_then(|f| f.as_object_mut()).into_iter().flatten() {
+        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
+        if b.files.exists(file) {
+            continue;
+        }
+        if let Some(font) = b.deck.fonts.iter().find(|f| f.family == name && b.files.exists(&f.file)) {
+            mapped.push(format!("family `{key}`: {file} → {}", font.file));
+            family["file"] = serde_json::Value::String(font.file.clone());
+        }
+    }
+    if !mapped.is_empty() {
+        text = serde_json::to_string_pretty(&parsed)? + "\n";
+    }
+    // Where it goes: where it already is inside a bundle directory, else `themes/`.
+    let inside = match &b.files {
+        scaena_store::Files::Dir(root) => match (root.canonicalize(), theme.canonicalize()) {
+            (Ok(root), Ok(theme)) => theme.strip_prefix(&root).ok().map(|p| p.to_string_lossy().replace('\\', "/")),
+            _ => None,
+        },
+        scaena_store::Files::Zip(_) => None,
+    };
+    let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
+    let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
+    let was = match &b.deck.theme {
+        Some(serde_json::Value::String(path)) => Some(path.clone()),
+        Some(_) => Some("(inline)".to_string()),
+        None => None,
+    };
+
+    let findings = |deck: &scaena_core::Deck, files: &dyn scaena_core::validate::BundleFiles| -> Result<Vec<Finding>> {
+        let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
+        found.extend(scaena_core::lint::lint_document(deck));
+        Ok(found)
+    };
+    let before = findings(&b.deck, &b.files)?;
+    let mut deck = b.deck.clone();
+    deck.theme = Some(serde_json::Value::String(rel.clone()));
+    let after = findings(&deck, &Overlay { base: &b.files, path: &rel, text: &text })?;
+
+    let key = |f: &Finding| (f.code.clone(), f.file.clone(), f.path.clone(), f.message.clone());
+    let added: Vec<&Finding> = after.iter().filter(|f| !before.iter().any(|g| key(g) == key(f))).collect();
+    let removed: Vec<&Finding> = before.iter().filter(|f| !after.iter().any(|g| key(g) == key(f))).collect();
+    let errors = after.iter().filter(|f| f.severity == Severity::Error).count();
+
+    if !dry_run {
+        let mut files = BTreeMap::new();
+        files.insert(b.deck_file.clone(), (deck.to_json()? + "\n").into_bytes());
+        if inside.is_none() || !mapped.is_empty() {
+            files.insert(rel.clone(), text.into_bytes());
+        }
+        b.write(&files).with_context(|| format!("writing {}", bundle.display()))?;
+    }
+    if json {
+        let v = serde_json::json!({
+            "theme": rel, "was": was, "applied": !dry_run, "mapped": mapped,
+            "added": added, "removed": removed, "errors": errors,
+        });
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        let verb = if dry_run { "would apply" } else { "applied" };
+        println!("{verb} {rel} (was {})", was.as_deref().unwrap_or("no theme"));
+        for m in &mapped {
+            println!("  {m}");
+        }
+        if added.is_empty() && removed.is_empty() {
+            println!("lint delta: none");
+        }
+        for (sign, list) in [("+", &added), ("-", &removed)] {
+            for f in list.iter() {
+                let loc = match &f.file {
+                    Some(file) => format!("{file} {}", f.path.as_deref().unwrap_or("")),
+                    None => f.path.clone().unwrap_or_default(),
+                };
+                println!("{sign} {} {loc}: {}", f.code, f.message);
+            }
+        }
+    }
+    Ok(if errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// A bundle's files with one more, or one replaced: the bundle as it would be.
+struct Overlay<'a> {
+    base: &'a scaena_store::Files,
+    path: &'a str,
+    text: &'a str,
+}
+
+impl scaena_core::validate::BundleFiles for Overlay<'_> {
+    fn exists(&self, path: &str) -> bool {
+        path == self.path || self.base.exists(path)
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        if path == self.path { Some(self.text.to_string()) } else { self.base.read_text(path) }
+    }
+}
+
+/// `scaena inspect --resolved` (PLAN 1.6): each state through the theme cascade.
+fn inspect_resolved(b: &Bundle, snaps: &[&scaena_core::Snapshot], json: bool) -> Result<ExitCode> {
+    use scaena_engine::cascade;
+    use scaena_engine::layout::Grid;
+    let theme = Theme::from_json(b.theme_json.as_deref().context("the deck names no theme")?)?;
+    let mut out = Vec::new();
+    for s in snaps {
+        let snap = cascade::with_overrides(&b.deck, s);
+        let mut looks = serde_json::Map::new();
+        let mut overrides = serde_json::Map::new();
+        for (id, props) in &snap.nodes {
+            if b.deck.nodes[id].node_type == scaena_core::document::NodeType::Text {
+                let slot = Grid::slot_role(&theme, snap.layout.as_deref(), props.get("at"));
+                let look = cascade::look(&theme, props, slot.as_deref()).with_context(|| format!("node `{id}`"))?;
+                looks.insert(id.clone(), serde_json::to_value(look)?);
+            }
+            let over = b.deck.overridden(id);
+            if !over.is_empty() {
+                overrides.insert(id.clone(), serde_json::to_value(over)?);
+            }
+        }
+        out.push((snap, looks, overrides));
+    }
+    if json {
+        let v: Vec<serde_json::Value> = out
+            .into_iter()
+            .map(|(snap, looks, overrides)| {
+                let mut v = serde_json::to_value(&snap).expect("a snapshot is JSON");
+                v["looks"] = looks.into();
+                v["overrides"] = overrides.into();
+                v
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    for (s, looks, overrides) in out {
+        println!("state {}  slide={}  layout={}", s.state_id, s.slide_id, s.layout.as_deref().unwrap_or("-"));
+        for (id, props) in &s.nodes {
+            let marker = if s.entered.contains(id) { "+" } else { " " };
+            println!("  {marker} {id:<12} {}", summarize(props));
+            if let Some(l) = looks.get(id) {
+                println!(
+                    "      {}: {} {} (leading {}), weight {}, tracking {}, {} {}",
+                    l["role"].as_str().unwrap_or_default(),
+                    l["family"].as_str().unwrap_or_default(),
+                    l["size"],
+                    l["leading"],
+                    l["weight"],
+                    l["tracking"],
+                    l["color"].as_str().unwrap_or_default(),
+                    l["hex"].as_str().unwrap_or_default(),
+                );
+            }
+            if let Some(over) = overrides.get(id).and_then(|o| o.as_array()) {
+                let names: Vec<&str> = over.iter().filter_map(|p| p.as_str()).map(|p| &p[1..]).collect();
+                println!("      {} override(s), not theme-safe: {}", names.len(), names.join(", "));
+            }
+        }
+        if !s.exited.is_empty() {
+            println!("  - exited: {}", s.exited.join(", "));
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `scaena render` (PLAN 0.6, 0.7): bundle fonts → `Engine::frame` → painter → PNG.

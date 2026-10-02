@@ -78,7 +78,7 @@ impl BundleFonts {
     /// provides the family name the theme declares; a mismatch would silently fall
     /// through to the next font in the stack.
     pub fn check_theme(&self, theme: &Theme) -> Result<(), EngineError> {
-        for (key, def) in theme.families()? {
+        for (key, def) in theme.families() {
             let provided = self
                 .families
                 .get(&def.file)

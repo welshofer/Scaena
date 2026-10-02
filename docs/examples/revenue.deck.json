@@ -1,5 +1,5 @@
 {
-  "scaena": "0.2",
+  "scaena": "0.3",
   "meta": {
     "title": "Q3 Review",
     "author": "Jay",
@@ -133,7 +133,7 @@
       "type": "shader",
       "kind": "mesh",
       "seed": 7,
-      "palette": "dusk",
+      "palette": "ambient",
       "params": {
         "points": 5,
         "drift": 0.12,

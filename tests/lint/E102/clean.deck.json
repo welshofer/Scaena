@@ -1,5 +1,5 @@
 {
-  "scaena": "0.2",
+  "scaena": "0.3",
   "_comment": "E102 clean: every node, state, data source, file, and theme name it references exists (tests/lint/theme.json).",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",
@@ -9,8 +9,8 @@
   ],
   "data": { "q3": { "source": "data/q3.csv" } },
   "nodes": {
-    "bg": { "type": "shader", "kind": "mesh", "palette": "dusk", "at": { "in": "canvas" } },
-    "title": { "type": "text", "role": "headline", "text": "Q3 Review", "at": { "in": "title" }, "fill": "accent", "enter": "rise" },
+    "bg": { "type": "shader", "kind": "mesh", "palette": "ambient", "at": { "in": "canvas" } },
+    "title": { "type": "text", "role": "headline", "style": { "family": "body", "color": "accent" }, "text": "Q3 Review", "at": { "in": "title" }, "fill": "accent", "enter": "rise" },
     "chart": { "type": "chart", "kind": "bar", "data": "@q3", "x": { "field": "quarter" }, "y": { "field": "revenue" }, "labels": { "show": "ends", "role": "numeral" } },
     "photo": { "type": "image", "src": "assets/photo.png", "alt": "The team at launch", "at": { "in": "main" } }
   },
@@ -24,5 +24,6 @@
       "choreography": [ { "target": "chart", "enter": { "preset": "grow", "spring": "snappy" } } ]
     },
     { "id": "photo", "layout": "full", "remove": ["chart"], "props": { "photo": {} } }
-  ]
+  ],
+  "overrides": { "title": { "style": { "size": 96, "color": "#C2410C" } } }
 }

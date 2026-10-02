@@ -13,7 +13,7 @@ use scaena_core::Deck;
 use scaena_core::displaylist::{Affine, DisplayList, Glyph, Op, PathEl, quantize};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
-use scaena_engine::text::{Span, TextEngine, TextLayout, TextSpec};
+use scaena_engine::text::{TextEngine, TextLayout, TextSpec};
 use scaena_engine::theme::{Theme, Wrap};
 use scaena_engine::{Engine, EngineError, FrameRequest, PlacedText};
 use std::collections::BTreeSet;
@@ -43,8 +43,9 @@ fn read(path: &str) -> Vec<u8> {
 
 fn fixture_with(theme_edit: impl FnOnce(&mut serde_json::Value), reverse_fonts: bool) -> Fixture {
     let deck = Deck::from_json(&String::from_utf8(read("deck.json")).unwrap()).unwrap();
-    let mut theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
-    theme_edit(&mut theme.raw);
+    let mut raw: serde_json::Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    theme_edit(&mut raw);
+    let theme = Theme::from_json(&raw.to_string()).unwrap();
     let fonts = bundle_fonts(&deck, reverse_fonts);
     fonts.check_theme(&theme).unwrap();
     let mut data = DataFiles::new();
@@ -151,8 +152,7 @@ fn line_texts<'a>(layout: &TextLayout, text: &'a str) -> Vec<&'a str> {
 fn set(text: &str, wrap: Wrap, width: f32) -> TextLayout {
     let fx = fixture();
     let mut fonts = bundle_fonts(&fx.deck, false);
-    let span = Span { text: text.into(), role: "specimen".into() };
-    let spec = TextSpec { spans: vec![span], role: "specimen".into(), wrap: Some(wrap), ..TextSpec::default() };
+    let spec = TextSpec { wrap: Some(wrap), ..TextSpec::plain(fx.theme.text_role("specimen").unwrap(), text) };
     TextEngine::new().layout(&mut fonts, &fx.theme, &spec, width).unwrap()
 }
 
@@ -697,12 +697,9 @@ fn counting_figures_spell_numbers_as_shaping_does() {
     let mut engine = TextEngine::new();
     let samples = ["-7", "0.5", "12.25", "1,024", "-0.75", "100.5", "-1,000.25", "38.0"];
     for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
-        let span = Span { text: text.clone(), role: "label".into() };
         let spec = TextSpec {
-            spans: vec![span],
-            role: "label".into(),
             numeric: Some(scaena_engine::theme::Numeric::TabularLining),
-            ..TextSpec::default()
+            ..TextSpec::plain(fx.theme.text_role("label").unwrap(), text.clone())
         };
         let shaped = engine.layout(&mut fonts, &fx.theme, &spec, f32::INFINITY).unwrap();
         let (runs, width) = numerals.compose(&text).unwrap();

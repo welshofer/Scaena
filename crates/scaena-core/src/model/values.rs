@@ -371,10 +371,43 @@ pub struct Run {
     pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emphasis: Option<Emphasis>,
+    /// What this run changes about its role's look, after the node's `style` when the run
+    /// is set in the node's role (SPEC §3.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub style: Option<IndexMap<String, Value>>,
+    pub style: Option<TextStyle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+}
+
+/// What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own
+/// properties, by name; each replaces the role's. `family` names a theme family and
+/// `color` a theme color token or role. A literal color, and any `size`, is a pixel value:
+/// theme-legal only in `overrides` (lint W300 elsewhere).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TextStyle {
+    /// Key in the theme's `type.families`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("exclusiveMinimum" = 0))]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 1000))]
+    pub weight: Option<u16>,
+    /// Line height as a multiple of size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("exclusiveMinimum" = 0))]
+    pub leading: Option<f64>,
+    /// Em units; negative tightens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracking: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opsz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case: Option<super::theme::Case>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
