@@ -102,7 +102,7 @@ fn nothing_is_written_that_does_not_validate() {
     let root = scratch("refused");
     // A deck naming data it does not have: E102, and no bundle.
     let dir = root.join("bad");
-    let deck = json!({ "scaena": "0.8", "canvas": { "width": 1920, "height": 1080 },
+    let deck = json!({ "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 },
                        "nodes": { "c": { "type": "chart", "kind": "bar", "data": "@missing" } },
                        "states": [{ "id": "a", "props": { "c": {} } }] });
     let made = create(&dir, &Create { theme: dusk(), deck: Some(deck), ..Create::default() }).unwrap();
