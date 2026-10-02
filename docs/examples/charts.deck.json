@@ -145,7 +145,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Pro"
+          }
+        }
+      ]
     },
     "areas": {
       "type": "chart",
@@ -192,7 +200,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Core"
+          }
+        }
+      ]
     },
     "scatter": {
       "type": "chart",
@@ -242,7 +258,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Core"
+          }
+        }
+      ]
     },
     "table": {
       "type": "table",

@@ -136,7 +136,29 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Counts stop at their ends on a spring (SPEC §3.9 already said so).*
     - *A date `parse` format that reads a month or a day but no year is refused, instead of reading 1900.*
     - *Torture case 44 `stagger` holds the motion, at 0.3 and 0.6 of its span; no other golden moved. The trails deck drops its `stagger: 0` workarounds.*
-  - *Open: Jay's review of the gallery renders, then the tick. Next candidates, by the same rule: range frames for the value axis, white gridlines knocked through bars, and direct labels for donuts and scatters.)*
+  - *Second pass, by Jay's chart style guide (2026-10-02, "Let's start with it everywhere"): graphite with one signal color, few reference lines, labels a room can read. Each rule is a default or a theme token (theme format 0.6, SPEC §3.7 Defaults):*
+    - *At most five value ticks: `charts.maxTicks` (default 5) caps the value axis, which asks for `tickCount` ticks, then for fewer until they fit, so a chart draws four or five reference lines at most.*
+    - *One signal color: a highlight colors what it picks in `charts.signal` (the accent when unset) and dims the rest's marks to `charts.annotation.dimmed`, now 0.5. Their value labels and names dim half as far, to 0.75, so the context stays legible.*
+    - *Dusk (and its authorability copy) and Daybreak carry the rest:*
+      - *data in graphite and quiet grays, each readable as text on the theme's surfaces (4.5:1), since a direct legend names a series in its color;*
+      - *a one-hue sequential scale;*
+      - *sentence-case `axis` and `value` roles (12 and 13 pt) for ticks, values, series names, and table headers;*
+      - *1.5-pt lines (`regular`).*
+    - *The trails deck highlights what each data slide claims (Alpine, Tread, Clay, Grants). The gallery highlights the series or category its headline names (Pro, then Core twice). Both lint clean.*
+    - *The torture theme keeps its palette, so its goldens moved only where a chart leaned on a changed default:*
+      - *fewer ticks in `chart-kinds`, `chart-kinds-2`, `regroup`, `regroup-stacked`, and `annotations`;*
+      - *the highlight's signal color and opacities in `annotations`;*
+      - *the transitions between them.*
+    - *Engine tests: `charts.rs` (35).*
+    - *Not yet in the engine:*
+      - *contrast and size checks for chart text (1.27);*
+      - *forms the guide asks for, proposed for Jay to schedule (1H): dashed forecasts and estimates (1.28), horizontal bars (1.29), slopegraphs and dumbbells (1.30), small multiples (1.31).*
+  - *Open: Jay's review of the gallery and trails renders, then the tick. Next candidates, by the same rule:*
+    - *range frames for the value axis;*
+    - *white gridlines knocked through bars;*
+    - *direct labels for donuts and scatters (a scatter's series in quiet grays are told apart only by a legend);*
+    - *value labels that clear other series' marks (the torture dot plot's `$3` touches the `$6` dot);*
+    - *a rule over a table's total row.)*
 
 - [x] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets. *(Done. In `scaena-core::shader`, SPEC §3.8:*
   - *Kinds: `gradient` (linear, radial, or conic, turning; the palette as a ramp in Oklab), `noise` (3D simplex in octaves, evolving along time, keyed by the seed), `grain` (per device pixel, two palette tones, changing `fps` times a second), and `particles` (seeded soft discs that drift and wrap, blended in linear light). Each has a CPU reference and a WGSL twin side by side. Per frame, geometry comes from `libm`; per pixel the arithmetic matches line for line.*
@@ -315,6 +337,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 ### 1G Design calls (Jay, 2026-10-02)
 - [ ] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases.
 - [ ] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures.
+- [ ] 1.27 Chart text is judged.
+  - E110 and E111 cover a chart's labels, ticks, and direct names: in their colors, at their dimmed opacities, over what is painted behind them. `contrast.rs` skips them today.
+  - A new code beside W310 flags chart text under 12 pt at presentation size (24 units on a 1920-unit canvas, scaling with the canvas).
+  - SPEC §7.5; fixtures. *(Jay's chart style guide: "presentation labels at least 12 pt"; PLAN 1.9, second pass.)*
+
+### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
+*Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
+- [ ] 1.28 Forecasts and estimates read as such. A line's or an area's rows can be marked projected (a field the encoding names). The line runs dashed from the last actual point, and its end value says it is an estimate. SPEC §3.7; schema; a torture case. *(The guide: "distinguish actual and forecast".)*
+- [ ] 1.29 Horizontal bars: `bar` and `stackedBar` take `orient: horizontal`, with categories down the side and their names read across, for rankings and long names. SPEC §3.7; schema; a torture case.
+- [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
+- [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.

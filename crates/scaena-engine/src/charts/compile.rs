@@ -274,6 +274,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Color([r, g, b, (f64::from(a) * opacity).round() as u8])
     };
     let tick_count = charts.and_then(|c| c.tick_count).unwrap_or(5) as usize;
+    let max_ticks = charts.and_then(|c| c.max_ticks).unwrap_or(5) as usize;
     let x_grid = flag("x", "gridlines", false) && !donut;
     // Annotations: rules, leaders, and bands in one color, text in its role. A theme
     // needs the color and the stroke only for a chart that draws one.
@@ -287,7 +288,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         |Color([r, g, b, a]): Color, by: f64| Color([r, g, b, (f64::from(a) * by.clamp(0.0, 1.0)).round() as u8]);
     let rule_color = with_alpha(note_color, style.and_then(|a| a.opacity).unwrap_or(1.0));
     let band_color = with_alpha(note_color, style.and_then(|a| a.band).unwrap_or(0.12));
-    let dimmed = style.and_then(|a| a.dimmed).unwrap_or(0.3).clamp(0.0, 1.0) as f32;
+    let dimmed = style.and_then(|a| a.dimmed).unwrap_or(0.5).clamp(0.0, 1.0) as f32;
 
     // Colors: by series (or a categorical color field), by category on a donut, along
     // the sequential or diverging palette for a numeric color field, else the first.
@@ -508,15 +509,22 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let lo = bound(0).unwrap_or(if kind.zero_based() { min.min(0.0) } else { min });
     let hi = bound(1).unwrap_or(max).max(lo + f64::EPSILON);
     let ruled = y_show || y_grid;
-    let (lo, hi) =
-        if ruled { scale::nice(lo, hi, tick_count, [bound(0).is_none(), bound(1).is_none()]) } else { (lo, hi) };
+    // About `tickCount` ticks, and no more than `maxTicks`: the axis asks for fewer,
+    // down to two, until its ticks fit, so it draws at most that many reference lines.
+    let widen = [bound(0).is_none(), bound(1).is_none()];
+    let fits = |count: usize| {
+        let (a, b) = scale::nice(lo, hi, count, widen);
+        scale::ticks(a, b, count).len() <= max_ticks
+    };
+    let y_count = (2..=tick_count.max(2)).rev().find(|&c| fits(c)).unwrap_or(2);
+    let (lo, hi) = if ruled { scale::nice(lo, hi, y_count, widen) } else { (lo, hi) };
     if let Some(v) = note_ys.iter().find(|&&v| v < lo || v > hi) {
         return Err(EngineError::Layout(format!(
             "an annotation stands at y {v}, outside the value axis's `domain` [{lo}, {hi}]: widen the domain"
         )));
     }
-    let tick_values = if ruled { scale::ticks(lo, hi, tick_count) } else { Vec::new() };
-    let step = scale::tick_step(lo, hi, tick_count);
+    let tick_values = if ruled { scale::ticks(lo, hi, y_count) } else { Vec::new() };
+    let step = scale::tick_step(lo, hi, y_count);
     let tick_format = match &y_format {
         Some(f) => f.for_ticks(step, lo.abs().max(hi.abs())),
         None => NumberFormat::ticks(step),
@@ -1344,28 +1352,47 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         out_note.label = origin.zip(text).map(|(at, t)| Label::new(out_note.key.clone(), at, t, None));
         out.notes.push(out_note);
     }
-    // A highlight leaves what it picks out as it is and dims the rest: marks, their
-    // value labels, a line or an area with none of its marks picked, and a legend entry
-    // whose marks are none of them.
+    // A highlight colors what it picks out in the signal color: its marks, and a line,
+    // an area, or a legend entry all of whose marks it picks (a direct name with it). It
+    // dims the rest: marks, their value labels, a line or an area with none of its marks
+    // picked, and a legend entry whose marks are none of them. Words dim half as far as
+    // marks, so the context stays legible.
     let highlights: Vec<&Annotation> = notes.iter().filter(|n| n.kind == AnnotationKind::Highlight).collect();
     if !highlights.is_empty() {
+        let signal = theme.color(charts.and_then(|c| c.signal.as_deref()).unwrap_or("accent"))?;
         let lit: Vec<&str> =
             rows.iter().filter(|r| highlights.iter().any(|h| picks(h, r))).map(|r| r.key.as_str()).collect();
         let dim = |Color([r, g, b, a]): Color| Color([r, g, b, (f32::from(a) * dimmed).round() as u8]);
-        for m in out.marks.iter_mut().filter(|m| !lit.contains(&m.key.as_str())) {
-            m.color = dim(m.color);
+        let words = (1.0 + dimmed) / 2.0;
+        for m in &mut out.marks {
+            m.color = if lit.contains(&m.key.as_str()) { signal } else { dim(m.color) };
         }
         for l in out.labels.iter_mut().filter(|l| !lit.contains(&l.key.as_str())) {
-            l.opacity = dimmed;
+            l.opacity = words;
         }
-        for p in out.paths.iter_mut().filter(|p| !p.marks.iter().any(|k| lit.contains(&k.as_str()))) {
-            p.color = dim(p.color);
+        for p in &mut out.paths {
+            let picked = p.marks.iter().filter(|k| lit.contains(&k.as_str())).count();
+            if picked == 0 {
+                p.color = dim(p.color);
+            } else if picked == p.marks.len() {
+                p.color = signal;
+            }
         }
         for e in &mut out.legend {
             let entry = |r: &&Row| if donut { r.label == e.key } else { r.series.as_deref() == Some(e.key.as_str()) };
-            if !rows.iter().filter(entry).any(|r| lit.contains(&r.key.as_str())) {
+            let (picked, all) = (rows.iter().filter(entry))
+                .fold((0, 0), |(p, n), r| (p + usize::from(lit.contains(&r.key.as_str())), n + 1));
+            if picked == 0 {
                 e.color = dim(e.color);
-                e.label.opacity = dimmed;
+                e.label.opacity = words;
+            } else if picked == all {
+                // A direct name is set in its series' color; it takes the signal with it.
+                if direct {
+                    for run in e.label.text.runs.iter_mut().filter(|run| run.color == e.color) {
+                        run.color = signal;
+                    }
+                }
+                e.color = signal;
             }
         }
     }

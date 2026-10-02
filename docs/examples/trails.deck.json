@@ -486,7 +486,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Alpine"
+          }
+        }
+      ]
     },
     "crews-note": {
       "type": "text",
@@ -531,7 +539,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Tread"
+          }
+        }
+      ]
     },
     "kinds-note": {
       "type": "text",
@@ -689,7 +705,15 @@
       "semantic": "evidence",
       "at": {
         "in": "main"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Clay"
+          }
+        }
+      ]
     },
     "erosion-note": {
       "type": "text",
@@ -743,7 +767,15 @@
       "semantic": "evidence",
       "at": {
         "in": "right"
-      }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Grants"
+          }
+        }
+      ]
     },
     "budget-title": {
       "type": "text",
