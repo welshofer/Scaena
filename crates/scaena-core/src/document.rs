@@ -61,6 +61,28 @@ pub struct Deck {
     pub comment: Option<String>,
 }
 
+/// `manifest.json` (SPEC §3.1): what a bundle held when it was last saved. Saving writes
+/// it; nothing in the render path reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(title = "Scaena bundle manifest")]
+pub struct Manifest {
+    /// The deck format version the bundle was saved in.
+    pub scaena: String,
+    /// The sha256 of `deck.json` as saved.
+    #[schemars(regex(pattern = r"^[0-9a-f]{64}$"))]
+    pub deck: String,
+    /// Every other file in the bundle, by its path in the bundle: its sha256.
+    #[schemars(extend("additionalProperties" = {"type": "string", "pattern": "^[0-9a-f]{64}$"}))]
+    pub files: IndexMap<String, String>,
+    /// When the bundle was first saved.
+    #[schemars(extend("format" = "date-time"))]
+    pub created: String,
+    /// When it was saved last.
+    #[schemars(extend("format" = "date-time"))]
+    pub modified: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Meta {
     #[serde(default, skip_serializing_if = "Option::is_none")]

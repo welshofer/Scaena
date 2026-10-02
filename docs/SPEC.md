@@ -97,18 +97,18 @@ Beneath the states sits a **spine**: sections → beats, each beat carrying a cl
 
 ### 3.1 Bundle
 
-A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`.
+A deck is a **bundle**: a directory `name.scaena/` or a zip of the same layout with extension `.scaena`. Every command reads either, or a bare deck file, whose directory then stands in for the bundle.
 
 ```
 name.scaena/
-  manifest.json          # format version, deck.json hash, content hashes, created/modified
+  manifest.json          # format version, deck.json's sha256, every other file's, created/modified (docs/schema/manifest.schema.json)
   deck.json              # CANONICAL INTERCHANGE form of the logical document (schema: docs/schema/deck.schema.json)
   deck.scn               # OPTIONAL authoring projection (DSL); regenerated on save
   theme.json             # theme used by this deck (copied in; decks are self-contained)
   spine.json             # OPTIONAL externalized spine (if absent, lives in deck.json)
   data/                  # CSV/JSON data sources referenced by @name
   assets/<sha256>.<ext>  # images, content-addressed
-  fonts/<family>-<hash>.ttf|otf|woff2   # subsetted fonts, content-addressed
+  fonts/<family>-<hash>.ttf|otf|woff2   # subsetted fonts, content-addressed (hash: the subset's sha256, first 16 hex digits)
   history/deck.loro      # CRDT document: persistence authority + history while editing (absent in "flat" exports)
 ```
 
@@ -116,7 +116,8 @@ Rules:
 - **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. The JSON schemas in `docs/schema/` are generated from it and never edited by hand (ADR-0007). `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
 - Assets and fonts are referenced by content hash; the bundle is self-contained and portable.
 - Fonts are **subsetted** into the bundle at save time. The render path MUST NOT consult system fonts (§13). System fonts are only enumerated in editors for picking.
-- `manifest.json` records `"scaena": "<format version>"` (semver; majors break) and the hash of `deck.json` it was last written against.
+- **Saving** (`scaena save`, PLAN 1.4) writes `deck.json` and the theme file in canonical form. It subsets each font the deck or its theme names to what the deck can draw: the characters in its strings and data, plus ASCII, Latin-1, Latin Extended-A, and general punctuation. Every glyph keeps its id, so a saved bundle draws the frames it drew before (ADR-0004 finding 10). Fonts and images are named by their content and every reference is rewritten; other files are carried as they are. A zip lists its files in path order, each dated 1980-01-01, so the same bundle zips to the same bytes.
+- `manifest.json` records `"scaena": "<format version>"` (semver; majors break), the sha256 of `deck.json` and of every other file as last written, and when the bundle was created and last saved. Nothing in the render path reads it.
 
 ### 3.2 Top-level document
 
@@ -136,7 +137,7 @@ Rules:
 }
 ```
 
-**Fonts.** `fonts` lists every font file the deck's theme names in its families: rendering registers only listed fonts (E102 otherwise, with the entry to add as its fix). Whether fonts should follow the theme instead, so a deck need not restate them, is PLAN 1.4's to settle.
+**Fonts.** `fonts` lists every font file the deck's theme names in its families: rendering registers only listed fonts (E102 otherwise, with the entry to add as its fix). Whether fonts should follow the theme instead, so a deck need not restate them, is open (§16 Q10).
 
 **IDs.** Slugs: `^[a-z][a-z0-9_-]{0,63}$`, unique within `nodes`, within `states`, and within spine `beats` (E105); a node and a state may share one. An id written twice as a key (`nodes`, `data`, a state's `props`) is E105 too: a parser would keep the second and drop the first. Agents SHOULD choose meaningful IDs (`title`, `rev-chart`). The CRDT layer assigns internal IDs independently; slugs are for humans and agents.
 
@@ -541,6 +542,7 @@ scaena render    <bundle> --state ID [--t MS] [--size WxH] [--out frame.png] [--
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json [--dry-run]  # JSON Patch (RFC 6902) + semantic ops
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
+scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
 scaena theme     <bundle> --apply theme.json          # re-theme; prints lint delta
 scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API
 scaena mcp                                            # stdio MCP server exposing the same operations
@@ -796,6 +798,7 @@ Notes: the cold PNG budget and the video budgets are different workloads and are
 7. Collaboration conflict UX when it arrives.
 8. A very large font catalog (Jay, 2026-10-01). Proposal: a local, content-addressed font store with a searchable index (family, styles, axes, script coverage, license), filled on demand from catalog sources. Editors and agents pick from it (`scaena fonts search | add`, and the same over MCP), and saving subsets the chosen faces into the bundle. The render path is unchanged, bundle fonts only (§13), so the catalog's size never reaches layout or painting. Open: which sources, licensing (Q3), offline use, and drawing script fallback chains from the catalog.
 9. Copy that quotes data. Every figure in text, `alt`, claims, and notes is a literal, so a data update is a manual sweep, and nothing notices a claim the new data makes false. In the authorability spike (PLAN 0.13), rolling a chart forward was one field for the chart and 22 hand edits for the words. Proposal: a text run can bind a value, as in `{ "bind": "@revenue", "value": "sum(revenue) where quarter = last(quarter)", "format": "$,.1f" }`, written in `dataTransform`'s expression language (§3.10) and resolved per snapshot like any text, so a figure rolls forward with its data. Open: how big the expression language gets, how an editor shows a bound figure, the DSL spelling, and whether a claim about a trend ("growth accelerated") can be checked at all.
+10. Fonts that follow the theme. A deck's `fonts` restates the files its theme's families name, and rendering registers only what `fonts` lists. In the authorability spike no deck could render for that reason (finding 5); `validate` now catches it (E102, with the fix). Proposal: rendering registers every theme family's file, and `fonts` lists only the fonts the theme does not name. Trade: one list fewer to keep in step, against a deck that no longer says by itself which files it needs, since another theme names others. Saving already handles both (PLAN 1.4).
 
 ---
 

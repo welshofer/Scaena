@@ -71,6 +71,14 @@ vello     = "0.10.0"
 vello_cpu = "0.2.0"
 # wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
 
+# bundle I/O (PLAN 1.4): `.scaena` zips with pure-Rust deflate; fontations' subsetter (hb-subset's
+# Rust port, formerly klippa), which keeps layout tables, variations, and hinting; sha256 for content
+# addressing. skera reads fonts with its own, newer skrifa; the render path keeps the pinned one above.
+zip   = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+skera = "0.7.0"
+write-fonts = { version = "0.53.0", default-features = false, features = ["read"] } # skera's, for its input types
+sha2  = "0.10"
+
 # export
 krilla = "0.8.2"
 png    = "0.18.1"

@@ -1,6 +1,6 @@
 # ADR-0004: Text and rendering stack — parley/harfrust/fontique, taffy, vello, krilla
 
-**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9)
+**Status:** proposed (becomes accepted at gate 0) · **Date:** 2026-10-01 · **Amended:** 2026-10-01 (PLAN 0.1: stack pinned; `swash` replaced by `harfrust` + `skrifa`, which is what `parley` actually uses) · 2026-10-01 (PLAN 0.6: CPU painter findings measured) · 2026-10-01 (PLAN 0.7: GPU painter findings) · 2026-10-01 (hanging quotes: finding 8) · 2026-10-02 (PLAN 0.11: finding 9) · 2026-10-02 (PLAN 1.4: subsetting, finding 10)
 
 ## Context
 
@@ -20,7 +20,7 @@ Typography is the whole game. We need shaping with full OpenType feature and var
 | GPU painter | `vello` on `wgpu` (`vello_shaders`, `naga`) | 0.10.0 on 29.0.4 |
 | CPU painter | `vello_cpu` (`vello_common`, `glifo`, `fearless_simd`) | 0.2.0 (0.2.0, 0.3.0, 0.4.1) |
 | PDF | `krilla` (over `pdf-writer`) | 0.8.2 — not yet a dependency (PLAN 1.20) |
-| Font subsetting | `subsetter` or `klippa` | tbd in Phase 1 |
+| Font subsetting (bundle save) | `skera`: fontations' subsetter, formerly klippa, a port of hb-subset | 0.7.0 (PLAN 1.4; finding 10) |
 
 Every crate in the rows above that can change a glyph position or a pixel resolves to exactly one version in the workspace graph (`cargo tree -d` lists only leaf utilities: `hashbrown`, `foldhash`, `miniz_oxide`, `syn`). In particular there is one `skrifa`, one `peniko`, one `kurbo`, and one `linebender_resource_handle`, so the `FontData` a `parley` glyph run carries is the type `vello` and `vello_cpu` draw with — no copying or conversion between shaping and painting.
 
@@ -45,6 +45,13 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
 7. **The painters' anti-aliasing differs at edges, not inside.** Across the 21 torture frames (PLAN 0.7, lavapipe), vello's area coverage and vello_cpu's sparse-strip coverage disagree on 5,209–27,265 edge pixels per frame, by at most 63/255. Interiors match exactly, except for COLRv1 gradients in `emoji` (114 pixels, ΔE ≤ 1.49). A vertical edge at 0.75 coverage reads 191 on the CPU and 180 on the GPU. The finding-6 hole sat on a glyph edge, so SPEC §13.5's edge mask hid it, and the torture test passed. §13.5 now also fails any pixel that differs by half the channel range or more: anti-aliasing never comes close, and a hole or a misplaced glyph does.
 8. **parley has no hanging punctuation, and the engine leans on its per-line alignment box.** Quotes hang on top of parley's breaker (SPEC §3.5): line *k* is broken at the measure plus its hang (`BreakLines::state_mut().set_line_max_advance`), and the layout's max advance is raised to the widest such line, because parley asserts that no line exceeds it by 1 cu or more. parley then aligns each line inside its own box (`inline_max_coord = line_x + line_max_advance`). That box is what puts a right-to-left line's opening quote past the right edge; the engine shifts left-to-right lines itself. If an upgrade aligned lines to the layout's width instead, right-to-left quotes would move back inside, and `a_right_to_left_line_hangs_its_opening_quote_past_the_right_edge` would fail.
 9. **vello draws GPU-computed pixels without a readback.** `Renderer::register_texture` (vello 0.10) takes an `Rgba8Unorm` texture with `COPY_SRC` and copies it into vello's image atlas every frame; a scene draws it as an ordinary image. A shader op's WGSL therefore runs as a compute pass, writes its RGBA bytes as integers into a buffer (sidestepping float-to-unorm rounding, which differs between backends), and is copied into such a texture before vello renders, natively and on WebGPU. An image brush at `ImageQuality::Low`, placed with the brush transform `xf⁻¹ · translate(box)`, lands texel for pixel on vello and on vello_cpu, whose paint transform composes the same way. The atlas tops out at 8,192 px a side (`MAX_ATLAS_SIZE`): a larger shader rect will need tiling.
+
+10. **Bundles subset with `skera`, keeping every glyph id.** Saving subsets each font to what its deck can draw (SPEC §3.1). The subset must still shape: GSUB, GPOS, GDEF, variations, COLR, and hinting all stay. `subsetter` (typst's, which `krilla` uses for PDF) drops layout tables, which suits a PDF and not a bundle that is shaped again. `skera` 0.7, the hb-subset port in fontations (it was klippa), keeps them. It reads fonts with its own `skrifa` 0.47 and `write-fonts` 0.53, a second copy beside the render path's 0.44. That copy never touches a glyph position: it lives in `scaena-store`, which only writes files. *Decisions:*
+    - Subsets keep their glyph ids (`RETAIN_GIDS`), so a saved bundle's display lists are the original's.
+    - Each subset keeps the deck's characters plus ASCII, Latin-1, Latin Extended-A, and general punctuation, so an edit in a Latin script needs no original font.
+    - Legacy `kern` and the AAT tables, which hb-subset drops by default, stay: shaping reads them when a font has no GPOS.
+
+    Measured: the ten torture states that stress shaping most draw their golden display lists from a saved zip, font ids aside: Arabic joining, Hebrew bidi, combining marks, COLRv1 emoji, ligatures, discretionary ligatures, kerning, hanging quotes, variable axes, and accents. B1's states draw the same before and after a save.
 
 ## Alternatives
 

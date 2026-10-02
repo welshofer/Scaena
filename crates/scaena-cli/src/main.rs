@@ -11,7 +11,7 @@ use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest};
 use scaena_paint::cpu::CpuPainter;
 use scaena_paint::{FontStore, PaintError, Painter};
-use scaena_store::Bundle;
+use scaena_store::{Bundle, SaveOptions};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -73,6 +73,17 @@ enum Cmd {
     },
     /// Render one state to a PNG, and optionally its display list.
     Render(RenderArgs),
+    /// Write the bundle back as SPEC §3.1 lays it out: canonical JSON, fonts subset to
+    /// what the deck draws, files named by their content, and a manifest.
+    Save {
+        bundle: PathBuf,
+        /// Where to: a directory, or a zip when it ends in `.scaena`. Default: in place.
+        #[arg(long)]
+        to: Option<PathBuf>,
+        /// Keep fonts whole instead of subsetting them.
+        #[arg(long)]
+        keep_fonts: bool,
+    },
     /// Export a projection: pdf|png|svg|mp4|webm|html|spine.
     Export {
         bundle: PathBuf,
@@ -172,6 +183,24 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let findings = scaena_core::validate::validate_bundle(&deck, &files).context("deck.json is not JSON")?;
             report(&findings, cli.json);
             Ok(if findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
+        }
+        Cmd::Save { bundle, to, keep_fonts } => {
+            let b = open(&bundle)?;
+            let to = to.unwrap_or(bundle);
+            let opts = SaveOptions { subset_fonts: !keep_fonts, now: now_rfc3339() };
+            let saved = b.save(&to, &opts).with_context(|| format!("saving to {}", to.display()))?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&saved)?);
+            } else {
+                println!("saved {}: {} files", to.display(), saved.manifest.files.len() + 1);
+                for (path, before, after) in &saved.subset {
+                    println!("  subset {path}: {} KB → {} KB", before / 1024, after / 1024);
+                }
+                for (old, new) in &saved.renamed {
+                    println!("  {old} → {new}");
+                }
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Cmd::Lint { bundle, state, severity, fix } => {
             if fix {
@@ -401,6 +430,30 @@ fn open(path: &Path) -> Result<Bundle> {
     Bundle::open(path).with_context(|| format!("opening {}", path.display()))
 }
 
+/// Now, in RFC 3339 UTC: `SOURCE_DATE_EPOCH` when set (reproducible saves), else the clock.
+fn now_rfc3339() -> String {
+    let secs = std::env::var("SOURCE_DATE_EPOCH").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    });
+    rfc3339(secs)
+}
+
+/// Seconds since 1970-01-01T00:00:00Z, in RFC 3339 UTC.
+fn rfc3339(secs: u64) -> String {
+    let (days, rest) = (secs / 86_400, secs % 86_400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3_600, rest % 3_600 / 60, rest % 60)
+}
+
 fn not_yet(what: &str, plan: &str) -> Result<ExitCode> {
     eprintln!("`{what}` is not implemented yet — see docs/PLAN.md task {plan}");
     Ok(ExitCode::from(3))
@@ -466,5 +519,14 @@ mod tests {
         assert_eq!(truncate("שלום Scaena", 4), "שלום…");
         assert_eq!(truncate("exactly", 7), "exactly");
         assert_eq!(truncate("", 3), "");
+    }
+
+    #[test]
+    fn rfc3339_counts_days_like_the_calendar() {
+        assert_eq!(super::rfc3339(0), "1970-01-01T00:00:00Z");
+        assert_eq!(super::rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(super::rfc3339(1_790_000_000), "2026-09-21T14:13:20Z");
+        assert_eq!(super::rfc3339(4_102_444_799), "2099-12-31T23:59:59Z");
+        assert_eq!(super::rfc3339(4_102_444_800), "2100-01-01T00:00:00Z");
     }
 }
