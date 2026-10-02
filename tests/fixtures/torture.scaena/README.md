@@ -4,7 +4,7 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        31 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
+  deck.json        32 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`), layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later
   fonts/           five subset fonts + OFL texts; provenance in fonts/SOURCES.md
@@ -41,7 +41,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 10 | `tracking` | Tracking −0.08 em / +0.40 em | kill | Spacing applied per glyph without breaking shaping. |
 | 11 | `hanging` | Hanging quotes, optical margins | kill (quotes; added on review after PLAN 0.9) · recorded (optical margins, PLAN 1.8) | Every quote that opens a line hangs outside the text edge (the “ of line 1, the ‘ of line 3), with the next letter on the edge. Line 1 fits only because its quote is not measured (985 cu inside 998; 1009 with it). With optical margins (the role sets them), the V of line 2 and the W of line 5 start 5% of their advance past the edge. Line-end commas and periods stay inside: the right edge is ragged, and nothing hangs at a ragged edge. |
 | 12 | `balance` | Balanced two-line headline | kill | Two lines of similar length. Greedy gives 1642 + 521 cu at this width. |
-| 13 | `pretty` | Pretty paragraph, bait widow | kill | Last line has ≥ 2 words. Greedy strands "mistake." alone, even with ±15 cu of measurement drift. |
+| 13 | `pretty` | Pretty paragraph, bait widow | kill | Last line has ≥ 2 words. Bare greedy (`minLastLineWords: 1`) strands "mistake." alone, even with ±15 cu of measurement drift. Since PLAN 1.8 greedy holds the role's `minLastLineWords: 2` too, pulling a word down. |
 | 14 | `wrap-longword` | One unbreakable word | recorded | Overflow is reported (E100) or handled by a declared policy; nothing escapes its box silently. |
 | 15 | `wrap-url` | A URL | recorded | Breaks only at `/ ? & #`-style opportunities. |
 | 16 | `wrap-narrow` | Narrow measure (268 cu) | recorded | Raggedness and any overflow recorded. |
@@ -58,12 +58,13 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 27 | `alignment` | Line alignment | kill (added with PLAN 1.8) | Rows 2–3: a balanced paragraph whose lines are centered in the 12-column box, its opening quote inside the first line: centered text has no aligned edge, so nothing hangs. Rows 4–5: end-aligned lines flush with the right edge of column 12; the last line's period and closing ” hang past that edge (the role sets `hangingPunctuation`). Rows 6–8: a Hebrew paragraph broken by `pretty`, no longer falling back to greedy, every line starting at the right edge. |
 | 28 | `case-measure` | Case and measure | recorded (added with PLAN 1.8) | Row 2 in capitals, ß as SS; row 3 with each word's first letter capitalized, (Even) after a parenthesis, 3rd unchanged; row 4 in EB Garamond's own small capitals (`smcp`), none synthesized. Rows 5–8: a body paragraph held to 24 characters a line (24 × the advance of `0`), balanced, each line centered across all 12 columns. |
 | 29 | `fit` | Fit policies | recorded (added with PLAN 1.8) | Rows 2–5, left: a headline too long for its box at 96, set at the largest size at which it keeps to its role's two lines (`fit: shrink`, the theme's `maxLines: 2`, no smaller than 40). Right: one body word grown until it fills the box, here its width (`fit: grow`, no larger than 400). Rows 6–8: a headline held to one line (`maxLines: 1`) by shrinking. Nothing overflows; each size is the largest that fits, found by bisection between the text's bounds. |
+| 30 | `hyphenation` | Hyphenation | recorded (added with PLAN 1.8) | One paragraph three times in four-column boxes, English patterns. Left, `pretty` with `hyphenate`: words break between syllables ("tex-ture"), each hyphen drawn in the line's own font and counted in its width, no line past the column's right edge. Middle, `pretty` without: no word breaks, and the second line is left short. Right, greedy, end-aligned with `hangingPunctuation`: lines flush with the right edge, the hyphen and the closing stop hanging past it. |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 
 ## How the baits were made
 
-`balance` and `pretty` only test anything if greedy breaking actually fails on them. Both strings were chosen by shaping with HarfBuzz 14.5 (uharfbuzz) on these exact fonts, axes, and tracking, then breaking greedily at the slot width (1728 cu, columns 1–12) and at ±8 and ±15 cu around it. Every offset reproduces the failure, so small width differences between HarfBuzz and `harfrust`/`parley` cannot quietly defuse a kill case.
+`balance` and `pretty` only test anything if greedy breaking actually fails on them (for `pretty`, bare greedy at `minLastLineWords: 1`). Both strings were chosen by shaping with HarfBuzz 14.5 (uharfbuzz) on these exact fonts, axes, and tracking, then breaking greedily at the slot width (1728 cu, columns 1–12) and at ±8 and ±15 cu around it. Every offset reproduces the failure, so small width differences between HarfBuzz and `harfrust`/`parley` cannot quietly defuse a kill case.
 
 ## Not yet
 

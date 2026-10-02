@@ -60,6 +60,9 @@ parley   = { version = "0.11.1", default-features = false, features = ["std"] }
 fontique = { version = "0.11.1", default-features = false, features = ["std"] }
 skrifa   = { version = "0.44.0", default-features = false, features = ["std"] } # same minor as parley/vello
 taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
+# Hyphenation by `lang` (PLAN 1.8): TeX patterns under permissive licenses (LPPL, MPL, MIT, BSD-3),
+# embedded as tries. Seventeen languages; about 340 KB of the WASM engine, gzipped.
+hypher   = { version = "0.1.8", default-features = false, features = ["alloc", "english", "german", "french", "spanish", "italian", "portuguese", "dutch", "swedish", "danish", "finnish", "polish", "czech", "russian", "ukrainian", "turkish", "greek", "catalan"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
 # Pure-Rust cbrt/pow for color interpolation: the same bits on every platform, unlike the platform

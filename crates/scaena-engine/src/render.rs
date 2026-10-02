@@ -450,7 +450,8 @@ fn theme_color(theme: &Theme, name: &str) -> Result<Color, EngineError> {
 fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>) -> Result<TextSpec, EngineError> {
     let str_prop = |key: &str| props.get(key).and_then(Value::as_str);
     let role = cascade::node_role(theme, props, slot_role)?;
-    let (role_measure, hanging, optical) = (role.measure, role.hanging_punctuation, role.optical_margins);
+    let (role_measure, hanging, optical, hyphenate) =
+        (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
     let spans = match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs
             .iter()
@@ -492,6 +493,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         measure: props.get("measure").and_then(Value::as_f64).map(|m| m as f32).or(role_measure),
         hanging_punctuation: props.get("hangingPunctuation").and_then(Value::as_bool).unwrap_or(hanging),
         optical_margins: props.get("opticalMargins").and_then(Value::as_bool).unwrap_or(optical),
+        hyphenate: props.get("hyphenate").and_then(Value::as_bool).unwrap_or(hyphenate),
     })
 }
 

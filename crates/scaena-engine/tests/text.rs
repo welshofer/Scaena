@@ -4,6 +4,7 @@
 
 use scaena_core::Deck;
 use scaena_core::model::theme::Case;
+use scaena_core::model::values::TextSplit;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::text::{TextAlign, TextEngine, TextLayout, TextSpec};
 use scaena_engine::theme::{Theme, Wrap};
@@ -189,4 +190,222 @@ fn optical_margins_move_edge_letters_and_stops_part_way_out() {
         s.align = TextAlign::Center;
     });
     assert_eq!(centered.lines[0].optical, 0.0);
+}
+
+const LONG_WORDS: &str = "Typographers appreciate hyphenation in extraordinarily narrow, uncompromising measures.";
+
+/// The text of line `k`, without soft hyphens.
+fn line_text(layout: &TextLayout, k: usize) -> String {
+    layout.text[layout.lines[k].text.clone()].replace('\u{AD}', "")
+}
+
+#[test]
+fn hyphenation_breaks_words_at_their_patterns_and_draws_the_hyphen() {
+    let width = 520.0;
+    let on = |s: &mut TextSpec| {
+        s.hyphenate = true;
+        s.lang = Some("en-US".into());
+    };
+    let layout = set("specimen", LONG_WORDS, width, on);
+    let hyphenated: Vec<usize> = (0..layout.lines.len()).filter(|&k| layout.lines[k].hyphen).collect();
+    assert!(!hyphenated.is_empty(), "{:?}", (0..layout.lines.len()).map(|k| line_text(&layout, k)).collect::<Vec<_>>());
+    let dash = ids(&set("specimen", "-", width, |_| {}))[0];
+    for &k in &hyphenated {
+        let line = &layout.lines[k];
+        assert!(layout.text[line.text.clone()].ends_with('\u{AD}'), "line {k} broke at a soft hyphen");
+        assert!(line.width <= width + 1e-3, "the hyphen fits the measure: {line:?}");
+        // The hyphen is the line's last glyph, on the right of its ink, on its baseline.
+        let last =
+            layout.runs.iter().filter(|r| r.line == k).flat_map(|r| &r.glyphs).max_by(|a, b| a.x.total_cmp(&b.x));
+        assert_eq!(last.map(|g| g.id), Some(dash), "line {k}");
+        assert_eq!(last.map(|g| g.y), Some(line.baseline), "line {k}");
+    }
+    // Every line, hyphen included, fits the measure.
+    assert!(layout.lines.iter().all(|l| l.width <= width + 1e-3));
+    // A word with soft hyphens of its own breaks only there; its neighbours still follow
+    // the patterns.
+    let typed = set("specimen", "Uncompromising co\u{AD}operation", width, on);
+    assert!(typed.text.contains("co\u{AD}operation"), "{:?}", typed.text);
+    assert!(typed.text.starts_with("Un\u{AD}"), "{:?}", typed.text);
+    // Off, or in a language without patterns, words never break.
+    for spec in [
+        |s: &mut TextSpec| s.lang = Some("en".into()),
+        |s: &mut TextSpec| {
+            s.hyphenate = true;
+            s.lang = Some("he".into());
+        },
+    ] {
+        let plain = set("specimen", LONG_WORDS, width, spec);
+        assert!(plain.lines.iter().all(|l| !l.hyphen) && !plain.text.contains('\u{AD}'));
+    }
+}
+
+#[test]
+fn pretty_breaking_counts_the_hyphen_and_end_aligned_hanging_punctuation_hangs_it() {
+    let width = 520.0;
+    let pretty = set("specimen", LONG_WORDS, width, |s| {
+        s.hyphenate = true;
+        s.lang = Some("en".into());
+        s.wrap = Some(Wrap::Pretty);
+    });
+    assert_eq!((pretty.wrap, pretty.fallback), (Wrap::Pretty, None));
+    assert!(pretty.lines.iter().all(|l| l.width <= width + 1e-3), "{:?}", pretty.lines);
+    // End-aligned with hanging punctuation, a drawn hyphen hangs past the edge.
+    let end = set("specimen", LONG_WORDS, width, |s| {
+        s.hyphenate = true;
+        s.lang = Some("en".into());
+        s.align = TextAlign::End;
+        s.hanging_punctuation = true;
+    });
+    let line = end.lines.iter().find(|l| l.hyphen).expect("a hyphenated line");
+    assert!(line.hang_end > 0.0 && (line.x + line.width - width).abs() < 1e-3, "{line:?}");
+}
+
+/// How many words line `k` holds, by whitespace.
+fn words_on(layout: &TextLayout, k: usize) -> usize {
+    layout.text[layout.lines[k].text.clone()].split_whitespace().count()
+}
+
+const RAGGED: &str = "Good typography is invisible until it goes wrong, and then it is the only thing anybody sees.";
+
+#[test]
+fn greedy_breaking_holds_the_last_line_to_min_last_line_words() {
+    let greedy = |width: f32, min: u32| {
+        set("specimen", RAGGED, width, |s| {
+            s.wrap = Some(Wrap::Greedy);
+            s.min_last_line_words = Some(min);
+        })
+    };
+    // The first width at which plain greedy breaking strands one word on the last line.
+    let width = (600..1600)
+        .step_by(10)
+        .map(|w| w as f32)
+        .find(|&w| {
+            let bare = greedy(w, 1);
+            bare.lines.len() > 1 && words_on(&bare, bare.lines.len() - 1) == 1
+        })
+        .expect("a width that strands a word");
+    let bare = greedy(width, 1);
+    assert!(!bare.widow, "minLastLineWords 1 asks for nothing");
+    let held = greedy(width, 2);
+    let last = held.lines.len() - 1;
+    assert_eq!(held.lines.len(), bare.lines.len());
+    assert!(words_on(&held, last) >= 2 && !held.widow, "{:?}", held.lines);
+    assert!(held.lines.iter().all(|l| l.width <= width + 1e-3));
+    // The lines above keep greedy's breaks: only the break above the last line moved.
+    for k in 0..last - 1 {
+        assert_eq!(held.lines[k].text, bare.lines[k].text, "line {k}");
+    }
+    // Balance holds it too, at its own width.
+    let balanced = set("specimen", RAGGED, width, |s| {
+        s.wrap = Some(Wrap::Balance);
+        s.min_last_line_words = Some(2);
+    });
+    assert!(words_on(&balanced, balanced.lines.len() - 1) >= 2 && !balanced.widow);
+}
+
+#[test]
+fn a_last_line_that_cannot_take_more_words_is_reported_as_a_widow() {
+    let text = "Typographers appreciate extraordinarily uncompromising";
+    let one_word = set("specimen", "uncompromising", 10_000.0, |_| {}).width;
+    for wrap in [Wrap::Greedy, Wrap::Pretty, Wrap::Balance] {
+        let layout = set("specimen", text, one_word + 1.0, |s| {
+            s.wrap = Some(wrap);
+            s.min_last_line_words = Some(2);
+        });
+        let last = layout.lines.len() - 1;
+        assert_eq!(words_on(&layout, last), 1, "{wrap:?}: two long words never share a line here");
+        assert!(layout.widow, "{wrap:?}: W200 reads this");
+    }
+    // A text with fewer words than asked for has no widow to report.
+    let short = set("specimen", "extraordinarily uncompromising", one_word + 1.0, |s| s.min_last_line_words = Some(3));
+    assert!(short.lines.len() == 2 && !short.widow);
+}
+
+#[test]
+fn words_are_what_lines_break_between_and_a_hyphenated_word_is_one() {
+    let layout = set("specimen", LONG_WORDS, 520.0, |s| {
+        s.hyphenate = true;
+        s.lang = Some("en".into());
+    });
+    let words: Vec<String> = layout.words.iter().map(|w| layout.text[w.clone()].replace('\u{AD}', "")).collect();
+    let expected: Vec<String> = LONG_WORDS.split_inclusive(' ').map(String::from).collect();
+    assert_eq!(words, expected);
+    assert!(layout.lines.iter().any(|l| l.hyphen), "some word breaks across lines");
+    // A hyphenated word's tail is not a word, so no last line is only a tail. Here
+    // "measures." cannot join "uncompromising", so it ends the paragraph whole.
+    assert_eq!(line_text(&layout, layout.lines.len() - 1), "measures.");
+    assert!(!layout.widow, "one word is all minLastLineWords 1 asks for");
+    // Two words the last line cannot take: it keeps the one, and W200 hears of it.
+    let held = set("specimen", LONG_WORDS, 520.0, |s| {
+        s.hyphenate = true;
+        s.lang = Some("en".into());
+        s.min_last_line_words = Some(2);
+    });
+    assert_eq!(line_text(&held, held.lines.len() - 1), "measures.");
+    assert!(held.widow);
+}
+
+/// Every glyph of `layout` whose cluster sets ink, as `(run, glyph)`.
+fn inked(layout: &TextLayout) -> Vec<(usize, usize)> {
+    let mut all = Vec::new();
+    for (r, run) in layout.runs.iter().enumerate() {
+        for (g, &c) in run.clusters.iter().enumerate() {
+            let ch = layout.text[c..].chars().next().unwrap();
+            if !ch.is_whitespace() && ch != '\u{AD}' {
+                all.push((r, g));
+            }
+        }
+    }
+    all.sort_unstable();
+    all
+}
+
+#[test]
+fn split_units_partition_the_inked_glyphs_in_reading_order() {
+    let layout = set("specimen", LONG_WORDS, 520.0, |s| {
+        s.hyphenate = true;
+        s.lang = Some("en".into());
+    });
+    for split in [TextSplit::Lines, TextSplit::Words, TextSplit::Glyphs] {
+        let units = layout.units(split);
+        // In reading order, and every inked glyph in exactly one unit.
+        assert!(units.windows(2).all(|u| u[0].text.end <= u[1].text.start), "{split:?}");
+        let mut covered: Vec<(usize, usize)> = units.iter().flat_map(|u| u.glyphs.iter().copied()).collect();
+        covered.sort_unstable();
+        let mut unique = covered.clone();
+        unique.dedup();
+        assert_eq!(covered, unique, "{split:?}: a glyph in two units");
+        let inked = inked(&layout);
+        assert!(inked.iter().all(|g| covered.contains(g)), "{split:?}: an inked glyph in no unit");
+    }
+    assert_eq!(layout.units(TextSplit::Lines).len(), layout.lines.len());
+    let words = layout.units(TextSplit::Words);
+    assert_eq!(words.len(), LONG_WORDS.split_whitespace().count());
+    // The hyphenated word is one unit, with glyphs on both lines and the drawn hyphen.
+    let k = layout.lines.iter().position(|l| l.hyphen).unwrap();
+    let dash = ids(&set("specimen", "-", 520.0, |_| {}))[0];
+    let split_word = words.iter().find(|u| u.glyphs.iter().any(|&(r, _)| layout.runs[r].line == k + 1) && u.line == k);
+    let split_word = split_word.expect("a word on two lines");
+    assert!(split_word.glyphs.iter().any(|&(r, g)| layout.runs[r].glyphs[g].id == dash));
+    // Glyph units: one per inked cluster, never whitespace.
+    let glyphs = layout.units(TextSplit::Glyphs);
+    assert!(glyphs.iter().all(|u| !layout.text[u.text.clone()].trim().is_empty()));
+    let letters = LONG_WORDS.chars().filter(|c| !c.is_whitespace()).count();
+    assert!(glyphs.len() <= letters && glyphs.len() + 4 >= letters, "{} units for {letters} letters", glyphs.len());
+}
+
+#[test]
+fn split_units_of_right_to_left_text_follow_reading_order() {
+    let text = "שלום עולם יפה";
+    let layout = set("specimen", text, 2000.0, |s| s.lang = Some("he".into()));
+    assert!(layout.rtl);
+    let words = layout.units(TextSplit::Words);
+    let read: Vec<&str> = words.iter().map(|u| layout.text[u.text.clone()].trim()).collect();
+    assert_eq!(read, ["שלום", "עולם", "יפה"]);
+    // The first word read is the rightmost.
+    let x = |u: &scaena_engine::text::TextUnit| {
+        u.glyphs.iter().map(|&(r, g)| layout.runs[r].glyphs[g].x).fold(f32::MIN, f32::max)
+    };
+    assert!(x(&words[0]) > x(&words[1]) && x(&words[1]) > x(&words[2]));
 }

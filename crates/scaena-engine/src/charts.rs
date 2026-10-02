@@ -218,12 +218,13 @@ impl Numerals {
     pub fn compose(&self, text: &str) -> Option<(Vec<GlyphRun>, f32)> {
         let mut runs: Vec<GlyphRun> = Vec::new();
         let mut x = 0.0;
-        for c in text.chars() {
+        for (at, c) in text.char_indices() {
             let (_, f) = self.figures.iter().find(|(k, _)| *k == c)?;
             let glyph = Glyph { id: f.id, x, y: self.baseline };
             match runs.last_mut() {
                 Some(run) if run.font == f.font && run.size == f.size && run.coords == f.coords => {
-                    run.glyphs.push(glyph)
+                    run.glyphs.push(glyph);
+                    run.clusters.push(at);
                 }
                 _ => runs.push(GlyphRun {
                     font: f.font.clone(),
@@ -231,6 +232,7 @@ impl Numerals {
                     coords: f.coords.clone(),
                     color: f.color,
                     glyphs: vec![glyph],
+                    clusters: vec![at],
                     line: 0,
                 }),
             }

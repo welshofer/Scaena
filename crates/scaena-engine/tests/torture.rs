@@ -436,9 +436,21 @@ fn kill_pretty_keeps_two_words_on_the_last_line_where_greedy_strands_one() {
     let pretty = fx.text("pretty", "pretty-para");
     assert_eq!((pretty.wrap, pretty.fallback), (Wrap::Pretty, None));
     assert!(line_words(&pretty, &text, pretty.lines.len() - 1) >= 2, "{:?}", pretty.lines);
+    assert!(!pretty.widow);
+    let mut bare = fixture_with(
+        |raw| {
+            raw["type"]["roles"]["body"]["wrap"] = "greedy".into();
+            raw["type"]["roles"]["body"]["minLastLineWords"] = 1.into();
+        },
+        false,
+    );
+    let stranded = bare.text("pretty", "pretty-para");
+    assert_eq!(line_words(&stranded, &text, stranded.lines.len() - 1), 1, "the bait still bites under bare greedy");
+    // Greedy breaking holds `minLastLineWords` too: it pulls a word down to the last line.
     let mut greedy = fixture_with(|raw| raw["type"]["roles"]["body"]["wrap"] = "greedy".into(), false);
-    let stranded = greedy.text("pretty", "pretty-para");
-    assert_eq!(line_words(&stranded, &text, stranded.lines.len() - 1), 1, "the bait still bites under greedy");
+    let held = greedy.text("pretty", "pretty-para");
+    assert_eq!((held.wrap, held.lines.len()), (Wrap::Greedy, stranded.lines.len()));
+    assert!(line_words(&held, &text, held.lines.len() - 1) >= 2 && !held.widow, "{:?}", held.lines);
 }
 
 /// SPEC §3.5: a quotation mark that opens a line hangs outside the text edge, in every

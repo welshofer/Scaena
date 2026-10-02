@@ -1637,6 +1637,64 @@
           8
         ]
       }
+    },
+    "hyph-on": {
+      "type": "text",
+      "role": "body",
+      "wrap": "pretty",
+      "hyphenate": true,
+      "lang": "en",
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "hyph-off": {
+      "type": "text",
+      "role": "body",
+      "wrap": "pretty",
+      "hyphenate": false,
+      "lang": "en",
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "hyph-end": {
+      "type": "text",
+      "role": "body",
+      "wrap": "greedy",
+      "hyphenate": true,
+      "lang": "en",
+      "align": {
+        "x": "end"
+      },
+      "hangingPunctuation": true,
+      "text": "Hyphenation lets a narrow column keep an even texture: extraordinarily long words, internationalization among them, break between syllables instead of leaving gaping holes.",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -1823,7 +1881,7 @@
         },
         "pretty-para": {}
       },
-      "notes": "Pass: the last line carries at least two words (role minLastLineWords: 2). Greedy breaking at this width strands \"mistake.\" alone on line 3, robustly (±15 cu of measurement drift still strands it)."
+      "notes": "Pass: the last line carries at least two words (role minLastLineWords: 2). Bare greedy breaking (minLastLineWords: 1) at this width strands \"mistake.\" alone on line 3, robustly (±15 cu of measurement drift still strands it)."
     },
     {
       "id": "wrap-longword",
@@ -2113,6 +2171,21 @@
         "fit-lines": {}
       },
       "notes": "Pass: rows 2-5, left, a headline too long for its box at 96, set at the largest size at which it keeps to its role's two lines (shrink, maxLines 2 from the theme, no smaller than 40); right, a one-word body text grown until it fills the box, here its width (grow, no larger than 400). Rows 6-8, a headline held to one line (maxLines 1) by shrinking until it fits across the 12 columns. Nothing overflows; each size comes from bisection between the text's bounds, the same on every platform."
+    },
+    {
+      "id": "hyphenation",
+      "name": "Hyphenation",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "30 · Hyphenation · recorded"
+        },
+        "hyph-on": {},
+        "hyph-off": {},
+        "hyph-end": {}
+      },
+      "notes": "Pass: the same paragraph three times in four-column boxes, English patterns. Left, pretty with hyphenation: words break between syllables, each hyphen drawn in the line's own font and counted in its width, and no line passes the column's right edge. Middle, pretty without: no word breaks. Right, greedy, end-aligned with hanging punctuation: lines flush with the right edge, the hyphens and the closing stop hanging past it."
     }
   ]
 }

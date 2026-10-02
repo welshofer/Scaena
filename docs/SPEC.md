@@ -212,15 +212,21 @@ Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
 - Line breaking: `wrap: "greedy" | "pretty" | "balance"`. `pretty` minimizes raggedness and avoids short last lines (Knuth–Plass or equivalent); `balance` equalizes line lengths (titles).
-- Hyphenation by `lang` (optional, off by default for display roles).
-- Widow/orphan control: `minLastLineWords` (default 2 for body, 1 for display).
+- Hyphenation by `lang`, where the node or its role sets `hyphenate` (off unless one does). Words break at the hyphenation points of the TeX patterns for the language of `lang` (its first subtag; the node's, else the deck's), through `hypher`, which carries 17: English, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Russian, Ukrainian, Turkish, Greek, and Catalan. Text in another language does not hyphenate.
+  - A soft hyphen (U+00AD) in the text is a hyphenation point in any language, and a word with soft hyphens of its own breaks only there.
+  - A line that ends inside a word draws a hyphen: `-` in the look of the text it ends, its width counted when lines break. `pretty` charges a line that ends in one half an extra line, so a hyphen has to buy real evenness. With `hangingPunctuation`, the hyphen hangs past an end-aligned edge. Right-to-left lines draw no hyphen.
+- Widow control: `minLastLineWords`, from the node, else its role, else 1. Themes set it per role (Dusk and the torture theme: 2 for body, 1 for display).
+  - Every breaking holds a paragraph's last line to that many words. `pretty` plans for it; `greedy` and `balance` move the break above the last line back, as few words as it takes, while both lines still fit.
+  - A word is the text between two places a line may break (UAX #14), with the punctuation and space after it. A word that hyphenation splits is one word, and its tail is not a word, so no paragraph ends on a tail alone, whatever the setting.
+  - A last line that cannot take enough words takes as many as fit, and the layout reports the widow (lint **W200**).
+  - Text does not flow from box to box in v1, so there are no orphans: no paragraph's first line is left at the foot of a column.
 - Hanging quotes, always: quotation marks (Unicode `Quotation_Mark`, less the CJK corner brackets and fullwidth forms, whose spacing JLREQ governs) hang outside an aligned edge, in every role. It is not a theme option. In start-aligned text, the marks that open a line hang outside its start edge; in end-aligned text, the marks that close a line hang outside its end edge. Nothing hangs at a ragged edge, so centered text hangs nothing. Breaking measures the line without its hung marks (CSS `hanging-punctuation`), so they take nothing from the measure and the letter beside them sits on the edge.
 - Hanging punctuation beyond quotes (`hangingPunctuation`) and optical margin alignment (`opticalMargins`), set per role or per node; themes turn them on for display roles, as Dusk and the torture theme do.
   - With `hangingPunctuation`, these hang fully past an aligned edge, as quotation marks do: opening brackets at a start edge; closing brackets, stops and commas (CSS `allow-end`'s set), and hyphens at an end edge.
   - With `opticalMargins`, when nothing hangs at an aligned edge, the character on it moves part of its advance past the edge: 5% for A T V W X Y v w x y, 70% for a period, 50% for a comma, colon, or hyphen. These are microtype's defaults for Latin text. Breaking does not count the protrusion, so it never changes where lines break.
 - Numeric styles: `tabular`/`proportional`, `lining`/`oldstyle`; charts default to tabular lining.
 - Vertical metrics by cap height and x-height from the font tables (not bounding boxes).
-- Text splitting for animation: `split: "lines" | "words" | "glyphs"`, exposing units to choreography (§3.9).
+- Text splitting for animation: `split: "lines" | "words" | "glyphs"` cuts a text into units that choreography moves one by one (§3.9): its lines; its words, as above, a hyphenated word one unit with its hyphen; or its clusters, a ligature one unit. Units come in reading order, also in right-to-left text. Only what sets ink is a unit: spaces and invisible characters belong to a line or a word, never to a unit of their own. Splitting reads the layout; it never lays out or shapes again (§5).
 - Bidi and script fallback via `fontique` restricted to bundle fonts.
 
 ### 3.6 Theme (design system) schema
@@ -697,7 +703,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |
-| W200 | warn | widow/orphan |
+| W200 | warn | widow: a paragraph's last line short of `minLastLineWords` |
 | W201 | warn | line exceeds role measure |
 | W202 | warn | display role exceeds `maxLines` |
 | W203 | warn | shrink reached `minSize` |

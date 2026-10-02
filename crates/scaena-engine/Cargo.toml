@@ -18,6 +18,7 @@ thiserror.workspace = true
 parley.workspace = true
 fontique.workspace = true
 taffy.workspace = true
+hypher.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 libm.workspace = true

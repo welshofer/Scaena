@@ -21,6 +21,7 @@ Typography is the whole game. We need shaping with full OpenType feature and var
 | CPU painter | `vello_cpu` (`vello_common`, `glifo`, `fearless_simd`) | 0.2.0 (0.2.0, 0.3.0, 0.4.1) |
 | PDF | `krilla` (over `pdf-writer`) | 0.8.2 — not yet a dependency (PLAN 1.20) |
 | Font subsetting (bundle save) | `skera`: fontations' subsetter, formerly klippa, a port of hb-subset | 0.7.0 (PLAN 1.4; finding 10) |
+| Hyphenation patterns | `hypher`: TeX's patterns compiled to tries | 0.1.8 (PLAN 1.8; finding 11) |
 
 Every crate in the rows above that can change a glyph position or a pixel resolves to exactly one version in the workspace graph (`cargo tree -d` lists only leaf utilities: `hashbrown`, `foldhash`, `miniz_oxide`, `syn`). In particular there is one `skrifa`, one `peniko`, one `kurbo`, and one `linebender_resource_handle`, so the `FontData` a `parley` glyph run carries is the type `vello` and `vello_cpu` draw with — no copying or conversion between shaping and painting.
 
@@ -52,6 +53,11 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
     - Legacy `kern` and the AAT tables, which hb-subset drops by default, stay: shaping reads them when a font has no GPOS.
 
     Measured: the ten torture states that stress shaping most draw their golden display lists from a saved zip, font ids aside: Arabic joining, Hebrew bidi, combining marks, COLRv1 emoji, ligatures, discretionary ligatures, kerning, hanging quotes, variable axes, and accents. B1's states draw the same before and after a save.
+
+11. **Hyphenation is `hypher`, with 17 languages compiled in.** parley does not hyphenate. It breaks at UAX #14 opportunities, and a soft hyphen (U+00AD) is one of them, shaped as nothing. So the engine puts soft hyphens at the points `hypher` 0.1.8 finds, plans the lines over measured segments, and draws `-` where a line ends at one (SPEC §3.5). `hypher` is the TeX hyph-utf8 patterns compiled to tries at build time, the crate typst hyphenates with, and has no dependencies. Its code is MIT/Apache-2.0; the patterns carry their own permissive licenses (LPPL, MPL, MIT, BSD-3), and the crate includes only patterns that allow embedding in a binary. *Decisions:*
+    - The languages are English, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Russian, Ukrainian, Turkish, Greek, and Catalan, each a Cargo feature. Adding one is a one-line change, and a test.
+    - Every target compiles the same languages. A browser build that dropped German would break German lines differently from the Mac, which SPEC §13 forbids, so languages cannot be trimmed per platform.
+    - Measured: the 17 tries are 466 KB raw and 343 KB gzipped, German alone 150 KB. The WASM module (wasm-bindgen output, `gzip -9`, no fonts) went from 1.30 MB at PLAN 1.8c to 1.66 MB, against the 3.0 MB budget. If the budget tightens, the patterns are data: they can load on demand, as fonts do, on every target alike.
 
 ## Alternatives
 
