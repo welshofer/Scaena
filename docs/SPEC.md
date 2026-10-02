@@ -849,7 +849,39 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 ### 7.2 MCP tools
 
-Tool names mirror the CLI: `deck_create`, `deck_read`, `deck_patch`, `deck_lint`, `deck_inspect`, `deck_render` (returns image content + display-list digest), `deck_export`, `deck_diff`, `theme_apply`, `data_attach`, `spine_read`, `spine_update`. Each tool's input/output schema is generated from the Rust types (`schemars`) and shipped in `docs/schema/mcp/`. The MCP server also exposes **resources**: `scaena://schema/deck`, `scaena://schema/theme`, `scaena://lint/catalog`, and `scaena://examples/*`, so an agent can learn the format without docs.
+`scaena mcp` serves the operations as MCP tools over stdio (`scaena-mcp`, on `rmcp`). The CLI and the server call the same functions (`scaena-ops`, ADR-0009), so a tool does what its command does.
+
+| Tool | Does | Result |
+|---|---|---|
+| `deck_create` | Makes a bundle at `bundle`, a directory that is not there yet or is empty. It copies in the `theme` file, the fonts its families name (found beside it or above it), and the `data` files. The deck comes from `deck` (JSON) or `scn` (source); without either it is one empty state titled `title`. Its `theme` and `fonts` are pointed at the copies. Written only if it validates. | `{ created, files, findings, errors }` |
+| `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
+| `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors }` |
+| `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, and `data`. | `{ states }` |
+| `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
+| `deck_export` | `scaena export`. | `{ format, out?, spine? }` |
+| `deck_diff` | `scaena diff`. | `{ changes }` |
+| `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
+| `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
+| `spine_read` | The spine, as `export --format spine` writes it. | the spine |
+| `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |
+
+- **Results.** A tool's result is structured content, with the same JSON as text. It is the command's `--json` result, with one difference: structured content is an object, so a command that prints a list or a map has it named here (`findings`, `states`, `changes`).
+- **Failures.** A tool that stops returns an error result (`isError`), not a protocol error, so the agent reads why. Its text is `{ "message", "plan"?, "op"? }`: what stopped it, the PLAN task that builds what it needs, and the index of a patch's op that does not apply.
+- **Renders.** `deck_render` returns image content so the agent sees what it made. The text carries the display list's digest (FNV-1a over its postcard bytes, as `tests/golden/torture/raw.fnv1a` holds them): one digest, one drawing.
+- **Paths** are on the machine the server runs on, relative to its working directory. A bundle is a directory, a `.scaena` zip, or a `deck.json`. The server runs where the agent does and assumes no other (ADR-0006).
+- **Schemas.** Each tool's input and output schemas are generated from the Rust types (`schemars`) and committed in `docs/schema/mcp/<tool>.json`. A test fails when they are not what the server lists, and `just bless` regenerates them.
+  - Two inputs are typed loosely, as objects: a patch's ops and `deck_create`'s `deck`. Each points at the resource that types it. Inlined, `scaena://schema/patch` alone would add 73 KB to every `tools/list`.
+  - The server checks every op as `patch` does, and names the one that fails.
+
+**Resources** let an agent learn the format without the docs:
+- `scaena://schema/deck`, `scaena://schema/theme`, and `scaena://schema/patch`;
+- `scaena://lint/catalog` (§7.5);
+- `scaena://spec`: this document;
+- `scaena://skills/author-deck`;
+- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme.
+
+They are compiled into the binary, so they describe the format it reads.
 
 ### 7.3 Patch semantics
 
@@ -1056,14 +1088,15 @@ crates/
   scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shader nodes→ops, timeline resolution, sampling
   scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
   scaena-export   pdf (krilla), svg, png, video (ffmpeg driver), html, spine
-  scaena-cli      `scaena` binary
-  scaena-mcp      MCP server (rmcp) over the same operations
+  scaena-ops      the operations every client exposes, over a bundle, with typed results (ADR-0009)
+  scaena-cli      `scaena` binary over scaena-ops
+  scaena-mcp      MCP server (rmcp) over scaena-ops
   scaena-wasm     wasm-bindgen bindings
   scaena-ffi      C ABI (cbindgen) for Swift
   scaena-store    CRDT document (loro), ops, history, bundle I/O
 web/              Vite + TS player/editor (Phase 2)
 apps/mac/         SwiftUI client (Phase 3)
-docs/             SPEC, PLAN, ADRs, schemas, examples
+docs/             SPEC, PLAN, ADRs, schemas (generated; MCP tools' in schema/mcp/), examples
 skills/           agent skills (SKILL.md)
 tests/            golden display lists, golden rasters, lint fixtures, parity harness
 ```

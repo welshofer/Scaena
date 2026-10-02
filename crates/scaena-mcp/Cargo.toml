@@ -1,6 +1,6 @@
 [package]
 name = "scaena-mcp"
-description = "MCP server exposing Scaena operations (rmcp). Phase 1, PLAN 1.17."
+description = "MCP server over the operations every Scaena client exposes (rmcp). PLAN 1.17."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,20 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# deck_render with the GPU painter (PLAN 0.7).
+gpu = ["scaena-ops/gpu"]
+
 [dependencies]
 scaena-core.workspace = true
-# Phase 1 adds: rmcp, tokio, scaena-engine, scaena-export, scaena-store.
+scaena-ops.workspace = true
+rmcp.workspace = true
+tokio.workspace = true
+base64.workspace = true
+indexmap.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+rmcp = { workspace = true, features = ["client"] }

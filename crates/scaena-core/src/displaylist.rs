@@ -489,6 +489,16 @@ impl DisplayList {
         Ok(postcard::to_allocvec(self)?)
     }
 
+    /// What identifies the frame: FNV-1a (64-bit) over its postcard bytes, 16 hex digits,
+    /// the form `tests/golden/torture/raw.fnv1a` holds. One digest, one drawing.
+    pub fn digest(&self) -> Result<String, DlError> {
+        let bytes = self.to_postcard()?;
+        let hash = bytes
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3));
+        Ok(format!("{hash:016x}"))
+    }
+
     pub fn from_postcard(bytes: &[u8]) -> Result<DisplayList, DlError> {
         let dl: DisplayList = postcard::from_bytes(bytes)?;
         dl.check_version()?;

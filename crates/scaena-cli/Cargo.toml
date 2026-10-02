@@ -15,7 +15,7 @@ path = "src/main.rs"
 [features]
 # `scaena render --painter gpu`: vello on wgpu (PLAN 0.7). Off by default so the
 # everyday build does not compile wgpu.
-gpu = ["scaena-paint/gpu"]
+gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 
 [dependencies]
 scaena-core.workspace = true
@@ -23,6 +23,8 @@ scaena-engine.workspace = true
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
+scaena-ops.workspace = true
+scaena-mcp.workspace = true
 clap.workspace = true
 miette.workspace = true
 serde_json.workspace = true
@@ -30,3 +32,5 @@ anyhow.workspace = true
 
 [dev-dependencies]
 sha2.workspace = true
+rmcp = { workspace = true, features = ["client"] }
+tokio = { workspace = true, features = ["process"] }

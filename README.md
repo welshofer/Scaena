@@ -42,7 +42,7 @@ Nodes exist for the whole deck. States are cues; unchanged properties track forw
 ## Layout
 
 ```
-crates/   scaena-core · scaena-engine · scaena-paint · scaena-export · scaena-store · scaena-cli · scaena-mcp · scaena-wasm · scaena-ffi
+crates/   scaena-core · scaena-engine · scaena-paint · scaena-export · scaena-store · scaena-ops · scaena-cli · scaena-mcp · scaena-wasm · scaena-ffi
 docs/     SPEC, PLAN, MANIFESTO, adr/, schema/ (JSON Schema), examples/ (deck + theme + data), reviews/
 skills/   agent skills driving the CLI/MCP
 tests/    golden display lists, golden rasters, lint fixtures, parity harness, benchmark decks

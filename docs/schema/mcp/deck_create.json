@@ -1,0 +1,110 @@
+{
+  "name": "deck_create",
+  "description": "Make a bundle: a theme and its fonts, data files, and a deck pointed at them (or one state with nothing on screen). Checked as `deck_lint` checks a bundle, and written only if it validates.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Attach": {
+        "description": "A data file to attach: copied into the bundle's `data/`, declared as a source.",
+        "type": "object",
+        "properties": {
+          "id": { "description": "The source's id, which charts and tables name as `@id`.", "type": "string" },
+          "file": { "description": "The CSV or JSON file (an array of objects) to copy in.", "type": "string" },
+          "schema": {
+            "description": "Each column's type: `number`, `string`, `date`, or `boolean`. Without it, each is\ntyped as narrowly as all its values allow, a date in ISO 8601.",
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "string" }
+          },
+          "parse": {
+            "description": "A date column's format, for dates not in ISO 8601 (`docs/spec/format.md`).",
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "string" }
+          }
+        },
+        "additionalProperties": false,
+        "required": ["id", "file"]
+      }
+    },
+    "type": "object",
+    "properties": {
+      "bundle": {
+        "description": "Where the bundle goes: a directory that is not there yet, or is empty.",
+        "type": "string"
+      },
+      "theme": {
+        "description": "The theme file to start from, copied in with the fonts its families name (from\nbeside it, or above it): `docs/examples/themes/dusk.theme.json` is one.",
+        "type": "string"
+      },
+      "deck": {
+        "description": "The deck, as `deck.json` holds it (`scaena://schema/deck`). Its `theme` and `fonts`\nare set to the bundle's. Without it and `scn`, one state with nothing on screen.",
+        "type": ["object", "null"],
+        "additionalProperties": true,
+        "default": null
+      },
+      "scn": {
+        "description": "The deck as `.scn` source (SPEC §4), instead of `deck`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "title": { "description": "The title of a deck made here.", "type": ["string", "null"], "default": null },
+      "data": {
+        "description": "Data files to attach, as `data_attach` attaches them.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Attach" },
+        "default": []
+      }
+    },
+    "additionalProperties": false,
+    "required": ["bundle", "theme"]
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["created", "files", "findings", "errors"],
+    "type": "object",
+    "properties": {
+      "created": { "description": "Whether it was written: it is only if it validates.", "type": "boolean" },
+      "files": {
+        "description": "Every file in it, by its path in the bundle.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "findings": {
+        "description": "What `validate` and `lint` find in it.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": { "description": "The findings that are errors.", "type": "integer", "format": "uint", "minimum": 0 }
+    }
+  }
+}

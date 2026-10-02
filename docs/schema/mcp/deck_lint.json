@@ -1,0 +1,80 @@
+{
+  "name": "deck_lint",
+  "description": "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, motion, and narrative in every format it lists. Findings carry a JSON pointer, and a fix when one is safe; `fix` applies them.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "SeverityArg": {
+        "description": "The least severity to report.",
+        "type": "string",
+        "enum": ["error", "warning", "info"]
+      }
+    },
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "state": { "description": "Only the findings in this state.", "type": ["string", "null"], "default": null },
+      "severity": { "$ref": "#/$defs/SeverityArg" },
+      "fix": {
+        "description": "Apply the fixes lint offers (each checked by laying its state out again; never a\nchange of content), write the deck, and lint again.",
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false,
+    "required": ["bundle"]
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "type": "object",
+    "properties": {
+      "findings": {
+        "description": "What lint finds, errors first (SPEC §7.4).",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "fixed": {
+        "description": "The findings whose fixes were applied, under `fix`.",
+        "type": ["array", "null"],
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": { "description": "The findings that are errors.", "type": "integer", "format": "uint", "minimum": 0 },
+      "laid": {
+        "description": "Whether the layout rules ran: they run once validation and the document rules\nfind no error.",
+        "type": "boolean"
+      }
+    },
+    "required": ["findings", "errors", "laid"]
+  }
+}

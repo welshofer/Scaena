@@ -1,0 +1,26 @@
+[package]
+name = "scaena-ops"
+description = "The operations every Scaena client exposes, over a bundle, with typed results (ADR-0009)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# Render with vello on the GPU (PLAN 0.7). Off by default so the everyday build does not
+# compile wgpu.
+gpu = ["scaena-paint/gpu"]
+
+[dependencies]
+scaena-core.workspace = true
+scaena-engine.workspace = true
+scaena-paint.workspace = true
+scaena-export.workspace = true
+scaena-store.workspace = true
+indexmap.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

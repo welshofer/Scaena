@@ -1,0 +1,55 @@
+{
+  "name": "deck_diff",
+  "description": "What changes between two states, resolved: by node, it enters, exits, or changes these props.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "from", "to"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "from": { "type": "string" },
+      "to": { "type": "string" }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Change": {
+        "description": "What changes from one state to another, resolved, by node.",
+        "oneOf": [
+          {
+            "description": "It enters, with these props.",
+            "type": "object",
+            "properties": { "enter": { "type": "object", "additionalProperties": true } },
+            "required": ["enter"],
+            "additionalProperties": false
+          },
+          {
+            "description": "It exits.",
+            "type": "object",
+            "properties": { "exit": { "type": "boolean" } },
+            "required": ["exit"],
+            "additionalProperties": false
+          },
+          {
+            "description": "It stays, and these props change.",
+            "type": "object",
+            "properties": { "change": { "type": "object", "additionalProperties": true } },
+            "required": ["change"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "type": "object",
+    "properties": {
+      "changes": {
+        "description": "By node: it enters, exits, or changes these props.",
+        "type": "object",
+        "additionalProperties": { "$ref": "#/$defs/Change" }
+      }
+    },
+    "required": ["changes"]
+  }
+}

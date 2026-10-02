@@ -1,0 +1,83 @@
+{
+  "name": "theme_apply",
+  "description": "Re-theme: point the deck at another theme, copied into the bundle, and say what that changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "theme"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "theme": { "description": "The theme file; one outside the bundle is copied to `themes/`.", "type": "string" },
+      "dry_run": { "type": "boolean", "default": false }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["theme", "applied", "mapped", "added", "removed", "errors"],
+    "type": "object",
+    "properties": {
+      "theme": { "description": "The theme's path in the bundle.", "type": "string" },
+      "was": {
+        "description": "The theme the deck named before: a path, `(inline)`, or none.",
+        "type": ["string", "null"]
+      },
+      "applied": {
+        "description": "Whether the deck and the theme were written: not under a dry run.",
+        "type": "boolean"
+      },
+      "mapped": {
+        "description": "Families set in the bundle's font of that family, the theme's own file not being in\nthe bundle: `family `key`: theirs → ours`.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "added": {
+        "description": "What `validate` and `lint` find with the new theme that they did not before.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "removed": {
+        "description": "What they found before that they do not with it.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": {
+        "description": "The findings that are errors, with the new theme.",
+        "type": "integer",
+        "format": "uint",
+        "minimum": 0
+      }
+    }
+  }
+}

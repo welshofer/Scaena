@@ -23,11 +23,12 @@ test:
 test-gpu:
     cargo test -p scaena-paint -p scaena-cli --features gpu --locked
 
-# Re-bless the generated schemas (PLAN 1.1), then the torture goldens: display lists first, then the
-# rasters painted from them. Only after reviewing the diffs in docs/schema/ and tests/golden/**/actual/
-# (written by a failing `just test`).
+# Re-bless the generated schemas (PLAN 1.1) and the MCP tools' (PLAN 1.17), then the torture goldens:
+# display lists first, then the rasters painted from them. Only after reviewing the diffs in docs/schema/
+# and tests/golden/**/actual/ (written by a failing `just test`).
 bless:
     SCAENA_BLESS=1 cargo test -p scaena-core --test schemas --locked
+    SCAENA_BLESS=1 cargo test -p scaena-mcp --test schemas --locked
     SCAENA_BLESS=1 cargo test -p scaena-engine --test torture --locked
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     rm -rf tests/golden/torture/actual
