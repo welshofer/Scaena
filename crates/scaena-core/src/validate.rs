@@ -4,7 +4,7 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::data::{self, ColumnType, DataError, SourceFiles, Table};
+use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
 use crate::document::{Deck, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
@@ -785,7 +785,10 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 /// `key`, is a column of its source that the encoding can read: a `quantitative` channel
 /// reads numbers and a `temporal` one dates, and a `format` prints numbers or dates. A
 /// source whose values do not fit its schema or its `parse` formats is E103 too, at the
-/// source. A `format` that does not parse is E106. Each finding points at what set the
+/// source, and so is a key that repeats in the data a chart or a table shows, made as
+/// rendering makes it (SPEC §3.3, §3.7): at its `key`, else at what keys it without one,
+/// a chart's `x` or a table's first column (its `data`, when it lists no columns). A
+/// `format` that does not parse is E106. Each finding points at what set the
 /// field in the state: its delta, or the node. A chart with a `dataTransform` reads
 /// columns the transform makes, so its fields are checked once transforms run (PLAN 1.9e).
 fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Vec<Finding> {
@@ -856,7 +859,8 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     table.columns.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
                 )
             };
-            if let Some(key) = props.get("key").and_then(Value::as_str)
+            let key = props.get("key").and_then(Value::as_str);
+            if let Some(key) = key
                 && column(key).is_none()
             {
                 found("E103", here("key", ""), missing(key));
@@ -918,13 +922,76 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     }
                 }
             }
-            // A chart's annotations name its categories (or x values) and series.
-            if node.node_type != NodeType::Chart {
+            // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A
+            // column that is not there was reported above.
+            let remedy = if key.is_some() { "key it by a field" } else { "give it a `key` field" };
+            if node.node_type == NodeType::Table {
+                // A row's key is its `key` field, else its first column.
+                let (by, path) = match (key, props.get("columns").and_then(Value::as_array)) {
+                    (Some(key), _) => (Some(key), here("key", "")),
+                    (None, Some(listed)) => {
+                        (listed.first().and_then(|c| c.get("field")).and_then(Value::as_str), here("columns", "/0"))
+                    }
+                    (None, None) => (table.columns.first().map(String::as_str), here("data", "")),
+                };
+                let Some(c) = by.and_then(|by| table.column(by)) else { continue };
+                let repeated = repeats(table.rows.iter().map(|row| row[c].label()));
+                if !repeated.is_empty() {
+                    let first = if key.is_some() { "" } else { ", its first column" };
+                    let message = format!(
+                        "row {} in {read}: the table keys each row by `{}`{first}; {remedy} that tells its rows apart",
+                        keys_repeat(&repeated),
+                        table.columns[c]
+                    );
+                    found("E103", path, message);
+                }
                 continue;
             }
             let field = |c: &str| props.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
             let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
             let x = field("x").and_then(|f| table.column(f));
+            // A datum's key is its `key` field, else its x, joined with its series (without one,
+            // a color field of text) unless that is the key; a donut's are its categories. A row
+            // whose `y` is null is a gap, with no key.
+            let group = match (field("series"), field("color")) {
+                (Some(f), _) => table.column(f).map(Some),
+                (None, Some(f)) => table.column(f).map(|c| (table.types[c] != ColumnType::Number).then_some(c)),
+                (None, None) => Some(None),
+            };
+            let base = key.map_or(x, |key| table.column(key));
+            if let (Some(base), Some(group), Some(y)) = (base, group, field("y").and_then(|f| table.column(f))) {
+                // The series a key joins: none on a donut, nor when it is the key column.
+                let joins = |key_col: Option<usize>| group.filter(|&g| kind != "donut" && Some(g) != key_col);
+                let keys = |base: usize, series: Option<usize>| {
+                    repeats(table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| match series {
+                        Some(s) => format!("{}\u{1f}{}", row[base].label(), row[s].label()),
+                        None => row[base].label(),
+                    }))
+                };
+                let by = |base: usize, series: Option<usize>| match series {
+                    Some(s) => format!("`{}` and `{}`", table.columns[base], table.columns[s]),
+                    None => format!("`{}`", table.columns[base]),
+                };
+                let own = joins(key.map(|_| base));
+                let repeated = keys(base, own);
+                if !repeated.is_empty() {
+                    // Without its `key`, the chart may tell its data apart by x and series.
+                    let fix = match x.filter(|&x| key.is_some() && keys(x, joins(None)).is_empty()) {
+                        Some(x) => {
+                            let tell = if joins(None).is_some() { "tell" } else { "tells" };
+                            format!("drop `key` to key it by {}, which {tell} its rows apart", by(x, joins(None)))
+                        }
+                        None => format!("{remedy} that tells its rows apart"),
+                    };
+                    let message = format!(
+                        "{} in {read}: the chart keys each datum by {}; {fix}",
+                        keys_repeat(&repeated),
+                        by(base, own)
+                    );
+                    found("E103", here(if key.is_some() { "key" } else { "x" }, ""), message);
+                }
+            }
+            // A chart's annotations name its categories (or x values) and series.
             // The series: its field, else a color field of text.
             let series = (field("series").and_then(|f| table.column(f))).or_else(|| {
                 field("color").and_then(|f| table.column(f)).filter(|&c| table.types[c] != ColumnType::Number)
@@ -1001,6 +1068,22 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
         }
     }
     out
+}
+
+/// What repeats among `keys`, each once, in the order it first repeats.
+fn repeats(keys: impl Iterator<Item = String>) -> Vec<String> {
+    let (mut seen, mut twice) = (HashSet::new(), HashSet::new());
+    keys.filter(|key| !seen.insert(key.clone()) && twice.insert(key.clone())).collect()
+}
+
+/// Keys that repeat as a finding names them, a key's parts joined as the chart compiler
+/// prints them: "key `Q1` repeats", or "keys `Q1 · Core`, `Q2 · Core` repeat".
+fn keys_repeat(keys: &[String]) -> String {
+    let named: Vec<String> = keys.iter().take(8).map(|k| format!("`{}`", k.replace('\u{1f}', " · "))).collect();
+    match keys {
+        [_] => format!("key {} repeats", named[0]),
+        _ => format!("keys {}{} repeat", named.join(", "), if keys.len() > 8 { ", …" } else { "" }),
+    }
 }
 
 /// E102: theme names the deck uses that its theme does not define: text roles, layouts and

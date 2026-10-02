@@ -4,6 +4,7 @@
 
 use scaena_core::Deck;
 use scaena_core::displaylist::{DisplayList, Op};
+use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_engine::charts::Ctx;
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
@@ -107,6 +108,52 @@ fn a_table_that_does_not_fit_says_how_to_make_it() {
     let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
     let err = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).unwrap_err().to_string();
     assert!(err.contains("row key `A` repeats"), "{err}");
+}
+
+/// The torture bundle, as `scaena validate` reads it.
+struct Bundle;
+
+impl BundleFiles for Bundle {
+    fn exists(&self, path: &str) -> bool {
+        std::path::Path::new(BUNDLE).join(path).is_file()
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(format!("{BUNDLE}/{path}")).ok()
+    }
+}
+
+/// The key a message names first, in its first pair of backticks.
+fn first_key(message: &str) -> Option<String> {
+    message.split('`').nth(1).map(String::from)
+}
+
+#[test]
+fn validate_finds_the_row_key_that_compiling_refuses() {
+    // Region `A` twice, with one `rev` and two `growth`s.
+    let rows = json!([{ "region": "A", "rev": 1, "growth": 0 }, { "region": "A", "rev": 1, "growth": 0.5 }]);
+    for (props, repeats) in [
+        (json!({}), Some("A")),
+        (json!({ "key": "growth" }), None),
+        // Without `key`, the first column listed, else the data's.
+        (json!({ "key": null, "columns": [{ "field": "rev" }, { "field": "region" }] }), Some("1")),
+        (json!({ "key": null, "columns": [{ "field": "growth" }, { "field": "region" }] }), None),
+        (json!({ "key": null }), Some("A")),
+    ] {
+        let d = deck(rows.clone(), json!([{ "id": "s", "layout": "specimen", "props": { "t": props } }]));
+        let snap = &scaena_core::resolve_states(&d).unwrap()[0];
+        let (theme, mut fonts, mut text, data) = (theme(), fonts(&d), TextEngine::new(), DataFiles::new());
+        let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &d, data: &data, colors: &[] };
+        let refused = tables::compile(&mut cx, &snap.nodes["t"], [1600.0, 600.0]).err().map(|e| {
+            let e = e.to_string();
+            assert!(e.contains("repeats; table keys must be unique"), "{props}: {e}");
+            first_key(&e).unwrap()
+        });
+        assert_eq!(refused.as_deref(), repeats, "compiling {props}");
+        let found = validate_bundle(&d.to_json().unwrap(), &Bundle).unwrap();
+        let repeat = found.iter().find(|f| f.code == "E103" && f.message.contains(" repeat"));
+        assert_eq!(repeat.and_then(|f| first_key(&f.message)).as_deref(), repeats, "validating {props}");
+    }
 }
 
 /// Each cell of table `t` in `dl`: the glyphs it draws and where its text box stands.

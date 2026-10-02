@@ -3,6 +3,7 @@
 //! (`docs/spec/format.md`), and count through them.
 
 use scaena_core::Deck;
+use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_engine::charts::{self, ChartLayout, Ctx};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
@@ -30,7 +31,7 @@ fn deck(lang: &str, rows: Value, schema: Value, parse: Value, chart: Value) -> D
     serde_json::from_value(d).unwrap()
 }
 
-fn compile(deck: &Deck) -> ChartLayout {
+fn try_compile(deck: &Deck) -> Result<ChartLayout, String> {
     let mut fonts = BundleFonts::new();
     for font in &deck.fonts {
         fonts.register(&font.file, read(&font.file)).unwrap();
@@ -38,7 +39,11 @@ fn compile(deck: &Deck) -> ChartLayout {
     let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
     let (mut text, data) = (TextEngine::new(), DataFiles::new());
     let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck, data: &data, colors: &[] };
-    charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap()
+    charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).map_err(|e| e.to_string())
+}
+
+fn compile(deck: &Deck) -> ChartLayout {
+    try_compile(deck).unwrap()
 }
 
 fn texts(labels: &[charts::Label]) -> Vec<String> {
@@ -482,15 +487,69 @@ fn by_series_err(kind: &str, extra: Value) -> String {
     let mut chart = json!({ "type": "chart", "kind": kind, "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
                             "series": { "field": "product" } });
     chart.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    let deck = deck("en-US", revenue(), json!({ "rev": "number" }), Value::Null, chart);
-    let mut fonts = BundleFonts::new();
-    for font in &deck.fonts {
-        fonts.register(&font.file, read(&font.file)).unwrap();
+    try_compile(&deck("en-US", revenue(), json!({ "rev": "number" }), Value::Null, chart)).unwrap_err()
+}
+
+/// The torture bundle, as `scaena validate` reads it.
+struct Bundle;
+
+impl BundleFiles for Bundle {
+    fn exists(&self, path: &str) -> bool {
+        std::path::Path::new(BUNDLE).join(path).is_file()
     }
-    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
-    let (mut text, data) = (TextEngine::new(), DataFiles::new());
-    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &deck, data: &data, colors: &[] };
-    charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap_err().to_string()
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(format!("{BUNDLE}/{path}")).ok()
+    }
+}
+
+/// The key a message names first, in its first pair of backticks.
+fn first_key(message: &str) -> Option<String> {
+    message.split('`').nth(1).map(String::from)
+}
+
+#[test]
+fn validate_finds_the_key_that_compiling_refuses() {
+    // Q2 of Cloud is a gap, which has no key: its `id` is Q3's too.
+    let rows = json!([
+        { "q": "Q1", "product": "Core", "rev": 12, "id": "a" },
+        { "q": "Q1", "product": "Cloud", "rev": 6, "id": "b" },
+        { "q": "Q2", "product": "Core", "rev": 15, "id": "d" },
+        { "q": "Q2", "product": "Cloud", "rev": null, "id": "c" },
+        { "q": "Q3", "product": "Cloud", "rev": 9, "id": "c" }
+    ]);
+    let (q, product) = (json!({ "field": "q" }), json!({ "field": "product" }));
+    for (props, repeats) in [
+        // By x, joined with the series; a series that is x joins, and one that is the key does not.
+        (json!({}), Some("Q1")),
+        (json!({ "series": product }), None),
+        (json!({ "series": q }), Some("Q1 · Q1")),
+        (json!({ "series": q, "key": "q" }), Some("Q1")),
+        (json!({ "series": product, "key": "product" }), Some("Core")),
+        // By `key`, which a gap does not take.
+        (json!({ "key": "id" }), None),
+        (json!({ "series": product, "key": "id" }), None),
+        // A color field of text groups as a series does; one of numbers shades.
+        (json!({ "color": product }), None),
+        (json!({ "color": { "field": "rev" } }), Some("Q1")),
+        // A donut's keys are its categories, whatever its series.
+        (json!({ "kind": "donut", "x": product, "series": q }), Some("Core")),
+        (json!({ "kind": "donut", "x": { "field": "id" } }), None),
+        // Through the chart's transform.
+        (json!({ "dataTransform": [{ "filter": "q != 'Q1'" }] }), None),
+    ] {
+        let mut chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": q, "y": { "field": "rev" } });
+        chart.as_object_mut().unwrap().extend(props.as_object().unwrap().clone());
+        let deck = deck("en-US", rows.clone(), json!({ "rev": "number" }), Value::Null, chart);
+        let refused = try_compile(&deck).err().map(|e| {
+            assert!(e.contains("repeats; chart keys must be unique"), "{props}: {e}");
+            first_key(&e).unwrap()
+        });
+        assert_eq!(refused.as_deref(), repeats, "compiling {props}");
+        let found = validate_bundle(&deck.to_json().unwrap(), &Bundle).unwrap();
+        let repeat = found.iter().find(|f| f.code == "E103" && f.message.contains(" repeat"));
+        assert_eq!(repeat.and_then(|f| first_key(&f.message)).as_deref(), repeats, "validating {props}");
+    }
 }
 
 /// The theme's accent, at `alpha` of its own.

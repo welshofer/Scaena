@@ -10,7 +10,7 @@ You are writing a Scaena document: `deck.json` (schema at `docs/schema/deck.sche
 ## Procedure
 
 1. **Spine first.** From the brief, write `spine.sections[].beats[]`: one `claim` sentence per beat, `evidence` refs, `notes`. Aim for 3–7 beats. If the brief is thin, ask one question, then proceed.
-2. **Data.** Register sources under `data` (`data/*.csv|json`), with a `schema`. Charts bind with `"data": "@name"` and a `key` field for identity.
+2. **Data.** Register sources under `data` (`data/*.csv|json`), with a `schema`. Charts bind with `"data": "@name"`. Each datum is a mark keyed by its x and series, which carries it from state to state (SPEC §3.7).
 3. **Nodes.** Create each object once with a meaningful id, a `type`, a `role` (text) and a `semantic` (`claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`). Default placement with `at: { in: <slot> }` from the theme's layout templates (`docs/examples/themes/*.json` → `layouts`). For rows of cards, stat blocks, and photo grids, place a container (`stack`, `grid`, `frame`) like any node and put each child in it with `at: { parent: <container> }`; the child goes nowhere else, and `at.index` reorders. In a stack, text and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares). A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
 4. **States as deltas.** One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`. Add `choreography` sparingly (one `enter` per new object; stagger lists and marks). Give every state a `hold` if the deck will be exported to video.
 5. **Lint loop.** `scaena validate <deck>` (or `scaena compile`, which validates) then `scaena lint <deck> --json`. Fix every error; take warnings seriously (W300/W301 mean you reached for pixels — use a role, slot, or token instead). Re-run until clean.
@@ -22,7 +22,7 @@ You are writing a Scaena document: `deck.json` (schema at `docs/schema/deck.sche
 
 - Never put a literal color, size, or coordinate anywhere but `overrides`, and avoid `overrides`.
 - Every beat's states include a node with `semantic: claim` that expresses the claim.
-- Charts: no style fields. `kind` ∈ v1 kinds only. Always set `key`.
+- Charts: no style fields. `kind` ∈ v1 kinds only. Set `key` only to a field that tells the chart's rows apart (a series repeats across x): a key that repeats is E103.
 - Name ids for what a node is for, not what it says today: `total`, not `q3-total`. Ids are identity; they outlive the copy and the period.
 - Figures in copy (text, `alt`, beat claims, notes) are literals. When the data changes, re-derive every one from the data and re-read every claim: lint notices neither a stale figure nor a claim the new data makes false (SPEC §16, question 9).
 - Keep `maxWordsPerState` (theme `density`) — this is a presentation, not a document.
