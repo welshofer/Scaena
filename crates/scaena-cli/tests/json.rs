@@ -86,7 +86,6 @@ fn a_command_that_stops_prints_an_error_object() {
         (vec!["export", EXAMPLE, "--format", "gif"], 2, None),
         (vec!["inspect", TORTURE, "--no-such-flag"], 2, None),
         (vec!["patch", EXAMPLE, "--ops", ops.to_str().unwrap(), "--dry-run"], 2, None),
-        (vec!["mcp"], 3, Some("1.17")),
         (vec!["export", EXAMPLE, "--format", "pdf"], 3, Some("1.20")),
         (vec!["export", EXAMPLE, "--format", "mp4", "--states", "intro,revenue"], 3, Some("1.21")),
         (vec!["export", EXAMPLE, "--format", "html"], 3, Some("2.5")),

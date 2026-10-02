@@ -1,0 +1,22 @@
+{
+  "name": "deck_read",
+  "description": "The bundle's deck, as `deck.json` holds it, or as `.scn` source.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "scn": { "description": "The deck as `.scn` source rather than JSON.", "type": "boolean", "default": false }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "deck": { "description": "The deck, canonical." },
+      "scn": { "description": "The deck as canonical `.scn` (SPEC §4).", "type": ["string", "null"] }
+    },
+    "type": "object"
+  }
+}

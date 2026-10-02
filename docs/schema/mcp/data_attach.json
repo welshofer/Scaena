@@ -1,0 +1,91 @@
+{
+  "name": "data_attach",
+  "description": "Attach a CSV or JSON data file: copy it into the bundle's `data/` and declare it as a source charts and tables name as `@id`, each column typed (inferred from its values without `schema`).",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "id", "file"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "id": { "description": "The source's id, which charts and tables name as `@id`.", "type": "string" },
+      "file": { "description": "The CSV or JSON file (an array of objects) to copy in.", "type": "string" },
+      "schema": {
+        "description": "Each column's type: `number`, `string`, `date`, or `boolean`. Without it, each is\ntyped as narrowly as all its values allow, a date in ISO 8601.",
+        "type": ["object", "null"],
+        "additionalProperties": { "type": "string" }
+      },
+      "parse": {
+        "description": "A date column's format, for dates not in ISO 8601 (`docs/spec/format.md`).",
+        "type": ["object", "null"],
+        "additionalProperties": { "type": "string" }
+      }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["attached", "id", "source", "schema", "rows", "added", "removed", "errors"],
+    "type": "object",
+    "properties": {
+      "attached": {
+        "description": "Whether it was written: not when it would make the deck invalid (in `added`).",
+        "type": "boolean"
+      },
+      "id": { "type": "string" },
+      "source": { "description": "Its path in the bundle.", "type": "string" },
+      "schema": {
+        "description": "Each column's type, as the deck declares it.",
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      },
+      "rows": { "type": "integer", "format": "uint", "minimum": 0 },
+      "added": {
+        "description": "What `validate` and `lint` find after it that they did not before.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "removed": {
+        "description": "What they found before that they do not after.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": {
+        "description": "The findings that are errors, after.",
+        "type": "integer",
+        "format": "uint",
+        "minimum": 0
+      }
+    }
+  }
+}

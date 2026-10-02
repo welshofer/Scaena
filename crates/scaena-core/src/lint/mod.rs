@@ -20,7 +20,7 @@ use crate::tracking::Snapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Info,
@@ -29,7 +29,7 @@ pub enum Severity {
 }
 
 /// One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Finding {
     pub code: String,
     pub severity: Severity,

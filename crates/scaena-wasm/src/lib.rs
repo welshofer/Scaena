@@ -445,10 +445,6 @@ mod tests {
         s
     }
 
-    fn fnv1a(bytes: &[u8]) -> u64 {
-        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
-    }
-
     /// The session is the engine the native tests drive: its frames hash to the
     /// native goldens' digests (`raw.fnv1a`). The browser smoke check compares the
     /// WASM build against the same file.
@@ -469,8 +465,7 @@ mod tests {
                 Some((state, at)) => (state, at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
                 None => (frame, f64::INFINITY),
             };
-            let bytes = s.frame(state, t).unwrap().to_postcard().unwrap();
-            assert_eq!(format!("{:016x}", fnv1a(&bytes)), digest, "{name}");
+            assert_eq!(s.frame(state, t).unwrap().digest().unwrap(), digest, "{name}");
         }
     }
 

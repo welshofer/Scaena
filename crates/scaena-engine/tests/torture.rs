@@ -245,11 +245,6 @@ fn display_lists_match_goldens() {
     );
 }
 
-/// FNV-1a, 64-bit: a dependency-free digest for change detection (not security).
-fn fnv1a(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
-}
-
 /// Stricter than the contract: SPEC §13.4 compares display lists after quantizing,
 /// but if unquantized output is already bit-identical across platforms (CI runs
 /// x86-64 Linux and arm64 macOS), quantization is pure margin, and any change that
@@ -260,8 +255,9 @@ fn raw_display_lists_are_bit_identical_across_platforms() {
     let mut fx = fixture();
     let mut digests = String::new();
     for (name, state, t_ms, format) in fx.golden_frames() {
-        let bytes = fx.frame_in(&state, t_ms, format).unwrap().to_postcard().unwrap();
-        digests.push_str(&format!("{name} {:016x}\n", fnv1a(&bytes)));
+        // FNV-1a, 64-bit, over the postcard bytes: change detection, not security.
+        let digest = fx.frame_in(&state, t_ms, format).unwrap().digest().unwrap();
+        digests.push_str(&format!("{name} {digest}\n"));
     }
     let path = format!("{GOLDEN}/raw.fnv1a");
     if std::env::var_os("SCAENA_BLESS").is_some() {

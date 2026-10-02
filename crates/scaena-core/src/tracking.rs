@@ -27,7 +27,7 @@ pub enum TrackingError {
 }
 
 /// A state resolved to absolute values: every visible node with its merged props.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, schemars::JsonSchema)]
 pub struct Snapshot {
     pub state_id: String,
     pub slide_id: String,
