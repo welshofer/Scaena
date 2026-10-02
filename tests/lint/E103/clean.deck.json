@@ -1,12 +1,21 @@
 {
   "scaena": "0.8",
-  "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, every value fits the schema and its parse format, and every category an annotation names is one.",
+  "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, every value fits the schema and its parse format, every category an annotation names is one, and no key repeats: a chart with a series, or a color field of text, keys each datum by its x and series.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {
     "q": {
       "source": { "inline": [{ "quarter": "Q1", "rev": 12, "when": "Jan 2025" }, { "quarter": "Q2", "rev": 19, "when": "Apr 2025" }] },
       "schema": { "quarter": "string", "rev": "number", "when": "date" },
       "parse": { "when": "%b %Y" }
+    },
+    "sales": {
+      "source": {
+        "inline": [
+          { "quarter": "Q1", "product": "Core", "rev": 12 }, { "quarter": "Q1", "product": "Cloud", "rev": 6 },
+          { "quarter": "Q2", "product": "Core", "rev": 15 }, { "quarter": "Q2", "product": "Cloud", "rev": 9 }
+        ]
+      },
+      "schema": { "quarter": "string", "product": "string", "rev": "number" }
     }
   },
   "nodes": {
@@ -41,10 +50,20 @@
       "type": "table", "data": "@q", "key": "quarter",
       "columns": [{ "field": "quarter", "title": "Quarter" }, { "field": "rev", "title": "Revenue", "format": "$,.0f" }],
       "at": { "in": "canvas" }
+    },
+    "s": {
+      "type": "chart", "kind": "bar", "data": "@sales",
+      "x": { "field": "quarter" }, "y": { "field": "rev" }, "series": { "field": "product" },
+      "at": { "in": "canvas" }
+    },
+    "sc": {
+      "type": "chart", "kind": "line", "data": "@sales",
+      "x": { "field": "quarter" }, "y": { "field": "rev" }, "color": { "field": "product" },
+      "at": { "in": "canvas" }
     }
   },
   "states": [
-    { "id": "one", "props": { "a": {}, "c": {}, "t": {}, "tb": {} } },
+    { "id": "one", "props": { "a": {}, "c": {}, "t": {}, "tb": {}, "s": {}, "sc": {} } },
     { "id": "two", "props": { "c": { "y": { "format": ".1~k" } } } }
   ]
 }

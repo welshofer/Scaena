@@ -70,7 +70,12 @@ fn e103_fields_charts_cannot_read() {
             "/nodes/g/annotations/0/at/x",
             "/nodes/g/annotations/1/at/series",
             "/nodes/h/annotations/0/at/x",
+            "/nodes/k/key",
+            "/nodes/m/x/field",
+            "/nodes/n/x/field",
+            "/nodes/tk/columns/0",
             "/states/1/props/c/y/field",
+            "/states/1/props/p/key",
         ],
     );
     let found = validate_bundle(fixture!("E103", "trigger"), &Fixtures).unwrap();
@@ -89,6 +94,24 @@ fn e103_fields_charts_cannot_read() {
     assert!(x.contains("`Q3` is no category of `quarter`") && x.contains("`Q1`, `Q2`"), "{x}");
     assert!(say("/nodes/g/annotations/1/at/series").contains("`Q9` is no series of `quarter`"));
     assert!(say("/nodes/h/annotations/0/at/x").contains("must be a date in ISO 8601"));
+    // Keys repeat as rendering makes them: the `key` field, else x, joined with the series
+    // unless the series is the key; a donut's are its categories, and a table's its first
+    // column. Where x and series would tell the data apart, dropping `key` is the fix.
+    let k = say("/nodes/k/key");
+    assert!(k.starts_with("keys `Core`, `Cloud` repeat in `@sales`: the chart keys each datum by `product`;"), "{k}");
+    assert!(k.ends_with("drop `key` to key it by `quarter` and `product`, which tell its rows apart"), "{k}");
+    let m = say("/nodes/m/x/field");
+    assert!(
+        m.contains("keys `Q1`, `Q2` repeat") && m.ends_with("give it a `key` field that tells its rows apart"),
+        "{m}"
+    );
+    let n = say("/nodes/n/x/field");
+    assert!(n.contains("keys `Core`, `Cloud` repeat in `@sales`: the chart keys each datum by `product`;"), "{n}");
+    let tk = say("/nodes/tk/columns/0");
+    assert!(tk.contains("row keys `Core`, `Cloud` repeat") && tk.contains("by `product`, its first column"), "{tk}");
+    // Keyed by its series in state two only, the chart repeats there.
+    let p = found.iter().find(|f| f.path.as_deref() == Some("/states/1/props/p/key")).unwrap();
+    assert_eq!((p.state.as_deref(), p.node.as_deref()), (Some("two"), Some("p")));
 }
 
 #[test]
