@@ -80,6 +80,7 @@ async fn the_tools_and_resources_are_listed() {
         "scaena://schema/patch",
         "scaena://lint/catalog",
         "scaena://examples/revenue.deck.json",
+        "scaena://examples/trails.deck.json",
     ] {
         assert!(resources.iter().any(|r| r == uri), "{uri}: {resources:?}");
     }
