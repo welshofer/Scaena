@@ -550,6 +550,12 @@ const RESOURCES: &[(&str, &str, &str, &str)] = &[
         include_str!("../../../docs/examples/revenue.deck.json"),
     ),
     (
+        "scaena://examples/trails.deck.json",
+        "A fifteen-slide example: text, a stat, a photograph, five kinds of chart, a table, cards, and a quote",
+        "application/json",
+        include_str!("../../../docs/examples/trails.deck.json"),
+    ),
+    (
         "scaena://examples/revenue.deck.scn",
         "The example deck as .scn",
         "text/plain",

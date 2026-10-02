@@ -82,9 +82,11 @@ BUNDLES = {
         },
     },
     "revenue": {
-        "title": "Example deck",
+        "title": "Example decks'",
         "bundle": ROOT / "docs/examples",
         "deck": "revenue.deck.json",
+        # Decks beside it that share its fonts: the subset covers them all, and each is checked.
+        "also": ["trails.deck.json"],
         "every_family": False,
         "fonts": EXAMPLE_FONTS,
         "licenses": LICENSES,
@@ -102,7 +104,7 @@ BUNDLES = {
 }
 
 
-def build(name: str, deck: dict, cache: Path | None) -> None:
+def build(name: str, decks: list[dict], cache: Path | None) -> None:
     import fontTools
     from fontTools import subset
     from fontTools.ttLib import TTFont
@@ -111,7 +113,7 @@ def build(name: str, deck: dict, cache: Path | None) -> None:
         print(f"warning: fontTools {fontTools.version}, pinned {torture.FONTTOOLS}; subset bytes may differ", file=sys.stderr)
     cfg = BUNDLES[name]
     fonts = cfg["bundle"] / "fonts"
-    unicodes = {ord(c) for s in torture.deck_strings(deck) for c in s}
+    unicodes = {ord(c) for deck in decks for s in torture.deck_strings(deck) for c in s}
     for lo, hi in torture.EXTRA_RANGES:
         unicodes.update(range(lo, hi + 1))
     fonts.mkdir(parents=True, exist_ok=True)
@@ -148,7 +150,8 @@ def build(name: str, deck: dict, cache: Path | None) -> None:
         lines.append(f"| `{file}` | `{path}` | `{up[:16]}…` | `{sub_hash[:16]}…` | {n_up // 1024} KB → {n_sub // 1024} KB | `{family}` |")
     lines += [
         "",
-        f"**Subset:** every character in `{cfg['deck']}` ∪ {ranges}. All OpenType layout features, all name records, "
+        f"**Subset:** every character in {' ∪ '.join(f'`{d}`' for d in [cfg['deck'], *cfg.get('also', [])])} ∪ {ranges}. "
+        "All OpenType layout features, all name records, "
         "variations and hinting kept.",
         "",
         "**Licenses:** SIL Open Font License 1.1; each `OFL-*.txt` beside the fonts is the upstream license file "
@@ -209,12 +212,15 @@ def main() -> None:
     args = ap.parse_args()
     ok = True
     for name, cfg in BUNDLES.items():
-        deck = json.loads((cfg["bundle"] / cfg["deck"]).read_text(encoding="utf-8"))
+        files = [cfg["deck"], *cfg.get("also", [])]
+        decks = [json.loads((cfg["bundle"] / f).read_text(encoding="utf-8")) for f in files]
         if not args.check:
-            build(name, deck, args.cache)
-        for theme_path in cfg.get("themes", [deck["theme"]]):
-            theme = json.loads((cfg["bundle"] / theme_path).read_text(encoding="utf-8"))
-            ok &= check(name, deck, theme, f"{name} ({theme_path})")
+            build(name, decks, args.cache)
+        for file, deck in zip(files, decks):
+            label = name if file == cfg["deck"] else file.removesuffix(".deck.json")
+            for theme_path in cfg.get("themes", [deck["theme"]]):
+                theme = json.loads((cfg["bundle"] / theme_path).read_text(encoding="utf-8"))
+                ok &= check(name, deck, theme, f"{label} ({theme_path})")
     sys.exit(0 if ok else 1)
 
 

@@ -15,9 +15,9 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 
 | To | CLI | MCP |
 |---|---|---|
-| attach a file | copy it to `data/` and declare it under `data` with a `schema` | `data_attach`, with `id`, `file`, and optionally `schema` and `parse` |
+| attach a file | copy it to `data/`, then declare it: `bind_data` with a `source` as you bind the chart, or a JSON Patch `add` at `/data/<id>` | `data_attach`, with `id`, `file`, and optionally `schema` and `parse` |
 | see the rows a chart reads | `scaena inspect <bundle> --data` | `deck_inspect` with `data` |
-| add or change the chart | `scaena patch <bundle> --ops ops.json` | `deck_patch` |
+| add or change the chart | `scaena patch <bundle> --ops ops.json --dry-run`, then without `--dry-run` | `deck_patch`, with `dry_run` first |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out chart.png` | `deck_render` |
 
@@ -25,6 +25,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 
 1. **Read the data: columns, types, rows.**
    - Dates in ISO 8601 read as they are. Any other date needs a `parse` format for its column (`"parse": { "month": "%b %Y" }`, `docs/spec/format.md`).
+   - Periods without a year (`Jan`, `Q3`) are not dates: keep them as text on an `ordinal` axis, in the data's order. A `parse` format with no year reads every date in 1900.
    - A value that does not fit its column's type is E103 when the deck validates, before any render.
 2. **Say the one thing.**
    - Write the point the chart supports as a headline sentence first ("June to September beat the plan").
@@ -45,8 +46,11 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - `x: { field, type }`: `ordinal` or `nominal` for categories, `temporal` for dates, `quantitative` for numbers.
    - `y: { field, format }` and `series: { field }`.
    - Format every number the audience reads: `$,.1f`, `,d`, `.0%`, or `$.2~k` (compact).
+   - A line's or a dot plot's value axis spans its data. When the point is the distance from zero, start it there with `y: { "domain": [0, null] }`; bars and areas always do.
    - Set `key` only when x and series do not tell the rows apart. A key that repeats is E103.
 6. **Place it** in a `figure` layout's `main` slot, or the theme's equivalent.
+   - A chart is a slide of its own: `add_state` with `"layout": "figure"`, then `add_node` with that `state` (ops: SPEC §7.3, `docs/schema/patch.schema.json`).
+   - A new state tracks the one before it, so the last slide's nodes stay on screen. List them in the state's `remove`, or give the state `"mode": "absolute"`.
    - Put the headline in `header` and the source in `footer`, as `semantic: source`.
    - Give the chart `alt`: what a listener needs to hear, with the numbers that matter.
 7. **Point at the answer with `annotations`**, only when the headline needs help:
@@ -54,6 +58,8 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - `band` across x or y (a period, a range).
    - `callout`, with `text` at one x and, if needed, a series.
    - `highlight` of an x or a series; the rest dims.
+   - A line prints only its first and last values. A point about a middle one, such as a peak, needs a `callout` there, or `labels: { "show": "all" }`.
+   - A callout's `text` is a literal, like any figure in copy: re-derive it when the data changes.
 8. **Check and look.**
    - Lint for E103 (fields, types, keys), W310 (labels that collide, when you set `labels.show`), and E100 and E101 (the chart's cell).
    - Render, and read it as the audience will: is the point visible in two seconds?

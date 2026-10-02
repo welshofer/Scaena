@@ -253,7 +253,38 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The skills still name CLI commands; 1.18 writes them for both.*
     - *`deck_create` and `data_attach` have no CLI command.*
     - *Paths are local to the server, and nothing streams progress for a long lint.)*
-- [ ] 1.18 Skills: `skills/author-deck`, `skills/retheme`, `skills/chart-from-data`, `skills/motion-pass`, `skills/tighten-copy`.
+- [x] 1.18 Skills: `skills/author-deck`, `skills/retheme`, `skills/chart-from-data`, `skills/motion-pass`, `skills/tighten-copy`. *(Done. `skills/`, `crates/scaena-cli/tests/skills.rs`; SPEC §7.2, §7.6:*
+  - *Each skill works through either surface. A table gives each step as a CLI command and as an MCP tool, then come a procedure and rules. MCP serves each skill as `scaena://skills/<name>`, and the server's instructions point to `author-deck` first.*
+  - *`skills.rs` holds them to what exists. That covers every command, flag, MCP tool, `scaena://` resource, repository path, lint code, and SPEC section a skill names, and each skill's frontmatter. SPEC §7.6 lists exactly the skills there are, and MCP serves each file as it is. Planting eight bad references, one of each kind, failed it eight times.*
+  - *Trials: a fresh agent ran each of `chart-from-data`, `motion-pass`, and `tighten-copy` on the fifteen-slide trails deck, with the skill and the docs alone. Each ended lint-clean, and what each could not find in its skill is now in it:*
+    - *Charts:*
+      - *periods without a year stay text;*
+      - *`y.domain: [0, null]`;*
+      - *declaring data from the CLI;*
+      - *a chart is a slide of its own, and a delta state keeps the last slide's nodes;*
+      - *a peak needs a callout.*
+    - *Copy:*
+      - *where the claims are without a spine, and which beat rules then find nothing;*
+      - *the `set_text` op;*
+      - *`errors` and `applied` beside the lint delta;*
+      - *notes in the beat;*
+      - *overflow before overlap;*
+      - *figures checked with `inspect --data` and kept on one line.*
+      - *The agent also invented a figure the data does not hold ("about a foot a year"). Review caught it; lint cannot (SPEC §16, question 9).*
+    - *Motion: between slides that share nothing, a long transition lays one slide's words under the next's, so the skill now says to transition fast and build after. Also added:*
+      - *the forms a transition takes;*
+      - *when a node's own `enter` runs, against choreography's;*
+      - *`parallel`, `glyphs`, exits, emphasis, and holds and how long to make them;*
+      - *JSON Patch for a state's motion, guarded by `test`;*
+      - *which frames to render.*
+  - *The trails deck is now `docs/examples/trails.deck.json` (`scaena://examples/trails.deck.json`), on the examples' Dusk theme and fonts. It holds a spine, a stat, a photograph, five kinds of chart, a table, cards, and a quote, with the motion trial's choreography and holds. It validates, lints clean, and round-trips through `.scn`. On the way in, its narrative lint found a true positive: W423, a beat citing data that none of its states shows.*
+  - *Not done:*
+    - *No semantic op sets a state's `transition`, `choreography`, or `hold`; the motion skill writes JSON Patch guarded by `test`.*
+    - *W320 counts nodes, not the marks or split units a motion moves.*
+    - *The motion trial found defects in the engine:*
+      - *A staggered chart entrance misorders stacked segments, repeats donut slices, and drops a line's later points to zero.*
+      - *Counting labels overshoot their values on an under-damped spring, where SPEC §3.9 says chart data stop at their ends.*
+      - *Until those are fixed, the trails deck sets `stagger: 0` on its stacked bars, donut, and lines.)*
 - [ ] 1.19 Agent-loop smoke test (SPEC §14, last bullet) in CI.
 
 ### 1D Exports
@@ -266,6 +297,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ### 1F Benchmarks
 - [ ] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)*
+
+### 1G Design calls (Jay, 2026-10-02)
+- [ ] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases.
+- [ ] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures.
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.

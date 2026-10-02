@@ -884,7 +884,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 - `scaena://lint/catalog` (§7.5);
 - `scaena://spec`: this document;
 - `scaena://skills/<name>`: the five skills (§7.6);
-- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme.
+- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme; and `trails.deck.json`, fifteen slides that use most of what a deck can hold.
 
 They are compiled into the binary, so they describe the format it reads.
 

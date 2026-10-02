@@ -7,6 +7,8 @@ description: Author a Scaena deck from a brief and, optionally, a data file. Int
 
 You are writing a Scaena document. It is either `deck.json` (schema `docs/schema/deck.schema.json`, or `scaena://schema/deck` over MCP) or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier.
 
+`docs/examples/trails.deck.json` (`scaena://examples/trails.deck.json`) is fifteen slides that use most of what a deck can hold: a spine, a stat, a photograph, five kinds of chart, a table, rows of cards, a quote, and motion. Read it before you write your first deck.
+
 Read SPEC §2–§4 once per session (`scaena://spec` over MCP). The model:
 - Nodes exist for the whole deck.
 - States are cues, and unchanged properties track forward.
@@ -19,7 +21,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 | To | CLI | MCP |
 |---|---|---|
 | start a bundle from a theme | write `deck.json`, with the theme's fonts in the bundle | `deck_create`: copies the theme, its fonts, and data files in, and writes only if the deck validates |
-| add a data file | copy it to `data/` and declare it under `data` | `data_attach`: types its columns by inference |
+| add a data file | copy it to `data/` and declare it under `data`: a JSON Patch `add` at `/data/<id>`, or `bind_data` with a `source` | `data_attach`: types its columns by inference |
 | turn `.scn` into a deck | `scaena compile deck.scn -o <bundle>/deck.json` | `deck_create` with `scn` |
 | check | `scaena validate <bundle>`, then `scaena lint <bundle> --json` | `deck_lint`, which validates first |
 | edit | `scaena patch <bundle> --ops ops.json --dry-run --json`, then without `--dry-run` | `deck_patch` with `dry_run`, then without |
@@ -50,9 +52,9 @@ Errors:
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
 4. **States.**
    - One state per click. Set `layout`, then only what changes: text, `kind`, `at`, `remove`. Group builds with `slide`.
-   - A state that starts a new slide may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.
-   - Leave motion for the `motion-pass` skill, apart from one `enter` per new object.
-   - Give every state a `hold` if the deck will be exported to video.
+   - A state tracks the one before it, so a new slide keeps the last slide's nodes on screen unless it lists them in `remove`. Or it may set `mode: "absolute"` and list everything it shows, which keeps each slide self-contained.
+   - Leave motion for the `motion-pass` skill, apart from at most one `enter` per new object.
+   - Give every state a `hold` if the deck will run on its own (video, a kiosk). A player advances by holds too, so a deck presented live has none.
 5. **Lint loop.**
    - Run `scaena lint <bundle> --json` (`deck_lint`). Fix every error, and take warnings seriously: W300 and W301 mean you reached for pixels, so use a role, slot, or token instead.
    - Many errors carry a `fix`. `lint --fix` (`deck_lint` with `fix`) applies the ones lint has checked by laying the state out again.
@@ -71,7 +73,7 @@ Errors:
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
 8. **Look.**
    - Render a state, view the PNG, fix what is wrong, and repeat.
-   - `--t <ms>` renders a frame inside the transition, and `--format 9:16` another of the deck's formats.
+   - `--t <ms>` renders a frame inside the state's cue (its transition, then its motions), and `--format 9:16` another of the deck's formats.
    - Rendering needs the deck's font files in the bundle; `deck_create` copies them.
 9. **Report:** beats, states, the lint summary, and anything you could not express without an override.
 

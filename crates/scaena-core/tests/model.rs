@@ -9,6 +9,7 @@ use serde_json::Value;
 
 const DECKS: &[(&str, &str)] = &[
     ("revenue", include_str!("../../../docs/examples/revenue.deck.json")),
+    ("trails", include_str!("../../../docs/examples/trails.deck.json")),
     ("authorability", include_str!("../../../docs/examples/authorability/deck.json")),
     ("torture", include_str!("../../../tests/fixtures/torture.scaena/deck.json")),
     ("b1", include_str!("../../../tests/bench/b1.scaena/deck.json")),
