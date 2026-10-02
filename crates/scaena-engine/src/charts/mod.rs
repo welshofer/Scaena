@@ -652,9 +652,10 @@ pub struct ChartLayout {
     pub y_scale: LinearScale,
     /// The plot's box, `[x, y, w, h]` relative to the chart.
     pub plot: [f32; 4],
-    /// The plot clips at its sides: something sits beside it, a value-axis gutter or a
-    /// legend at the right, that a mark riding out of the window passes under.
-    pub clipped: bool,
+    /// Where the plot clips across, `[x0, x1]`, when something sits beside it (a
+    /// value-axis gutter, a legend at the right) that a mark riding out of the window
+    /// passes under: the plot's sides, and the room beside them a line's end values take.
+    pub clip: Option<[f32; 2]>,
     /// The value axis, tick by tick: a gridline across the plot, a label beside it.
     pub y_axis: Vec<AxisTick>,
     /// Axis titles, keyed `x` and `y`.

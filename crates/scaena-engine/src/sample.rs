@@ -194,9 +194,7 @@ impl SceneNode {
                 for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
                     plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
                 }
-                let [left, _, width, _] = chart.plot;
-                let clip = chart.clipped.then_some([left, left + width]);
-                ops.extend(plot_layer(clip, [-cell[1], dl.viewport[1]], plot));
+                ops.extend(plot_layer(chart.clip, [-cell[1], dl.viewport[1]], plot));
                 for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
                     ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
                 }
@@ -1577,10 +1575,10 @@ impl ChartPlan {
         }
         // The plot clips while either side's does, its sides moving from one to the
         // other's.
-        let edge = |c: &ChartLayout| [c.plot[0], c.plot[0] + c.plot[2]];
+        let edge = |c: &ChartLayout| c.clip.unwrap_or([c.plot[0], c.plot[0] + c.plot[2]]);
         let clip = match (a, b) {
-            (Some(x), Some(y)) => (x.clipped || y.clipped).then(|| lerp2(edge(x), edge(y), p)),
-            (Some(c), None) | (None, Some(c)) => c.clipped.then(|| edge(c)),
+            (Some(x), Some(y)) => (x.clip.is_some() || y.clip.is_some()).then(|| lerp2(edge(x), edge(y), p)),
+            (Some(c), None) | (None, Some(c)) => c.clip,
             (None, None) => None,
         };
         ops.extend(plot_layer(clip, clip_y, plot));
@@ -1662,10 +1660,10 @@ fn notes_of(c: Option<&ChartLayout>) -> &[Note] {
     c.map_or(&[], |c| &c.notes)
 }
 
-/// The plot's ops: in a layer clipped to the plot's sides, `[left, right]`, when
-/// something sits beside it (a value-axis gutter, a legend), so a mark or label riding
-/// out of the window passes under the plot's edge rather than over them; else as they
-/// are.
+/// The plot's ops: in a layer clipped across `span`, the plot's sides (and the room a
+/// line's end values take beside them), when something sits beside it (a value-axis
+/// gutter, a legend), so a mark or label riding out of the window passes under the
+/// plot's edge rather than over them; else as they are.
 fn plot_layer(span: Option<[f32; 2]>, clip_y: [f32; 2], ops: Vec<Op>) -> Vec<Op> {
     let Some(span) = span else { return ops };
     vec![Op::Layer {
@@ -2182,7 +2180,7 @@ mod tests {
             paths,
             y_scale: LinearScale { domain: [0.0, 1.0], range: [100.0, 0.0] },
             plot: [0.0, 0.0, 400.0, 100.0],
-            clipped: false,
+            clip: None,
             y_axis: Vec::new(),
             titles: Vec::new(),
             legend: Vec::new(),
