@@ -279,7 +279,8 @@ node! {
         /// A data source, `@name`.
         #[schemars(regex(pattern = r"^@[a-z][a-z0-9_-]*$"))]
         pub data: String,
-        /// The transform pipeline: filter, sort, limit, derive, aggregate, pivot (PLAN 1.9).
+        /// Steps run in order before the chart reads its data: filter, derive, sort, limit,
+        /// aggregate, fold, pivot (SPEC §3.10; expressions in docs/spec/expr.md).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub data_transform: Option<Vec<IndexMap<String, Value>>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

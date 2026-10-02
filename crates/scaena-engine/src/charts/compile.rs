@@ -88,7 +88,9 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
     let Some(source) = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@')) else {
         return Vec::new();
     };
-    let Ok(table) = data::load(deck, files, source) else { return Vec::new() };
+    let Ok(table) = data::load(deck, files, source).and_then(|t| data::transform(t, props.get("dataTransform"))) else {
+        return Vec::new();
+    };
     let color =
         field(encoding("color")).and_then(|f| table.column(f)).filter(|&c| table.types[c] != ColumnType::Number);
     let by = match kind {
@@ -109,12 +111,8 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
     let kind = Kind::parse(props.get("kind"))?;
-    for (key, task) in
-        [("dataTransform", "chart data transforms — PLAN 1.9"), ("annotations", "chart annotations — PLAN 1.9")]
-    {
-        if props.contains_key(key) {
-            return Err(EngineError::NotImplemented(task));
-        }
+    if props.contains_key("annotations") {
+        return Err(EngineError::NotImplemented("chart annotations — PLAN 1.9"));
     }
     let encoding = |name: &str| props.get(name).and_then(Value::as_object);
     let required = |name: &str| encoding(name).ok_or_else(|| EngineError::Layout(format!("chart has no `{name}`")));
@@ -145,6 +143,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // Data.
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let table = data::load(cx.deck, cx.data, source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?)?;
+    let table = data::transform(table, props.get("dataTransform"))?;
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
     let (x_field, y_field) = (field(Some(x)).unwrap_or_default(), field(Some(y)).unwrap_or_default());
     let (xc, yc) = (col(x_field)?, col(y_field)?);

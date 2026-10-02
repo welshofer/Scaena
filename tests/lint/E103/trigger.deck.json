@@ -1,6 +1,6 @@
 {
   "scaena": "0.4",
-  "_comment": "E103 trigger: charts read fields their data does not have, or in types they cannot read, and a source's values do not fit its schema.",
+  "_comment": "E103 trigger: charts read fields their data does not have, or in types they cannot read, before or after a dataTransform, and a source's values do not fit its schema.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {
     "q": {
@@ -24,10 +24,20 @@
       "type": "chart", "kind": "bar", "data": "@q",
       "x": { "field": "when", "type": "temporal", "format": "%b %Y" }, "y": { "field": "rev", "type": "quantitative" },
       "at": { "in": "canvas" }
+    },
+    "d": {
+      "type": "chart", "kind": "bar", "data": "@q", "dataTransform": [{ "derive": { "m": "profit / rev" } }],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "m", "type": "quantitative" },
+      "at": { "in": "canvas" }
+    },
+    "e": {
+      "type": "chart", "kind": "bar", "data": "@q", "dataTransform": [{ "aggregate": { "total": "sum(rev)" }, "groupby": ["quarter"] }],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative" },
+      "at": { "in": "canvas" }
     }
   },
   "states": [
-    { "id": "one", "props": { "a": {}, "b": {}, "c": {} } },
+    { "id": "one", "props": { "a": {}, "b": {}, "c": {}, "d": {}, "e": {} } },
     { "id": "two", "props": { "c": { "y": { "field": "profit" } } } }
   ]
 }

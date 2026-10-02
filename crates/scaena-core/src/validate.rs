@@ -13,6 +13,7 @@ use crate::model::Theme;
 use crate::model::check::{Checker, Kind, Violation};
 use crate::model::values::{Duration, Easing};
 use crate::tracking::{Snapshot, resolve_states};
+use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use std::borrow::Cow;
@@ -735,13 +736,13 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
     for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
         for (id, props) in &snapshot.nodes {
             let Some(node) = deck.nodes.get(id) else { continue };
-            if node.node_type != NodeType::Chart || props.contains_key("dataTransform") {
+            if node.node_type != NodeType::Chart {
                 continue;
             }
             let Some(name) = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@')) else {
                 continue;
             };
-            let Some(table) = tables.get(name) else { continue };
+            let Some(source) = tables.get(name) else { continue };
             let here = |key: &str, rest: &str| match state.props.get(id).and_then(|d| d.get(key)) {
                 Some(_) => format!("/states/{i}/props/{}/{key}{rest}", esc(id)),
                 None => format!("/nodes/{}/{key}{rest}", esc(id)),
@@ -753,10 +754,28 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     );
                 }
             };
+            // The table the chart reads: the source, through its transform.
+            let steps = props.get("dataTransform").and_then(Value::as_array);
+            let transformed;
+            let table = match steps.map(|steps| transform::apply(source.clone(), steps)) {
+                None => source,
+                Some(Ok(t)) => {
+                    transformed = t;
+                    &transformed
+                }
+                Some(Err(e)) => {
+                    let rest: String = e.at.iter().map(|k| format!("/{}", esc(k))).collect();
+                    let code = if e.data { "E103" } else { "E106" };
+                    found(code, here("dataTransform", &format!("/{}{rest}", e.step)), format!("`@{name}`: {e}"));
+                    continue;
+                }
+            };
+            let read =
+                if steps.is_some() { format!("`@{name}` after its `dataTransform`") } else { format!("`@{name}`") };
             let column = |field: &str| table.column(field).map(|c| table.types[c]);
             let missing = |field: &str| {
                 format!(
-                    "`@{name}` has no column `{field}`; it has {}",
+                    "{read} has no column `{field}`; it has {}",
                     table.columns.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
                 )
             };
@@ -781,7 +800,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     && kind != wants
                 {
                     let message = format!(
-                        "`{channel}` reads `{field}` as {}, but `@{name}` types it {}; declare it `{}` in the source's schema",
+                        "`{channel}` reads `{field}` as {}, but {read} types it {}; declare it `{}` in the source's schema",
                         encoding["type"].as_str().unwrap_or_default(),
                         article(kind.name()),
                         wants.name()

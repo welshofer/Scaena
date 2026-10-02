@@ -288,7 +288,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "type": "chart",
   "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut
                                        // deferred (not v1, not scheduled): slope | waffle | range | heatmap
-  "data": "@q3",                       // data source ref, optionally with a transform pipeline
+  "data": "@q3",                       // data source ref, optionally through a transform pipeline (§3.10)
   "dataTransform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
   "x": { "field": "quarter", "type": "ordinal" },
   "y": { "field": "revenue", "type": "quantitative", "format": "$,.0f", "domain": [0, null] },
@@ -353,7 +353,7 @@ Rules:
   - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
   - Mark k starts `delay + k × stagger` ms into the transition and runs for the preset's `duration`, else its spring's settle time, else the transition's. A schedule longer than the transition shrinks to fit it, so every mark is at rest when the transition is; PLAN 1.11 moves choreography onto the global timeline. A mark eases with the preset's `ease`, else the transition's, or follows its spring (`libm`, so every platform agrees).
   - A `split` other than `marks`, a preset's `to`, and any other property return NotImplemented (PLAN 1.11).
-- **Later.** `dataTransform`, `annotations`, and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9.
+- **Later.** `annotations` and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9.
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -421,7 +421,18 @@ The engine types the params when it resolves the node; an unknown or out-of-rang
 
 ### 3.10 Data sources
 
-`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts reference `@name` and MAY apply a transform pipeline, `dataTransform` (`filter`, `sort`, `limit`, `derive`, `aggregate`, `pivot`) with a small, specified expression language (Phase 1).
+`data.<name>` → `{ "source": "data/x.csv" | "data/x.json" | { "inline": [...] }, "schema": { "<field>": "number|string|date|boolean" }, "parse": { "<date field>": "%Y-%m" } }`. Sources are read at resolve time and cached by hash. Live sources are deferred (§16). The engine reads no files: the caller hands it the bundle's data files as bytes, as it does fonts. CSV is RFC 4180 with a header row; JSON is an array of objects. Schema types are `number`, `string`, `boolean`, and `date`; a column the schema does not type is a string. A `date` column reads with its `parse` format, keyed by column (`"parse": { "month": "%b %Y" }`), else as ISO 8601. Dates are civil, with no time zone (`docs/spec/format.md`). `scaena-core::data` reads sources, for the engine and for validation, so `validate` finds a value that does not fit its type (E103) before a render does. Charts reference `@name`.
+
+**Transforms** (PLAN 1.9). A chart MAY read its data through `dataTransform`: steps that run in order, each an object that names one step.
+- `{ "filter": "<expr>" }` keeps the rows where the expression is true.
+- `{ "derive": { "<column>": "<expr>", … } }` adds a column per expression, in order, each able to read the ones before it. A name that is already a column replaces it.
+- `{ "sort": "<field>" }` or `{ "sort": ["<field>", "-<field>", …] }` sorts by each field in turn, `-` for descending. Rows that tie keep their order, nulls go last either way, and text sorts by code point.
+- `{ "limit": n }` keeps the first n rows.
+- `{ "aggregate": { "<column>": "<op>(<field>)", … }, "groupby": ["<field>", …] }` gives a row per group, in the order groups first appear, with its `groupby` fields and each aggregate; without `groupby`, every row is one group. The ops are `count()` (rows), `count(f)` (values), `distinct(f)`, `sum`, `mean`, `median`, `min`, `max`, `first`, and `last`. All but `count()` set nulls aside, and a sum of nothing is 0.
+- `{ "fold": ["<column>", …], "as": ["<key>", "<value>"] }` turns columns into rows, wide to long. Each row becomes one per folded column, with the column's name and its value (named `key` and `value` by default) beside the columns not folded. Folded columns hold one type.
+- `{ "pivot": "<field>", "value": "<field>", "groupby": […], "op": "<op>" }` turns rows into columns, long to wide: a row per group, and a column per value of the pivot field, in the order they first appear, holding `op` over the group's values (`sum` for numbers by default, else `first`). A cell no row reaches is null.
+
+Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before it left, and `validate` checks each expression, and each field the chart reads, against the table at that point. A column that is not there, or one of a type its use cannot read, is E103 at the step, or at the encoding. A malformed step, or an expression that does not parse, is E106. Every step keeps rows in a fixed order and sums in it, so a transform gives the same table on every platform (§13).
 
 ### 3.11 Spine
 
@@ -733,10 +744,10 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E100 | error | text overflow (wrap/clip) |
 | E101 | error | unintended collision between nodes in the same layer |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
-| E103 | error | what a chart reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates); a value that does not fit its column's schema type or `parse` format |
+| E103 | error | what a chart reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
-| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take) |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse |
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |

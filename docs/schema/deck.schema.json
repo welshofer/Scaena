@@ -313,7 +313,7 @@
         "kind": { "$ref": "#/$defs/ChartKind" },
         "data": { "description": "A data source, `@name`.", "type": "string", "pattern": "^@[a-z][a-z0-9_-]*$" },
         "dataTransform": {
-          "description": "The transform pipeline: filter, sort, limit, derive, aggregate, pivot (PLAN 1.9).",
+          "description": "Steps run in order before the chart reads its data: filter, derive, sort, limit, aggregate, fold, pivot (SPEC §3.10; expressions in docs/spec/expr.md).",
           "type": "array",
           "items": { "type": "object", "additionalProperties": true }
         },

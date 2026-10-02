@@ -62,6 +62,8 @@ fn e103_fields_charts_cannot_read() {
             "/nodes/a/x/field",
             "/nodes/b/x/format",
             "/nodes/b/y/type",
+            "/nodes/d/dataTransform/0/derive/m",
+            "/nodes/e/y/field",
             "/states/1/props/c/y/field",
         ],
     );
@@ -70,6 +72,22 @@ fn e103_fields_charts_cannot_read() {
     assert!(say("/nodes/a/x/field").contains("has no column `qtr`; it has `quarter`, `rev`, `when`"));
     assert!(say("/nodes/b/y/type").contains("declare it `number`"), "{}", say("/nodes/b/y/type"));
     assert!(say("/data/bad/source").contains("`seven` is not a number"));
+    // A transform's expression reads a column that is not there; a chart reads one its
+    // transform does not leave.
+    assert!(say("/nodes/d/dataTransform/0/derive/m").contains("no column `profit`"));
+    let after = say("/nodes/e/y/field");
+    assert!(after.contains("after its `dataTransform` has no column `rev`; it has `quarter`, `total`"), "{after}");
+}
+
+#[test]
+fn a_transform_that_does_not_parse_is_e106() {
+    let deck = fixture!("E103", "clean").replace("\"-growth\"", "\"-growth\" }, { \"limit\": \"eight\"");
+    let deck = deck.replace("rev > 0 &&", "rev > 0 &");
+    let found = validate_bundle(&deck, &Fixtures).unwrap();
+    let codes: Vec<(String, String)> =
+        found.iter().map(|f| (f.code.clone(), f.path.clone().unwrap_or_default())).collect();
+    assert_eq!(codes, [("E106".to_string(), "/nodes/t/dataTransform/0/filter".to_string())], "{found:#?}");
+    assert!(found[0].message.contains("`&&` is and"), "{}", found[0].message);
 }
 
 #[test]

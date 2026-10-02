@@ -454,3 +454,28 @@ fn value_labels_that_overlap_are_reported_hidden_or_nudged_apart() {
     // Least movement: the middle label stays about where it was.
     assert!((b.origin[1] - label(&raw, "B").origin[1]).abs() < 0.5 * b.text.height);
 }
+
+#[test]
+fn a_chart_reads_its_data_through_its_transform() {
+    // Wide rows, a column per product, folded long and trimmed to the top three.
+    let rows = json!([
+        { "q": "Q1", "Core": 12, "Cloud": 6, "Edge": 3 },
+        { "q": "Q2", "Core": 15, "Cloud": 9, "Edge": 4 }
+    ]);
+    let chart = json!({
+        "type": "chart", "kind": "bar", "data": "@q",
+        "dataTransform": [
+            { "fold": ["Core", "Cloud", "Edge"], "as": ["product", "rev"] },
+            { "filter": "product != 'Edge'" },
+            { "sort": "-rev" },
+            { "limit": 3 }
+        ],
+        "x": { "field": "q" }, "y": { "field": "rev" }, "series": { "field": "product" }
+    });
+    let schema = json!({ "Core": "number", "Cloud": "number", "Edge": "number" });
+    let layout = compile(&deck("en-US", rows, schema, Value::Null, chart));
+    let keys: Vec<&str> = layout.marks.iter().map(|m| m.key.as_str()).collect();
+    assert_eq!(keys, ["Q2\u{1f}Core", "Q1\u{1f}Core", "Q2\u{1f}Cloud"]);
+    let legend: Vec<&str> = layout.legend.iter().map(|e| e.key.as_str()).collect();
+    assert_eq!(legend, ["Core", "Cloud"]);
+}

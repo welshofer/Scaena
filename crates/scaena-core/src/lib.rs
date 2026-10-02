@@ -25,6 +25,7 @@ pub mod data;
 pub mod displaylist;
 pub mod document;
 pub mod dsl;
+pub mod expr;
 pub mod format;
 pub mod ids;
 pub mod lint;
@@ -32,6 +33,7 @@ pub mod model;
 pub mod shader;
 pub mod timeline;
 pub mod tracking;
+pub mod transform;
 pub mod validate;
 
 pub use document::Deck;

@@ -34,6 +34,16 @@ impl SourceFiles for DataFiles {
     }
 }
 
+/// `table` through a chart's `dataTransform`, if it has one (SPEC §3.10).
+pub fn transform(table: Table, steps: Option<&serde_json::Value>) -> Result<Table, EngineError> {
+    match steps.and_then(serde_json::Value::as_array) {
+        Some(steps) => {
+            scaena_core::transform::apply(table, steps).map_err(|e| EngineError::Data(format!("`dataTransform` {e}")))
+        }
+        None => Ok(table),
+    }
+}
+
 /// Load the deck's data source `name` (a chart's `"@name"` without the `@`).
 pub fn load(deck: &Deck, files: &DataFiles, name: &str) -> Result<Table, EngineError> {
     scaena_core::data::load(deck, files, name).map_err(|e| match e {

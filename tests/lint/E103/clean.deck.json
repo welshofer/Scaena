@@ -1,6 +1,6 @@
 {
   "scaena": "0.4",
-  "_comment": "E103 clean: every field a chart reads is a column of its data, of a type its channel reads, and every value fits the schema and its parse format.",
+  "_comment": "E103 clean: every field a chart reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, and every value fits the schema and its parse format.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {
     "q": {
@@ -19,10 +19,21 @@
       "type": "chart", "kind": "bar", "data": "@q",
       "x": { "field": "when", "type": "temporal", "format": "Q%q %Y" }, "y": { "field": "rev", "type": "quantitative" },
       "at": { "in": "canvas" }
+    },
+    "t": {
+      "type": "chart", "kind": "bar", "data": "@q",
+      "dataTransform": [
+        { "filter": "rev > 0 && quarter in ['Q1', 'Q2']" },
+        { "derive": { "growth": "round(rev / 12 * 100 - 100, 1)" } },
+        { "sort": "-growth" },
+        { "limit": 8 }
+      ],
+      "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "growth", "type": "quantitative", "format": ".1f" },
+      "at": { "in": "canvas" }
     }
   },
   "states": [
-    { "id": "one", "props": { "a": {}, "c": {} } },
+    { "id": "one", "props": { "a": {}, "c": {}, "t": {} } },
     { "id": "two", "props": { "c": { "y": { "format": ".1~k" } } } }
   ]
 }
