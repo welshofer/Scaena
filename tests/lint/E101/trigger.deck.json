@@ -1,14 +1,18 @@
 {
   "scaena": "0.8",
-  "_comment": "E101 trigger: two paragraphs in one slot, at the same z.",
+  "_comment": "E101 trigger: two paragraphs in one slot, at the same z; then a chart placed by cells into the footer's row, over its caption, as the example deck's chart was.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": "data/sales.csv", "schema": {"revenue": "number"}}},
   "nodes": {
     "a": {"type": "text", "role": "body", "text": "First paragraph"},
-    "b": {"type": "text", "role": "body", "text": "Second paragraph"}
+    "b": {"type": "text", "role": "body", "text": "Second paragraph"},
+    "k": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "quarter"}, "y": {"field": "revenue"}, "series": {"field": "product"}, "alt": "Revenue by quarter and product.", "at": {"col": [1, 12], "row": [2, 6]}},
+    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}}
   },
   "states": [
-    {"id": "s", "layout": "full", "props": {"a": {"at": {"in": "main"}}, "b": {"at": {"in": "main"}}}}
+    {"id": "s", "layout": "full", "props": {"a": {"at": {"in": "main"}}, "b": {"at": {"in": "main"}}}},
+    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}}
   ]
 }
