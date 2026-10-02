@@ -124,7 +124,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -168,7 +168,7 @@ Deferred node types (not in v1 schema): `video`, `audio`, `code`, `embed`.
 **Tables** (PLAN 1.9, deck format 0.5) set a data source's rows, through its `dataTransform` (§3.10), in the theme's `tables` styles (§3.6).
 - `columns` lists the columns in order. Each is a `field`, with an optional `title` (default: the field), `format` for numbers and dates (`docs/spec/format.md`), and `align` (`start`, `center`, `end`; numbers at the end and everything else at the start by default). Without `columns`, the table shows every column of its data.
 - The header row (`header`, default true) prints the titles in `tables.header` (role `label` in `onSurfaceMuted`) over a rule, `tables.rule`. Cells print in `tables.cell` (role `body`), numbers in tabular lining figures with the font's minus sign or a hyphen-minus. A null cell is empty.
-- Each column is as wide as its widest text, `tables.columnGap` apart (an em of the cell text by default). The first column takes the room the cell has to spare, so the rest keep together at its far side.
+- Each column is as wide as its widest text, `tables.columnGap` apart (an em of the cell text by default), and the table as wide as its columns, at its cell's start, so the eye travels no farther across a row than the data needs. A theme that sets `tables.stretch` (theme format 0.5) spans the cell instead, its first column taking the room the cell has to spare. Rules span the table.
 - Each row is its tallest text with `tables.rowGap` (half a space unit by default) above and below, its cells' first baselines on one line. `tables.rowRule` rules between rows.
 - A table that needs more room than its cell is an error that says what to cut: columns across, or rows down (keep fewer with `dataTransform`'s `limit`).
 - Rows are identified by `key` (default: the first column), which must be unique (E103). Between states a row moves to where it now stands. A cell whose text changed cross-fades, aligned to its column. Rows and columns on one side only fade in or out where they stand, and rules move with their rows.
@@ -251,7 +251,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.4",
+  "scaena-theme": "0.5",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -284,11 +284,11 @@ See `docs/schema/theme.schema.json`. Shape:
     "presets":   { "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
   "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
-  "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "legend": { "role": "label" }, "strokeWidth": "thin",
-              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5,
+  "charts": { "axis": { "role": "label" }, "label": { "role": "numeral", "show": "auto" }, "legend": { "role": "label", "place": "direct" },
+              "strokeWidth": "thin", "cornerRadius": 0, "barGap": 0.5, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 6, "donutHole": 0.72, "tickCount": 5,
               "annotation": { "role": "label", "stroke": "thin", "color": "accent", "band": 0.12, "dimmed": 0.3 } },
   "tables": { "header": { "role": "label", "color": "onSurfaceMuted" }, "cell": { "role": "body" }, "rule": { "stroke": "hairline" },
-              "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4 }
+              "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4, "stretch": false }
 }
 ```
 
@@ -318,7 +318,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "key": "product",                    // identity for morphing marks across states
   "axes": { "x": { "show": true }, "y": { "show": false, "gridlines": true } },
   "labels": { "show": "ends", "role": "numeral" },
-  "legend": "none",                    // or { "place": "right", "title": "Product" }
+  "legend": "none",                    // or "direct", "top", { "place": "right", "title": "Product" }
   "annotations": [
     { "kind": "callout", "at": { "x": "Q3", "y": 42 }, "text": "Launch" },
     { "kind": "rule", "at": { "y": 50 }, "text": "Target" },
@@ -331,6 +331,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
 Rules:
 - **Kinds are normative here.** v1 ships exactly `bar`, `stackedBar`, `line`, `area`, `scatter`, `dot`, `donut` (PLAN 1.9); the schema enum matches. `slope`, `waffle`, `range`, `heatmap` are deferred and unscheduled; adding one is a schema change plus a PLAN task.
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
+- **Defaults** (PLAN 1.9; deck format 0.9, theme format 0.5). Unset, a chart draws as Tufte would: ink for data and little else. No frames, panels, or gradients; narrow bars with square corners; values printed on the marks rather than an axis to read them off; series named where they end rather than in a legend; quiet axes. Each is a theme token or a chart prop, so a theme can draw any other way, and the defaults below are what a theme leaves unset.
 - Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
 - A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
 - Value labels that overlap are lint **W310**, unless `labels.collide` resolves them (`"hide"` or `"nudge"`; Labels below).
@@ -340,24 +341,28 @@ Rules:
 - **Data.** Each row is a datum. A null `y` is a gap: the row draws nothing. Any other `y` that is not a number is an error. Categories (the `x` values) and series keep the order they first appear in.
 - **Keys.** A datum's key is its `key` field (default: its `x` value), joined with its series when the chart has one, so `Q3` of `Cloud` is its own mark. A donut's keys are its categories. A gap has no key. A key that repeats is an error that names it, E103 (`validate` finds it in every state that shows the chart).
 - **Kinds.** Every kind draws one mark per datum.
-  - `bar`: a bar `1 − charts.barGap` of its band wide, square on the baseline and rounded by `charts.cornerRadius` at its free end. With a series, the series share that width side by side, each `1 − charts.groupGap` of its slot.
+  - `bar`: a bar `1 − charts.barGap` (default 0.5) of its band wide, square on the baseline and rounded by `charts.cornerRadius` (default 0, square) at its free end. With a series, the series share that width side by side, each `1 − charts.groupGap` of its slot.
   - `stackedBar`: each category's data stack in series order, positive values up from the baseline and negative values down. Only the outermost segment each way is rounded.
   - `line`: a stroke per series (`charts.strokeWidth`, default `thin`) through its points in x order, with a dot of `charts.pointRadius` (default none) on each.
   - `area`: like `line`, filled down to the baseline. With a series, the areas stack as bars do.
-  - `scatter`: a dot at each datum's x and y. Without `sizeEncoding` every dot is `charts.dotRadius` (default 8). With it, a dot's area is proportional to its size value, and the largest dot is `charts.dotRadius`.
+  - `scatter`: a dot at each datum's x and y. Without `sizeEncoding` every dot is `charts.dotRadius` (default 6). With it, a dot's area is proportional to its size value, and the largest dot is `charts.dotRadius`.
   - `dot`: a dot of `charts.dotRadius` at each category's value.
-  - `donut`: each datum a slice of a ring, its share of the total, clockwise from twelve o'clock in data order. The hole is `charts.donutHole` (default 0.6) of the radius. A negative value is an error. A donut has no axes.
+  - `donut`: each datum a slice of a ring, its share of the total, clockwise from twelve o'clock in data order. The hole is `charts.donutHole` (default 0.72, a thin ring) of the radius. A negative value is an error. A donut has no axes.
 - **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else in the step's own format (`%b %-d` for days, `%b %Y` for months, `%Y` for years). Any other x is a category axis: a band per category.
 - **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
-- **Legend.** One entry per series, or per slice of a donut, when there are two or more. Each entry is a swatch, a square of the label's cap height rounded like the bars, on the label's baseline, in `charts.legend.role` (else the axis's role). `legend` places it: `auto` and `top` (the default) above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top; `none` hides it. `{ "place", "title" }` places it and gives it a title in `charts.title.role`: the first line of a column, or the start of a row, its entries wrapping under one another after it, every entry and the title on one baseline.
+- **Legend.** One entry per series, or per slice of a donut, when there are two or more, in `charts.legend.role` (else the axis's role). `legend` places it. `auto`, the default, is the theme's `charts.legend.place`, else `direct`.
+  - `direct` names each series where it ends, in the series' color, with no swatch. A line's name is level with its last point, starting a space past the value label that begins there. An area's or a stacked bar's name is level with the middle of its last span or segment. The names stand in one column a space past the farthest end, nudged apart as `nudge` moves value labels (Collisions) and kept inside the chart. The plot gives up only the room the column needs past the last point, so on a category axis names often fit in the last half band.
+  - Only a line, an area, or a stacked bar has ends to name. Any other chart places a `direct` legend `top`. `direct` takes no title (an error).
+  - The other places draw each entry as a swatch, a square of the label's cap height rounded like the bars, on the label's baseline: `top` above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top. `none` hides the legend.
+  - `{ "place", "title" }` places it (as `auto` does when unset, but `top` for a titled legend `auto` would place `direct`) and gives it a title in `charts.title.role`: the first line of a column, or the start of a row, its entries wrapping under one another after it, every entry and the title on one baseline.
 - **Scale.** The value axis runs from `domain[0]` to `domain[1]`. An unset bound is the data's extent, and for kinds whose length is the value (`bar`, `stackedBar`, `area`) it includes 0. Stacked kinds take the extent of their stacks. The plot leaves room above the marks for value labels.
-- **Labels.** Category labels (or x ticks) sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) prints values in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format`. With no format they print as d3 prints a number: `0.1 + 0.2` prints `0.3`. `ends` labels each series' first and last datum. A bar's label sits one space unit above it (below a negative bar), and a point's sits above the point. A stack prints one label, its total, over its top segment: every stack with `all`, the first and last with `ends`. A donut's label sits outside its slice's middle, on that side of the ring. Every other value label, and every category label and x tick, is centered on its mark or tick but stays inside the plot's sides. Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
+- **Labels.** Category labels (or x ticks) sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`auto` | `all` | `ends` | `none`) prints values in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format`. `auto`, the default, is the theme's `charts.label.show`, else by kind: the data goes on the marks, so every bar, stack total, dot, and slice prints its value, and a line its first and last; an area and a scatter print none, and show their value axes instead. With no format they print as d3 prints a number: `0.1 + 0.2` prints `0.3`. `ends` labels each series' first and last datum. A bar's label sits one space unit above it (below a negative bar), and a point's sits above the point. A line's first value ends at its point and its last begins at its point, away from the line, which leaves the one and comes to the other, so neither crosses it. A stack prints one label, its total, over its top segment: every stack with `all`, the first and last with `ends`. A donut's label sits outside its slice's middle, on that side of the ring, and the ring is as large as it can be with every label inside the chart. Every other value label, and every category label and x tick, is centered on its mark or tick but stays inside the plot's sides. Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
 - **Collisions.** Value labels collide when their cap-height boxes come within a quarter space unit of each other.
   - `labels.collide: "hide"` keeps the labels of the largest values that touch no label kept before them (the earlier in data order on a tie), and hides the rest.
   - `"nudge"` moves labels up and down as little as it can in all (least squares), keeping their order: labels whose spans across overlap form a column, and each run of a column that would touch moves as a block centered on where its labels want to be. A nudged label rides its mark at its new height.
-  - Without `collide`, the layout reports each pair that collides, for W310 (PLAN 1.15 runs layout lints).
+  - Without `collide`, the layout reports each pair that collides, for W310 (PLAN 1.15 runs layout lints). Values nobody asked for (`auto`) that collide hide instead, as with `hide`.
 - **Axes** (PLAN 1.9). Category labels and x ticks show unless `axes.x.show` is false.
-  - `axes.y.show` adds the value axis: tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
+  - `axes.y.show` shows the value axis (default: on for a scatter and an area, which print no values by default; off otherwise): tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
   - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one the baseline already rules. `axes.x.gridlines` rules the plot from its top to its foot: at each x tick on a continuous x; across a category axis, between the bands of bars and through each category of the other kinds. A category's gridline is keyed by the category after it, so it moves with its bars.
   - With either one, the domain widens to round values at the tick step (d3's `nice`), and a `domain` bound the author sets stays. Ticks fall about `charts.tickCount` (default 5) to the axis, on d3's steps of 1, 2, and 5 × 10ⁿ.
   - Tick labels print in `y.format` at the precision the step needs, as d3's `tickFormat` does: `$,f` ticks read `$0`, `$5`, and `s` and `k` ticks share one prefix. With no format they print as d3's `,f`.
@@ -387,7 +392,7 @@ Rules:
   - The plot leaves room above it for a callout's text and a rule's text, as it does for value labels.
   - Annotations match from state to state by kind, axis, and place among the chart's annotations of both: the second `y` rule is the second `y` rule. A matched rule, band, or leader moves to its next place, as a new value moves the axis; changed text cross-fades as it moves; one on one side only fades where it is. A highlight that moves brightens and dims the marks, lines, labels, and legend entries it passes between.
 
-`axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
+`axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`auto` | `all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
 ### 3.8 Shader nodes
 

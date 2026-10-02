@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "W420 clean: the state shows the claim.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

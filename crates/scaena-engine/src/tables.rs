@@ -181,8 +181,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
         body.push(cells);
     }
 
-    // Widths: each column as wide as its widest text; the first column takes what the
-    // cell has to spare, so the rest keep together at its far side.
+    // Widths: each column as wide as its widest text.
     let mut widths: Vec<f32> = vec![0.0; columns.len()];
     for row in std::iter::once(&header).chain(&body) {
         for (w, cell) in widths.iter_mut().zip(row) {
@@ -197,7 +196,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
             size[0]
         )));
     }
-    widths[0] += size[0] - need;
+    // As wide as its columns, at the cell's start; a theme that stretches its tables
+    // gives the first column the room the cell has to spare.
+    let stretch = styles.and_then(|t| t.stretch).unwrap_or(false);
+    if stretch {
+        widths[0] += size[0] - need;
+    }
+    let span = if stretch { size[0] } else { need };
     let lefts: Vec<f32> = widths
         .iter()
         .scan(0.0, |x, w| {
@@ -228,7 +233,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
     };
     if show_header {
         out.header = place(header, "", &mut y);
-        out.rule = Some(Rule { from: [0.0, y], to: [size[0], y], ..header_rule });
+        out.rule = Some(Rule { from: [0.0, y], to: [span, y], ..header_rule });
     }
     let rows = body.len();
     for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
@@ -236,7 +241,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
         if let Some(rule) = &row_rule
             && r + 1 < rows
         {
-            out.row_rules.push((key.clone(), Rule { from: [0.0, y], to: [size[0], y], ..rule.clone() }));
+            out.row_rules.push((key.clone(), Rule { from: [0.0, y], to: [span, y], ..rule.clone() }));
         }
     }
     if y > size[1] + 0.5 {

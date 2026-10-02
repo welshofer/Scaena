@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.4",
+  "scaena-theme": "0.5",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -22,7 +22,7 @@
       "line": "line"
     },
     "data": {
-      "categorical": ["#FF6A3D", "#FFC857", "#4FB3BF", "#9B8CFF", "#7CD992", "#F28DB2"],
+      "categorical": ["#E4DFD3", "#7FA0B5", "#C9A86A", "#8DAE8A", "#B392AE", "#A3A3AD"],
       "sequential": ["#2A2A33", "#5A3A2E", "#A3482F", "#FF6A3D", "#FFC857"],
       "diverging": ["#4FB3BF", "#17171D", "#FF6A3D"]
     },
@@ -90,9 +90,7 @@
     "axis": { "role": "label", "stroke": "hairline", "color": "line" },
     "gridlines": { "stroke": "hairline", "color": "line", "opacity": 0.6 },
     "label": { "role": "label" },
-    "strokeWidth": "thin",
-    "cornerRadius": 2,
-    "barGap": 0.28
+    "strokeWidth": "thin"
   },
   "density": { "maxWordsPerState": 40 }
 }

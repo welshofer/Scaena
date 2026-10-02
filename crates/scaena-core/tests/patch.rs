@@ -318,7 +318,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.8", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.9", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });

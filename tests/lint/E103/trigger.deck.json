@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "E103 trigger: charts and tables read fields their data does not have, or in types they cannot read, before or after a dataTransform, a source's values do not fit its schema, annotations name a category, a series, or an x the data does not have, and keys repeat: a chart keyed by its series, a chart with no series keyed by its x, a donut (whose keys are its categories, whatever its series), a table keyed by its first column, and a chart keyed so in one state only.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {

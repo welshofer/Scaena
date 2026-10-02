@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "E104 clean: the state changes the node's props, never its type.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {

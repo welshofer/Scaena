@@ -410,8 +410,14 @@ impl LoadedTheme {
                     need(self.stroke(stroke), "stroke", stroke, format!("/charts/{key}/stroke"));
                 }
             }
-            for (key, label) in [("label", &charts.label), ("title", &charts.title), ("legend", &charts.legend)] {
-                if let Some(role) = label.as_ref().and_then(|l| l.role.as_ref()) {
+            let legend = charts.legend.as_ref().and_then(|l| l.role.as_ref());
+            let roles = [
+                ("label", charts.label.as_ref().and_then(|l| l.role.as_ref())),
+                ("title", charts.title.as_ref().and_then(|l| l.role.as_ref())),
+                ("legend", legend),
+            ];
+            for (key, role) in roles {
+                if let Some(role) = role {
                     need(t.typography.roles.contains_key(role), "text role", role, format!("/charts/{key}/role"));
                 }
             }

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.4.json",
+  "$id": "https://scaena.dev/schema/theme-0.5.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.4(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.5(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -557,7 +557,10 @@
       "properties": {
         "axis": { "$ref": "#/$defs/ChartRule" },
         "gridlines": { "$ref": "#/$defs/ChartRule" },
-        "label": { "$ref": "#/$defs/ChartLabel" },
+        "label": {
+          "description": "Value labels: their role (`label` when unset), and which values print when a chart does not say (`auto` when unset: by kind).",
+          "$ref": "#/$defs/ChartValues"
+        },
         "title": { "description": "Axis titles; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
         "tickCount": {
           "description": "About how many ticks a value axis shows (d3's tick count); 5 when unset.",
@@ -590,7 +593,10 @@
           "minimum": 0,
           "maximum": 1
         },
-        "legend": { "description": "Legend labels; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
+        "legend": {
+          "description": "Legends: their role (the axis's when unset), and where a chart that does not say places one (`direct` when unset).",
+          "$ref": "#/$defs/ChartLegend"
+        },
         "annotation": {
           "description": "Annotations: rules, bands, callouts, and highlights.",
           "$ref": "#/$defs/ChartAnnotation"
@@ -607,7 +613,32 @@
         "opacity": { "type": "number" }
       }
     },
+    "ChartValues": {
+      "description": "How value labels read, and which print when a chart does not say (SPEC §3.7).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "role": { "type": "string" }, "show": { "$ref": "#/$defs/LabelShow" } }
+    },
+    "LabelShow": {
+      "description": "Which values a chart prints. `auto` (the theme's `charts.label.show`, else by kind) puts the data on the marks: every bar, dot, and slice; a line's or an area's first and last; a scatter's none.",
+      "type": "string",
+      "enum": ["auto", "all", "ends", "none"]
+    },
     "ChartLabel": { "type": "object", "properties": { "role": { "type": "string" } } },
+    "ChartLegend": {
+      "description": "How legends read, and where they stand when a chart does not say (SPEC §3.7).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string" },
+        "place": { "description": "`direct` when unset; `auto` means the same.", "$ref": "#/$defs/LegendPlace" }
+      }
+    },
+    "LegendPlace": {
+      "description": "Where a legend stands. `auto` is the theme's `charts.legend.place`, else `direct`. `direct` names each series at its end, beside the plot, where a chart has ends: a line, an area, or a stacked bar; any other chart places it `top`.",
+      "type": "string",
+      "enum": ["none", "auto", "direct", "top", "bottom", "right"]
+    },
     "ChartAnnotation": {
       "description": "How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.",
       "type": "object",
@@ -666,6 +697,10 @@
           "description": "Canvas units between columns; an em of the cell text when unset.",
           "type": "number",
           "minimum": 0
+        },
+        "stretch": {
+          "description": "Whether a table spans its cell, its first column taking the room the cell has to spare; false when unset: a table is as wide as its columns, at the cell's start.",
+          "type": "boolean"
         }
       }
     },

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.8",
+  "scaena": "0.9",
   "_comment": "E101 trigger: two paragraphs in one slot, at the same z; then a chart placed by cells into the footer's row, over its caption, as the example deck's chart was.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

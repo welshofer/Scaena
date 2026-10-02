@@ -1,7 +1,7 @@
 //! The theme, a design system (SPEC §3.6): tokens, typographic roles, the grid, layout
 //! templates, motion, shader palettes, chart styling. Documents reference these by name.
 
-use super::nodes::{ShaderKind, ShaderParam};
+use super::nodes::{LabelShow, LegendPlace, ShaderKind, ShaderParam};
 use super::values::{Features, FontAxes, NonNegative, Range, SplitUnit, SpringParams};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -357,8 +357,10 @@ pub struct Charts {
     pub axis: Option<ChartRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gridlines: Option<ChartRule>,
+    /// Value labels: their role (`label` when unset), and which values print when a
+    /// chart does not say (`auto` when unset: by kind).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<ChartLabel>,
+    pub label: Option<ChartValues>,
     /// Axis titles; their role defaults to the axis's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<ChartLabel>,
@@ -391,9 +393,10 @@ pub struct Charts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0, max = 1))]
     pub donut_hole: Option<f64>,
-    /// Legend labels; their role defaults to the axis's.
+    /// Legends: their role (the axis's when unset), and where a chart that does not say
+    /// places one (`direct` when unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub legend: Option<ChartLabel>,
+    pub legend: Option<ChartLegend>,
     /// Annotations: rules, bands, callouts, and highlights.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotation: Option<ChartAnnotation>,
@@ -451,6 +454,10 @@ pub struct Tables {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub column_gap: Option<f64>,
+    /// Whether a table spans its cell, its first column taking the room the cell has to
+    /// spare; false when unset: a table is as wide as its columns, at the cell's start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stretch: Option<bool>,
 }
 
 /// A table's text: a role, and a color token or role.
@@ -480,6 +487,27 @@ pub struct ChartRule {
 pub struct ChartLabel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+}
+
+/// How value labels read, and which print when a chart does not say (SPEC §3.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartValues {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<LabelShow>,
+}
+
+/// How legends read, and where they stand when a chart does not say (SPEC §3.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartLegend {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// `direct` when unset; `auto` means the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<LegendPlace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
