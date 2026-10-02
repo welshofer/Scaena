@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.5.json",
+  "$id": "https://scaena.dev/schema/theme-0.6.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.5(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.6(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -568,6 +568,16 @@
           "minimum": 2,
           "maximum": 20
         },
+        "maxTicks": {
+          "description": "At most how many ticks, and so reference lines, a value axis shows; 5 when unset. The axis asks for `tickCount`, then for fewer, down to two, until its ticks fit.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "signal": {
+          "description": "The signal color: the one hue a chart spends on what matters, the data a highlight picks out; `accent` when unset. The rest of the data is the categorical palette, which a theme keeps neutral.",
+          "type": "string"
+        },
         "strokeWidth": { "type": "string" },
         "cornerRadius": { "type": "number", "minimum": 0 },
         "barGap": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -663,7 +673,7 @@
           "maximum": 1
         },
         "dimmed": {
-          "description": "The opacity a highlight leaves the rest of the chart at; 0.3 when unset.",
+          "description": "The opacity a highlight leaves the rest of the chart's marks at; 0.5 when unset. Their value labels and names dim half as far, so they stay legible.",
           "type": "number",
           "minimum": 0,
           "maximum": 1

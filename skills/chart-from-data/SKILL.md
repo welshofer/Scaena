@@ -11,7 +11,8 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 - values on the marks;
 - series named where they end;
 - square, half-width bars;
-- no frames.
+- no frames, and at most five reference lines;
+- the data in the theme's quiet palette, and one signal color for what the slide is about, which a `highlight` spends.
 
 | To | CLI | MCP |
 |---|---|---|
@@ -57,7 +58,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - `rule` at a `y` (a target, a plan) or an `x`.
    - `band` across x or y (a period, a range).
    - `callout`, with `text` at one x and, if needed, a series.
-   - `highlight` of an x or a series; the rest dims.
+   - `highlight` of an x or a series: it takes the signal color, and the rest dims. In a theme whose data palette is quiet, as Dusk's is, it is how a chart shows which series or category the headline is about.
    - A line prints only its first and last values. A point about a middle one, such as a peak, needs a `callout` there, or `labels: { "show": "all" }`.
    - A callout's `text` is a literal, like any figure in copy: re-derive it when the data changes.
 8. **Check and look.**

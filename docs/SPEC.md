@@ -251,7 +251,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.5",
+  "scaena-theme": "0.6",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -286,7 +286,8 @@ See `docs/schema/theme.schema.json`. Shape:
   "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral", "show": "auto" }, "legend": { "role": "label", "place": "direct" },
               "strokeWidth": "thin", "cornerRadius": 0, "barGap": 0.5, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 6, "donutHole": 0.72, "tickCount": 5,
-              "annotation": { "role": "label", "stroke": "thin", "color": "accent", "band": 0.12, "dimmed": 0.3 } },
+              "maxTicks": 5, "signal": "accent",
+              "annotation": { "role": "label", "stroke": "thin", "color": "accent", "band": 0.12, "dimmed": 0.5 } },
   "tables": { "header": { "role": "label", "color": "onSurfaceMuted" }, "cell": { "role": "body" }, "rule": { "stroke": "hairline" },
               "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4, "stretch": false }
 }
@@ -331,7 +332,8 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
 Rules:
 - **Kinds are normative here.** v1 ships exactly `bar`, `stackedBar`, `line`, `area`, `scatter`, `dot`, `donut` (PLAN 1.9); the schema enum matches. `slope`, `waffle`, `range`, `heatmap` are deferred and unscheduled; adding one is a schema change plus a PLAN task.
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
-- **Defaults** (PLAN 1.9; deck format 0.9, theme format 0.5). Unset, a chart draws as Tufte would: ink for data and little else. No frames, panels, or gradients; narrow bars with square corners; values printed on the marks rather than an axis to read them off; series named where they end rather than in a legend; quiet axes. Each is a theme token or a chart prop, so a theme can draw any other way, and the defaults below are what a theme leaves unset.
+- **Defaults** (PLAN 1.9; deck format 0.9, theme format 0.6). Unset, a chart draws as Tufte would: ink for data and little else. No frames, panels, or gradients; narrow bars with square corners; values printed on the marks rather than an axis to read them off; series named where they end rather than in a legend; quiet axes with at most five reference lines; and one signal color, spent by a highlight on what the slide is about, while the rest of the data stays in the theme's palette. Each is a theme token or a chart prop, so a theme can draw any other way, and the defaults below are what a theme leaves unset.
+  - A theme carries the rest of the look. Dusk, the example theme, holds to a presentation chart style: data in graphite and quiet grays (`tokens.data.categorical`), each of which reads as text on the surface (4.5:1), since a direct legend names a series in its color, with the accent as the signal; a one-hue sequential scale; chart text set as written, in sentence case rather than capitals, axis labels at 12 pt and value labels and series names at 13 pt (24 and 26 units on a 1920-unit canvas, 2 units to the point); and lines 1.5 pt wide (`regular`, 3 units).
 - Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
 - A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
 - Value labels that overlap are lint **W310**, unless `labels.collide` resolves them (`"hide"` or `"nudge"`; Labels below).
@@ -364,7 +366,7 @@ Rules:
 - **Axes** (PLAN 1.9). Category labels and x ticks show unless `axes.x.show` is false.
   - `axes.y.show` shows the value axis (default: on for a scatter and an area, which print no values by default; off otherwise): tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
   - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one a baseline at 0 already rules. `axes.x.gridlines` rules the plot from its top to its foot: at each x tick on a continuous x; across a category axis, between the bands of bars and through each category of the other kinds. A category's gridline is keyed by the category after it, so it moves with its bars.
-  - With either one, the domain widens to round values at the tick step (d3's `nice`), and a `domain` bound the author sets stays. Ticks fall about `charts.tickCount` (default 5) to the axis, on d3's steps of 1, 2, and 5 × 10ⁿ.
+  - With either one, the domain widens to round values at the tick step (d3's `nice`), and a `domain` bound the author sets stays. Ticks fall about `charts.tickCount` (default 5) to the axis, on d3's steps of 1, 2, and 5 × 10ⁿ, and no more than `charts.maxTicks` (default 5): the axis asks for fewer, down to two, until they fit, so by default it draws at most five reference lines (theme format 0.6).
   - Tick labels print in `y.format` at the precision the step needs, as d3's `tickFormat` does: `$,f` ticks read `$0`, `$5`, and `s` and `k` ticks share one prefix. With no format they print as d3's `,f`.
   - Titles (`axes.x.title` or `axes.y.title`, else the encoding's `title`) print in `charts.title.role`, else the axis's role. The value axis's title sits above the plot at the chart's left; the category axis's is centered under the category labels.
   - In a transition the value axis rescales as d3's does. A tick on both sides moves. A tick on one side only rides from or to where its value sits on the other side's scale, fading.
@@ -387,7 +389,7 @@ Rules:
   - `rule`: one `x` or one `y`. A `y` rules the plot across, its text half a space unit over the rule at the plot's start; an `x` rules it from top to foot through the category's middle, its text beside the rule's top, after it unless that passes the plot's end.
   - `band`: from one `x` to another, or one `y` to another, under the gridlines, filled at `charts.annotation.band` (default 0.12) of the color. Across categories it covers both ends' bands. Its text sits inside its top-left corner, half a space unit in.
   - `callout`: `text` at one `x`, and a `y` or the mark of a `series` there; with neither, the one mark at that `x`, an error if there are several. A leader rises from half a space unit over the point, or over the mark's value end and its value label, to two and a half space units under the text, which is centered on the point inside the plot's sides and stands three space units over the highest mark, line, or value label under it. Under a bar below the baseline, the leader and text go down.
-  - `highlight`: one or more `x`, `series`, or both, picking out the data that has them. The rest of the chart dims to `charts.annotation.dimmed` (default 0.3): every other mark and its value label, a line or an area with none of its marks picked, and a legend entry whose marks are none of them. It says nothing.
+  - `highlight`: one or more `x`, `series`, or both, picking out the data that has them. What it picks takes the signal color, `charts.signal` (the `accent` color when unset): its marks, and a line, an area, or a legend entry all of whose marks it picks, a direct name with it. The rest of the chart dims to `charts.annotation.dimmed` (default 0.5): every other mark, a line or an area with none of its marks picked, and a legend entry whose marks are none of them. Their value labels and names dim half as far (0.75 by default), so the context stays legible. It says nothing.
   - A donut has no axes: it takes highlights of its slices (`at.x`) only.
   - The plot leaves room above it for a callout's text and a rule's text, as it does for value labels.
   - Annotations match from state to state by kind, axis, and place among the chart's annotations of both: the second `y` rule is the second `y` rule. A matched rule, band, or leader moves to its next place, as a new value moves the axis; changed text cross-fades as it moves; one on one side only fades where it is. A highlight that moves brightens and dims the marks, lines, labels, and legend entries it passes between.

@@ -47,4 +47,4 @@ pub use tracking::{Snapshot, resolve_states};
 pub const FORMAT_VERSION: &str = "0.9";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.5";
+pub const THEME_FORMAT_VERSION: &str = "0.6";

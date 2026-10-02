@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.5",
+  "scaena-theme": "0.6",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -22,13 +22,13 @@
       "line": "line"
     },
     "data": {
-      "categorical": ["#E4DFD3", "#7FA0B5", "#C9A86A", "#8DAE8A", "#B392AE", "#A3A3AD"],
-      "sequential": ["#2A2A33", "#5A3A2E", "#A3482F", "#FF6A3D", "#FFC857"],
+      "categorical": ["#E4DFD3", "#B4B2BB", "#9C9AA5", "#86848F"],
+      "sequential": ["#2A2A33", "#5C3326", "#8F4129", "#C4532F", "#FF6A3D"],
       "diverging": ["#4FB3BF", "#17171D", "#FF6A3D"]
     },
     "space": { "unit": 8, "scale": [0, 4, 8, 16, 24, 32, 48, 64, 96, 128, 192] },
     "radius": { "scale": [0, 4, 8, 16, 32] },
-    "stroke": { "hairline": 1, "thin": 2, "thick": 4 }
+    "stroke": { "hairline": 1, "thin": 2, "regular": 3, "thick": 4 }
   },
   "type": {
     "families": {
@@ -44,6 +44,8 @@
       "body":     { "family": "body",    "size": 32,  "weight": 400, "leading": 1.35, "tracking": 0,      "opsz": 32,  "wrap": "pretty",  "box": "line", "measure": 58, "minLastLineWords": 2, "hyphenate": false },
       "caption":  { "family": "body",    "size": 22,  "weight": 450, "leading": 1.3,  "tracking": 0.005,  "opsz": 20,  "wrap": "pretty",  "box": "line", "measure": 64, "color": "onSurfaceMuted" },
       "label":    { "family": "body",    "size": 20,  "weight": 500, "leading": 1.2,  "tracking": 0.02,   "opsz": 18,  "wrap": "greedy",  "box": "cap", "case": "upper", "numeric": "tabular-lining", "color": "onSurfaceMuted" },
+      "axis":     { "family": "body",    "size": 24,  "weight": 450, "leading": 1.2,  "tracking": 0,      "opsz": 24,  "wrap": "greedy",  "box": "cap", "numeric": "tabular-lining", "color": "onSurfaceMuted" },
+      "value":    { "family": "body",    "size": 26,  "weight": 500, "leading": 1.2,  "tracking": 0,      "opsz": 26,  "wrap": "greedy",  "box": "cap", "numeric": "tabular-lining", "color": "onSurface" },
       "numeral":  { "family": "display", "size": 112, "weight": 500, "leading": 1.0,  "tracking": -0.03,  "opsz": 144, "wrap": "greedy",  "box": "cap", "numeric": "tabular-lining" },
       "code":     { "family": "mono",    "size": 26,  "weight": 400, "leading": 1.4,  "tracking": 0,      "wrap": "greedy", "box": "line", "measure": 72 }
     }
@@ -87,10 +89,16 @@
     }
   },
   "charts": {
-    "axis": { "role": "label", "stroke": "hairline", "color": "line" },
+    "signal": "accent",
+    "axis": { "role": "axis", "stroke": "hairline", "color": "line" },
     "gridlines": { "stroke": "hairline", "color": "line", "opacity": 0.6 },
-    "label": { "role": "label" },
-    "strokeWidth": "thin"
+    "label": { "role": "value" },
+    "legend": { "role": "value" },
+    "strokeWidth": "regular",
+    "maxTicks": 5
+  },
+  "tables": {
+    "header": { "role": "axis" }
   },
   "density": { "maxWordsPerState": 40 }
 }

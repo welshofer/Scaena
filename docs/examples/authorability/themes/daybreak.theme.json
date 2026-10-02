@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.5",
+  "scaena-theme": "0.6",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -23,12 +23,10 @@
     },
     "data": {
       "categorical": [
-        "#3A3631",
-        "#4F7A94",
-        "#A9823A",
-        "#5E8A5A",
-        "#8E6488",
-        "#8A877F"
+        "#2E2B27",
+        "#66625A",
+        "#4A463F",
+        "#57534C"
       ],
       "sequential": [
         "#F1EEE6",
@@ -71,6 +69,7 @@
     "stroke": {
       "hairline": 1,
       "thin": 2,
+      "regular": 3,
       "thick": 4
     }
   },
@@ -215,6 +214,30 @@
         "case": "upper",
         "numeric": "tabular-lining",
         "color": "onSurfaceMuted"
+      },
+      "axis": {
+        "family": "body",
+        "size": 24,
+        "weight": 450,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "value": {
+        "family": "body",
+        "size": 26,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 26,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurface"
       },
       "numeral": {
         "family": "display",
@@ -627,8 +650,9 @@
     }
   },
   "charts": {
+    "signal": "accent",
     "axis": {
-      "role": "label",
+      "role": "axis",
       "stroke": "hairline",
       "color": "line"
     },
@@ -638,9 +662,18 @@
       "opacity": 0.6
     },
     "label": {
-      "role": "label"
+      "role": "value"
     },
-    "strokeWidth": "thin"
+    "legend": {
+      "role": "value"
+    },
+    "strokeWidth": "regular",
+    "maxTicks": 5
+  },
+  "tables": {
+    "header": {
+      "role": "axis"
+    }
   },
   "density": {
     "maxWordsPerState": 40

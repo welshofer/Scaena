@@ -56,25 +56,23 @@
       ]}}
     ]}},
     {"layer":{"node":"k-grouped","transform":[1.0,0.0,0.0,1.0,96.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L852 -210L852 870L0 870Z","ops":[
-      {"stroke":{"path":"M47.59375 242.5625L852 242.5625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 196.42188L852 196.42188","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 150.29688L852 150.29688","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 104.15625L852 104.15625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M47.59375 211.79688L852 211.79688","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M47.59375 134.90625L852 134.90625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 58.015625L852 58.015625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 288.6875L852 288.6875","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M47.59375 -210L852 -210L852 870L47.59375 870Z","ops":[
-        {"fill":{"path":"M80.171875 150.29688L119.609375 150.29688C120.703125 150.29688 121.609375 151.1875 121.609375 152.29688L121.609375 288.6875L78.171875 288.6875L78.171875 152.29688C78.171875 151.1875 79.0625 150.29688 80.171875 150.29688Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-        {"fill":{"path":"M281.26563 122.609375L320.70313 122.609375C321.8125 122.609375 322.70313 123.5 322.70313 124.609375L322.70313 288.6875L279.26563 288.6875L279.26563 124.609375C279.26563 123.5 280.15625 122.609375 281.26563 122.609375Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-        {"fill":{"path":"M482.35938 85.703125L521.8125 85.703125C522.90625 85.703125 523.8125 86.59375 523.8125 87.703125L523.8125 288.6875L480.35938 288.6875L480.35938 87.703125C480.35938 86.59375 481.26563 85.703125 482.35938 85.703125Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-        {"fill":{"path":"M683.46875 67.25L722.90625 67.25C724.0156 67.25 724.90625 68.140625 724.90625 69.25L724.90625 288.6875L681.46875 288.6875L681.46875 69.25C681.46875 68.140625 682.3594 67.25 683.46875 67.25Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-        {"fill":{"path":"M128.4375 205.65625L167.875 205.65625C168.96875 205.65625 169.875 206.54688 169.875 207.65625L169.875 288.6875L126.4375 288.6875L126.4375 207.65625C126.4375 206.54688 127.328125 205.65625 128.4375 205.65625Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
-        {"fill":{"path":"M329.53125 159.51563L368.96875 159.51563C370.07813 159.51563 370.96875 160.40625 370.96875 161.51563L370.96875 288.6875L327.53125 288.6875L327.53125 161.51563C327.53125 160.40625 328.42188 159.51563 329.53125 159.51563Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
-        {"fill":{"path":"M530.625 113.375L570.0625 113.375C571.1719 113.375 572.0625 114.28125 572.0625 115.375L572.0625 288.6875L528.625 288.6875L528.625 115.375C528.625 114.28125 529.53125 113.375 530.625 113.375Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
-        {"fill":{"path":"M731.7344 58.015625L771.1719 58.015625C772.2656 58.015625 773.1719 58.921875 773.1719 60.015625L773.1719 288.6875L729.7344 288.6875L729.7344 60.015625C729.7344 58.921875 730.625 58.015625 731.7344 58.015625Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
-        {"fill":{"path":"M176.6875 251.78125L216.14063 251.78125C217.23438 251.78125 218.14063 252.6875 218.14063 253.78125L218.14063 288.6875L174.6875 288.6875L174.6875 253.78125C174.6875 252.6875 175.59375 251.78125 176.6875 251.78125Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
-        {"fill":{"path":"M377.79688 251.78125L417.23438 251.78125C418.34375 251.78125 419.23438 252.6875 419.23438 253.78125L419.23438 288.6875L375.79688 288.6875L375.79688 253.78125C375.79688 252.6875 376.6875 251.78125 377.79688 251.78125Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
-        {"fill":{"path":"M578.8906 224.10938L618.3281 224.10938C619.4375 224.10938 620.3281 225 620.3281 226.10938L620.3281 288.6875L576.8906 288.6875L576.8906 226.10938C576.8906 225 577.7969 224.10938 578.8906 224.10938Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
-        {"fill":{"path":"M780 205.65625L819.4375 205.65625C820.53125 205.65625 821.4375 206.54688 821.4375 207.65625L821.4375 288.6875L778 288.6875L778 207.65625C778 206.54688 778.8906 205.65625 780 205.65625Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
+        {"fill":{"path":"M80.171875 173.35938L119.609375 173.35938C120.703125 173.35938 121.609375 174.25 121.609375 175.35938L121.609375 288.6875L78.171875 288.6875L78.171875 175.35938C78.171875 174.25 79.0625 173.35938 80.171875 173.35938Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+        {"fill":{"path":"M281.26563 150.29688L320.70313 150.29688C321.8125 150.29688 322.70313 151.1875 322.70313 152.29688L322.70313 288.6875L279.26563 288.6875L279.26563 152.29688C279.26563 151.1875 280.15625 150.29688 281.26563 150.29688Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+        {"fill":{"path":"M482.35938 119.53125L521.8125 119.53125C522.90625 119.53125 523.8125 120.421875 523.8125 121.53125L523.8125 288.6875L480.35938 288.6875L480.35938 121.53125C480.35938 120.421875 481.26563 119.53125 482.35938 119.53125Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+        {"fill":{"path":"M683.46875 104.15625L722.90625 104.15625C724.0156 104.15625 724.90625 105.046875 724.90625 106.15625L724.90625 288.6875L681.46875 288.6875L681.46875 106.15625C681.46875 105.046875 682.3594 104.15625 683.46875 104.15625Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+        {"fill":{"path":"M128.4375 219.48438L167.875 219.48438C168.96875 219.48438 169.875 220.39063 169.875 221.48438L169.875 288.6875L126.4375 288.6875L126.4375 221.48438C126.4375 220.39063 127.328125 219.48438 128.4375 219.48438Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
+        {"fill":{"path":"M329.53125 181.04688L368.96875 181.04688C370.07813 181.04688 370.96875 181.9375 370.96875 183.04688L370.96875 288.6875L327.53125 288.6875L327.53125 183.04688C327.53125 181.9375 328.42188 181.04688 329.53125 181.04688Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
+        {"fill":{"path":"M530.625 142.59375L570.0625 142.59375C571.1719 142.59375 572.0625 143.5 572.0625 144.59375L572.0625 288.6875L528.625 288.6875L528.625 144.59375C528.625 143.5 529.53125 142.59375 530.625 142.59375Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
+        {"fill":{"path":"M731.7344 96.46875L771.1719 96.46875C772.2656 96.46875 773.1719 97.359375 773.1719 98.46875L773.1719 288.6875L729.7344 288.6875L729.7344 98.46875C729.7344 97.359375 730.625 96.46875 731.7344 96.46875Z","rule":"nonzero","paint":{"solid":"#0F766EFF"}}},
+        {"fill":{"path":"M176.6875 257.9375L216.14063 257.9375C217.23438 257.9375 218.14063 258.82813 218.14063 259.9375L218.14063 288.6875L174.6875 288.6875L174.6875 259.9375C174.6875 258.82813 175.59375 257.9375 176.6875 257.9375Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
+        {"fill":{"path":"M377.79688 257.9375L417.23438 257.9375C418.34375 257.9375 419.23438 258.82813 419.23438 259.9375L419.23438 288.6875L375.79688 288.6875L375.79688 259.9375C375.79688 258.82813 376.6875 257.9375 377.79688 257.9375Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
+        {"fill":{"path":"M578.8906 234.875L618.3281 234.875C619.4375 234.875 620.3281 235.76563 620.3281 236.875L620.3281 288.6875L576.8906 288.6875L576.8906 236.875C576.8906 235.76563 577.7969 234.875 578.8906 234.875Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
+        {"fill":{"path":"M780 219.48438L819.4375 219.48438C820.53125 219.48438 821.4375 220.39063 821.4375 221.48438L821.4375 288.6875L778 288.6875L778 221.48438C778 220.39063 778.8906 219.48438 780 219.48438Z","rule":"nonzero","paint":{"solid":"#4338CAFF"}}},
         {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,132.28125,291.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [75,0.0,20.71875],
@@ -99,80 +97,80 @@
             [420,18.53125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,80.09375,121.578125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,80.09375,144.64062],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [420,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,281.1875,93.890625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,281.1875,121.578125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [423,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,482.28125,56.984375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,482.28125,90.8125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [417,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,683.3906,38.53125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,683.3906,75.4375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [419,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,134.95312,176.9375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,134.95312,190.78125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [424,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,329.45312,130.79688],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,329.45312,152.32812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [419,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,530.5469,84.671875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,530.5469,113.890625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [424,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,731.65625,29.3125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,731.65625,67.75],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [420,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,183.21875,223.07812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,183.21875,229.21875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [419,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,384.3125,223.07812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,384.3125,229.21875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [419,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,585.40625,195.39062],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,585.40625,206.15625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [422,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,786.5156,176.9375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,786.5156,190.78125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [424,13.203125,20.71875]
@@ -185,27 +183,14 @@
           [415,13.203125,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,13.203125,229.65625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [420,13.203125,20.71875]
-        ]}}
-      ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,183.51562],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,198.90625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
           [416,13.203125,20.71875],
           [415,26.40625,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,137.39062],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [416,13.203125,20.71875],
-          [420,26.40625,20.71875]
-        ]}}
-      ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,91.25],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,122.015625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
           [417,13.203125,20.71875],
@@ -215,8 +200,8 @@
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,45.109375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
-          [417,13.203125,20.71875],
-          [420,26.40625,20.71875]
+          [418,13.203125,20.71875],
+          [415,26.40625,20.71875]
         ]}}
       ]}},
       {"fill":{"path":"M2 5.09375L13.625 5.09375C14.71875 5.09375 15.625 5.984375 15.625 7.09375L15.625 18.71875C15.625 19.8125 14.71875 20.71875 13.625 20.71875L2 20.71875C0.890625 20.71875 0 19.8125 0 18.71875L0 7.09375C0 5.984375 0.890625 5.09375 2 5.09375Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
@@ -316,16 +301,14 @@
       ]}}
     ]}},
     {"layer":{"node":"k-line","transform":[1.0,0.0,0.0,1.0,96.0,552.0],"opacity":1.0,"blend":"normal","clip":"M0 -552L852 -552L852 528L0 528Z","ops":[
-      {"stroke":{"path":"M47.59375 326.875L852 326.875","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 251.0625L852 251.0625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 175.25L852 175.25","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 99.4375L852 99.4375","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M47.59375 276.32813L852 276.32813","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M47.59375 149.98438L852 149.98438","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 23.625L852 23.625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 402.6875L852 402.6875","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M47.59375 -552L852 -552L852 528L47.59375 528Z","ops":[
-        {"stroke":{"path":"M148.15625 175.25L349.25 129.76563L550.34375 69.109375L751.4531 38.78125","paint":{"solid":"#C2410CFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-        {"stroke":{"path":"M148.15625 266.23438L349.25 190.40625L550.34375 114.59375L751.4531 23.625","paint":{"solid":"#0F766EFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-        {"stroke":{"path":"M148.15625 342.04688L349.25 342.04688L550.34375 296.54688L751.4531 266.23438","paint":{"solid":"#4338CAFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+        {"stroke":{"path":"M148.15625 213.15625L349.25 175.25L550.34375 124.703125L751.4531 99.4375","paint":{"solid":"#C2410CFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+        {"stroke":{"path":"M148.15625 288.96875L349.25 225.79688L550.34375 162.60938L751.4531 86.796875","paint":{"solid":"#0F766EFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+        {"stroke":{"path":"M148.15625 352.15625L349.25 352.15625L550.34375 314.25L751.4531 288.96875","paint":{"solid":"#4338CAFF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
         {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,132.28125,405.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [75,0.0,20.71875],
@@ -350,40 +333,40 @@
             [420,18.53125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,108.546875,146.53125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,108.546875,184.4375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [416,13.203125,20.71875],
             [420,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,11.296875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,73.21875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [419,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,121.75,237.51562],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,121.75,260.26562],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [424,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,-6.328125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,55.59375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [417,13.203125,20.71875],
             [420,26.40625,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,121.75,313.32812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,121.75,323.4375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [419,13.203125,20.71875]
           ]}}
         ]}},
-        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,237.51562],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,751.4531,260.26562],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
             [342,0.0,20.71875],
             [424,13.203125,20.71875]
@@ -396,27 +379,14 @@
           [415,13.203125,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,13.203125,313.96875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [420,13.203125,20.71875]
-        ]}}
-      ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,238.15625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,263.4375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
           [416,13.203125,20.71875],
           [415,26.40625,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,162.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [416,13.203125,20.71875],
-          [420,26.40625,20.71875]
-        ]}}
-      ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,86.53125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,137.07812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
           [417,13.203125,20.71875],
@@ -426,17 +396,14 @@
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,10.71875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
-          [417,13.203125,20.71875],
-          [420,26.40625,20.71875]
+          [418,13.203125,20.71875],
+          [415,26.40625,20.71875]
         ]}}
       ]}}
     ]}},
     {"layer":{"node":"k-area","transform":[1.0,0.0,0.0,1.0,972.0,552.0],"opacity":1.0,"blend":"normal","clip":"M0 -552L852 -552L852 528L0 528Z","ops":[
-      {"stroke":{"path":"M47.59375 336.875L852 336.875","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 271.0625L852 271.0625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 205.25L852 205.25","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 139.4375L852 139.4375","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M47.59375 73.625L852 73.625","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 7.8125L852 7.8125","paint":{"solid":"#DAD5C999"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"stroke":{"path":"M47.59375 402.6875L852 402.6875","paint":{"solid":"#DAD5C9FF"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":"M47.59375 -552L852 -552L852 528L47.59375 528Z","ops":[
@@ -474,13 +441,6 @@
           [415,13.203125,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,323.96875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [416,13.203125,20.71875],
-          [415,26.40625,20.71875]
-        ]}}
-      ]}},
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,258.15625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
@@ -488,24 +448,10 @@
           [415,26.40625,20.71875]
         ]}}
       ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,192.34375],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [418,13.203125,20.71875],
-          [415,26.40625,20.71875]
-        ]}}
-      ]}},
       {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,126.53125],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
           [342,0.0,20.71875],
           [419,13.203125,20.71875],
-          [415,26.40625,20.71875]
-        ]}}
-      ]}},
-      {"layer":{"node":null,"transform":[1.0,0.0,0.0,1.0,0.0,60.71875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"glyphs":[
-          [342,0.0,20.71875],
-          [420,13.203125,20.71875],
           [415,26.40625,20.71875]
         ]}}
       ]}},

@@ -123,9 +123,10 @@ fn bars(axes: Value, domain: Value) -> Deck {
 fn the_value_axis_widens_to_round_ticks_and_rules_them() {
     let layout =
         compile(&bars(json!({ "y": { "show": true, "gridlines": true, "title": "Revenue" } }), json!([0, null])));
-    assert_eq!(layout.y_scale.domain, [0.0, 35.0], "31 widens to the next tick");
+    // About five ticks would step by $5 to $35, eight of them; at most five step by $10.
+    assert_eq!(layout.y_scale.domain, [0.0, 40.0], "31 widens to the next tick");
     let keys: Vec<&str> = layout.y_axis.iter().map(|t| t.key.as_str()).collect();
-    assert_eq!(keys, ["$0", "$5", "$10", "$15", "$20", "$25", "$30", "$35"]);
+    assert_eq!(keys, ["$0", "$10", "$20", "$30", "$40"]);
     let [left, top, width, height] = layout.plot;
     // Labels right-aligned in the gutter, one space unit (8) from the plot.
     for tick in &layout.y_axis {
@@ -134,7 +135,7 @@ fn the_value_axis_widens_to_round_ticks_and_rules_them() {
     }
     // A gridline at every tick but the baseline's, across the plot.
     let rules: Vec<f32> = layout.y_axis.iter().filter_map(|t| t.rule.as_ref()).map(|r| r.from[1]).collect();
-    assert_eq!(rules.len(), 7);
+    assert_eq!(rules.len(), 4);
     assert!((rules.last().unwrap() - top).abs() < 1e-3, "the top tick is the plot's top");
     assert!(layout.y_axis.iter().all(|t| t.rule.as_ref().is_none_or(|r| r.from[0] == left && r.to[0] == left + width)));
     assert_eq!(layout.base, top + height);
@@ -395,7 +396,7 @@ fn a_legend_stands_above_the_plot_at_its_foot_or_beside_it() {
 #[test]
 fn stacked_bars_pile_up_by_series_and_label_their_totals() {
     let layout = by_series("stackedBar", json!({ "labels": { "show": "all" }, "axes": { "y": { "show": true } } }));
-    assert_eq!(layout.y_scale.domain, [0.0, 50.0], "the tallest stack, 48, widens to 50");
+    assert_eq!(layout.y_scale.domain, [0.0, 60.0], "the tallest stack, 48, widens to 60: at most five ticks");
     for q in ["Q1", "Q2", "Q3", "Q4"] {
         let seg = |p: &str| bar(&layout.marks.iter().find(|m| m.key == format!("{q}\u{1f}{p}")).unwrap().shape);
         let (core, cloud, edge) = (seg("Core"), seg("Cloud"), seg("Edge"));
@@ -943,28 +944,74 @@ fn a_highlight_dims_everything_it_does_not_pick_out() {
         "line",
         json!({ "labels": { "show": "ends" }, "annotations": [{ "kind": "highlight", "at": { "series": "Cloud" } }] }),
     );
+    // What it picks takes the signal color (the theme's accent, as it sets none); the
+    // rest keeps its color, at half its opacity, and its words dim half as far.
+    let signal = accent(1.0);
     let alpha = |c: scaena_core::displaylist::Color| c.0[3];
     for (was, now) in plain.paths.iter().zip(&lit.paths) {
-        let expected =
-            if now.key == "Cloud" { alpha(was.color) } else { (f32::from(alpha(was.color)) * 0.3).round() as u8 };
-        assert_eq!(alpha(now.color), expected, "{}", now.key);
+        match now.key.as_str() {
+            "Cloud" => assert_eq!(now.color, signal),
+            key => assert_eq!(alpha(now.color), (f32::from(alpha(was.color)) * 0.5).round() as u8, "{key}"),
+        }
     }
     for label in &lit.labels {
-        let expected = if label.key.ends_with("Cloud") { 1.0 } else { 0.3 };
+        let expected = if label.key.ends_with("Cloud") { 1.0 } else { 0.75 };
         assert_eq!(label.opacity, expected, "{}", label.key);
     }
     let legend: Vec<(&str, f32)> = lit.legend.iter().map(|e| (e.key.as_str(), e.label.opacity)).collect();
-    assert_eq!(legend, [("Core", 0.3), ("Cloud", 1.0), ("Edge", 0.3)]);
-    // A category: its marks stay, the rest dim; every series has a mark in it, so no
-    // legend entry dims.
+    assert_eq!(legend, [("Core", 0.75), ("Cloud", 1.0), ("Edge", 0.75)]);
+    // Cloud's name is set in the signal color with its line.
+    let cloud = lit.legend.iter().find(|e| e.key == "Cloud").unwrap();
+    assert!(cloud.color == signal && cloud.label.text.runs.iter().all(|r| r.color == signal));
+    // A category: its marks take the signal, the rest dim; every series has a mark in
+    // it and others out of it, so no legend entry changes.
     let q3 = by_series("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "x": ["Q3"] } }] }));
     for m in &q3.marks {
-        let bright = plain.legend.iter().any(|e| e.color == m.color);
-        assert_eq!(bright, m.key.starts_with("Q3"), "{}", m.key);
+        assert_eq!(m.color == signal, m.key.starts_with("Q3"), "{}", m.key);
     }
-    assert!(q3.legend.iter().all(|e| e.label.opacity == 1.0));
+    let bars = by_series("bar", json!({}));
+    let entries =
+        |c: &ChartLayout| c.legend.iter().map(|e| (e.key.clone(), e.color, e.label.opacity)).collect::<Vec<_>>();
+    assert_eq!(entries(&q3), entries(&bars));
     let err = by_series_err("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "series": "Mobile" } }] }));
     assert!(err.contains("Mobile"), "{err}");
+}
+
+#[test]
+fn a_highlighted_series_keeps_its_name_in_a_legends_text_color() {
+    // A theme whose first series is the legend's text color, and whose signal is ink:
+    // the picked series' swatch takes the signal, and its name, which is not a direct
+    // name, stays in the legend's color.
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["tokens"]["data"]["categorical"][0] = t["tokens"]["color"]["muted"].clone();
+    t["charts"]["signal"] = json!("ink");
+    let theme = Theme::from_json(&t.to_string()).unwrap();
+    let top = |extra: Value| {
+        let mut props = json!({ "legend": "top" });
+        props.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        try_compile_in(&theme, &series_deck("line", props)).unwrap()
+    };
+    let plain = top(json!({}));
+    let lit = top(json!({ "annotations": [{ "kind": "highlight", "at": { "series": "Core" } }] }));
+    let core = |c: &ChartLayout| c.legend.iter().find(|e| e.key == "Core").unwrap().clone();
+    let (was, now) = (core(&plain), core(&lit));
+    assert_eq!(was.color, was.label.text.runs[0].color, "the swatch and the name share a color");
+    assert_eq!(now.color, theme.color("ink").unwrap());
+    let colors = |e: &charts::LegendEntry| e.label.text.runs.iter().map(|r| r.color).collect::<Vec<_>>();
+    assert_eq!(colors(&now), colors(&was));
+}
+
+#[test]
+fn a_theme_sets_how_many_reference_lines_the_value_axis_draws() {
+    let deck = bars(json!({ "y": { "show": true, "gridlines": true } }), json!([0, null]));
+    let keys = |charts: Value| -> Vec<String> {
+        try_compile_in(&themed(charts), &deck).unwrap().y_axis.iter().map(|t| t.key.clone()).collect()
+    };
+    // At most five by default, so $10 steps; a theme that allows eight gets d3's $5.
+    assert_eq!(keys(json!({})), ["$0", "$10", "$20", "$30", "$40"]);
+    assert_eq!(keys(json!({ "maxTicks": 8 })), ["$0", "$5", "$10", "$15", "$20", "$25", "$30", "$35"]);
+    // Below what d3's steps can give, the axis asks for two ticks and takes what comes.
+    assert_eq!(keys(json!({ "maxTicks": 2 })), ["$0", "$20", "$40"]);
 }
 
 #[test]

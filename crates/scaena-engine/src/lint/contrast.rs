@@ -11,7 +11,7 @@
 //! - **Display** is WCAG's large text: 24 px or more, or 18.67 px at weight 700 or more,
 //!   on a screen whose shorter side is 1080 px (a 1920 × 1080 canvas unit is a pixel).
 //!   Everything else is body.
-//! - Text in a node and in a table's cells is judged; a chart's labels are not yet.
+//! - Text in a node and in a table's cells is judged; a chart's labels are not yet (PLAN 1.27).
 
 use super::{Cx, Laid};
 use crate::EngineError;

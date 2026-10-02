@@ -368,6 +368,16 @@ pub struct Charts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 2, max = 20))]
     pub tick_count: Option<u32>,
+    /// At most how many ticks, and so reference lines, a value axis shows; 5 when unset.
+    /// The axis asks for `tickCount`, then for fewer, down to two, until its ticks fit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 2, max = 20))]
+    pub max_ticks: Option<u32>,
+    /// The signal color: the one hue a chart spends on what matters, the data a
+    /// highlight picks out; `accent` when unset. The rest of the data is the
+    /// categorical palette, which a theme keeps neutral.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_width: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -423,7 +433,8 @@ pub struct ChartAnnotation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0, max = 1))]
     pub band: Option<f64>,
-    /// The opacity a highlight leaves the rest of the chart at; 0.3 when unset.
+    /// The opacity a highlight leaves the rest of the chart's marks at; 0.5 when unset.
+    /// Their value labels and names dim half as far, so they stay legible.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0, max = 1))]
     pub dimmed: Option<f64>,
