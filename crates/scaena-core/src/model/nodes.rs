@@ -417,11 +417,24 @@ pub enum LabelCollide {
     Nudge,
 }
 
+/// Where a chart's legend stands, alone or with a title (SPEC §3.7).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Legend {
     Placed(LegendPlace),
-    Spec(IndexMap<String, Value>),
+    Spec(LegendSpec),
+}
+
+/// A legend with a title: `{ "place": "right", "title": "Product" }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LegendSpec {
+    /// `top` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<LegendPlace>,
+    /// Printed before the entries, in the legend's role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

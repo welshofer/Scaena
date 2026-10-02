@@ -2,15 +2,14 @@
 //! snapshot, to marks keyed by data, so a transition can carry each mark to its next
 //! value (SPEC §2.3): one period to the next, values animating in, growth.
 //!
-//! Phase 0 (PLAN 0.10) compiles bar charts with one series, which is enough to prove
-//! data motion on the timeline. Labels print numbers and dates through the encodings'
-//! formats (`docs/spec/format.md`) in the deck's language. Every other kind, multiple
-//! series, color encodings, legends, axes settings, and data transforms wait for the
-//! rest of the chart and table sprint (PLAN 1.9) and return `NotImplemented`.
+//! Every v1 kind compiles to keyed marks (PLAN 1.9): bars, stacks, lines and areas
+//! through their series' marks, dots, and a donut's slices, with axes, a legend, value
+//! labels, and annotations. Labels print numbers and dates through the encodings'
+//! formats (`docs/spec/format.md`) in the deck's language.
 //!
-//! Geometry is relative to the chart's cell and uses only `+ − × ÷`, never `sin` or
-//! `cos`, whose last bits differ between platform math libraries, so chart display
-//! lists stay bit-identical across platforms (SPEC §13).
+//! Geometry is relative to the chart's cell and uses `+ − × ÷`, and `libm` where a
+//! donut needs a sine or a cosine, never the platform's math library, whose last bits
+//! differ, so chart display lists stay bit-identical across platforms (SPEC §13).
 
 use crate::EngineError;
 use crate::data::{ColumnType, DataFiles, Datum};
@@ -406,6 +405,29 @@ pub struct Label {
     pub origin: [f32; 2],
     pub text: TextLayout,
     pub value: Option<ValueLabel>,
+    /// Below 1 where a highlight dims it.
+    pub opacity: f32,
+}
+
+impl Label {
+    pub fn new(key: impl Into<String>, origin: [f32; 2], text: TextLayout, value: Option<ValueLabel>) -> Label {
+        Label { key: key.into(), origin, text, value, opacity: 1.0 }
+    }
+}
+
+/// An annotation laid out (SPEC §3.7): a band under the marks; a rule, or a callout's
+/// leader, over them; and what it says. A highlight lays out nothing of its own: it
+/// dims the rest of the chart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Note {
+    /// Its kind and axis, and its place among the chart's annotations of both: what it
+    /// matches in the next state, so a rule moves to its next value.
+    pub key: String,
+    /// A band's box, `[x, y, w, h]`, and its fill.
+    pub band: Option<([f32; 4], Color)>,
+    /// A rule, or a callout's leader.
+    pub rule: Option<Rule>,
+    pub label: Option<Label>,
 }
 
 /// What a value label shows and where it rides on its mark.
@@ -626,9 +648,10 @@ impl CategoryFormat {
     }
 }
 
-/// A chart compiled for one snapshot, relative to its cell. Painted bottom to top:
-/// gridlines, baseline, marks, category labels, value-axis labels, titles, value
-/// labels, clipped at the cell's sides.
+/// A chart compiled for one snapshot, relative to its cell. Painted bottom to top: bands,
+/// gridlines, baseline; then in the plot, paths, marks, rules and leaders, category
+/// labels, value labels, and annotations' text; then value-axis labels, titles, and the
+/// legend.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
     pub kind: ChartKind,
@@ -666,6 +689,8 @@ pub struct ChartLayout {
     /// Value labels that overlap as laid out, by their marks' keys (lint W310); none
     /// when `labels.collide` resolves them.
     pub collisions: Vec<(String, String)>,
+    /// Annotations: bands under the gridlines, rules and callouts over the marks.
+    pub notes: Vec<Note>,
 }
 
 /// A legend entry: a swatch in the series' color beside its name.

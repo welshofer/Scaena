@@ -67,6 +67,9 @@ fn e103_fields_charts_cannot_read() {
             "/nodes/f/columns/1/field",
             "/nodes/f/columns/2/format",
             "/nodes/f/key",
+            "/nodes/g/annotations/0/at/x",
+            "/nodes/g/annotations/1/at/series",
+            "/nodes/h/annotations/0/at/x",
             "/states/1/props/c/y/field",
         ],
     );
@@ -81,6 +84,11 @@ fn e103_fields_charts_cannot_read() {
     assert!(say("/nodes/f/columns/2/format").contains("`columns[2].format` prints numbers and dates"));
     let after = say("/nodes/e/y/field");
     assert!(after.contains("after its `dataTransform` has no column `rev`; it has `quarter`, `total`"), "{after}");
+    // Annotations name what the data has.
+    let x = say("/nodes/g/annotations/0/at/x");
+    assert!(x.contains("`Q3` is no category of `quarter`") && x.contains("`Q1`, `Q2`"), "{x}");
+    assert!(say("/nodes/g/annotations/1/at/series").contains("`Q9` is no series of `quarter`"));
+    assert!(say("/nodes/h/annotations/0/at/x").contains("must be a date in ISO 8601"));
 }
 
 #[test]
@@ -172,14 +180,22 @@ fn e106_schema_and_resolved_types() {
             "/nodes/logo/style",
             "/nodes/photo/alt",
             "/nodes/photo/role",
+            "/nodes/plot/annotations/0",
+            "/nodes/plot/annotations/1",
             "/nodes/right/at/parent",
             "/overrides/headline/style/weight",
             "/overrides/photo/fit",
             "/overrides/photo/kind",
             "/states/1/props/headline/fit",
             "/states/1/props/photo/src",
+            "/states/1/props/plot/annotations/0",
         ],
     );
+    let found = validate_bundle(fixture!("E106", "trigger"), &Fixtures).unwrap();
+    let say = |path: &str| found.iter().find(|f| f.path.as_deref() == Some(path)).unwrap().message.clone();
+    assert!(say("/nodes/plot/annotations/0").contains("not both"));
+    assert!(say("/nodes/plot/annotations/1").contains("a highlight says nothing"));
+    assert!(say("/states/1/props/plot/annotations/0").contains("from one value to another"));
 }
 
 /// The fixtures' bundle with its theme edited by `edit`.

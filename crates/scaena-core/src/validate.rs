@@ -11,7 +11,7 @@ use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
 use crate::model::Theme;
 use crate::model::check::{Checker, Kind, Violation};
-use crate::model::values::{Duration, Easing};
+use crate::model::values::{Annotation, Duration, Easing};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -228,6 +228,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
         if let Some(snapshots) = &snapshots {
             out.extend(resolved_types(&deck, snapshots));
             out.extend(containers(&deck, snapshots));
+            out.extend(annotations(&deck, snapshots));
             out.extend(encodings(&deck, snapshots, files));
         }
         out.extend(override_types(&deck));
@@ -407,11 +408,24 @@ impl LoadedTheme {
                     need(self.stroke(stroke), "stroke", stroke, format!("/charts/{key}/stroke"));
                 }
             }
-            if let Some(role) = charts.label.as_ref().and_then(|l| l.role.as_ref()) {
-                need(t.typography.roles.contains_key(role), "text role", role, "/charts/label/role".into());
+            for (key, label) in [("label", &charts.label), ("title", &charts.title), ("legend", &charts.legend)] {
+                if let Some(role) = label.as_ref().and_then(|l| l.role.as_ref()) {
+                    need(t.typography.roles.contains_key(role), "text role", role, format!("/charts/{key}/role"));
+                }
             }
             if let Some(stroke) = &charts.stroke_width {
                 need(self.stroke(stroke), "stroke", stroke, "/charts/strokeWidth".into());
+            }
+            if let Some(note) = &charts.annotation {
+                if let Some(role) = &note.role {
+                    need(t.typography.roles.contains_key(role), "text role", role, "/charts/annotation/role".into());
+                }
+                if let Some(color) = &note.color {
+                    need(self.color(color), "color", color, "/charts/annotation/color".into());
+                }
+                if let Some(stroke) = &note.stroke {
+                    need(self.stroke(stroke), "stroke", stroke, "/charts/annotation/stroke".into());
+                }
             }
         }
         if let Some(tables) = &t.tables {
@@ -662,6 +676,43 @@ fn resolved_types(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
     out
 }
 
+/// E106: each chart's annotations stand where their kinds can (SPEC §3.7): a rule at one
+/// `x` or `y`, a band across two, a callout at an `x`, a highlight on categories or series.
+/// Each finding points at the `annotations` that set it in the state: its delta, or the
+/// node.
+fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Chart) {
+                continue;
+            }
+            let Some(notes) = props.get("annotations").and_then(Value::as_array) else { continue };
+            let base = match state.props.get(id).and_then(|d| d.get("annotations")) {
+                Some(_) => format!("/states/{i}/props/{}/annotations", esc(id)),
+                None => format!("/nodes/{}/annotations", esc(id)),
+            };
+            let donut = props.get("kind").and_then(Value::as_str) == Some("donut");
+            for (k, note) in notes.iter().enumerate() {
+                // One that does not parse breaks the schema, which says so.
+                let Ok(note) = serde_json::from_value::<Annotation>(note.clone()) else { continue };
+                let Err(message) = note.check(donut) else { continue };
+                let path = format!("{base}/{k}");
+                if seen.insert((path.clone(), message.clone())) {
+                    out.push(
+                        Finding::new("E106", Severity::Error, message)
+                            .at(path)
+                            .state(state.id.clone())
+                            .node(id.clone()),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Each state's containers (SPEC §3.4, ADR-0008): a node's `at.parent` is a container the
 /// state shows (E102) and of a container type (E106), containers do not nest in a loop
 /// (E106), and an `at.area` is one of its grid's areas (E102). Each finding points at
@@ -858,6 +909,86 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     };
                     if let Err(e) = parsed {
                         found("E106", here("/format"), e.to_string());
+                    }
+                }
+            }
+            // A chart's annotations name its categories (or x values) and series.
+            if node.node_type != NodeType::Chart {
+                continue;
+            }
+            let field = |c: &str| props.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
+            let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
+            let x = field("x").and_then(|f| table.column(f));
+            // The series: its field, else a color field of text.
+            let series = (field("series").and_then(|f| table.column(f))).or_else(|| {
+                field("color").and_then(|f| table.column(f)).filter(|&c| table.types[c] != ColumnType::Number)
+            });
+            // A continuous x, as the chart compiler reads one (SPEC §3.7).
+            let continuous = x.is_some_and(|c| {
+                let numeric = matches!(table.types[c], ColumnType::Number | ColumnType::Date);
+                matches!(kind, "line" | "area" | "scatter")
+                    && match props.get("x").and_then(|x| x.get("type")).and_then(Value::as_str) {
+                        Some("quantitative" | "temporal") => true,
+                        Some(_) => false,
+                        None => numeric && kind == "scatter",
+                    }
+            });
+            let distinct = |c: usize| {
+                let mut values: Vec<String> = Vec::new();
+                for row in &table.rows {
+                    let v = row[c].label();
+                    if !values.contains(&v) {
+                        values.push(v);
+                    }
+                }
+                values
+            };
+            let listed = |values: &[String]| {
+                let shown: Vec<String> = values.iter().take(8).map(|v| format!("`{v}`")).collect();
+                format!("{}{}", shown.join(", "), if values.len() > 8 { ", …" } else { "" })
+            };
+            let notes = props.get("annotations").and_then(Value::as_array);
+            for (k, note) in notes.into_iter().flatten().enumerate() {
+                let Ok(note) = serde_json::from_value::<Annotation>(note.clone()) else { continue };
+                if note.check(kind == "donut").is_err() {
+                    continue;
+                }
+                let at = |axis: &str| here("annotations", &format!("/{k}/at/{axis}"));
+                if let (Some(place), Some(c)) = (&note.at.x, x) {
+                    let column = &table.columns[c];
+                    let dates = table.types[c] == ColumnType::Date;
+                    let categories = distinct(c);
+                    for v in place.values() {
+                        let message = match continuous {
+                            true if v.position(dates).is_none() => format!(
+                                "`at.x` `{}` must be {}: the chart's x runs along `{column}`",
+                                v.label(),
+                                if dates { "a date in ISO 8601 (`2024-03-01`)" } else { "a number" }
+                            ),
+                            false if !categories.contains(&v.label()) => format!(
+                                "`at.x` `{}` is no category of `{column}` in {read}; its categories are {}",
+                                v.label(),
+                                listed(&categories)
+                            ),
+                            _ => continue,
+                        };
+                        found("E103", at("x"), message);
+                    }
+                }
+                if let Some(place) = &note.at.series {
+                    let Some(c) = series else {
+                        found("E106", at("series"), "`at.series` picks out a series, and the chart has none".into());
+                        continue;
+                    };
+                    let names = distinct(c);
+                    for v in place.values().into_iter().filter(|v| !names.contains(&v.label())) {
+                        let message = format!(
+                            "`at.series` `{}` is no series of `{}` in {read}; its series are {}",
+                            v.label(),
+                            table.columns[c],
+                            listed(&names)
+                        );
+                        found("E103", at("series"), message);
                     }
                 }
             }

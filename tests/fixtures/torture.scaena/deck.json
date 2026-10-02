@@ -2333,6 +2333,130 @@
         "show": "all"
       },
       "alt": "Revenue by product and quarter, grouped, then stacked."
+    },
+    "n-bars": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "legend": {
+        "title": "Product"
+      },
+      "annotations": [
+        {
+          "kind": "band",
+          "at": {
+            "x": [
+              "Q3",
+              "Q4"
+            ]
+          },
+          "text": "Launch"
+        },
+        {
+          "kind": "rule",
+          "at": {
+            "y": 20
+          },
+          "text": "Target"
+        },
+        {
+          "kind": "callout",
+          "at": {
+            "x": "Q4",
+            "series": "Cloud"
+          },
+          "text": "Record"
+        }
+      ],
+      "alt": "Revenue by product and quarter, with the launch quarters shaded, a target, and a callout."
+    },
+    "n-lines": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "axes": {
+        "x": {
+          "gridlines": true
+        },
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "ends",
+        "collide": "nudge"
+      },
+      "legend": {
+        "place": "right",
+        "title": "Product"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Cloud"
+          }
+        },
+        {
+          "kind": "callout",
+          "at": {
+            "x": "Q3",
+            "series": "Cloud"
+          },
+          "text": "Cloud doubles"
+        }
+      ],
+      "alt": "Revenue by product as lines, Cloud highlighted."
     }
   },
   "states": [
@@ -2948,6 +3072,83 @@
         }
       },
       "notes": "Pass in the transition (frames @0.25 and @0.75): the bars regroup in two stages, as d3's do. First the heights: each bar rises to its place in its quarter's stack while still side by side. Then the widths: the bars slide together into one stack. Each stack's total counts up over its top segment."
+    },
+    {
+      "id": "annotations",
+      "name": "Chart annotations",
+      "slide": "annotations",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "37 · Chart annotations · recorded"
+        },
+        "n-bars": {},
+        "n-lines": {}
+      },
+      "notes": "Pass: left, grouped bars with a band behind Q3 and Q4 (the accent at 0.12, under the gridlines) reading “Launch” inside its top-left corner, a target rule across the plot at $20 in the accent with “Target” over its start, a callout whose leader rises from over Q4 Cloud's bar to “Record”, and gridlines between the quarters' bands; the legend starts with its title, “Product”, on the entries' baseline. Right, lines with only Cloud at full strength: Core and Edge, their end labels, and their legend entries dim to 0.3; a callout over Cloud's Q3 point reads “Cloud doubles”; gridlines run through each quarter; the legend stands at the right under its title."
+    },
+    {
+      "id": "annotations-next",
+      "name": "Chart annotations: they move",
+      "slide": "annotations",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "38 · Chart annotations: they move · recorded"
+        },
+        "n-bars": {
+          "annotations": [
+            {
+              "kind": "band",
+              "at": {
+                "x": [
+                  "Q4",
+                  "Q4"
+                ]
+              },
+              "text": "Launch"
+            },
+            {
+              "kind": "rule",
+              "at": {
+                "y": 25
+              },
+              "text": "Target"
+            },
+            {
+              "kind": "callout",
+              "at": {
+                "x": "Q4",
+                "series": "Core"
+              },
+              "text": "Record"
+            }
+          ]
+        },
+        "n-lines": {
+          "annotations": [
+            {
+              "kind": "highlight",
+              "at": {
+                "series": "Core"
+              }
+            },
+            {
+              "kind": "callout",
+              "at": {
+                "x": "Q4",
+                "series": "Core"
+              },
+              "text": "Core leads"
+            }
+          ]
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): each annotation moves to where this state puts it. The band narrows to Q4 alone, the target rule rises to $25 as the value axis widens to reach it, and the callout slides from Cloud's bar to Core's. On the right, Cloud dims as Core comes up, their end labels and legend entries with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from “Cloud doubles” to “Core leads”."
     }
   ]
 }

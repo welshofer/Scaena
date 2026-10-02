@@ -25,8 +25,8 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// each chart transition at t = 0, 0.25, 0.5, and 1; 0 and 1 are the states at rest
 /// (asserted below), so the middle two get goldens of their own: the chart's values
 /// animating in, and the next quarter arriving. PLAN 1.9 adds every kind's data
-/// motion mid-way, and the two stages of bars that regroup.
-const MORPH: [(&str, f64); 8] = [
+/// motion mid-way, the two stages of bars that regroup, and annotations that move.
+const MORPH: [(&str, f64); 9] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -35,6 +35,7 @@ const MORPH: [(&str, f64); 8] = [
     ("chart-kinds-2-next", 0.5),
     ("regroup-stacked", 0.25),
     ("regroup-stacked", 0.75),
+    ("annotations-next", 0.5),
 ];
 const SERIF: &str = "fonts/RobotoSerif-VF.ttf";
 const GARAMOND: &str = "fonts/EBGaramond-VF.ttf";

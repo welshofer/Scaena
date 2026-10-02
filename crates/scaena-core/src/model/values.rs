@@ -466,14 +466,20 @@ pub enum SortDirection {
     Descending,
 }
 
+/// A chart annotation (SPEC §3.7): a rule, a band, a callout, or a highlight, in the
+/// theme's `charts.annotation` style.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Annotation {
     pub kind: AnnotationKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub at: Option<IndexMap<String, Value>>,
+    /// Where it stands, by kind: a rule at `x` or `y`, a band from one to another of
+    /// either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x`
+    /// and series.
+    pub at: AnnotationAt,
+    /// What it says; a highlight says nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// The text's role; `charts.annotation.role` when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
 }
@@ -485,6 +491,129 @@ pub enum AnnotationKind {
     Rule,
     Band,
     Highlight,
+}
+
+/// An annotation's place: a category or an x value (a number, or a date as ISO 8601),
+/// a value on the value axis, and a series, each one or several by kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AnnotationAt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<Place>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<Place>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<Place>,
+}
+
+/// One value, or several: a band's two ends, or what a highlight picks out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Place {
+    One(Scalar),
+    Many(#[schemars(length(min = 1))] Vec<Scalar>),
+}
+
+/// A number, or text: a category, a series, or a date.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Scalar {
+    Number(f64),
+    Text(String),
+}
+
+impl Place {
+    /// Its values, in order.
+    pub fn values(&self) -> Vec<&Scalar> {
+        match self {
+            Place::One(v) => vec![v],
+            Place::Many(vs) => vs.iter().collect(),
+        }
+    }
+}
+
+impl Scalar {
+    /// The value as a category or a series reads with no format: text as is, a number
+    /// in d3's default form (`Datum::label`).
+    pub fn label(&self) -> String {
+        match self {
+            Scalar::Number(n) => crate::data::Datum::Number(*n).label(),
+            Scalar::Text(s) => s.clone(),
+        }
+    }
+
+    /// Where the value falls along a continuous x of numbers, or of dates (`dates`) in
+    /// seconds, which it writes in ISO 8601; `None` if it is not one.
+    pub fn position(&self, dates: bool) -> Option<f64> {
+        match (self, dates) {
+            (Scalar::Number(n), false) => Some(*n),
+            (Scalar::Text(s), true) => crate::format::read_iso(s).ok().map(|t| t.0 as f64),
+            _ => None,
+        }
+    }
+}
+
+impl Annotation {
+    /// Whether its place fits its kind (SPEC §3.7): a rule stands at one `x` or one
+    /// numeric `y`; a band spans two of either; a callout stands at one `x`, with one
+    /// numeric `y` or one `series`, and says something; a highlight picks out
+    /// categories, series, or both, and says nothing. A `donut`, with no axes and no
+    /// series, takes only highlights of its slices. The message says what to write.
+    pub fn check(&self, donut: bool) -> Result<(), String> {
+        let at = &self.at;
+        if donut && self.kind != AnnotationKind::Highlight {
+            return Err("a donut has no axes: it takes highlights of its slices (`at.x`)".into());
+        }
+        if donut && at.series.is_some() {
+            return Err("a donut has no series: pick out its slices with `at.x`".into());
+        }
+        let one = |p: &Option<Place>| matches!(p, Some(Place::One(_)));
+        let number = |p: &Option<Place>| p.iter().flat_map(Place::values).all(|v| matches!(v, Scalar::Number(_)));
+        if !number(&at.y) {
+            return Err("`at.y` is a value on the value axis: a number".into());
+        }
+        match self.kind {
+            AnnotationKind::Rule => match (&at.x, &at.y, &at.series) {
+                (_, _, Some(_)) => Err("a rule stands at `at.x` or `at.y`; it takes no `at.series`".into()),
+                (Some(_), None, None) if one(&at.x) => Ok(()),
+                (None, Some(_), None) if one(&at.y) => Ok(()),
+                (Some(_), Some(_), _) => Err("a rule stands at `at.x` or at `at.y`, not both".into()),
+                (None, None, _) => Err("a rule stands at `at.x` or `at.y`".into()),
+                _ => Err("a rule stands at one value: `\"at\": { \"y\": 30 }`".into()),
+            },
+            AnnotationKind::Band => {
+                let pair = |p: &Option<Place>| matches!(p, Some(Place::Many(vs)) if vs.len() == 2);
+                match (&at.x, &at.y, &at.series) {
+                    (_, _, Some(_)) => Err("a band spans `at.x` or `at.y`; it takes no `at.series`".into()),
+                    (Some(_), None, None) if pair(&at.x) => Ok(()),
+                    (None, Some(_), None) if pair(&at.y) => Ok(()),
+                    (Some(_), Some(_), _) => Err("a band spans `at.x` or `at.y`, not both".into()),
+                    _ => Err("a band spans from one value to another: `\"at\": { \"y\": [20, 30] }`".into()),
+                }
+            }
+            AnnotationKind::Callout => {
+                if self.text.is_none() {
+                    return Err("a callout says something: give it `text`".into());
+                }
+                match (&at.x, &at.y, &at.series) {
+                    (None, ..) => Err("a callout stands at `at.x`, a category or an x value".into()),
+                    (_, Some(_), Some(_)) => Err("a callout stands at `at.y` or on `at.series`' mark, not both".into()),
+                    _ if !one(&at.x) || at.y.is_some() && !one(&at.y) || at.series.is_some() && !one(&at.series) => {
+                        Err("a callout stands at one place: one `x`, and one `y` or one `series`".into())
+                    }
+                    _ => Ok(()),
+                }
+            }
+            AnnotationKind::Highlight => match (&at.x, &at.y, &self.text) {
+                (_, Some(_), _) => {
+                    Err("a highlight picks out categories (`at.x`) and series; it takes no `at.y`".into())
+                }
+                (_, _, Some(_)) => Err("a highlight says nothing; a callout carries `text`".into()),
+                (None, ..) if at.series.is_none() => Err("a highlight picks out `at.x`, `at.series`, or both".into()),
+                _ => Ok(()),
+            },
+        }
+    }
 }
 
 /// OpenType features: on, off, or an alternate's index.

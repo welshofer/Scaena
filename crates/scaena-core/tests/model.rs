@@ -73,3 +73,45 @@ fn a_property_of_another_type_has_no_view() {
     chart.props.insert("role".into(), "body".into());
     assert!(chart.typed().is_err(), "`role` is a text node's");
 }
+
+#[test]
+fn an_annotation_stands_where_its_kind_can() {
+    use scaena_core::model::values::Annotation;
+    let check = |note: Value, donut: bool| {
+        let note: Annotation = serde_json::from_value(note).expect("an annotation");
+        note.check(donut)
+    };
+    let ok = |note: Value| assert_eq!(check(note.clone(), false), Ok(()), "{note}");
+    let err = |note: Value, donut: bool, says: &str| {
+        let message = check(note.clone(), donut).expect_err(&note.to_string());
+        assert!(message.contains(says), "{note}: {message}");
+    };
+    ok(serde_json::json!({ "kind": "rule", "at": { "y": 30 }, "text": "Target" }));
+    ok(serde_json::json!({ "kind": "rule", "at": { "x": "Q3" } }));
+    ok(serde_json::json!({ "kind": "band", "at": { "x": ["Q2", "Q3"] } }));
+    ok(serde_json::json!({ "kind": "band", "at": { "y": [10, 20] }, "text": "Range" }));
+    ok(serde_json::json!({ "kind": "callout", "at": { "x": "Q4", "series": "Cloud" }, "text": "Record" }));
+    ok(serde_json::json!({ "kind": "callout", "at": { "x": 2.5, "y": 10 }, "text": "Here" }));
+    ok(serde_json::json!({ "kind": "highlight", "at": { "x": ["Q1", "Q2"], "series": "Cloud" } }));
+    err(serde_json::json!({ "kind": "rule", "at": { "y": "high" } }), false, "a number");
+    err(serde_json::json!({ "kind": "rule", "at": {} }), false, "`at.x` or `at.y`");
+    err(serde_json::json!({ "kind": "rule", "at": { "y": [1, 2] } }), false, "one value");
+    err(serde_json::json!({ "kind": "rule", "at": { "y": 1, "series": "A" } }), false, "no `at.series`");
+    err(serde_json::json!({ "kind": "band", "at": { "x": ["Q1", "Q2", "Q3"] } }), false, "from one value to another");
+    err(serde_json::json!({ "kind": "callout", "at": { "x": "Q4" } }), false, "give it `text`");
+    err(serde_json::json!({ "kind": "callout", "at": { "y": 3 }, "text": "?" }), false, "stands at `at.x`");
+    err(
+        serde_json::json!({ "kind": "callout", "at": { "x": "Q4", "y": 3, "series": "A" }, "text": "?" }),
+        false,
+        "not both",
+    );
+    err(serde_json::json!({ "kind": "callout", "at": { "x": ["Q1", "Q2"] }, "text": "?" }), false, "one place");
+    err(serde_json::json!({ "kind": "highlight", "at": {} }), false, "`at.x`, `at.series`, or both");
+    err(serde_json::json!({ "kind": "highlight", "at": { "y": 3 } }), false, "no `at.y`");
+    // A donut has slices: no axes, no series.
+    assert_eq!(check(serde_json::json!({ "kind": "highlight", "at": { "x": "Direct" } }), true), Ok(()));
+    err(serde_json::json!({ "kind": "rule", "at": { "y": 3 } }), true, "a donut has no axes");
+    err(serde_json::json!({ "kind": "highlight", "at": { "series": "A" } }), true, "a donut has no series");
+    // Unknown places break the schema.
+    assert!(serde_json::from_value::<Annotation>(serde_json::json!({ "kind": "rule", "at": { "z": 1 } })).is_err());
+}

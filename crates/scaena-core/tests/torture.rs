@@ -21,19 +21,20 @@ fn torture_deck_is_valid_and_lint_clean() {
 
 /// States that track from the state before them, as (state, that state): the chart's
 /// build and the gallery's next states, where the transitions are what is tested.
-const MORPHS: [(&str, &str); 5] = [
+const MORPHS: [(&str, &str); 6] = [
     ("chart", "chart-intro"),
     ("chart-next", "chart"),
     ("chart-kinds-next", "chart-kinds"),
     ("chart-kinds-2-next", "chart-kinds-2"),
     ("regroup-stacked", "regroup"),
+    ("annotations-next", "annotations"),
 ];
 
 #[test]
 fn every_torture_state_is_an_isolated_case() {
     let deck = Deck::from_json(TORTURE).unwrap();
     let snapshots = resolve_states(&deck).unwrap();
-    assert_eq!(snapshots.len(), 38);
+    assert_eq!(snapshots.len(), 40);
     let mut specimens_seen = HashSet::new();
     for (i, (state, snap)) in deck.states.iter().zip(&snapshots).enumerate() {
         if let Some((_, from)) = MORPHS.iter().find(|(s, _)| *s == state.id) {

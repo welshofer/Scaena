@@ -358,6 +358,36 @@ pub struct Charts {
     /// Legend labels; their role defaults to the axis's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legend: Option<ChartLabel>,
+    /// Annotations: rules, bands, callouts, and highlights.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation: Option<ChartAnnotation>,
+}
+
+/// How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ChartAnnotation {
+    /// The text's role; the value labels' when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// A rule's and a callout's leader's stroke; `thin` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    /// The rules, the leaders, the bands, and the text; `accent` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// A rule's and a leader's opacity; 1 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: Option<f64>,
+    /// A band's fill opacity; 0.12 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub band: Option<f64>,
+    /// The opacity a highlight leaves the rest of the chart at; 0.3 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub dimmed: Option<f64>,
 }
 
 /// Table styles (SPEC §3.6), every one a role, a token, or a length.

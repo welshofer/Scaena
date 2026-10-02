@@ -4,7 +4,7 @@
 //! the kind; lines and areas are paths through their series' marks.
 
 use super::{
-    AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, MarkPreset, Numerals, RoundRect, Rule,
+    AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, MarkPreset, Note, Numerals, RoundRect, Rule,
     SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
@@ -15,7 +15,7 @@ use crate::theme::{Numeric, TextBox, Theme};
 use scaena_core::displaylist::Color;
 use scaena_core::document::Props;
 use scaena_core::format::{DateFormat, DateTime, Locale, MINUS, NumberFormat};
-use scaena_core::model::values::SplitUnit;
+use scaena_core::model::values::{Annotation, AnnotationKind, Place, Scalar, SplitUnit};
 use scaena_core::timeline::CubicBezier;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -111,9 +111,6 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
     let kind = Kind::parse(props.get("kind"))?;
-    if props.contains_key("annotations") {
-        return Err(EngineError::NotImplemented("chart annotations — PLAN 1.9"));
-    }
     let encoding = |name: &str| props.get(name).and_then(Value::as_object);
     let required = |name: &str| encoding(name).ok_or_else(|| EngineError::Layout(format!("chart has no `{name}`")));
     let (x, y) = (required("x")?, required("y")?);
@@ -124,6 +121,14 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let setting = |name: &str, key: &str| axes.and_then(|a| a.get(name)).and_then(|a| a.get(key));
     let flag = |name: &str, key: &str, default: bool| setting(name, key).and_then(Value::as_bool).unwrap_or(default);
     let donut = kind == Kind::Donut;
+    // Annotations, each standing where its kind can.
+    let notes: Vec<Annotation> = match props.get("annotations") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| EngineError::Layout(format!("`annotations`: {e}")))?,
+    };
+    for (k, note) in notes.iter().enumerate() {
+        note.check(donut).map_err(|e| EngineError::Layout(format!("annotation {k}: {e}")))?;
+    }
     let (x_show, y_show, y_grid) = (
         flag("x", "show", !donut) && !donut,
         flag("y", "show", false) && !donut,
@@ -268,12 +273,20 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Color([r, g, b, (f64::from(a) * opacity).round() as u8])
     };
     let tick_count = charts.and_then(|c| c.tick_count).unwrap_or(5) as usize;
-    if flag("x", "gridlines", false) && !continuous {
-        return Err(EngineError::NotImplemented(
-            "gridlines across a category axis need a continuous x scale — PLAN 1.9",
-        ));
-    }
-    let x_grid = flag("x", "gridlines", false) && continuous;
+    let x_grid = flag("x", "gridlines", false) && !donut;
+    // Annotations: rules, leaders, and bands in one color, text in its role. A theme
+    // needs the color and the stroke only for a chart that draws one.
+    let style = charts.and_then(|c| c.annotation.as_ref());
+    let note_token = style.and_then(|a| a.color.as_deref()).unwrap_or("accent");
+    let (note_color, note_width) = match notes.iter().any(|n| n.kind != AnnotationKind::Highlight) {
+        true => (theme.color(note_token)?, theme.stroke(style.and_then(|a| a.stroke.as_deref()).unwrap_or("thin"))?),
+        false => (Color([0, 0, 0, 0]), 0.0),
+    };
+    let with_alpha =
+        |Color([r, g, b, a]): Color, by: f64| Color([r, g, b, (f64::from(a) * by.clamp(0.0, 1.0)).round() as u8]);
+    let rule_color = with_alpha(note_color, style.and_then(|a| a.opacity).unwrap_or(1.0));
+    let band_color = with_alpha(note_color, style.and_then(|a| a.band).unwrap_or(0.12));
+    let dimmed = style.and_then(|a| a.dimmed).unwrap_or(0.3).clamp(0.0, 1.0) as f32;
 
     // Colors: by series (or a categorical color field), by category on a donut, along
     // the sequential or diverging palette for a numeric color field, else the first.
@@ -305,11 +318,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
     // The legend: one entry per series, or per slice of a donut, when there are two
     // or more and the chart does not say `none`.
-    let legend_place = match props.get("legend") {
-        None => "top",
-        Some(Value::String(place)) => match place.as_str() {
-            "auto" => "top",
-            "top" => "top",
+    let place = |place: &str| -> Result<&'static str, EngineError> {
+        Ok(match place {
+            "auto" | "top" => "top",
             "bottom" => "bottom",
             "right" => "right",
             "none" => "none",
@@ -318,8 +329,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     "legend `{other}`: expected auto, top, bottom, right, or none"
                 )));
             }
-        },
-        Some(_) => return Err(EngineError::NotImplemented("a legend given as an object — PLAN 1.9")),
+        })
+    };
+    let (legend_place, legend_title) = match props.get("legend") {
+        None => ("top", None),
+        Some(Value::String(p)) => (place(p)?, None),
+        Some(Value::Object(spec)) => (
+            spec.get("place").and_then(Value::as_str).map(place).transpose()?.unwrap_or("top"),
+            spec.get("title").and_then(Value::as_str),
+        ),
+        Some(other) => return Err(EngineError::Layout(format!("legend {other}: expected a place or an object"))),
     };
     let entries: Vec<(String, Color)> = if donut {
         categories.iter().map(|(k, l)| (l.clone(), color_of(rows.iter().find(|r| r.category == *k).unwrap()))).collect()
@@ -331,7 +350,18 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
     let entries = if legend_place != "none" && entries.len() > 1 { entries } else { Vec::new() };
 
-    // Text first: the plot is what the labels leave.
+    // Text first: the plot is what the labels leave. Annotations speak in their own
+    // role, in the annotation color.
+    let note_texts: Vec<Option<TextLayout>> = notes
+        .iter()
+        .map(|n| {
+            let Some(text) = &n.text else { return Ok(None) };
+            let role = n.role.as_deref().or_else(|| style.and_then(|a| a.role.as_deref())).unwrap_or(&label_role);
+            let mut role = theme.text_role(role)?;
+            role.color = Some(note_token.to_string());
+            cx.text.layout(cx.fonts, theme, &TextSpec::plain(role, text.clone()), f32::INFINITY).map(Some)
+        })
+        .collect::<Result<_, EngineError>>()?;
     let mut set = |text: String, role: &str| -> Result<TextLayout, EngineError> {
         let spec = TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(theme.text_role(role)?, text) };
         cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)
@@ -419,6 +449,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     } else {
         rows.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r.y), hi.max(r.y)))
     };
+    // An annotation's value is on the axis: a rule at a target the data has not reached
+    // widens it as the data would.
+    let note_ys: Vec<f64> =
+        notes.iter().flat_map(|n| n.at.y.iter().flat_map(Place::values)).filter_map(|v| v.position(false)).collect();
+    let (min, max) = note_ys.iter().fold((min, max), |(lo, hi), &v| (lo.min(v), hi.max(v)));
     let domain = y.get("domain").and_then(Value::as_array);
     let bound = |i: usize| domain.and_then(|d| d.get(i)).and_then(Value::as_f64);
     let lo = bound(0).unwrap_or(if kind.zero_based() { min.min(0.0) } else { min });
@@ -426,6 +461,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let ruled = y_show || y_grid;
     let (lo, hi) =
         if ruled { scale::nice(lo, hi, tick_count, [bound(0).is_none(), bound(1).is_none()]) } else { (lo, hi) };
+    if let Some(v) = note_ys.iter().find(|&&v| v < lo || v > hi) {
+        return Err(EngineError::Layout(format!(
+            "an annotation stands at y {v}, outside the value axis's `domain` [{lo}, {hi}]: widen the domain"
+        )));
+    }
     let tick_values = if ruled { scale::ticks(lo, hi, tick_count) } else { Vec::new() };
     let step = scale::tick_step(lo, hi, tick_count);
     let tick_format = match &y_format {
@@ -446,8 +486,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // time axis spans the data.
     let temporal = continuous && table.types[xc] == ColumnType::Date;
     let x_extent = continuous.then(|| {
-        let (a, b) =
-            rows.iter().filter_map(|r| r.x).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+        let placed = notes.iter().filter(|n| n.kind != AnnotationKind::Highlight);
+        let note_xs = placed.flat_map(|n| n.at.x.iter().flat_map(Place::values)).filter_map(|v| v.position(temporal));
+        let (a, b) = (rows.iter().filter_map(|r| r.x).chain(note_xs))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
         if temporal { (a, b) } else { scale::nice(a, b, tick_count, [true, true]) }
     });
     let x_ticks: Vec<(f64, String)> = match x_extent {
@@ -489,21 +531,32 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         .iter()
         .map(|(t, c)| Ok((t.clone(), *c, set(t.clone(), &legend_role)?)))
         .collect::<Result<_, EngineError>>()?;
+    // A legend's title, in the titles' role, when it has entries.
+    let legend_title = match (legend_title, legend_texts.is_empty()) {
+        (Some(t), false) => Some(set(t.to_string(), &title_role)?),
+        _ => None,
+    };
 
     // The plot is what the text leaves.
     let cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| l.cap_height.unwrap_or(l.ascent));
     let below_cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| t.height - (l.baseline - cap(t)));
     let title_height = |key: &str| titles.iter().find(|(k, _)| *k == key).map_or(0.0, |(_, t)| t.height + gap);
     let (title_y, title_x) = (title_height("y"), title_height("x"));
-    // The legend wraps across the chart's width, or stands in a column at its right.
+    // The legend wraps across the chart's width, or stands in a column at its right. A
+    // title starts it: the column's first line, or the start of the first row, the rows
+    // of entries wrapping under one another after it.
     let mut legend_rows: Vec<Vec<usize>> = Vec::new();
     let swatch = legend_texts.iter().map(|(.., t)| cap(t)).fold(0.0_f32, f32::max);
     let beside = legend_place == "right";
+    let indent = match (&legend_title, beside) {
+        (Some(t), false) => t.width + 2.0 * gap,
+        _ => 0.0,
+    };
     {
         let mut used = f32::INFINITY;
         for (i, (.., t)) in legend_texts.iter().enumerate() {
             let w = swatch + 0.5 * gap + t.width;
-            if beside || used + 2.0 * gap + w > size[0] || legend_rows.is_empty() {
+            if beside || used + 2.0 * gap + w > size[0] - indent || legend_rows.is_empty() {
                 legend_rows.push(Vec::new());
                 used = -2.0 * gap;
             }
@@ -511,23 +564,43 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             used += 2.0 * gap + w;
         }
     }
-    let legend_line = legend_texts.iter().map(|(.., t)| t.height).fold(0.0_f32, f32::max);
+    // A line above the entries in a column holds its title.
+    let legend_lead = usize::from(beside && legend_title.is_some());
+    let legend_texts_and_title = legend_texts.iter().map(|(.., t)| t).chain(&legend_title);
+    let legend_line = legend_texts_and_title.clone().map(|t| t.height).fold(0.0_f32, f32::max);
+    // Every entry, and the title, on one baseline a row.
+    let legend_baseline = legend_texts_and_title.map(|t| t.lines[0].baseline).fold(0.0_f32, f32::max);
     let legend_height = match legend_rows.is_empty() || beside {
         true => 0.0,
         false => legend_rows.len() as f32 * legend_line + gap,
     };
-    // A legend at the right takes its widest entry and two spaces from the plot.
+    // A legend at the right takes its widest entry, or its title, and two spaces from the
+    // plot.
     let legend_width = match beside && !legend_texts.is_empty() {
-        true => swatch + 0.5 * gap + legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max) + 2.0 * gap,
+        true => {
+            let entry = swatch + 0.5 * gap + legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max);
+            entry.max(legend_title.as_ref().map_or(0.0, |t| t.width)) + 2.0 * gap
+        }
         false => 0.0,
     };
     let right = size[0] - legend_width;
     let label_room = values.iter().flatten().map(cap).fold(0.0_f32, f32::max);
     let tick_cap = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(cap).fold(0.0_f32, f32::max);
     let legend_top = if legend_place == "top" { legend_height } else { 0.0 };
+    // A callout's text stands three space units over its point, and a rule's half a
+    // space unit over the rule, either of which may be the top of the plot.
+    let note_room = (notes.iter().zip(&note_texts))
+        .filter_map(|(n, t)| match n.kind {
+            AnnotationKind::Callout => t.as_ref().map(|t| 3.0 * gap + cap(t)),
+            AnnotationKind::Rule if n.at.y.is_some() => t.as_ref().map(|t| 0.5 * gap + cap(t)),
+            _ => None,
+        })
+        .fold(0.0_f32, f32::max);
     // Above the plot: the value axis's title, the legend, then room for value labels
-    // over the tallest mark or half a tick label's cap over the top gridline.
-    let top = title_y + legend_top + (if label_room > 0.0 { label_room + gap } else { 0.0 }).max(0.5 * tick_cap);
+    // over the tallest mark or half a tick label's cap over the top gridline, and for
+    // annotations over them.
+    let top =
+        title_y + legend_top + (if label_room > 0.0 { label_room + gap } else { 0.0 }).max(0.5 * tick_cap) + note_room;
     let mut bottom = size[1];
     if x_show {
         bottom = bottom - gap - x_texts.iter().map(|(_, t)| below_cap(t)).fold(0.0_f32, f32::max);
@@ -583,6 +656,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         legend: Vec::new(),
         x_grid: Vec::new(),
         collisions: Vec::new(),
+        notes: Vec::new(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);
@@ -597,7 +671,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let label = label.map(|text| {
             let first = &text.lines[0];
             let origin = [left - gap - text.width, y + 0.5 * cap(&text) - first.baseline];
-            Label { key: key.clone(), origin, text, value: None }
+            Label::new(key.clone(), origin, text, None)
         });
         out.y_axis.push(AxisTick { key, value: v, rule, label });
     }
@@ -610,6 +684,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             out.x_grid.push(AxisTick { key: key.clone(), value: *v, rule: Some(rule), label: None });
         }
     }
+    // Across a category axis: between the bands of bars, through each category of the
+    // rest. A gridline is keyed by the category after it, and moves with it.
+    if x_scale.is_none() && x_grid {
+        let between = matches!(kind, Kind::Bar | Kind::StackedBar);
+        for (i, (key, _)) in categories.iter().enumerate().skip(usize::from(between)) {
+            let x = left + (i as f32 + if between { 0.0 } else { 0.5 }) * band;
+            let rule = Rule { from: [x, top], to: [x, bottom], width: grid_width, color: grid_color };
+            out.x_grid.push(AxisTick { key: key.clone(), value: i as f64, rule: Some(rule), label: None });
+        }
+    }
     for (key, text) in titles {
         // The value axis's title above the plot at the chart's left; the category
         // axis's title centered under the category labels.
@@ -618,7 +702,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             "y" => [0.0, 0.0],
             _ => [left + 0.5 * (right - left) - 0.5 * text.width, size[1] - under - text.height],
         };
-        out.titles.push(Label { key: key.to_string(), origin, text, value: None });
+        out.titles.push(Label::new(key, origin, text, None));
     }
     // Legend entries: a swatch, its cap height square, on the label's baseline; above
     // the plot under the value axis's title, at the chart's foot, or in a column right
@@ -629,13 +713,17 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         _ => title_y,
     };
     let legend_x = if beside { right + 2.0 * gap } else { 0.0 };
+    if let Some(text) = legend_title {
+        let origin = [legend_x, legend_y + legend_baseline - text.lines[0].baseline];
+        out.titles.push(Label::new("legend", origin, text, None));
+    }
     let mut legend_texts: Vec<Option<(String, Color, TextLayout)>> = legend_texts.into_iter().map(Some).collect();
     for (r, line) in legend_rows.iter().enumerate() {
-        let mut x0 = legend_x;
+        let mut x0 = legend_x + indent;
         for &i in line {
             let (key, color, text) = legend_texts[i].take().expect("each entry once");
             let first = &text.lines[0];
-            let baseline = legend_y + r as f32 * legend_line + first.baseline;
+            let baseline = legend_y + (r + legend_lead) as f32 * legend_line + legend_baseline;
             let swatch = RoundRect {
                 x: x0,
                 y: baseline - swatch,
@@ -650,7 +738,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 key: key.clone(),
                 swatch,
                 color,
-                label: Label { key, origin, text, value: None },
+                label: Label::new(key, origin, text, None),
             });
         }
     }
@@ -676,7 +764,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             let x0 = (cx - 0.5 * text.width).clamp(left, (right - text.width).max(left));
             let align = if x0 == cx - 0.5 * text.width { 0.5 } else { (cx - x0) / text.width.max(f32::EPSILON) };
             let value = ValueLabel { value: v, below, offset, align, drop: 0.0 };
-            out.labels.push(Label { key: key.to_string(), origin: [x0, origin_y], text, value: Some(value) });
+            out.labels.push(Label::new(key, [x0, origin_y], text, Some(value)));
         };
     match kind {
         Kind::Bar | Kind::StackedBar => {
@@ -804,7 +892,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     let value = ValueLabel { value: r.y, below: false, offset: gap, align, drop: 0.5 * cap(&text) };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
-                    out.labels.push(Label { key: r.key.clone(), origin, text, value: Some(value) });
+                    out.labels.push(Label::new(r.key.clone(), origin, text, Some(value)));
                 }
                 let place = Stack { key: String::new(), from: start, to: end };
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: Some(place) });
@@ -823,7 +911,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         // Centered under its tick, but inside the plot's sides.
         let x0 = (x - 0.5 * text.width).clamp(left, (right - text.width).max(left));
         let origin = [x0, y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
-        out.ticks.push(Label { key, origin, text, value: None });
+        out.ticks.push(Label::new(key, origin, text, None));
     }
     // Value labels that overlap: hidden or nudged apart as `labels.collide` says, else
     // reported (W310).
@@ -833,6 +921,226 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Some("hide") => hide(&mut out.labels, apart),
         Some("nudge") => nudge(&mut out.labels, apart),
         Some(other) => return Err(EngineError::Layout(format!("labels.collide `{other}`: expected hide or nudge"))),
+    }
+
+    // Annotations. An x is a category's band (its start, middle, and end), or a point
+    // along a continuous x.
+    let x_at = |v: &Scalar| -> Result<[f32; 3], EngineError> {
+        match &x_scale {
+            Some(s) => {
+                let at = v.position(temporal).ok_or_else(|| {
+                    let wants = if temporal { "a date in ISO 8601" } else { "a number" };
+                    EngineError::Layout(format!("an annotation's x `{}` must be {wants}", v.label()))
+                })?;
+                let x = s.map(at);
+                Ok([x, x, x])
+            }
+            None => {
+                let label = v.label();
+                let i = categories.iter().position(|(k, _)| *k == label).ok_or_else(|| {
+                    EngineError::Data(format!("an annotation stands at `{label}`, no category of `{x_field}`"))
+                })?;
+                let start = left + i as f32 * band;
+                Ok([start, start + 0.5 * band, start + band])
+            }
+        }
+    };
+    // Whether an annotation's `x` and `series` pick out a datum.
+    let picks = |note: &Annotation, r: &Row| -> bool {
+        let x = note.at.x.as_ref().is_none_or(|p| {
+            p.values().into_iter().any(|v| match (&x_scale, r.x) {
+                (Some(_), Some(x)) => v.position(temporal) == Some(x),
+                _ => v.label() == r.category,
+            })
+        });
+        let series = (note.at.series.as_ref())
+            .is_none_or(|p| p.values().into_iter().any(|v| r.series.as_deref() == Some(v.label().as_str())));
+        x && series
+    };
+    // Every value an annotation names is in the data.
+    for (k, note) in notes.iter().enumerate() {
+        for (axis, place) in [("x", &note.at.x), ("series", &note.at.series)] {
+            for v in place.iter().flat_map(Place::values) {
+                let found = match axis {
+                    "x" if note.kind != AnnotationKind::Highlight => x_at(v).map(|_| true)?,
+                    "x" => rows.iter().any(|r| match (&x_scale, r.x) {
+                        (Some(_), Some(x)) => v.position(temporal) == Some(x),
+                        _ => v.label() == r.category,
+                    }),
+                    _ => rows.iter().any(|r| r.series.as_deref() == Some(v.label().as_str())),
+                };
+                if !found {
+                    return Err(EngineError::Data(format!("annotation {k}: no datum has {axis} `{}`", v.label())));
+                }
+            }
+        }
+    }
+    let mut seen: Vec<(AnnotationKind, &str)> = Vec::new();
+    for (note, text) in notes.iter().zip(note_texts) {
+        if note.kind == AnnotationKind::Highlight {
+            continue;
+        }
+        // Keyed by kind, axis, and place among the chart's annotations of both.
+        let axis = if note.kind != AnnotationKind::Callout && note.at.y.is_some() { "y" } else { "x" };
+        let n = seen.iter().filter(|s| **s == (note.kind, axis)).count();
+        seen.push((note.kind, axis));
+        let name = match note.kind {
+            AnnotationKind::Rule => "rule",
+            AnnotationKind::Band => "band",
+            _ => "callout",
+        };
+        let mut out_note = Note { key: format!("{name}\u{1f}{axis}\u{1f}{n}"), band: None, rule: None, label: None };
+        let first_y = |p: &Place| p.values()[0].position(false).expect("checked: y is a number");
+        // Where its text goes: its top-left corner.
+        let origin: Option<[f32; 2]> = match note.kind {
+            AnnotationKind::Rule => match (&note.at.x, &note.at.y) {
+                // Across the plot, its text over the rule at the plot's start.
+                (_, Some(p)) => {
+                    let y = to_y(first_y(p));
+                    out_note.rule =
+                        Some(Rule { from: [left, y], to: [right, y], width: note_width, color: rule_color });
+                    text.as_ref().map(|t| [left, y - 0.5 * gap - t.lines[0].baseline])
+                }
+                // Up the plot, its text beside the rule's top, after it unless it would
+                // pass the plot's end.
+                (Some(p), None) => {
+                    let [_, x, _] = x_at(p.values()[0])?;
+                    out_note.rule =
+                        Some(Rule { from: [x, top], to: [x, bottom], width: note_width, color: rule_color });
+                    text.as_ref().map(|t| {
+                        let after = x + 0.5 * gap;
+                        let x0 = if after + t.width <= right { after } else { x - 0.5 * gap - t.width };
+                        [x0, top - (t.lines[0].baseline - cap(t))]
+                    })
+                }
+                (None, None) => unreachable!("checked: a rule stands at x or y"),
+            },
+            // A box across the plot, its text inside its top-left corner.
+            AnnotationKind::Band => {
+                let rect = match (&note.at.x, &note.at.y) {
+                    (_, Some(p)) => {
+                        let ends: Vec<f32> =
+                            p.values().iter().map(|v| to_y(v.position(false).unwrap_or(0.0))).collect();
+                        let (y0, y1) = (ends[0].min(ends[1]), ends[0].max(ends[1]));
+                        [left, y0, right - left, y1 - y0]
+                    }
+                    (Some(p), None) => {
+                        let ends = p.values();
+                        let (a, b) = (x_at(ends[0])?, x_at(ends[1])?);
+                        let (x0, x1) = (a[0].min(b[0]), a[2].max(b[2]));
+                        [x0, top, x1 - x0, bottom - top]
+                    }
+                    (None, None) => unreachable!("checked: a band spans x or y"),
+                };
+                out_note.band = Some((rect, band_color));
+                text.as_ref().map(|t| [rect[0] + 0.5 * gap, rect[1] + 0.5 * gap - (t.lines[0].baseline - cap(t))])
+            }
+            // A leader up from its point, or from its mark's value end and clear of the
+            // mark's value label (down from a bar below the baseline), to its text,
+            // centered but inside the plot's sides, over every mark, line, and value label
+            // under it.
+            _ => {
+                let x = note.at.x.as_ref().expect("checked: a callout stands at an x");
+                let (ax, ay, below) = match &note.at.y {
+                    Some(p) => (x_at(x.values()[0])?[1], to_y(first_y(p)), false),
+                    None => {
+                        let hits: Vec<usize> = (0..rows.len()).filter(|&i| picks(note, &rows[i])).collect();
+                        let [i] = hits[..] else {
+                            return Err(EngineError::Data(format!(
+                                "a callout at `{}` stands on {} marks; give it `at.series` or `at.y`",
+                                x.values()[0].label(),
+                                hits.len()
+                            )));
+                        };
+                        let mark = &out.marks[i];
+                        let (ax, end, below) = match mark.shape {
+                            Shape::Bar(r) if rows[i].y < 0.0 => (r.center_x(), r.bottom(), true),
+                            Shape::Bar(r) => (r.center_x(), r.top(), false),
+                            Shape::Dot { x, y, r } => (x, y - r, false),
+                            Shape::Span { x, top, .. } => (x, top, false),
+                            Shape::Arc { .. } => unreachable!("checked: a donut takes no callouts"),
+                        };
+                        let end = match out.labels.iter().find(|l| l.key == mark.key) {
+                            Some(l) if below => end.max(ink(l)[3]),
+                            Some(l) => end.min(ink(l)[1]),
+                            None => end,
+                        };
+                        (ax, end, below)
+                    }
+                };
+                let x0 = text.as_ref().map_or(ax, |t| (ax - 0.5 * t.width).clamp(left, (right - t.width).max(left)));
+                let x1 = x0 + text.as_ref().map_or(0.0, |t| t.width);
+                let under = |a: f32, b: f32| b >= x0 && a <= x1;
+                // Over a bar below the baseline, nothing stands under it; over the rest,
+                // the highest mark, line, or value label its text would cross.
+                let clear = match below {
+                    true => ay,
+                    false => (out.marks.iter())
+                        .filter_map(|m| match m.shape {
+                            Shape::Bar(r) => under(r.x, r.x + r.w).then_some(r.top()),
+                            Shape::Dot { x, y, r } => under(x - r, x + r).then_some(y - r),
+                            Shape::Span { x, top, .. } => under(x, x).then_some(top),
+                            Shape::Arc { .. } => None,
+                        })
+                        .chain(out.labels.iter().map(ink).filter(|b| under(b[0], b[2])).map(|b| b[1]))
+                        .chain(out.paths.iter().flat_map(|p| {
+                            // A line or an area's top: its vertices under the text, and
+                            // where it crosses the text's ends.
+                            let mut at: Vec<[f32; 2]> = (p.marks.iter())
+                                .filter_map(|k| out.marks.iter().find(|m| m.key == *k))
+                                .map(|m| m.shape.point())
+                                .collect();
+                            at.sort_by(|a, b| a[0].total_cmp(&b[0]));
+                            let cross = |x: f32| {
+                                at.windows(2).find(|w| w[0][0] <= x && x <= w[1][0]).map(|w| {
+                                    let t = if w[1][0] > w[0][0] { (x - w[0][0]) / (w[1][0] - w[0][0]) } else { 0.0 };
+                                    w[0][1] + t * (w[1][1] - w[0][1])
+                                })
+                            };
+                            let inside: Vec<f32> = at.iter().filter(|q| under(q[0], q[0])).map(|q| q[1]).collect();
+                            inside.into_iter().chain(cross(x0)).chain(cross(x1))
+                        }))
+                        .fold(ay, f32::min),
+                };
+                let dir = if below { 1.0 } else { -1.0 };
+                let (from, to) = ([ax, ay + dir * 0.5 * gap], [ax, clear + dir * 2.5 * gap]);
+                out_note.rule = Some(Rule { from, to, width: note_width, color: rule_color });
+                text.as_ref().map(|t| {
+                    let first = &t.lines[0];
+                    match below {
+                        true => [x0, clear + 3.0 * gap - (first.baseline - cap(t))],
+                        false => [x0, clear - 3.0 * gap - first.baseline],
+                    }
+                })
+            }
+        };
+        out_note.label = origin.zip(text).map(|(at, t)| Label::new(out_note.key.clone(), at, t, None));
+        out.notes.push(out_note);
+    }
+    // A highlight leaves what it picks out as it is and dims the rest: marks, their
+    // value labels, a line or an area with none of its marks picked, and a legend entry
+    // whose marks are none of them.
+    let highlights: Vec<&Annotation> = notes.iter().filter(|n| n.kind == AnnotationKind::Highlight).collect();
+    if !highlights.is_empty() {
+        let lit: Vec<&str> =
+            rows.iter().filter(|r| highlights.iter().any(|h| picks(h, r))).map(|r| r.key.as_str()).collect();
+        let dim = |Color([r, g, b, a]): Color| Color([r, g, b, (f32::from(a) * dimmed).round() as u8]);
+        for m in out.marks.iter_mut().filter(|m| !lit.contains(&m.key.as_str())) {
+            m.color = dim(m.color);
+        }
+        for l in out.labels.iter_mut().filter(|l| !lit.contains(&l.key.as_str())) {
+            l.opacity = dimmed;
+        }
+        for p in out.paths.iter_mut().filter(|p| !p.marks.iter().any(|k| lit.contains(&k.as_str()))) {
+            p.color = dim(p.color);
+        }
+        for e in &mut out.legend {
+            let entry = |r: &&Row| if donut { r.label == e.key } else { r.series.as_deref() == Some(e.key.as_str()) };
+            if !rows.iter().filter(entry).any(|r| lit.contains(&r.key.as_str())) {
+                e.color = dim(e.color);
+                e.label.opacity = dimmed;
+            }
+        }
     }
     Ok(out)
 }

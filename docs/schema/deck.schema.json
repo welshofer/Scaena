@@ -814,20 +814,57 @@
     },
     "LabelShow": { "type": "string", "enum": ["all", "ends", "none"] },
     "LabelCollide": { "type": "string", "enum": ["hide", "nudge"] },
-    "Legend": { "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "type": "object", "additionalProperties": true }] },
+    "Legend": {
+      "description": "Where a chart's legend stands, alone or with a title (SPEC §3.7).",
+      "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "$ref": "#/$defs/LegendSpec" }]
+    },
     "LegendPlace": { "type": "string", "enum": ["none", "auto", "top", "bottom", "right"] },
-    "Annotation": {
+    "LegendSpec": {
+      "description": "A legend with a title: `{ \"place\": \"right\", \"title\": \"Product\" }`.",
       "type": "object",
-      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "place": { "description": "`top` when unset.", "$ref": "#/$defs/LegendPlace" },
+        "title": { "description": "Printed before the entries, in the legend's role.", "type": "string" }
+      }
+    },
+    "Annotation": {
+      "description": "A chart annotation (SPEC §3.7): a rule, a band, a callout, or a highlight, in the theme's `charts.annotation` style.",
+      "type": "object",
+      "required": ["kind", "at"],
       "additionalProperties": false,
       "properties": {
         "kind": { "$ref": "#/$defs/AnnotationKind" },
-        "at": { "type": "object", "additionalProperties": true },
-        "text": { "type": "string" },
-        "role": { "type": "string" }
+        "at": {
+          "description": "Where it stands, by kind: a rule at `x` or `y`, a band from one to another of either, a callout at `x` (and `y`, or a `series`), a highlight on categories `x` and series.",
+          "$ref": "#/$defs/AnnotationAt"
+        },
+        "text": { "description": "What it says; a highlight says nothing.", "type": "string" },
+        "role": { "description": "The text's role; `charts.annotation.role` when unset.", "type": "string" }
       }
     },
     "AnnotationKind": { "type": "string", "enum": ["callout", "rule", "band", "highlight"] },
+    "AnnotationAt": {
+      "description": "An annotation's place: a category or an x value (a number, or a date as ISO 8601), a value on the value axis, and a series, each one or several by kind.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "$ref": "#/$defs/Place" },
+        "y": { "$ref": "#/$defs/Place" },
+        "series": { "$ref": "#/$defs/Place" }
+      }
+    },
+    "Place": {
+      "description": "One value, or several: a band's two ends, or what a highlight picks out.",
+      "anyOf": [
+        { "$ref": "#/$defs/Scalar" },
+        { "type": "array", "items": { "$ref": "#/$defs/Scalar" }, "minItems": 1 }
+      ]
+    },
+    "Scalar": {
+      "description": "A number, or text: a category, a series, or a date.",
+      "anyOf": [{ "type": "number" }, { "type": "string" }]
+    },
     "TableColumn": {
       "description": "One column of a table.",
       "type": "object",
@@ -1022,7 +1059,7 @@
         "sizeEncoding": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "key": { "type": ["string", "null"] },
         "labels": { "anyOf": [{ "$ref": "#/$defs/ChartLabelsDelta" }, { "type": "null" }] },
-        "legend": { "anyOf": [{ "$ref": "#/$defs/Legend" }, { "type": "null" }] },
+        "legend": { "anyOf": [{ "$ref": "#/$defs/LegendDelta" }, { "type": "null" }] },
         "annotations": {
           "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/Annotation" } }, { "type": "null" }]
         },
@@ -1229,6 +1266,19 @@
         "show": { "anyOf": [{ "$ref": "#/$defs/LabelShow" }, { "type": "null" }] },
         "role": { "type": ["string", "null"] },
         "collide": { "anyOf": [{ "$ref": "#/$defs/LabelCollide" }, { "type": "null" }] }
+      }
+    },
+    "LegendDelta": {
+      "description": "`Legend` in a state's delta: a whole value, or an object that merges one level into the tracked one (SPEC §2.2).",
+      "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "$ref": "#/$defs/LegendSpecDelta" }]
+    },
+    "LegendSpecDelta": {
+      "description": "`LegendSpec` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "place": { "anyOf": [{ "$ref": "#/$defs/LegendPlace" }, { "type": "null" }] },
+        "title": { "type": ["string", "null"] }
       }
     },
     "ChoreoItem": {

@@ -1,6 +1,6 @@
 {
   "scaena": "0.5",
-  "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, and every value fits the schema and its parse format.",
+  "_comment": "E103 clean: every field a chart or table reads is a column of its data, after its dataTransform if it has one, of a type its channel reads, every value fits the schema and its parse format, and every category an annotation names is one.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": {
     "q": {
@@ -13,11 +13,17 @@
     "a": {
       "type": "chart", "kind": "bar", "data": "@q", "key": "quarter",
       "x": { "field": "quarter", "type": "ordinal" }, "y": { "field": "rev", "type": "quantitative", "format": "$,.0f" },
+      "annotations": [
+        { "kind": "rule", "at": { "y": 15 }, "text": "Plan" },
+        { "kind": "callout", "at": { "x": "Q2" }, "text": "Best" },
+        { "kind": "highlight", "at": { "x": ["Q2"] } }
+      ],
       "at": { "in": "canvas" }
     },
     "c": {
       "type": "chart", "kind": "bar", "data": "@q",
       "x": { "field": "when", "type": "temporal", "format": "Q%q %Y" }, "y": { "field": "rev", "type": "quantitative" },
+      "annotations": [{ "kind": "band", "at": { "x": ["2025-01-01", "2025-04-01"] }, "text": "H1" }],
       "at": { "in": "canvas" }
     },
     "t": {

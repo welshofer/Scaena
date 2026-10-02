@@ -1,18 +1,24 @@
 {
   "scaena": "0.5",
-  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, and two stacks inside each other.",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, and chart annotations that stand where their kinds cannot.",
   "canvas": { "width": 1920, "height": 1080 },
+  "data": { "q": { "source": { "inline": [{ "quarter": "Q1", "rev": 12 }] }, "schema": { "rev": "number" } } },
   "nodes": {
     "headline": { "type": "text", "text": "Growth", "fit": "cover", "at": { "in": "canvas" } },
     "photo": { "type": "image", "src": "assets/photo.png", "role": "body", "alt": "A photo", "alt": "A better photo", "at": { "in": "canvas" } },
     "logo": { "type": "image", "alt": "Logo", "style": { "color": "accent" }, "at": { "in": "canvas" } },
     "badge": { "type": "text", "text": "New", "at": { "parent": "headline" } },
     "left": { "type": "stack", "at": { "parent": "right" } },
-    "right": { "type": "stack", "at": { "parent": "left" } }
+    "right": { "type": "stack", "at": { "parent": "left" } },
+    "plot": {
+      "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "quarter" }, "y": { "field": "rev" },
+      "annotations": [{ "kind": "rule", "at": { "x": "Q1", "y": 3 } }, { "kind": "highlight", "at": { "x": "Q1" }, "text": "Up" }],
+      "at": { "in": "canvas" }
+    }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {} } },
-    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null } } }
+    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {} } },
+    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] } } }
   ],
   "overrides": { "photo": { "kind": "bar", "fit": "stretch" }, "headline": { "style": { "weight": 1200 } } }
 }

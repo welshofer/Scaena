@@ -4,8 +4,9 @@ Phase 0 is adversarial: this bundle exists to make `parley`/`harfrust` and the p
 
 ```
 torture.scaena/
-  deck.json        38 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, and each
-                   state that moves a gallery's data, which builds on the one before), layout: specimen
+  deck.json        40 states, mode: absolute (but `chart` and `chart-next`, which build on `chart-intro`, and each
+                   state that moves a gallery's data or its annotations, which builds on the one before),
+                   layout: specimen
   theme.json       "Torture": every case-specific setting is a role, so the deck references roles only
   data/bars.csv    six quarters for the bar chart; bars-next.csv, the window a quarter later; the chart
                    galleries' sources are inline in deck.json
@@ -67,6 +68,8 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 | 34 | `chart-kinds-2-next` | Chart kinds: data moves by key | recorded (added with PLAN 1.9) | Frame `chart-kinds-2-next@0.5`: the scatter's dots move to their new places by name; in the donut, Partners closes as Social opens, the ring whole throughout and every slice keeping its color; the table re-sorts by growth, rows moving to where they now stand. |
 | 35 | `regroup` | Bars that regroup | recorded (added with PLAN 1.9) | Grouped bars, three products to a quarter, value labels over each bar. |
 | 36 | `regroup-stacked` | Bars that regroup: stacked | recorded (added with PLAN 1.9) | The bars regroup in two stages, as d3's do (frames `regroup-stacked@0.25` and `@0.75`). First the heights: each bar rises to its place in its quarter's stack, still side by side. Then the widths: the bars slide together into one stack, whose total counts up over its top segment. |
+| 37 | `annotations` | Chart annotations | recorded (added with PLAN 1.9) | Left, grouped bars with a band behind Q3 and Q4 (the accent at 0.12, under the gridlines) reading "Launch" inside its top-left corner, a target rule at $20 with "Target" over its start, a callout whose leader rises from over Q4 Cloud's bar to "Record" above Core's taller bar, and gridlines between the quarters' bands; the legend starts with its title, "Product". Right, lines with only Cloud at full strength: Core and Edge, their end labels, and their legend entries dim to 0.3; "Cloud doubles" stands over Cloud's Q3 point, clear of the Core line; gridlines run through each quarter; the legend stands at the right under its title. |
+| 38 | `annotations-next` | Chart annotations: they move | recorded (added with PLAN 1.9) | Frame `annotations-next@0.5`: each annotation moves to where the next state puts it. The band narrows to Q4, the target rule rises to $25, and the callout slides from Cloud's bar to Core's. On the right, Cloud dims as Core comes up, end labels and legend entries with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from "Cloud doubles" to "Core leads". |
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 

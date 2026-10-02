@@ -357,7 +357,11 @@
           "minimum": 0,
           "maximum": 1
         },
-        "legend": { "description": "Legend labels; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" }
+        "legend": { "description": "Legend labels; their role defaults to the axis's.", "$ref": "#/$defs/ChartLabel" },
+        "annotation": {
+          "description": "Annotations: rules, bands, callouts, and highlights.",
+          "$ref": "#/$defs/ChartAnnotation"
+        }
       }
     },
     "ChartRule": {
@@ -371,6 +375,37 @@
       }
     },
     "ChartLabel": { "type": "object", "properties": { "role": { "type": "string" } } },
+    "ChartAnnotation": {
+      "description": "How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "description": "The text's role; the value labels' when unset.", "type": "string" },
+        "stroke": { "description": "A rule's and a callout's leader's stroke; `thin` when unset.", "type": "string" },
+        "color": {
+          "description": "The rules, the leaders, the bands, and the text; `accent` when unset.",
+          "type": "string"
+        },
+        "opacity": {
+          "description": "A rule's and a leader's opacity; 1 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "band": {
+          "description": "A band's fill opacity; 0.12 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dimmed": {
+          "description": "The opacity a highlight leaves the rest of the chart at; 0.3 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
     "Tables": {
       "description": "Table styles (SPEC §3.6), every one a role, a token, or a length.",
       "type": "object",

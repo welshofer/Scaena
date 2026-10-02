@@ -28,8 +28,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, MarkPreset, Numerals, RoundRect, Rule, SeriesPath,
-    Shape, ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, MarkPreset, Note, Numerals, RoundRect, Rule,
+    SeriesPath, Shape, ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -139,25 +139,29 @@ impl SceneNode {
                 layer(Some(&self.id), [cell[0], cell[1]], opacity, ops)
             }
             Content::Chart { cell, chart } => {
+                let mut ops: Vec<Op> =
+                    chart.notes.iter().filter_map(|n| n.band).map(|(rect, color)| band_op(rect, color, 1.0)).collect();
                 let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
-                let mut ops: Vec<Op> = rules.map(|r| rule_op(r, 1.0)).collect();
+                ops.extend(rules.map(|r| rule_op(r, 1.0)));
                 if let Some(rule) = &chart.baseline {
                     ops.push(rule_op(rule, 1.0));
                 }
                 let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
                 let mut plot: Vec<Op> = chart.paths.iter().filter_map(|s| path_op(s, &shapes, s.color, 1.0)).collect();
                 plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
-                for label in chart.ticks.iter().chain(&chart.labels) {
-                    plot.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
+                plot.extend(chart.notes.iter().filter_map(|n| n.rule.as_ref()).map(|r| rule_op(r, 1.0)));
+                let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
+                for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
+                    plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
                 }
                 let [left, _, width, _] = chart.plot;
                 let clip = chart.clipped.then_some([left, left + width]);
                 ops.extend(plot_layer(clip, [-cell[1], dl.viewport[1]], plot));
                 for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
-                    ops.push(layer(None, label.origin, 1.0, text_ops(dl, &label.text.runs)));
+                    ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text.runs)));
                 }
-                for entry in &chart.legend {
-                    ops.extend(legend_ops(dl, entry.swatch, entry.color, &entry.label, entry.label.origin, 1.0));
+                for e in &chart.legend {
+                    ops.extend(legend_ops(dl, e.swatch, e.color, &e.label, e.label.origin, 1.0, e.label.opacity));
                 }
                 chart_layer(&self.id, [cell[0], cell[1]], cell[2], dl.viewport[1], opacity, ops)
             }
@@ -274,9 +278,11 @@ struct ChartPlan {
     /// Value-axis ticks by their text, and axis titles by axis.
     y_axis: Vec<Pair>,
     titles: Vec<Pair>,
-    /// Gridlines across a continuous x by tick, and legend entries by series.
+    /// Gridlines across the x axis by tick or category, and legend entries by series.
     x_grid: Vec<Pair>,
     legend: Vec<Pair>,
+    /// Annotations by kind, axis, and place.
+    notes: Vec<Pair>,
 }
 
 /// A keyed chart part on either side and, for a part on one side only, the nearest
@@ -576,6 +582,7 @@ impl ChartPlan {
             titles: pair(titles_of(a), titles_of(b), |l| &l.key),
             x_grid: pair(a.map_or(&[][..], |c| &c.x_grid), b.map_or(&[][..], |c| &c.x_grid), |t| &t.key),
             legend: pair(legend_of(a), legend_of(b), |e| &e.key),
+            notes: pair(notes_of(a), notes_of(b), |n| &n.key),
         }
     }
 
@@ -595,6 +602,22 @@ impl ChartPlan {
         clip_y: [f32; 2],
     ) -> Vec<Op> {
         let mut ops = Vec::new();
+        // Annotations by key: a band, a rule, a leader, and text on both sides move (text
+        // that changed cross-fades); one on one side only fades where it is.
+        let (na, nb) = (notes_of(a), notes_of(b));
+        let notes: Vec<(Option<&Note>, Option<&Note>)> =
+            self.notes.iter().map(|&(i, j)| (i.map(|i| &na[i]), j.map(|j| &nb[j]))).collect();
+        for &(x, y) in &notes {
+            match (x.and_then(|n| n.band), y.and_then(|n| n.band)) {
+                (Some((r, c)), Some((s, d))) => {
+                    let rect = [0, 1, 2, 3].map(|k| lerp(r[k], s[k], p));
+                    ops.push(band_op(rect, mix(c, d, p), 1.0));
+                }
+                (Some((r, c)), None) => ops.push(band_op(r, c, 1.0 - p)),
+                (None, Some((s, d))) => ops.push(band_op(s, d, p)),
+                (None, None) => {}
+            }
+        }
         // The value axis rescales as d3's does: a tick on both sides moves; one on one
         // side only rides from or to where its value sits on the other side's scale,
         // fading.
@@ -710,6 +733,14 @@ impl ChartPlan {
             plot.extend(mark_op(shape, color, alpha));
             drawn.push(shape);
         }
+        for &(x, y) in &notes {
+            match (x.and_then(|n| n.rule.as_ref()), y.and_then(|n| n.rule.as_ref())) {
+                (Some(r), Some(s)) => plot.push(rule_op(&lerp_rule(r, s, p), 1.0)),
+                (Some(r), None) => plot.push(rule_op(r, 1.0 - p)),
+                (None, Some(s)) => plot.push(rule_op(s, p)),
+                (None, None) => {}
+            }
+        }
         // A value label rides its mark: the target's when the kind changed.
         let mut sampled = Vec::with_capacity(self.marks.len());
         let mut k = 0;
@@ -743,6 +774,10 @@ impl ChartPlan {
         for ((&(marks, (i, j)), shape), &p) in self.marks.iter().zip(&sampled).zip(&progress) {
             value_label(dl, &mut plot, (i.map(|i| &la[i]), j.map(|j| &lb[j])), marks.pair, shape, numerals, p);
         }
+        for &(x, y) in &notes {
+            let (lx, ly) = (x.and_then(|n| n.label.as_ref()), y.and_then(|n| n.label.as_ref()));
+            text_between(dl, &mut plot, lx, ly, p);
+        }
         // The plot clips while either side's does, its sides moving from one to the
         // other's.
         let edge = |c: &ChartLayout| [c.plot[0], c.plot[0] + c.plot[2]];
@@ -768,18 +803,7 @@ impl ChartPlan {
         // Titles move; changed text cross-fades.
         let (ta, tb) = (titles_of(a), titles_of(b));
         for &(i, j) in &self.titles {
-            let mut title =
-                |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
-            match (i.map(|i| &ta[i]), j.map(|j| &tb[j])) {
-                (Some(x), Some(y)) if x.text == y.text => title(lerp2(x.origin, y.origin, p), 1.0, y),
-                (Some(x), Some(y)) => {
-                    title(lerp2(x.origin, y.origin, p), 1.0 - p, x);
-                    title(lerp2(x.origin, y.origin, p), p, y);
-                }
-                (Some(x), None) => title(x.origin, 1.0 - p, x),
-                (None, Some(y)) => title(y.origin, p, y),
-                (None, None) => {}
-            }
+            text_between(dl, &mut ops, i.map(|i| &ta[i]), j.map(|j| &tb[j]), p);
         }
         // Legend entries move and change color; one on one side only fades.
         let (ea, eb) = (legend_of(a), legend_of(b));
@@ -788,14 +812,36 @@ impl ChartPlan {
                 (Some(x), Some(y)) => {
                     let swatch = RoundRect::lerp(x.swatch, y.swatch, p);
                     let at = lerp2(x.label.origin, y.label.origin, p);
-                    ops.extend(legend_ops(dl, swatch, mix(x.color, y.color, p), &y.label, at, 1.0));
+                    let opacity = lerp(x.label.opacity, y.label.opacity, p);
+                    ops.extend(legend_ops(dl, swatch, mix(x.color, y.color, p), &y.label, at, 1.0, opacity));
                 }
-                (Some(x), None) => ops.extend(legend_ops(dl, x.swatch, x.color, &x.label, x.label.origin, 1.0 - p)),
-                (None, Some(y)) => ops.extend(legend_ops(dl, y.swatch, y.color, &y.label, y.label.origin, p)),
+                (Some(x), None) => {
+                    ops.extend(legend_ops(dl, x.swatch, x.color, &x.label, x.label.origin, 1.0 - p, x.label.opacity))
+                }
+                (None, Some(y)) => {
+                    ops.extend(legend_ops(dl, y.swatch, y.color, &y.label, y.label.origin, p, y.label.opacity))
+                }
                 (None, None) => {}
             }
         }
         ops
+    }
+}
+
+/// Text on either side `p` of the way across: the same text moves, at its opacity
+/// between the two; changed text cross-fades as it moves; text on one side only fades
+/// where it is.
+fn text_between(dl: &mut DisplayList, ops: &mut Vec<Op>, x: Option<&Label>, y: Option<&Label>, p: f32) {
+    let mut put = |at: Point, alpha: f32, l: &Label| ops.push(layer(None, at, alpha, text_ops(dl, &l.text.runs)));
+    match (x, y) {
+        (Some(x), Some(y)) if x.text == y.text => put(lerp2(x.origin, y.origin, p), lerp(x.opacity, y.opacity, p), y),
+        (Some(x), Some(y)) => {
+            put(lerp2(x.origin, y.origin, p), (1.0 - p) * x.opacity, x);
+            put(lerp2(x.origin, y.origin, p), p * y.opacity, y);
+        }
+        (Some(x), None) => put(x.origin, (1.0 - p) * x.opacity, x),
+        (None, Some(y)) => put(y.origin, p * y.opacity, y),
+        (None, None) => {}
     }
 }
 
@@ -813,6 +859,10 @@ fn paths_of(c: Option<&ChartLayout>) -> &[SeriesPath] {
 
 fn legend_of(c: Option<&ChartLayout>) -> &[LegendEntry] {
     c.map_or(&[], |c| &c.legend)
+}
+
+fn notes_of(c: Option<&ChartLayout>) -> &[Note] {
+    c.map_or(&[], |c| &c.notes)
 }
 
 /// The plot's ops: in a layer clipped to the plot's sides, `[left, right]`, when
@@ -887,10 +937,16 @@ fn value_label(
         let [cx, baseline] = v.anchor(shape);
         [cx - v.align * text.width, baseline - text.lines.first().map_or(0.0, |l| l.baseline)]
     };
+    // A highlight dims a label on one side, or both.
+    let opacity = match (x, y) {
+        (Some(x), Some(y)) => lerp(x.opacity, y.opacity, p),
+        (Some(l), None) | (None, Some(l)) => l.opacity,
+        (None, None) => 1.0,
+    };
     if let (Some(x), Some(y)) = (x, y)
         && x.text == y.text
     {
-        ops.push(layer(None, at(&y.text, ride(y)), 1.0, text_ops(dl, &y.text.runs)));
+        ops.push(layer(None, at(&y.text, ride(y)), opacity, text_ops(dl, &y.text.runs)));
         return;
     }
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
@@ -905,14 +961,15 @@ fn value_label(
             (_, None) => 1.0 - p,
             _ => 1.0,
         };
-        ops.push(layer(None, [cx - v.align * width, baseline - numerals.baseline], alpha, text_ops(dl, &runs)));
+        let origin = [cx - v.align * width, baseline - numerals.baseline];
+        ops.push(layer(None, origin, alpha * opacity, text_ops(dl, &runs)));
         return;
     }
     if let Some(x) = x {
-        ops.push(layer(None, at(&x.text, ride(x)), 1.0 - p, text_ops(dl, &x.text.runs)));
+        ops.push(layer(None, at(&x.text, ride(x)), (1.0 - p) * x.opacity, text_ops(dl, &x.text.runs)));
     }
     if let Some(y) = y {
-        ops.push(layer(None, at(&y.text, ride(y)), p, text_ops(dl, &y.text.runs)));
+        ops.push(layer(None, at(&y.text, ride(y)), p * y.opacity, text_ops(dl, &y.text.runs)));
     }
 }
 
@@ -1177,11 +1234,25 @@ fn mark_op(shape: Shape, color: Color, alpha: f32) -> Option<Op> {
     Some(Op::Fill { path: shape.path()?, rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) })
 }
 
-/// A legend entry: its swatch filled in `color`, its label at `at`, both at `alpha`.
-fn legend_ops(dl: &mut DisplayList, swatch: RoundRect, color: Color, label: &Label, at: Point, alpha: f32) -> Vec<Op> {
+/// A legend entry: its swatch filled in `color`, its label at `at`, both at `alpha`,
+/// the label at `opacity` too (a highlight dims it).
+fn legend_ops(
+    dl: &mut DisplayList,
+    swatch: RoundRect,
+    color: Color,
+    label: &Label,
+    at: Point,
+    alpha: f32,
+    opacity: f32,
+) -> Vec<Op> {
     let mut ops: Vec<Op> = mark_op(Shape::Bar(swatch), color, alpha).into_iter().collect();
-    ops.push(layer(None, at, alpha, text_ops(dl, &label.text.runs)));
+    ops.push(layer(None, at, alpha * opacity, text_ops(dl, &label.text.runs)));
     ops
+}
+
+/// An annotation's band: its box filled in `color` at `alpha`.
+fn band_op(rect: [f32; 4], color: Color, alpha: f32) -> Op {
+    Op::Fill { path: Path::rect(rect), rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
 }
 
 /// A series' line or area through its marks' `shapes` (by key) in `color`.
@@ -1340,6 +1411,7 @@ mod tests {
             titles: Vec::new(),
             legend: Vec::new(),
             x_grid: Vec::new(),
+            notes: Vec::new(),
             collisions: Vec::new(),
         }
     }

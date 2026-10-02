@@ -276,7 +276,8 @@ See `docs/schema/theme.schema.json`. Shape:
   },
   "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral" }, "legend": { "role": "label" }, "strokeWidth": "thin",
-              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5 },
+              "cornerRadius": 2, "barGap": 0.2, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 8, "donutHole": 0.6, "tickCount": 5,
+              "annotation": { "role": "label", "stroke": "thin", "color": "accent", "band": 0.12, "dimmed": 0.3 } },
   "tables": { "header": { "role": "label", "color": "onSurfaceMuted" }, "cell": { "role": "body" }, "rule": { "stroke": "hairline" },
               "rowRule": { "stroke": "hairline", "opacity": 0.4 }, "rowGap": 4 }
 }
@@ -308,8 +309,12 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "key": "product",                    // identity for morphing marks across states
   "axes": { "x": { "show": true }, "y": { "show": false, "gridlines": true } },
   "labels": { "show": "ends", "role": "numeral" },
-  "legend": "none",
-  "annotations": [ { "kind": "callout", "at": { "x": "Q3", "y": 42 }, "text": "Launch" } ],
+  "legend": "none",                    // or { "place": "right", "title": "Product" }
+  "annotations": [
+    { "kind": "callout", "at": { "x": "Q3", "y": 42 }, "text": "Launch" },
+    { "kind": "rule", "at": { "y": 50 }, "text": "Target" },
+    { "kind": "highlight", "at": { "series": "Cloud" } }
+  ],
   "enter": { "preset": "grow", "stagger": 40, "spring": "snappy" }
 }
 ```
@@ -335,7 +340,7 @@ Rules:
   - `donut`: each datum a slice of a ring, its share of the total, clockwise from twelve o'clock in data order. The hole is `charts.donutHole` (default 0.6) of the radius. A negative value is an error. A donut has no axes.
 - **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else in the step's own format (`%b %-d` for days, `%b %Y` for months, `%Y` for years). Any other x is a category axis: a band per category.
 - **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
-- **Legend.** One entry per series, or per slice of a donut, when there are two or more. Each entry is a swatch, a square of the label's cap height rounded like the bars, on the label's baseline, in `charts.legend.role` (else the axis's role). `legend` places it: `auto` and `top` (the default) above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top; `none` hides it. The object form of `legend` is reserved and returns NotImplemented.
+- **Legend.** One entry per series, or per slice of a donut, when there are two or more. Each entry is a swatch, a square of the label's cap height rounded like the bars, on the label's baseline, in `charts.legend.role` (else the axis's role). `legend` places it: `auto` and `top` (the default) above the plot, under the value axis's title, wrapping across the chart's width; `bottom` at the chart's foot; `right` in a column beside the plot from its top; `none` hides it. `{ "place", "title" }` places it and gives it a title in `charts.title.role`: the first line of a column, or the start of a row, its entries wrapping under one another after it, every entry and the title on one baseline.
 - **Scale.** The value axis runs from `domain[0]` to `domain[1]`. An unset bound is the data's extent, and for kinds whose length is the value (`bar`, `stackedBar`, `area`) it includes 0. Stacked kinds take the extent of their stacks. The plot leaves room above the marks for value labels.
 - **Labels.** Category labels (or x ticks) sit under the plot in `charts.axis.role`, cap tops one `tokens.space.unit` below it, over a baseline rule at 0 (`charts.axis.stroke`, `charts.axis.color`). `labels.show` (`all` | `ends` | `none`, default `none`) prints values in `labels.role` or `charts.label.role`, with tabular lining figures, in `y.format`. With no format they print as d3 prints a number: `0.1 + 0.2` prints `0.3`. `ends` labels each series' first and last datum. A bar's label sits one space unit above it (below a negative bar), and a point's sits above the point. A stack prints one label, its total, over its top segment: every stack with `all`, the first and last with `ends`. A donut's label sits outside its slice's middle, on that side of the ring. Every other value label, and every category label and x tick, is centered on its mark or tick but stays inside the plot's sides. Category labels print in `x.format` when the column holds numbers or dates; a date column with no format prints ISO 8601.
 - **Collisions.** Value labels collide when their cap-height boxes come within a quarter space unit of each other.
@@ -344,7 +349,7 @@ Rules:
   - Without `collide`, the layout reports each pair that collides, for W310 (PLAN 1.15 runs layout lints).
 - **Axes** (PLAN 1.9). Category labels and x ticks show unless `axes.x.show` is false.
   - `axes.y.show` adds the value axis: tick labels right-aligned in a gutter left of the plot, in `charts.axis.role`, each with the middle of its cap height on its tick.
-  - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one the baseline already rules. On a continuous x, `axes.x.gridlines` rules each x tick from the plot's top to its foot.
+  - `axes.y.gridlines` rules each tick across the plot (`charts.gridlines`: stroke, color, opacity), except the one the baseline already rules. `axes.x.gridlines` rules the plot from its top to its foot: at each x tick on a continuous x; across a category axis, between the bands of bars and through each category of the other kinds. A category's gridline is keyed by the category after it, so it moves with its bars.
   - With either one, the domain widens to round values at the tick step (d3's `nice`), and a `domain` bound the author sets stays. Ticks fall about `charts.tickCount` (default 5) to the axis, on d3's steps of 1, 2, and 5 × 10ⁿ.
   - Tick labels print in `y.format` at the precision the step needs, as d3's `tickFormat` does: `$,f` ticks read `$0`, `$5`, and `s` and `k` ticks share one prefix. With no format they print as d3's `,f`.
   - Titles (`axes.x.title` or `axes.y.title`, else the encoding's `title`) print in `charts.title.role`, else the axis's role. The value axis's title sits above the plot at the chart's left; the category axis's is centered under the category labels.
@@ -364,7 +369,14 @@ Rules:
   - Entering marks take the target state's `enter` and stagger in its data order; leaving ones take the source state's `exit`, in its order.
   - Mark k starts `delay + k × stagger` ms into the transition and runs for the preset's `duration`, else its spring's settle time, else the transition's. A schedule longer than the transition shrinks to fit it, so every mark is at rest when the transition is; PLAN 1.11 moves choreography onto the global timeline. A mark eases with the preset's `ease`, else the transition's, or follows its spring (`libm`, so every platform agrees).
   - A `split` other than `marks`, a preset's `to`, and any other property return NotImplemented (PLAN 1.11).
-- **Later.** `annotations` and gridlines across a category axis return NotImplemented until the rest of PLAN 1.9.
+- **Annotations** (`annotations`), drawn in `charts.annotation`: `stroke` (default `thin`) and `color` (default `accent`) for rules, leaders, and bands, `opacity` for the strokes, and `role` (default the value labels') for text, which prints in that color. An annotation stands at `at`: an `x` is a category, as the x column prints with no format, or on a continuous x a number or an ISO 8601 date; a `y` is a value; a `series` is a series. A value on the value axis widens it, as the data does, unless the author set that bound, when one past it is an error; an `x` on a continuous axis widens it too. A category, series, or x the data does not have is E103, and an annotation that stands where its kind cannot is E106 (`validate` finds both).
+  - `rule`: one `x` or one `y`. A `y` rules the plot across, its text half a space unit over the rule at the plot's start; an `x` rules it from top to foot through the category's middle, its text beside the rule's top, after it unless that passes the plot's end.
+  - `band`: from one `x` to another, or one `y` to another, under the gridlines, filled at `charts.annotation.band` (default 0.12) of the color. Across categories it covers both ends' bands. Its text sits inside its top-left corner, half a space unit in.
+  - `callout`: `text` at one `x`, and a `y` or the mark of a `series` there; with neither, the one mark at that `x`, an error if there are several. A leader rises from half a space unit over the point, or over the mark's value end and its value label, to two and a half space units under the text, which is centered on the point inside the plot's sides and stands three space units over the highest mark, line, or value label under it. Under a bar below the baseline, the leader and text go down.
+  - `highlight`: one or more `x`, `series`, or both, picking out the data that has them. The rest of the chart dims to `charts.annotation.dimmed` (default 0.3): every other mark and its value label, a line or an area with none of its marks picked, and a legend entry whose marks are none of them. It says nothing.
+  - A donut has no axes: it takes highlights of its slices (`at.x`) only.
+  - The plot leaves room above it for a callout's text and a rule's text, as it does for value labels.
+  - Annotations match from state to state by kind, axis, and place among the chart's annotations of both: the second `y` rule is the second `y` rule. A matched rule, band, or leader moves to its next place, as a new value moves the axis; changed text cross-fades as it moves; one on one side only fades where it is. A highlight that moves brightens and dims the marks, lines, labels, and legend entries it passes between.
 
 `axes` takes `x` and `y`, each `{ "show", "gridlines", "title" }`; `labels` takes `show` (`all` | `ends` | `none`), `role`, and `collide`. A text node's `axes` is another property (§3.3).
 
@@ -755,10 +767,10 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | E100 | error | text overflow (wrap/clip) |
 | E101 | error | unintended collision between nodes in the same layer |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
-| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format |
+| E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
-| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot |
 | E110 | error | body text contrast < 4.5:1 |
 | E111 | error | display text contrast < 3:1 |
 | E120 | error | font lacks glyphs for content (after fallback within bundle) |

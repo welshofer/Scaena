@@ -479,3 +479,241 @@ fn a_chart_reads_its_data_through_its_transform() {
     let legend: Vec<&str> = layout.legend.iter().map(|e| e.key.as_str()).collect();
     assert_eq!(legend, ["Core", "Cloud"]);
 }
+
+/// `by_series`, but what went wrong.
+fn by_series_err(kind: &str, extra: Value) -> String {
+    let mut chart = json!({ "type": "chart", "kind": kind, "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
+                            "series": { "field": "product" } });
+    chart.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    let deck = deck("en-US", revenue(), json!({ "rev": "number" }), Value::Null, chart);
+    let mut fonts = BundleFonts::new();
+    for font in &deck.fonts {
+        fonts.register(&font.file, read(&font.file)).unwrap();
+    }
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let (mut text, data) = (TextEngine::new(), DataFiles::new());
+    let mut cx = Ctx { text: &mut text, fonts: &mut fonts, theme: &theme, deck: &deck, data: &data, colors: &[] };
+    charts::compile(&mut cx, &deck.nodes["c"].props, [1600.0, 700.0]).unwrap_err().to_string()
+}
+
+/// The theme's accent, at `alpha` of its own.
+fn accent(alpha: f32) -> scaena_core::displaylist::Color {
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let scaena_core::displaylist::Color([r, g, b, a]) = theme.color("accent").unwrap();
+    scaena_core::displaylist::Color([r, g, b, (f32::from(a) * alpha).round() as u8])
+}
+
+#[test]
+fn a_rule_marks_a_value_and_the_axis_widens_to_reach_it() {
+    let notes = json!({ "annotations": [{ "kind": "rule", "at": { "y": 30 }, "text": "Target" }] });
+    let layout = by_series("bar", notes);
+    // The data reaches 22; the target, 30, is the top of the plot.
+    assert_eq!(layout.y_scale.domain, [0.0, 30.0]);
+    let [left, top, width, _] = layout.plot;
+    let note = &layout.notes[0];
+    assert_eq!(note.key, "rule\u{1f}y\u{1f}0");
+    let rule = note.rule.as_ref().unwrap();
+    assert_eq!((rule.from[0], rule.to[0]), (left, left + width));
+    assert!((rule.from[1] - top).abs() < 1e-3 && rule.from[1] == rule.to[1], "{rule:?}");
+    assert_eq!(rule.color, accent(1.0), "in the annotation color, accent by default");
+    // Its text over it, at the plot's start.
+    let label = note.label.as_ref().unwrap();
+    assert_eq!((label.text.text.as_str(), label.origin[0]), ("Target", left));
+    assert!(label.origin[1] + label.text.lines[0].baseline < rule.from[1]);
+    // Up the plot through a category's middle, its text beside its top.
+    let up = by_series("bar", json!({ "annotations": [{ "kind": "rule", "at": { "x": "Q3" }, "text": "Launch" }] }));
+    let [left, top, width, height] = up.plot;
+    let rule = up.notes[0].rule.as_ref().unwrap();
+    assert_eq!(up.notes[0].key, "rule\u{1f}x\u{1f}0");
+    assert!((rule.from[0] - (left + 2.5 * width / 4.0)).abs() < 1e-3 && rule.from[0] == rule.to[0]);
+    assert_eq!((rule.from[1], rule.to[1]), (top, top + height));
+    assert!(up.notes[0].label.as_ref().unwrap().origin[0] > rule.from[0]);
+    // A bound the author set does not move: a rule past it is an error.
+    let past = json!({ "y": { "field": "rev", "domain": [0, 25] },
+                       "annotations": [{ "kind": "rule", "at": { "y": 30 } }] });
+    assert!(by_series_err("bar", past).contains("outside the value axis"));
+}
+
+#[test]
+fn a_band_spans_categories_or_values_under_the_marks() {
+    let notes = json!({ "annotations": [
+        { "kind": "band", "at": { "x": ["Q2", "Q3"] }, "text": "Launch" },
+        { "kind": "band", "at": { "y": [20, 10] } }
+    ] });
+    let layout = by_series("bar", notes);
+    let [left, top, width, height] = layout.plot;
+    let band = width / 4.0;
+    let (rect, color) = layout.notes[0].band.unwrap();
+    assert!((rect[0] - (left + band)).abs() < 1e-3 && (rect[2] - 2.0 * band).abs() < 1e-3, "{rect:?}");
+    assert_eq!((rect[1], rect[3]), (top, height));
+    assert_eq!(color, accent(0.12), "a band fills at 0.12 of the annotation color");
+    // Its text inside its top-left corner.
+    let label = layout.notes[0].label.as_ref().unwrap();
+    assert!(label.origin[0] > rect[0] && label.origin[1] > rect[1] - label.text.height);
+    let (rect, _) = layout.notes[1].band.unwrap();
+    let y = |v: f64| layout.y_scale.map(v);
+    assert_eq!((rect[0], rect[2]), (left, width));
+    assert!((rect[1] - y(20.0)).abs() < 1e-3 && (rect[1] + rect[3] - y(10.0)).abs() < 1e-3, "either order");
+    assert_eq!(layout.notes[1].key, "band\u{1f}y\u{1f}0");
+}
+
+#[test]
+fn a_callout_points_at_its_mark_clear_of_its_value_label() {
+    let notes = json!({ "labels": { "show": "all" },
+                        "annotations": [{ "kind": "callout", "at": { "x": "Q4", "series": "Cloud" }, "text": "Record" }] });
+    let layout = by_series("bar", notes);
+    let mark = layout.marks.iter().find(|m| m.key == "Q4\u{1f}Cloud").unwrap();
+    let value = layout.labels.iter().find(|l| l.key == mark.key).unwrap();
+    let leader = layout.notes[0].rule.as_ref().unwrap();
+    let cap_top = value.origin[1] + value.text.lines[0].baseline - value.text.lines[0].cap_height.unwrap();
+    // The leader rises from over the value label, through the mark's middle.
+    assert_eq!(leader.from[0], bar(&mark.shape).center_x());
+    assert!(leader.from[1] < cap_top && leader.to[1] < leader.from[1], "{leader:?}");
+    // Its text over the leader, centered on it.
+    let text = layout.notes[0].label.as_ref().unwrap();
+    assert!(text.origin[1] + text.text.lines[0].baseline < leader.to[1]);
+    assert!((text.origin[0] + 0.5 * text.text.width - leader.from[0]).abs() < 1e-3);
+    // The plot made room above for it: the callout over the tallest mark stays in the chart.
+    assert!(text.origin[1] >= 0.0, "{:?}", text.origin);
+    // On a value instead of a mark.
+    let at = by_series(
+        "bar",
+        json!({ "annotations": [{ "kind": "callout", "at": { "x": "Q1", "y": 10 }, "text": "Ten" }] }),
+    );
+    assert!((at.notes[0].rule.as_ref().unwrap().from[1] - (at.y_scale.map(10.0) - 8.0 * 0.5)).abs() < 1e-3);
+    // Three products stand at Q4: which one is the author's to say.
+    let err = by_series_err("bar", json!({ "annotations": [{ "kind": "callout", "at": { "x": "Q4" }, "text": "?" }] }));
+    assert!(err.contains("stands on 3 marks") && err.contains("at.series"), "{err}");
+    let err = by_series_err("bar", json!({ "annotations": [{ "kind": "callout", "at": { "x": "Q9" }, "text": "?" }] }));
+    assert!(err.contains("Q9"), "{err}");
+}
+
+#[test]
+fn a_highlight_dims_everything_it_does_not_pick_out() {
+    let plain = by_series("line", json!({ "labels": { "show": "ends" } }));
+    let lit = by_series(
+        "line",
+        json!({ "labels": { "show": "ends" }, "annotations": [{ "kind": "highlight", "at": { "series": "Cloud" } }] }),
+    );
+    let alpha = |c: scaena_core::displaylist::Color| c.0[3];
+    for (was, now) in plain.paths.iter().zip(&lit.paths) {
+        let expected =
+            if now.key == "Cloud" { alpha(was.color) } else { (f32::from(alpha(was.color)) * 0.3).round() as u8 };
+        assert_eq!(alpha(now.color), expected, "{}", now.key);
+    }
+    for label in &lit.labels {
+        let expected = if label.key.ends_with("Cloud") { 1.0 } else { 0.3 };
+        assert_eq!(label.opacity, expected, "{}", label.key);
+    }
+    let legend: Vec<(&str, f32)> = lit.legend.iter().map(|e| (e.key.as_str(), e.label.opacity)).collect();
+    assert_eq!(legend, [("Core", 0.3), ("Cloud", 1.0), ("Edge", 0.3)]);
+    // A category: its marks stay, the rest dim; every series has a mark in it, so no
+    // legend entry dims.
+    let q3 = by_series("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "x": ["Q3"] } }] }));
+    for m in &q3.marks {
+        let bright = plain.legend.iter().any(|e| e.color == m.color);
+        assert_eq!(bright, m.key.starts_with("Q3"), "{}", m.key);
+    }
+    assert!(q3.legend.iter().all(|e| e.label.opacity == 1.0));
+    let err = by_series_err("bar", json!({ "annotations": [{ "kind": "highlight", "at": { "series": "Mobile" } }] }));
+    assert!(err.contains("Mobile"), "{err}");
+}
+
+#[test]
+fn gridlines_cross_a_category_axis_between_bars_and_through_points() {
+    let bars = by_series("bar", json!({ "axes": { "x": { "gridlines": true } } }));
+    let [left, top, width, height] = bars.plot;
+    let at: Vec<(&str, f32)> = bars.x_grid.iter().map(|t| (t.key.as_str(), t.rule.as_ref().unwrap().from[0])).collect();
+    let band = width / 4.0;
+    assert_eq!(at.len(), 3, "between the four bands: {at:?}");
+    for (k, (key, x)) in at.iter().enumerate() {
+        assert_eq!(*key, ["Q2", "Q3", "Q4"][k]);
+        assert!((x - (left + (k + 1) as f32 * band)).abs() < 1e-3);
+    }
+    let rule = bars.x_grid[0].rule.as_ref().unwrap();
+    assert_eq!((rule.from[1], rule.to[1]), (top, top + height));
+    let lines = by_series("line", json!({ "axes": { "x": { "gridlines": true } } }));
+    let xs: Vec<f32> = lines.x_grid.iter().map(|t| t.rule.as_ref().unwrap().from[0]).collect();
+    let centers: Vec<f32> = lines.ticks.iter().map(|t| t.origin[0] + 0.5 * t.text.width).collect();
+    assert_eq!(xs.len(), 4);
+    for (x, c) in xs.iter().zip(&centers) {
+        assert!((x - c).abs() < 1.0, "through each category: {xs:?} {centers:?}");
+    }
+}
+
+#[test]
+fn a_legend_can_carry_a_title() {
+    let row = by_series("bar", json!({ "legend": { "title": "Product" } }));
+    let title = row.titles.iter().find(|t| t.key == "legend").unwrap();
+    assert_eq!(title.text.text, "Product");
+    // The entries follow it on its baseline.
+    let baseline = title.origin[1] + title.text.lines[0].baseline;
+    let first = &row.legend[0];
+    assert!(first.swatch.x > title.origin[0] + title.text.width);
+    assert!((first.label.origin[1] + first.label.text.lines[0].baseline - baseline).abs() < 1e-3);
+    // In a column, it is the column's first line.
+    let column = by_series("bar", json!({ "legend": { "place": "right", "title": "Product" } }));
+    let title = column.titles.iter().find(|t| t.key == "legend").unwrap();
+    assert_eq!(title.origin[0], column.legend[0].swatch.x);
+    assert!(title.origin[1] + title.text.height <= column.legend[0].swatch.y + 1e-3);
+    // No entries, no title.
+    let one = compile(&bars(json!({}), json!([0, null])));
+    assert!(one.titles.iter().all(|t| t.key != "legend"));
+}
+
+#[test]
+fn annotations_move_to_where_the_next_state_puts_them() {
+    // The target rises from 20 to 30; a callout appears.
+    let rows = revenue();
+    let chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
+                        "series": { "field": "product" },
+                        "annotations": [{ "kind": "rule", "at": { "y": 20 }, "text": "Target" }] });
+    let mut d = deck("en-US", rows, json!({ "rev": "number" }), Value::Null, chart);
+    let mut next: Value = serde_json::to_value(&d.states[0]).unwrap();
+    next["id"] = json!("t");
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["props"]["c"] = json!({ "annotations": [
+        { "kind": "rule", "at": { "y": 30 }, "text": "Target" },
+        { "kind": "callout", "at": { "x": "Q4", "series": "Core" }, "text": "Best" }
+    ] });
+    d.states.push(serde_json::from_value(next).unwrap());
+    let [a, b] = <[ChartLayout; 2]>::try_from(scenes(&d)).unwrap();
+    let (ya, yb) = (a.notes[0].rule.as_ref().unwrap().from[1], b.notes[0].rule.as_ref().unwrap().from[1]);
+    assert_eq!(a.notes[0].key, b.notes[0].key, "one rule, matched");
+    // Mid-way the rule is between, solid; the callout fades in.
+    let mut fonts = BundleFonts::new();
+    for font in &d.fonts {
+        fonts.register(&font.file, read(&font.file)).unwrap();
+    }
+    let theme = Theme::from_json(&String::from_utf8(read("theme.json")).unwrap()).unwrap();
+    let mut engine = scaena_engine::render::Engine::new(fonts);
+    let data = DataFiles::new();
+    let req = scaena_engine::render::FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: 200.0 };
+    let dl = engine.frame(&req).unwrap().display_list;
+    let accent = accent(1.0);
+    let mut strokes = Vec::new();
+    walk(&dl.ops, &mut |op| {
+        if let scaena_core::displaylist::Op::Stroke { path, paint: scaena_core::displaylist::Paint::Solid(c), .. } = op
+            && c.0[..3] == accent.0[..3]
+            && let [scaena_core::displaylist::PathEl::MoveTo(f), scaena_core::displaylist::PathEl::LineTo(t)] =
+                &path.0[..]
+        {
+            strokes.push((*f, *t, c.0[3]));
+        }
+    });
+    let across: Vec<_> = strokes.iter().filter(|(f, t, _)| f[1] == t[1]).collect();
+    assert_eq!(across.len(), 1, "{strokes:?}");
+    let (f, _, alpha) = across[0];
+    assert!(f[1] < ya.max(yb) && f[1] > ya.min(yb) && *alpha == 255, "between {ya} and {yb}: {f:?}");
+    let leader: Vec<_> = strokes.iter().filter(|(f, t, _)| f[0] == t[0]).collect();
+    assert!(leader.len() == 1 && leader[0].2 > 0 && leader[0].2 < 255, "fading in: {leader:?}");
+}
+
+fn walk(ops: &[scaena_core::displaylist::Op], f: &mut impl FnMut(&scaena_core::displaylist::Op)) {
+    for op in ops {
+        f(op);
+        if let scaena_core::displaylist::Op::Layer { ops, .. } = op {
+            walk(ops, f);
+        }
+    }
+}
