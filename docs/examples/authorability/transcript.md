@@ -174,3 +174,43 @@ Checks outside the scaena CLI (python3):
 - `key: "product"` with `x: quarter` and `series: product`: SPEC §3.7 does not say whether mark identity is the key alone or (x, key). It matters for any state that changes data (a scrolling window); not for this edit.
 - "Roll the deck's chart forward" leaves open whether the copy should follow. I resolved it as above.
 - Ids that encode a period (`q3-total`) go stale on a roll-forward. The format has no rename or alias that keeps identity.
+
+## (c) Change the headline
+
+**Request (verbatim):** "Don't headline the slowdown. Change the headline “Growth slowed in Q4” to “Revenue grew every quarter”."
+
+**Commands** (cwd = the bundle; `scaena` = `/home/user/Scaena/target/debug/scaena`)
+
+Baseline, before editing:
+- `scaena validate deck.json` → exit 0: `ok: no findings`
+- `scaena lint deck.json --json` → exit 0: `[]`
+- `scaena lint deck.json` → exit 0: `ok: no findings` / `(layout-level rules — overflow, contrast, collisions — arrive with the engine: PLAN 1.15)`
+- `scaena validate .` → exit 0: `ok: no findings`
+- `scaena inspect deck.json --state quarters` → exit 0: `+ headline role=headline text=Growth slowed in Q4 at={"in":"header"}`, plus `+ rev-chart` (stackedBar), `+ chart-source`, `- exited: q3-total, q3-total-meaning, q3-total-detail`
+- `scaena inspect deck.json --state products` → exit 0: `headline role=headline text=Pro added the most` (the state sets its own text)
+- Not CLI: grep of deck.json for slow|21%|33%|accelerat. The slowdown appears in three places: the `headline` node text, beat `accelerated`'s claim, and that beat's notes. The `"slow"` hits are transition durations. Recomputed totals from data/q4-revenue.csv with python: 34.7, 43.3 (+8.6, 24.8%), 57.6 (+14.3, 33.0%), 69.6 (+12.0, 20.8%). Core, Pro, and Enterprise each rise every quarter, so the new headline is true.
+
+After editing:
+- `scaena validate deck.json` → exit 0: `ok: no findings`; `scaena validate .` → exit 0: `ok: no findings`
+- `scaena lint deck.json --json` → exit 0: `[]`; `scaena lint deck.json` → exit 0: `ok: no findings`, with the same PLAN 1.15 note
+- `scaena inspect deck.json --state quarters` → exit 0: `+ headline role=headline text=Revenue grew every quarter at={"in":"header"}`; the other lines are unchanged
+- `scaena inspect deck.json --state products` → exit 0: headline still `Pro added the most`
+- `scaena diff deck.json --from topline --to quarters` → exit 0: headline `enter` with text "Revenue grew every quarter" and semantic claim; rev-chart and chart-source enter; q3-total* exit
+- `scaena diff deck.json --from quarters --to products` → exit 0: only `headline.change.text = "Pro added the most"` and `rev-chart.change.kind = "bar"`
+- `scaena diff deck.json --from products --to mix` → exit 0: headline and chart-source exit; pro-share and pro-share-meaning enter; rev-chart changes to stackedBar at col 8–12
+- `scaena inspect deck.json` (all states) → exit 0: the headline shows only in quarters ("Revenue grew every quarter") and products ("Pro added the most"), and exits in mix. "slowed" appears in no state.
+
+**Decisions**
+- Changed `nodes.headline.text` (the node's default text), not a `quarters` prop. `quarters` gets its text by tracking from the node, so the default is the only source. Overriding it in the state would leave "Growth slowed in Q4" behind as a dead default, and as the node's default alt.
+- Left `products` (`headline.text` "Pro added the most") and `mix` (removes the headline) untouched. The diff confirms the build changes only text and chart kind.
+- Rewrote the claim of beat `growth/accelerated` to "Revenue grew every quarter from Q1 to Q4 2026: $34.7M, $43.3M, $57.6M, $69.6M." The beat's claim is its headline in the spine, and the spine projects to every other format. The author-deck rule requires a `semantic: claim` node in the beat's states that expresses the claim, and the `headline` node is that node.
+- The claim lists the quarterly totals, not the Q1→Q4 endpoints, so it does not repeat the `doubled` beat ($34.7M → $69.6M; cf. W425).
+- Scoped the claim to "Q1 to Q4 2026" because @revenue (q4-revenue.csv) starts at Q1 2026. It cannot show Q1's growth over Q4 2025.
+- Kept the beat id `accelerated`, because ids are stable identity (SPEC §1.2), although the id describes neither the old claim nor the new one.
+- Left the beat notes unchanged. Speaker notes are not a headline, and they keep the deceleration (25% → 33% → 21%; Q4 +$12.0M vs Q3 +$14.3M) available to the presenter. The deck stops headlining the slowdown without hiding it.
+- Added no `fit`, `measure`, or overrides, and no nodes, states, or choreography.
+
+**Could not express / ambiguous**
+- Fit is unverified. The new headline is 26 characters. The `headline` role has `measure: 24` (maxLines 3, wrap balance, minSize 56), and the `header` slot is one grid row (col 1–8, row 1). The text probably sets on two lines, where the old 19-character text took one. Lint has no overflow or collision rules yet (PLAN 1.15), and render is out of scope (no fonts). So I cannot rule out E100 in the header slot, or a collision with the chart's top legend in row 2.
+- The docs don't say whether `measure` forces a break (wrap at the lesser of slot width and measure) or is advisory (W201 "line exceeds role measure" is only a warning). I cannot predict whether the result is one line with W201 or two lines.
+- Nothing links a beat's claim to the text of the node that expresses it. The reserved W420 only checks that some `semantic: claim` node exists, so spine and slide can drift apart silently. I kept them in step by hand.
