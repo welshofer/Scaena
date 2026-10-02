@@ -631,10 +631,52 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         true => 0.0,
         false => legend_rows.len() as f32 * legend_line + gap,
     };
+    // Beside the plot, a gutter as wide as the widest value-axis label.
+    let gutter = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(|l| l.width + gap).fold(0.0_f32, f32::max);
+    // Where a line's row stands in its series: at its first point (`true`) or its last.
+    let end_of = |i: usize| -> Option<bool> {
+        if kind != Kind::Line {
+            return None;
+        }
+        let same = |o: &Row| o.series == rows[i].series;
+        match (rows[..i].iter().any(same), rows[i + 1..].iter().any(same)) {
+            (false, true) => Some(true),
+            (true, false) => Some(false),
+            _ => None,
+        }
+    };
+    // A line's first value ends at its point and its last begins there (below), so the
+    // plot leaves each the room it needs past its side: its width, less what its point
+    // stands `f` of the plot's width in from that side (on a category axis half a band;
+    // on a continuous one, what the axis widened past the data). That is the room `g`
+    // with `width <= g + f × (the plot that g leaves)`.
+    let ends: Vec<(bool, f32, f32)> = (rows.iter().zip(&values).enumerate())
+        .filter_map(|(i, (r, text))| {
+            let first = end_of(i)?;
+            let at = match x_extent {
+                Some((a, b)) if b > a => ((r.x? - a) / (b - a)) as f32,
+                Some(_) => 0.5,
+                None => {
+                    let c = categories.iter().position(|(k, _)| *k == r.category)?;
+                    (c as f32 + 0.5) / categories.len() as f32
+                }
+            };
+            Some((first, text.as_ref()?.width, if first { at } else { 1.0 - at }))
+        })
+        .collect();
+    let pad = |first: bool, plot: f32| {
+        (ends.iter().filter(|e| e.0 == first))
+            .map(|&(_, width, f)| {
+                let f = f.clamp(0.0, 0.9);
+                ((width - f * plot) / (1.0 - f)).max(0.0)
+            })
+            .fold(0.0_f32, f32::max)
+    };
+    // First values stand two spaces from the value axis's labels, so the two read apart.
+    let first = pad(true, size[0] - gutter);
+    let left = gutter + first + if gutter > 0.0 && first > 0.0 { gap } else { 0.0 };
     // A legend at the right takes its widest entry, or its title, and two spaces from the
     // plot.
-    // Beside the plot, a gutter as wide as the widest value-axis label.
-    let left = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(|l| l.width + gap).fold(0.0_f32, f32::max);
     let widest = legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max);
     // How far past a series' end its name starts: a space, or on a line, a space past
     // the value label that begins at its last point.
@@ -665,7 +707,17 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             ((lead + widest - f * (size[0] - left)) / (1.0 - f)).max(0.0)
         }
     };
-    let right = size[0] - legend_width;
+    // Names at the ends stand past the value there, so their gutter has its room.
+    let named = direct && !legend_texts.is_empty();
+    let pad_right = if named { 0.0 } else { pad(false, size[0] - legend_width - left) };
+    let right = size[0] - legend_width - pad_right;
+    // How far the ends' values stand past the plot's sides, within the room beside it.
+    let reach = |first: bool| {
+        (ends.iter().filter(|e| e.0 == first))
+            .map(|&(_, width, f)| (width - f * (right - left)).max(0.0))
+            .fold(0.0_f32, f32::max)
+    };
+    let room = [reach(true).min(left - gutter), reach(false).min(if named { legend_width } else { pad_right })];
     let label_room = values.iter().flatten().map(cap).fold(0.0_f32, f32::max);
     let tick_cap = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(cap).fold(0.0_f32, f32::max);
     let legend_top = if legend_place == "top" { legend_height } else { 0.0 };
@@ -712,10 +764,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
     };
 
+    // A rule at 0 where the value axis reaches it: else no rule reads as zero.
+    let zero_ruled = !donut && lo <= 0.0 && 0.0 <= hi;
     let mut out = ChartLayout {
         kind,
         base,
-        baseline: (!donut).then_some(Rule {
+        baseline: zero_ruled.then_some(Rule {
             from: [left, base],
             to: [right, base],
             width: axis_width,
@@ -728,7 +782,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         paths: Vec::new(),
         y_scale,
         plot: [left, top, right - left, bottom - top],
-        clipped: left > 0.0 || legend_width > 0.0,
+        clip: (gutter > 0.0 || legend_width > 0.0).then_some([left - room[0], right + room[1]]),
         y_axis: Vec::with_capacity(tick_labels.len()),
         titles: Vec::new(),
         legend: Vec::new(),
@@ -739,7 +793,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     for (v, key, label) in tick_labels {
         let y = to_y(v);
         // The baseline already rules the line it sits on.
-        let rule = (y_grid && y != base).then_some(Rule {
+        let rule = (y_grid && !(zero_ruled && y == base)).then_some(Rule {
             from: [left, y],
             to: [right, y],
             width: grid_width,
@@ -748,7 +802,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         // Right-aligned in the gutter, the middle of its cap height on the tick.
         let label = label.map(|text| {
             let first = &text.lines[0];
-            let origin = [left - gap - text.width, y + 0.5 * cap(&text) - first.baseline];
+            let origin = [gutter - gap - text.width, y + 0.5 * cap(&text) - first.baseline];
             Label::new(key.clone(), origin, text, None)
         });
         out.y_axis.push(AxisTick { key, value: v, rule, label });
@@ -790,7 +844,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         "right" => top,
         _ => title_y,
     };
-    let legend_x = if beside { right + 2.0 * gap } else { 0.0 };
+    let legend_x = if beside { size[0] - legend_width + 2.0 * gap } else { 0.0 };
     if let Some(text) = legend_title {
         let origin = [legend_x, legend_y + legend_baseline - text.lines[0].baseline];
         out.titles.push(Label::new("legend", origin, text, None));
@@ -845,8 +899,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             }
         };
         // Centered on its mark (or ending or beginning there, as `side` says), unless
-        // that would put it past the plot's side.
-        let x0 = (cx - side * text.width).clamp(left, (right - text.width).max(left));
+        // that would put it past the plot's side, or a line's end value past the room
+        // beside it.
+        let (from, to) = if side == 0.5 { (left, right) } else { (left - room[0], right + room[1]) };
+        let x0 = (cx - side * text.width).clamp(from, (to - text.width).max(from));
         let align = if x0 == cx - side * text.width { side } else { (cx - x0) / text.width.max(f32::EPSILON) };
         let value = ValueLabel { value: v, below, offset, align, drop: 0.0 };
         out.labels.push(Label::new(key, [x0, origin_y], text, Some(value)));
@@ -934,16 +990,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 };
                 // A line's first value ends at its point and its last begins there, away
                 // from the line, which leaves the one and comes to the other.
-                let side = match kind {
-                    Kind::Line => {
-                        let same = |o: &&Row| o.series == r.series;
-                        match (rows[..i].iter().any(|o| same(&o)), rows[i + 1..].iter().any(|o| same(&o))) {
-                            (false, true) => 1.0,
-                            (true, false) => 0.0,
-                            _ => 0.5,
-                        }
-                    }
-                    _ => 0.5,
+                let side = match end_of(i) {
+                    Some(true) => 1.0,
+                    Some(false) => 0.0,
+                    None => 0.5,
                 };
                 label_at(&mut out, value, &r.key, &shape, x, r.y, false, side);
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });

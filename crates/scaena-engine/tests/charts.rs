@@ -217,7 +217,7 @@ fn lines_name_their_series_where_they_end() {
     }
     // The plot gives up only what the names need past the last point: here they fit in
     // its half band, so it gives up nothing, and nothing beside it needs it to clip.
-    assert_eq!((layout.plot[2], layout.clipped), (1600.0, false));
+    assert_eq!((layout.plot[2], layout.clip), (1600.0, None));
     // Along a continuous x whose last point is a round value, it stands on the plot's
     // side, which the names move in by their width and a space.
     let rows = json!([
@@ -230,7 +230,7 @@ fn lines_name_their_series_where_they_end() {
     let [x, _, w, _] = wide.plot;
     let bravo = &wide.legend[1].label;
     assert!(w < 1600.0 && bravo.origin[0] > x + w && bravo.origin[0] + bravo.text.width <= 1600.0 + 1e-3);
-    assert!(wide.clipped, "marks leaving pass under the plot's side, not over the names");
+    assert!(wide.clip.is_some(), "marks leaving pass under the plot's side, not over the names");
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn a_legend_stands_above_the_plot_at_its_foot_or_beside_it() {
     assert!(column.iter().all(|&c| c == column[0] && c > x + w), "{column:?}");
     let rows: Vec<f32> = right.legend.iter().map(|e| e.swatch.y).collect();
     assert!(rows.windows(2).all(|r| r[0] < r[1]) && rows[0] >= y, "one entry per line from the plot's top");
-    assert!(w < top.plot[2] && right.clipped && !top.clipped);
+    assert!(w < top.plot[2] && right.clip.is_some() && top.clip.is_none());
     assert!(right.ticks.iter().all(|t| t.origin[0] + t.text.width <= x + w + 1e-3), "labels stay in the plot");
     let none = by_series("bar", json!({ "legend": "none" }));
     assert!(none.legend.is_empty() && none.plot[1] < top.plot[1]);
@@ -528,6 +528,73 @@ fn a_lines_end_values_stand_away_from_it() {
     let column = lines.legend.iter().map(|e| e.label.origin[0]).fold(f32::INFINITY, f32::min);
     let reach = lines.labels.iter().map(|l| l.origin[0] + l.text.width).fold(0.0_f32, f32::max);
     assert!(column >= reach, "names at {column}, values reach {reach}");
+}
+
+#[test]
+fn a_lines_end_values_take_room_beside_a_continuous_axis() {
+    // On a time axis the first and last points stand on the plot's sides. The plot moves
+    // in from each, so the first value ends at its point and the last begins there:
+    // clear of the line, two spaces from the value axis's labels, and inside the chart.
+    let rows: Vec<Value> =
+        (1..=12).map(|m| json!({ "m": format!("2024-{m:02}"), "v": 1000.0 + 10.0 * f64::from(m) })).collect();
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q", "x": { "field": "m", "type": "temporal" },
+                        "y": { "field": "v", "format": "$,.0f" }, "axes": { "y": { "show": true } } });
+    let layout = compile(&deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), Value::Null, chart));
+    let [left, _, width, _] = layout.plot;
+    let (first, last) = (&layout.labels[0], &layout.labels[1]);
+    assert_eq!((layout.labels.len(), first.text.text.as_str(), last.text.text.as_str()), (2, "$1,010", "$1,120"));
+    assert!((first.origin[0] + first.text.width - left).abs() < 0.01, "the first value ends at its point");
+    assert!((last.origin[0] - (left + width)).abs() < 0.01, "the last begins at its point");
+    assert!((last.origin[0] + last.text.width - 1600.0).abs() < 0.01, "and ends at the chart's side");
+    let ticks = layout.y_axis.iter().filter_map(|t| t.label.as_ref());
+    let gutter = ticks.map(|l| l.origin[0] + l.text.width).fold(0.0_f32, f32::max);
+    assert!((first.origin[0] - gutter - 16.0).abs() < 0.01, "two spaces from the axis labels");
+    // The plot clips across the values' room as well as its own width.
+    let clip = layout.clip.unwrap();
+    assert!(clip[0] <= first.origin[0] && (clip[1] - (last.origin[0] + last.text.width)).abs() < 0.01, "{clip:?}");
+
+    // Named where they end, a line's names stand past its last value, which begins at
+    // its point; its first value ends at its own.
+    let rows = json!([
+        { "x": 2, "s": "A", "v": 3 }, { "x": 10, "s": "A", "v": 8 },
+        { "x": 2, "s": "Bravo", "v": 5 }, { "x": 10, "s": "Bravo", "v": 2 }
+    ]);
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q", "x": { "field": "x", "type": "quantitative" },
+                        "y": { "field": "v" }, "series": { "field": "s" } });
+    let named = compile(&deck("en-US", rows, json!({ "x": "number", "v": "number" }), Value::Null, chart));
+    let x = |key: &str| match named.marks.iter().find(|m| m.key == key).unwrap().shape {
+        Shape::Dot { x, .. } => x,
+        other => panic!("{other:?}"),
+    };
+    for path in &named.paths {
+        let label = |key: &str| named.labels.iter().find(|l| l.key == key).unwrap();
+        let (a, b) = (&path.marks[0], path.marks.last().unwrap());
+        assert!((label(a).origin[0] + label(a).text.width - x(a)).abs() < 0.01 && label(a).origin[0] >= 0.0);
+        assert!((label(b).origin[0] - x(b)).abs() < 0.01, "{b} begins at its point");
+        let name = named.legend.iter().find(|e| e.key == path.key).unwrap();
+        assert!(name.label.origin[0] >= label(b).origin[0] + label(b).text.width, "{}", path.key);
+    }
+}
+
+#[test]
+fn the_baseline_rules_zero_only_where_the_value_axis_reaches_it() {
+    // Values far from zero: a line's or a dot plot's axis starts near them, and no rule
+    // at the plot's foot claims to be zero. The lowest gridline rules there instead.
+    let rows = json!([{ "k": "a", "v": 120 }, { "k": "b", "v": 131 }, { "k": "c", "v": 127 }]);
+    let chart = |kind: &str| {
+        json!({ "type": "chart", "kind": kind, "data": "@q", "x": { "field": "k" }, "y": { "field": "v" },
+                "axes": { "y": { "show": true, "gridlines": true } } })
+    };
+    for kind in ["line", "dot"] {
+        let layout = compile(&deck("en-US", rows.clone(), json!({ "v": "number" }), Value::Null, chart(kind)));
+        assert!(layout.y_scale.domain[0] > 0.0 && layout.baseline.is_none(), "{kind}: {:?}", layout.y_scale);
+        let foot = &layout.y_axis[0];
+        assert!(foot.value == layout.y_scale.domain[0] && foot.rule.is_some(), "{kind}");
+    }
+    // Bars stand on zero: the baseline rules it, in place of a gridline.
+    let bars = compile(&deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart("bar")));
+    assert_eq!(bars.y_scale.domain[0], 0.0);
+    assert!(bars.baseline.is_some() && bars.y_axis[0].rule.is_none());
 }
 
 #[test]
