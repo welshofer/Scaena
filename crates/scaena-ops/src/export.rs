@@ -12,7 +12,7 @@ use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
-use scaena_export::pdf::{Page, PdfSettings, pdf};
+use scaena_export::pdf::{Page, pdf};
 use scaena_export::svg::{SvgSettings, svg};
 use scaena_export::video::{Chapter, Codec, VideoSettings};
 use scaena_paint::cpu::CpuPainter;
@@ -22,6 +22,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+pub use scaena_export::pdf::PdfSettings;
 
 /// What to export, and where.
 #[derive(Debug, Clone, Default)]
@@ -190,7 +192,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
         }
         Format::Pdf => {
             let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
-            let (bytes, pages) = document(b, states, PdfSettings::default().shader_scale, progress)?;
+            let (bytes, pages) = document(b, states, &PdfSettings::default(), progress)?;
             write(out, &bytes)?;
             Ok(Exported {
                 format: format_name,
@@ -365,20 +367,20 @@ fn at_rest(
     Ok(engine.frame(&req)?.display_list)
 }
 
-/// The deck as a PDF, and the state each page draws; shaders drawn at `shader_scale`
-/// pixels to the canvas unit (2 when `export` makes one).
+/// The deck as a PDF, and the state each page draws, written as `settings` say: `export`
+/// takes [`PdfSettings::default`].
 pub fn pdf_document(
     b: &Bundle,
     states: Option<&[String]>,
-    shader_scale: f32,
+    settings: &PdfSettings,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
-    document(b, states, shader_scale, &Progress::default())
+    document(b, states, settings, &Progress::default())
 }
 
 fn document(
     b: &Bundle,
     states: Option<&[String]>,
-    shader_scale: f32,
+    settings: &PdfSettings,
     progress: &Progress,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
     let pages = pdf_pages(&b.deck, states)?;
@@ -391,8 +393,7 @@ fn document(
         drawn.push(Page { state: state.clone(), list: at_rest(&mut engine, b, &theme, &data, state)? });
         progress.step();
     }
-    let bytes =
-        pdf(&b.deck, &drawn, &assets, &PdfSettings { shader_scale }).map_err(|e| OpsError::new(e.to_string()))?;
+    let bytes = pdf(&b.deck, &drawn, &assets, settings).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((bytes, pages))
 }
 

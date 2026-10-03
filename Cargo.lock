@@ -1529,6 +1529,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2952,6 +2954,7 @@ name = "scaena-export"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "image",
  "krilla",
  "kurbo",
  "png",

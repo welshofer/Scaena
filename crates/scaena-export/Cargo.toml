@@ -20,4 +20,5 @@ krilla.workspace = true
 kurbo.workspace = true
 skrifa.workspace = true
 png.workspace = true
+image.workspace = true
 base64.workspace = true

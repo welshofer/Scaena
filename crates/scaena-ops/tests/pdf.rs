@@ -1,7 +1,7 @@
 //! PDF export (PLAN 1.20): every page drawn by a PDF rasterizer (`hayro`) against the CPU
 //! painter's frame of the same state, by SPEC §13.5's metric.
 
-use scaena_ops::export::{Request as Export, export, pdf_document};
+use scaena_ops::export::{PdfSettings, Request as Export, export, pdf_document};
 use scaena_ops::render::{Request, render};
 use scaena_paint::Raster;
 use std::path::Path;
@@ -35,10 +35,11 @@ fn rasterize(pdf: Vec<u8>) -> Vec<Raster> {
 
 #[test]
 fn every_page_draws_its_slide_as_the_cpu_painter_does() {
-    // Shaders at one pixel to the unit, so a page has the same pixels as the CPU
-    // painter's frame: grain is per device pixel (SPEC §3.8).
+    // Shaders at one pixel to the unit and kept whole, so a page has the same pixels as
+    // the CPU painter's frame: grain is per device pixel (SPEC §3.8).
     let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
-    let (bytes, states) = pdf_document(&bundle, None, 1.0).unwrap();
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, states) = pdf_document(&bundle, None, &whole).unwrap();
     let pages = rasterize(bytes);
     assert_eq!(pages.len(), states.len());
     let mut failed = Vec::new();
@@ -63,9 +64,14 @@ fn a_pdf_draws_each_slide_at_its_last_state_and_shaders_at_twice_the_canvas() {
     let mesh = vec!["mesh".to_string()];
     let (bytes, pages) = exported(&bundle, Some(&mesh), "mesh");
     assert_eq!(pages, mesh);
-    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels.
+    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels: opaque, so as a
+    // JPEG, a few hundred kilobytes where its pixels kept whole are megabytes.
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("/Width 3840") && text.contains("/Height 2160"));
+    assert!(text.contains("/DCTDecode") && bytes.len() < 2_000_000, "{} bytes", bytes.len());
+    let whole = PdfSettings { shader_quality: None, ..PdfSettings::default() };
+    let (kept, _) = pdf_document(&bundle, Some(&mesh), &whole).unwrap();
+    assert!(!String::from_utf8_lossy(&kept).contains("/DCTDecode") && kept.len() > 2 * bytes.len());
     let out = Some(Path::new(env!("CARGO_TARGET_TMPDIR")).join("export-nope.pdf"));
     let req = Export { format: "pdf".into(), states: Some(vec!["nope".into()]), out, ..Export::default() };
     let err = export(&bundle, &req).unwrap_err();
@@ -229,7 +235,8 @@ fn text_at_a_layers_opacity_keeps_its_last_glyph() {
     std::fs::write(dir.join("deck.json"), serde_json::to_vec(&deck).unwrap()).unwrap();
     let bundle = scaena_ops::open(&dir).unwrap();
     let motion = vec!["motion".to_string()];
-    let (bytes, _) = pdf_document(&bundle, Some(&motion), 1.0).unwrap();
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, _) = pdf_document(&bundle, Some(&motion), &whole).unwrap();
     let page = rasterize(bytes).remove(0);
     let cpu = render(&dir, &Request { state: "motion".to_string(), ..Request::default() }).unwrap();
     let d = scaena_paint::diff::compare(&Raster::from_png(&cpu.png).unwrap(), &page).unwrap();
