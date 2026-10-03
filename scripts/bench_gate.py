@@ -14,9 +14,11 @@ request is judged beside its base, built and timed on the same machine in the sa
   request changes few of them, so the spread of all their changes, robustly (1.4826 × MAD of
   the log ratios), measures the machine. On a quiet machine the floor is 10%; on one whose
   benches stray by 10% beside an identical base, it is 27%;
-- a slower bench is timed again, beside its base bench by bench, twice: the pull request
-  first, then the base first. Each side counts at its fastest, since load on the machine
-  only ever slows a run. The bench **regresses** when it is slower again.
+- a slower bench is timed again beside its base, bench by bench, in three turns: the pull
+  request first, then the base first, then the pull request first. Each turn sets the two
+  side by side, so a spell of load falls on both. The bench **regresses** when it is slower
+  than the base by more than the floor in every turn: one slow run on either side can sway a
+  turn, not three.
 
 Each runner keeps a history of what the benches measured on `main`, run by run. The report
 shows it beside each bench for context; it does not judge. `probe/` benches time the
@@ -25,7 +27,7 @@ machine, not Scaena: they are shown, never judged.
     python3 scripts/bench_gate.py collect DIR... --out run.json   # criterion's results, each bench's fastest
     python3 scripts/bench_gate.py suspects --run run.json --base base.json --out suspects.txt
     python3 scripts/bench_gate.py check --history H --run run.json [--base base.json
-        [--again again.json --base-again base-again.json]] [--summary FILE]
+        [--again A1 A2 A3 --base-again B1 B2 B3]] [--summary FILE]   # a turn per pair
     python3 scripts/bench_gate.py record --history H --run run.json
 
 `check` prints a Markdown report, the SPEC §15 budgets first, and exits 1 on a regression
@@ -148,13 +150,14 @@ def floor(run: dict, base: dict, opts) -> float:
 class Judged:
     """One bench of a run: beside its base on the same machine, and main's runs for context."""
 
-    def __init__(self, bench: str, run: dict, base: dict, again: dict, base_again: dict, past: list, opts, floor):
+    def __init__(self, bench: str, run: dict, base: dict, turns: list, past: list, opts, floor):
         self.bench, self.now, self.floor = bench, run["benches"][bench], floor
         self.probe = bench.startswith(PROBE)
         self.base = ns(base, bench)
         self.change = self.now["ns"] / self.base - 1 if self.base else None
-        a, b = ns(again, bench), ns(base_again, bench)
-        self.again = a / b - 1 if a and b else None
+        # Each turn of timing again, the pull request beside its base.
+        pairs = [(ns(a, bench), ns(b, bench)) for a, b in turns]
+        self.turns = [a / b - 1 for a, b in pairs if a and b]
         # Main's runs, on the same machine model when there are enough of those.
         same = [p for p in past if p.get("machine") == run.get("machine")]
         past = same if len(same) >= opts.min_runs else past
@@ -171,7 +174,7 @@ class Judged:
     @property
     def slower(self) -> bool:
         """Slower than its base by more than the floor, each time they were timed together."""
-        return self.judged and self.change > self.floor and (self.again is None or self.again > self.floor)
+        return self.judged and self.change > self.floor and all(t > self.floor for t in self.turns)
 
     @property
     def verdict(self) -> str:
@@ -185,8 +188,13 @@ class Judged:
             return "ok: not slower again"
         return "faster" if self.change < -self.floor else "ok"
 
+    @property
+    def again(self) -> str:
+        """Each turn's change, as the report shows it."""
+        return " · ".join(pct(t) for t in self.turns) or "—"
+
     def error(self) -> str:
-        again = "" if self.again is None else f", and {self.again:+.1%} timed again"
+        again = f", and {self.again} timed again" if self.turns else ""
         return (
             f"{self.bench}: {fmt_ns(self.now['ns'])} against its base's {fmt_ns(self.base)} on the same machine, "
             f"{self.change:+.1%}{again}"
@@ -194,12 +202,14 @@ class Judged:
 
 
 def judge(args) -> tuple[dict, list[Judged], float]:
-    run = load(args.run)
-    base, again, base_again = load(args.base), load(args.again), load(args.base_again)
+    run, base = load(args.run), load(args.base)
+    if len(args.again or []) != len(args.base_again or []):
+        sys.exit("--again and --base-again pair up, a turn each: give as many of one as of the other")
+    turns = [(load(a), load(b)) for a, b in zip(args.again or [], args.base_again or [])]
     history = load_history(args.history)
     at = floor(run, base, args)
     judged = [
-        Judged(bench, run, base, again, base_again, history["benches"].get(bench, []), args, at)
+        Judged(bench, run, base, turns, history["benches"].get(bench, []), args, at)
         for bench in sorted(run["benches"])
     ]
     return run, judged, at
@@ -260,15 +270,15 @@ def check(args) -> int:
     if not count:
         verdict = "Recorded, not judged: only a pull request is timed beside a base"
     elif slower:
-        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor_}, twice"
+        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor_}, every time"
         if args.accept:
             verdict += "; the pull request accepts it (`bench-accept`)"
     else:
-        verdict = f"No bench slower than the base by more than {floor_} twice, of {count} judged"
+        verdict = f"No bench slower than the base by more than {floor_} every time, of {count} judged"
     lines.append(
         f"{verdict}. The base, the commit a pull request merges onto, is built and timed on the same machine in "
         f"the same job, a group of benches at a time and the base first. A bench slower than it by more than {floor_} "
-        "is timed twice more beside it, and regresses when it is slower again, each side at its fastest. Main's runs "
+        "is timed again beside it in three turns, and regresses when it is slower than that in every turn. Main's runs "
         "on this runner, on other machines, are shown for context and do not judge."
     )
     measured = noise(run, load(args.base))
@@ -292,7 +302,7 @@ def check(args) -> int:
         per = f"{fmt_ns(j.now['ns'] / el)} × {el}" if el else "—"
         base = fmt_ns(j.base) if j.base else "—"
         main = "—" if j.main is None else f"{fmt_ns(j.main)} ({j.n}{', mixed machines' if j.mixed else ''}), {pct(j.vs_main)}"
-        lines.append(f"| `{j.bench}` | {fmt_ns(j.now['ns'])} | {per} | {base} | {pct(j.change)} | {pct(j.again)} | {main} | {j.verdict} |")
+        lines.append(f"| `{j.bench}` | {fmt_ns(j.now['ns'])} | {per} | {base} | {pct(j.change)} | {j.again} | {main} | {j.verdict} |")
     report = "\n".join(lines) + "\n"
     print(report)
     if args.summary:
@@ -334,8 +344,8 @@ def main(argv=None) -> int:
     ck.add_argument("--history", required=True, help="main's runs on this runner")
     ck.add_argument("--run", required=True)
     ck.add_argument("--base", help="the base's run, on the same machine")
-    ck.add_argument("--again", help="the benches slower than the base, timed again beside it")
-    ck.add_argument("--base-again", help="the base's, timed again beside them")
+    ck.add_argument("--again", nargs="*", help="the benches slower than the base, timed again beside it: a run per turn")
+    ck.add_argument("--base-again", nargs="*", help="the base's runs in the same turns, in the same order")
     ck.add_argument("--min-runs", type=int, default=5, help="main's runs on one machine model before they stand alone")
     ck.add_argument("--summary", help="append the report here too ($GITHUB_STEP_SUMMARY)")
     ck.add_argument("--accept", action="store_true", help="report regressions without failing (`bench-accept`)")

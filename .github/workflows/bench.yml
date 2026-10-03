@@ -4,8 +4,8 @@ name: bench
 # A pull request is timed beside its base, both built and then run on the same machine in the same
 # job, a group of benches at a time, the base first. It fails when a bench is slower than the base
 # by more than the run's floor (10%, or 2.5 times how far its benches stray from the base, if that
-# is more), and again when that bench is timed beside its base twice more, each side at its
-# fastest (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
+# is more), and in each of three more turns beside its base, bench by bench
+# (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
 # so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
 # bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
 # §15's budgets first, goes to the run summary.
@@ -105,8 +105,9 @@ jobs:
             this
           fi
           python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
-      # Each bench slower than the base, twice more beside it, bench by bench: the pull request
-      # first, then the base first. Each side counts at its fastest; load only slows a run.
+      # Each bench slower than the base by more than the run's floor, timed again beside it, bench
+      # by bench, in three turns: the pull request first, then the base first, then the pull
+      # request first. It regresses when it is slower than the floor in every turn.
       - name: Time again what is slower than the base
         if: github.event_name == 'pull_request'
         run: |
@@ -119,15 +120,22 @@ jobs:
               CRITERION_HOME="$CRITERION_HOME-base-again-1" base "^$bench\$"
               CRITERION_HOME="$CRITERION_HOME-base-again-2" base "^$bench\$"
               CRITERION_HOME="$CRITERION_HOME-again-2" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-again-3" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-3" base "^$bench\$"
             done
-            python3 scripts/bench_gate.py collect "$CRITERION_HOME-again-1" "$CRITERION_HOME-again-2" --out bench-again.json
-            python3 scripts/bench_gate.py collect "$CRITERION_HOME-base-again-1" "$CRITERION_HOME-base-again-2" --out bench-base-again.json
+            for turn in 1 2 3; do
+              python3 scripts/bench_gate.py collect "$CRITERION_HOME-again-$turn" --out "bench-again-$turn.json"
+              python3 scripts/bench_gate.py collect "$CRITERION_HOME-base-again-$turn" --out "bench-base-again-$turn.json"
+            done
           fi
       - name: Judge beside the base
         run: |
           args="--history bench-history.json --run bench-run.json"
           if [ -f bench-base.json ]; then args="$args --base bench-base.json"; fi
-          if [ -f bench-again.json ]; then args="$args --again bench-again.json --base-again bench-base-again.json"; fi
+          if [ -f bench-again-1.json ]; then
+            args="$args --again bench-again-1.json bench-again-2.json bench-again-3.json"
+            args="$args --base-again bench-base-again-1.json bench-base-again-2.json bench-base-again-3.json"
+          fi
           python3 scripts/bench_gate.py check $args --summary "$GITHUB_STEP_SUMMARY" $ACCEPT $REPORT_ONLY
           if [ "$RECORD" = true ]; then
             python3 scripts/bench_gate.py record --history bench-history.json --run bench-run.json
@@ -144,7 +152,7 @@ jobs:
           path: |
             bench-run.json
             bench-base.json
-            bench-again.json
-            bench-base-again.json
+            bench-again-*.json
+            bench-base-again-*.json
             bench-history.json
           if-no-files-found: ignore
