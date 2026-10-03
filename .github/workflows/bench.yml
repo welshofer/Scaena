@@ -1,9 +1,10 @@
 name: bench
 # SPEC §15's stages, timed by criterion on B1–B4 (PLAN 1.24), on each runner CI has: macOS on
 # Apple Silicon, the closest to SPEC's reference machine, which also paints on Metal; and Linux.
-# A pull request is timed beside its base, built and run on the same machine in the same job: it
-# fails when a bench is slower than the base by more than 10%, and again when timed a second time,
-# the base first (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
+# A pull request is timed beside its base, both built and then run on the same machine in the same
+# job, a group of benches at a time, the base first. It fails when a bench is slower than the base
+# by more than 10%, and again when that bench is timed beside its base twice more, each side at
+# its fastest (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
 # so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
 # bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
 # §15's budgets first, goes to the run summary.
@@ -69,34 +70,57 @@ jobs:
           echo "CRITERION_HOME=$RUNNER_TEMP/criterion" >> "$GITHUB_ENV"
           echo "BASE_TARGET=$RUNNER_TEMP/base-target" >> "$GITHUB_ENV"
           echo "$machine"
+          # Spotlight indexes the files a build writes, on three cores, while the benches run.
+          if [ "$RUNNER_OS" = macOS ]; then sudo mdutil -a -i off || true; fi
       - uses: actions/cache/restore@v4
         with:
           path: bench-history.json
           key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: bench-history-${{ runner.os }}-${{ runner.arch }}-
-      - run: cargo bench --locked -p scaena-cli $FEATURES --bench stages
-      - run: python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
-      # The base builds into a copy of the target directory: what the two share is built already,
-      # and each keeps its own `scaena`, which the cold benches run from there.
-      - name: Time the base on this machine
+      # Both built before either is timed. The base builds into a copy of the target directory:
+      # what the two share is built already, and each keeps its own `scaena`, which the cold
+      # benches run from there.
+      - name: Build the benches, and a pull request's base's
+        run: |
+          cargo bench --locked -p scaena-cli $FEATURES --bench stages --no-run
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git worktree add "$RUNNER_TEMP/base" HEAD^1
+            if [ "$RUNNER_OS" = macOS ]; then cp -Rcp target "$BASE_TARGET"; else cp -a --reflink=auto target "$BASE_TARGET"; fi
+            (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages --no-run)
+          fi
+      # A pull request's run and its base's take turns, a group of benches at a time, the base
+      # first, so a spell of load on the machine falls on both.
+      - name: Time the benches, beside the base on a pull request
+        run: |
+          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            for group in $(this --list | sed -n 's|^\([a-z0-9_]*\)/.*: benchmark$|\1|p' | sort -u); do
+              CRITERION_HOME="$CRITERION_HOME-base" base "^$group/"
+              this "^$group/"
+            done
+            python3 scripts/bench_gate.py collect "$CRITERION_HOME-base" --out bench-base.json
+          else
+            this
+          fi
+          python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
+      # Each bench slower than the base, twice more beside it, bench by bench: the pull request
+      # first, then the base first. Each side counts at its fastest; load only slows a run.
+      - name: Time again what is slower than the base
         if: github.event_name == 'pull_request'
         run: |
-          git worktree add "$RUNNER_TEMP/base" HEAD^1
-          if [ "$RUNNER_OS" = macOS ]; then cp -Rcp target "$BASE_TARGET"; else cp -a --reflink=auto target "$BASE_TARGET"; fi
-          (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" CRITERION_HOME="$CRITERION_HOME-base" \
-            cargo bench --locked -p scaena-cli $FEATURES --bench stages)
-          python3 scripts/bench_gate.py collect "$CRITERION_HOME-base" --out bench-base.json
-      - name: Time again, base first, what is slower than the base
-        if: github.event_name == 'pull_request'
-        run: |
+          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
           python3 scripts/bench_gate.py suspects --run bench-run.json --base bench-base.json --out suspects.txt
           if [ -s suspects.txt ]; then
-            filter="^($(paste -sd'|' suspects.txt))\$"
-            (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" CRITERION_HOME="$CRITERION_HOME-base-again" \
-              cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$filter")
-            CRITERION_HOME="$CRITERION_HOME-again" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$filter"
-            python3 scripts/bench_gate.py collect "$CRITERION_HOME-base-again" --out bench-base-again.json
-            python3 scripts/bench_gate.py collect "$CRITERION_HOME-again" --out bench-again.json
+            for bench in $(cat suspects.txt); do
+              CRITERION_HOME="$CRITERION_HOME-again-1" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-1" base "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-2" base "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-again-2" this "^$bench\$"
+            done
+            python3 scripts/bench_gate.py collect "$CRITERION_HOME-again-1" "$CRITERION_HOME-again-2" --out bench-again.json
+            python3 scripts/bench_gate.py collect "$CRITERION_HOME-base-again-1" "$CRITERION_HOME-base-again-2" --out bench-base-again.json
           fi
       - name: Judge beside the base
         run: |
