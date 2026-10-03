@@ -97,6 +97,10 @@ enum Cmd {
         /// Keep fonts whole instead of subsetting them.
         #[arg(long)]
         keep_fonts: bool,
+        /// Start keeping history in `history/deck.loro` (SPEC §8): every change from here on
+        /// is recorded, with who made it. A bundle that keeps it keeps it either way.
+        #[arg(long)]
+        history: bool,
     },
     /// Export a projection: pdf|png|svg|mp4|webm|prores|html|spine.
     Export {
@@ -273,10 +277,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             report(&findings, cli.json);
             Ok(if findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
-        Cmd::Save { bundle, to, keep_fonts } => {
+        Cmd::Save { bundle, to, keep_fonts, history } => {
             let b = open(&bundle)?;
             let to = to.unwrap_or(bundle);
-            let opts = SaveOptions { subset_fonts: !keep_fonts, now: now_rfc3339() };
+            let opts = SaveOptions { subset_fonts: !keep_fonts, now: now_rfc3339(), history };
             let saved = b.save(&to, &opts).with_context(|| format!("saving to {}", to.display()))?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&saved)?);
@@ -809,8 +813,14 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// The bundle at `path`, edited by `$SCAENA_AUTHOR` (`user` without it): its history
+/// records what this command changes as theirs (SPEC §8.2).
 fn open(path: &Path) -> Result<Bundle> {
-    Ok(scaena_ops::open(path)?)
+    let mut b = scaena_ops::open(path)?;
+    if let Some(author) = std::env::var("SCAENA_AUTHOR").ok().filter(|a| !a.trim().is_empty()) {
+        b.author = author;
+    }
+    Ok(b)
 }
 
 /// Now, in RFC 3339 UTC: `SOURCE_DATE_EPOCH` when set (reproducible saves), else the clock.

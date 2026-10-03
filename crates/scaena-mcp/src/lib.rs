@@ -16,8 +16,9 @@ use indexmap::IndexMap;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ErrorData, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerConfig, Tool,
+    CallToolResult, ContentBlock, ErrorData, InitializeRequestParams, InitializeResult, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
@@ -28,16 +29,26 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
     tool_router: ToolRouter<Self>,
+    /// Who the client is, as the history of a bundle it edits names it: `agent:<name>`,
+    /// by the name it gives when it connects (SPEC §8.2).
+    author: Arc<Mutex<String>>,
 }
 
 impl Default for Scaena {
     fn default() -> Self {
-        Scaena { tool_router: Self::tool_router() }
+        Scaena { tool_router: Self::tool_router(), author: Arc::new(Mutex::new("agent".into())) }
+    }
+}
+
+impl Scaena {
+    fn author(&self) -> String {
+        self.author.lock().map(|a| a.clone()).unwrap_or_else(|_| "agent".into())
     }
 }
 
@@ -81,6 +92,13 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, OpsError> + S
 
 fn open(bundle: &str) -> Result<scaena_ops::Bundle, OpsError> {
     scaena_ops::open(Path::new(bundle))
+}
+
+/// The bundle, edited by `author`: what it writes is theirs in its history.
+fn open_by(bundle: &str, author: String) -> Result<scaena_ops::Bundle, OpsError> {
+    let mut b = open(bundle)?;
+    b.author = author;
+    Ok(b)
 }
 
 // --- inputs ---------------------------------------------------------------------------
@@ -346,7 +364,8 @@ impl Scaena {
         Parameters(a): Parameters<DeckPatch>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-        blocking(move || scaena_ops::patch::patch(&open(&a.bundle)?, &ops, a.dry_run)).await.map(Json)
+        let author = self.author();
+        blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, \
@@ -358,8 +377,9 @@ impl Scaena {
             SeverityArg::Warning => scaena_core::Severity::Warning,
             SeverityArg::Info => scaena_core::Severity::Info,
         };
+        let author = self.author();
         blocking(move || {
-            let b = open(&a.bundle)?;
+            let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
                 true => {
                     let f = scaena_ops::lint::lint_fix(&b)?;
@@ -458,7 +478,8 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<ThemeApply>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
-        blocking(move || scaena_ops::theme::theme_apply(&open(&a.bundle)?, Path::new(&a.theme), a.dry_run))
+        let author = self.author();
+        blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run))
             .await
             .map(Json)
     }
@@ -469,7 +490,8 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<DataAttach>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
-        blocking(move || scaena_ops::create::attach(&open(&a.bundle)?, &a.data)).await.map(Json)
+        let author = self.author();
+        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \
@@ -488,9 +510,12 @@ impl Scaena {
         &self,
         Parameters(a): Parameters<SpineUpdate>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
-        blocking(move || scaena_ops::read::spine_update(&open(&a.bundle)?, Value::Object(a.spine), a.dry_run))
-            .await
-            .map(Json)
+        let author = self.author();
+        blocking(move || {
+            scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
+        })
+        .await
+        .map(Json)
     }
 }
 
@@ -604,6 +629,18 @@ pub fn resource(uri: &str) -> Option<&'static str> {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Scaena {
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        if let Ok(mut author) = self.author.lock() {
+            *author = format!("agent:{}", request.client_info.name);
+        }
+        context.peer.set_peer_info(request.clone());
+        self.negotiate_initialize(&request)
+    }
+
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
         ServerConfig::new(capabilities).with_instructions(

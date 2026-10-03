@@ -38,6 +38,7 @@ fn every_command_prints_one_json_value() {
     let dir = scratch("every");
     let png = dir.join("pretty.png");
     let saved = dir.join("saved.scaena");
+    let kept = dir.join("kept.scaena");
     let pdf = dir.join("deck.pdf");
     let svgs = dir.join("svgs");
     let spine = dir.join("projection").join("spine.json");
@@ -58,6 +59,10 @@ fn every_command_prints_one_json_value() {
             v["size"] == serde_json::json!([1920, 1080])
         }),
         (vec!["save", TORTURE, "--to", saved.to_str().unwrap()], 0, |v| v["manifest"].is_object()),
+        // `--history` starts the bundle's history, and the manifest lists it.
+        (vec!["save", TORTURE, "--to", kept.to_str().unwrap(), "--history"], 0, |v| {
+            v["manifest"]["files"].get("history/deck.loro").is_some()
+        }),
         (vec!["export", EXAMPLE, "--format", "spine"], 0, |v| v["format"] == "spine" && v["spine"].is_object()),
         // Written, the spine is in its file, and the result names its renders.
         (vec!["export", EXAMPLE, "--format", "spine", "--out", spine.to_str().unwrap()], 0, |v| {

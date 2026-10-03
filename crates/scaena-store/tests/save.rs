@@ -23,7 +23,7 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 fn opts() -> SaveOptions {
-    SaveOptions { subset_fonts: true, now: NOW.into() }
+    SaveOptions { subset_fonts: true, now: NOW.into(), history: false }
 }
 
 /// Every file in `dir`, relative, sorted.
@@ -101,7 +101,7 @@ fn a_directory_that_holds_something_else_is_not_overwritten() {
 #[test]
 fn keeping_fonts_whole_keeps_their_bytes() {
     let dir = scratch("whole").join("b1");
-    let opts = SaveOptions { subset_fonts: false, now: NOW.into() };
+    let opts = SaveOptions { subset_fonts: false, now: NOW.into(), history: false };
     let saved = Bundle::open(Path::new("../../tests/bench/b1.scaena")).unwrap().save(&dir, &opts).unwrap();
     assert!(saved.subset.is_empty());
     for (old, new) in &saved.renamed {

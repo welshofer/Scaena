@@ -1,7 +1,8 @@
 //! Saving a bundle (SPEC §3.1, PLAN 1.4).
 
+use crate::crdt::{DeckDoc, Edit};
 use crate::subset::subset;
-use crate::{Bundle, Files, StoreError};
+use crate::{Bundle, Files, HISTORY, StoreError};
 use scaena_core::document::{Manifest, NodeType};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -17,6 +18,9 @@ pub struct SaveOptions {
     /// When this save happens, in RFC 3339: the manifest's `modified`, and its `created`
     /// for a bundle saved the first time. The store reads no clock; its caller says.
     pub now: String,
+    /// Start keeping history (`history/deck.loro`, SPEC §8) if the bundle keeps none. One
+    /// that does keeps it either way.
+    pub history: bool,
 }
 
 /// What a save wrote.
@@ -40,6 +44,7 @@ impl Bundle {
     ///   every reference to them rewritten, a beat's evidence among them;
     /// - every other file of the bundle as it is (from a bare deck file, whose directory is
     ///   not a bundle of its own, only its data and the font licenses beside its fonts);
+    /// - its history, with the save recorded in it, if it keeps one or `opts` starts one;
     /// - `manifest.json`.
     ///
     /// `to` is a directory, or a zip when it ends in `.scaena`. A directory must be absent,
@@ -128,6 +133,21 @@ impl Bundle {
             }
         }
         renamed.extend(names.iter().filter(|(old, new)| old != new).map(|(o, n)| (o.clone(), n.clone())));
+
+        // The history, with this save in it: files renamed are a change to the deck.
+        let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
+        let history = match self.record(&deck, &edit)? {
+            Some(bytes) => Some(bytes),
+            None if opts.history => {
+                let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
+                Some(DeckDoc::from_deck(&deck, &begun)?.save()?)
+            }
+            None => None,
+        };
+        if let Some(bytes) = history {
+            replaced.insert(HISTORY.into());
+            out.insert(HISTORY.into(), bytes);
+        }
 
         // The theme file, and everything else as it is.
         if let Some((path, value)) = &theme {

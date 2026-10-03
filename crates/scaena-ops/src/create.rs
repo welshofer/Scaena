@@ -2,7 +2,7 @@
 //! made from a theme, its fonts, a deck, and data files. It is checked as `validate` checks
 //! a bundle before anything is written, and written only if valid.
 
-use crate::lint::{View, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
 use scaena_core::lint::{Delta, delta};
@@ -92,7 +92,7 @@ pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
     }
     let before = lint(b)?.findings;
     let after = lint_in(&next, &view)?.findings;
-    write_deck(b, &next, BTreeMap::from([(source.clone(), bytes)]))?;
+    write_deck(b, &next, BTreeMap::from([(source.clone(), bytes)]), &Why::new(format!("data_attach {}", req.id)))?;
     let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
     Ok(Attached {
         attached: true,
@@ -251,8 +251,14 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
     let deck = Deck::from_json(&deck_json).context("the deck")?;
     let findings = lint_in(&deck, &view)?.findings;
     std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
-    let b =
-        Bundle { root: path.to_path_buf(), deck_file: "deck.json".into(), deck, theme_json: None, files: base.clone() };
-    write_deck(&b, &b.deck, files)?;
+    let b = Bundle {
+        root: path.to_path_buf(),
+        deck_file: "deck.json".into(),
+        deck,
+        theme_json: None,
+        files: base.clone(),
+        author: "user".into(),
+    };
+    write_deck(&b, &b.deck, files, &Why::new("deck_create"))?;
     Ok(Created { created: true, files: listed, errors: errors(&findings), findings })
 }

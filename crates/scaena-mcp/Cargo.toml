@@ -25,3 +25,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client"] }
+scaena-store.workspace = true

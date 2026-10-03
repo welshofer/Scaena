@@ -1,6 +1,7 @@
 //! # scaena-store
 //!
-//! Bundle I/O (SPEC §3.1, PLAN 1.4) now; the CRDT document (SPEC §8, ADR-0002) in PLAN 1.23.
+//! Bundle I/O (SPEC §3.1, PLAN 1.4), and the CRDT document that keeps a bundle's history
+//! ([`crdt`], SPEC §8, ADR-0002, PLAN 1.23).
 //!
 //! A bundle is a directory `name.scaena/` or a zip of the same layout, `name.scaena`. It
 //! opens either way, or from a bare deck file (its directory is the bundle). `deck.json`
@@ -8,12 +9,18 @@
 //! or inline. [`Bundle::save`] writes a bundle back as SPEC §3.1 lays it out: fonts
 //! subset to what the deck can draw ([`subset`]), assets and fonts content-addressed, and a
 //! manifest.
+//!
+//! A bundle that keeps `history/deck.loro` keeps its history: whatever writes its deck
+//! records the change there too ([`Bundle::record`]), by the bundle's `author`, after taking
+//! in, as a change by `fs`, any edit made to `deck.json` outside Scaena since.
 
+pub mod crdt;
 mod save;
 pub mod subset;
 
 pub use save::{SaveOptions, Saved};
 
+use crdt::{CrdtError, DeckDoc, Edit};
 use scaena_core::Deck;
 use scaena_core::validate::BundleFiles;
 use std::collections::BTreeMap;
@@ -44,7 +51,12 @@ pub enum StoreError {
     Occupied(PathBuf),
     #[error("not implemented yet: {0} (see docs/PLAN.md)")]
     NotImplemented(&'static str),
+    #[error("{HISTORY}: {0}")]
+    Crdt(#[from] CrdtError),
 }
+
+/// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
+pub const HISTORY: &str = "history/deck.loro";
 
 /// Where a bundle's files are: a directory on disk, or the entries of a zip, read once.
 #[derive(Debug, Clone)]
@@ -115,6 +127,9 @@ pub struct Bundle {
     pub deck: Deck,
     pub theme_json: Option<String>,
     pub files: Files,
+    /// Who edits it: `user` unless the client says otherwise, as `agent:<name>` (SPEC §8.2).
+    /// Changes written to its history are theirs.
+    pub author: String,
 }
 
 impl Bundle {
@@ -125,7 +140,7 @@ impl Bundle {
         let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
         let deck = Deck::from_json(&text)?;
         let theme_json = theme_of(&deck, &files)?;
-        Ok(Bundle { root, deck_file, deck, theme_json, files })
+        Ok(Bundle { root, deck_file, deck, theme_json, files, author: "user".into() })
     }
 
     /// A path the deck names (theme, fonts, data), resolved inside a directory bundle.
@@ -137,6 +152,28 @@ impl Bundle {
     /// The file at `rel` inside the bundle.
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, StoreError> {
         self.files.read(rel)
+    }
+
+    /// The bundle's CRDT document, if it keeps one ([`HISTORY`]), with `deck.json` as it is
+    /// now taken in: a deck edited outside Scaena since it was last written goes in as a
+    /// change by `fs` (SPEC §8.1).
+    pub fn history(&self) -> Result<Option<DeckDoc>, StoreError> {
+        if !self.files.exists(HISTORY) {
+            return Ok(None);
+        }
+        let doc = DeckDoc::load(&self.read(HISTORY)?)?;
+        let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
+        let outside = Edit { message: Some("deck.json changed outside Scaena"), ..Edit::by(crdt::FS) };
+        doc.apply(&disk, &outside)?;
+        Ok(Some(doc))
+    }
+
+    /// The history to write beside `deck`, if the bundle keeps one: with the change from
+    /// the deck it holds to `deck` recorded as `edit` says.
+    pub fn record(&self, deck: &Deck, edit: &Edit) -> Result<Option<Vec<u8>>, StoreError> {
+        let Some(doc) = self.history()? else { return Ok(None) };
+        doc.apply(deck, edit)?;
+        Ok(Some(doc.save()?))
     }
 
     /// The deck's font files (`fonts[].file`) in deck order, as (bundle id, bytes). The

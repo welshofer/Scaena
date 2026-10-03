@@ -1,7 +1,7 @@
 //! Re-theme a deck (PLAN 1.6, SPEC §3.6): point it at another theme, copied into the bundle,
 //! and say what that changes in what `validate` and `lint` find.
 
-use crate::lint::{View, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::Finding;
 use scaena_core::lint::{Delta, delta};
@@ -82,7 +82,7 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool) -> Result<Themed, Op
         if inside.is_none() || !mapped.is_empty() {
             files.insert(rel.clone(), text.into_bytes());
         }
-        write_deck(b, &deck, files)?;
+        write_deck(b, &deck, files, &Why::new(format!("theme --apply {rel}")))?;
     }
     Ok(Themed { theme: rel, was, applied: !dry_run, mapped, added, removed, errors: errors(&after) })
 }
