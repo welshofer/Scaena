@@ -3,13 +3,37 @@
 //! the deck draws, or kept whole, files named by their content, a manifest. The page writes
 //! what a save makes where it keeps the bundle (a folder it was given, or the browser's own
 //! storage) and goes on from the saved bundle, or zips it.
+//!
+//! A bundle that keeps a history (SPEC §8) has the save recorded in it (PLAN 2.9), by the
+//! history's own module (`scaena-history`), which the page hands the save: the engine's
+//! module keeps no CRDT (SPEC §15). The session keeps what that module records: each edit an
+//! operation made, by whoever called it ([`Caller`]), with what it says it did.
 
+use crate::assistant::Caller;
 use crate::{Error, Session};
 use scaena_core::Deck;
+use scaena_ops::lint::Why;
+use scaena_store::crdt::{FS, OUTSIDE, Recorded};
 use scaena_store::subset::SubsetError;
-use scaena_store::{Bundle, Files, SaveOptions, Saving, StoreError};
+use scaena_store::{Bundle, Files, HISTORY, SaveOptions, Saving, StoreError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+/// What records a save in a bundle's history: given the history the bundle holds and the
+/// changes to record (JSON, as `scaena-history` takes them), the history to save in its place.
+pub type Recorder<'a> = dyn Fn(&[u8], &str) -> Result<Vec<u8>, String> + 'a;
+
+/// Who makes the page's own edits: what the user types, a finding's fix they click, and the
+/// save (SPEC §8.2).
+const USER: &str = "user";
+
+/// Seconds since 1970 at `rfc3339`, as a page says the time (`Date.toISOString`, in UTC);
+/// `None` when it says it otherwise.
+pub fn seconds(rfc3339: &str) -> Option<i64> {
+    let utc = rfc3339.strip_suffix('Z')?;
+    let whole = utc.split_once('.').map_or(utc, |(whole, _)| whole);
+    scaena_core::format::read_iso(whole).ok().map(|t| t.0)
+}
 
 impl Session {
     /// A bundle's files, by their paths inside it, opened: its deck from `deck.json`, its
@@ -70,11 +94,20 @@ impl Session {
     ///
     /// The engine's module carries no subsetter, and no CRDT: each would add a quarter of
     /// the module or more (SPEC §15). A save that subsets writes the subsets handed over
-    /// ([`Session::add_subset`]), each for the characters the deck can draw now. A bundle's
-    /// history (SPEC §8) is carried as it is: the next save that records, `scaena save` or
-    /// any command that writes the deck, takes in the page's edits as a change by `fs`.
-    pub fn save(&self, now: &str, subset: bool) -> Result<Saving, Error> {
+    /// ([`Session::add_subset`]), each for the characters the deck can draw now. A bundle that
+    /// keeps a history (SPEC §8) has the save recorded in it by `history`, the history's own
+    /// module, as [`Session::changes`] says. Without it, the history is carried as it is: the
+    /// next save that records, `scaena save` or any command that writes the deck, takes in
+    /// the page's edits as a change by `fs`.
+    pub fn save(&self, now: &str, subset: bool, history: Option<&Recorder>) -> Result<Saving, Error> {
         let opts = SaveOptions { subset_fonts: subset, now: now.into(), history: false };
+        let record = |saved: &Deck| match (history, self.files.get(HISTORY)) {
+            (Some(record), Some(held)) => {
+                let changes = self.changes(saved, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
+                record(held, &changes).map(Some).map_err(StoreError::History)
+            }
+            _ => Ok(None),
+        };
         let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| match self.subsets.get(font) {
             Some((kept, bytes)) if kept.chars().eq(chars.iter().copied()) => Ok(bytes.clone()),
             kept => {
@@ -86,7 +119,50 @@ impl Session {
                 Err(StoreError::Subset(font.to_string(), SubsetError::Subset(format!("{why}: subset it again"))))
             }
         };
-        self.bundle().saving_with(&opts, |_| Ok(None), subsets).map_err(|e| Error::Ops(e.to_string()))
+        self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// What a save of `saved`, the deck as saved, records in the bundle's history, at `at`
+    /// (PLAN 2.9): as JSON, the changes `scaena-history` records, in order.
+    /// - `deck.json` as the bundle holds it, by `fs`: a change only if it says otherwise than
+    ///   the history, edited outside Scaena since it was recorded (SPEC §8.1).
+    /// - Each edit an operation made since the bundle was opened or saved, after the deck as
+    ///   it stood before it, which holds the user's edits until then
+    ///   ([`Session::keep`]).
+    /// - `saved`, by the user: the rest of their edits, and the files the save renamed.
+    ///
+    /// Each is stamped when it was made, the first as the earliest: the history never
+    /// stamps a change before the one it follows.
+    pub fn changes(&self, saved: &Deck, at: Option<i64>) -> Result<String, Error> {
+        let held = self.files.get("deck.json").ok_or_else(|| Error::Missing("deck.json".into()))?;
+        let held = String::from_utf8(held.clone()).map_err(|e| Error::Deck(e.to_string()))?;
+        let first = self.recorded.first().map_or(at, |c| c.timestamp);
+        let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), ..change(held, FS, first) }];
+        changes.extend(self.recorded.iter().cloned());
+        let saved = saved.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+        changes.push(Recorded { message: Some("save".into()), ..change(saved, USER, at) });
+        serde_json::to_string(&changes).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// Keep `deck`, which an operation `by` called wrote for `why`, for the next save to
+    /// record, after the deck shown before it: the user's edits until then. Only a bundle
+    /// that keeps a history records anything.
+    pub(crate) fn keep(&mut self, deck: &Deck, why: &Why, by: Caller) -> Result<(), Error> {
+        if !self.files.contains_key(HISTORY) {
+            return Ok(());
+        }
+        let json = |deck: &Deck| deck.to_json().map_err(|e| Error::Deck(e.to_string()));
+        let before = json(&self.deck)?;
+        if self.recorded.last().is_none_or(|last| last.deck != before) {
+            self.recorded.push(Recorded { message: Some("edit".into()), ..change(before, USER, by.at) });
+        }
+        self.recorded.push(Recorded {
+            message: Some(why.message.clone()),
+            renamed_nodes: why.renamed_nodes.clone(),
+            renamed_states: why.renamed_states.clone(),
+            ..change(json(deck)?, by.author, by.at)
+        });
+        Ok(())
     }
 
     /// Go on from `saved`: its files are the bundle's from now on, and its deck, which names
@@ -106,9 +182,23 @@ impl Session {
     }
 }
 
+/// `deck`'s change by `author`, at `at`, saying nothing yet.
+fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
+    Recorded {
+        deck,
+        author: author.into(),
+        message: None,
+        timestamp: at,
+        renamed_nodes: Vec::new(),
+        renamed_states: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use scaena_store::crdt::DeckDoc;
+    use serde_json::json;
     use std::path::Path;
 
     /// A bundle on disk as a page holds it: every file of it, by its path inside it.
@@ -159,10 +249,10 @@ mod tests {
         let files = files("../../tests/bench/b1.scaena");
         let mut s = Session::open(files.clone()).unwrap();
         assert_eq!(s.files(), files.keys().cloned().collect::<Vec<_>>(), "it holds every file it was handed");
-        let unsubset = s.save(NOW, true).unwrap_err().to_string();
+        let unsubset = s.save(NOW, true, None).unwrap_err().to_string();
         assert!(unsubset.contains("no subset of it was handed over"), "{unsubset}");
         subset_all(&mut s);
-        let page = s.save(NOW, true).unwrap();
+        let page = s.save(NOW, true, None).unwrap();
         let opts = SaveOptions { subset_fonts: true, now: NOW.into(), history: false };
         assert_eq!(page.files, Bundle::in_memory(files).unwrap().saving(&opts).unwrap().files);
         // Fonts subset (B1's are subset to its text already) and named by their content,
@@ -179,7 +269,7 @@ mod tests {
         let mut deck = s.deck.clone();
         deck.meta.get_or_insert_with(Default::default).title = Some("Ωmega".into());
         s.set_deck(deck);
-        let stale = s.save(NOW, true).unwrap_err().to_string();
+        let stale = s.save(NOW, true, None).unwrap_err().to_string();
         assert!(stale.contains("its subset keeps other characters"), "{stale}");
     }
 
@@ -189,7 +279,7 @@ mod tests {
         let source = s.source().replace("Revenue doubled\"", "Revenue more than doubled\"");
         assert!(s.compile(&source).valid);
         let before = drawn(&mut s, &[]);
-        let saved = s.save(NOW, false).unwrap();
+        let saved = s.save(NOW, false, None).unwrap();
         let reopened = Bundle::from_zip(&scaena_store::zip(&saved.files).unwrap()).unwrap();
         assert!(reopened.deck.to_json().unwrap().contains("Revenue more than doubled"));
         // Kept whole, each font is the bytes it was, under its content's name.
@@ -217,7 +307,7 @@ mod tests {
         let mut s = Session::open(files).unwrap();
         let source = s.source().replace("Revenue doubled\"", "Revenue more than doubled\"");
         assert!(s.compile(&source).valid);
-        let saved = s.save(NOW, false).unwrap();
+        let saved = s.save(NOW, false, None).unwrap();
         assert_eq!(saved.files[scaena_store::HISTORY], history, "carried as it was");
 
         let opts = SaveOptions { subset_fonts: false, now: NOW.into(), history: false };
@@ -226,6 +316,118 @@ mod tests {
         let authors: Vec<_> = doc.changes().into_iter().filter_map(|c| c.author).collect();
         assert!(authors.iter().any(|a| a == scaena_store::crdt::FS), "{authors:?}");
         assert!(doc.deck().unwrap().to_json().unwrap().contains("Revenue more than doubled"));
+    }
+
+    /// What records a save in a bundle's history, as the page's module does (PLAN 2.9).
+    fn recorder(held: &[u8], changes: &str) -> Result<Vec<u8>, String> {
+        scaena_history::recorded(held, changes)
+    }
+
+    /// The revenue example saved with its history begun, and when that was.
+    fn begun() -> (BTreeMap<String, Vec<u8>>, i64) {
+        let begun = SaveOptions { subset_fonts: false, now: NOW.into(), history: true };
+        let files = Bundle::in_memory(revenue()).unwrap().saving(&begun).unwrap().files;
+        let at = DeckDoc::load(&files[HISTORY]).unwrap().changes()[0].timestamp;
+        (files, at)
+    }
+
+    /// `t`, seconds since 1970, as a page says it.
+    fn rfc3339(t: i64) -> String {
+        let c = scaena_core::format::DateTime(t).civil();
+        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.000Z", c.year, c.month, c.day, c.hour, c.minute, c.second)
+    }
+
+    /// Who made each change of `history` after its first `after`, what they said, and when.
+    fn said(history: &[u8], after: usize) -> Vec<(String, String, i64)> {
+        let changes = DeckDoc::load(history).unwrap().changes().into_iter().skip(after);
+        changes.map(|c| (c.author.unwrap_or_default(), c.message.unwrap_or_default(), c.timestamp)).collect()
+    }
+
+    fn by(author: &str, message: &str, at: i64) -> (String, String, i64) {
+        (author.into(), message.into(), at)
+    }
+
+    #[test]
+    fn a_page_says_the_time_as_a_history_keeps_it() {
+        let t = 1_791_064_457;
+        assert_eq!(seconds(&rfc3339(t)), Some(t));
+        assert_eq!(seconds("2026-10-03T21:54:17Z"), Some(t));
+        assert_eq!(seconds("2026-10-03T21:54:17+02:00"), None);
+    }
+
+    #[test]
+    fn a_save_records_the_users_edits_and_the_assistants_each_by_its_author() {
+        let (files, t0) = begun();
+        let mut s = Session::open(files).unwrap();
+        // The user types; the assistant renames the title; the page takes its source, and the
+        // user types again.
+        let typed = s.source().replace("Revenue doubled\"", "Revenue more than doubled\"");
+        assert!(s.compile(&typed).valid);
+        let agent = Caller { author: "agent:scripted", at: Some(t0 + 60) };
+        let patch = json!({ "ops": [{ "op": "rename_node", "id": "title", "to": "heading" }] });
+        assert!(s.tool("deck_patch", patch, agent).unwrap().edited);
+        let source = s.source();
+        assert!(s.compile(&source).valid);
+        let typed = s.source().replace("Q3 Review", "Third-quarter review");
+        assert!(s.compile(&typed).valid);
+
+        let saved = s.save(&rfc3339(t0 + 120), false, Some(&recorder)).unwrap();
+        let history = &saved.files[HISTORY];
+        assert_eq!(
+            said(history, 1),
+            [
+                by("user", "edit", t0 + 60),
+                by("agent:scripted", "patch: rename_node", t0 + 60),
+                by("user", "save", t0 + 120)
+            ]
+        );
+        // The rename kept the node: it changed its id, one operation.
+        let doc = DeckDoc::load(history).unwrap();
+        assert_eq!(doc.changes()[2].ops, 1);
+        // The history holds the deck as saved, so the next command that records takes in no
+        // change by `fs`.
+        assert_eq!(doc.deck().unwrap().to_json().unwrap() + "\n", String::from_utf8_lossy(&saved.files["deck.json"]));
+        let next = Bundle::in_memory(saved.files.clone()).unwrap().history().unwrap().unwrap();
+        assert_eq!(next.changes().len(), 4);
+
+        // The page goes on from the save, which recorded what the session kept.
+        s.adopt(&saved).unwrap();
+        let again = s.save(&rfc3339(t0 + 180), false, Some(&recorder)).unwrap();
+        assert_eq!(said(&again.files[HISTORY], 4), []);
+    }
+
+    #[test]
+    fn a_deck_edited_outside_goes_in_first_by_fs() {
+        let (mut files, t0) = begun();
+        let held = String::from_utf8(files["deck.json"].clone()).unwrap().replace("Q3 Review", "Q3, reviewed");
+        files.insert("deck.json".into(), held.into_bytes());
+        let mut s = Session::open(files).unwrap();
+        let agent = Caller { author: "agent:scripted", at: Some(t0 + 60) };
+        let patch = json!({ "ops": [{ "op": "set_text", "node": "title", "text": "Q3, in review" }] });
+        assert!(s.tool("deck_patch", patch, agent).unwrap().edited);
+        let saved = s.save(&rfc3339(t0 + 120), true, Some(&recorder));
+        assert!(saved.unwrap_err().to_string().contains("no subset of it was handed over"));
+        subset_all(&mut s);
+        // A download records too: the bytes `scaena save` writes.
+        let saved = s.save(&rfc3339(t0 + 120), true, Some(&recorder)).unwrap();
+        // Stamped no later than what follows it; the save itself changed only the fonts'
+        // names, which the user's save records.
+        assert_eq!(
+            said(&saved.files[HISTORY], 1),
+            [by(FS, OUTSIDE, t0 + 60), by("agent:scripted", "patch: set_text", t0 + 60), by("user", "save", t0 + 120)]
+        );
+    }
+
+    #[test]
+    fn a_bundle_without_a_history_records_nothing() {
+        let mut s = Session::open(revenue()).unwrap();
+        let agent = Caller { author: "agent:scripted", at: None };
+        let patch = json!({ "ops": [{ "op": "set_text", "node": "title", "text": "Q3, in review" }] });
+        assert!(s.tool("deck_patch", patch, agent).unwrap().edited);
+        assert!(s.recorded.is_empty(), "nothing kept for a history it does not keep");
+        let never = |_: &[u8], _: &str| -> Result<Vec<u8>, String> { panic!("nothing to record") };
+        let saved = s.save(NOW, false, Some(&never)).unwrap();
+        assert!(!saved.files.contains_key(HISTORY));
     }
 
     #[test]

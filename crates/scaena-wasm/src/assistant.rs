@@ -6,8 +6,9 @@
 //! into the session, and the page shows it as source.
 //!
 //! Each edit is computed by the operation's twin that writes nothing (`patching`, `fixing`,
-//! `attaching`), so the CRDT, which writing reaches, stays out of the module: the page
-//! records no history yet (PLAN 2.9).
+//! `attaching`), so the CRDT, which writing reaches, stays out of the module. The session
+//! keeps each edit, by whoever called the tool and with what the operation says it did, for
+//! the next save to record in the bundle's history (PLAN 2.9, `store`).
 
 use crate::{Error, Session};
 use scaena_core::{Finding, Severity};
@@ -31,6 +32,14 @@ pub const TOOLS: &[&str] = &[
     "spine_update",
     "data_attach",
 ];
+
+/// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
+/// bundle's history (SPEC §8.2). The page's assistant is `agent:` and its model's name.
+#[derive(Debug, Clone, Copy)]
+pub struct Caller<'a> {
+    pub author: &'a str,
+    pub at: Option<i64>,
+}
 
 /// What a tool returned.
 #[derive(Debug)]
@@ -191,8 +200,8 @@ fn args<T: DeserializeOwned>(tool: &str, args: Value) -> Result<T, Error> {
 
 impl Session {
     /// Call the assistant's tool `name` with `args`, as its MCP tool takes them less
-    /// `bundle`, `out`, and `painter`.
-    pub fn tool(&mut self, name: &str, a: Value) -> Result<Called, Error> {
+    /// `bundle`, `out`, and `painter`, as `by`.
+    pub fn tool(&mut self, name: &str, a: Value, by: Caller) -> Result<Called, Error> {
         let b = self.bundle();
         match name {
             "deck_read" => {
@@ -204,7 +213,7 @@ impl Session {
                 let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
                 let (mut patched, deck) = scaena_ops::patch::patching(&b, &ops, None)?;
                 patched.applied &= !a.dry_run;
-                let edited = self.write(deck.filter(|_| !a.dry_run));
+                let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })
             }
             "deck_lint" => {
@@ -228,7 +237,7 @@ impl Session {
                     .filter(|f| f.severity >= min && a.state.as_ref().is_none_or(|s| f.state.as_deref() == Some(s)))
                     .collect();
                 let errors = scaena_ops::lint::errors(&findings);
-                let edited = self.write(deck);
+                let edited = self.write(deck, by)?;
                 Ok(Called { edited, ..Called::of(Linted { findings, fixed, errors, laid })? })
             }
             "deck_inspect" => {
@@ -252,7 +261,7 @@ impl Session {
                 let a: SpineUpdate = args(name, a)?;
                 let (mut patched, deck) = scaena_ops::read::spine_updating(&b, Value::Object(a.spine))?;
                 patched.applied &= !a.dry_run;
-                let edited = self.write(deck.filter(|_| !a.dry_run));
+                let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })
             }
             "data_attach" => {
@@ -262,24 +271,26 @@ impl Session {
                     ops(format!("data_attach: the bundle holds no `{path}`; drop the file on the page"))
                 })?;
                 let (attached, deck) = scaena_ops::create::attaching(&b, &a, bytes)?;
-                let edited = self.write(deck);
+                let edited = self.write(deck, by)?;
                 Ok(Called { edited, ..Called::of(attached)? })
             }
             _ => Err(ops(format!("no tool `{name}`: the tools are {}", TOOLS.join(", ")))),
         }
     }
 
-    /// Write what an operation computed into the session: its files, then its deck, which
-    /// frames show from now on. Whether there was anything to write.
-    fn write(&mut self, w: Option<Write>) -> bool {
-        let Some(w) = w else { return false };
+    /// Write what an operation `by` called computed into the session: its files, then its
+    /// deck, which frames show from now on, kept for the next save to record. Whether there
+    /// was anything to write.
+    fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
+        let Some(w) = w else { return Ok(false) };
+        self.keep(&w.deck, &w.why, by)?;
         for (path, bytes) in w.files {
             self.add_file(&path, bytes);
         }
         self.set_deck(w.deck);
         // The page compiles the deck's source again, as it does after a fix.
         self.edit = None;
-        true
+        Ok(true)
     }
 
     /// `deck_render`: the state at rest, or `t` ms into its cue, painted by the CPU painter.
@@ -360,8 +371,11 @@ mod tests {
         edited: bool,
     }
 
+    /// The assistant, as the page's tests name it.
+    pub(crate) const AGENT: Caller = Caller { author: "agent:scripted", at: None };
+
     fn call(s: &mut Session, name: &str, a: Value) -> Got {
-        let c = s.tool(name, a).unwrap_or_else(|e| panic!("{name}: {}", failure(&e)));
+        let c = s.tool(name, a, AGENT).unwrap_or_else(|e| panic!("{name}: {}", failure(&e)));
         Got { result: serde_json::from_str(&c.result).unwrap(), frame: c.frame, edited: c.edited }
     }
 
@@ -430,11 +444,11 @@ mod tests {
     #[test]
     fn a_tool_says_what_it_was_given_wrong() {
         let mut s = dusk();
-        let unknown = s.tool("deck_paint", json!({})).unwrap_err();
+        let unknown = s.tool("deck_paint", json!({}), AGENT).unwrap_err();
         assert!(failure(&unknown)["message"].as_str().unwrap().contains("deck_patch"), "{}", failure(&unknown));
-        let wrong = s.tool("deck_read", json!({ "bundle": "deck.json" })).unwrap_err();
+        let wrong = s.tool("deck_read", json!({ "bundle": "deck.json" }), AGENT).unwrap_err();
         assert!(failure(&wrong)["message"].as_str().unwrap().contains("bundle"), "{}", failure(&wrong));
-        let op = s.tool("deck_patch", json!({ "ops": [{ "op": "remove_node", "id": "nothing" }] })).unwrap_err();
+        let op = s.tool("deck_patch", json!({ "ops": [{ "op": "remove_node", "id": "nothing" }] }), AGENT).unwrap_err();
         assert_eq!(failure(&op)["op"], 0, "{}", failure(&op));
     }
 
@@ -479,7 +493,7 @@ mod tests {
         assert!(attached.edited && attached.result["attached"] == true, "{}", attached.result);
         assert_eq!(attached.result["schema"], json!({ "quarter": "string", "revenue": "number" }));
         assert!(s.source().contains("data/q.csv"));
-        let missing = s.tool("data_attach", json!({ "id": "r", "file": "data/r.csv" })).unwrap_err();
+        let missing = s.tool("data_attach", json!({ "id": "r", "file": "data/r.csv" }), AGENT).unwrap_err();
         assert!(failure(&missing)["message"].as_str().unwrap().contains("drop"), "{}", failure(&missing));
     }
 
@@ -495,12 +509,12 @@ mod tests {
             let props = schema["inputSchema"]["properties"].as_object().unwrap();
             for prop in props.keys().filter(|p| !["bundle", "out", "painter"].contains(&p.as_str())) {
                 // Taken, or refused for what it holds: never an unknown field.
-                if let Err(e) = s.tool(name, json!({ prop.as_str(): { "not": "this" } })) {
+                if let Err(e) = s.tool(name, json!({ prop.as_str(): { "not": "this" } }), AGENT) {
                     let message = failure(&e)["message"].as_str().unwrap().to_string();
                     assert!(!message.contains("unknown field"), "{name} takes no `{prop}`: {message}");
                 }
             }
-            let e = s.tool(name, json!({ "nothing_takes_this": 1 })).unwrap_err();
+            let e = s.tool(name, json!({ "nothing_takes_this": 1 }), AGENT).unwrap_err();
             let message = failure(&e)["message"].as_str().unwrap().to_string();
             assert!(message.contains("unknown field") || message.contains("missing field"), "{name}: {message}");
         }

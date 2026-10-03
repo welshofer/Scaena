@@ -36,10 +36,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # The engine, the subsetter, and what the assistant reads, as `just wasm` builds them.
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-resources --target wasm32-unknown-unknown --release --locked
+      # The engine, the subsetter, the history, and what the assistant reads, as `just wasm`
+      # builds them.
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
       # Then `just site`: the pages, opening the demo deck by default, and the deck beside them.
       - run: cd web && npm ci && npm run typecheck && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir

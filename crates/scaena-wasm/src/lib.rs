@@ -97,6 +97,11 @@ pub struct Session {
     /// and its bytes (PLAN 2.4).
     #[cfg(feature = "editor")]
     subsets: BTreeMap<String, (String, Vec<u8>)>,
+    /// What the next save records in the bundle's history, if it keeps one, besides the save:
+    /// each edit an operation made since the bundle was opened or saved, after the deck
+    /// before it (PLAN 2.9).
+    #[cfg(feature = "editor")]
+    recorded: Vec<scaena_store::crdt::Recorded>,
 }
 
 /// The files a deck's engine is built from: its fonts and its images.
@@ -133,6 +138,8 @@ impl Session {
             laid: Vec::new(),
             #[cfg(feature = "editor")]
             subsets: BTreeMap::new(),
+            #[cfg(feature = "editor")]
+            recorded: Vec::new(),
         })
     }
 
@@ -459,9 +466,15 @@ impl Player {
 
     /// The bundle with the deck shown, saved as `scaena save` saves one (SPEC §3.1), at
     /// `now` (RFC 3339), with fonts subset to what the deck can draw if `subset`: each from
-    /// `addSubset`, for the characters the deck can draw now.
-    pub fn save(&self, now: &str, subset: bool) -> Result<SavedBundle, JsError> {
-        self.0.save(now, subset).map(SavedBundle).map_err(js)
+    /// `addSubset`, for the characters the deck can draw now. A bundle that keeps a history
+    /// has the save recorded in it by `history`, the history's own module (`scaena-history`,
+    /// PLAN 2.9): the page's edits by the user, and each tool's by its caller. Without it,
+    /// the history is carried as it is.
+    pub fn save(&self, now: &str, subset: bool, history: Option<History>) -> Result<SavedBundle, JsError> {
+        let record =
+            history.as_ref().map(|h| move |held: &[u8], changes: &str| h.record(held, changes).map_err(|e| said(&e)));
+        let record = record.as_ref().map(|r| r as &store::Recorder);
+        self.0.save(now, subset, record).map(SavedBundle).map_err(js)
     }
 
     /// Go on from `saved`, once the page has written it where it keeps the bundle: its
@@ -492,9 +505,15 @@ impl Player {
     /// Call the tool `name` with `args` (JSON), as its MCP tool takes them less `bundle`,
     /// `out`, and `painter`. A tool that stops says why in the result, as an MCP tool's
     /// error result does, rather than throwing: either way it is what the model is told.
-    pub fn tool(&mut self, name: &str, args: &str) -> ToolResult {
+    /// `author` calls it (`agent:` and the model's name; `agent` without it) at `at` (RFC
+    /// 3339): an edit it makes is theirs when a save records it in the bundle's history.
+    pub fn tool(&mut self, name: &str, args: &str, author: Option<String>, at: Option<String>) -> ToolResult {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("agent"),
+            at: at.as_deref().and_then(store::seconds),
+        };
         let called = match serde_json::from_str(args) {
-            Ok(args) => self.0.tool(name, args),
+            Ok(args) => self.0.tool(name, args, by),
             Err(e) => Err(Error::Ops(format!("{name}: the arguments are not JSON: {e}"))),
         };
         match called {
@@ -505,6 +524,29 @@ impl Player {
             }
         }
     }
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+extern "C" {
+    /// The module that keeps a bundle's history (`scaena-history`), as the page loaded it
+    /// (PLAN 2.9): it records changes in a history's bytes.
+    #[wasm_bindgen(typescript_type = "{ record(history: Uint8Array, changes: string): Uint8Array }")]
+    pub type History;
+    #[wasm_bindgen(method, catch)]
+    fn record(this: &History, history: &[u8], changes: &str) -> Result<Vec<u8>, JsValue>;
+
+    /// What a module throws: an `Error`, with its message.
+    type Thrown;
+    #[wasm_bindgen(method, getter)]
+    fn message(this: &Thrown) -> Option<String>;
+}
+
+/// What `thrown` says: its message, or itself as text.
+#[cfg(feature = "editor")]
+fn said(thrown: &JsValue) -> String {
+    let message = thrown.is_object().then(|| thrown.unchecked_ref::<Thrown>().message()).flatten();
+    thrown.as_string().or(message).unwrap_or_else(|| format!("{thrown:?}"))
 }
 
 /// What a tool returned (PLAN 2.6).

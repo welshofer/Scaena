@@ -103,7 +103,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "zip": {
         saveable(data.source);
         await subsetFonts();
-        const saved = player.save(new Date().toISOString(), true);
+        const saved = player.save(new Date().toISOString(), true, await history());
         try {
           const bytes = saved.zip().buffer as ArrayBuffer;
           const { subset } = JSON.parse(saved.summary()) as { subset: [string, number, number][] };
@@ -278,17 +278,27 @@ async function subsetFonts() {
   for (const font of fonts) player.addSubset(font, chars, subsetter.subset(player.file(font)!, chars));
 }
 
+/** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save needs it:
+ * the bundle keeps one (`history/deck.loro`). The engine's module leaves the CRDT out. */
+async function history() {
+  if (!player.files().includes("history/deck.loro")) return undefined;
+  const module = await import("@scaena/history");
+  await module.default();
+  return module;
+}
+
 /** Save the bundle with the deck shown, fonts kept whole, where it is kept, or into the
  * browser's storage: the files first, the deck and its manifest last, so the deck never names
- * a file not yet written; then the files the save renamed go. The session goes on from the
- * save. */
-async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number }> {
+ * a file not yet written; then the files the save renamed go. A bundle that keeps a history
+ * has the save recorded in it. The session goes on from the save. */
+async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean }> {
   if (!home) {
     const dir = await newBundle(name);
     home = { dir, where: { kind: "opfs", name: dir.name } };
     name = dir.name;
   }
-  const saved = player.save(new Date().toISOString(), false);
+  const recorder = await history();
+  const saved = player.save(new Date().toISOString(), false, recorder);
   try {
     const paths = saved.paths();
     const last = ["deck.json", "manifest.json"];
@@ -298,7 +308,7 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
     for (const path of saved.replaced()) if (!written.has(path)) await remove(home.dir, path);
     const { renamed } = JSON.parse(saved.summary()) as { renamed: [string, string][] };
     player.adopt(saved);
-    return { where: home.where, renamed, files: paths.length };
+    return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined };
   } finally {
     saved.free();
   }

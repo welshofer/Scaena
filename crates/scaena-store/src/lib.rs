@@ -58,6 +58,10 @@ pub enum StoreError {
     NotImplemented(&'static str),
     #[error("{HISTORY}: {0}")]
     Crdt(#[from] CrdtError),
+    /// What keeps the history elsewhere, as a page's module does (PLAN 2.9), could not
+    /// record in it.
+    #[error("{HISTORY}: {0}")]
+    History(String),
 }
 
 /// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
@@ -187,7 +191,7 @@ impl Bundle {
         }
         let doc = DeckDoc::load(&self.read(HISTORY)?)?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
-        let outside = Edit { message: Some("deck.json changed outside Scaena"), ..Edit::by(crdt::FS) };
+        let outside = Edit { message: Some(crdt::OUTSIDE), ..Edit::by(crdt::FS) };
         doc.apply(&disk, &outside)?;
         Ok(Some(doc))
     }

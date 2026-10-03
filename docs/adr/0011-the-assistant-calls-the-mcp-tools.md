@@ -18,7 +18,7 @@ Four facts shape it:
 
 1. **The tools are the MCP server's**, by the same names and arguments, on the bundle the page holds. Three arguments are left out: `bundle`, `out`, and `painter`. The page reads each tool's schema from `docs/schema/mcp/` at build time. `deck_create`, `theme_apply`, and `deck_export` are left out too: the page opens and downloads bundles itself. `resource_read` is added for what the server serves as resources, and for a skill the bundle carries.
 2. **The operations that write each get a twin that writes nothing**: `patching`, `fixing`, `attaching`, and `spine_updating`. Each computes the deck to write, and why. The native operation calls its twin, then writes. The page calls only the twin, and writes into its session itself.
-   - The page keeps no history yet (PLAN 2.9), so the CRDT stays out of its module.
+   - So the CRDT stays out of its module. The session keeps each edit and why, and a save records them in the bundle's history by the history's own module (PLAN 2.9).
    - A test of the module's tools (`scaena-wasm`'s `assistant`) holds each tool's arguments to its MCP schema.
 3. **What an agent reads moves to a crate of its own**, `scaena-resources`. The MCP server serves it, as before. The page loads it as a WASM module of its own the first time the user asks the assistant something, with the assistant's code.
 4. **The providers are called with `fetch`.** Each adapter maps one conversation into its provider's request and back, in about a hundred lines, with no SDK:
@@ -36,7 +36,7 @@ Four facts shape it:
   - Each crate that parsed a theme had compiled its own copy of the theme model's parser. Every crate now calls one function in `scaena-core`.
   - Two paths parsed the deck from a JSON value. They now go through its text.
 - **+** The page carries nothing a provider ships, and works with any model the key can use, including models that come out later.
-- **−** The page's edits are recorded nowhere until a client that records writes the deck (PLAN 2.9), as for every edit the page makes.
+- **+** A save records each edit in the bundle's history as the model's (`agent:` and its name), with its tool's message and the nodes and states it renamed, as a change over MCP is recorded as its client's (PLAN 2.9).
 - **−** A tool lints and lays out as the CLI does, from the bundle's files, and a patch lints the deck before and after. On B1 (40 states), in headless Chromium, a patch takes 2.5 s, a lint 1.2 s, and a render 1.3 s after an edit. That is slow beside typing, and quick beside a model's answer. Reusing the editor's last lint as the patch's "before" would halve it.
 - **−** A real key is the only full test: CI runs the loop against scripted servers for each wire format (`web/assistant.mjs`).
 

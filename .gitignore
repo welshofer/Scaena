@@ -14,5 +14,6 @@ __pycache__/
 /crates/scaena-wasm/player/
 /crates/scaena-export/player/standalone.html
 /crates/scaena-subset/pkg/
+/crates/scaena-history/pkg/
 /node_modules/
 /crates/scaena-resources/pkg/

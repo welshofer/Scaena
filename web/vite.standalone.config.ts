@@ -56,10 +56,11 @@ export default defineConfig({
   plugins: [singleFile],
   resolve: {
     alias: {
-      // The player's module alone, no subsetter, and no assistant: the page plays, it never
-      // downloads or edits.
+      // The player's module alone, no subsetter, no history, and no assistant: the page
+      // plays, it never downloads, saves, or edits.
       "@scaena/wasm": join(repo, "crates/scaena-wasm/player/scaena_wasm.js"),
       "@scaena/subset": join(web, "src/no-subset.ts"),
+      "@scaena/history": join(web, "src/no-history.ts"),
       "@scaena/assistant": join(web, "src/no-assistant.ts"),
     },
   },

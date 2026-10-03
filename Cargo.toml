@@ -11,6 +11,7 @@ members = [
   "crates/scaena-mcp",
   "crates/scaena-wasm",
   "crates/scaena-subset",
+  "crates/scaena-history",
   "crates/scaena-resources",
   "crates/scaena-ffi",
 ]
@@ -42,6 +43,7 @@ scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
 scaena-resources = { path = "crates/scaena-resources" }
+scaena-history = { path = "crates/scaena-history" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }

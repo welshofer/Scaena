@@ -103,7 +103,7 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
       # The player's engine alone, as a single-file export carries it (PLAN 2.5).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
@@ -132,9 +132,11 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-resources --target wasm32-unknown-unknown --release --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
       # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
       - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5).
@@ -149,6 +151,8 @@ jobs:
           echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
           subset=crates/scaena-subset/pkg/scaena_subset_bg.wasm
           echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
+          history=crates/scaena-history/pkg/scaena_history_bg.wasm
+          echo "History (the CRDT): $(wc -c < "$history") bytes, $(gzip -9 -c "$history" | wc -c) gzipped, loaded to save a bundle that keeps one" | tee -a "$GITHUB_STEP_SUMMARY"
           player=crates/scaena-wasm/player/scaena_wasm_bg.wasm
           echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
           read=crates/scaena-resources/pkg/scaena_resources_bg.wasm
@@ -166,6 +170,8 @@ jobs:
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
+      # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
+      - run: node web/history.mjs
       # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts

@@ -265,7 +265,7 @@ export type FromWorker =
   | { type: "inspected"; id: number; inspected: Inspected }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
-  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number }
+  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
    * after, bytes. */
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }

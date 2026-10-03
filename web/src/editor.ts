@@ -448,7 +448,8 @@ async function edit(source: Source) {
     address(where);
     tell();
     void listKept();
-    status.textContent = `saved ${done.files} files${done.renamed.length ? `, ${done.renamed.length} named by their content` : ""}`;
+    const named = done.renamed.length ? `, ${done.renamed.length} named by their content` : "";
+    status.textContent = `saved ${done.files} files${named}${done.recorded ? ", and recorded in its history" : ""}`;
     return done;
   }
 

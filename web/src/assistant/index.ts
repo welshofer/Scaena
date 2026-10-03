@@ -14,9 +14,10 @@ export type { Event } from "./converse";
 export { providers } from "./providers";
 export type { ProviderId } from "./providers";
 
-/** The engine's session, as the assistant uses it. */
+/** The engine's session, as the assistant uses it. A tool is called by `author` at `at` (RFC
+ * 3339): an edit it makes is theirs in the bundle's history (PLAN 2.9). */
 export interface Session {
-  tool(name: string, args: string): Called;
+  tool(name: string, args: string, author?: string, at?: string): Called;
   source(): string;
   files(): string[];
   file(path: string): Uint8Array | undefined;
@@ -77,7 +78,7 @@ export async function ask(
     system: prompt,
     tools: tools(names),
     conversation,
-    call: (call) => run(session, call, edited),
+    call: (call) => run(session, call, edited, `agent:${asking.model}`),
     emit,
     signal,
   });
@@ -95,10 +96,15 @@ function facts(session: Session) {
   }
 }
 
-/** Run `call` on the session: what it returned, and a line saying what that came to. A call
- * that changes the deck tells `edited` its source before it returns. A call that fails says why
- * to the model, as an MCP tool's error result does: every call has an answer. */
-async function run(session: Session, call: Call, edited: (source: string) => Promise<void>): Promise<{ result: Result; summary: string }> {
+/** Run `call` on the session as `author`: what it returned, and a line saying what that came
+ * to. A call that changes the deck tells `edited` its source before it returns. A call that
+ * fails says why to the model, as an MCP tool's error result does: every call has an answer. */
+async function run(
+  session: Session,
+  call: Call,
+  edited: (source: string) => Promise<void>,
+  author: string,
+): Promise<{ result: Result; summary: string }> {
   const answer = (json: string, error: boolean): { result: Result; summary: string } => ({
     result: { id: call.id, name: call.name, json, error },
     summary: summary(call.name, json, error),
@@ -108,7 +114,7 @@ async function run(session: Session, call: Call, edited: (source: string) => Pro
   let changed: boolean;
   let frame: { pixels: Uint8ClampedArray; width: number; height: number } | undefined;
   try {
-    const called = session.tool(call.name, JSON.stringify(call.args ?? {}));
+    const called = session.tool(call.name, JSON.stringify(call.args ?? {}), author, new Date().toISOString());
     try {
       out = answer(called.json, called.error);
       changed = called.edited;
