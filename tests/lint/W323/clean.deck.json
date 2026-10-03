@@ -1,0 +1,16 @@
+{
+  "scaena": "0.9",
+  "_comment": "W323 clean: `b` held for its reading, 4 s.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "First, the plan", "at": {"in": "left"}},
+    "p": {"type": "image", "src": "assets/photo.png", "alt": "A blue field.", "at": {"in": "right"}}
+  },
+  "states": [
+    {"id": "a", "layout": "two", "props": {"t": {}}, "hold": 3000},
+    {"id": "b", "props": {"t": {"text": "Then the field it was made for"}, "p": {}}, "hold": 4000},
+    {"id": "c", "props": {"t": {"text": "And what grew there"}}, "hold": 3000}
+  ]
+}
