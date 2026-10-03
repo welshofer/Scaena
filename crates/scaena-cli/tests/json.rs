@@ -40,6 +40,7 @@ fn every_command_prints_one_json_value() {
     let saved = dir.join("saved.scaena");
     let pdf = dir.join("deck.pdf");
     let svgs = dir.join("svgs");
+    let spine = dir.join("projection").join("spine.json");
     let theme = "../../docs/examples/themes/dusk.theme.json".to_string();
     let scn = "../../docs/examples/revenue.deck.scn";
     let cases: Vec<(Vec<&str>, i32, Check)> = vec![
@@ -58,6 +59,12 @@ fn every_command_prints_one_json_value() {
         }),
         (vec!["save", TORTURE, "--to", saved.to_str().unwrap()], 0, |v| v["manifest"].is_object()),
         (vec!["export", EXAMPLE, "--format", "spine"], 0, |v| v["format"] == "spine" && v["spine"].is_object()),
+        // Written, the spine is in its file, and the result names its renders.
+        (vec!["export", EXAMPLE, "--format", "spine", "--out", spine.to_str().unwrap()], 0, |v| {
+            v.get("spine").is_none()
+                && v["files"].as_array().is_some_and(|f| f.len() == 6)
+                && v["size"] == serde_json::json!([480, 270])
+        }),
         (vec!["export", EXAMPLE, "--format", "pdf", "--out", pdf.to_str().unwrap()], 0, |v| {
             v["format"] == "pdf"
                 && v["pages"].as_array().is_some_and(|p| !p.is_empty())

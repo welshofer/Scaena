@@ -13,6 +13,8 @@
 //! - A sound track, if one is given, is laid under the frames from the first: cut where
 //!   they end, or carried on in silence until they do. AAC in MP4, Opus in WebM, 16-bit
 //!   PCM in QuickTime.
+//! - Chapters, if they are given, mark where each part starts and ends, by title: the
+//!   caller's beats (SPEC §10).
 //! - The video is written beside `out` and renamed to it once ffmpeg has finished, so a
 //!   failed export leaves no half-written file, and an earlier one stays as it was.
 
@@ -20,6 +22,8 @@ use crate::ExportError;
 use scaena_core::displaylist::DisplayList;
 use scaena_paint::cpu::CpuPainter;
 use scaena_paint::{Assets, Painter as _};
+use schemars::JsonSchema;
+use serde::Serialize;
 use std::ffi::OsString;
 use std::io::{Read as _, Write};
 use std::path::{Path, PathBuf};
@@ -58,14 +62,37 @@ pub struct VideoSettings {
     pub fps: u32,
     /// A sound track: any file ffmpeg reads.
     pub audio: Option<PathBuf>,
+    /// Its chapters, in order.
+    pub chapters: Vec<Chapter>,
     /// The ffmpeg to run.
     pub ffmpeg: PathBuf,
 }
 
 impl Default for VideoSettings {
     fn default() -> Self {
-        Self { codec: Codec::H264, scale: 1.0, fps: 60, audio: None, ffmpeg: PathBuf::from("ffmpeg") }
+        Self {
+            codec: Codec::H264,
+            scale: 1.0,
+            fps: 60,
+            audio: None,
+            chapters: Vec::new(),
+            ffmpeg: PathBuf::from("ffmpeg"),
+        }
     }
+}
+
+/// A part of a video a player can skip to: a beat of the spine, by its claim.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Chapter {
+    /// The beat it plays, if a beat names its states.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beat: Option<String>,
+    /// The beat's claim, or the id of a slide no beat names.
+    pub title: String,
+    /// Where it starts, ms into the video.
+    pub start: f64,
+    /// Where it ends, ms: where the next starts, or the video ends.
+    pub end: f64,
 }
 
 /// What a video holds.
@@ -112,8 +139,14 @@ pub fn encode(
         return Err(bad(format!("--audio {}: no such file", audio.display())));
     }
     let partial = partial(out);
-    let mut child = Command::new(&settings.ffmpeg)
-        .args(args(settings, size, &partial))
+    let chapters = beside(out, ".chapters");
+    if !settings.chapters.is_empty() {
+        std::fs::write(&chapters, metadata(&settings.chapters))
+            .map_err(|e| bad(format!("writing {}: {e}", chapters.display())))?;
+    }
+    let listed = (!settings.chapters.is_empty()).then_some(chapters.as_path());
+    let spawned = Command::new(&settings.ffmpeg)
+        .args(args(settings, size, &partial, listed))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -124,7 +157,14 @@ pub fn encode(
                 settings.ffmpeg.display()
             )),
             _ => bad(format!("starting {}: {e}", settings.ffmpeg.display())),
-        })?;
+        });
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) => {
+            let _ = std::fs::remove_file(&chapters);
+            return Err(e);
+        }
+    };
     let mut stdin = child.stdin.take().expect("stdin is piped");
     let mut stderr = child.stderr.take().expect("stderr is piped");
     // Read as it comes, so ffmpeg never waits on a full pipe while we wait on it.
@@ -139,7 +179,9 @@ pub fn encode(
         // The frames stopped short: what ffmpeg has is not the video.
         let _ = child.kill();
     }
-    let status = child.wait().map_err(|e| bad(format!("waiting for ffmpeg: {e}")))?;
+    let status = child.wait().map_err(|e| bad(format!("waiting for ffmpeg: {e}")));
+    let _ = std::fs::remove_file(&chapters);
+    let status = status?;
     let said = said.join().unwrap_or_default();
     let said = said.trim();
     let finished = match pumped {
@@ -268,14 +310,44 @@ fn rgb(rgba: &[u8]) -> Vec<u8> {
 
 /// Where the video is written until it is whole: beside `out`, so renaming it is a move.
 fn partial(out: &Path) -> PathBuf {
+    beside(out, ".partial")
+}
+
+/// A file beside `out`, named for it with `suffix`.
+fn beside(out: &Path, suffix: &str) -> PathBuf {
     let mut name = out.file_name().map_or_else(OsString::new, |n| n.to_os_string());
-    name.push(".partial");
+    name.push(suffix);
     out.with_file_name(name)
 }
 
-/// ffmpeg's arguments: raw RGB frames on stdin, and the sound track, if there is one; the
-/// codecs' settings; `out`.
-fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path) -> Vec<OsString> {
+/// `chapters` as ffmpeg's metadata file: each from its start to its end, ms, by title.
+fn metadata(chapters: &[Chapter]) -> String {
+    // `=`, `;`, `#`, `\`, and line breaks are the format's own, so a title escapes them.
+    let escape = |s: &str| {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            if matches!(c, '=' | ';' | '#' | '\\' | '\n') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    };
+    let mut out = String::from(";FFMETADATA1\n");
+    for c in chapters {
+        let (start, end) = (c.start.round().max(0.0) as u64, c.end.round().max(0.0) as u64);
+        out += &format!(
+            "[CHAPTER]\nTIMEBASE=1/1000\nSTART={start}\nEND={}\ntitle={}\n",
+            end.max(start + 1),
+            escape(&c.title)
+        );
+    }
+    out
+}
+
+/// ffmpeg's arguments: raw RGB frames on stdin, then the sound track and the chapters, if
+/// there are any; the codecs' settings; `out`.
+fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option<&Path>) -> Vec<OsString> {
     let (pixels, codec, sound): (&str, &[&str], &[&str]) = match settings.codec {
         Codec::H264 => (
             "yuv420p",
@@ -342,15 +414,31 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path) -> Vec<OsString>
     .map(OsString::from)
     .collect();
     args.extend(codec.iter().map(OsString::from));
-    if let Some(audio) = &settings.audio {
-        // Inputs go before what they feed: put the track after the frames' input.
-        let at = args.iter().position(|a| a == "pipe:0").expect("the frames' input") + 1;
-        args.splice(at..at, ["-i".into(), audio.as_os_str().to_os_string()]);
-        // Silence after the track runs out, and the frames decide where the video ends.
-        let mapped = ["-map", "0:v:0", "-map", "1:a:0", "-af", "apad", "-shortest"];
-        args.extend(mapped.iter().chain(sound).map(OsString::from));
+    // Inputs go before what they feed: the others after the frames' input, numbered on.
+    let (mut inputs, mut maps, mut next): (Vec<OsString>, Vec<OsString>, usize) = (Vec::new(), Vec::new(), 1);
+    if settings.audio.is_some() || chapters.is_some() {
+        maps.extend(["-map", "0:v:0"].map(OsString::from));
     }
-    args.extend(["-map_metadata", "-1", "-fflags", "+bitexact", "-y"].map(OsString::from));
+    if let Some(audio) = &settings.audio {
+        inputs.extend(["-i".into(), audio.as_os_str().to_os_string()]);
+        // Silence after the track runs out, and the frames decide where the video ends.
+        maps.extend(["-map".into(), format!("{next}:a:0").into()]);
+        maps.extend(["-af", "apad", "-shortest"].iter().chain(sound).map(OsString::from));
+        next += 1;
+    }
+    // The video's chapters are ours or none: never a sound file's.
+    if let Some(chapters) = chapters {
+        inputs.extend(["-f".into(), "ffmetadata".into(), "-i".into(), chapters.as_os_str().to_os_string()]);
+        maps.extend(["-map_chapters".into(), next.to_string().into()]);
+    } else {
+        maps.extend(["-map_chapters", "-1"].map(OsString::from));
+    }
+    let at = args.iter().position(|a| a == "pipe:0").expect("the frames' input") + 1;
+    args.splice(at..at, inputs);
+    args.extend(maps);
+    // No metadata from the inputs. A bare `-map_metadata -1` would strip the chapters'
+    // titles too, and in MP4 and QuickTime their track.
+    args.extend(["-map_metadata:g", "-1", "-map_metadata:s", "-1", "-fflags", "+bitexact", "-y"].map(OsString::from));
     args.push(out.as_os_str().to_os_string());
     args
 }
@@ -367,19 +455,27 @@ mod tests {
     #[test]
     fn the_video_is_written_beside_where_it_goes() {
         assert_eq!(partial(Path::new("out/deck.mp4")), Path::new("out/deck.mp4.partial"));
-        let args =
-            args(&VideoSettings { codec: Codec::ProRes, ..VideoSettings::default() }, [1920, 1080], Path::new("x"));
+        let args = args(
+            &VideoSettings { codec: Codec::ProRes, ..VideoSettings::default() },
+            [1920, 1080],
+            Path::new("x"),
+            None,
+        );
         let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
         assert!(args.windows(2).any(|w| w == ["-video_size", "1920x1080"]));
         assert!(args.windows(2).any(|w| w == ["-c:v", "prores_ks"]));
         assert!(args.windows(2).any(|w| w == ["-pix_fmt", "yuv422p10le"]));
         assert_eq!(args.last(), Some(&"x"));
+        assert!(args.windows(2).any(|w| w == ["-map_chapters", "-1"]), "no chapters, not even a sound file's");
         let sound = VideoSettings { audio: Some("voice.wav".into()), ..VideoSettings::default() };
-        let args = super::args(&sound, [1920, 1080], Path::new("x"));
+        let args = super::args(&sound, [1920, 1080], Path::new("x"), Some(Path::new("x.chapters")));
         let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
         let inputs: Vec<&str> = args.windows(2).filter(|w| w[0] == "-i").map(|w| w[1]).collect();
-        assert_eq!(inputs, ["pipe:0", "voice.wav"]);
+        assert_eq!(inputs, ["pipe:0", "voice.wav", "x.chapters"]);
         assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]) && args.contains(&"-shortest"));
+        assert!(
+            args.windows(2).any(|w| w == ["-map", "1:a:0"]) && args.windows(2).any(|w| w == ["-map_chapters", "2"])
+        );
     }
 
     /// A stand-in for ffmpeg, at `dir/name`: a shell script that runs `body` with `$out`,
@@ -447,6 +543,24 @@ mod tests {
         assert_eq!(err.to_string(), "video: no frame 5");
         assert!(!out.exists() && !partial(&out).exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn chapters_are_ffmpegs_metadata_with_their_titles_escaped() {
+        let chapters = [
+            Chapter {
+                beat: Some("doubled".into()),
+                title: "Revenue doubled; = growth #1".into(),
+                start: 0.0,
+                end: 4660.4,
+            },
+            Chapter { beat: None, title: "close".into(), start: 4660.4, end: 4660.4 },
+        ];
+        assert_eq!(
+            metadata(&chapters),
+            ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=4660\ntitle=Revenue doubled\\; \\= growth \\#1\n\
+             [CHAPTER]\nTIMEBASE=1/1000\nSTART=4660\nEND=4661\ntitle=close\n"
+        );
     }
 
     #[test]

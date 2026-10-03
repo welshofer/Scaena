@@ -829,7 +829,7 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 | `decompile` | `{ out, scn? }` |
 | `render` | `{ state, format, t_ms, span_ms, painter, adapter, size, out, display_list, ms }`: `ms` holds the stage timings |
 | `save` | `{ renamed, subset, manifest }` |
-| `export` | `{ format, out }`, and the spine when it is not written (`spine`); a PDF adds `pages`, the state each page draws, and `bytes`; png and svg add `pages`, `files` (in the order of `pages`), `size`, and `bytes`; a video adds `size`, `frames`, `fps`, `duration_ms`, `timeline` (each state's `start` in the video, `span`, and `hold`), and `bytes` |
+| `export` | `{ format, out }`. The spine adds the projection (`spine`, §10) when it is not written, and when it is, its renders (`files`), the thumbnails' `size`, and `bytes`. A PDF adds `pages`, the state each page draws, and `bytes`; png and svg add `pages`, `files` (in the order of `pages`), `size`, and `bytes`; a video adds `size`, `frames`, `fps`, `duration_ms`, `timeline` (each state's `start` in the video, `span`, and `hold`), `chapters` (each beat's `beat`, `title`, `start`, and `end` in the video), and `bytes` |
 | `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `patch` | `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta. An op that does not apply adds `op`, its index, to the error object |
 
@@ -845,7 +845,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `diff` without `--json` prints a line per node: `+ id` enters, `- id` exits, and `~ id: keys` changes those keys.
 
-`export` writes where `--out` says: a file for pdf, video, and the spine (which prints without it), and a directory for png and svg, which get an image of each state at rest named for it (`<state>.png`, `<state>.svg`), over one of that name. `--states a,b` picks the states a frame export draws, in that order (png, svg, pdf, video, html). `spine` is the whole spine, and takes no `--states`. Without `--states`, png and svg draw every state; a PDF draws each slide once, at its last state, in spine order (§3.11): the slides of the states the beats name, then the slides no beat names, in deck order; and a video plays the whole timeline. `--size` sets the pixels of png, svg, and video, in the canvas's aspect ratio, as `render`'s does. `--fps` (default 60) and `--audio` are a video's. A video needs `ffmpeg` on the PATH, and a width and height that are even (§10).
+`export` writes where `--out` says: a file for pdf, video, and the spine (which prints without it), and a directory for png and svg, which get an image of each state at rest named for it (`<state>.png`, `<state>.svg`), over one of that name. A written spine draws each beat into `renders/` beside it (§10). `--states a,b` picks the states a frame export draws, in that order (png, svg, pdf, video, html). `spine` is the whole spine, and takes no `--states`. Without `--states`, png and svg draw every state; a PDF draws each slide once, at its last state, in spine order (§3.11): the slides of the states the beats name, then the slides no beat names, in deck order; and a video plays the whole timeline. `--size` sets the pixels of png, svg, video, and the spine's thumbnails (480 wide without it), in the canvas's aspect ratio, as `render`'s does. `--fps` (default 60) and `--audio` are a video's. A video needs `ffmpeg` on the PATH, and a width and height that are even (§10).
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
@@ -869,11 +869,11 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
 | `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, and `data`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
-| `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, bytes? }` |
+| `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, bytes? }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
 | `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
-| `spine_read` | The spine, as `export --format spine` writes it. | the spine |
+| `spine_read` | The spine projection (§10), without the times and renders `export --format spine` adds: it runs no layout. | the projection |
 | `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |
 
 - **Results.** A tool's result is structured content, with the same JSON as text. It is the command's `--json` result, with one difference: structured content is an object, so a command that prints a list or a map has it named here (`findings`, `states`, `changes`).
@@ -885,7 +885,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
   - The server checks every op as `patch` does, and names the one that fails.
 
 **Resources** let an agent learn the format without the docs:
-- `scaena://schema/deck`, `scaena://schema/theme`, and `scaena://schema/patch`;
+- `scaena://schema/deck`, `scaena://schema/theme`, `scaena://schema/patch`, and `scaena://schema/spine`, the spine projection;
 - `scaena://lint/catalog` (§7.5);
 - `scaena://spec`: this document;
 - `scaena://skills/<name>`: the five skills (§7.6);
@@ -1080,14 +1080,14 @@ All exports consume the same resolved document. The **spine** is the contract fo
 | PDF | `pdf` painter (krilla, PLAN 1.20): a page per slide at its last state, in spine order, or per state with `--states`; the canvas at 2 units to the point (1920 × 1080 is a 960 × 540 pt page); paths and gradients as vectors; text as text in subset fonts, each glyph saying its cluster (§6); images at their own resolution; shaders as images of their CPU reference at 2× the canvas (§3.8); tagged and outlined from the spine (§3.12) |
 | PNG | each state at rest, by the CPU painter (§13), at any size in the canvas's aspect ratio |
 | SVG | each state at rest (PLAN 1.21): the canvas is the `viewBox`, at any size. A layer is a group: its transform, clip, opacity, and blend (CSS `mix-blend-mode`). Paths fill and stroke in colors and linear and radial gradients, as the painters' sRGB stops spell out their Oklab blend (§6). Glyphs are outlines, a path each, unhinted as the painters draw them, so nothing lays the text out again; over each run lies its text, transparent and stretched across the run, so the SVG selects, copies, and searches as the deck reads. Images embed as PNG, filtered as the painters filter them. What SVG cannot draw is an image of the CPU painter's pixels at the SVG's size: shaders (their CPU reference, §3.8), color glyphs (COLR, bitmaps), and sweep gradients. Drawn by an SVG rasterizer, every torture state passes §13.5 against the CPU painter |
-| Video (mp4/webm/ProRes) | the global timeline (§2.4), or the states `--states` names in that order, sampled at `fps` (default 60): frame *k* shows the moment *k*/`fps` seconds in. Each state plays its cue, then its `hold`, the dwell that makes a deck a video; a state with neither has no frame. Frames are the CPU painter's, so deterministic; one that draws what the frame before it drew is painted once. They are piped to `ffmpeg` as RGB over black, converted to BT.709 video-range YUV and tagged so: H.264 (CRF 18, 4:2:0) in MP4, VP9 (CRF 30, 4:2:0) in WebM, or ProRes 422 HQ (10-bit 4:2:2) in QuickTime (`prores`). A sound track (`--audio`, any file ffmpeg reads) plays from the first frame, cut where the frames end or carried on in silence until they do. The video is written beside `--out` and renamed to it when whole |
+| Video (mp4/webm/ProRes) | the global timeline (§2.4), or the states `--states` names in that order, sampled at `fps` (default 60): frame *k* shows the moment *k*/`fps` seconds in. Each state plays its cue, then its `hold`, the dwell that makes a deck a video; a state with neither has no frame. Frames are the CPU painter's, so deterministic; one that draws what the frame before it drew is painted once. They are piped to `ffmpeg` as RGB over black, converted to BT.709 video-range YUV and tagged so: H.264 (CRF 18, 4:2:0) in MP4, VP9 (CRF 30, 4:2:0) in WebM, or ProRes 422 HQ (10-bit 4:2:2) in QuickTime (`prores`). A sound track (`--audio`, any file ffmpeg reads) plays from the first frame, cut where the frames end or carried on in silence until they do. Each run of states one beat names is a chapter titled by its claim (a chapter track in MP4 and QuickTime, Matroska chapters in WebM); a state no beat names is a chapter of its slide, titled by the slide's id, and a deck without a spine has none. The video is written beside `--out` and renamed to it when whole |
 | Single-file HTML | player + bundle, offline |
-| **Spine JSON** (`export --format spine`) | sections, beats, claims, evidence, notes, per-beat rendered thumbnails and alt-format renders |
-| Infographic | external: spine + `formats:["9:16"]` renders per beat → existing pipeline |
-| Motion graphic | external: video export with per-beat chapters |
-| Podcast | external: spine claims + notes → script → TTS |
+| **Spine JSON** (`export --format spine`, PLAN 1.22) | `spine.json` (`docs/schema/spine.schema.json`, generated from `scaena-core::spine`): the deck's title, language, canvas, and formats; the spine as the deck holds it (§3.11); every state with its slide, notes, and place on the global timeline (§2.4); and every beat with the state that shows it (the last of its states in deck order), its `start` and `end` on the timeline, and its renders. Each beat is drawn at rest into `renders/` beside the file: a thumbnail, `<beat>.png`, 480 px wide or `--size`, and the beat in each other format the deck lists at that format's canvas size, `<beat>@9x16.png` |
+| Infographic | external: each beat's claim, evidence, and `media.infographic`, and its `9:16` render |
+| Motion graphic | external: the video, with a chapter per beat |
+| Podcast | external: each beat's `media.podcast.script`, or its claim and notes, in the spine's order and the deck's `lang` → TTS → `--audio` |
 
-The existing export code integrates against `spine.json` + `scaena render`/`export`; nothing in it needs to know the document format.
+The existing export code integrates against `spine.json` + `scaena render`/`export`; nothing in it needs to know the document format. `docs/projections.md` is the integration note: what each pipeline reads, and how a narration is timed to the beats.
 
 ---
 
@@ -1103,10 +1103,10 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 
 ```
 crates/
-  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader kinds (CPU reference + WGSL), document-level lints
+  scaena-core     document model (serde + schemars), ids, tracking resolution, timeline math (easing, springs), display list, shader kinds (CPU reference + WGSL), document-level lints, the spine projection
   scaena-engine   theme cascade, layout (taffy), text (parley/harfrust), charts→marks, shader nodes→ops, timeline resolution, sampling
   scaena-paint    painters: vello (gpu), vello_cpu (cpu); both run shader ops
-  scaena-export   pdf (krilla), svg, png, video (ffmpeg driver), html, spine
+  scaena-export   pdf (krilla), svg, png, video (ffmpeg driver, chapters), html
   scaena-ops      the operations every client exposes, over a bundle, with typed results (ADR-0009)
   scaena-cli      `scaena` binary over scaena-ops
   scaena-mcp      MCP server (rmcp) over scaena-ops

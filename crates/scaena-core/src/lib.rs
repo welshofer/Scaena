@@ -17,6 +17,7 @@
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
 //! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
+//! - [`spine`] — the spine projection the pipelines beyond the deck read (SPEC §10).
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
@@ -33,6 +34,7 @@ pub mod lint;
 pub mod model;
 pub mod patch;
 pub mod shader;
+pub mod spine;
 pub mod timeline;
 pub mod tracking;
 pub mod transform;

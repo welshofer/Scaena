@@ -25,10 +25,11 @@ pub fn read(b: &Bundle, scn: bool) -> Result<Read, OpsError> {
     })
 }
 
-/// The deck's spine: its sections and beats, each beat with its states (SPEC §3.11), as
-/// `export --format spine` writes it.
-pub fn spine(b: &Bundle) -> Value {
-    scaena_export::spine_json(&b.deck)
+/// The deck's spine projection (SPEC §10): its sections and beats, each beat with its
+/// states and the one that shows it (SPEC §3.11), as `export --format spine` writes it
+/// without placing it on the timeline or drawing its renders.
+pub fn spine(b: &Bundle) -> scaena_core::spine::SpineProjection {
+    scaena_core::spine::projection(&b.deck, None)
 }
 
 /// The deck's spine replaced by `spine`, as a patch: checked, refused if it makes the deck

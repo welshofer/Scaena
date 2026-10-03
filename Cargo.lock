@@ -2148,6 +2148,7 @@ dependencies = [
  "scaena-core",
  "scaena-engine",
  "scaena-paint",
+ "schemars",
  "serde",
  "serde_json",
  "skrifa 0.44.0",

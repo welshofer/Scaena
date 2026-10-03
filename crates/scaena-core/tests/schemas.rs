@@ -1,9 +1,9 @@
-//! `docs/schema/deck.schema.json`, `theme.schema.json`, `manifest.schema.json`, and `patch.schema.json` are generated
-//! from the typed model (PLAN 1.1, 1.16): this test fails when the committed files are not what the model generates.
+//! `docs/schema/deck.schema.json`, `theme.schema.json`, `manifest.schema.json`, `patch.schema.json`, and
+//! `spine.schema.json` are generated from the typed model (PLAN 1.1, 1.16, 1.22): this test fails when the committed files are not what the model generates.
 //! After a reviewed change to the model: `SCAENA_BLESS=1 cargo test -p scaena-core --test schemas`
 //! (or `just bless`), and review the schema diff with the code.
 
-use scaena_core::model::{deck_schema, manifest_schema, patch_schema, print_schema, theme_schema};
+use scaena_core::model::{deck_schema, manifest_schema, patch_schema, print_schema, spine_schema, theme_schema};
 use std::path::PathBuf;
 
 #[test]
@@ -41,6 +41,12 @@ fn every_definition_is_used() {
     }
 }
 
-fn schemas() -> [(&'static str, serde_json::Value); 4] {
-    [("deck", deck_schema()), ("theme", theme_schema()), ("manifest", manifest_schema()), ("patch", patch_schema())]
+fn schemas() -> [(&'static str, serde_json::Value); 5] {
+    [
+        ("deck", deck_schema()),
+        ("theme", theme_schema()),
+        ("manifest", manifest_schema()),
+        ("patch", patch_schema()),
+        ("spine", spine_schema()),
+    ]
 }

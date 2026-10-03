@@ -335,18 +335,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Export { bundle, format, out, states, size, fps, audio } => {
             let req = scaena_ops::export::Request { format, states, out, size, fps, audio };
-            let mut exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
+            let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
-                // The spine prints when it is not written.
-                if exported.out.is_some() {
-                    exported.spine = None;
-                }
                 println!("{}", serde_json::to_string_pretty(&exported)?);
-            } else if let Some(spine) = exported.spine.as_ref().filter(|_| exported.out.is_none()) {
+            } else if let Some(spine) = &exported.spine {
                 println!("{}", serde_json::to_string_pretty(spine)?);
             } else {
                 let out = exported.out.as_deref().unwrap_or_default();
                 match (&exported.pages, &exported.files, exported.frames) {
+                    (_, Some(files), _) if exported.format == "spine" => {
+                        println!("wrote {out} and {} renders beside it", files.len())
+                    }
                     (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
                     (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),
                     (_, _, Some(frames)) => println!(
