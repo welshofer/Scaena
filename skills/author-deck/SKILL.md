@@ -91,6 +91,7 @@ Lint lays every state out, so these come back as findings. Expect them, and fix 
   - E101 counts ink, so a comma's tail below the baseline can reach the line under it.
   - Align that line to the end of its slot (`at: { in: …, align: { y: "end" } }`).
 - **Text over a picture or a shader is judged against what is painted behind it** (E110, E111). A muted color that passes on the page can fail on a mesh gradient; use the ink color there.
+- **Shaders stay off data** (W311). A mesh or noise is a backdrop for title and section slides. A chart or a table reads on the plain surface, so drop the shader from its states (`remove`).
 - **One claim on screen at a time** (W424), and a slide's last state shows one (W421).
   - A container around a claim needs no `semantic` of its own.
   - A quotation that carries the slide is its claim.

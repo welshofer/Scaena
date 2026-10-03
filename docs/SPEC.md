@@ -416,6 +416,8 @@ Requirements:
 - **Clock.** A shader's `t` is the frame's time on the global timeline (§2.4), in seconds, so a background that persists across states drifts on through every transition, motion, and hold instead of starting over. At rest, a state's shaders show the moment it comes to rest; a frame `t` past its span, in its hold, shows that later time.
 - **Where the code lives.** Each kind's CPU reference and its WGSL twin sit side by side in `scaena-core::shader`, because painters run them and painters depend only on core. The engine resolves a node to a shader op (§6): the kind, the seed, the theme palette's colors, typed params, and its rect.
 
+**Shaders stay off data** (PLAN 1.26). A shader is atmosphere for title and section slides. A chart or a table reads against a plain surface: a mesh, noise, or particles under its marks become noise in the data, and a gradient shifts the colors that encode it. Lint W311 warns about a shader painted behind a chart or a table where they overlap, in any state. The shipped themes' presets are for slides without data, and their example decks keep the mesh off data slides.
+
 **Presets** (deck format 0.6, theme format 0.2). A theme's `shaders.presets` name shaders a node can take whole: `{ "kind", "palette", "params" }`, its params typed by its kind as a node's are. A node names one with `preset`; the node's own `kind` must be the preset's (E106), its `palette` and each of its `params` win over the preset's, and a preset the theme lacks is E102.
 
 ```jsonc
@@ -984,6 +986,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
 | W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |
 | W310 | warn | chart value labels within a quarter space unit of each other, unless `labels.collide` resolves them |
+| W311 | warn | a shader painted behind a chart or a table, where they overlap: data reads against a plain surface (§3.8). One finding per shader and chart or table, at the shader, with every state it happens in |
 | W320 | warn | more nodes moving at once than the theme's `motion.maxConcurrent` (12) |
 | W321 | warn | a state's motions run past the theme's `motion.maxBuild` (2500 ms) |
 | W322 | warn | a motion that moves nothing, yet takes its time: an entrance on a node that does not enter, an exit on one that does not leave (under `match: none`, every node does both), an emphasis or `anim` on a node not on screen, a draw-on (a look whose only change is `progress`) on a node that strokes no outline |

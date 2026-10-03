@@ -280,7 +280,7 @@
   },
   "layouts": {
     "title": {
-      "description": "Opening or section title.",
+      "description": "Opening or section title, and the place for a shader backdrop such as `mesh-soft`.",
       "slots": {
         "title": {
           "col": [
@@ -339,7 +339,7 @@
       }
     },
     "figure": {
-      "description": "A headline, the figure that shows it, and its source, each in its own rows.",
+      "description": "A headline, the figure that shows it, and its source, each in its own rows. Data reads on the plain surface: no shader behind it (W311).",
       "slots": {
         "header": {
           "col": [
@@ -370,7 +370,7 @@
       }
     },
     "split": {
-      "description": "Text left, figure right.",
+      "description": "Text left, figure right. A chart or table here reads on the plain surface: no shader behind it (W311).",
       "slots": {
         "left": {
           "col": [

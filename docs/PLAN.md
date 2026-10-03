@@ -458,7 +458,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     *For Jay: body is set tighter than before (1.35 → 1.25) and caption looser (1.3 → 1.4545). The example decks still lint clean.*
   - *The torture deck's case 45, `baseline-grid`, has goldens, and its lint golden gains W221 for the case's off-grid role. No other golden moved.*
   - *Not done: a node cannot turn snapping on or off; `snap` belongs to the role.)*
-- [ ] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures.
+- [x] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures. *(Done:*
+  - *W311, a layout rule, flags a shader painted behind a chart or a table where they overlap, by paint order. It reports once per shader and chart or table, at the shader, naming every state it happens in. Fixtures are in `tests/lint/W311`.*
+  - *Dusk and Daybreak say where the mesh goes: their `title` layout is the place for a shader backdrop, and `figure` and `split` keep the plain surface. The author-deck skill says so too.*
+  - *No deck in the repository has W311: the examples already keep the mesh on title slides.*
+  - *Not done: a shader painted over a chart, such as a grain overlay, is not judged. W311 reads paint order and flags only what lies under the data.)*
 - [ ] 1.27 Chart text is judged.
   - E110 and E111 cover a chart's labels, ticks, and direct names: in their colors, at their dimmed opacities, over what is painted behind them. `contrast.rs` skips them today.
   - A new code beside W310 flags chart text under 12 pt at presentation size (24 units on a 1920-unit canvas, scaling with the canvas).

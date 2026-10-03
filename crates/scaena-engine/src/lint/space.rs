@@ -3,6 +3,8 @@
 //! overlap: what is meant to lie on top says so with a higher `z`, and a node marked
 //! `semantic: decoration` is meant to lie anywhere. Text counts by its lines as set, not
 //! its cell, so a short title in a tall slot collides only where its words are.
+//!
+//! W311: a shader painted behind a chart or a table, where they overlap.
 
 use super::{Cx, Rule};
 use crate::sample::{Content, SceneNode};
@@ -94,6 +96,64 @@ impl Rule for E101Collision {
                 .node(b.clone())
                 .measure(json!({ "nodes": [a, b], "overlap": [w, h], "states": states }))
                 .hint("Move one to another slot or cell; if one is meant to lie over the other, give it a higher `z`, or mark a decoration `semantic: decoration`.")
+            })
+            .collect()
+    }
+}
+
+/// W311: a shader painted behind a chart or a table, where they overlap. Data reads
+/// against a plain surface; a mesh, noise, or particles under it read as noise in the data
+/// (SPEC §3.8). One finding per shader and data node, at the shader, naming every state.
+pub struct W311ShaderBehindData;
+
+impl Rule for W311ShaderBehindData {
+    fn code(&self) -> &'static str {
+        "W311"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        // Each shader and the chart or table it is under: which of the two that is, and where.
+        let mut pairs: BTreeMap<(String, String), (&str, Pair)> = BTreeMap::new();
+        for state in cx.states {
+            // Scene nodes come in paint order: a shader before a chart is under it.
+            let mut shaders: Vec<(&SceneNode, Rect)> = Vec::new();
+            for node in &state.scene.nodes {
+                let (what, cell) = match &node.content {
+                    Content::Shader(s) => {
+                        if node.opacity > 0.0 {
+                            shaders.push((node, s.rect));
+                        }
+                        continue;
+                    }
+                    Content::Chart { cell, .. } => ("chart", *cell),
+                    Content::Table { cell, .. } => ("table", *cell),
+                    _ => continue,
+                };
+                for (shader, rect) in &shaders {
+                    let Some(by) = overlap(*rect, cell) else { continue };
+                    let key = (shader.id.clone(), node.id.clone());
+                    let first = Pair { first: state.index, overlap: by, states: Vec::new() };
+                    let (_, pair) = pairs.entry(key).or_insert((what, first));
+                    pair.states.push(state.snapshot.state_id.clone());
+                }
+            }
+        }
+        pairs
+            .into_iter()
+            .map(|((shader, data), (what, Pair { first, overlap: [w, h], states }))| {
+                let state = &cx.states[first];
+                cx.finding(
+                    self.code(),
+                    self.severity(),
+                    state,
+                    format!("shader `{shader}` is painted behind {what} `{data}`, over {w:.0} × {h:.0} cu of it"),
+                )
+                .at(cx.node_path(&shader))
+                .node(shader.clone())
+                .measure(json!({ "shader": shader, "data": data, "overlap": [w, h], "states": states }))
+                .hint("Keep shaders off data slides: drop the shader from these states, or keep it to where no chart or table is.")
             })
             .collect()
     }
