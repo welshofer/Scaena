@@ -75,7 +75,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
 9. **Holds.**
    - A `hold` is how long a state rests before the timeline moves on. Video export and a player both advance by it (SPEC §2.4), so give holds to a deck that runs on its own, not to one presented live.
    - Size each to its reading: about four words a second, plus 1.5 to 2 seconds for each figure.
-   - `inspect --timeline` shows the timeline the holds make, and `export --format mp4` plays it: each state's cue, then its hold. A state with neither has no frame in a video.
+   - `inspect --timeline` shows the timeline the holds make, and `export --format mp4` plays it: each state's cue, then its hold. A state with neither has no frame in a video (W323).
 
 ## Rules
 

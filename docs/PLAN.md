@@ -351,10 +351,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Frame k shows the moment `render --t` draws (`Reel`). Decoded, each tested frame is within 2/255 of it on average, and nearer it than to the moments 100 ms either side.*
   - *The trails example, 110 s at 1080p60 (6,624 frames), exports to a 7.8 MB MP4 in 2 min 43 s on 4 cores (release build), 1.5× its running time.*
   - *CI installs ffmpeg on Linux and requires it there; elsewhere the video tests skip.*
+  - *A state with no cue and no hold has no frame. In a deck with holds, lint W323 flags one and suggests a hold for its reading: four words a second, plus 2 s a figure. A deck with no hold is presented live and is not judged; as a video it plays only its cues (SPEC §2.4, §7.5).*
   - *Not done:*
     - *Exports in another of the deck's formats (`9:16`), as for PDF.*
     - *Per-beat chapters in a video (SPEC §10's motion graphic), with the spine: PLAN 1.22.*
-    - *A state with no cue and no hold has no frame, so a deck without holds plays only its transitions. Nothing warns about it.*
     - *The SVG's text layer is set in a system font stretched to each run, so a selection covers runs, not glyphs.)*
 - [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
 
