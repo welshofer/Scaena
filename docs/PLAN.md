@@ -412,12 +412,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *a probe of the machine.*
 
     *A stage that goes over states, cues, or frames counts them.*
-  - *The gate. CI's `bench` workflow runs the benches on macOS (Apple Silicon, Metal) and on Linux. Each runner keeps a history of `main`'s runs in the Actions cache, and `scripts/bench_gate.py` judges every run against it:*
-    - *a bench regresses when it is slower than the median of `main`'s runs by more than max(10%, 4σ), σ being their spread (1.4826 × MAD);*
-    - *one that looks slower is run again, and judged on the faster of its two runs;*
-    - *`bench-accept` lets a regression through, and `main` slower on both runs starts that bench's history over.*
+  - *The gate. CI's `bench` workflow runs the benches on macOS (Apple Silicon, Metal) and on Linux. Each runner keeps a history of `main`'s runs in the Actions cache, and `scripts/bench_gate.py` judged every run against it:*
+    - *a bench regressed when it was slower than the median of `main`'s runs by more than max(10%, 4σ), σ being their spread (1.4826 × MAD);*
+    - *one that looked slower was run again, and judged on the faster of its two runs;*
+    - *`bench-accept` lets a regression through.*
 
     *SPEC §15 says how.*
+  - *The gate, again (2026-10-03). Judged against `main`'s history, the macOS runner failed three of the four pull requests that gate 1's agent runs opened, each on a bench it did not touch. The history was six runs, each on a different virtual machine. Of their times, 46% were more than 10% from their bench's median and 13% more than 30%, while the MAD of six put most benches' noise at the 10% floor. Linux runs landed on five processor models. Now a pull request is timed beside its base, built in the same job on the same machine:*
+    - *a bench regresses when it is slower than the base by more than 10%, and again when the two are timed a second time, the base first;*
+    - *`main`'s history is shown beside each bench, and no longer judges;*
+    - *`scripts/test_bench_gate.py` tests the judgment, in `just check` and CI.*
+    - *On its own pull request, which changed no Rust, the macOS run still failed seven benches. Timed after its build, the pull request ran 20–80% slower than the base on most benches; timed again, the base first, the gap closed on all but the benches that paint on every core, which a spell of load on three cores slows by half. So both are built before either is timed, the two take turns a group of benches at a time, a slower bench is timed twice more beside its base bench by bench, each side counting at its fastest, and Spotlight is off on macOS.*
   - *The `wasm` job fails the engine over 3.0 MB gzipped, and records B1's cold start in headless Chromium.*
   - *On this Linux container (Xeon @ 2.8 GHz, 4 vCPU, AVX2; frames 1080 high, a frame painted on one thread):*
     - *B1:*
