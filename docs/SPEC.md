@@ -1197,8 +1197,9 @@ Budgets are per stage, on named benchmark decks, on a reference machine (M-serie
 
 - the workflow builds the base too, the commit the pull request merges onto, and times both on the same machine in the same job;
 - it builds both before it times either, then times them a group of benches at a time, the base first, so a spell of load on the machine falls on both;
-- a bench slower than the base by more than 10% is timed twice more beside it, bench by bench: the pull request first, then the base first. Each side counts at its fastest, since load only ever slows a run;
-- it **regresses** when it is slower than the base by more than 10% both times.
+- a bench is slower when the pull request takes longer than the base by more than the run's floor: 10%, or 2.5 times the run's noise if that is more. The noise is how far the benches stray from their base: a pull request changes few of them, so the spread of all their changes (1.4826 × the median absolute deviation of the log ratios) measures the machine. On Linux the floor is 10%. On the macOS runner, whose benches stray by about 12% beside an identical base, it is about 30%, so only a larger regression shows there;
+- a slower bench is timed twice more beside the base, bench by bench: the pull request first, then the base first. Each side counts at its fastest, since load only ever slows a run;
+- it **regresses** when it is slower than the base by more than the floor both times.
 
 On macOS the workflow turns Spotlight off first: it indexes the files a build writes while the benches run.
 
