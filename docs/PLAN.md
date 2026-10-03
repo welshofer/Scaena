@@ -433,12 +433,31 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *B3 paints a frame in 208 ms against 25 ms, and its video reaches 0.16× realtime against 0.5×. The mesh's CPU reference renders one pixel at a time on one thread. Each pixel is its own, so rows can go to threads with the same result.*
 
     *The runners' numbers are in each run's summary.*
+  - *On CI's macOS runner (Apple M1, virtual, 3 cores), its first run:*
+    - *B1 and B2 are within budget for CPU paint and video.*
+      - *Their slowest frames paint in 4.6 and 4.4 ms.*
+      - *Their video takes 4.4 and 4.6 ms a frame, past 3× realtime.*
+      - *So the container's overruns are the container's.*
+    - *B3 stays over: 119 ms to paint a frame, and 70 ms a video frame.*
+    - *GPU paint with its readback takes 16–26 ms a frame on B1–B3. SPEC's 6 ms budget is for the paint alone, so the report records this stage without judging it.*
   - *Not measured:*
     - *GPU paint alone: the GPU stage reads its frame back.*
     - *The GPU video path, which does not exist yet.)*
 
 ### 1G Design calls (Jay, 2026-10-02)
-- [ ] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases.
+- [x] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases. *(Done:*
+  - *A text role's `snap` (theme format 0.7) sets it on the baseline grid, whose lines run every `grid.baseline` cu from the grid's top margin:*
+    - *`baseline`: every baseline on a grid line. Layout rounds each gap between lines up to whole grid lines, so `fit` and containers measure the text as set.*
+    - *`cap`: the first line's cap height on a grid line, the lines below at the role's leading.*
+  - *After its alignment, a snapping text moves down to the next grid line, or, aligned to its box's foot (`end`, `baseline`), up to the line above. Texts aligned to one line move together. Charts and tables do not snap.*
+  - *W221 is a document rule over the theme's roles. It flags a `snap: baseline` role whose `size × leading` is not a whole number of grid lines (the theme's grid, and each listed format's that has a baseline of its own), and a grid with no baseline at all. It points into the theme file. Its fixtures carry inline themes.*
+  - *Dusk and Daybreak:*
+    - *body (32 cu) and caption (22 cu) snap their baselines, at leadings of 40 and 32 cu, five and four grid lines;*
+    - *display, headline, title, and numeral snap their cap heights.*
+
+    *For Jay: body is set tighter than before (1.35 → 1.25) and caption looser (1.3 → 1.4545). The example decks still lint clean.*
+  - *The torture deck's case 45, `baseline-grid`, has goldens, and its lint golden gains W221 for the case's off-grid role. No other golden moved.*
+  - *Not done: a node cannot turn snapping on or off; `snap` belongs to the role.)*
 - [ ] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures.
 - [ ] 1.27 Chart text is judged.
   - E110 and E111 cover a chart's labels, ticks, and direct names: in their colors, at their dimmed opacities, over what is painted behind them. `contrast.rs` skips them today.

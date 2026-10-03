@@ -64,7 +64,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 29] = [
+const RULES: [(&str, &[&str]); 30] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note"]),
     ("E110", &["/nodes/t"]),
@@ -76,6 +76,7 @@ const RULES: [(&str, &[&str]); 29] = [
     ("W203", &["/nodes/t"]),
     ("W210", &["/states/0"]),
     ("W220", &["/states/0"]),
+    ("W221", &["/theme/type/roles/body/leading", "/theme/type/roles/body/snap", "/theme/type/roles/caption/snap"]),
     ("W300", &["/nodes/t/style/color", "/nodes/t/style/size", "/states/0/props/box/radius"]),
     ("W301", &["/nodes/t/at/rect"]),
     ("W302", &["/nodes/t/at/col"]),

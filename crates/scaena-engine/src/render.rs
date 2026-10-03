@@ -14,18 +14,19 @@ use crate::containers::{self, Placement};
 use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::images::{BundleImages, ImageNode};
-use crate::layout::{AlignX, AlignY, Grid};
+use crate::layout::{AlignX, AlignY, BaselineGrid, Grid};
 use crate::motion;
 use crate::sample::{Content, Place, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::tables;
-use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
+use crate::text::{GRID_EPSILON, Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
+use scaena_core::model::theme::Snap;
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
@@ -248,7 +249,7 @@ impl Engine {
             let props = &snap.nodes[id];
             let Some(&rect) = placement.boxes.get(id) else { continue };
             let content = match deck.nodes[id].node_type {
-                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, snap, id, rect)?),
+                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, grid.baseline, snap, id, rect)?),
                 NodeType::Chart => {
                     let states = match &mut every {
                         Some(states) => states,
@@ -321,7 +322,7 @@ impl Engine {
         }
         let grid = Grid::from_theme(theme, canvas(deck))?;
         let placement = self.place(deck, theme, &grid, snap)?;
-        self.layout_text_node(deck, theme, snap, node, placement.boxes[node])
+        self.layout_text_node(deck, theme, grid.baseline, snap, node, placement.boxes[node])
     }
 
     /// Every node's box in `snap` (overrides merged), its container, and paint order:
@@ -346,6 +347,7 @@ impl Engine {
         &mut self,
         deck: &Deck,
         theme: &Theme,
+        lines: Option<BaselineGrid>,
         snap: &Snapshot,
         id: &str,
         cell: Rect,
@@ -410,13 +412,34 @@ impl Engine {
         }
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
-        let origin = [cell[0], text_top(cell, align_y, &text, trim)];
+        let top = text_top(cell, align_y, &text, trim);
+        let origin = [cell[0], top + to_grid(lines, spec.role.snap, align_y, top, &text)];
         Ok(PlacedText { cell, origin, text, scale, overflow, clip })
     }
 }
 
 /// Room for float error when text is held to its box, canvas units.
 const FIT_EPSILON: f32 = 1.0 / 64.0;
+
+/// How far a text whose role snaps moves onto the baseline grid (SPEC §3.4), from where
+/// its alignment put its top: its first baseline, or its first line's cap height (the line
+/// top in a font without one), to the next grid line down; or, aligned to the foot of its
+/// box (`end`, `baseline`), to the line above. Texts aligned to one line move together.
+/// Its lines are already whole grid lines apart.
+fn to_grid(lines: Option<BaselineGrid>, snap: Option<Snap>, align: AlignY, top: f32, text: &TextLayout) -> f32 {
+    let (Some(lines), Some(snap), Some(first)) = (lines, snap, text.lines.first()) else { return 0.0 };
+    let anchor = top
+        + match snap {
+            Snap::Baseline => first.baseline,
+            Snap::Cap => text.trimmed(TextBox::Cap).0,
+        };
+    let down = lines.next(anchor) - anchor;
+    let on = down.abs() <= GRID_EPSILON * lines.pitch;
+    match align {
+        AlignY::End | AlignY::Baseline if !on => down - lines.pitch,
+        _ => down,
+    }
+}
 
 /// Bisection steps for `fit: shrink` and `grow`: the scale is within `(hi - lo) / 2^12`
 /// of the largest that fits.
@@ -629,6 +652,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
     let role = cascade::node_role(theme, props, slot_role)?;
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
+    let line_grid = theme.grid.baseline.filter(|_| role.snap == Some(Snap::Baseline)).map(|pitch| pitch as f32);
     let spans = match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs
             .iter()
@@ -671,6 +695,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         hanging_punctuation: props.get("hangingPunctuation").and_then(Value::as_bool).unwrap_or(hanging),
         optical_margins: props.get("opticalMargins").and_then(Value::as_bool).unwrap_or(optical),
         hyphenate: props.get("hyphenate").and_then(Value::as_bool).unwrap_or(hyphenate),
+        line_grid,
     })
 }
 

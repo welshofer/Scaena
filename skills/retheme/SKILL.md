@@ -28,6 +28,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - **E100:** text that no longer fits. A larger type scale wants tighter copy (the `tighten-copy` skill) or `fit: shrink`, not overrides.
    - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. A palette with less contrast wants a different color *role*, not a literal.
    - **W210:** density, if the theme's `maxWordsPerState` is lower.
+   - **W221:** a role that snaps to the new theme's baseline grid at a leading off it. Its finding points into the theme file: the theme's to fix, not the deck's.
    - **W310:** chart labels that now collide.
    - **W320 and W321:** motion past the new theme's limits.
 5. **Look.**

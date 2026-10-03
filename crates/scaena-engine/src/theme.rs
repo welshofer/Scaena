@@ -44,6 +44,8 @@ pub struct TextRole {
     pub features: BTreeMap<String, u16>,
     pub wrap: Wrap,
     pub text_box: TextBox,
+    /// What of the text sits on the baseline grid, if anything (SPEC §3.4).
+    pub snap: Option<model::Snap>,
     pub measure: Option<f32>,
     pub max_lines: Option<u32>,
     pub min_size: Option<f32>,
@@ -71,6 +73,7 @@ impl TextRole {
             features: features(r.features.as_ref()).map_err(|e| EngineError::Theme(format!("role `{name}`: {e}")))?,
             wrap: r.wrap.map_or(Wrap::Greedy, Wrap::from),
             text_box: r.text_box.map_or(TextBox::Line, TextBox::from),
+            snap: r.snap,
             measure: r.measure.map(|v| v as f32),
             max_lines: r.max_lines,
             min_size: r.min_size.map(|v| v as f32),

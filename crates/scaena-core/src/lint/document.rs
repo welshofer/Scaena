@@ -3,7 +3,9 @@
 
 use super::{Context, Finding, Rule, Severity};
 use crate::document::{NodeType, Props};
+use crate::model::Format;
 use crate::model::states::{ChoreoItem, ChoreoTarget, Targets};
+use crate::model::theme::{Grid, Snap};
 use crate::model::values::{PresetLook, PresetRef};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -11,6 +13,7 @@ use std::collections::BTreeSet;
 pub(super) fn rules() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(W210Density),
+        Box::new(W221OffGrid),
         Box::new(W300Literal),
         Box::new(W301Rect),
         Box::new(W302Fixed),
@@ -72,6 +75,100 @@ fn words(props: &Props) -> usize {
     match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs.iter().map(|r| count(r.get("text"))).sum(),
         None => count(props.get("text")),
+    }
+}
+
+/// How far `size × leading` may miss a whole number of grid lines and still count as
+/// whole, in grid lines: float error, as the engine allows it (SPEC §3.4).
+const GRID_EPSILON: f64 = 1.0e-3;
+
+/// W221: a text role that snaps its baselines to the baseline grid (`snap: baseline`)
+/// with a leading, `size × leading`, that is not a whole number of the grid's lines, so
+/// the engine sets its lines further apart than it says (SPEC §3.4); or a grid with no
+/// baseline for it to snap to. Every grid the deck is laid out on counts: the theme's,
+/// and that of each format it lists with a baseline of its own.
+struct W221OffGrid;
+impl Rule for W221OffGrid {
+    fn code(&self) -> &'static str {
+        "W221"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        let Some(theme) = cx.theme else { return Vec::new() };
+        // A theme file's paths start at its root; an inline theme's under `/theme`.
+        let (file, root) = match &cx.deck.theme {
+            Some(Value::String(path)) => (Some(path.as_str()), ""),
+            _ => (None, "/theme"),
+        };
+        // The theme's grid, and each listed format's own where it is laid out on one with
+        // another baseline: the same baseline would say the same again.
+        let own = [cx.deck.canvas.width, cx.deck.canvas.height];
+        let mut grids: Vec<(Option<&str>, &Grid)> = vec![(None, &theme.grid)];
+        for name in &cx.deck.formats {
+            let Some(format) = Format::parse(name).filter(|f| f.canvas(own) != own) else { continue };
+            if let Some(grid) = theme.formats.as_ref().and_then(|f| f.get(&format)).and_then(|f| f.grid.as_ref())
+                && grid.baseline != theme.grid.baseline
+            {
+                grids.push((Some(name), grid));
+            }
+        }
+        let mut out = Vec::new();
+        for (name, role) in &theme.typography.roles {
+            if role.snap != Some(Snap::Baseline) {
+                continue;
+            }
+            let at = format!("{root}/type/roles/{}", token(name));
+            let leading = role.size * role.leading;
+            for (format, grid) in &grids {
+                let there = format.map_or(String::new(), |f| format!(" in {f}"));
+                let finding = match grid.baseline {
+                    None => Finding::new(
+                        self.code(),
+                        self.severity(),
+                        format!("role `{name}` snaps to the baseline grid, and the grid{there} has none"),
+                    )
+                    .at(format!("{at}/snap"))
+                    .hint("Give the grid a `baseline`, or take `snap` off the role."),
+                    Some(pitch) => {
+                        let lines = leading / pitch;
+                        if (lines - lines.round()).abs() <= GRID_EPSILON && lines.round() >= 1.0 {
+                            continue;
+                        }
+                        let set = (lines - GRID_EPSILON).ceil().max(1.0) * pitch;
+                        let whole = |n: f64| format!("{}", (n * pitch / role.size * 1e4).round() / 1e4);
+                        let below = (lines.floor() >= 1.0).then(|| whole(lines.floor()));
+                        let options = match below {
+                            Some(below) => format!("{below} or {}", whole(lines.ceil())),
+                            None => whole(lines.ceil().max(1.0)),
+                        };
+                        Finding::new(
+                            self.code(),
+                            self.severity(),
+                            format!(
+                                "role `{name}` snaps to the baseline grid{there}, and its leading is {leading:.2} cu, \
+                                 {lines:.2} lines of {pitch} cu: its lines are set {set} cu apart"
+                            ),
+                        )
+                        .at(format!("{at}/leading"))
+                        .measure(
+                            serde_json::json!({ "leading": leading, "baseline": pitch, "lines": lines, "set": set }),
+                        )
+                        .hint(format!("Make `leading` a whole number of grid lines over the size: {options}."))
+                    }
+                };
+                let finding = match format {
+                    Some(f) => finding.format(*f),
+                    None => finding,
+                };
+                out.push(match file {
+                    Some(file) => finding.file(file),
+                    None => finding,
+                });
+            }
+        }
+        out
     }
 }
 
