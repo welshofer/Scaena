@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""The benchmark gate (SPEC §15, PLAN 1.24): criterion's numbers against each runner's own history.
+"""The benchmark gate (SPEC §15, PLAN 1.24): a pull request's benches beside its base's, on one machine.
 
-Every CI runner (an OS and an architecture: `macOS-ARM64`, `Linux-X64`) keeps a history of
-what the benches measured on `main`, run by run. A run is judged against it, bench by bench:
+Runs of the same code on different CI machines spread too far to judge a change by. Of six
+runs of `main` on the macOS runner, 46% of the times were more than 10% from their bench's
+median and 13% more than 30%, and Linux runs land on different processors. So a pull
+request is judged beside its base, built and timed on the same machine in the same job:
 
-- its **baseline** is the median of main's recent runs, on the same machine model when there
-  are enough of those;
-- its **noise** is how far those runs spread about the baseline: σ = 1.4826 × their median
-  absolute deviation, relative to the baseline;
-- it **regresses** when it is slower than the baseline by more than `max(floor, k × σ)`.
+- a bench is **slower** when the pull request takes more than `--floor` (10%) longer than
+  its base;
+- a slower bench is timed again, the base first this time, and **regresses** when it is
+  slower again.
 
-A bench with fewer than `--min-runs` runs behind it is recorded, not judged. A bench that
-looks slower is run again before it is judged (`suspects`), and judged on the faster of
-its runs, so one noisy moment on a shared runner fails nothing. When main itself is slower
-on both runs (a regression accepted on purpose, or one let through), `record` starts that
-bench's history over, so the baseline follows the code. `probe/` benches time the machine,
-not Scaena: they are shown, never judged.
+Each runner keeps a history of what the benches measured on `main`, run by run. The report
+shows it beside each bench for context; it does not judge. `probe/` benches time the
+machine, not Scaena: they are shown, never judged.
 
     python3 scripts/bench_gate.py collect DIR --out run.json      # criterion's results under DIR
-    python3 scripts/bench_gate.py suspects --history H --run run.json --out suspects.txt
-    python3 scripts/bench_gate.py check --history H --run run.json [--run again.json] [--summary FILE]
-    python3 scripts/bench_gate.py record --history H --run run.json [--run again.json]
+    python3 scripts/bench_gate.py suspects --run run.json --base base.json --out suspects.txt
+    python3 scripts/bench_gate.py check --history H --run run.json [--base base.json
+        [--again again.json --base-again base-again.json]] [--summary FILE]
+    python3 scripts/bench_gate.py record --history H --run run.json
 
 `check` prints a Markdown report, the SPEC §15 budgets first, and exits 1 on a regression
 unless `--accept` (a pull request labelled `bench-accept`) or `--report-only` (main).
@@ -65,6 +64,10 @@ def fmt_ns(ns: float) -> str:
     return f"{ns:.3g} ns"
 
 
+def pct(x) -> str:
+    return "—" if x is None else f"{x:+.1%}"
+
+
 def collect(args) -> None:
     benches = {}
     for meta in sorted(Path(args.dir).glob("**/new/benchmark.json")):
@@ -90,18 +93,9 @@ def collect(args) -> None:
     print(f"{len(benches)} benches from {args.dir} into {args.out}")
 
 
-def runs(paths: list[str]) -> dict:
-    """The runs, as one: each bench at the fastest any of them measured it."""
-    merged = None
-    for path in paths:
-        run = json.loads(Path(path).read_text())
-        if merged is None:
-            merged = run
-            continue
-        for bench, now in run["benches"].items():
-            if bench in merged["benches"] and now["ns"] < merged["benches"][bench]["ns"]:
-                merged["benches"][bench] = {**now, "again": True}
-    return merged
+def load(path) -> dict:
+    """A run, or an empty one."""
+    return json.loads(Path(path).read_text()) if path else {"benches": {}}
 
 
 def load_history(path: str) -> dict:
@@ -109,56 +103,79 @@ def load_history(path: str) -> dict:
     return json.loads(p.read_text()) if p.is_file() else {"benches": {}}
 
 
-class Judged:
-    """One bench of a run against its history."""
+def ns(run: dict, bench: str):
+    b = run["benches"].get(bench)
+    return b["ns"] if b else None
 
-    def __init__(self, bench: str, now: dict, past: list[dict], machine, opts):
-        self.bench, self.now = bench, now
-        same = [p for p in past if p.get("machine") == machine]
-        # Like with like, when the history has enough of it.
-        self.past = same if len(same) >= opts.min_runs else past
-        self.mixed = bool(self.past) and self.past is not same
-        values = [p["ns"] for p in self.past]
-        self.n, self.needs = len(values), opts.min_runs
-        self.judged = self.n >= opts.min_runs and not bench.startswith(PROBE)
-        self.baseline = self.change = self.threshold = None
-        if values:
-            self.baseline = statistics.median(values)
-            sigma = 1.4826 * statistics.median(abs(v - self.baseline) for v in values) / self.baseline
-            self.threshold = max(opts.floor, opts.k * sigma)
-            self.change = now["ns"] / self.baseline - 1
+
+class Judged:
+    """One bench of a run: beside its base on the same machine, and main's runs for context."""
+
+    def __init__(self, bench: str, run: dict, base: dict, again: dict, base_again: dict, past: list, opts):
+        self.bench, self.now, self.floor = bench, run["benches"][bench], opts.floor
+        self.probe = bench.startswith(PROBE)
+        self.base = ns(base, bench)
+        self.change = self.now["ns"] / self.base - 1 if self.base else None
+        a, b = ns(again, bench), ns(base_again, bench)
+        self.again = a / b - 1 if a and b else None
+        # Main's runs, on the same machine model when there are enough of those.
+        same = [p for p in past if p.get("machine") == run.get("machine")]
+        past = same if len(same) >= opts.min_runs else past
+        self.mixed = bool(past) and past is not same
+        values = [p["ns"] for p in past]
+        self.n = len(values)
+        self.main = statistics.median(values) if values else None
+        self.vs_main = self.now["ns"] / self.main - 1 if self.main else None
+
+    @property
+    def judged(self) -> bool:
+        return self.change is not None and not self.probe
 
     @property
     def slower(self) -> bool:
-        """Slower than its noise allows."""
-        return self.judged and self.change > self.threshold
+        """Slower than its base by more than the floor, each time they were timed together."""
+        return self.judged and self.change > self.floor and (self.again is None or self.again > self.floor)
 
     @property
     def verdict(self) -> str:
-        if self.baseline is None:
-            return "new"
-        if self.bench.startswith(PROBE):
+        if self.probe:
             return "the machine, not judged"
-        if not self.judged:
-            return f"recorded: {self.n} of {self.needs} runs"
+        if self.change is None:
+            return "recorded" if self.main is not None else "new"
         if self.slower:
             return "**slower**"
-        return "faster" if self.change < -self.threshold else "ok"
+        if self.change > self.floor:
+            return "ok: not slower again"
+        return "faster" if self.change < -self.floor else "ok"
+
+    def error(self) -> str:
+        again = "" if self.again is None else f", and {self.again:+.1%} timed again"
+        return (
+            f"{self.bench}: {fmt_ns(self.now['ns'])} against its base's {fmt_ns(self.base)} on the same machine, "
+            f"{self.change:+.1%}{again}"
+        )
 
 
-def judge(args, run: dict) -> list[Judged]:
+def judge(args) -> tuple[dict, list[Judged]]:
+    run = load(args.run)
+    base, again, base_again = load(args.base), load(args.again), load(args.base_again)
     history = load_history(args.history)
-    return [
-        Judged(bench, now, history["benches"].get(bench, []), run.get("machine"), args)
-        for bench, now in sorted(run["benches"].items())
+    judged = [
+        Judged(bench, run, base, again, base_again, history["benches"].get(bench, []), args)
+        for bench in sorted(run["benches"])
     ]
+    return run, judged
 
 
 def suspects(args) -> None:
-    run = runs(args.run)
-    slower = [j.bench for j in judge(args, run) if j.slower]
+    """The benches slower than their base by more than the floor, to time again."""
+    run, base = load(args.run), load(args.base)
+    slower = [
+        b for b in sorted(run["benches"])
+        if not b.startswith(PROBE) and ns(base, b) and ns(run, b) / ns(base, b) - 1 > args.floor
+    ]
     Path(args.out).write_text("".join(f"{b}\n" for b in slower))
-    print(f"{len(slower)} benches to run again" + (f": {', '.join(slower)}" if slower else ""))
+    print(f"{len(slower)} benches to time again" + (f": {', '.join(slower)}" if slower else ""))
 
 
 def budget_rows(run: dict) -> list[str]:
@@ -187,8 +204,7 @@ def budget_rows(run: dict) -> list[str]:
 
 
 def check(args) -> int:
-    run = runs(args.run)
-    judged = judge(args, run)
+    run, judged = judge(args)
     slower = [j for j in judged if j.slower]
     lines = [f"### Benchmarks on {run.get('runner') or 'this runner'}", ""]
     about = [run.get("machine"), run.get("sha") and f"commit `{run['sha'][:12]}`"]
@@ -201,41 +217,34 @@ def check(args) -> int:
         "Per element is per state, cue, or frame.",
         "",
     ]
-    probe = [j for j in judged if j.bench.startswith(PROBE) and j.change is not None]
-    if slower:
-        verdict = f"**{len(slower)} of {len(judged)} benches regressed** beyond main's noise"
+    floor, count = f"{args.floor:.0%}", sum(j.judged for j in judged)
+    if not count:
+        verdict = "Recorded, not judged: only a pull request is timed beside a base"
+    elif slower:
+        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor}, twice"
         if args.accept:
             verdict += "; the pull request accepts it (`bench-accept`)"
-    elif not any(j.judged for j in judged):
-        most = max((j.n for j in judged), default=0)
-        verdict = f"Not judged yet: main has {most} of the {args.min_runs} runs a bench needs behind it"
     else:
-        verdict = f"No bench slower than main's runs allow, of {sum(j.judged for j in judged)} judged"
-    lines += [
-        f"{verdict}. A bench regresses when it is slower than the median of main's runs on this runner by "
-        f"more than max({args.floor:.0%}, {args.k:g}σ), σ being their spread; one that looks slower is run "
-        "again and judged on the faster of its runs.",
-    ]
-    for j in probe:
-        lines.append(f"The probe ran {abs(j.change):.0%} {'slower' if j.change > 0 else 'faster'} than on main's runs.")
+        verdict = f"No bench slower than the base by more than {floor} twice, of {count} judged"
+    lines.append(
+        f"{verdict}. The base, the commit a pull request merges onto, is built and timed on the same machine in "
+        f"the same job. A bench slower than it by more than {floor} is timed again, the base first, and regresses "
+        "when it is slower again. Main's runs on this runner, on other machines, are shown for context and do not judge."
+    )
+    for j in judged:
+        if j.probe and j.change is not None:
+            lines.append(f"The probe ran {abs(j.change):.0%} {'slower' if j.change > 0 else 'faster'} than the base's on this machine.")
     lines += [
         "",
-        "| Bench | This run | Per element | Baseline (runs) | Change | Noise | Verdict |",
-        "|---|---|---|---|---|---|---|",
+        "| Bench | This run | Per element | Base, here | Change | Again | Main's runs | Verdict |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for j in judged:
         el = j.now.get("elements")
         per = f"{fmt_ns(j.now['ns'] / el)} × {el}" if el else "—"
-        if j.baseline is None:
-            base = change = noise = "—"
-        else:
-            base = f"{fmt_ns(j.baseline)} ({j.n}{', mixed machines' if j.mixed else ''})"
-            change = f"{j.change:+.1%}"
-            noise = f"±{j.threshold:.0%}"
-        again = " (run again)" if j.now.get("again") else ""
-        lines.append(
-            f"| `{j.bench}` | {fmt_ns(j.now['ns'])}{again} | {per} | {base} | {change} | {noise} | {j.verdict} |"
-        )
+        base = fmt_ns(j.base) if j.base else "—"
+        main = "—" if j.main is None else f"{fmt_ns(j.main)} ({j.n}{', mixed machines' if j.mixed else ''}), {pct(j.vs_main)}"
+        lines.append(f"| `{j.bench}` | {fmt_ns(j.now['ns'])} | {per} | {base} | {pct(j.change)} | {pct(j.again)} | {main} | {j.verdict} |")
     report = "\n".join(lines) + "\n"
     print(report)
     if args.summary:
@@ -243,36 +252,24 @@ def check(args) -> int:
             f.write(report + "\n")
     passes = args.accept or args.report_only
     for j in slower:
-        print(
-            f"::{'warning' if passes else 'error'} title=bench regression::{j.bench}: {fmt_ns(j.now['ns'])} "
-            f"against main's {fmt_ns(j.baseline)}, {j.change:+.1%}, beyond its noise of ±{j.threshold:.0%}",
-            file=sys.stderr,
-        )
+        print(f"::{'warning' if passes else 'error'} title=bench regression::{j.error()}", file=sys.stderr)
     return 1 if slower and not passes else 0
 
 
 def record(args) -> None:
-    run = runs(args.run)
+    run = load(args.run)
     history = load_history(args.history)
     benches = history.setdefault("benches", {})
-    restarted = []
-    for j in judge(args, run):
-        entry = {"ns": j.now["ns"], "sha": run.get("sha"), "machine": run.get("machine"), "date": run.get("date")}
-        if j.slower:
-            # Slower on both runs: a step, not noise. The baseline starts over from here.
-            benches[j.bench] = [entry]
-            restarted.append(f"{j.bench} ({j.change:+.1%})")
-        else:
-            benches[j.bench] = (benches.get(j.bench, []) + [entry])[-args.keep :]
+    for bench, now in run["benches"].items():
+        entry = {"ns": now["ns"], "sha": run.get("sha"), "machine": run.get("machine"), "date": run.get("date")}
+        benches[bench] = (benches.get(bench, []) + [entry])[-args.keep :]
     history["runner"] = run.get("runner")
     history["updated"] = run.get("date")
     Path(args.history).write_text(json.dumps(history, indent=1, sort_keys=True) + "\n")
     print(f"recorded {len(run['benches'])} benches into {args.history}")
-    if restarted:
-        print("slower on both runs, so their history starts over: " + ", ".join(restarted))
 
 
-def main() -> None:
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     c = sub.add_parser("collect", help="read criterion's results into one run")
@@ -281,30 +278,32 @@ def main() -> None:
     c.add_argument("--runner", default=os.environ.get("BENCH_RUNNER"))
     c.add_argument("--machine", default=os.environ.get("BENCH_MACHINE"))
     c.add_argument("--sha", default=os.environ.get("GITHUB_SHA"))
-    for name, fn, about in (
-        ("suspects", suspects, "list the benches slower than their noise allows, to run again"),
-        ("check", check, "report a run against the history; fail on a regression"),
-        ("record", record, "add a run of main to the history"),
-    ):
-        p = sub.add_parser(name, help=about)
-        p.add_argument("--history", required=True)
-        p.add_argument("--run", required=True, action="append", help="a run; again for a second (the faster counts)")
-        p.add_argument("--min-runs", type=int, default=5, help="runs of main behind a bench before it is judged")
-        p.add_argument("--k", type=float, default=4.0, help="multiples of σ a change must exceed")
-        p.add_argument("--floor", type=float, default=0.10, help="the smallest change that counts")
-        p.add_argument("--keep", type=int, default=20, help="runs kept per bench")
-        p.set_defaults(fn=fn)
-    sub.choices["suspects"].add_argument("--out", required=True)
-    ck = sub.choices["check"]
+    s = sub.add_parser("suspects", help="list the benches slower than their base, to time again")
+    s.add_argument("--run", required=True)
+    s.add_argument("--base", required=True, help="the base's run, on the same machine")
+    s.add_argument("--out", required=True)
+    ck = sub.add_parser("check", help="report a run beside its base and main's runs; fail on a regression")
+    ck.add_argument("--history", required=True, help="main's runs on this runner")
+    ck.add_argument("--run", required=True)
+    ck.add_argument("--base", help="the base's run, on the same machine")
+    ck.add_argument("--again", help="the benches slower than the base, timed again")
+    ck.add_argument("--base-again", help="the base's, timed again just before them")
+    ck.add_argument("--min-runs", type=int, default=5, help="main's runs on one machine model before they stand alone")
     ck.add_argument("--summary", help="append the report here too ($GITHUB_STEP_SUMMARY)")
     ck.add_argument("--accept", action="store_true", help="report regressions without failing (`bench-accept`)")
     ck.add_argument("--report-only", action="store_true", help="never fail (main: the change is in)")
-    args = ap.parse_args()
-    if args.command == "collect":
-        collect(args)
-    else:
-        sys.exit(args.fn(args))
+    for p in (s, ck):
+        p.add_argument("--floor", type=float, default=0.10, help="the smallest slowdown that counts")
+    r = sub.add_parser("record", help="add a run of main to the history")
+    r.add_argument("--history", required=True)
+    r.add_argument("--run", required=True)
+    r.add_argument("--keep", type=int, default=20, help="runs kept per bench")
+    args = ap.parse_args(argv)
+    if args.command == "check":
+        return check(args)
+    {"collect": collect, "suspects": suspects, "record": record}[args.command](args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
