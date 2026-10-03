@@ -141,7 +141,8 @@ enum Cmd {
         dry_run: bool,
     },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
-    /// changes in what `validate` and `lint` find.
+    /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
+    /// is refused.
     Theme {
         bundle: PathBuf,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
@@ -150,6 +151,10 @@ enum Cmd {
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme,
+        /// and the new one is copied in for a patch with the `retheme` op and the fixes.
+        #[arg(long)]
+        force: bool,
     },
     /// Dev server with live preview (PLAN 2.x).
     Serve {
@@ -381,7 +386,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
-        Cmd::Theme { bundle, apply, dry_run } => theme_apply(&bundle, &apply, dry_run, cli.json),
+        Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
         Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.x")),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
@@ -514,11 +519,15 @@ fn line_col(source: &str, offset: usize) -> (usize, usize) {
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
 /// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. Findings after it, if any are errors, exit 1.
-fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run)?;
+/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// exits 1. Findings after it, if any are errors, exit 1.
+fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
+    } else if t.refused {
+        let copied = if dry_run { "" } else { ", and the theme is copied in for `patch`'s `retheme` op" };
+        println!("refused: {} would leave the deck invalid; the deck keeps its theme{copied}", t.theme);
     } else {
         let verb = if dry_run { "would apply" } else { "applied" };
         println!("{verb} {} (was {})", t.theme, t.was.as_deref().unwrap_or("no theme"));

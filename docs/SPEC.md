@@ -858,6 +858,8 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
 
+A theme that would leave the deck invalid is refused, as `patch` refuses a patch that makes the deck invalid, and exits 1 (PLAN 1.35). Most often it lacks a name the deck uses (E102), and an invalid deck is not laid out, so lint could not say what else the theme breaks. The deck keeps its theme, and the new one is copied in all the same. Then one `patch` with the `retheme` op and the fixes swaps it with the deck valid throughout. `--force` applies the theme anyway.
+
 `inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
@@ -878,7 +880,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
-| `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
+| `theme_apply` | `scaena theme --apply`, `force` its `--force`. | `{ theme, was, applied, refused, mapped, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
 | `spine_read` | The spine projection (§10), without the times and renders `export --format spine` adds: it runs no layout. | the projection |
 | `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |

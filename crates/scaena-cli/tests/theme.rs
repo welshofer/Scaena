@@ -86,6 +86,35 @@ fn a_theme_that_lacks_names_the_deck_uses_says_which_and_exits_1() {
     assert!(!dir.join("themes/theme.json").exists());
 }
 
+/// A theme that would leave the deck invalid is refused, as a patch that would is (PLAN
+/// 1.35): the deck keeps its theme, and the new one is copied in for a patch that swaps it
+/// with the fixes, all or none. `--force` applies it anyway.
+#[test]
+fn a_theme_that_would_leave_the_deck_invalid_is_refused_unless_forced() {
+    let dir = example("refused");
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    let theme = "../../tests/lint/theme.json";
+    let out = scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", theme]);
+    assert_eq!(out.status.code(), Some(1));
+    let refused: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((&refused["refused"], &refused["applied"]), (&true.into(), &false.into()), "{refused:#}");
+    assert!(refused["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{refused:#}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the deck keeps its theme");
+    assert!(dir.join("themes/theme.json").exists(), "the theme is copied in");
+    // The copy is for a patch with the `retheme` op and the fixes; alone, the op is refused too.
+    let ops = dir.join("retheme.json");
+    std::fs::write(&ops, r#"[{ "op": "retheme", "theme": "themes/theme.json" }]"#).unwrap();
+    let out = scaena(&["patch", dir.to_str().unwrap(), "--ops", ops.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("refused:"));
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
+    // Forced, it applies, and the deck is left with its errors.
+    let out = scaena(&["theme", dir.to_str().unwrap(), "--apply", theme, "--force"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("applied themes/theme.json"));
+    assert_eq!(deck(&dir)["theme"], "themes/theme.json");
+}
+
 #[test]
 fn a_zip_bundle_is_rewritten_with_its_new_theme() {
     let dir = example("zip");

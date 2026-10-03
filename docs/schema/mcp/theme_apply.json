@@ -1,6 +1,6 @@
 {
   "name": "theme_apply",
-  "description": "Re-theme: point the deck at another theme, copied into the bundle, and say what that changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched.",
+  "description": "Re-theme: point the deck at another theme, copied into the bundle, and say what that changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched. A theme that would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "theme"],
@@ -8,7 +8,12 @@
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
       "theme": { "description": "The theme file; one outside the bundle is copied to `themes/`.", "type": "string" },
-      "dry_run": { "type": "boolean", "default": false }
+      "dry_run": { "type": "boolean", "default": false },
+      "force": {
+        "description": "Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme, and\nthe new one is copied in for a `deck_patch` with the `retheme` op and the fixes.",
+        "type": "boolean",
+        "default": false
+      }
     },
     "additionalProperties": false
   },
@@ -45,7 +50,7 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "required": ["theme", "applied", "mapped", "added", "removed", "errors"],
+    "required": ["theme", "applied", "mapped", "added", "removed", "errors", "refused"],
     "type": "object",
     "properties": {
       "theme": { "description": "The theme's path in the bundle.", "type": "string" },
@@ -54,7 +59,7 @@
         "type": ["string", "null"]
       },
       "applied": {
-        "description": "Whether the deck and the theme were written: not under a dry run.",
+        "description": "Whether the deck now names the theme: not under a dry run, nor when it was refused.",
         "type": "boolean"
       },
       "mapped": {
@@ -72,7 +77,11 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": { "description": "The findings that are errors, with the new theme.", "type": "integer", "minimum": 0 }
+      "errors": { "description": "The findings that are errors, with the new theme.", "type": "integer", "minimum": 0 },
+      "refused": {
+        "description": "Whether the theme was refused: it would have added a validation error (in `added`),\nand the swap was not forced. The deck keeps its theme.",
+        "type": "boolean"
+      }
     }
   }
 }

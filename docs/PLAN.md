@@ -512,7 +512,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - Dusk's `stat` slots `meaning` and `aside` are Ember's `claim` and `detail`.
   - **Shader presets** are named by job, too, and every theme has the ones the example decks use.
   - **The test.** It re-themes each example deck across the three and expects no E102.
-- [ ] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
+- [x] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
+  *(Done: `theme_apply` validates the deck with the new theme before it writes. A theme that adds a validation error is refused: `refused` in its result, exit 1. The deck keeps its theme, and the theme is copied into `themes/` all the same, for one `patch` with the `retheme` op and the fixes. `--force` (`force`) applies it anyway. The retheme skill shows the patch, and SPEC §7.1–§7.2 say so. A CLI test is refused, finds the `retheme` op alone refused too, and forces.)*
 - [ ] 1.36 Lint sees what gate 1's renders showed.
   - E101 judges a container's children against the nodes around it (in attempt 3, a source note over the cost cards).
   - A narrative rule reports a spine whose beats run in another order than their states, which leaves the PDF and the video telling the story in different orders.

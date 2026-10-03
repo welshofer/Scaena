@@ -1,11 +1,12 @@
 //! Re-theme a deck (PLAN 1.6, SPEC §3.6): point it at another theme, copied into the bundle,
-//! and say what that changes in what `validate` and `lint` find.
+//! and say what that changes in what `validate` and `lint` find. A theme that would leave
+//! the deck invalid is refused, unless forced (PLAN 1.35).
 
 use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::Finding;
 use scaena_core::lint::{Delta, delta};
-use scaena_core::validate::BundleFiles;
+use scaena_core::validate::{BundleFiles, validate_bundle};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -18,7 +19,7 @@ pub struct Themed {
     pub theme: String,
     /// The theme the deck named before: a path, `(inline)`, or none.
     pub was: Option<String>,
-    /// Whether the deck and the theme were written: not under a dry run.
+    /// Whether the deck now names the theme: not under a dry run, nor when it was refused.
     pub applied: bool,
     /// Families set in the bundle's font of that family, the theme's own file not being in
     /// the bundle: `family `key`: theirs → ours`.
@@ -29,13 +30,21 @@ pub struct Themed {
     pub removed: Vec<Finding>,
     /// The findings that are errors, with the new theme.
     pub errors: usize,
+    /// Whether the theme was refused: it would have added a validation error (in `added`),
+    /// and the swap was not forced. The deck keeps its theme.
+    pub refused: bool,
 }
 
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
 /// in the bundle already. A family whose file the bundle does not hold is set in the bundle
 /// font of that family, if it has one: a saved bundle names fonts by their content. The
 /// deck is not otherwise touched, and is written canonically.
-pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool) -> Result<Themed, OpsError> {
+///
+/// A theme that lacks a name the deck uses would leave it invalid, and an invalid deck is
+/// not laid out, so lint could not say what else the theme breaks. Such a theme is refused,
+/// as `patch` refuses an invalid deck, unless `force`: the deck keeps its theme, and the new
+/// one is copied in all the same, for one `patch` with the `retheme` op and the fixes.
+pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
     let mut text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
     let mut parsed: serde_json::Value =
         serde_json::from_str(&text).with_context(|| format!("{} is not JSON", theme.display()))?;
@@ -72,9 +81,13 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool) -> Result<Themed, Op
     let before = lint(b)?.findings;
     let mut deck = b.deck.clone();
     deck.theme = Some(serde_json::Value::String(rel.clone()));
-    let after = lint_in(&deck, &View::of(b).with(rel.clone(), text.clone().into_bytes()))?.findings;
+    let view = View::of(b).with(rel.clone(), text.clone().into_bytes());
+    let after = lint_in(&deck, &view)?.findings;
 
     let states: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
+    let invalid = validate_bundle(&b.deck.to_json()?, &View::of(b))?;
+    let invalid_after = validate_bundle(&deck.to_json()?, &view)?;
+    let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
     let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
     let (added, removed) = (added.into_iter().cloned().collect(), removed.into_iter().cloned().collect());
     if !dry_run {
@@ -82,7 +95,21 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool) -> Result<Themed, Op
         if inside.is_none() || !mapped.is_empty() {
             files.insert(rel.clone(), text.into_bytes());
         }
-        write_deck(b, &deck, files, &Why::new(format!("theme --apply {rel}")))?;
+        if !refused {
+            write_deck(b, &deck, files, &Why::new(format!("theme --apply {rel}")))?;
+        } else if !files.is_empty() {
+            // The theme, copied in; the deck keeps the one it names.
+            b.write(&files).with_context(|| format!("writing {}", b.root.display()))?;
+        }
     }
-    Ok(Themed { theme: rel, was, applied: !dry_run, mapped, added, removed, errors: errors(&after) })
+    Ok(Themed {
+        theme: rel,
+        was,
+        applied: !dry_run && !refused,
+        mapped,
+        added,
+        removed,
+        errors: errors(&after),
+        refused,
+    })
 }

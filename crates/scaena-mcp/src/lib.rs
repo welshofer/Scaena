@@ -401,6 +401,10 @@ pub struct ThemeApply {
     pub theme: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme, and
+    /// the new one is copied in for a `deck_patch` with the `retheme` op and the fixes.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -658,16 +662,21 @@ impl Scaena {
     }
 
     #[tool(description = "Re-theme: point the deck at another theme, copied into the bundle, and say what that \
-        changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched.")]
+        changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched. A theme that \
+        would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its \
+        errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one \
+        `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.")]
     async fn theme_apply(
         &self,
         Parameters(a): Parameters<ThemeApply>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
         let author = author(&context);
-        blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run))
-            .await
-            .map(Json)
+        blocking(move || {
+            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run, a.force)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Attach a CSV or JSON data file: copy it into the bundle's `data/` and declare it as a \

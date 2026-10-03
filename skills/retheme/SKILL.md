@@ -11,6 +11,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 |---|---|---|
 | preview the swap | `scaena theme <bundle> --apply <theme.json> --dry-run --json` | `theme_apply` with `dry_run` |
 | swap | the same, without `--dry-run` | `theme_apply` |
+| swap with the fixes, all or none | `scaena patch <bundle> --ops ops.json` | `deck_patch` |
 | see each text node's new look | `scaena inspect <bundle> --state <id> --resolved` | `deck_inspect` with `resolved` |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render` |
@@ -24,6 +25,15 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 3. **Swap.**
    - Run it again without the dry run. It copies the theme into `themes/` and points the deck at it.
    - When a saved bundle names fonts by content, families are matched to them by name, and each mapping is reported (`mapped`).
+   - A theme that would leave the deck invalid, most often with E102s for names it lacks, is **refused**: `refused` is true, and the deck keeps its theme. The theme is still copied into `themes/`, so swap it and fix the names in one patch, all or none, and the deck is valid throughout:
+
+     ```json
+     [{ "op": "retheme", "theme": "themes/brand.theme.json" },
+      { "op": "replace", "path": "/states/3/layout", "value": "chart" }]
+     ```
+
+     A patch that still leaves an E102 is refused too, and says which. `--force` (`force`) applies a theme anyway, leaving the deck invalid until you fix it.
+   - Once the deck is valid with the new theme, lint lays it out, and the delta adds what the new type and colors break (step 4).
 4. **Read the layout findings in the delta.** Lint lays every state out in the new theme, so the delta also says what the new type and colors break:
    - **E100:** text that no longer fits. A larger type scale wants tighter copy (the `tighten-copy` skill) or `fit: shrink`, not overrides.
    - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. A palette with less contrast wants a different color *role*, not a literal.
