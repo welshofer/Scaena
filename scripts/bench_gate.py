@@ -6,16 +6,19 @@ runs of `main` on the macOS runner, 46% of the times were more than 10% from the
 median and 13% more than 30%, and Linux runs land on different processors. So a pull
 request is judged beside its base, built and timed on the same machine in the same job:
 
+- the two are timed a group of benches at a time, the base first, so a spell of load on the
+  machine falls on both;
 - a bench is **slower** when the pull request takes more than `--floor` (10%) longer than
   its base;
-- a slower bench is timed again, the base first this time, and **regresses** when it is
-  slower again.
+- a slower bench is timed again, beside its base bench by bench, twice: the pull request
+  first, then the base first. Each side counts at its fastest, since load on the machine
+  only ever slows a run. The bench **regresses** when it is slower again.
 
 Each runner keeps a history of what the benches measured on `main`, run by run. The report
 shows it beside each bench for context; it does not judge. `probe/` benches time the
 machine, not Scaena: they are shown, never judged.
 
-    python3 scripts/bench_gate.py collect DIR --out run.json      # criterion's results under DIR
+    python3 scripts/bench_gate.py collect DIR... --out run.json   # criterion's results, each bench's fastest
     python3 scripts/bench_gate.py suspects --run run.json --base base.json --out suspects.txt
     python3 scripts/bench_gate.py check --history H --run run.json [--base base.json
         [--again again.json --base-again base-again.json]] [--summary FILE]
@@ -69,19 +72,23 @@ def pct(x) -> str:
 
 
 def collect(args) -> None:
+    """Criterion's results under each directory, each bench at its fastest median."""
     benches = {}
-    for meta in sorted(Path(args.dir).glob("**/new/benchmark.json")):
-        info = json.loads(meta.read_text())
-        median = json.loads((meta.parent / "estimates.json").read_text())["median"]
-        throughput = info.get("throughput") or {}
-        benches[info["full_id"]] = {
-            "ns": median["point_estimate"],
-            "lo": median["confidence_interval"]["lower_bound"],
-            "hi": median["confidence_interval"]["upper_bound"],
-            "elements": throughput.get("Elements"),
-        }
+    for d in args.dirs:
+        for meta in sorted(Path(d).glob("**/new/benchmark.json")):
+            info = json.loads(meta.read_text())
+            median = json.loads((meta.parent / "estimates.json").read_text())["median"]
+            throughput = info.get("throughput") or {}
+            bench = {
+                "ns": median["point_estimate"],
+                "lo": median["confidence_interval"]["lower_bound"],
+                "hi": median["confidence_interval"]["upper_bound"],
+                "elements": throughput.get("Elements"),
+            }
+            if info["full_id"] not in benches or bench["ns"] < benches[info["full_id"]]["ns"]:
+                benches[info["full_id"]] = bench
     if not benches:
-        sys.exit(f"no criterion results under {args.dir}")
+        sys.exit(f"no criterion results under {', '.join(args.dirs)}")
     run = {
         "runner": args.runner,
         "machine": args.machine,
@@ -90,7 +97,7 @@ def collect(args) -> None:
         "benches": benches,
     }
     Path(args.out).write_text(json.dumps(run, indent=1, sort_keys=True) + "\n")
-    print(f"{len(benches)} benches from {args.dir} into {args.out}")
+    print(f"{len(benches)} benches from {', '.join(args.dirs)} into {args.out}")
 
 
 def load(path) -> dict:
@@ -228,8 +235,9 @@ def check(args) -> int:
         verdict = f"No bench slower than the base by more than {floor} twice, of {count} judged"
     lines.append(
         f"{verdict}. The base, the commit a pull request merges onto, is built and timed on the same machine in "
-        f"the same job. A bench slower than it by more than {floor} is timed again, the base first, and regresses "
-        "when it is slower again. Main's runs on this runner, on other machines, are shown for context and do not judge."
+        f"the same job, a group of benches at a time and the base first. A bench slower than it by more than {floor} "
+        "is timed twice more beside it, and regresses when it is slower again, each side at its fastest. Main's runs "
+        "on this runner, on other machines, are shown for context and do not judge."
     )
     for j in judged:
         if j.probe and j.change is not None:
@@ -273,7 +281,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     c = sub.add_parser("collect", help="read criterion's results into one run")
-    c.add_argument("dir", help="criterion's output directory (target/criterion, or $CRITERION_HOME)")
+    c.add_argument("dirs", nargs="+", help="criterion's output directories ($CRITERION_HOME): each bench's fastest")
     c.add_argument("--out", required=True)
     c.add_argument("--runner", default=os.environ.get("BENCH_RUNNER"))
     c.add_argument("--machine", default=os.environ.get("BENCH_MACHINE"))
@@ -286,8 +294,8 @@ def main(argv=None) -> int:
     ck.add_argument("--history", required=True, help="main's runs on this runner")
     ck.add_argument("--run", required=True)
     ck.add_argument("--base", help="the base's run, on the same machine")
-    ck.add_argument("--again", help="the benches slower than the base, timed again")
-    ck.add_argument("--base-again", help="the base's, timed again just before them")
+    ck.add_argument("--again", help="the benches slower than the base, timed again beside it")
+    ck.add_argument("--base-again", help="the base's, timed again beside them")
     ck.add_argument("--min-runs", type=int, default=5, help="main's runs on one machine model before they stand alone")
     ck.add_argument("--summary", help="append the report here too ($GITHUB_STEP_SUMMARY)")
     ck.add_argument("--accept", action="store_true", help="report regressions without failing (`bench-accept`)")
