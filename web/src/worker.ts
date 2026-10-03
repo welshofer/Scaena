@@ -457,6 +457,8 @@ function run(index: number, t: number, run: number, still = false) {
   let offset = t;
   /** The slot painted at rest, when still. */
   let rested = -1;
+  /** When the run's last frame was painted, by the display's clock. */
+  let last: number | undefined;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -469,6 +471,7 @@ function run(index: number, t: number, run: number, still = false) {
     const playing = goesOn(index) || (!still && t < slot.span);
     const shown = still || !playing ? slot.span : t;
     if (rested !== index) {
+      const began = performance.now();
       try {
         await paint(slot.state, shown);
       } catch (e) {
@@ -476,7 +479,9 @@ function run(index: number, t: number, run: number, still = false) {
       }
       // A newer request came while the CPU painter painted: its frame is the one to report.
       if (run !== latest) return;
-      post({ type: "at", index, t: shown, global: slot.start + shown, playing });
+      const timing = still ? undefined : { paint: performance.now() - began, interval: last === undefined ? undefined : now - last };
+      last = now;
+      post({ type: "at", index, t: shown, global: slot.start + shown, playing, frame: timing });
       if (still) rested = index;
     }
     if (!playing) return;

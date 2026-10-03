@@ -69,6 +69,40 @@ function keys(act: Partial<Record<"on" | "back" | "first" | "last" | "full" | "p
   });
 }
 
+/** With `?fps`, the frame meter: while the deck plays, its frames a second over the run so far,
+ * its worst frame, how many frames came late for a 60 Hz display (each over 25 ms after the
+ * one before it), and the mean paint, from the worker's timings (gate 2, criterion 1). */
+function meter(): ((at: At) => void) | undefined {
+  const out = document.querySelector<HTMLOutputElement>("#meter");
+  if (!out || !new URLSearchParams(location.search).has("fps")) return undefined;
+  out.hidden = false;
+  out.value = "fps: play the deck";
+  let intervals: number[] = [];
+  let paints: number[] = [];
+  let shown = 0;
+  const show = () => {
+    const frames = intervals.length;
+    if (!frames) return;
+    const sum = intervals.reduce((a, b) => a + b, 0);
+    const late = intervals.filter((i) => i > 25).length;
+    const paint = paints.reduce((a, b) => a + b, 0) / paints.length;
+    out.value = `${((1000 * frames) / sum).toFixed(1)} fps · worst ${Math.max(...intervals).toFixed(0)} ms · ${late} late of ${frames} · paint ${paint.toFixed(1)} ms`;
+  };
+  return (at) => {
+    if (at.frame) {
+      // A run's first frame has no interval: a new run, measured on its own.
+      if (at.frame.interval === undefined) [intervals, paints] = [[], []];
+      else intervals.push(at.frame.interval);
+      paints.push(at.frame.paint);
+      if (performance.now() - shown > 250) {
+        shown = performance.now();
+        show();
+      }
+    }
+    if (!at.playing) show();
+  };
+}
+
 const fullscreen = () =>
   (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(
     () => {},
@@ -113,7 +147,11 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     channel.postMessage({ type: "at", ...at, format: format() } satisfies Follow);
     void read?.(slots[at.index].state, format());
   };
-  stage.onAt = report;
+  const measure = meter();
+  stage.onAt = (at) => {
+    report(at);
+    measure?.(at);
+  };
 
   /** On: finish a cue that is playing, else play the next state's. */
   const on = () => {

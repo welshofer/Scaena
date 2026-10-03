@@ -632,6 +632,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *`web/history.mjs` drives the editor on the revenue example saved by `scaena save --history`: the user types, a scripted assistant renames the title, and the user types again. The save loads the module, which nothing before it did, and records the edit, the patch by `agent:scripted`, and the save. Copied to disk, `scaena save` takes in nothing by `fs`, and a download's history is the one kept plus the save that subset its fonts. A bundle that keeps no history saves without the module. `just web-smoke` and CI's wasm job run it.)*
 
 ### Exit criteria (gate 2)
+*(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox.
 2. Edit → lint → preview round trip < 200 ms for a 40-state deck.
 3. Single-file export opens offline from a USB stick.
@@ -710,5 +711,5 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 |---|---|---|---|
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
 | 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
-| 2 | — | — | — |
+| 2 | — | open | Criteria 2 and 3 are met in headless Chromium. Criterion 1 needs a real machine's browsers, read with the player's frame meter (`?fps`). Criterion 4 needs Jay's own key. The evidence and the steps are in `docs/gate-2.md`. |
 | 3 | — | — | — |

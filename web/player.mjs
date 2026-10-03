@@ -15,6 +15,8 @@
 // - A click goes on; a swipe either way goes on or back.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
 //   none), and steers it.
+// - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
+//   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
@@ -156,6 +158,19 @@ try {
   at = await until(torture, (k) => window.scaena.at().index === k && !window.scaena.at().playing, "a state without a hold comes to rest", k, 10000);
   check(at.index === k && at.t === tSlots[k].span, `${tSlots[k].state}, which does not hold, rests at the end of its cue and waits`);
   await torture.close();
+
+  // The frame meter (gate 2, criterion 1): with ?fps, a cue played says how its frames went.
+  const metered = await open(`${url("/tests/fixtures/torture.scaena")}&fps`);
+  check(!(await metered.locator("#meter").isHidden()), "with ?fps the player shows its frame meter");
+  await metered.evaluate((k) => window.scaena.run(k, 0), k);
+  await until(metered, (k) => window.scaena.at().index === k && !window.scaena.at().playing, "a cue played with the meter", k, 10000);
+  const reading = await metered.locator("#meter").textContent();
+  const [, fps, frames] = /^([\d.]+) fps · worst \d+ ms · \d+ late of (\d+) · paint [\d.]+ ms$/.exec(reading) ?? [];
+  check(Number(fps) > 0 && Number(frames) > 1, `and reads the cue's frames: ${reading}`);
+  await metered.close();
+  const plain = await open(url(revenue));
+  check(await plain.locator("#meter").isHidden(), "without it, there is no meter");
+  await plain.close();
 } catch (e) {
   failures.push(String(e));
 } finally {

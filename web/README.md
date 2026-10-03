@@ -43,6 +43,8 @@ With less motion asked for (`prefers-reduced-motion`, or `?motion=reduce`), each
 
 A focused button or link keeps Enter and Space, and the scrubber and the pickers keep every key; the deck's keys work everywhere else, so → goes on after a click on ▶. The scrubber says which state it is at.
 
+`?fps` shows a frame meter beside the status, for gate 2's first criterion: while the deck plays, its frames a second over the run so far, its worst frame, how many frames came more than 25 ms after the one before (late for a 60 Hz display), and the mean paint. The worker times each frame of a run by the display's clock. `docs/gate-2.md` says how to read it on a real machine.
+
 The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest, and a clock, and its ◀ ▶ and keys steer the player. The two talk on a `BroadcastChannel` named for the deck.
 
 ## Edit with it
@@ -134,7 +136,7 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
   A place in the deck is a state and a time into its cue, never a place on the global timeline: states with no transition and no hold all stand at one instant, as 23 of the torture deck's do at 0 ms. Each request names a format, one of the deck's `formats`, or none for the deck's own canvas.
 - `serve.mjs` serves the repository (or a directory, at a path), launches headless Chromium, and shows and screenshots the golden frames (`shoot`) for the checks:
   - `smoke.mjs` opens the built player with each painter, shows every frame the golden rasters hold, and saves its screenshots under `target/web-smoke/`. The parity harness (`crates/scaena-paint/tests/parity.rs`) holds them to the goldens within SPEC §13.5.
-  - `player.mjs` drives the controls and the presenter view on the CPU painter. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames.
+  - `player.mjs` drives the controls and the presenter view on the CPU painter. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames. With `?fps`, the meter reads a played cue's frames; without it, there is none.
   - `editor.mjs` types into the editor on the revenue example: an overflow, its fix, a source that does not compile, the cursor leading the preview and the inspector. Then it times an edit's round trip on B1, which gate 2 holds under 200 ms, and the lint of every state that follows.
   - `storage.mjs` saves the revenue example into the browser's storage and reloads it, plays it from there, drops an image into it, downloads it with its fonts subset and opens the download, and saves a folder in place.
   - `history.mjs` opens the revenue example saved by `scaena save --history`. The user types, the assistant (a scripted Anthropic server) renames the title, and the user types again. The save into the browser's storage loads the history's module, as nothing before it did. After the history's first change, it records the user's edit, the assistant's patch by `agent:scripted`, and the save, each stamped when it was made. Copied out to disk, `scaena save` finds nothing to take in by `fs`, and a download's history is the one kept with the save that subset its fonts. A bundle that keeps no history saves without the module.

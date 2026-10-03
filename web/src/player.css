@@ -8,6 +8,7 @@ button, select { font: inherit; }
 .bar input[type="range"] { flex: 1; min-width: 80px; }
 .bar a { color: inherit; }
 #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#meter { white-space: nowrap; font-variant-numeric: tabular-nums; opacity: 0.8; }
 /* Fullscreen is the slide alone. */
 :fullscreen .bar { display: none; }
 :fullscreen #stage { max-height: 100vh; }

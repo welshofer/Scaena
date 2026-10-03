@@ -168,6 +168,9 @@ export interface At {
   global: number;
   /** Whether the clock runs. */
   playing: boolean;
+  /** While the clock runs, how this frame went: its paint, and the time since the run's frame
+   * before it (none on a run's first frame), ms. What the player's frame meter reads. */
+  frame?: { paint: number; interval?: number };
 }
 
 /** Where in the source something is: UTF-16 offsets, as a JavaScript string counts them,
