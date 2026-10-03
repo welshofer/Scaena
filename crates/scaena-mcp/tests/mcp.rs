@@ -11,6 +11,7 @@ use rmcp::service::RunningService;
 use rmcp::{ClientLifecycleMode, ClientServiceExt, RoleClient, ServiceExt};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const EXAMPLES: &str = "../../docs/examples";
 
@@ -34,9 +35,14 @@ async fn connect_as(name: Option<&str>) -> Client {
 /// handshake, or protocol 2026-07-28's discovery, after which it names itself and its
 /// protocol on every request.
 async fn connect_with(config: ClientConfig, lifecycle: ClientLifecycleMode) -> Client {
+    serve(scaena_mcp::Scaena::default(), config, lifecycle).await
+}
+
+/// `server`, and a client of it.
+async fn serve(server: scaena_mcp::Scaena, config: ClientConfig, lifecycle: ClientLifecycleMode) -> Client {
     let (server_io, client_io) = tokio::io::duplex(1 << 22);
     tokio::spawn(async move {
-        let server = scaena_mcp::Scaena::default().serve(server_io).await.unwrap();
+        let server = server.serve(server_io).await.unwrap();
         server.waiting().await.unwrap();
     });
     config.serve_with_lifecycle(client_io, lifecycle).await.unwrap()
@@ -236,6 +242,46 @@ async fn a_tool_that_stops_says_why() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
         }
     }
+    client.cancel().await.unwrap();
+}
+
+/// An export that outlives the client's wait keeps going (SPEC §7.2): the call answers
+/// that it is running and how far it has got, the same call again waits for the rest, and
+/// a different export of the same file is refused until it is done.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
+    // A server that waits for nothing, so every export outlives its first call.
+    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO);
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let dir = scratch("long-export").join("images");
+    let (images, deck) = (path(&dir), path(&Path::new(EXAMPLES).join("revenue.deck.json")));
+    let png = json!({ "bundle": deck, "format": "png", "out": images });
+    let first = ok(&client, "deck_export", png.clone()).await;
+    let running = &first["running"];
+    assert_eq!((first["out"].as_str(), running["unit"].as_str()), (Some(images.as_str()), Some("images")), "{first:#}");
+    assert!(running["of"].as_u64().is_some_and(|of| of > 0) && running["next"].is_string(), "{first:#}");
+    assert!(first.get("files").is_none(), "nothing else is said until it is done: {first:#}");
+    // Another export of the same file waits its turn.
+    let refused = call(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is running"), "{}", text(&refused));
+    // Asked again, it says how it is going until it is done, then gives what it wrote.
+    let mut done = None;
+    for _ in 0..2400 {
+        let again = ok(&client, "deck_export", png.clone()).await;
+        if again.get("running").is_none() {
+            done = Some(again);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let done = done.expect("the export finishes");
+    let files = done["files"].as_array().expect("the images it wrote");
+    assert_eq!(Some(files.len()), done["pages"].as_array().map(Vec::len));
+    assert_eq!(dir.read_dir().unwrap().count(), files.len());
+    // Handed back, it is done with: the next export of the file starts afresh.
+    let svg = ok(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
+    assert!(svg["running"]["of"].as_u64().is_some_and(|of| of as usize == files.len()), "{svg:#}");
     client.cancel().await.unwrap();
 }
 

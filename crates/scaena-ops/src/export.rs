@@ -21,6 +21,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// What to export, and where.
 #[derive(Debug, Clone, Default)]
@@ -85,6 +86,23 @@ pub struct Exported {
     /// The bytes written: the document, the video, or every image together.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
+    /// An export the MCP server is still running when it stops waiting for it, and how
+    /// far it has got (SPEC §7.2). Nothing else is said until it is done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub running: Option<Running>,
+}
+
+/// How far an export that is still going has got (SPEC §7.2).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Running {
+    /// `done` of `of`, counting `unit`: frames, pages, images, or beats.
+    pub done: u64,
+    pub of: u64,
+    pub unit: String,
+    /// How long it has run, ms.
+    pub elapsed_ms: u64,
+    /// What to do next.
+    pub next: String,
 }
 
 /// A state's part of a video, ms: its cue (`span`, its transition and motions), then its
@@ -98,8 +116,48 @@ pub struct Played {
     pub hold: f64,
 }
 
+/// How far an export has got: `done` of `of` frames of a video, pages of a PDF, images
+/// of png and svg, or beats of the spine. Shared with whoever waits for the export: the
+/// MCP server tells a client that stopped waiting how it is going (SPEC §7.2).
+#[derive(Debug, Default)]
+pub struct Progress {
+    done: AtomicU64,
+    of: AtomicU64,
+}
+
+impl Progress {
+    /// `(done, of)`.
+    pub fn get(&self) -> (u64, u64) {
+        (self.done.load(Ordering::Relaxed), self.of.load(Ordering::Relaxed))
+    }
+
+    fn start(&self, of: usize) {
+        self.done.store(0, Ordering::Relaxed);
+        self.of.store(of as u64, Ordering::Relaxed);
+    }
+
+    fn step(&self) {
+        self.done.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// What a format's progress counts.
+pub fn unit(format: &str) -> &'static str {
+    match format.parse::<Format>() {
+        Ok(Format::Mp4 | Format::Webm | Format::Prores) => "frames",
+        Ok(Format::Pdf) => "pages",
+        Ok(Format::Spine) => "beats",
+        _ => "images",
+    }
+}
+
 /// The bundle's deck exported as `req` asks, written to `req.out`.
 pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
+    export_watched(b, req, &Progress::default())
+}
+
+/// [`export`], saying how far it has got in `progress` as it goes.
+pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<Exported, OpsError> {
     let format: Format = req.format.parse().map_err(OpsError::new)?;
     let states = req.states.as_deref();
     let video = match format {
@@ -126,13 +184,13 @@ pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
             Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
         }
         Format::Spine => {
-            let mut exported = spine(b, out, req.size.as_deref())?;
+            let mut exported = spine(b, out, req.size.as_deref(), progress)?;
             exported.out = shown;
             Ok(exported)
         }
         Format::Pdf => {
             let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
-            let (bytes, pages) = pdf_document(b, states, PdfSettings::default().shader_scale)?;
+            let (bytes, pages) = document(b, states, PdfSettings::default().shader_scale, progress)?;
             write(out, &bytes)?;
             Ok(Exported {
                 format: format_name,
@@ -146,7 +204,7 @@ pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
             let out = out.ok_or_else(|| {
                 OpsError::new(format!("`export --format {format_name}` writes an image per state: give it --out DIR"))
             })?;
-            let mut exported = images(b, format, states, out, req.size.as_deref())?;
+            let mut exported = images(b, format, states, out, req.size.as_deref(), progress)?;
             exported.out = shown;
             Ok(exported)
         }
@@ -155,8 +213,7 @@ pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
             let out = out.ok_or_else(|| {
                 OpsError::new(format!("`export --format {format_name}` writes a video: give it --out FILE"))
             })?;
-            let fps = req.fps.unwrap_or(60);
-            let mut exported = export_video(b, codec, states, out, req.size.as_deref(), fps, req.audio.as_deref())?;
+            let mut exported = export_video(b, codec, req, out, progress)?;
             exported.out = shown;
             Ok(exported)
         }
@@ -189,7 +246,7 @@ pub const THUMBNAIL_WIDTH: f32 = 480.0;
 /// takes each beat's renders, in `renders/` beside it: the state that shows the beat at
 /// rest as a thumbnail (`<beat>.png`, `size` or [`THUMBNAIL_WIDTH`] wide), and in each of
 /// the deck's other formats at that format's canvas size (`<beat>@9x16.png`).
-fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>) -> Result<Exported, OpsError> {
+fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>, progress: &Progress) -> Result<Exported, OpsError> {
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
@@ -224,6 +281,7 @@ fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>) -> Result<Exported,
         Ok::<String, OpsError>(name)
     };
     let mut pixels = None;
+    progress.start(projection.beats.values().filter(|entry| entry.state.is_some()).count());
     for (beat, entry) in &mut projection.beats {
         let Some(state) = entry.state.clone() else { continue };
         let list = at_rest(&mut engine, b, &theme, &data, &state)?;
@@ -242,6 +300,7 @@ fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>) -> Result<Exported,
             let name = format!("renders/{beat}@{}.png", format.replace(':', "x"));
             entry.formats.insert(format.clone(), draw(&list, 1.0, name)?);
         }
+        progress.step();
     }
     let text = serde_json::to_string_pretty(&projection)? + "\n";
     write(out, text.as_bytes())?;
@@ -313,13 +372,24 @@ pub fn pdf_document(
     states: Option<&[String]>,
     shader_scale: f32,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
+    document(b, states, shader_scale, &Progress::default())
+}
+
+fn document(
+    b: &Bundle,
+    states: Option<&[String]>,
+    shader_scale: f32,
+    progress: &Progress,
+) -> Result<(Vec<u8>, Vec<String>), OpsError> {
     let pages = pdf_pages(&b.deck, states)?;
+    progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
     let mut drawn = Vec::with_capacity(pages.len());
     for state in &pages {
         drawn.push(Page { state: state.clone(), list: at_rest(&mut engine, b, &theme, &data, state)? });
+        progress.step();
     }
     let bytes =
         pdf(&b.deck, &drawn, &assets, &PdfSettings { shader_scale }).map_err(|e| OpsError::new(e.to_string()))?;
@@ -334,8 +404,10 @@ fn images(
     states: Option<&[String]>,
     dir: &Path,
     size: Option<&str>,
+    progress: &Progress,
 ) -> Result<Exported, OpsError> {
     let pages = named(&b.deck, states)?;
+    progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
@@ -370,6 +442,7 @@ fn images(
         write(&file, &bytes)?;
         total += bytes.len() as u64;
         files.push(file.display().to_string());
+        progress.step();
     }
     Ok(Exported {
         format: ext.into(),
@@ -490,12 +563,12 @@ impl Reel {
 fn export_video(
     b: &Bundle,
     codec: Codec,
-    states: Option<&[String]>,
+    req: &Request,
     out: &Path,
-    size: Option<&str>,
-    fps: u32,
-    audio: Option<&Path>,
+    progress: &Progress,
 ) -> Result<Exported, OpsError> {
+    let (states, size, audio) = (req.states.as_deref(), req.size.as_deref(), req.audio.as_deref());
+    let fps = req.fps.unwrap_or(60);
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
     let (mut engine, assets) = engine(b, &theme)?;
@@ -515,6 +588,7 @@ fn export_video(
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.
+    progress.start(reel.frames as usize);
     let mut k = 0;
     let mut cue: Option<(usize, scaena_engine::sample::Transition)> = None;
     let next = || {
@@ -523,6 +597,7 @@ fn export_video(
         }
         let (at, ms) = reel.at(k);
         k += 1;
+        progress.step();
         if cue.as_ref().is_none_or(|(i, _)| *i != at) {
             match engine.transition(&b.deck, &theme, &data, &reel.plays[at].state) {
                 Ok(t) => cue = Some((at, t)),

@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "format"],
@@ -207,6 +207,22 @@
           "end": { "description": "Where it ends, ms: where the next starts, or the video ends.", "type": "number" }
         },
         "required": ["title", "start", "end"]
+      },
+      "Running": {
+        "description": "How far an export that is still going has got (SPEC §7.2).",
+        "type": "object",
+        "properties": {
+          "done": {
+            "description": "`done` of `of`, counting `unit`: frames, pages, images, or beats.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "of": { "type": "integer", "minimum": 0 },
+          "unit": { "type": "string" },
+          "elapsed_ms": { "description": "How long it has run, ms.", "type": "integer", "minimum": 0 },
+          "next": { "description": "What to do next.", "type": "string" }
+        },
+        "required": ["done", "of", "unit", "elapsed_ms", "next"]
       }
     },
     "required": ["format"],
@@ -255,6 +271,10 @@
         "description": "The bytes written: the document, the video, or every image together.",
         "type": ["integer", "null"],
         "minimum": 0
+      },
+      "running": {
+        "description": "An export the MCP server is still running when it stops waiting for it, and how\nfar it has got (SPEC §7.2). Nothing else is said until it is done.",
+        "anyOf": [{ "$ref": "#/$defs/Running" }, { "type": "null" }]
       }
     }
   }

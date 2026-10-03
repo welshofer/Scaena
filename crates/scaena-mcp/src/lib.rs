@@ -24,17 +24,26 @@ use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use scaena_core::Finding;
 use scaena_ops::OpsError;
-use scaena_ops::export::Exported;
+use scaena_ops::export::{Exported, Progress, Running};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
     tool_router: ToolRouter<Self>,
+    /// The exports this server is running, or has run and not yet handed back, by the
+    /// file each writes (SPEC §7.2).
+    exports: Arc<Mutex<HashMap<PathBuf, Export>>>,
+    /// How long `deck_export` waits for an export before it answers that it is running.
+    wait: Duration,
 }
 
 impl Default for Scaena {
@@ -44,8 +53,59 @@ impl Default for Scaena {
             route.attr.input_schema = standard(&route.attr.input_schema);
             route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
         }
-        Scaena { tool_router }
+        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT }
     }
+}
+
+impl Scaena {
+    /// The same server, its exports answering after `wait` at most.
+    pub fn with_export_wait(mut self, wait: Duration) -> Self {
+        self.wait = wait;
+        self
+    }
+}
+
+/// How long `deck_export` waits for an export before it answers that the export is still
+/// running: under the minute a client commonly gives a tool call (Claude Code's limit, and
+/// the TypeScript SDK's default), with room to answer.
+pub const EXPORT_WAIT: Duration = Duration::from_secs(40);
+
+/// An export the server runs beyond the call that asked for it.
+#[derive(Debug)]
+struct Export {
+    /// What was asked: the arguments, and the deck and theme they were asked of.
+    asked: u64,
+    format: String,
+    out: String,
+    started: Instant,
+    progress: Arc<Progress>,
+    /// What it wrote, or why it stopped, once it is done.
+    done: watch::Receiver<Option<Result<Exported, String>>>,
+}
+
+impl Export {
+    /// How far it has got, and what to do while it runs.
+    fn running(&self) -> Running {
+        let (done, of) = self.progress.get();
+        Running {
+            done,
+            of,
+            unit: scaena_ops::export::unit(&self.format).into(),
+            elapsed_ms: self.started.elapsed().as_millis() as u64,
+            next: "It is still being written. Call deck_export again with the same arguments to wait for the rest; \
+                   it then returns what it wrote."
+                .into(),
+        }
+    }
+}
+
+/// What a call to `deck_export` asks: its arguments, and the deck and theme it reads.
+fn asked(a: &DeckExport, b: &scaena_ops::Bundle) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio).hash(&mut hasher);
+    serde_json::to_string(&b.deck).unwrap_or_default().hash(&mut hasher);
+    b.theme_json.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The formats JSON Schema defines (2020-12, §7.3).
@@ -136,6 +196,26 @@ fn failure(e: OpsError) -> String {
 }
 
 /// `f`, off the async runtime: the operations lay out and paint, and block.
+/// Starts the export `req` of `b` on a thread of its own, which runs to the end whoever is
+/// still waiting for it.
+fn start(b: scaena_ops::Bundle, req: scaena_ops::export::Request, a: &DeckExport, asked: u64) -> Export {
+    let progress = Arc::new(Progress::default());
+    let (tell, done) = watch::channel(None);
+    let watched = progress.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = scaena_ops::export::export_watched(&b, &req, &watched).map_err(failure);
+        let _ = tell.send(Some(result));
+    });
+    Export {
+        asked,
+        format: a.format.clone(),
+        out: a.out.clone().unwrap_or_default(),
+        started: Instant::now(),
+        progress,
+        done,
+    }
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, OpsError> + Send + 'static) -> Result<T, String> {
     match tokio::task::spawn_blocking(f).await {
         Ok(result) => result.map_err(failure),
@@ -504,21 +584,65 @@ impl Scaena {
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
         each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
-        the PLAN task that builds it.")]
+        the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns \
+        `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
-        blocking(move || {
-            let req = scaena_ops::export::Request {
-                format: a.format,
-                states: a.states,
-                out: a.out.map(Into::into),
-                size: a.size,
-                fps: a.fps,
-                audio: a.audio.map(Into::into),
-            };
-            scaena_ops::export::export(&open(&a.bundle)?, &req)
-        })
-        .await
-        .map(Json)
+        let req = scaena_ops::export::Request {
+            format: a.format.clone(),
+            states: a.states.clone(),
+            out: a.out.clone().map(Into::into),
+            size: a.size.clone(),
+            fps: a.fps,
+            audio: a.audio.clone().map(Into::into),
+        };
+        let bundle = a.bundle.clone();
+        let b = blocking(move || open(&bundle)).await?;
+        // The spine without `out` comes back in the result: there is nothing to wait for.
+        let Some(out) = req.out.clone() else {
+            return blocking(move || scaena_ops::export::export(&b, &req)).await.map(Json);
+        };
+        let file = std::path::absolute(&out).unwrap_or(out);
+        let asked = asked(&a, &b);
+        let mut done = {
+            let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+            match exports.get(&file) {
+                // Asked again: wait for it.
+                Some(export) if export.asked == asked => export.done.clone(),
+                Some(export) if export.done.borrow().is_none() => {
+                    let Running { done, of, unit, elapsed_ms, .. } = export.running();
+                    return Err(failure(OpsError::new(format!(
+                        "an export to {} is running, asked with other arguments or of another version of the deck: \
+                         {done} of {of} {unit} after {} s. Export to another file, or again when it is done.",
+                        export.out,
+                        elapsed_ms / 1000
+                    ))));
+                }
+                // Not running, or done and never handed back: start it.
+                _ => {
+                    let export = start(b, req, &a, asked);
+                    let done = export.done.clone();
+                    exports.insert(file.clone(), export);
+                    done
+                }
+            }
+        };
+        let waited =
+            tokio::time::timeout(self.wait, done.wait_for(Option::is_some)).await.map(|r| r.map(|d| d.clone()));
+        let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+        match waited {
+            Ok(Ok(Some(result))) => {
+                // Handed back: the next call for this file starts again.
+                if exports.get(&file).is_some_and(|e| e.asked == asked) {
+                    exports.remove(&file);
+                }
+                result.map(Json)
+            }
+            Ok(_) => Err(failure(OpsError::new("the export stopped before it was done"))),
+            Err(_) => {
+                let running = exports.get(&file).map(Export::running);
+                Ok(Json(Exported { format: a.format, out: a.out, running, ..Exported::default() }))
+            }
+        }
     }
 
     #[tool(
