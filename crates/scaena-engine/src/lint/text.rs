@@ -402,7 +402,8 @@ impl Rule for W220MixedAlignment {
     }
 }
 
-/// W310: chart value labels that overlap, which `labels.collide` does not resolve.
+/// W310: chart value labels that overlap, which `labels.collide` does not resolve; and
+/// category labels that overlap, on an axis of text, which keeps every one.
 pub struct W310LabelCollision;
 impl Rule for W310LabelCollision {
     fn code(&self) -> &'static str {
@@ -428,6 +429,20 @@ impl Rule for W310LabelCollision {
                         .node(node.id.clone())
                         .measure(json!({ "marks": [a, b] }))
                         .hint("Set `labels.collide` to `hide` or `nudge`, show fewer labels (`labels.show`), or give the chart more room."),
+                    );
+                }
+                for (a, b) in &chart.crowded {
+                    out.push(
+                        cx.finding(
+                            self.code(),
+                            self.severity(),
+                            state,
+                            format!("chart `{}`: the category labels `{a}` and `{b}` overlap", node.id),
+                        )
+                        .at(format!("{}/x", cx.node_path(&node.id)))
+                        .node(node.id.clone())
+                        .measure(json!({ "categories": [a, b] }))
+                        .hint("Give the chart more width, or shorter categories."),
                     );
                 }
             }
