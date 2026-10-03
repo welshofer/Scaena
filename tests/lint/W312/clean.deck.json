@@ -1,0 +1,14 @@
+{
+  "scaena": "0.9",
+  "_comment": "W312 clean: the same chart in the theme's chart role, 24 cu.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": {"inline": [{"q": "Q1", "v": 10}, {"q": "Q2", "v": 12}, {"q": "Q3", "v": 15}]}, "schema": {"v": "number"}}},
+  "nodes": {
+    "c": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "q"}, "y": {"field": "v"}, "labels": {"show": "all"}, "alt": "Sales rise each quarter.", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"c": {}}}
+  ]
+}

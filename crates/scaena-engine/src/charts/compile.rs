@@ -1035,12 +1035,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 .collect();
             // A value stands outside its slice's middle, on its side of the ring: its
             // start there on the right, its end on the left, its middle at the top and
-            // foot, the middle of its cap height level with the point.
+            // foot, the middle of its cap height level with the point. The point is `gap`
+            // past the ring, and half the cap height more toward the top and the foot, so
+            // the value clears the ring all round.
             let side = |sin: f32| match sin {
                 s if s > 0.05 => 0.0,
                 s if s < -0.05 => 1.0,
                 _ => 0.5,
             };
+            let offset = |cos: f32, text: &TextLayout| gap + cos.abs() * 0.5 * cap(text);
             // The ring is as large as the plot, less the room its values need: the
             // largest radius at which each stays inside the plot, on every side.
             let mut outer = 0.5 * (right - left).min(bottom - top);
@@ -1065,7 +1068,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 if cos < 0.0 {
                     reach = reach.min((bottom - cy - down) / -cos);
                 }
-                outer = outer.min(reach - gap);
+                outer = outer.min(reach - offset(cos, text));
             }
             let outer = outer.max(1.0);
             for ((r, value), &(start, end)) in rows.iter().zip(values).zip(&turns) {
@@ -1073,7 +1076,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 if let Some(text) = value {
                     let mid = 0.5 * (start + end) * core::f32::consts::TAU;
                     let align = side(libm::sinf(mid));
-                    let value = ValueLabel { value: r.y, below: false, offset: gap, align, drop: 0.5 * cap(&text) };
+                    let offset = offset(libm::cosf(mid), &text);
+                    let value = ValueLabel { value: r.y, below: false, offset, align, drop: 0.5 * cap(&text) };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
                     out.labels.push(Label::new(r.key.clone(), origin, text, Some(value)));
@@ -1150,6 +1154,37 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // Value labels that overlap: hidden or nudged apart as `labels.collide` says, else
     // reported (W310); values the chart did not ask for hide.
     let apart = 0.25 * gap;
+    // A grouped bar's value label wider than its bar, centered on it, can lie over a
+    // taller bar beside it: it moves to start where its bar starts, or to end where its
+    // bar ends, whichever clears every other bar inside the plot, and stays centered if
+    // neither does.
+    if kind == Kind::Bar && series.len() > 1 {
+        let bars: Vec<(&str, [f32; 4])> = (out.marks.iter())
+            .filter_map(|m| match m.shape {
+                Shape::Bar(r) => Some((m.key.as_str(), [r.x, r.top(), r.x + r.w, r.bottom()])),
+                _ => None,
+            })
+            .collect();
+        for label in &mut out.labels {
+            let Some(&(_, own)) = bars.iter().find(|(k, _)| *k == label.key) else { continue };
+            let at = |x0: f32| {
+                let [a, top, b, bottom] = ink(label);
+                [x0, top, x0 + b - a, bottom]
+            };
+            let hits = |x0: f32| bars.iter().any(|&(k, b)| k != label.key && near(at(x0), b, apart));
+            if !hits(label.origin[0]) {
+                continue;
+            }
+            let width = label.text.width;
+            let clear = [own[0], own[2] - width].into_iter().find(|&x0| x0 >= left && x0 + width <= right && !hits(x0));
+            if let Some(x0) = clear {
+                label.origin[0] = x0;
+                if let Some(value) = &mut label.value {
+                    value.align = (0.5 * (own[0] + own[2]) - x0) / width.max(f32::EPSILON);
+                }
+            }
+        }
+    }
     match labels.and_then(|l| l.get("collide")).and_then(Value::as_str) {
         None if !chosen => hide(&mut out.labels, apart),
         None => out.collisions = collisions(&out.labels, apart),
@@ -1229,12 +1264,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         // Where its text goes: its top-left corner.
         let origin: Option<[f32; 2]> = match note.kind {
             AnnotationKind::Rule => match (&note.at.x, &note.at.y) {
-                // Across the plot, its text over the rule at the plot's start.
+                // Across the plot, its text over the rule at the plot's start, its
+                // descenders clear of it.
                 (_, Some(p)) => {
                     let y = to_y(first_y(p));
                     out_note.rule =
                         Some(Rule { from: [left, y], to: [right, y], width: note_width, color: rule_color });
-                    text.as_ref().map(|t| [left, y - 0.5 * gap - t.lines[0].baseline])
+                    text.as_ref().map(|t| [left, y - 0.5 * gap - t.lines[0].descent - t.lines[0].baseline])
                 }
                 // Up the plot, its text beside the rule's top, after it unless it would
                 // pass the plot's end.
@@ -1344,7 +1380,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     let first = &t.lines[0];
                     match below {
                         true => [x0, clear + 3.0 * gap - (first.baseline - cap(t))],
-                        false => [x0, clear - 3.0 * gap - first.baseline],
+                        // Its descenders clear of the leader's end.
+                        false => [x0, clear - 3.0 * gap - first.descent - first.baseline],
                     }
                 })
             }

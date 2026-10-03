@@ -230,6 +230,19 @@
         "numeric": "tabular-lining",
         "color": "onSurfaceMuted"
       },
+      "chart": {
+        "family": "body",
+        "size": 24,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0.02,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
       "numeral": {
         "family": "display",
         "size": 112,
@@ -623,7 +636,7 @@
   },
   "charts": {
     "axis": {
-      "role": "label",
+      "role": "chart",
       "stroke": "hairline",
       "color": "line"
     },
@@ -633,7 +646,7 @@
       "opacity": 0.6
     },
     "label": {
-      "role": "label"
+      "role": "chart"
     },
     "strokeWidth": "thin",
     "cornerRadius": 2,

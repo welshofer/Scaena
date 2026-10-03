@@ -674,6 +674,49 @@ pub struct ChartLayout {
     pub notes: Vec<Note>,
 }
 
+/// What a chart's text is for (lint names it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChartText {
+    /// A category label under the plot.
+    Tick,
+    /// A value label on its mark.
+    Value,
+    /// An annotation's text.
+    Note,
+    /// A value-axis label.
+    Axis,
+    /// An axis title, or the legend's.
+    Title,
+    /// A legend entry, or a series named where it ends.
+    Legend,
+}
+
+impl ChartText {
+    pub fn name(self) -> &'static str {
+        match self {
+            ChartText::Tick => "category label",
+            ChartText::Value => "value label",
+            ChartText::Note => "annotation",
+            ChartText::Axis => "axis label",
+            ChartText::Title => "title",
+            ChartText::Legend => "series name",
+        }
+    }
+}
+
+impl ChartLayout {
+    /// Every text the chart sets, with what it is for, in the order it paints them.
+    pub fn texts(&self) -> impl Iterator<Item = (ChartText, &Label)> {
+        let ticks = self.ticks.iter().map(|l| (ChartText::Tick, l));
+        let values = self.labels.iter().map(|l| (ChartText::Value, l));
+        let notes = self.notes.iter().filter_map(|n| Some((ChartText::Note, n.label.as_ref()?)));
+        let axis = self.y_axis.iter().filter_map(|t| Some((ChartText::Axis, t.label.as_ref()?)));
+        let titles = self.titles.iter().map(|l| (ChartText::Title, l));
+        let legend = self.legend.iter().map(|e| (ChartText::Legend, &e.label));
+        ticks.chain(values).chain(notes).chain(axis).chain(titles).chain(legend)
+    }
+}
+
 /// A legend entry: a swatch in the series' color beside its name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LegendEntry {
