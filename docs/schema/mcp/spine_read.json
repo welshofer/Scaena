@@ -49,12 +49,7 @@
           },
           "states": { "$ref": "#/$defs/IdList" },
           "notes": { "description": "Speaker notes.", "type": ["string", "null"] },
-          "duration": {
-            "description": "Estimated seconds.",
-            "type": ["number", "null"],
-            "format": "double",
-            "minimum": 0
-          },
+          "duration": { "description": "Estimated seconds.", "type": ["number", "null"], "minimum": 0 },
           "media": {
             "description": "Projection hints (infographic priority, podcast script, …).",
             "type": ["object", "null"],
@@ -77,20 +72,14 @@
           "id": { "type": "string" },
           "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
           "notes": { "type": ["string", "null"] },
-          "hold": {
-            "description": "Its dwell at rest, ms, as the deck gives it.",
-            "type": ["number", "null"],
-            "format": "double"
-          },
+          "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": ["number", "null"] },
           "start": {
             "description": "When its transition starts on the global timeline, ms. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "span": {
             "description": "Its cue, ms: its transition and motions. Its hold follows. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           }
         },
         "additionalProperties": false,
@@ -107,13 +96,11 @@
           },
           "start": {
             "description": "When it starts on the global timeline, ms: where its first state starts. Given the\ntimeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "end": {
             "description": "When it ends, ms: where its last state's hold ends. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "thumbnail": {
             "description": "`state` at rest, small, in the deck's own format: a path relative to the\nprojection's file. Once drawn.",
@@ -138,7 +125,7 @@
       "canvas": {
         "description": "The deck's canvas, in canvas units: width and height.",
         "type": "array",
-        "items": { "type": "number", "format": "double" },
+        "items": { "type": "number" },
         "minItems": 2,
         "maxItems": 2
       },

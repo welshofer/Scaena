@@ -23,7 +23,6 @@
       "t": {
         "description": "Ms into the state's cue (its transition, then its motions); at rest without it.",
         "type": ["number", "null"],
-        "format": "double",
         "default": null
       },
       "format": {

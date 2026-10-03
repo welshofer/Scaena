@@ -887,8 +887,9 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 - **Failures.** A tool that stops returns an error result (`isError`), not a protocol error, so the agent reads why. Its text is `{ "message", "plan"?, "op"? }`: what stopped it, the PLAN task that builds what it needs, and the index of a patch's op that does not apply.
 - **Renders.** `deck_render` returns image content so the agent sees what it made. The text carries the display list's digest (FNV-1a over its postcard bytes, as `tests/golden/torture/raw.fnv1a` holds them): one digest, one drawing.
 - **Paths** are on the machine the server runs on, relative to its working directory. A bundle is a directory, a `.scaena` zip, or a `deck.json`. The server runs where the agent does and assumes no other (ADR-0006).
-- **History.** A tool that writes a bundle that keeps history (§8) records the change as `agent:<name>`, by the name the client gives when it connects.
-- **Schemas.** Each tool's input and output schemas are generated from the Rust types (`schemars`) and committed in `docs/schema/mcp/<tool>.json`. A test fails when they are not what the server lists, and `just bless` regenerates them.
+- **Protocol.** MCP from 2024-11-05 to 2026-07-28, and the server names itself `scaena` at its version. A client reaches 2026-07-28 by `server/discover`, then names itself and its protocol in every request's `_meta`, as Claude Code does. A client that shakes hands (`initialize`) settles on 2025-11-25 at most.
+- **History.** A tool that writes a bundle that keeps history (§8) records the change as `agent:<name>`, by the name the client gives: in the request, or in its handshake.
+- **Schemas.** Each tool's input and output schemas are generated from the Rust types (`schemars`) and committed in `docs/schema/mcp/<tool>.json`. A test fails when they are not what the server lists, and `just bless` regenerates them. They keep only the formats JSON Schema defines: the widths `schemars` gives numbers (`uint32`, `double`) are dropped, since a client's validator warns of formats it does not know, and the type and its `minimum` already say what the width meant.
   - Two inputs are typed loosely, as objects: a patch's ops and `deck_create`'s `deck`. Each points at the resource that types it. Inlined, `scaena://schema/patch` alone would add 73 KB to every `tools/list`.
   - The server checks every op as `patch` does, and names the one that fails.
 
@@ -899,7 +900,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 - `scaena://skills/<name>`: the five skills (§7.6);
 - `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme; and `trails.deck.json`, fifteen slides that use most of what a deck can hold.
 
-They are compiled into the binary, so they describe the format it reads.
+They are compiled into the binary, so they describe the format it reads, the same for everyone. From 2026-07-28 a client rejects a list or read result that does not say how long it may keep it (SEP-2549), so `resources/list` and `resources/read` say `ttlMs` 3,600,000 (an hour) and `cacheScope` `public`. A client on an earlier protocol gets results without them.
 
 ### 7.3 Patch semantics
 
