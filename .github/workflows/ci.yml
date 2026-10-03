@@ -1,9 +1,10 @@
 name: ci
-# A draft pull request gets the fast checks on each push: Linux, the WASM build in Chromium, and the
-# schemas. Marked ready for review, and on `main`, a release tag, or a manual run, it gets macOS too
-# (Metal, NEON against the x86-64 goldens). A draft cannot merge, so nothing reaches `main` without
-# both runners. A pull request that changes only prose skips the Rust and WASM jobs; the schemas,
-# which also read the examples, always run.
+# Every push gets the fast checks: Linux, the WASM build in Chromium, and the schemas. macOS (Metal,
+# NEON against the x86-64 goldens) bills ten Linux minutes for each of its own, so it runs only where
+# it decides something: a pull request ready for review (a draft cannot merge, so nothing reaches
+# `main` without it), a release tag, a manual run, and once a week on `main`, which catches what the
+# merges did between. A pull request that changes only prose skips the Rust and WASM jobs; the
+# schemas, which also read the examples, always run.
 on:
   push:
     branches: [main]
@@ -11,6 +12,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * 1"
 concurrency:
   # A new push to a pull request supersedes its run; each push to `main` is checked in full.
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -31,7 +34,10 @@ jobs:
       # against the skills), the skills, the examples, and anything under crates/ or tests/.
       - id: diff
         env:
-          DRAFT: ${{ github.event.pull_request.draft }}
+          MACOS: >-
+            ${{ (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+            || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+            || github.event_name == 'schedule' }}
         run: |
           code=true
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
@@ -44,7 +50,7 @@ jobs:
               esac
             done
           fi
-          if [ "$DRAFT" = true ]; then os='["ubuntu-latest"]'; else os='["ubuntu-latest","macos-latest"]'; fi
+          if [ "$MACOS" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "os=$os" >> "$GITHUB_OUTPUT"
           echo "Code changed: $code; runners: $os" | tee -a "$GITHUB_STEP_SUMMARY"
