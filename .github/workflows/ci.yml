@@ -112,3 +112,5 @@ jobs:
       - run: python3 scripts/build_bundle_fonts.py --check
       # B2 and B3 are what their generator writes (PLAN 1.24).
       - run: python3 scripts/build_bench_decks.py --check
+      # The bench gate judges a pull request beside its base (PLAN 1.24).
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"
