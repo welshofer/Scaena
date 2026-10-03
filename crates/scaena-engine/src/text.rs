@@ -272,6 +272,9 @@ pub struct TextLayout {
     /// Where its lines break: the box's width, or its `measure` if that is narrower. A
     /// line wider than this holds a word that cannot break (lint W201).
     pub measure: f32,
+    /// The weight its look sets it in, before any span's own: what makes it bold text
+    /// for contrast (lint E110, E111).
+    pub weight: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -557,6 +560,7 @@ impl TextEngine {
             words,
             widow,
             line_grid: spec.line_grid,
+            weight: spec.role.weight,
         };
         read_layout(&layout, text, fonts, &hyphens, paragraph)
     }
@@ -1269,6 +1273,8 @@ struct Paragraph {
     widow: bool,
     /// The baseline grid's pitch its lines are spaced on, if they are.
     line_grid: Option<f32>,
+    /// Its look's weight.
+    weight: f32,
 }
 
 impl Paragraph {
@@ -1287,6 +1293,7 @@ impl Paragraph {
             words: Vec::new(),
             widow: false,
             line_grid: None,
+            weight: 400.0,
         }
     }
 }
@@ -1451,5 +1458,6 @@ fn read_layout(
         synthesized,
         align: p.align,
         measure: p.measure,
+        weight: p.weight,
     })
 }

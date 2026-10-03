@@ -117,71 +117,71 @@
       ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12]}}
     ]}},
     {"layer":{"node":"mo-bars","cell":null,"transform":[1.0,0.0,0.0,1.0,1118.0,438.0],"opacity":1.0,"blend":"normal","clip":"M0 -438L706 -438L706 642L0 642Z","ops":[
-      {"stroke":{"path":"M0 516.6875L706 516.6875","paint":{"solid":"#DAD5C900"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"fill":{"path":"M24.703125 516.6875L151.79688 516.6875L151.79688 516.6875L24.703125 516.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-      {"fill":{"path":"M201.20313 516.6875L328.29688 516.6875L328.29688 516.6875L201.20313 516.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-      {"fill":{"path":"M377.70313 516.6875L504.79688 516.6875L504.79688 516.6875L377.70313 516.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-      {"fill":{"path":"M554.2031 516.6875L681.2969 516.6875L681.2969 516.6875L554.2031 516.6875Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,51.515625,519.59375],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Direct","glyphs":[
-          [21,0.0,20.71875],
-          [163,18.328125,20.71875],
-          [197,26.421875,20.71875],
-          [143,36.8125,20.71875],
-          [135,50.40625,20.71875],
-          [207,63.90625,20.71875]
+      {"stroke":{"path":"M0 514.75L706 514.75","paint":{"solid":"#DAD5C900"},"width":1.0,"cap":"butt","join":"miter","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"fill":{"path":"M24.703125 514.75L151.79688 514.75L151.79688 514.75L24.703125 514.75Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+      {"fill":{"path":"M201.20313 514.75L328.29688 514.75L328.29688 514.75L201.20313 514.75Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+      {"fill":{"path":"M377.70313 514.75L504.79688 514.75L504.79688 514.75L377.70313 514.75Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+      {"fill":{"path":"M554.2031 514.75L681.2969 514.75L681.2969 514.75L554.2031 514.75Z","rule":"nonzero","paint":{"solid":"#C2410CFF"}}},
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,48.1875,517.2031],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Direct","glyphs":[
+          [21,0.0,22.59375],
+          [163,19.984375,22.59375],
+          [197,28.796875,22.59375],
+          [143,40.125,22.59375],
+          [135,54.9375,22.59375],
+          [207,69.671875,22.59375]
         ],"clusters":[0,1,2,3,4,5]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,214.46875,519.59375],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Partners","glyphs":[
-          [74,0.0,20.71875],
-          [124,15.21875,20.71875],
-          [197,28.6875,20.71875],
-          [207,39.53125,20.71875],
-          [181,49.109375,20.71875],
-          [143,64.546875,20.71875],
-          [197,78.078125,20.71875],
-          [201,88.640625,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,209.90625,517.2031],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Partners","glyphs":[
+          [74,0.0,22.59375],
+          [124,16.609375,22.59375],
+          [197,31.296875,22.59375],
+          [207,43.125,22.59375],
+          [181,53.5625,22.59375],
+          [143,70.421875,22.59375],
+          [197,85.15625,22.59375],
+          [201,96.671875,22.59375]
         ],"clusters":[0,1,2,3,4,5,6,7]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,401.82812,519.59375],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Online","glyphs":[
-          [65,0.0,20.71875],
-          [181,18.5625,20.71875],
-          [176,33.8125,20.71875],
-          [163,41.78125,20.71875],
-          [181,49.875,20.71875],
-          [143,65.3125,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,398.26562,517.2031],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Online","glyphs":[
+          [65,0.0,22.59375],
+          [181,20.25,22.59375],
+          [176,36.890625,22.59375],
+          [163,45.578125,22.59375],
+          [181,54.390625,22.59375],
+          [143,71.234375,22.59375]
         ],"clusters":[0,1,2,3,4,5]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,583.2031,519.59375],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Retail","glyphs":[
-          [76,0.0,20.71875],
-          [143,16.5,20.71875],
-          [207,30.03125,20.71875],
-          [124,39.578125,20.71875],
-          [163,53.046875,20.71875],
-          [176,61.140625,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,580.09375,517.2031],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"Retail","glyphs":[
+          [76,0.0,22.59375],
+          [143,17.96875,22.59375],
+          [207,32.71875,22.59375],
+          [124,43.125,22.59375],
+          [163,57.8125,22.59375],
+          [176,66.625,22.59375]
         ],"clusters":[0,1,2,3,4,5]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,81.65625,487.98438],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
-          [415,0.0,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,81.046875,484.15625],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
+          [415,0.0,22.59375]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,258.15625,487.98438],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
-          [415,0.0,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,257.54688,484.15625],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
+          [415,0.0,22.59375]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,434.65625,487.98438],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
-          [415,0.0,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,434.04688,484.15625],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
+          [415,0.0,22.59375]
         ],"clusters":[0]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,611.15625,487.98438],"opacity":0.0,"blend":"normal","clip":null,"ops":[
-        {"glyphs":{"font":0,"size":22.0,"coords":[0,264,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
-          [415,0.0,20.71875]
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,610.5469,484.15625],"opacity":0.0,"blend":"normal","clip":null,"ops":[
+        {"glyphs":{"font":0,"size":24.0,"coords":[0,529,6554,0],"paint":{"solid":"#6B675EFF"},"text":"0","glyphs":[
+          [415,0.0,22.59375]
         ],"clusters":[0]}}
       ]}}
     ]}},

@@ -21,10 +21,12 @@
       "body": { "family": "serif", "size": 28, "weight": 400, "leading": 1.4, "measure": 40, "minLastLineWords": 2 },
       "caption": { "family": "serif", "size": 20, "weight": 400, "leading": 1.3, "color": "onSurfaceMuted" },
       "label": { "family": "serif", "size": 20, "weight": 600, "leading": 1.2 },
+      "chart": { "family": "serif", "size": 24, "weight": 600, "leading": 1.2 },
       "numeral": { "family": "garamond", "size": 160, "weight": 600, "leading": 1.0 }
     }
   },
   "grid": { "columns": 12, "rows": 6, "gutter": 24, "margin": 96 },
+  "charts": { "axis": { "role": "chart" }, "label": { "role": "chart" } },
   "layouts": {
     "title": { "slots": { "title": { "col": [1, 10], "row": [2, 4] }, "subtitle": { "col": [1, 8], "row": 5 } } },
     "full": { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } },

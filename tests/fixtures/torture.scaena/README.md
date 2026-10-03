@@ -80,6 +80,8 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 
+The charts set their text in the theme's `chart` role, 24 cu, the chart style guide's 12 pt (PLAN 1.27). Lint judges that text's contrast over the marks, and `tests/golden/lint/torture.txt` records six E111s in cases 33, 34, 37, 38, and 44: value labels, and a callout, that a dot, a line, or a rule crosses. PLAN 1.32 is to lay them out clear.
+
 ## How the baits were made
 
 `balance` and `pretty` only test anything if greedy breaking actually fails on them (for `pretty`, bare greedy at `minLastLineWords: 1`). Both strings were chosen by shaping with HarfBuzz 14.5 (uharfbuzz) on these exact fonts, axes, and tracking, then breaking greedily at the slot width (1728 cu, columns 1–12) and at ±8 and ±15 cu around it. Every offset reproduces the failure, so small width differences between HarfBuzz and `harfrust`/`parley` cannot quietly defuse a kill case.

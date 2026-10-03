@@ -463,10 +463,26 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Dusk and Daybreak say where the mesh goes: their `title` layout is the place for a shader backdrop, and `figure` and `split` keep the plain surface. The author-deck skill says so too.*
   - *No deck in the repository has W311: the examples already keep the mesh on title slides.*
   - *Not done: a shader painted over a chart, such as a grain overlay, is not judged. W311 reads paint order and flags only what lies under the data.)*
-- [ ] 1.27 Chart text is judged.
+- [x] 1.27 Chart text is judged.
   - E110 and E111 cover a chart's labels, ticks, and direct names: in their colors, at their dimmed opacities, over what is painted behind them. `contrast.rs` skips them today.
   - A new code beside W310 flags chart text under 12 pt at presentation size (24 units on a 1920-unit canvas, scaling with the canvas).
-  - SPEC §7.5; fixtures. *(Jay's chart style guide: "presentation labels at least 12 pt"; PLAN 1.9, second pass.)*
+  - SPEC §7.5; fixtures. *(Jay's chart style guide: "presentation labels at least 12 pt"; PLAN 1.9, second pass.)* *(Done:*
+    - *E110 and E111 judge every text a chart sets (category and value labels, axis labels, titles, series names, annotations) in its color, at the opacity a highlight dims it to, over the chart's own marks, rules, and bands. The backdrop drops a chart's glyphs and keeps the rest. A chart is reported once for each kind of its text that fails, naming the text.*
+    - *Contrast now reads the ink. Each pixel counts by how much of it the glyphs cover, painted on their own, so a rule under a baseline no longer fails the text over it. Text at no opacity is not judged, and a run is bold by its role's weight, so a bold table header counts as WCAG's large text.*
+    - *W312 flags chart text under 12 pt at presentation size: 24 cu where the canvas's shorter side is 1080 cu, in proportion on others. One finding per chart names each kind of text and its size. Fixtures are in `tests/lint/W312`.*
+    - *Defects the rules found, fixed in the engine:*
+      - *a grouped bar's value label wider than its bar lay over the taller bar beside it (the revenue deck in 9:16); it now starts or ends with its bar, whichever clears;*
+      - *a donut's values at twelve and six o'clock touched the ring; they now stand half their cap height farther out;*
+      - *a rule's text and a callout's text crossed their own line with their descenders; they now clear it.*
+    - *The torture theme, B1's (whose charts are B2's), and the lint bundle's set chart text in a new `chart` role at 24 cu, the guide's floor, so the torture deck's chart goldens moved with the larger text.*
+    - *Not done: six findings in the torture deck's lint golden are value labels and callouts the layout lets marks and rules cross (PLAN 1.32; PR #41 holds most of the fix).)*
+- [ ] 1.32 Chart text clears what it would cross. 1.27's contrast check found text the layout lets a mark or a line cross, now E111s in the torture deck's lint golden:
+  - a dot's value over another series' dot (`k-dot`, both formats);
+  - a steep line through its first value in 9:16 (`st-line`, `n-lines`);
+  - a `y` rule across a bar's value (`n-bars`);
+  - a callout's text on another annotation's rule (`n-bars` in `annotations-next`).
+
+  PR #41 (chart pass 3, open for Jay's review) already moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. Landing it on 1.27 should clear all but the steep lines, which need their first value moved off the line where the plot's side clamps it. Then the six findings leave the golden. *(Found by 1.27.)*
 
 ### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
 *Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*

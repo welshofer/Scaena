@@ -18,6 +18,8 @@ Each deck's `_comment` says what it shows.
 - body text: a 40-character measure and two words on a last line;
 - display text: two lines at most.
 
+Its charts set their text in the `chart` role, 24 cu: the smallest W312 lets pass.
+
 `bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name.
 
 The torture deck's findings are its cases', pinned in `tests/golden/lint/torture.txt`.

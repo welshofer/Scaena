@@ -222,6 +222,17 @@
         "box": "cap",
         "color": "onSurfaceMuted"
       },
+      "chart": {
+        "family": "serif",
+        "size": 24,
+        "weight": 600,
+        "leading": 1.2,
+        "tracking": 0.04,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "color": "onSurfaceMuted"
+      },
       "numeral": {
         "family": "serif",
         "size": 72,
@@ -793,7 +804,7 @@
   },
   "charts": {
     "axis": {
-      "role": "label",
+      "role": "chart",
       "stroke": "hairline",
       "color": "line"
     },
@@ -803,7 +814,7 @@
       "opacity": 0.6
     },
     "label": {
-      "role": "label"
+      "role": "chart"
     },
     "strokeWidth": "thin",
     "cornerRadius": 2,
