@@ -356,7 +356,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Per-beat chapters in a video (SPEC §10's motion graphic), with the spine: PLAN 1.22.*
     - *A state with no cue and no hold has no frame, so a deck without holds plays only its transitions. Nothing warns about it.*
     - *The SVG's text layer is set in a system font stretched to each run, so a selection covers runs, not glyphs.)*
-- [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
+- [x] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines. *(Done. `scaena export --format spine --out FILE`, `deck_export`, and `spine_read`; `scaena-core::spine`, `docs/schema/spine.schema.json`; `docs/projections.md`; SPEC §7.1, §7.2, §10:*
+  - *The projection is typed in `scaena-core::spine`, and its schema is generated (ADR-0007). It holds the deck's title, language, canvas, and formats; the spine; every state, with its slide, notes, and place on the global timeline; and every beat, with the state that shows it (the last of its states in deck order) and where it starts and ends. `spine_read` returns it untimed, so it runs no layout. The schema is also the MCP resource `scaena://schema/spine`.*
+  - *Written with `--out`, each beat is drawn at rest into `renders/` beside the file: a thumbnail 480 px wide (or `--size`), and the beat laid out again in each other format the deck lists, at that format's canvas size. The result lists the files. The projection itself is returned only when it is not written, by the CLI and the MCP tool alike.*
+  - *A video carries a chapter per beat, titled by its claim, through ffmpeg's metadata input: a chapter track in MP4 and QuickTime, Matroska chapters in WebM. A state no beat names is a chapter of its slide; a deck without a spine has none. The video tests read the chapters back with ffprobe from all three containers, and the export's result lists them.*
+  - *`docs/projections.md` says what each pipeline reads, and how to time a narration to the beats: lengthen a beat by its last state's `hold` with `patch`, then lay the track under the video with `--audio`.*
+  - *Found on the way:*
+    - *ffmpeg's `-map_metadata -1` strips chapter titles, and in MP4 and QuickTime the chapter track itself. The video now strips only global and stream metadata, and takes no chapters from a sound file.*
+    - *SPEC §3.1 reserves a bundle's `spine.json` for an externalized spine, which nothing reads yet; the projection has the same name. The note says to write the projection outside the bundle. Rename the bundle's file when 1.23 lays the bundle out.*
+  - *Not done:*
+    - *No existing pipeline was run against it; they live outside this repository.*
+    - *A video plays only in the deck's own format, so a portrait motion piece waits on the same work as 1.21's other formats.*
+    - *Times are the deck's own format's; a cue that counts lines can run differently in another format.)*
 
 ### 1E Store
 - [ ] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add.

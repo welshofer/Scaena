@@ -1,6 +1,7 @@
 //! Video export (PLAN 1.21): the global timeline sampled at a frame rate, encoded by
-//! ffmpeg. Each test needs ffmpeg on the PATH and is skipped without it, unless
-//! SCAENA_REQUIRE_FFMPEG is set, as CI sets it where it installs ffmpeg.
+//! ffmpeg, with a chapter per beat (PLAN 1.22). Each test needs ffmpeg on the PATH and is
+//! skipped without it, unless SCAENA_REQUIRE_FFMPEG is set, as CI sets it where it
+//! installs ffmpeg.
 
 use scaena_ops::export::{Exported, Request, export};
 use scaena_ops::render::{Request as Render, render};
@@ -54,6 +55,18 @@ fn decode(video: &Path, [w, h]: [u32; 2]) -> Vec<Vec<u8>> {
     out.stdout.chunks((w * h * 3) as usize).map(<[u8]>::to_vec).collect()
 }
 
+/// A video's chapters as ffprobe reads them: start and end, ms, and title.
+fn chapters(video: &Path) -> Vec<(f64, f64, String)> {
+    let out =
+        Command::new("ffprobe").args(["-v", "error", "-show_chapters", "-of", "json"]).arg(video).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let probed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let ms = |v: &serde_json::Value| (v.as_str().unwrap().parse::<f64>().unwrap() * 1000.0).round();
+    (probed["chapters"].as_array().unwrap().iter())
+        .map(|c| (ms(&c["start_time"]), ms(&c["end_time"]), c["tags"]["title"].as_str().unwrap_or_default().into()))
+        .collect()
+}
+
 /// How far a decoded frame is from the CPU painter's frame of `state` at `t`: the mean
 /// difference per channel, out of 255.
 fn distance(frame: &[u8], state: &str, t: f64, size: &str) -> f64 {
@@ -76,6 +89,16 @@ fn a_video_plays_each_state_then_its_hold() {
     let starts: Vec<f64> = video.timeline.as_ref().unwrap().iter().map(|p| p.start).collect();
     assert_eq!(starts, [0.0, 4660.0, 12100.0, 18900.0]);
     assert_eq!((video.frames, video.duration_ms, video.size), (Some(219), Some(21900.0), Some([320, 180])));
+    // A chapter a beat, titled by its claim: `doubled` plays `revenue` and its build, `mix`.
+    let titled = |claim: &str| claim.to_string();
+    let want = [
+        (0.0, 4660.0, titled("This quarter changed the shape of the business.")),
+        (4660.0, 18900.0, titled("Revenue doubled year over year, and Pro drove it.")),
+        (18900.0, 21900.0, titled("Thank you.")),
+    ];
+    let beats: Vec<_> = video.chapters.as_ref().unwrap().iter().map(|c| c.beat.as_deref().unwrap()).collect();
+    assert_eq!(beats, ["opening", "doubled", "thanks"]);
+    assert_eq!(chapters(&out), want, "the video's chapters, as a player reads them");
     let frames = decode(&out, [320, 180]);
     assert_eq!(frames.len(), 219);
     // A frame shows the moment `render` draws, as near as H.264 keeps it: in a cue, at
@@ -111,6 +134,12 @@ fn webm_and_prores_play_the_states_asked_for() {
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.windows(codec.len()).any(|w| w == codec), "{format} holds {}", String::from_utf8_lossy(codec));
         assert_eq!(decode(&out, [320, 180]).len(), 39, "{format}");
+        // Their chapters, in the order they play.
+        let titles = [
+            (0.0, 3000.0, "Thank you.".into()),
+            (3000.0, 7800.0, "This quarter changed the shape of the business.".into()),
+        ];
+        assert_eq!(chapters(&out), titles, "{format}");
     }
 }
 
@@ -156,6 +185,7 @@ fn a_sound_track_plays_under_the_frames_until_they_end() {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
     let (picture, sound) = (probe("v:0"), probe("a:0"));
+    assert_eq!(chapters(&out), [(0.0, 3000.0, "Thank you.".to_string())]);
     assert!(picture.starts_with("h264,3.0"), "{picture}");
     // The tone, carried on in silence to the end of the frames.
     let (codec, seconds) = sound.split_once(',').unwrap();

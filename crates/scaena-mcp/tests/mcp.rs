@@ -78,6 +78,7 @@ async fn the_tools_and_resources_are_listed() {
     for uri in [
         "scaena://schema/deck",
         "scaena://schema/patch",
+        "scaena://schema/spine",
         "scaena://lint/catalog",
         "scaena://examples/revenue.deck.json",
         "scaena://examples/trails.deck.json",
@@ -99,6 +100,8 @@ async fn the_tools_and_resources_are_listed() {
     assert!(catalog.starts_with("### 7.5") && catalog.contains("| E100 |") && !catalog.contains("### 7.6"));
     let patch: Value = serde_json::from_str(&read("scaena://schema/patch").await).unwrap();
     assert_eq!(patch["title"], "Scaena patch");
+    let spine: Value = serde_json::from_str(&read("scaena://schema/spine").await).unwrap();
+    assert_eq!(spine["title"], "Scaena spine projection");
     assert!(client.read_resource(ReadResourceRequestParams::new("scaena://nothing")).await.is_err());
     client.cancel().await.unwrap();
 }

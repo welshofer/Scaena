@@ -313,13 +313,6 @@ pub struct Rendered {
     pub ms: scaena_ops::render::Timings,
 }
 
-fn object(v: Value) -> Map<String, Value> {
-    match v {
-        Value::Object(map) => map,
-        other => Map::from_iter([("value".to_string(), other)]),
-    }
-}
-
 // --- tools ----------------------------------------------------------------------------
 
 #[tool_router]
@@ -479,11 +472,14 @@ impl Scaena {
         blocking(move || scaena_ops::create::attach(&open(&a.bundle)?, &a.data)).await.map(Json)
     }
 
-    #[tool(
-        description = "The deck's spine (SPEC §2.6): its sections and beats, each beat's claim, evidence, and states."
-    )]
-    async fn spine_read(&self, Parameters(a): Parameters<BundleArg>) -> Result<Json<Map<String, Value>>, String> {
-        blocking(move || Ok(object(scaena_ops::read::spine(&open(&a.bundle)?)))).await.map(Json)
+    #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \
+        and states, and the state that shows it. `deck_export` with `spine` also places it on the timeline and \
+        draws each beat.")]
+    async fn spine_read(
+        &self,
+        Parameters(a): Parameters<BundleArg>,
+    ) -> Result<Json<scaena_core::spine::SpineProjection>, String> {
+        blocking(move || Ok(scaena_ops::read::spine(&open(&a.bundle)?))).await.map(Json)
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
@@ -519,6 +515,12 @@ const RESOURCES: &[(&str, &str, &str, &str)] = &[
         "A patch's ops",
         "application/schema+json",
         include_str!("../../../docs/schema/patch.schema.json"),
+    ),
+    (
+        "scaena://schema/spine",
+        "The spine projection: what `spine.json` holds",
+        "application/schema+json",
+        include_str!("../../../docs/schema/spine.schema.json"),
     ),
     ("scaena://lint/catalog", "The lint catalog", "text/markdown", ""),
     ("scaena://spec", "The specification", "text/markdown", include_str!("../../../docs/SPEC.md")),

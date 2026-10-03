@@ -6,7 +6,7 @@
 //! so a chart's mistake reads as a chart's, not as "matches none of nine node types". An
 //! unknown property names the node types that have it, or the closest known name.
 
-use super::{deck_schema, theme_schema};
+use super::{deck_schema, spine_schema, theme_schema};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
@@ -93,6 +93,12 @@ impl Checker {
     pub fn theme() -> &'static Checker {
         static THEME: OnceLock<Checker> = OnceLock::new();
         THEME.get_or_init(|| Checker::new(theme_schema()))
+    }
+
+    /// `docs/schema/spine.schema.json`: what `export --format spine` writes (SPEC §10).
+    pub fn spine() -> &'static Checker {
+        static SPINE: OnceLock<Checker> = OnceLock::new();
+        SPINE.get_or_init(|| Checker::new(spine_schema()))
     }
 
     fn new(root: Value) -> Checker {

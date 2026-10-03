@@ -1,6 +1,6 @@
 //! Export a projection (SPEC §10): the spine, PDF (PLAN 1.20), PNG and SVG per state, and
 //! video (1.21); single-file HTML (2.5) names the task that builds it. An export is
-//! written where `out` says; the spine is also returned.
+//! written where `out` says; the spine is returned when it is not.
 
 use crate::lint::data_files;
 use crate::render::scale_for;
@@ -14,7 +14,7 @@ use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
 use scaena_export::pdf::{Page, PdfSettings, pdf};
 use scaena_export::svg::{SvgSettings, svg};
-use scaena_export::video::{Codec, VideoSettings};
+use scaena_export::video::{Chapter, Codec, VideoSettings};
 use scaena_paint::cpu::CpuPainter;
 use scaena_paint::{Assets, Painter as _};
 use schemars::JsonSchema;
@@ -52,16 +52,19 @@ pub struct Exported {
     /// Where it was written.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub out: Option<String>,
-    /// The spine, for `spine`.
+    /// The spine projection, for `spine` when it is not written (SPEC §10;
+    /// `docs/schema/spine.schema.json`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub spine: Option<serde_json::Map<String, serde_json::Value>>,
+    pub spine: Option<scaena_core::spine::SpineProjection>,
     /// The state each page draws, in order: a PDF's pages, or the images of png and svg.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<String>>,
-    /// The files written for png and svg, in the order of `pages`.
+    /// The files written for png and svg, in the order of `pages`; for the spine, each
+    /// beat's renders.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<String>>,
-    /// Pixels, width and height: of each image, or of the video.
+    /// Pixels, width and height: of each image, of the video, or of the spine's
+    /// thumbnails.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<[u32; 2]>,
     /// A video's frames.
@@ -76,6 +79,9 @@ pub struct Exported {
     /// When each state plays in a video, in order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeline: Option<Vec<Played>>,
+    /// A video's chapters: the spine's beats as it plays them, each titled by its claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chapters: Option<Vec<Chapter>>,
     /// The bytes written: the document, the video, or every image together.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
@@ -102,8 +108,8 @@ pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
         Format::Prores => Some(Codec::ProRes),
         _ => None,
     };
-    if req.size.is_some() && !matches!(format, Format::Png | Format::Svg) && video.is_none() {
-        return Err(OpsError::new("--size sets the pixels of png, svg, and video"));
+    if req.size.is_some() && !matches!(format, Format::Png | Format::Svg | Format::Spine) && video.is_none() {
+        return Err(OpsError::new("--size sets the pixels of png, svg, video, and the spine's thumbnails"));
     }
     if req.fps.is_some() && video.is_none() {
         return Err(OpsError::new("--fps sets a video's frame rate: mp4, webm, or prores"));
@@ -120,16 +126,9 @@ pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
             Err(OpsError::new("--states picks the frames of png, svg, pdf, and video; spine is the whole spine"))
         }
         Format::Spine => {
-            let serde_json::Value::Object(spine) = scaena_export::spine_json(&b.deck) else {
-                unreachable!("the spine projection is an object")
-            };
-            let mut bytes = None;
-            if let Some(out) = out {
-                let text = serde_json::to_string_pretty(&spine)? + "\n";
-                write(out, text.as_bytes())?;
-                bytes = written(text.len());
-            }
-            Ok(Exported { format: format_name, out: shown, spine: Some(spine), bytes, ..Exported::default() })
+            let mut exported = spine(b, out, req.size.as_deref())?;
+            exported.out = shown;
+            Ok(exported)
         }
         Format::Pdf => {
             let out = out.ok_or_else(|| OpsError::new("`export --format pdf` writes a file: give it --out FILE"))?;
@@ -181,6 +180,73 @@ fn named(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<Vec<Stri
         }
     }
     Ok(states.to_vec())
+}
+
+/// The width of a beat's thumbnail, pixels, when `--size` does not say.
+pub const THUMBNAIL_WIDTH: f32 = 480.0;
+
+/// The spine projection (SPEC §10), placed on the global timeline. Written to `out`, it
+/// takes each beat's renders, in `renders/` beside it: the state that shows the beat at
+/// rest as a thumbnail (`<beat>.png`, `size` or [`THUMBNAIL_WIDTH`] wide), and in each of
+/// the deck's other formats at that format's canvas size (`<beat>@9x16.png`).
+fn spine(b: &Bundle, out: Option<&Path>, size: Option<&str>) -> Result<Exported, OpsError> {
+    let theme = crate::theme(b)?;
+    let data = data_files(b)?;
+    let (mut engine, assets) = engine(b, &theme)?;
+    let timeline = engine.timeline(&b.deck, &theme, &data)?;
+    let mut projection = scaena_core::spine::projection(&b.deck, Some(&timeline));
+    let canvas = [b.deck.canvas.width as f32, b.deck.canvas.height as f32];
+    let scale = match size {
+        Some(size) => scale_for(size, canvas)?,
+        None => THUMBNAIL_WIDTH / canvas[0],
+    };
+    let Some(out) = out else {
+        return Ok(Exported { format: "spine".into(), spine: Some(projection), ..Exported::default() });
+    };
+    let dir = out.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    // The formats that lay the deck out on another canvas than its own.
+    let own = [b.deck.canvas.width, b.deck.canvas.height];
+    let others: Vec<String> = (b.deck.formats.iter())
+        .filter(|f| scaena_core::model::Format::parse(f).is_some_and(|f| f.canvas(own) != own))
+        .cloned()
+        .collect();
+    let (mut files, mut total) = (Vec::new(), 0_u64);
+    let mut painter = CpuPainter::default();
+    let mut draw = |list: &scaena_core::displaylist::DisplayList, scale: f32, name: String| {
+        let png = painter.paint(list, &assets, scale)?.to_png()?;
+        let path = dir.join(&name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| OpsError::new(format!("making {}: {e}", parent.display())))?;
+        }
+        write(&path, &png)?;
+        total += png.len() as u64;
+        files.push(path.display().to_string());
+        Ok::<String, OpsError>(name)
+    };
+    let mut pixels = None;
+    for (beat, entry) in &mut projection.beats {
+        let Some(state) = entry.state.clone() else { continue };
+        let list = at_rest(&mut engine, b, &theme, &data, &state)?;
+        pixels = Some(list.viewport.map(|v| (v * scale).round() as u32));
+        entry.thumbnail = Some(draw(&list, scale, format!("renders/{beat}.png"))?);
+        for format in &others {
+            let req = FrameRequest {
+                deck: &b.deck,
+                theme: &theme,
+                data: &data,
+                state: &state,
+                t_ms: f64::INFINITY,
+                format: Some(format),
+            };
+            let list = engine.frame(&req)?.display_list;
+            let name = format!("renders/{beat}@{}.png", format.replace(':', "x"));
+            entry.formats.insert(format.clone(), draw(&list, 1.0, name)?);
+        }
+    }
+    let text = serde_json::to_string_pretty(&projection)? + "\n";
+    write(out, text.as_bytes())?;
+    total += text.len() as u64;
+    Ok(Exported { format: "spine".into(), files: Some(files), size: pixels, bytes: Some(total), ..Exported::default() })
 }
 
 /// The states a PDF draws: those asked for, in that order; else each slide at its last
@@ -379,6 +445,44 @@ impl Reel {
     pub fn duration_ms(&self) -> f64 {
         self.frames as f64 * 1000.0 / f64::from(self.fps)
     }
+
+    /// Its chapters (SPEC §10): each run of states that one beat names, titled by the
+    /// beat's claim, from where the run starts to where the next chapter does. A state no
+    /// beat names is a chapter of its slide, titled by the slide's id; a state two beats
+    /// name is the first's. A deck without a spine has none.
+    pub fn chapters(&self, deck: &scaena_core::Deck) -> Vec<Chapter> {
+        let Some(spine) = &deck.spine else { return Vec::new() };
+        let mut beats: HashMap<&str, &scaena_core::document::Beat> = HashMap::new();
+        for beat in spine.sections.iter().flat_map(|s| &s.beats) {
+            for state in &beat.states {
+                beats.entry(state).or_insert(beat);
+            }
+        }
+        let slides: HashMap<&str, &str> = deck.states.iter().map(|s| (s.id.as_str(), deck.slide_of(s))).collect();
+        let mut chapters: Vec<Chapter> = Vec::new();
+        for (slot, &start) in self.plays.iter().zip(&self.starts) {
+            if slot.span + slot.hold <= 0.0 {
+                // No frame shows it.
+                continue;
+            }
+            let state = slot.state.as_str();
+            let (beat, title) = match beats.get(state) {
+                Some(beat) => (Some(beat.id.clone()), beat.claim.clone()),
+                None => (None, slides.get(state).copied().unwrap_or(state).to_string()),
+            };
+            if chapters.last().is_some_and(|c| c.beat == beat && c.title == title) {
+                continue;
+            }
+            if let Some(last) = chapters.last_mut() {
+                last.end = start;
+            }
+            chapters.push(Chapter { beat, title, start, end: start });
+        }
+        if let Some(last) = chapters.last_mut() {
+            last.end = self.duration_ms();
+        }
+        chapters
+    }
 }
 
 /// The deck's global timeline as a video (SPEC §2.4, §10): the states `states` names, each
@@ -401,7 +505,15 @@ fn export_video(
         Some(size) => scale_for(size, canvas)?,
         None => 1.0,
     };
-    let settings = VideoSettings { codec, scale, fps, audio: audio.map(Path::to_path_buf), ..VideoSettings::default() };
+    let chapters = reel.chapters(&b.deck);
+    let settings = VideoSettings {
+        codec,
+        scale,
+        fps,
+        audio: audio.map(Path::to_path_buf),
+        chapters: chapters.clone(),
+        ..VideoSettings::default()
+    };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.
     let mut k = 0;
     let mut cue: Option<(usize, scaena_engine::sample::Transition)> = None;
@@ -432,6 +544,7 @@ fn export_video(
         fps: Some(fps),
         duration_ms: Some(reel.duration_ms()),
         timeline: Some(played),
+        chapters: (!chapters.is_empty()).then_some(chapters),
         bytes,
         ..Exported::default()
     })
@@ -462,6 +575,48 @@ mod tests {
         assert!(err(Some(&["b".to_string()]), 30).contains("0 ms long"));
         assert!(err(Some(&["z".to_string()]), 30).contains("`z`"));
         assert!(err(None, 0).contains("1 to 240"));
+    }
+
+    #[test]
+    fn chapters_are_the_beats_as_the_video_plays_them() {
+        // `a` builds in `a2`; `x` has no frame; no beat names `c`; `b` is named twice.
+        let deck: scaena_core::Deck = serde_json::from_value(json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+            "states": [{ "id": "a" }, { "id": "a2", "slide": "a" }, { "id": "x" }, { "id": "c" }, { "id": "c2", "slide": "c" }, { "id": "b" }],
+            "spine": { "sections": [{ "id": "s", "beats": [
+                { "id": "built", "claim": "A builds.", "states": ["a", "a2", "x"] },
+                { "id": "then", "claim": "Then B.", "states": ["b"] },
+                { "id": "again", "claim": "B again.", "states": ["b"] }] }] }
+        }))
+        .unwrap();
+        let timeline = Timeline::new([
+            ("a".into(), 500.0, 1000.0),
+            ("a2".into(), 300.0, 1000.0),
+            ("x".into(), 0.0, 0.0),
+            ("c".into(), 0.0, 1000.0),
+            ("c2".into(), 0.0, 1000.0),
+            ("b".into(), 200.0, 650.0),
+        ]);
+        let reel = Reel::new(&timeline, None, 10).unwrap();
+        let chapters: Vec<_> = (reel.chapters(&deck).into_iter()).map(|c| (c.beat, c.title, c.start, c.end)).collect();
+        let beat = |id: &str| Some(id.to_string());
+        assert_eq!(
+            chapters,
+            [
+                (beat("built"), "A builds.".to_string(), 0.0, 2800.0),
+                (None, "c".to_string(), 2800.0, 4800.0),
+                // `b`'s 850 ms end on a frame: the video runs to 5700.
+                (beat("then"), "Then B.".to_string(), 4800.0, 5700.0),
+            ]
+        );
+        // The states asked for, as they play: `b`, then `a`.
+        let asked = ["b".to_string(), "a".to_string()];
+        let reel = Reel::new(&timeline, Some(&asked), 10).unwrap();
+        let titles: Vec<_> = reel.chapters(&deck).into_iter().map(|c| (c.title, c.start, c.end)).collect();
+        assert_eq!(titles, [("Then B.".to_string(), 0.0, 850.0), ("A builds.".to_string(), 850.0, 2400.0)]);
+        // No spine, no chapters.
+        let plain = scaena_core::Deck { spine: None, ..deck };
+        assert!(Reel::new(&timeline, None, 10).unwrap().chapters(&plain).is_empty());
     }
 
     #[test]
