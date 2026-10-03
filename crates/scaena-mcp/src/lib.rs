@@ -198,6 +198,21 @@ fn failure(e: OpsError) -> String {
     serde_json::to_string(&Failure { message, plan, op }).unwrap_or_default()
 }
 
+/// Waits until an export has counted what it writes, for [`COUNTING`] at most; whether it
+/// finished meanwhile.
+async fn counted(progress: &Progress, done: &watch::Receiver<Option<Result<Exported, String>>>) -> bool {
+    let until = Instant::now() + COUNTING;
+    while progress.get().1 == 0 && done.borrow().is_none() && Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    done.borrow().is_some()
+}
+
+/// How long `deck_export` waits for an export to count what it writes before it says how far
+/// it has got. An export counts its states or pages as it starts, and a video its frames once
+/// it has its timeline, in well under this.
+const COUNTING: Duration = Duration::from_secs(10);
+
 /// `f`, off the async runtime: the operations lay out and paint, and block.
 /// Starts the export `req` of `b` on a thread of its own, which runs to the end whoever is
 /// still waiting for it.
@@ -606,11 +621,11 @@ impl Scaena {
         };
         let file = std::path::absolute(&out).unwrap_or(out);
         let asked = asked(&a, &b);
-        let mut done = {
+        let (mut done, progress) = {
             let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
             match exports.get(&file) {
                 // Asked again: wait for it.
-                Some(export) if export.asked == asked => export.done.clone(),
+                Some(export) if export.asked == asked => (export.done.clone(), export.progress.clone()),
                 Some(export) if export.done.borrow().is_none() => {
                     let Running { done, of, unit, elapsed_ms, .. } = export.running();
                     return Err(failure(OpsError::new(format!(
@@ -623,25 +638,31 @@ impl Scaena {
                 // Not running, or done and never handed back: start it.
                 _ => {
                     let export = start(b, req, &a, asked);
-                    let done = export.done.clone();
+                    let started = (export.done.clone(), export.progress.clone());
                     exports.insert(file.clone(), export);
-                    done
+                    started
                 }
             }
         };
-        let waited =
-            tokio::time::timeout(self.wait, done.wait_for(Option::is_some)).await.map(|r| r.map(|d| d.clone()));
+        let waited = tokio::time::timeout(self.wait, done.wait_for(Option::is_some)).await.map(|r| r.is_ok());
+        let finished = match waited {
+            Ok(true) => true,
+            Ok(false) => return Err(failure(OpsError::new("the export stopped before it was done"))),
+            // Still running. How far it has got means nothing until it has counted what it
+            // writes, which takes it a moment: wait for that, or for the end.
+            Err(_) => counted(&progress, &done).await,
+        };
         let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
-        match waited {
-            Ok(Ok(Some(result))) => {
+        let result = done.borrow().clone();
+        match result.filter(|_| finished) {
+            Some(result) => {
                 // Handed back: the next call for this file starts again.
                 if exports.get(&file).is_some_and(|e| e.asked == asked) {
                     exports.remove(&file);
                 }
                 result.map(Json)
             }
-            Ok(_) => Err(failure(OpsError::new("the export stopped before it was done"))),
-            Err(_) => {
+            None => {
                 let running = exports.get(&file).map(Export::running);
                 Ok(Json(Exported { format: a.format, out: a.out, running, ..Exported::default() }))
             }
