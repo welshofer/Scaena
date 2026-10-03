@@ -106,10 +106,88 @@ fn date_categories_print_through_the_x_format() {
     let schema = json!({ "m": "date", "v": "number" });
     let layout = compile(&deck("en-US", rows.clone(), schema.clone(), json!({ "m": "%b %Y" }), chart));
     assert_eq!(texts(&layout.ticks), ["Q1 ’25", "Q2 ’25"]);
-    // A date column with no format prints ISO 8601.
+    // A date column with no format prints by its unit, the first naming its year.
     let plain = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "m" }, "y": { "field": "v" } });
     let layout = compile(&deck("en-US", rows, schema, json!({ "m": "%b %Y" }), plain));
-    assert_eq!(texts(&layout.ticks), ["2025-01-01", "2025-04-01"]);
+    assert_eq!(texts(&layout.ticks), ["Jan 2025", "Apr"]);
+}
+
+/// A bar chart of `v` by date `m`, one bar a date, in a cell `size`.
+fn dated(dates: &[&str], size: [f32; 2]) -> ChartLayout {
+    let rows: Vec<Value> = dates.iter().enumerate().map(|(i, m)| json!({ "m": m, "v": i + 1 })).collect();
+    let chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "m" }, "y": { "field": "v" } });
+    let d = deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), Value::Null, chart);
+    compile_sized(&themed(json!({})), &d, size).unwrap()
+}
+
+#[test]
+fn dates_with_no_format_print_by_their_unit_and_name_the_year_where_it_changes() {
+    let wide = [1600.0, 700.0];
+    let months = dated(&["2025-11-01", "2025-12-01", "2026-01-01", "2026-02-01"], wide);
+    assert_eq!(texts(&months.ticks), ["Nov 2025", "Dec", "Jan 2026", "Feb"]);
+    let days = dated(&["2026-03-05", "2026-03-06", "2026-03-07"], wide);
+    assert_eq!(texts(&days.ticks), ["Mar 5, 2026", "Mar 6", "Mar 7"]);
+    let years = dated(&["2024", "2025", "2026"], wide);
+    assert_eq!(texts(&years.ticks), ["2024", "2025", "2026"]);
+    // Times of day name the day where it changes, and minutes where any has them.
+    let hours = dated(&["2026-03-05T22:00", "2026-03-05T23:00", "2026-03-06T00:00"], wide);
+    assert_eq!(texts(&hours.ticks), ["Mar 5, 10 PM", "11 PM", "Mar 6, 12 AM"]);
+    let minutes = dated(&["2026-03-05T09:00", "2026-03-05T09:30"], wide);
+    assert_eq!(texts(&minutes.ticks), ["Mar 5, 9:00 AM", "9:30 AM"]);
+    // One month's first and another's fifth: days, not months.
+    let mixed = dated(&["2026-01-01", "2026-02-05"], wide);
+    assert_eq!(texts(&mixed.ticks), ["Jan 1, 2026", "Feb 5"]);
+}
+
+#[test]
+fn a_crowded_axis_of_dates_keeps_every_kth_label_on_the_calendar() {
+    let months: Vec<String> = (0..24).map(|i| format!("{}-{:02}-01", 2025 + i / 12, i % 12 + 1)).collect();
+    let months: Vec<&str> = months.iter().map(String::as_str).collect();
+    // A year's months fit 1600 cu; two years' keep every other month.
+    let year = dated(&months[..12], [1600.0, 700.0]);
+    assert_eq!(year.ticks.len(), 12, "{:?}", texts(&year.ticks));
+    let wide = dated(&months, [1600.0, 700.0]);
+    let every_other = ["Jan 2025", "Mar", "May", "Jul", "Sep", "Nov", "Jan 2026", "Mar", "May", "Jul", "Sep", "Nov"];
+    assert_eq!(texts(&wide.ticks), every_other);
+    let narrow = dated(&months, [600.0, 400.0]);
+    let kept = texts(&narrow.ticks);
+    let stride = 24 / kept.len();
+    assert!([3, 4, 6, 12].contains(&stride) && kept.len() * stride == 24, "{kept:?}");
+    // From the first; each a stride on, by month; the year where it changes.
+    assert_eq!(kept[0], "Jan 2025");
+    assert_eq!(kept[12 / stride], "Jan 2026", "{kept:?}");
+    assert_eq!(kept[1], ["", "", "", "Apr", "May", "", "Jul", "", "", "", "", "", "Jan 2026"][stride], "{kept:?}");
+    // A space or more between neighbors, which the next stride down does not leave.
+    let space = 8.0; // the torture theme's space unit
+    for w in narrow.ticks.windows(2) {
+        assert!(w[0].origin[0] + w[0].text.width + space <= w[1].origin[0] + 1e-3, "{kept:?}");
+    }
+    assert!(narrow.crowded.is_empty());
+}
+
+#[test]
+fn an_axis_of_text_keeps_every_category_and_says_which_overlap() {
+    let rows = json!([
+        { "k": "Riverside and the old mill district", "v": 3 },
+        { "k": "Old Town north of the river", "v": 5 },
+        { "k": "Hilltop", "v": 4 }
+    ]);
+    let chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "k" }, "y": { "field": "v" } });
+    let d = deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart);
+    let narrow = compile_sized(&themed(json!({})), &d, [600.0, 400.0]).unwrap();
+    assert_eq!(narrow.ticks.len(), 3);
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    assert_eq!(
+        narrow.crowded,
+        [
+            pair("Riverside and the old mill district", "Old Town north of the river"),
+            pair("Old Town north of the river", "Hilltop")
+        ],
+        "{:?}",
+        narrow.ticks.iter().map(|t| (t.origin[0], t.text.width)).collect::<Vec<_>>()
+    );
+    let wide = compile_sized(&themed(json!({})), &d, [2400.0, 700.0]).unwrap();
+    assert!(wide.crowded.is_empty());
 }
 
 fn bars(axes: Value, domain: Value) -> Deck {
