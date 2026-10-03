@@ -554,7 +554,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 **Goal:** humans can watch, present, and edit what agents make, in a browser, with no backend.
 
-- [ ] 2.1 `web/` Vite + TS; WASM engine in a Worker; `OffscreenCanvas` + WebGPU; `vello_cpu` → `ImageBitmap` fallback.
+- [x] 2.1 `web/` Vite + TS; WASM engine in a Worker; `OffscreenCanvas` + WebGPU; `vello_cpu` → `ImageBitmap` fallback.
+  *(Done: `web/` is the player page and the engine's worker, on Vite 8 and TypeScript 7, pinned by `web/package-lock.json`. `just web` builds it, and `just web-dev` serves it with the repository's bundles.*
+    - *The WASM module gains `Canvas.attachOffscreen` (WebGPU in a worker) and `Player.pixels` (`vello_cpu` RGBA, which a native test holds to the goldens). The CPU painter adds 186 KB gzipped: the module is 2.14 MB, against SPEC §15's 3.0.*
+    - *The worker asks for a WebGPU adapter before WebGPU takes the canvas. Where there is none, or `?painter=cpu`, `vello_cpu` paints into `ImageBitmap`s; if WebGPU fails anyway, the page starts over on a new canvas with the CPU painter.*
+    - *`web/smoke.mjs` opens the built player in headless Chromium with each painter and screenshots every torture frame: 68, at rest, into a cue, and in 9:16. The parity harness now takes several browser directories, and holds both painters' frames to the goldens within SPEC §13.5. The CPU painter's are within a channel step of 7 of them, none over ΔE 1. WebGPU's are within a step of 1 of the WASM page's. `just web-smoke` runs both; CI's wasm job runs them with the rest.*
+    - *`scaena-paint` builds at `opt-level = 2` in dev, so the raster diff holds two painters' 68 frames to the goldens in 11 s, not 88. `Raster::from_png` reads a browser's RGB screenshot as opaque.)*
 - [ ] 2.2 Player: navigation (keys, click, touch), scrubber, `hold` auto-advance, presenter view (second window via `BroadcastChannel`), fullscreen.
 - [ ] 2.3 Source editor: CodeMirror 6 `.scn` mode, live compile, lint gutter with fixes, live preview; inspector (resolved values, override counts, timeline).
 - [ ] 2.4 Storage: OPFS + File System Access; open/save bundle; drag-and-drop assets with hashing; font subsetting in WASM.

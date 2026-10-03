@@ -63,6 +63,8 @@ just test-gpu       # painter + CLI tests with vello on the GPU; skip without an
 just bless          # regenerate docs/schema from the model (and the MCP tools' in docs/schema/mcp), then re-bless golden display lists and rasters; only after reviewing the diffs
 just wasm           # WASM engine + JS glue into crates/scaena-wasm/www/pkg (needs wasm-bindgen-cli 0.2.129)
 just wasm-smoke     # the WebGPU page in headless Chromium: WASM display lists match native, every state paints
+just web            # the web player (PLAN 2.1) into web/dist; `just web-dev` serves it with the repository's bundles
+just web-smoke      # the web player in headless Chromium: every torture frame by WebGPU and by the CPU painter, held to the goldens
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
 just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request beside its base on one machine (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
@@ -83,6 +85,10 @@ Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per e
 - **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
 
 Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.33–1.36, and 1.9 and 1.28–1.32 as Jay reviews and schedules them.
+
+## Phase 2
+
+The web player is `web/` (PLAN 2.1, SPEC §9.2). The page hands its canvas to a worker that holds the WASM engine and paints with `vello` on WebGPU, or with `vello_cpu` into `ImageBitmap`s where there is no adapter. `web/src/protocol.ts` is what the two say. `web/README.md` says how to run it and how it fits.
 
 ## Working with Jay
 

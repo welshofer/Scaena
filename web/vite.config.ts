@@ -1,0 +1,34 @@
+import { readFile } from "node:fs/promises";
+import { join, normalize, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, type Plugin } from "vite";
+
+const repo = fileURLToPath(new URL("..", import.meta.url));
+
+/** In development, the repository's bundles at their paths in it (`/tests/fixtures/torture.scaena`),
+ * as a static server at the repository's root serves them beside the built player. */
+const bundles: Plugin = {
+  name: "scaena-bundles",
+  configureServer(server) {
+    server.middlewares.use(async (req, res, next) => {
+      const path = normalize(join(repo, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)));
+      if (![join(repo, "tests"), join(repo, "docs")].some((dir) => path.startsWith(dir + sep))) return next();
+      try {
+        res.end(await readFile(path));
+      } catch {
+        next();
+      }
+    });
+  },
+};
+
+export default defineConfig({
+  // Relative paths: the build plays from any directory.
+  base: "./",
+  plugins: [bundles],
+  // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8).
+  resolve: { alias: { "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js") } },
+  worker: { format: "es" },
+  server: { fs: { allow: [repo] } },
+  build: { target: "es2022" },
+});

@@ -8,7 +8,10 @@
 //!   Native and WASM builds of the engine must produce the same bytes; the smoke
 //!   check in `www/` compares them with the native goldens' digests.
 //! - `Player::paint` draws it into a canvas with `vello` on WebGPU ([`Canvas`]),
-//!   through `scaena_paint::gpu::scene`, the scene the native GPU painter renders.
+//!   through `scaena_paint::gpu::scene`, the scene the native GPU painter renders. The
+//!   canvas is a page's, or an `OffscreenCanvas` a worker paints (PLAN 2.1).
+//! - [`Player::pixels`] paints it with `vello_cpu`, the painter the goldens hold, into
+//!   RGBA pixels: the web player's fallback where WebGPU is missing (SPEC §9.2).
 //!
 //! [`Session`] is the same engine surface in plain Rust, so it is tested natively.
 
@@ -169,6 +172,16 @@ impl Session {
     pub fn assets(&self) -> &Assets {
         &self.store
     }
+
+    /// `state` at `t_ms`, painted by the CPU painter `width` pixels wide; the height keeps
+    /// the canvas's aspect.
+    #[cfg(feature = "cpu")]
+    pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<scaena_paint::Raster, Error> {
+        use scaena_paint::Painter;
+        let dl = self.frame(state, t_ms)?;
+        let scale = width as f32 / dl.viewport[0];
+        Ok(scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?)
+    }
 }
 
 fn js(e: impl std::fmt::Display) -> JsError {
@@ -246,6 +259,14 @@ impl Player {
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<Vec<u8>, JsError> {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
     }
+
+    /// `state` at `t_ms` (`Infinity`: at rest), painted by `vello_cpu` `width` pixels wide,
+    /// the height keeping the canvas's aspect: straight-alpha sRGB, four bytes a pixel, row
+    /// by row, as `new ImageData(pixels, width)` takes them.
+    #[cfg(feature = "cpu")]
+    pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
+    }
 }
 
 #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
@@ -301,11 +322,44 @@ mod web {
         /// WebGPU on `canvas`, at its `width` × `height` attributes.
         pub async fn attach(canvas: web_sys::HtmlCanvasElement) -> Result<Canvas, JsError> {
             let size = (canvas.width(), canvas.height());
+            Canvas::on(wgpu::SurfaceTarget::Canvas(canvas), size).await
+        }
+
+        /// WebGPU on an `OffscreenCanvas`, at its `width` × `height`: in a worker, a page's
+        /// canvas handed over with `transferControlToOffscreen` (PLAN 2.1).
+        #[wasm_bindgen(js_name = attachOffscreen)]
+        pub async fn attach_offscreen(canvas: web_sys::OffscreenCanvas) -> Result<Canvas, JsError> {
+            let size = (canvas.width(), canvas.height());
+            Canvas::on(wgpu::SurfaceTarget::OffscreenCanvas(canvas), size).await
+        }
+
+        /// Paint at `width` × `height` pixels from now on, as the canvas element's
+        /// attributes have just been set: another format's canvas (SPEC §3.4).
+        pub fn resize(&mut self, width: u32, height: u32) {
+            if (width, height) == self.size {
+                return;
+            }
+            (self.config.width, self.config.height) = (width, height);
+            self.surface.configure(&self.device, &self.config);
+            self.target = target(&self.device, (width, height));
+            self.size = (width, height);
+        }
+
+        /// Which adapter paints: name, backend, device type.
+        #[wasm_bindgen(getter)]
+        pub fn adapter(&self) -> String {
+            self.adapter.clone()
+        }
+    }
+
+    impl Canvas {
+        /// WebGPU on `canvas`, `size` pixels.
+        async fn on(canvas: wgpu::SurfaceTarget<'static>, size: (u32, u32)) -> Result<Canvas, JsError> {
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::BROWSER_WEBGPU,
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let surface = instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas)).map_err(js)?;
+            let surface = instance.create_surface(canvas).map_err(js)?;
             let options = wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
@@ -358,24 +412,6 @@ mod web {
             };
             let shaders = scaena_paint::gpu::Shaders::new();
             Ok(Canvas { device, queue, surface, renderer, target, blitter, size, config, adapter, shaders })
-        }
-
-        /// Paint at `width` × `height` pixels from now on, as the canvas element's
-        /// attributes have just been set: another format's canvas (SPEC §3.4).
-        pub fn resize(&mut self, width: u32, height: u32) {
-            if (width, height) == self.size {
-                return;
-            }
-            (self.config.width, self.config.height) = (width, height);
-            self.surface.configure(&self.device, &self.config);
-            self.target = target(&self.device, (width, height));
-            self.size = (width, height);
-        }
-
-        /// Which adapter paints: name, backend, device type.
-        #[wasm_bindgen(getter)]
-        pub fn adapter(&self) -> String {
-            self.adapter.clone()
         }
     }
 
@@ -445,6 +481,21 @@ mod tests {
         s
     }
 
+    /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`
+    /// at rest, or `state@fraction` of the transition into it, each in the deck's own canvas
+    /// or, after `~`, in a format (`9x16` for `9:16`).
+    fn golden(s: &mut Session, name: &str) -> (String, f64) {
+        let (frame, format) = match name.split_once('~') {
+            Some((frame, format)) => (frame, Some(format.replace('x', ":"))),
+            None => (name, None),
+        };
+        s.set_format(format.as_deref()).unwrap();
+        match frame.split_once('@') {
+            Some((state, at)) => (state.to_string(), at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
+            None => (frame.to_string(), f64::INFINITY),
+        }
+    }
+
     /// The session is the engine the native tests drive: its frames hash to the
     /// native goldens' digests (`raw.fnv1a`). The browser smoke check compares the
     /// WASM build against the same file.
@@ -454,18 +505,27 @@ mod tests {
         let expected = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();
         for line in expected.lines() {
             let (name, digest) = line.split_once(' ').unwrap();
-            // `state` at rest, or `state@fraction` of the transition into it, each in the
-            // deck's own canvas or, after `~`, in a format (`9x16` for `9:16`).
-            let (frame, format) = match name.split_once('~') {
-                Some((frame, format)) => (frame, Some(format.replace('x', ":"))),
-                None => (name, None),
-            };
-            s.set_format(format.as_deref()).unwrap();
-            let (state, t) = match frame.split_once('@') {
-                Some((state, at)) => (state, at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
-                None => (frame, f64::INFINITY),
-            };
-            assert_eq!(s.frame(state, t).unwrap().digest().unwrap(), digest, "{name}");
+            let (state, t) = golden(&mut s, name);
+            assert_eq!(s.frame(&state, t).unwrap().digest().unwrap(), digest, "{name}");
+        }
+    }
+
+    /// The CPU painter paints a session's frames as the golden rasters hold them (SPEC
+    /// §13.5), from the files a page hands over: images, color glyphs, shaders, a frame of a
+    /// transition, and another format's canvas.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn pixels_match_the_golden_rasters() {
+        use scaena_paint::{Raster, diff};
+        let mut s = torture();
+        for name in ["images", "emoji", "shaders", "morph@0.5", "formats~9x16"] {
+            let png = std::fs::read(format!("../../tests/golden/torture/{name}.png")).unwrap();
+            let expected = Raster::from_png(&png).unwrap();
+            let (state, t) = golden(&mut s, name);
+            let got = s.pixels(&state, t, expected.width).unwrap();
+            assert_eq!((got.width, got.height), (expected.width, expected.height), "{name}");
+            let d = diff::compare(&expected, &got).unwrap();
+            assert!(d.passes(), "{name}: {d}");
         }
     }
 

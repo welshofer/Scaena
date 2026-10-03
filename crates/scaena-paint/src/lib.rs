@@ -249,20 +249,26 @@ impl Raster {
         Ok(out)
     }
 
-    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes).
+    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes), or an 8-bit RGB one as
+    /// opaque (what a browser's screenshot is).
     pub fn from_png(bytes: &[u8]) -> Result<Raster, PaintError> {
         let png_error = |e: png::DecodingError| PaintError::Png(e.to_string());
         let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(png_error)?;
         let info = reader.info();
-        if (info.color_type, info.bit_depth) != (png::ColorType::Rgba, png::BitDepth::Eight) {
-            return Err(PaintError::Png(format!(
-                "expected 8-bit RGBA, got {:?} {:?}",
-                info.color_type, info.bit_depth
-            )));
-        }
+        let opaque = match (info.color_type, info.bit_depth) {
+            (png::ColorType::Rgba, png::BitDepth::Eight) => false,
+            (png::ColorType::Rgb, png::BitDepth::Eight) => true,
+            (color, depth) => {
+                return Err(PaintError::Png(format!("expected 8-bit RGBA or RGB, got {color:?} {depth:?}")));
+            }
+        };
         let (width, height) = (info.width, info.height);
-        let mut rgba = vec![0; reader.output_buffer_size().unwrap_or(0)];
-        reader.next_frame(&mut rgba).map_err(png_error)?;
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap_or(0)];
+        reader.next_frame(&mut pixels).map_err(png_error)?;
+        let rgba = match opaque {
+            true => pixels.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
+            false => pixels,
+        };
         Ok(Raster { width, height, rgba })
     }
 }
@@ -739,6 +745,15 @@ pub mod cpu {
             }
             assert_eq!(raster.to_png().unwrap(), raster.to_png().unwrap(), "same pixels, same bytes");
             assert_eq!(raster.to_png_fast().unwrap(), raster.to_png_fast().unwrap(), "same pixels, same bytes");
+            // A browser's screenshot has no alpha: it reads as opaque.
+            let mut rgb = Vec::new();
+            let mut encoder = png::Encoder::new(&mut rgb, 2, 1);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[255, 0, 0, 0, 128, 255]).unwrap();
+            writer.finish().unwrap();
+            assert_eq!(Raster::from_png(&rgb).unwrap().rgba, [255, 0, 0, 255, 0, 128, 255, 255]);
         }
 
         #[test]

@@ -12,19 +12,23 @@ authors.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["gpu"]
-# Paint with vello on WebGPU (PLAN 0.8). Without it the module is the engine alone:
-# `frame()` returns display lists, and the page paints them some other way.
+default = ["gpu", "cpu"]
+# Paint with vello on WebGPU (PLAN 0.8), into a canvas or a worker's OffscreenCanvas (PLAN 2.1).
+# Without it or `cpu`, the module is the engine alone: `frame()` returns display lists, and
+# the page paints them some other way.
 gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures"]
+# Paint with vello_cpu into RGBA pixels: the web player's fallback where WebGPU is missing
+# (PLAN 2.1, SPEC §9.2).
+cpu = ["scaena-paint/cpu"]
 
 [dependencies]
 scaena-core.workspace = true
 scaena-engine.workspace = true
-# Not the workspace entry: the browser build leaves out the CPU painter (`cpu`).
+# Not the workspace entry: which painters the browser build carries is this crate's features.
 scaena-paint = { path = "../scaena-paint", default-features = false }
 serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 vello = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "console"] }
+web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "console"] }

@@ -1091,7 +1091,7 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
 ### 9.2 Web player / editor (Phase 2)
 
 - Static site (Vite + TypeScript). No backend.
-- Engine as WASM in a **Web Worker**; rendering to an `OffscreenCanvas` via WebGPU (`vello`), falling back to `vello_cpu` → `ImageBitmap` where WebGPU is unavailable.
+- Engine as WASM in a **Web Worker**; rendering to an `OffscreenCanvas` via WebGPU (`vello`), falling back to `vello_cpu` → `ImageBitmap` where WebGPU is unavailable (PLAN 2.1, `web/`). The page hands its canvas to the worker, which loads the bundle by URL (its directory, or its deck file, as the CLI opens it) and paints with `vello` on WebGPU where the browser has an adapter. The worker asks for one before WebGPU takes the canvas, since a canvas WebGPU holds takes no other painter. If WebGPU still fails, the page starts over on a new canvas with `vello_cpu`, whose pixels reach the canvas as an `ImageBitmap`. The page asks the worker for a frame (a state, at rest or a time into its cue), a cue played on the display's clock, or the timeline, each in one of the deck's formats or on its own canvas (`web/src/protocol.ts`). Both painters show every torture frame within §13.5 of the goldens (`web/smoke.mjs`, then the parity harness).
 - Player: keyboard/remote navigation, state scrubber, presenter view in a second window (`BroadcastChannel`), auto-advance for `hold`.
 - Editor v1: CodeMirror 6 with a `.scn` mode, live lint gutter, live preview; inspector shows resolved values and override counts; direct manipulation deferred (emits patches when it arrives).
 - Storage: OPFS + File System Access API; bundle import/export; **single-file HTML export** (engine + bundle inlined; no network).

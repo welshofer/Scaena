@@ -97,6 +97,22 @@ wasm:
 wasm-smoke: wasm
     node crates/scaena-wasm/www/smoke.mjs
 
+# The web player (PLAN 2.1): the WASM engine, then the Vite app into web/dist. Needs Node 22.
+# Serve the repository's root and open /web/dist/?bundle=/tests/fixtures/torture.scaena.
+web: wasm
+    cd web && npm ci && npm run build
+
+# The web player on Vite's dev server, with the repository's bundles at their paths in it
+# (/?bundle=/docs/examples/ridgeline.deck.json), on the WASM engine `just wasm` last built.
+web-dev:
+    cd web && npm run dev
+
+# The web player in headless Chromium: every torture frame shown, painted in its worker by
+# WebGPU and by the CPU painter (PLAN 2.1); then the parity harness holds both to the goldens.
+web-smoke: web
+    node web/smoke.mjs
+    SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
+
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:
     cargo tree --workspace --all-features -e normal --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|hypher|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
