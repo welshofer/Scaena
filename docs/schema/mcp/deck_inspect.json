@@ -76,10 +76,10 @@
         "properties": {
           "role": { "description": "The role it is set in: its own, or its slot's.", "type": "string" },
           "family": { "description": "The family's name, as its font names it.", "type": "string" },
-          "size": { "type": "number", "format": "double" },
-          "weight": { "type": "number", "format": "double" },
-          "leading": { "type": "number", "format": "double" },
-          "tracking": { "type": "number", "format": "double" },
+          "size": { "type": "number" },
+          "weight": { "type": "number" },
+          "leading": { "type": "number" },
+          "tracking": { "type": "number" },
           "color": { "description": "The color as the cascade names it, and as sRGB.", "type": "string" },
           "hex": { "type": "string" }
         },
@@ -89,13 +89,9 @@
         "description": "A state's cue (SPEC §2.4, §3.9), ms: where it falls on the deck's timeline, its\ntransition, and each motion as placed on the state's clock, which starts with the\ntransition.",
         "type": "object",
         "properties": {
-          "start": { "description": "When the transition into it starts.", "type": "number", "format": "double" },
-          "span": { "description": "Its transition and motions, from `start`.", "type": "number", "format": "double" },
-          "hold": {
-            "description": "Its dwell at rest before the next state starts.",
-            "type": "number",
-            "format": "double"
-          },
+          "start": { "description": "When the transition into it starts.", "type": "number" },
+          "span": { "description": "Its transition and motions, from `start`.", "type": "number" },
+          "hold": { "description": "Its dwell at rest before the next state starts.", "type": "number" },
           "transition": { "$ref": "#/$defs/Transition" },
           "motions": { "type": "array", "items": { "$ref": "#/$defs/Motion" } }
         },
@@ -104,7 +100,7 @@
       "Transition": {
         "type": "object",
         "properties": {
-          "duration": { "type": "number", "format": "double" },
+          "duration": { "type": "number" },
           "curve": { "$ref": "#/$defs/Curve" },
           "match": {
             "description": "`id`: nodes are matched by id across the cut. `none`: every node leaves and enters.",
@@ -118,14 +114,7 @@
         "anyOf": [
           {
             "type": "object",
-            "properties": {
-              "ease": {
-                "type": "array",
-                "items": { "type": "number", "format": "double" },
-                "minItems": 4,
-                "maxItems": 4
-              }
-            },
+            "properties": { "ease": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 } },
             "required": ["ease"]
           },
           { "type": "object", "properties": { "spring": { "$ref": "#/$defs/Spring" } }, "required": ["spring"] }
@@ -134,9 +123,9 @@
       "Spring": {
         "type": "object",
         "properties": {
-          "stiffness": { "type": "number", "format": "double" },
-          "damping": { "type": "number", "format": "double" },
-          "mass": { "type": "number", "format": "double" }
+          "stiffness": { "type": "number" },
+          "damping": { "type": "number" },
+          "mass": { "type": "number" }
         },
         "required": ["stiffness", "damping", "mass"]
       },
@@ -150,11 +139,11 @@
             "description": "What it moves one at a time: lines, words, glyphs, children, or marks.",
             "anyOf": [{ "$ref": "#/$defs/SplitUnit" }, { "type": "null" }]
           },
-          "units": { "type": "integer", "format": "uint", "minimum": 0 },
-          "start": { "type": "number", "format": "double" },
-          "stagger": { "description": "From one unit's start to the next's.", "type": "number", "format": "double" },
-          "duration": { "description": "Each unit's.", "type": "number", "format": "double" },
-          "end": { "type": "number", "format": "double" },
+          "units": { "type": "integer", "minimum": 0 },
+          "start": { "type": "number" },
+          "stagger": { "description": "From one unit's start to the next's.", "type": "number" },
+          "duration": { "description": "Each unit's.", "type": "number" },
+          "end": { "type": "number" },
           "curve": { "$ref": "#/$defs/Curve" },
           "from": {
             "description": "An entrance's look before it: what it changes from rest.",
@@ -184,36 +173,18 @@
         "description": "A look as what it changes from rest.",
         "type": "object",
         "properties": {
-          "opacity": { "type": ["number", "null"], "format": "double" },
-          "translate": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
-          "scale": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
-          "rotate": { "type": ["number", "null"], "format": "double" },
-          "anchor": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
+          "opacity": { "type": ["number", "null"] },
+          "translate": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "scale": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "rotate": { "type": ["number", "null"] },
+          "anchor": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
           "tint": { "anyOf": [{ "$ref": "#/$defs/Tint" }, { "type": "null" }] },
-          "progress": { "type": ["number", "null"], "format": "double" }
+          "progress": { "type": ["number", "null"] }
         }
       },
       "Tint": {
         "type": "object",
-        "properties": {
-          "color": { "description": "sRGB.", "type": "string" },
-          "amount": { "type": "number", "format": "double" }
-        },
+        "properties": { "color": { "description": "sRGB.", "type": "string" }, "amount": { "type": "number" } },
         "required": ["color", "amount"]
       },
       "Tracks": {
@@ -225,30 +196,21 @@
           "scale": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key2" } },
           "rotate": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
           "progress": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
-          "anchor": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          }
+          "anchor": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         }
       },
       "Key": {
         "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
         "type": "object",
-        "properties": {
-          "t": { "type": "number", "format": "double" },
-          "v": { "type": "number", "format": "double" },
-          "curve": { "$ref": "#/$defs/Curve" }
-        },
+        "properties": { "t": { "type": "number" }, "v": { "type": "number" }, "curve": { "$ref": "#/$defs/Curve" } },
         "required": ["t", "v", "curve"]
       },
       "Key2": {
         "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
         "type": "object",
         "properties": {
-          "t": { "type": "number", "format": "double" },
-          "v": { "type": "array", "items": { "type": "number", "format": "double" }, "minItems": 2, "maxItems": 2 },
+          "t": { "type": "number" },
+          "v": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
           "curve": { "$ref": "#/$defs/Curve" }
         },
         "required": ["t", "v", "curve"]

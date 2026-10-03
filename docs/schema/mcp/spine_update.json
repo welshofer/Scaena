@@ -137,12 +137,7 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": {
-        "description": "The findings that are errors, after.",
-        "type": "integer",
-        "format": "uint",
-        "minimum": 0
-      }
+      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 }
     }
   }
 }

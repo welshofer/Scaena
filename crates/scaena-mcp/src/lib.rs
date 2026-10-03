@@ -16,9 +16,9 @@ use indexmap::IndexMap;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ErrorData, InitializeRequestParams, InitializeResult, ListResourcesResult,
-    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ServerCapabilities, ServerConfig, Tool,
+    CacheScope, CallToolResult, ContentBlock, ErrorData, Implementation, ListResourcesResult, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource, ResourceContents,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
@@ -29,27 +29,80 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
     tool_router: ToolRouter<Self>,
-    /// Who the client is, as the history of a bundle it edits names it: `agent:<name>`,
-    /// by the name it gives when it connects (SPEC §8.2).
-    author: Arc<Mutex<String>>,
 }
 
 impl Default for Scaena {
     fn default() -> Self {
-        Scaena { tool_router: Self::tool_router(), author: Arc::new(Mutex::new("agent".into())) }
+        let mut tool_router = Self::tool_router();
+        for route in tool_router.map.values_mut() {
+            route.attr.input_schema = standard(&route.attr.input_schema);
+            route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
+        }
+        Scaena { tool_router }
     }
 }
 
-impl Scaena {
-    fn author(&self) -> String {
-        self.author.lock().map(|a| a.clone()).unwrap_or_else(|_| "agent".into())
+/// The formats JSON Schema defines (2020-12, §7.3).
+const FORMATS: &[&str] = &[
+    "date-time",
+    "date",
+    "time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "uri-template",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+
+/// A tool's schema with only the formats JSON Schema defines. schemars also marks a number
+/// with the width Rust gives it (`uint32`, `double`, …), which a client's validator does not
+/// know and warns of; the type and its `minimum` say what the width meant.
+fn standard(schema: &Map<String, Value>) -> Arc<Map<String, Value>> {
+    fn object(o: &mut Map<String, Value>) {
+        if o.get("format").and_then(Value::as_str).is_some_and(|f| !FORMATS.contains(&f)) {
+            o.shift_remove("format");
+        }
+        // Values, not schemas: what a `default` or an `enum` holds is left as it is.
+        for (key, v) in o.iter_mut() {
+            if !matches!(key.as_str(), "default" | "examples" | "const" | "enum") {
+                value(v);
+            }
+        }
     }
+    fn value(v: &mut Value) {
+        match v {
+            Value::Object(o) => object(o),
+            Value::Array(a) => a.iter_mut().for_each(value),
+            _ => {}
+        }
+    }
+    let mut schema = schema.clone();
+    object(&mut schema);
+    Arc::new(schema)
+}
+
+/// Who the client is, as the history of a bundle it edits names it: `agent:<name>`, by the
+/// name it gives (SPEC §8.2). A client on protocol 2026-07-28 gives it with every request;
+/// an older one, once, when it connects.
+fn author(context: &RequestContext<RoleServer>) -> String {
+    context.client_info().map_or_else(|| "agent".into(), |client| format!("agent:{}", client.name))
 }
 
 /// Serve on stdin and stdout until the client goes.
@@ -362,22 +415,27 @@ impl Scaena {
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, \
         motion, and narrative in every format it lists. Findings carry a JSON pointer, and a fix when one is safe; \
         `fix` applies them.")]
-    async fn deck_lint(&self, Parameters(a): Parameters<DeckLint>) -> Result<Json<Linted>, String> {
+    async fn deck_lint(
+        &self,
+        Parameters(a): Parameters<DeckLint>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<Linted>, String> {
         let min = match a.severity {
             SeverityArg::Error => scaena_core::Severity::Error,
             SeverityArg::Warning => scaena_core::Severity::Warning,
             SeverityArg::Info => scaena_core::Severity::Info,
         };
-        let author = self.author();
+        let author = author(&context);
         blocking(move || {
             let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
@@ -477,8 +535,9 @@ impl Scaena {
     async fn theme_apply(
         &self,
         Parameters(a): Parameters<ThemeApply>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run))
             .await
             .map(Json)
@@ -489,8 +548,9 @@ impl Scaena {
     async fn data_attach(
         &self,
         Parameters(a): Parameters<DataAttach>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
     }
 
@@ -509,8 +569,9 @@ impl Scaena {
     async fn spine_update(
         &self,
         Parameters(a): Parameters<SpineUpdate>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || {
             scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
         })
@@ -629,21 +690,10 @@ pub fn resource(uri: &str) -> Option<&'static str> {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Scaena {
-    async fn initialize(
-        &self,
-        request: InitializeRequestParams,
-        context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, ErrorData> {
-        if let Ok(mut author) = self.author.lock() {
-            *author = format!("agent:{}", request.client_info.name);
-        }
-        context.peer.set_peer_info(request.clone());
-        self.negotiate_initialize(&request)
-    }
-
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
-        ServerConfig::new(capabilities).with_instructions(
+        let server = Implementation::new("scaena", env!("CARGO_PKG_VERSION"));
+        ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
              with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
@@ -655,7 +705,7 @@ impl ServerHandler for Scaena {
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         let resources = RESOURCES
             .iter()
@@ -664,16 +714,37 @@ impl ServerHandler for Scaena {
                 Resource::new(*uri, *name).with_mime_type(*mime).with_size(text.len() as u64)
             })
             .collect();
-        Ok(ListResourcesResult::with_all_items(resources))
+        let mut list = ListResourcesResult::with_all_items(resources);
+        if hints(&context) {
+            list = list.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(list)
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
         let text = resource(&request.uri)
             .ok_or_else(|| ErrorData::resource_not_found(format!("no resource `{}`", request.uri), None))?;
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]).into())
+        let mut read = ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]);
+        if hints(&context) {
+            read = read.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(read.into())
     }
+}
+
+/// How long a client may keep what `resources/list` and `resources/read` return. The
+/// resources are built into the server, the same for everyone, and never change while it
+/// runs; an hour bounds how stale a client's copy can be across a rebuild.
+const RESOURCE_TTL_MS: u64 = 3_600_000;
+
+/// Whether the client negotiated a protocol (2026-07-28 on) whose list and read results
+/// carry cache hints: there `ttlMs` and `cacheScope` are required, and a client rejects a
+/// result without them (SEP-2549). Older clients get the shape they know, as rmcp's own
+/// `tools/list` does.
+fn hints(context: &RequestContext<RoleServer>) -> bool {
+    context.protocol_version().is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
 }
