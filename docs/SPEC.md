@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.9",
+  "scaena": "0.10",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -254,7 +254,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.7",
+  "scaena-theme": "0.8",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -360,6 +360,12 @@ Rules:
   - `scatter`: a dot at each datum's x and y. Without `sizeEncoding` every dot is `charts.dotRadius` (default 6). With it, a dot's area is proportional to its size value: the largest dot's radius is 2.5 times `charts.dotRadius`, and no dot is smaller than `charts.dotRadius`, so the smallest still reads as a dot.
   - `dot`: a dot of `charts.dotRadius` at each category's value.
   - `donut`: each datum a slice of a ring, its share of the total, clockwise from twelve o'clock in data order. The hole is `charts.donutHole` (default 0.72, a thin ring) of the radius. A negative value is an error. A donut has no axes.
+- **Forecasts and estimates** (`projected`, PLAN 1.28; deck format 0.10, theme format 0.8). A line's or an area's rows can be marked projected: a forecast, or an estimate. `"projected": { "field": "estimate" }` marks each row whose `estimate` is true, a `boolean` column. `{ "field": "kind", "value": "forecast" }` marks each row whose `kind` is `forecast`.
+  - A line runs dashed from its last actual point through what is projected: a segment is projected where either of its ends is. Its dash and the gap after it are `charts.projected.dash` (default `[3, 2]`) widths of the line, with square ends.
+  - An area is filled under the same stretch at `charts.projected.opacity` (default 0.5) of its color.
+  - A projected value says it is an estimate: its label is the value, a no-break space, and `projected.note`, else `charts.projected.note`, else `est.` (`$31 est.`). In a transition it cross-fades where a value alone counts.
+  - In a transition, a row that turns actual, or projected, does so halfway.
+  - A `field` the data lacks is E103. So is a `value` its column cannot hold, and, with no `value`, a column that is not `boolean`. `projected` on any other kind of chart is E106.
 - **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else in the step's own format (`%b %-d` for days, `%b %Y` for months, `%Y` for years). Any other x is a category axis: a band per category.
 - **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
 - **Legend.** One entry per series, or per slice of a donut, when there are two or more, in `charts.legend.role` (else the axis's role) and its color. `legend` places it. `auto`, the default, is the theme's `charts.legend.place`, else `direct`; but bars grouped side by side have no end to stand a name by, so an `auto` that would be `direct` is `top` for them.

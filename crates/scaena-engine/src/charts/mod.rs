@@ -353,25 +353,53 @@ pub struct SeriesPath {
     pub stroke: Option<f32>,
     /// Its marks' keys.
     pub marks: Vec<String>,
+    /// Those of its marks that are projected, a forecast or an estimate (PLAN 1.28): a line
+    /// runs dashed into and through them, an area lighter under them.
+    pub projected: Vec<String>,
+    /// A projected stretch of a line: its dash and the gap after it, canvas units.
+    pub dash: [f32; 2],
+    /// A projected stretch of an area: its fill, a fraction of the area's.
+    pub fade: f32,
 }
 
 impl SeriesPath {
-    /// The path through `points`, the series' marks wherever they are, in order across.
-    pub fn path(&self, shapes: &[Shape]) -> Option<Path> {
-        let mut shapes: Vec<&Shape> = shapes.iter().collect();
-        shapes.sort_by(|a, b| a.center_x().total_cmp(&b.center_x()));
-        let (first, rest) = shapes.split_first()?;
-        let mut els = vec![PathEl::MoveTo(first.point())];
-        els.extend(rest.iter().map(|s| PathEl::LineTo(s.point())));
-        if self.stroke.is_none() {
-            for s in shapes.iter().rev() {
-                if let Shape::Span { x, base, .. } = **s {
-                    els.push(PathEl::LineTo([x, base]));
-                }
-            }
-            els.push(PathEl::Close);
+    /// The path through `marks`, the series' marks wherever they are, each with whether it
+    /// is projected, in order across: in stretches of segments alike, each with whether it
+    /// is projected. A segment is projected where either end is, so a line runs dashed from
+    /// its last actual point. A line is a path along each stretch; an area, the area under
+    /// it. A series with nothing projected is one stretch.
+    pub fn stretches(&self, marks: &[(Shape, bool)]) -> Vec<(bool, Path)> {
+        let mut marks: Vec<&(Shape, bool)> = marks.iter().collect();
+        marks.sort_by(|a, b| a.0.center_x().total_cmp(&b.0.center_x()));
+        let Some(&&(_, first)) = marks.first() else { return Vec::new() };
+        let projected = |i: usize| marks[i].1 || marks[i + 1].1;
+        // Each stretch's first and last mark.
+        let mut runs: Vec<(bool, usize, usize)> = Vec::new();
+        if marks.len() == 1 {
+            runs.push((first, 0, 0));
         }
-        Some(Path(els))
+        for i in 0..marks.len().saturating_sub(1) {
+            match runs.last_mut() {
+                Some((p, _, end)) if *p == projected(i) => *end = i + 1,
+                _ => runs.push((projected(i), i, i + 1)),
+            }
+        }
+        (runs.into_iter())
+            .map(|(p, a, b)| {
+                let along = &marks[a..=b];
+                let mut els = vec![PathEl::MoveTo(along[0].0.point())];
+                els.extend(along[1..].iter().map(|m| PathEl::LineTo(m.0.point())));
+                if self.stroke.is_none() {
+                    for m in along.iter().rev() {
+                        if let Shape::Span { x, base, .. } = m.0 {
+                            els.push(PathEl::LineTo([x, base]));
+                        }
+                    }
+                    els.push(PathEl::Close);
+                }
+                (p, Path(els))
+            })
+            .collect()
     }
 }
 
@@ -386,11 +414,14 @@ pub struct Label {
     pub value: Option<ValueLabel>,
     /// Below 1 where a highlight dims it.
     pub opacity: f32,
+    /// A projected value's label, which says so after the value (PLAN 1.28): it does not
+    /// count from one value to the next, as a value alone does, but cross-fades.
+    pub noted: bool,
 }
 
 impl Label {
     pub fn new(key: impl Into<String>, origin: [f32; 2], text: TextLayout, value: Option<ValueLabel>) -> Label {
-        Label { key: key.into(), origin, text, value, opacity: 1.0 }
+        Label { key: key.into(), origin, text, value, opacity: 1.0, noted: false }
     }
 }
 

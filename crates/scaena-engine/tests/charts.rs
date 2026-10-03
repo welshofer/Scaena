@@ -1439,3 +1439,142 @@ fn walk(ops: &[scaena_core::displaylist::Op], f: &mut impl FnMut(&scaena_core::d
         }
     }
 }
+
+// --- forecasts and estimates (PLAN 1.28) ------------------------------------------------
+
+/// Five years of revenue, the last two estimated: `estimate` true, `kind` `forecast`.
+fn forecast() -> Value {
+    let years = [("2021", 12, false), ("2022", 15, false), ("2023", 18, false), ("2024", 22, true), ("2025", 25, true)];
+    let rows: Vec<Value> = (years.iter())
+        .map(|&(year, rev, est)| {
+            json!({ "year": year, "rev": rev, "estimate": est, "kind": if est { "forecast" } else { "actual" } })
+        })
+        .collect();
+    json!(rows)
+}
+
+/// A chart of `kind` over `forecast()`, with `extra` props.
+fn forecast_deck(kind: &str, extra: Value) -> Deck {
+    let mut chart = json!({ "type": "chart", "kind": kind, "data": "@q", "x": { "field": "year" },
+                            "y": { "field": "rev", "format": "$,.0f" } });
+    chart.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    deck("en-US", forecast(), json!({ "rev": "number", "estimate": "boolean" }), Value::Null, chart)
+}
+
+/// The paths drawn in `color`'s hue in the display list of `state` at `t_ms`: where each
+/// starts and ends across, its dash, and its alpha.
+fn drawn(d: &Deck, state: &str, t_ms: f64, color: scaena_core::displaylist::Color) -> Vec<([f32; 2], Vec<f32>, u8)> {
+    use scaena_core::displaylist::{Op, Paint, PathEl};
+    let across = |path: &scaena_core::displaylist::Path| {
+        let xs: Vec<f32> = (path.0.iter())
+            .filter_map(|e| match e {
+                PathEl::MoveTo(p) | PathEl::LineTo(p) => Some(p[0]),
+                _ => None,
+            })
+            .collect();
+        [xs.iter().copied().fold(f32::INFINITY, f32::min), xs.iter().copied().fold(f32::NEG_INFINITY, f32::max)]
+    };
+    let mut out = Vec::new();
+    walk(&frame(d, state, t_ms).ops, &mut |op| match op {
+        Op::Stroke { path, paint: Paint::Solid(c), dash, .. } if c.0[..3] == color.0[..3] => {
+            out.push((across(path), dash.clone(), c.0[3]))
+        }
+        Op::Fill { path, paint: Paint::Solid(c), .. } if c.0[..3] == color.0[..3] => {
+            out.push((across(path), Vec::new(), c.0[3]))
+        }
+        _ => {}
+    });
+    out
+}
+
+#[test]
+fn a_forecast_runs_dashed_from_the_last_actual_point() {
+    let d = forecast_deck("line", json!({ "projected": { "field": "estimate" } }));
+    // The chart as the frame lays it out, in its cell.
+    let layout = scenes(&d).remove(0);
+    let line = &layout.paths[0];
+    assert_eq!(line.projected, ["2024", "2025"]);
+    let x = |key: &str| layout.marks.iter().find(|m| m.key == key).unwrap().shape.point()[0];
+    let width = line.stroke.unwrap();
+    // Solid through 2023, the last actual year; dashed from it, three widths on, two off.
+    let strokes = drawn(&d, "s", 0.0, line.color);
+    assert_eq!(strokes.len(), 2, "{strokes:?}");
+    assert_eq!((strokes[0].0, strokes[0].1.is_empty()), ([x("2021"), x("2023")], true));
+    assert_eq!((strokes[1].0, strokes[1].1.clone()), ([x("2023"), x("2025")], vec![3.0 * width, 2.0 * width]));
+    // Nothing projected: one solid stroke, as before.
+    let plain = forecast_deck("line", json!({}));
+    let strokes = drawn(&plain, "s", 0.0, scenes(&plain)[0].paths[0].color);
+    assert_eq!(strokes.len(), 1);
+    assert!(strokes[0].1.is_empty());
+}
+
+#[test]
+fn an_area_is_lighter_under_what_is_projected() {
+    let d = forecast_deck("area", json!({ "projected": { "field": "kind", "value": "forecast" } }));
+    let layout = scenes(&d).remove(0);
+    let area = &layout.paths[0];
+    let x = |key: &str| layout.marks.iter().find(|m| m.key == key).unwrap().shape.point()[0];
+    let fills = drawn(&d, "s", 0.0, area.color);
+    assert_eq!(fills.len(), 2, "{fills:?}");
+    assert_eq!((fills[0].0, fills[0].2), ([x("2021"), x("2023")], area.color.0[3]));
+    assert_eq!(fills[1].0, [x("2023"), x("2025")]);
+    let half = f32::from(area.color.0[3]) * 0.5;
+    assert!((f32::from(fills[1].2) - half).abs() <= 1.0, "{} is half of {}", fills[1].2, area.color.0[3]);
+}
+
+#[test]
+fn a_projected_value_says_it_is_an_estimate() {
+    let projected = json!({ "projected": { "field": "estimate" } });
+    let layout = compile(&forecast_deck("line", projected.clone()));
+    // A line prints its first value and its last, an estimate.
+    assert_eq!(texts(&layout.labels), ["$12", "$25\u{a0}est."]);
+    assert_eq!(layout.labels.iter().map(|l| l.noted).collect::<Vec<_>>(), [false, true]);
+    // The note is the chart's, else the theme's, which also sets the dash and the fill.
+    let theme = themed(json!({ "projected": { "note": "forecast", "dash": [4, 1], "opacity": 0.25 } }));
+    let theirs = try_compile_in(&theme, &forecast_deck("line", projected)).unwrap();
+    assert_eq!(texts(&theirs.labels)[1], "$25\u{a0}forecast");
+    let width = theirs.paths[0].stroke.unwrap();
+    assert_eq!((theirs.paths[0].dash, theirs.paths[0].fade), ([4.0 * width, width], 0.25));
+    let mine = forecast_deck("line", json!({ "projected": { "field": "estimate", "note": "proj." } }));
+    assert_eq!(texts(&try_compile_in(&theme, &mine).unwrap().labels)[1], "$25\u{a0}proj.");
+}
+
+#[test]
+fn a_forecast_that_comes_true_turns_solid_halfway() {
+    // A year on, 2024 is actual and 2025 is estimated higher.
+    let d = forecast_deck("line", json!({ "projected": { "field": "estimate" } }));
+    let mut v = serde_json::to_value(&d).unwrap();
+    let mut rows = forecast();
+    rows[3]["estimate"] = json!(false);
+    rows[3]["kind"] = json!("actual");
+    rows[4]["rev"] = json!(26);
+    v["data"]["q2"] = json!({ "source": { "inline": rows }, "schema": { "rev": "number", "estimate": "boolean" } });
+    let mut next = v["states"][0].clone();
+    next["id"] = json!("t");
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["props"]["c"] = json!({ "data": "@q2" });
+    v["states"].as_array_mut().unwrap().push(next);
+    let d: Deck = serde_json::from_value(v).unwrap();
+    let layout = scenes(&d).remove(0);
+    let x = |key: &str| layout.marks.iter().find(|m| m.key == key).unwrap().shape.point()[0];
+    let dashed_from = |t_ms: f64| {
+        let strokes = drawn(&d, "t", t_ms, layout.paths[0].color);
+        strokes.iter().find(|s| !s.1.is_empty()).map(|s| s.0[0])
+    };
+    assert_eq!(dashed_from(100.0), Some(x("2023")), "before halfway, 2024 is still an estimate");
+    assert_eq!(dashed_from(300.0), Some(x("2024")), "from halfway, it is actual");
+    // The estimate's value cross-fades, its note with it, rather than count: halfway, the
+    // old and the new each at half strength.
+    let mut estimates = Vec::new();
+    walk(&frame(&d, "t", 200.0).ops, &mut |op| {
+        if let scaena_core::displaylist::Op::Layer { opacity, ops, .. } = op
+            && ops
+                .iter()
+                .any(|o| matches!(o, scaena_core::displaylist::Op::Glyphs { text, .. } if text.contains("est.")))
+        {
+            estimates.push(*opacity);
+        }
+    });
+    assert_eq!(estimates.len(), 2, "{estimates:?}");
+    assert!(estimates.iter().all(|o| (o - 0.5).abs() < 1e-3), "{estimates:?}");
+}

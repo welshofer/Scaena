@@ -63,12 +63,27 @@ struct Row {
     shade: Option<f64>,
     size: Option<f64>,
     key: String,
+    /// A forecast or an estimate (PLAN 1.28): a line's or an area's row its `projected`
+    /// marks.
+    projected: bool,
 }
 
 type Encoding<'a> = Option<&'a Map<String, Value>>;
 
 fn field<'a>(e: Encoding<'a>) -> Option<&'a str> {
     e.and_then(|e| e.get("field")).and_then(Value::as_str)
+}
+
+/// Whether a row's datum marks it projected: it is `value`, or, with no value, true.
+fn marks_projected(d: &Datum, value: Option<&Value>) -> bool {
+    match (d, value) {
+        (Datum::Bool(b), None) => *b,
+        (_, None) | (Datum::Null, _) => false,
+        (Datum::Bool(b), Some(v)) => v.as_bool() == Some(*b),
+        (Datum::Number(n), Some(v)) => v.as_f64() == Some(*n),
+        (Datum::Text(t), Some(v)) => v.as_str() == Some(t.as_str()),
+        (Datum::Date(_), Some(v)) => v.as_str() == Some(d.label().as_str()),
+    }
 }
 
 /// The calendar unit a column of dates steps by, read off what all its dates share: a
@@ -262,6 +277,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let color_col = field(color_enc).map(col).transpose()?;
     let size_col = field(size_enc).map(col).transpose()?;
     let key_col = props.get("key").and_then(Value::as_str).map(col).transpose()?;
+    // A line's or an area's rows that are a forecast or an estimate.
+    let projected = encoding("projected").filter(|_| matches!(kind, Kind::Line | Kind::Area));
+    let projected_col = field(projected).map(col).transpose()?;
+    let projected_value = projected.and_then(|p| p.get("value"));
     let shaded = color_col.is_some_and(|c| table.types[c] == ColumnType::Number);
     // Without a series, a categorical color field groups like one.
     let group_col = series_col.or(color_col.filter(|_| !shaded));
@@ -304,6 +323,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             shade,
             size,
             key,
+            projected: projected_col.is_some_and(|c| marks_projected(&row[c], projected_value)),
         });
     }
     if rows.is_empty() {
@@ -342,6 +362,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let dot_radius = charts.and_then(|c| c.dot_radius).unwrap_or(6.0) as f32;
     let hole = charts.and_then(|c| c.donut_hole).unwrap_or(0.72).clamp(0.0, 0.99) as f32;
     let line_width = theme.stroke(charts.and_then(|c| c.stroke_width.as_deref()).unwrap_or("thin"))?;
+    // What is projected: a line dashes, in widths of the line; an area is lighter; and a
+    // value says it is an estimate.
+    let estimate = charts.and_then(|c| c.projected.as_ref());
+    let [dash, dash_gap] = estimate.and_then(|p| p.dash).unwrap_or([3.0, 2.0]);
+    let dash = [dash as f32 * line_width, dash_gap as f32 * line_width];
+    let fade = estimate.and_then(|p| p.opacity).unwrap_or(0.5).clamp(0.0, 1.0) as f32;
+    let note = (projected.and_then(|p| p.get("note")).and_then(Value::as_str))
+        .or_else(|| estimate.and_then(|p| p.note.as_deref()))
+        .unwrap_or("est.");
     let palette: Vec<Color> = (theme.tokens.data.categorical.iter())
         .map(|c| scaena_core::color::parse(&c.0).map_err(EngineError::Theme))
         .collect::<Result<_, _>>()?;
@@ -570,7 +599,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             Kind::StackedBar => totals.iter().find(|(k, _)| *k == r.category).map_or(r.y, |t| t.1),
             _ => r.y,
         };
-        let text = typeset_minus(value_format.format(v, locale), minus);
+        let mut text = typeset_minus(value_format.format(v, locale), minus);
+        if r.projected {
+            text = format!("{text}\u{a0}{note}");
+        }
         values.push(if shown { Some(set(text, &label_role)?) } else { None });
     }
     let numerals = match labelled_any {
@@ -1133,6 +1165,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     None => 0.5,
                 };
                 label_at(&mut out, value, &r.key, &shape, x, r.y, false, side);
+                if r.projected
+                    && let Some(label) = out.labels.last_mut().filter(|l| l.key == r.key)
+                {
+                    label.noted = true;
+                }
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
             if matches!(kind, Kind::Line | Kind::Area) {
@@ -1146,6 +1183,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         color: color_of(first),
                         stroke: (kind == Kind::Line).then_some(line_width),
                         marks: members.iter().map(|r| r.key.clone()).collect(),
+                        projected: members.iter().filter(|r| r.projected).map(|r| r.key.clone()).collect(),
+                        dash,
+                        fade,
                     });
                 }
             }

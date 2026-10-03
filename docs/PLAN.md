@@ -495,11 +495,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - a `y` rule across a bar's value (`n-bars`);
   - a callout's text on another annotation's rule (`n-bars` in `annotations-next`).
 
-  PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Open: `st-line` in 9:16, a steep line through its first value, which needs the value moved off the line where the plot's side clamps it.)*
+  PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Open: `st-line` in 9:16, a steep line through its first value, which needs the value moved off the line where the plot's side clamps it. 1.28's `fc-line` in `forecast-next` shows the same in 9:16.)*
 
 ### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
 *Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
-- [ ] 1.28 Forecasts and estimates read as such. A line's or an area's rows can be marked projected (a field the encoding names). The line runs dashed from the last actual point, and its end value says it is an estimate. SPEC §3.7; schema; a torture case. *(The guide: "distinguish actual and forecast".)*
+- [x] 1.28 Forecasts and estimates read as such. A line's or an area's rows can be marked projected (a field the encoding names). The line runs dashed from the last actual point, and its end value says it is an estimate. SPEC §3.7; schema; a torture case. *(The guide: "distinguish actual and forecast".)*
+  *(Done: a chart's `projected` names a field, and the value that marks a projected row, or none for a true boolean (deck format 0.10). SPEC §3.7 says how it draws.*
+    - *A line runs dashed from its last actual point, three line widths on and two off, with square ends. An area fills at half strength under the same stretch.*
+    - *A projected value's label adds `est.`: the chart's `projected.note`, else the theme's `charts.projected.note`. The theme's `charts.projected` also sets the dash and the fill (theme format 0.8).*
+    - *In a transition, a projected label cross-fades where a value alone counts, and a row that turns actual does so halfway.*
+    - *Validation: E103 for a field the data lacks, for a value its column cannot hold, and for no value on a column that is not boolean; E106 for `projected` on another kind of chart.*
+    - *Torture cases 46 and 47 (`forecast`, `forecast-next@0.5`), four engine tests, and a validation test.)*
 - [ ] 1.29 Horizontal bars: `bar` and `stackedBar` take `orient: horizontal`, with categories down the side and their names read across, for rankings and long names. SPEC §3.7; schema; a torture case.
 - [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.

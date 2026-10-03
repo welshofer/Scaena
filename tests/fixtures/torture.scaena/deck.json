@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.10",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -431,6 +431,230 @@
       "schema": {
         "rev": "number",
         "growth": "number"
+      }
+    },
+    "forecast": {
+      "source": {
+        "inline": [
+          {
+            "year": "2021",
+            "product": "Core",
+            "rev": 12,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2022",
+            "product": "Core",
+            "rev": 15,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Core",
+            "rev": 18,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Core",
+            "rev": 22,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Core",
+            "rev": 25,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Core",
+            "rev": 28,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2027",
+            "product": "Core",
+            "rev": 31,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2021",
+            "product": "Cloud",
+            "rev": 6,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2022",
+            "product": "Cloud",
+            "rev": 8,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Cloud",
+            "rev": 11,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Cloud",
+            "rev": 14,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Cloud",
+            "rev": 17,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Cloud",
+            "rev": 20,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2027",
+            "product": "Cloud",
+            "rev": 23,
+            "estimate": true,
+            "kind": "forecast"
+          }
+        ]
+      },
+      "schema": {
+        "year": "date",
+        "rev": "number",
+        "estimate": "boolean"
+      },
+      "parse": {
+        "year": "%Y"
+      }
+    },
+    "forecast-next": {
+      "source": {
+        "inline": [
+          {
+            "year": "2022",
+            "product": "Core",
+            "rev": 15,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Core",
+            "rev": 18,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Core",
+            "rev": 22,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Core",
+            "rev": 25,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Core",
+            "rev": 29,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2027",
+            "product": "Core",
+            "rev": 32,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2028",
+            "product": "Core",
+            "rev": 35,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2022",
+            "product": "Cloud",
+            "rev": 8,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Cloud",
+            "rev": 11,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Cloud",
+            "rev": 14,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Cloud",
+            "rev": 17,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Cloud",
+            "rev": 21,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2027",
+            "product": "Cloud",
+            "rev": 24,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2028",
+            "product": "Cloud",
+            "rev": 27,
+            "estimate": true,
+            "kind": "forecast"
+          }
+        ]
+      },
+      "schema": {
+        "year": "date",
+        "rev": "number",
+        "estimate": "boolean"
+      },
+      "parse": {
+        "year": "%Y"
       }
     }
   },
@@ -3209,6 +3433,67 @@
       "at": {
         "parent": "grid-row"
       }
+    },
+    "fc-line": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@forecast",
+      "x": {
+        "field": "year"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "projected": {
+        "field": "estimate"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by product, 2021 to 2027: actual to 2025, estimated after, the estimates dashed.",
+      "semantic": "evidence"
+    },
+    "fc-area": {
+      "type": "chart",
+      "kind": "area",
+      "data": "@forecast",
+      "x": {
+        "field": "year"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "projected": {
+        "field": "kind",
+        "value": "forecast"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by product, 2021 to 2027, stacked: actual to 2025, the estimates lighter.",
+      "semantic": "evidence"
     }
   },
   "states": [
@@ -4126,6 +4411,41 @@
         "grid-row-label": {}
       },
       "notes": "Recorded (PLAN 1.25): the theme's baseline grid has a line every 8 cu from the 96 cu top margin, and the grid roles snap to it; the rows start off it, from 210 cu. The headline's cap top sits on a grid line, moved down from where centering put it. Left, the body paragraph's baselines sit on grid lines 40 cu (five lines) apart, its first moved down to the next line. Middle, text of the same size at a leading of 43.2 cu sets its lines 48 apart, every gap rounded up to whole grid lines, and lint W221 warns about its leading. Right, the caption aligned to the foot of its box (rows 3-5) moved up to the grid line above, its lines 32 cu apart and still in the box. Rows 7-8, right: a row stack whose 32 cu body text and 22 cu caption share one baseline on the row's foot; both moved up to the same grid line."
+    },
+    {
+      "id": "forecast",
+      "name": "Forecasts and estimates",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "46 · Forecasts and estimates · recorded"
+        },
+        "fc-line": {},
+        "fc-area": {}
+      },
+      "notes": "Pass: left, each product's line runs solid from 2021 to 2025, its last actual year, and dashed from there to 2027, each dash three line widths long and each gap two. Its 2027 value says it is an estimate (\"$31 est.\", \"$23 est.\"); its 2021 value says nothing more. Right, the same rows as stacked areas, which print no values: each area is half as strong from 2025 on, its value axis beside it. The line's `projected` reads a boolean column; the area's reads `kind` for `forecast`."
+    },
+    {
+      "id": "forecast-next",
+      "name": "Forecasts: a year comes in",
+      "slide": "forecast",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "47 · Forecasts: a year comes in · recorded"
+        },
+        "fc-line": {
+          "data": "@forecast-next"
+        },
+        "fc-area": {
+          "data": "@forecast-next"
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): each line and area slides a year over by key, 2021 leaving on the left and 2028 coming in on the right. 2026 comes in as actual: from halfway on, each line runs solid to 2026 and dashed after it, and each area is half as strong only from 2026. The values at the line's ends fade, the estimates' with their notes, rather than count; 2028's rides in with its point from past the plot's edge, clipped until it arrives."
     }
   ],
   "overrides": {

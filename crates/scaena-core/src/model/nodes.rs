@@ -293,6 +293,9 @@ node! {
         pub color: Option<Encoding>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub size_encoding: Option<Encoding>,
+        /// Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub projected: Option<Projected>,
         /// The field that identifies a mark across states.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub key: Option<String>,

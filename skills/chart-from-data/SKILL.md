@@ -49,6 +49,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Format every number the audience reads: `$,.1f`, `,d`, `.0%`, or `$.2~k` (compact).
    - A line's or a dot plot's value axis spans its data. When the point is the distance from zero, start it there with `y: { "domain": [0, null] }`; bars and areas always do.
    - Set `key` only when x and series do not tell the rows apart. A key that repeats is E103.
+   - A forecast or an estimate in a line or an area is `projected` (SPEC §3.7): `{ "field": "estimate" }` for a boolean column, or `{ "field": "kind", "value": "forecast" }`. The line runs dashed from the last actual point, the area lightens, and the end value says `est.`. Never draw a forecast as an actual: a reader takes a solid line as fact.
 6. **Place it** in a `figure` layout's `main` slot (`narrow-figure` for two or three bars), or the theme's equivalent.
    - A chart is a slide of its own: `add_state` with `"layout": "figure"`, then `add_node` with that `state` (ops: SPEC §7.3, `docs/schema/patch.schema.json`).
    - A new state tracks the one before it, so the last slide's nodes stay on screen. List them in the state's `remove`, or give the state `"mode": "absolute"`.

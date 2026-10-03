@@ -187,7 +187,7 @@ impl SceneNode {
                     ops.push(rule_op(rule, 1.0));
                 }
                 let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
-                let mut plot: Vec<Op> = chart.paths.iter().filter_map(|s| path_op(s, &shapes, s.color, 1.0)).collect();
+                let mut plot: Vec<Op> = chart.paths.iter().flat_map(|s| path_ops(s, &shapes, s.color, 1.0)).collect();
                 plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
                 for note in &chart.notes {
                     plot.extend(note.rule.as_ref().and_then(|r| broken_rule_op(r, &spans(&note.gaps), 1.0)));
@@ -1537,11 +1537,23 @@ impl ChartPlan {
                         (Some(w), Some(v)) => Some(lerp(w, v, p)),
                         (_, v) => v,
                     };
-                    path_op(&merged, &at, mix(x.color, y.color, p), 1.0)
+                    // A forecast that turns actual, or the other way, does so halfway; a
+                    // point on one side only is what it is there.
+                    merged.projected = (merged.marks.iter())
+                        .filter(|k| match (x.marks.contains(k), y.marks.contains(k)) {
+                            (true, true) if p < 0.5 => x.projected.contains(k),
+                            (true, false) => x.projected.contains(k),
+                            _ => y.projected.contains(k),
+                        })
+                        .cloned()
+                        .collect();
+                    merged.dash = [lerp(x.dash[0], y.dash[0], p), lerp(x.dash[1], y.dash[1], p)];
+                    merged.fade = lerp(x.fade, y.fade, p);
+                    path_ops(&merged, &at, mix(x.color, y.color, p), 1.0)
                 }
-                (Some(x), None) => path_op(x, &at, x.color, 1.0 - p),
-                (None, Some(y)) => path_op(y, &at, y.color, p),
-                (None, None) => None,
+                (Some(x), None) => path_ops(x, &at, x.color, 1.0 - p),
+                (None, Some(y)) => path_ops(y, &at, y.color, p),
+                (None, None) => Vec::new(),
             };
             plot.extend(path);
         }
@@ -1872,7 +1884,9 @@ fn value_label(
     }
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
     let end = y.map(|l| ride(l).value).or(marks.1.is_none().then_some(0.0));
-    if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
+    // A value that says it is an estimate cross-fades: the figures alone count.
+    let noted = x.is_some_and(|l| l.noted) || y.is_some_and(|l| l.noted);
+    if let (Some(start), Some(end), Some(numerals), Some(label), false) = (start, end, numerals, y.or(x), noted)
         && let count = numerals.count(start, end, p)
         && let Some((runs, width)) = numerals.compose(&count)
     {
@@ -2200,25 +2214,31 @@ fn band_op(rect: [f32; 4], color: Color, alpha: f32) -> Op {
     Op::Fill { path: Path::rect(rect), rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
 }
 
-/// A series' line or area through its marks' `shapes` (by key) in `color`.
-fn path_op(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f32) -> Option<Op> {
-    let mine: Vec<Shape> =
-        shapes.iter().filter(|(k, _)| series.marks.iter().any(|m| m == k)).map(|&(_, s)| s).collect();
-    let path = series.path(&mine)?;
-    let paint = Paint::Solid(fade(color, alpha));
-    Some(match series.stroke {
+/// A series' line or area through its marks' `shapes` (by key) in `color`, a stretch at a
+/// time: what is projected (PLAN 1.28) runs dashed, or fills lighter.
+fn path_ops(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f32) -> Vec<Op> {
+    let mine: Vec<(Shape, bool)> = (shapes.iter())
+        .filter(|(k, _)| series.marks.iter().any(|m| m == k))
+        .map(|&(k, s)| (s, series.projected.iter().any(|m| m == k)))
+        .collect();
+    let op = |(projected, path): (bool, Path)| match series.stroke {
         Some(width) => Op::Stroke {
             path,
-            paint,
+            paint: Paint::Solid(fade(color, alpha)),
             width,
-            cap: Cap::Round,
+            // A dash ends square, where a whole line ends round.
+            cap: if projected { Cap::Butt } else { Cap::Round },
             join: Join::Round,
             miter_limit: 4.0,
-            dash: Vec::new(),
+            dash: if projected { series.dash.to_vec() } else { Vec::new() },
             dash_offset: 0.0,
         },
-        None => Op::Fill { path, rule: FillRule::NonZero, paint },
-    })
+        None => {
+            let alpha = if projected { alpha * series.fade } else { alpha };
+            Op::Fill { path, rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
+        }
+    };
+    series.stretches(&mine).into_iter().map(op).collect()
 }
 
 fn rule_op(rule: &Rule, alpha: f32) -> Op {
@@ -2538,6 +2558,9 @@ mod tests {
             color: Color([0, 0, 0, 255]),
             stroke: Some(2.0),
             marks: keys.iter().map(|k| k.to_string()).collect(),
+            projected: Vec::new(),
+            dash: [6.0, 4.0],
+            fade: 0.5,
         };
         let before =
             chart(ChartKind::Line, vec![dot("q1", 0.0, 80.0), dot("q2", 100.0, 40.0)], vec![path(&["q1", "q2"])]);
@@ -2706,6 +2729,9 @@ mod tests {
             color: Color([0, 0, 0, 255]),
             stroke: Some(2.0),
             marks: marks.iter().map(|k| k.to_string()).collect(),
+            projected: Vec::new(),
+            dash: [6.0, 4.0],
+            fade: 0.5,
         };
         let lines = chart(
             ChartKind::Line,

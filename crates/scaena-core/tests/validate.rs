@@ -331,7 +331,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.9",
+        "scaena": "0.10",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -350,4 +350,52 @@ fn e103_two_rows_one_mark() {
         "states": [{ "id": "a", "layout": "full", "props": { "keyed": {}, "unseried": {}, "fine": {} } }]
     });
     assert_eq!(findings(&deck.to_string()), ["E103 /nodes/keyed/key", "E103 /nodes/unseried/x/field"]);
+}
+
+#[test]
+fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
+    // PLAN 1.28: a true boolean, or a value its column holds; and only a line or an area.
+    let chart = |id: &str, kind: &str, projected: serde_json::Value| {
+        (
+            id.to_string(),
+            serde_json::json!({ "type": "chart", "kind": kind, "data": "@r", "x": { "field": "y" },
+            "y": { "field": "v" }, "projected": projected, "alt": "", "at": { "in": "main" } }),
+        )
+    };
+    let nodes: serde_json::Map<String, serde_json::Value> = [
+        chart("boolean", "line", serde_json::json!({ "field": "est" })),
+        chart("valued", "area", serde_json::json!({ "field": "kind", "value": "forecast" })),
+        chart("missing", "line", serde_json::json!({ "field": "estimate" })),
+        chart("unvalued", "line", serde_json::json!({ "field": "kind" })),
+        chart("mistyped", "line", serde_json::json!({ "field": "kind", "value": true })),
+        chart("bars", "bar", serde_json::json!({ "field": "est" })),
+    ]
+    .into_iter()
+    .collect();
+    let props: serde_json::Map<String, serde_json::Value> =
+        nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
+    let deck = serde_json::json!({
+        "scaena": "0.10",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": {
+            "source": { "inline": [
+                { "y": "2025", "v": 1, "est": false, "kind": "actual" },
+                { "y": "2026", "v": 2, "est": true, "kind": "forecast" }
+            ] },
+            "schema": { "v": "number", "est": "boolean" }
+        } },
+        "nodes": nodes,
+        "states": [{ "id": "a", "layout": "full", "props": props }]
+    });
+    assert_eq!(
+        findings(&deck.to_string()),
+        [
+            "E103 /nodes/missing/projected/field",
+            "E103 /nodes/mistyped/projected/value",
+            "E103 /nodes/unvalued/projected/field",
+            "E106 /nodes/bars/projected"
+        ]
+    );
 }

@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.7",
+  "scaena-theme": "0.8",
   "name": "B2 bench",
   "description": "B1's theme with a `figure` layout: the SPEC §15 B2 benchmark theme. Written by scripts/build_bench_decks.py.",
   "tokens": {

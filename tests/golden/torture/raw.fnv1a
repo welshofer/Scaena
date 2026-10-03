@@ -45,6 +45,8 @@ morph fc6edd2f7de2c444
 formats 4407efe9aee98956
 stagger 3542976db0ce4a77
 baseline-grid 3cd36d5159b56643
+forecast 5cb843f101c766f4
+forecast-next b6f4470e82497749
 chart@0.25 c57d0c5bfb85510c
 chart@0.5 f93bf112d16ad430
 chart-next@0.25 00f0d618ab353049
@@ -62,6 +64,7 @@ morph@0.5 40e4278bb4f6209f
 morph@0.75 88c8a984a5e883f0
 stagger@0.3 52e86472f3e08e4c
 stagger@0.6 1c733cdfa66235b5
+forecast-next@0.5 9c21fff1543ffdde
 formats~9x16 bd611fea23e3eb49
 containers~9x16 472f03e08896b8a3
 chart-next@0.5~9x16 4734404826e3ceb7

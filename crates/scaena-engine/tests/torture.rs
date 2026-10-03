@@ -31,7 +31,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
 /// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
 /// build member on member, a ring that sweeps open, and lines that rise series by series.
-const MORPH: [(&str, f64); 17] = [
+/// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
+/// there from halfway.
+const MORPH: [(&str, f64); 18] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -49,6 +51,7 @@ const MORPH: [(&str, f64); 17] = [
     ("morph", 0.75),
     ("stagger", 0.3),
     ("stagger", 0.6),
+    ("forecast-next", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
