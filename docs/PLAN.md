@@ -370,7 +370,30 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Times are the deck's own format's; a cue that counts lines can run differently in another format.)*
 
 ### 1E Store
-- [ ] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add.
+- [x] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add. *(Done. `scaena-store::crdt` (`DeckDoc`), `history/deck.loro`, `scaena save --history`; SPEC §3.1, §7.1, §7.2, §8; ADR-0002 records the decision: Loro stays:*
+  - *The containers are SPEC §8.1's.*
+    - *Nodes are keyed by keys of the CRDT's own. Everything that names a node does so by key: state props, `remove`, choreography, overrides, and `at.parent`. So a rename sets one field, one operation.*
+    - *`order`, a movable list of the keys, holds paint order.*
+  - *Values are JSON text, and each map keeps its key order beside it: a Loro map keeps none, and neither does a map value. Every deck in the repository comes out of the CRDT as it went in, byte for byte, saved and loaded.*
+  - *A deck goes in as the smallest change. Text is edited by character. Runs are re-marked only where they changed. States and beats are moved, not made again.*
+  - *In a bundle that keeps history, every write through the CLI and MCP records its change: by its author (`$SCAENA_AUTHOR`, or `agent:<client>`), saying what it did. A `deck.json` edited outside Scaena goes in first, as a change by `fs`.*
+  - *Undo and redo are per author, and never undo `fs` changes or other peers'.*
+  - *Tests:*
+    - *every repository deck through the CRDT and back;*
+    - *concurrent edits;*
+    - *a rename against an edit;*
+    - *beats moving between sections;*
+    - *states moved and renamed;*
+    - *rich-text runs;*
+    - *nodes made apart under one id;*
+    - *undo;*
+    - *through ops and MCP, the history a bundle keeps.*
+  - *Found on the way:*
+    - *serde_json's `Map::remove` with `preserve_order` swaps the last key into the removed one's place.*
+    - *SPEC §3.1's optional `spine.json` is gone. The CRDT holds the spine as a tree and `deck.json` carries it, so a third copy would be a third authority. It also shared its name with the projection (1.22).*
+  - *Not done:*
+    - *A `history` command (list, undo, branches) for the CLI and MCP. The editors of Phases 2 and 3 use `DeckDoc` directly.*
+    - *`deck.scn` is not regenerated from the CRDT.)*
 
 ### 1F Benchmarks
 - [ ] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)*

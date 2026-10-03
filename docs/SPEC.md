@@ -106,18 +106,17 @@ name.scaena/
   deck.json              # CANONICAL INTERCHANGE form of the logical document (schema: docs/schema/deck.schema.json)
   deck.scn               # OPTIONAL authoring projection (DSL); regenerated on save
   theme.json             # theme used by this deck (copied in; decks are self-contained)
-  spine.json             # OPTIONAL externalized spine (if absent, lives in deck.json)
   data/                  # CSV/JSON data sources referenced by @name
   assets/<sha256>.<ext>  # images, content-addressed
   fonts/<family>-<hash>.ttf|otf|woff2   # subsetted fonts, content-addressed (hash: the subset's sha256, first 16 hex digits)
-  history/deck.loro      # CRDT document: persistence authority + history while editing (absent in "flat" exports)
+  history/deck.loro      # OPTIONAL CRDT document with its history (§8): kept from `save --history` on; absent in "flat" bundles
 ```
 
 Rules:
-- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. The JSON schemas in `docs/schema/` are generated from it and never edited by hand (ADR-0007). `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. If files are found inconsistent on disk (hand edits while closed), the loader applies the newest file as a change authored `fs` and regenerates the others; `deck.json` is the tiebreaker.
+- **Authority.** The *logical document* (the typed model in `scaena-core`) is the truth. The JSON schemas in `docs/schema/` are generated from it and never edited by hand (ADR-0007). `deck.json` is its canonical interchange representation: deterministic serialization, the thing git diffs and agents patch. While a bundle is open in an editor, the CRDT (`history/deck.loro`, §8) holds persistence authority and history; `deck.json` is regenerated from it on every save and the two never disagree. `deck.scn` is an authoring projection: edits to it are compiled into the logical document (through the CRDT when one is open) and it is regenerated on save. A `deck.json` found to say otherwise than the history (edited by hand, or by a tool that writes only files) goes in as a change authored `fs`: `deck.json` is the tiebreaker, so whatever writes the history writes `deck.json` with it.
 - Assets and fonts are referenced by content hash; the bundle is self-contained and portable.
 - Fonts are **subsetted** into the bundle at save time. The render path MUST NOT consult system fonts (§13). System fonts are only enumerated in editors for picking.
-- **Saving** (`scaena save`, PLAN 1.4) writes `deck.json` and the theme file in canonical form. It subsets each font the deck or its theme names to what the deck can draw: the characters in its strings and data, plus ASCII, Latin-1, Latin Extended-A, and general punctuation. Every glyph keeps its id, so a saved bundle draws the frames it drew before (ADR-0004 finding 10). Fonts and images are named by their content and every reference is rewritten; other files are carried as they are. A zip lists its files in path order, each dated 1980-01-01, so the same bundle zips to the same bytes.
+- **Saving** (`scaena save`, PLAN 1.4) writes `deck.json` and the theme file in canonical form. It subsets each font the deck or its theme names to what the deck can draw: the characters in its strings and data, plus ASCII, Latin-1, Latin Extended-A, and general punctuation. Every glyph keeps its id, so a saved bundle draws the frames it drew before (ADR-0004 finding 10). Fonts and images are named by their content and every reference is rewritten; other files are carried as they are. A zip lists its files in path order, each dated 1980-01-01, so the same bundle zips to the same bytes. `--history` starts keeping the bundle's history (§8); a bundle that keeps one records the save in it, files renamed and all.
 - `manifest.json` records `"scaena": "<format version>"` (semver; majors break), the sha256 of `deck.json` and of every other file as last written, and when the bundle was created and last saved. Nothing in the render path reads it.
 
 ### 3.2 Top-level document
@@ -810,13 +809,15 @@ scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--ou
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
-scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
+scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts] [--history]   # write the bundle as §3.1 lays it out
 scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
 scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 
 Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`, `theme`, `patch`); `2` invalid input; `3` not built yet, naming the PLAN task that builds it.
+
+A command that writes a bundle that keeps history (`patch`, `theme --apply`, `lint --fix`, `save`; §8) records its change there, by `$SCAENA_AUTHOR` (`user` without it), saying what it did.
 
 `--json` goes anywhere on the line. With it, stdout holds exactly one JSON value: the command's result, or, when the command stops with exit 2 or 3, `{ "error": { "exit", "message", "plan"? } }`. A usage error is one too. `compile` adds the `line` and `col` of source that does not compile, and the JSON pointer into the deck (`path`) when the error is about part of it. So an agent parses stdout, then reads the exit code. stderr is for people and is not part of the contract. The results:
 
@@ -880,6 +881,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 - **Failures.** A tool that stops returns an error result (`isError`), not a protocol error, so the agent reads why. Its text is `{ "message", "plan"?, "op"? }`: what stopped it, the PLAN task that builds what it needs, and the index of a patch's op that does not apply.
 - **Renders.** `deck_render` returns image content so the agent sees what it made. The text carries the display list's digest (FNV-1a over its postcard bytes, as `tests/golden/torture/raw.fnv1a` holds them): one digest, one drawing.
 - **Paths** are on the machine the server runs on, relative to its working directory. A bundle is a directory, a `.scaena` zip, or a `deck.json`. The server runs where the agent does and assumes no other (ADR-0006).
+- **History.** A tool that writes a bundle that keeps history (§8) records the change as `agent:<name>`, by the name the client gives when it connects.
 - **Schemas.** Each tool's input and output schemas are generated from the Rust types (`schemars`) and committed in `docs/schema/mcp/<tool>.json`. A test fails when they are not what the server lists, and `just bless` regenerates them.
   - Two inputs are typed loosely, as objects: a patch's ops and `deck_create`'s `deck`. Each points at the resource that types it. Inlined, `scaena://schema/patch` alone would add 73 KB to every `tools/list`.
   - The server checks every op as `patch` does, and names the one that fails.
@@ -1017,21 +1019,26 @@ Skills are versioned with the format, and the MCP server serves each as `scaena:
 
 ### 8.1 CRDT document
 
-The document lives in a **Loro** document (fallback option: Automerge; ADR-0002). Containers:
+The document lives in a **Loro** document (ADR-0002, PLAN 1.23; `scaena-store::crdt`), kept with its whole history in `history/deck.loro`. Containers:
 
-- `meta` — map
-- `nodes` — map of maps (`id → props`)
-- `states` — movable list of maps (ordered cue list)
-- `spine` — tree (sections → beats)
-- `data`, `fonts`, `overrides` — maps
-- long text fields (`notes`, `runs`) — rich text containers
+- `deck` — map: `scaena`, `canvas`, `formats`, `theme`, `fonts`, `_comment`, and whether the deck has `meta` and a `spine`
+- `meta`, `data`, `overrides` — maps
+- `nodes` — map of maps: each node under a key of the CRDT's own, which nothing outside it sees, holding its id, its type, and its props. Renaming a node changes its id and nothing else.
+- `order` — movable list of node keys: paint order (§3.4), which a map does not keep
+- `states` — movable list of maps (the ordered cue list). A state's `props`, its `remove`, its choreography's targets, and `at.parent` everywhere name nodes by key.
+- `spine` — tree: sections, with their beats under them
+- a text node's `text` (in its defaults and in deltas) and the `notes` of a state or a beat — text, merged by character; `runs` — rich text, a mark per run
 
-`deck.json` is an **export** of the CRDT state (canonical for git, diffs, agents). `history/deck.loro` carries the full history. On load, if `deck.json` is newer than the CRDT snapshot (e.g., edited by hand or by an agent via files), the diff is imported as a change authored by `fs`.
+Every other value is held as JSON text and replaced whole, the last writer winning, with its keys in their order; a map whose keys `deck.json` shows in an order keeps that order beside them. So the deck the CRDT exports is the canonical `deck.json` byte for byte, and a deck taken in is the smallest change that gets the CRDT there: text edited by character, runs re-marked only where they changed, states and beats moved rather than made again.
+
+`deck.json` is an **export** of the CRDT state (canonical for git, diffs, agents). A `deck.json` that says otherwise than the history (edited by hand, or by an agent via files) is imported as a change authored by `fs` before anything else is recorded (§3.1).
+
+**Merges.** Concurrent edits to different props, nodes, states, beats, or characters all stand; one value edited on both sides keeps one side's, the same on every side. A node renamed on one side and edited on the other is the renamed node with the edit, its deltas and overrides included. Two nodes made apart under one id are both kept, the later in paint order taking a suffix (`id-2`). Text typed at the very edge of a run while the run beside it is restyled may land in either.
 
 ### 8.2 Ops, undo, branches
 
-- Every edit (UI, CLI, MCP) is a change with an author (`user`, `agent:<name>`, `fs`), a timestamp, and an optional message.
-- Undo/redo via the CRDT's undo manager, per author.
+- Every edit (UI, CLI, MCP) is a change with an author (`user`, `agent:<name>`, `fs`), a timestamp, and a message: what the command did (`patch: rename_node`, `theme --apply themes/dusk.theme.json`). The CLI records its changes as `$SCAENA_AUTHOR` (`user` without it), the MCP server as `agent:` and the client's name. A patch that renames a node or a state says so, and the CRDT keeps it the node or state it was.
+- Undo/redo via the CRDT's undo manager, per author: an editor undoes its own changes, never another's or a file's.
 - Branch = fork at a version; merge = CRDT merge; the UI shows branches as "versions."
 
 ### 8.3 What is **not** in the CRDT

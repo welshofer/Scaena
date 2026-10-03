@@ -28,7 +28,7 @@ out/
 
   Paths are relative to `spine.json`. A beat that names no state of the deck has no `state`, no times, and no renders.
 
-Write it outside the bundle: SPEC §3.1 reserves a bundle's own `spine.json` for an externalized spine, which is a different file. Without `--out`, the projection prints to stdout, timed but without renders. Over MCP:
+Write it outside the bundle: it is an export, and the bundle holds the spine already. Without `--out`, the projection prints to stdout, timed but without renders. Over MCP:
 - `deck_export` (`format: "spine"`) does what the command does.
 - `spine_read` returns the projection without times or renders, and runs no layout.
 - The schema is the resource `scaena://schema/spine`.

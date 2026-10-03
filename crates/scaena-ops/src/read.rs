@@ -1,6 +1,6 @@
 //! Read a deck and its spine, and replace the spine (SPEC §2.6, §3.11).
 
-use crate::patch::{Patched, patch};
+use crate::patch::Patched;
 use crate::{Bundle, OpsError};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -35,5 +35,10 @@ pub fn spine(b: &Bundle) -> scaena_core::spine::SpineProjection {
 /// The deck's spine replaced by `spine`, as a patch: checked, refused if it makes the deck
 /// invalid, with its lint delta.
 pub fn spine_update(b: &Bundle, spine: Value, dry_run: bool) -> Result<Patched, OpsError> {
-    patch(b, &json!([{ "op": "add", "path": "/spine", "value": spine }]), dry_run)
+    crate::patch::patch_as(
+        b,
+        &json!([{ "op": "add", "path": "/spine", "value": spine }]),
+        dry_run,
+        Some("spine_update"),
+    )
 }

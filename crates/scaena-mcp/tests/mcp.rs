@@ -17,12 +17,21 @@ type Client = RunningService<RoleClient, ClientConfig>;
 
 /// A client talking to a server over an in-process pipe.
 async fn connect() -> Client {
+    connect_as(None).await
+}
+
+/// The same, the client giving `name` as its own when it connects.
+async fn connect_as(name: Option<&str>) -> Client {
     let (server_io, client_io) = tokio::io::duplex(1 << 22);
     tokio::spawn(async move {
         let server = scaena_mcp::Scaena::default().serve(server_io).await.unwrap();
         server.waiting().await.unwrap();
     });
-    ClientConfig::default().serve(client_io).await.unwrap()
+    let mut config = ClientConfig::default();
+    if let Some(name) = name {
+        config.client_info.name = name.into();
+    }
+    config.serve(client_io).await.unwrap()
 }
 
 async fn call(client: &Client, tool: &str, args: Value) -> CallToolResult {
@@ -195,5 +204,19 @@ async fn a_tool_that_stops_says_why() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
         }
     }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_edits_are_its_own_in_a_bundles_history() {
+    let bundle = scratch("history").join("q3");
+    let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-03T00:00:00Z".into(), history: true };
+    scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
+    let client = connect_as(Some("claude-test")).await;
+    let ops = json!([{ "op": "set_text", "node": "title", "text": "Q3, in full" }]);
+    ok(&client, "deck_patch", json!({ "bundle": path(&bundle), "ops": ops })).await;
+    let doc = scaena_ops::open(&bundle).unwrap().history().unwrap().expect("it keeps history");
+    let last = doc.changes().pop().unwrap();
+    assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("agent:claude-test"), Some("patch: set_text")));
     client.cancel().await.unwrap();
 }
