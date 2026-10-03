@@ -54,7 +54,7 @@ apps/mac/              SwiftUI client                                           
 ## Commands
 
 ```
-just check          # fmt + clippy -D warnings (all features) + test + test-gpu + schema validation + wasm32 clippy; mirrors CI
+just check          # fmt + clippy -D warnings (all features) + test + test-gpu + schema validation + the scripts' tests + wasm32 clippy; mirrors CI
 just test           # cargo test --workspace
 just schema         # validate docs/examples + tests/fixtures against docs/schema; torture-deck font coverage (python jsonschema, fonttools)
 just cli ARGS       # cargo run -p scaena-cli -- ARGS
@@ -64,7 +64,7 @@ just bless          # regenerate docs/schema from the model (and the MCP tools' 
 just wasm           # WASM engine + JS glue into crates/scaena-wasm/www/pkg (needs wasm-bindgen-cli 0.2.129)
 just wasm-smoke     # the WebGPU page in headless Chromium: WASM display lists match native, every state paints
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
-just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI gates each runner on main's history (scripts/bench_gate.py)
+just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request beside its base on one machine (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
 ```
 

@@ -4,7 +4,7 @@ default:
     @just --list
 
 # fmt + clippy (-D warnings, all features) + tests (CPU and GPU) + schema + wasm32. Must be green before any commit; mirrors CI.
-check: fmt-check clippy test test-gpu schema wasm-check
+check: fmt-check clippy test test-gpu schema scripts wasm-check
 
 fmt:
     cargo fmt --all
@@ -46,8 +46,12 @@ schema:
     python3 scripts/build_bundle_fonts.py --check
     python3 scripts/build_bench_decks.py --check
 
-# CI runs these on each runner, and fails a pull request on a regression beyond that runner's
-# noise (.github/workflows/bench.yml, scripts/bench_gate.py).
+# The scripts' own tests: the bench gate's judgment (PLAN 1.24).
+scripts:
+    python3 -m unittest discover -s scripts -p 'test_*.py'
+
+# CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
+# beside it on the same machine, by more than 10% twice (.github/workflows/bench.yml, scripts/bench_gate.py).
 # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
 bench *FILTER:
     cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
