@@ -52,10 +52,10 @@
   },
   "grid": { "columns": 12, "rows": 6, "gutter": 24, "margin": [96, 120], "baseline": 8 },
   "layouts": {
-    "title":   { "description": "Opening or section title.", "slots": { "title": { "col": [1, 10], "row": [2, 4], "align": { "x": "start", "y": "cap" }, "role": "display" }, "subtitle": { "col": [1, 8], "row": 5, "role": "title" } } },
+    "title":   { "description": "Opening or section title, and the place for a shader backdrop such as `mesh-soft`.", "slots": { "title": { "col": [1, 10], "row": [2, 4], "align": { "x": "start", "y": "cap" }, "role": "display" }, "subtitle": { "col": [1, 8], "row": 5, "role": "title" } } },
     "full":    { "description": "One thing, full bleed to the grid.", "slots": { "main": { "col": [1, 12], "row": [1, 6] }, "header": { "col": [1, 8], "row": 1, "role": "headline" }, "footer": { "col": [1, 12], "row": 6, "role": "caption" } } },
-    "figure":  { "description": "A headline, the figure that shows it, and its source, each in its own rows.", "slots": { "header": { "col": [1, 8], "row": 1, "role": "headline" }, "main": { "col": [1, 12], "row": [2, 5] }, "footer": { "col": [1, 12], "row": 6, "role": "caption" } } },
-    "split":   { "description": "Text left, figure right.", "slots": { "left": { "col": [1, 5], "row": [1, 6] }, "right": { "col": [6, 12], "row": [1, 6] } }, "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 2] }, "right": { "col": [1, 12], "row": [3, 6] } } } } },
+    "figure":  { "description": "A headline, the figure that shows it, and its source, each in its own rows. Data reads on the plain surface: no shader behind it (W311).", "slots": { "header": { "col": [1, 8], "row": 1, "role": "headline" }, "main": { "col": [1, 12], "row": [2, 5] }, "footer": { "col": [1, 12], "row": 6, "role": "caption" } } },
+    "split":   { "description": "Text left, figure right. A chart or table here reads on the plain surface: no shader behind it (W311).", "slots": { "left": { "col": [1, 5], "row": [1, 6] }, "right": { "col": [6, 12], "row": [1, 6] } }, "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 2] }, "right": { "col": [1, 12], "row": [3, 6] } } } } },
     "stat":    { "description": "A single number and its meaning.", "slots": { "number": { "col": [1, 7], "row": [2, 4], "role": "numeral", "align": { "x": "start", "y": "baseline" } }, "meaning": { "col": [1, 7], "row": 5, "role": "title" }, "aside": { "col": [8, 12], "row": [2, 5], "role": "body" } } },
     "quote":   { "description": "A quotation with attribution.", "slots": { "quote": { "col": [2, 11], "row": [2, 4], "role": "headline", "align": { "x": "start", "y": "cap" } }, "who": { "col": [2, 11], "row": 5, "role": "caption" } } }
   },
