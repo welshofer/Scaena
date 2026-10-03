@@ -16,6 +16,7 @@ Motion is a cue: the transition into a state and the state's motions run on one 
 | set motion | `scaena patch <bundle> --ops ops.json --dry-run`, then without `--dry-run` | `deck_patch`, with `dry_run` first |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | see a frame mid-cue | `scaena render <bundle> --state <id> --t <ms> --out frame.png` | `deck_render` with `t` |
+| watch it play (needs ffmpeg) | `scaena export <bundle> --format mp4 --states <id>,<id> --size 960x540 --fps 30 --out preview.mp4` | `deck_export` with `format: "mp4"` |
 
 The theme names what you may use, under `motion` in the theme file the deck names (`themes/*.theme.json`):
 - `presets` (Dusk: `fade`, `rise`, `grow`, `draw`, and `words` to enter; `pulse` for emphasis);
@@ -73,7 +74,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
 9. **Holds.**
    - A `hold` is how long a state rests before the timeline moves on. Video export and a player both advance by it (SPEC §2.4), so give holds to a deck that runs on its own, not to one presented live.
    - Size each to its reading: about four words a second, plus 1.5 to 2 seconds for each figure.
-   - `inspect --timeline` shows the timeline the holds make.
+   - `inspect --timeline` shows the timeline the holds make, and `export --format mp4` plays it: each state's cue, then its hold. A state with neither has no frame in a video.
 
 ## Rules
 

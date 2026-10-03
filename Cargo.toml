@@ -89,6 +89,7 @@ sha2  = "0.10"
 # export
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] } # no `simple-text`: we never shape here
 hayro  = { version = "0.7.1", default-features = false } # tests only: rasterizes PDFs to compare with the painters
+resvg  = { version = "0.48.1", default-features = false, features = ["raster-images"] } # tests only: rasterizes SVGs to compare with the painters
 png    = "0.18.1"
 image  = { version = "0.25", default-features = false, features = ["png"] }
 
