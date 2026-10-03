@@ -16,6 +16,7 @@ would time the wrong font.
     pip install fonttools==4.66.1
     python3 scripts/build_bundle_fonts.py           # rebuild fonts, then check
     python3 scripts/build_bundle_fonts.py --cache ~/.cache/scaena-fonts
+    python3 scripts/build_bundle_fonts.py --only b2 --only b3   # rebuild two, check all
     python3 scripts/build_bundle_fonts.py --check   # check only
 """
 
@@ -48,38 +49,39 @@ LICENSES = {
 }
 # The example decks' themes (Dusk, Daybreak) set display, body, and mono in these three.
 EXAMPLE_FONTS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
+# The benchmark decks' theme adds Source Serif 4, for quotations.
+B1_FONTS = {  # bundle file -> (google/fonts path, upstream sha256, theme family)
+    **EXAMPLE_FONTS,
+    "SourceSerif4-VF.ttf": (
+        "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
+        "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",
+        "text",
+    ),
+}
+B1_LICENSES = {
+    **LICENSES,
+    "OFL-SourceSerif4.txt": ("ofl/sourceserif4/OFL.txt", "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"),
+}
 BUNDLES = {
     "b1": {
         "title": "Benchmark B1",
         "bundle": ROOT / "tests/bench/b1.scaena",
         "deck": "deck.json",
         "every_family": True,
-        "fonts": {  # bundle file -> (google/fonts path, upstream sha256, theme family)
-            "Fraunces-VF.ttf": (
-                "ofl/fraunces/Fraunces[SOFT,WONK,opsz,wght].ttf",
-                "177ff6c0f14e5550a3c624247cd1189611d4eb65d000b14944c63d967958abbb",
-                "display",
-            ),
-            "Inter-VF.ttf": (
-                "ofl/inter/Inter[opsz,wght].ttf",
-                "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
-                "body",
-            ),
-            "JetBrainsMono-VF.ttf": (
-                "ofl/jetbrainsmono/JetBrainsMono[wght].ttf",
-                "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
-                "mono",
-            ),
-            "SourceSerif4-VF.ttf": (
-                "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
-                "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",
-                "text",
-            ),
-        },
-        "licenses": {
-            **LICENSES,
-            "OFL-SourceSerif4.txt": ("ofl/sourceserif4/OFL.txt", "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"),
-        },
+        "fonts": B1_FONTS,
+        "licenses": B1_LICENSES,
+    },
+    # B2 (charts) and B3 (shaders) share B1's theme and fonts (scripts/build_bench_decks.py).
+    **{
+        name: {
+            "title": f"Benchmark {name.upper()}",
+            "bundle": ROOT / f"tests/bench/{name}.scaena",
+            "deck": "deck.json",
+            "every_family": True,
+            "fonts": B1_FONTS,
+            "licenses": B1_LICENSES,
+        }
+        for name in ["b2", "b3"]
     },
     "revenue": {
         "title": "Example decks'",
@@ -209,12 +211,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="check coverage only; no network, no writes")
     ap.add_argument("--cache", type=Path, help="directory of upstream files keyed by sha256 (read, then filled)")
+    ap.add_argument("--only", action="append", choices=list(BUNDLES), help="build only this bundle (repeatable); all are checked")
     args = ap.parse_args()
     ok = True
     for name, cfg in BUNDLES.items():
         files = [cfg["deck"], *cfg.get("also", [])]
         decks = [json.loads((cfg["bundle"] / f).read_text(encoding="utf-8")) for f in files]
-        if not args.check:
+        if not args.check and (not args.only or name in args.only):
             build(name, decks, args.cache)
         for file, deck in zip(files, decks):
             label = name if file == cfg["deck"] else file.removesuffix(".deck.json")

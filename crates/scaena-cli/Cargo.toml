@@ -30,7 +30,13 @@ miette.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 
+[[bench]]
+# SPEC §15's stages on B1–B4 (PLAN 1.24): `cargo bench -p scaena-cli --features gpu --bench stages`.
+name = "stages"
+harness = false
+
 [dev-dependencies]
+criterion.workspace = true
 sha2.workspace = true
 rmcp = { workspace = true, features = ["client"] }
 tokio = { workspace = true, features = ["process"] }

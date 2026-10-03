@@ -73,7 +73,16 @@ jobs:
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
       - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped.
+      - name: WASM size
+        run: |
+          wasm=crates/scaena-wasm/www/pkg/scaena_wasm_bg.wasm
+          gz=$(gzip -9 -c "$wasm" | wc -c)
+          echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
+      # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
+      - run: node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena 5 | tee -a "$GITHUB_STEP_SUMMARY"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
@@ -101,3 +110,5 @@ jobs:
       - run: python3 scripts/build_torture_fonts.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # B2 and B3 are what their generator writes (PLAN 1.24).
+      - run: python3 scripts/build_bench_decks.py --check

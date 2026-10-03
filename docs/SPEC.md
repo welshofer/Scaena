@@ -1158,9 +1158,17 @@ tests/            golden display lists, golden rasters, lint fixtures, parity ha
 
 ## 15. Performance budgets
 
-Budgets are per stage, on named benchmark decks, on a reference machine (M-series Mac, 8 performance cores; Linux CI numbers are recorded but not gated). "Cold" includes bundle load and font parsing; "warm" means caches primed. Numbers are targets measured by `criterion` benches from Phase 0 onward; a regression against the recorded baseline fails CI.
+Budgets are per stage, on named benchmark decks, on a reference machine (M-series Mac, 8 performance cores; Linux CI numbers are recorded but not gated). "Cold" includes bundle load and font parsing; "warm" means caches primed. Numbers are targets measured by `criterion` benches; a regression against the recorded baseline fails CI.
 
-**Benchmark decks** (`tests/bench/`): **B1** text-heavy, 40 states, 4 fonts, no charts; **B2** chart-heavy, 12 states, 6 charts with key morphs; **B3** shader-heavy, 8 states, full-bleed mesh + grain on every state; **B4** the torture deck from PLAN 0.2.
+**Benchmark decks** (`tests/bench/`): **B1** text-heavy, 40 states, 4 fonts, no charts; **B2** chart-heavy, 12 states, 6 charts with key morphs; **B3** shader-heavy, 8 states, full-bleed mesh + grain on every state; **B4** the torture deck from PLAN 0.2. `scripts/build_bench_decks.py` writes B2 and B3 on B1's theme and fonts.
+
+**How they are measured** (PLAN 1.24). `crates/scaena-cli/benches/stages.rs` times every stage in the table on B1–B4 (`just bench`). A bench is named `stage/deck`. A stage that goes over a deck's states, cues, or frames counts them, so its time is also given per state, cue, or frame. A `_one` stage times the deck's slowest state. CI's `bench` workflow runs the benches on each runner: macOS on Apple Silicon, which also paints on Metal, and Linux. It runs on every push to `main` and every pull request that could change a number. Each runner keeps its own history of `main`'s runs, and `scripts/bench_gate.py` judges a run against it, bench by bench:
+
+- the **baseline** is the median of `main`'s recent runs, on the same machine model where there are enough of them;
+- the **noise** is their spread: σ = 1.4826 × their median absolute deviation, relative to the baseline;
+- a bench **regresses** when it is slower than the baseline by more than max(10%, 4σ). A bench that looks slower is run again, and is judged on the faster of its two runs. A bench with fewer than five runs of `main` behind it is recorded, not judged.
+
+A pull request with a regression fails, unless it carries the label `bench-accept`. A run of `main` that is slower on both runs starts that bench's history over, so the baseline follows the code. The run summary shows the budgets below for every deck, then every bench against its baseline. A `probe` bench, a fixed sort, shows how fast the runner was, to tell a slow machine from a slow change. The `wasm` job checks the WASM size and records B1's cold start in headless Chromium.
 
 | Stage | Budget (warm unless noted) | Deck |
 |---|---|---|
@@ -1175,10 +1183,10 @@ Budgets are per stage, on named benchmark decks, on a reference machine (M-serie
 | Lint, document-level | ≤ 100 ms | B1 |
 | Lint, layout-level, all states | ≤ 1 s | B1 |
 | MCP `deck_render` round trip (cold process, cached fonts) | ≤ 1 s | B1 |
-| Video export, CPU path (sample + CPU paint + PNG encode, pipelined) | ≥ 1× realtime at 1080p60 (B1, B2) · ≥ 0.5× (B3) | B1–B3 |
+| Video export, CPU path (sample + CPU paint, pipelined, raw frames to the encoder) | ≥ 1× realtime at 1080p60 (B1, B2) · ≥ 0.5× (B3) | B1–B3 |
 | Video export, GPU path (sample + GPU paint + readback + encode) | ≥ 2× realtime at 1080p60 | B1–B3 |
 
-Notes: the cold PNG budget and the video budgets are different workloads and are deliberately not comparable — video frames never re-run layout (§5) and pipeline paint and encode across threads. Shader-heavy decks are allowed to cache shader tiles between frames when uniforms are unchanged. If the CPU video path cannot reach 1× realtime on B1 by gate 1, the video exporter defaults to GPU where available and the budget is revisited in an ADR rather than silently relaxed.
+Notes: the CPU paint stage paints a frame on one thread, so the 8 threads its budget allows are headroom. The video stage plays the deck's longest cue, laid out beforehand as the exporter lays out each cue, and paints its frames on every core into an ffmpeg that discards them: it times Scaena's side, not an encoder. The GPU stage includes reading the frame back. There is no GPU video path yet, so its row is not measured. The cold PNG budget and the video budgets are different workloads and are deliberately not comparable — video frames never re-run layout (§5) and pipeline paint and encode across threads. Shader-heavy decks are allowed to cache shader tiles between frames when uniforms are unchanged. If the CPU video path cannot reach 1× realtime on B1 by gate 1, the video exporter defaults to GPU where available and the budget is revisited in an ADR rather than silently relaxed.
 
 ---
 

@@ -1,32 +1,100 @@
 name: bench
-# Per-stage timings against SPEC §15 (PLAN 0.14). SPEC's reference machine is an M-series Mac;
-# GitHub's macos-latest runner is Apple Silicon (virtualized), the closest CI has. The tables go
-# to the run summary. Recorded, not gated: shared runners are too noisy for a hard budget.
+# SPEC §15's stages, timed by criterion on B1–B4 (PLAN 1.24), on each runner CI has: macOS on
+# Apple Silicon, the closest to SPEC's reference machine, which also paints on Metal; and Linux.
+# Each runner keeps a history of main's runs in the Actions cache. A pull request fails when a
+# bench is slower than main's runs by more than that runner's measured noise; a bench that looks
+# slower is run again first, and judged on the faster of its two runs (scripts/bench_gate.py).
+# The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC §15's
+# budgets first, goes to the run summary.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
+      - "crates/**"
       - "tests/bench/**"
-      - "crates/scaena-cli/examples/stages.rs"
+      - "tests/fixtures/torture.scaena/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench_gate.py"
       - ".github/workflows/bench.yml"
+  # On main, a manual run records like a push: a few of them fill a new runner's history.
   workflow_dispatch:
+concurrency:
+  # Main's runs one at a time, each recording into the history the one before it left.
+  group: bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  stages:
-    runs-on: macos-latest
-    timeout-minutes: 45
+  criterion:
+    # Of the labels, only the one that accepts a regression changes the verdict.
+    if: github.event.action != 'labeled' || github.event.label.name == 'bench-accept'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            features: --features gpu
+          - os: ubuntu-latest
+            features: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      FEATURES: ${{ matrix.features }}
+      RECORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      ACCEPT: ${{ contains(github.event.pull_request.labels.*.name, 'bench-accept') && '--accept' || '' }}
+      REPORT_ONLY: ${{ github.event_name != 'pull_request' && '--report-only' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p scaena-cli --features gpu --bins --examples
-      - name: Machine
+        with:
+          shared-key: bench
+      - name: Runner
         run: |
-          echo "$(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, $(sw_vers -productName) $(sw_vers -productVersion)" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
-      - name: B1 (text) and B4 (torture)
+          if [ "$RUNNER_OS" = macOS ]; then
+            machine="$(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores"
+          else
+            machine="$(lscpu | sed -n 's/^Model name: *//p' | head -n 1), $(nproc) cores"
+          fi
+          echo "BENCH_MACHINE=$machine" >> "$GITHUB_ENV"
+          echo "BENCH_RUNNER=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_ENV"
+          # Outside target/, which the cache restores: a run reads only its own results.
+          echo "CRITERION_HOME=$RUNNER_TEMP/criterion" >> "$GITHUB_ENV"
+          echo "$machine"
+      - uses: actions/cache/restore@v4
+        with:
+          path: bench-history.json
+          key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: bench-history-${{ runner.os }}-${{ runner.arch }}-
+      - run: cargo bench --locked -p scaena-cli $FEATURES --bench stages
+      - run: python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
+      - name: Run again what looks slower
         run: |
-          for bundle in tests/bench/b1.scaena tests/fixtures/torture.scaena; do
-            target/release/examples/stages "$bundle" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo >> "$GITHUB_STEP_SUMMARY"
-          done
+          python3 scripts/bench_gate.py suspects --history bench-history.json --run bench-run.json --out suspects.txt
+          if [ -s suspects.txt ]; then
+            CRITERION_HOME="$CRITERION_HOME-again" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "^($(paste -sd'|' suspects.txt))\$"
+            python3 scripts/bench_gate.py collect "$CRITERION_HOME-again" --out bench-again.json
+          fi
+      - name: Judge against main's runs
+        run: |
+          runs="--run bench-run.json"
+          if [ -f bench-again.json ]; then runs="$runs --run bench-again.json"; fi
+          python3 scripts/bench_gate.py check --history bench-history.json $runs --summary "$GITHUB_STEP_SUMMARY" $ACCEPT $REPORT_ONLY
+          if [ "$RECORD" = true ]; then
+            python3 scripts/bench_gate.py record --history bench-history.json $runs
+          fi
+      - if: env.RECORD == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bench-history.json
+          key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            bench-run.json
+            bench-again.json
+            bench-history.json
+          if-no-files-found: ignore
