@@ -10,7 +10,9 @@ The gate log stays open until both are run. Each section below gives the steps, 
 
 ## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox: needs a real machine
 
-CI cannot say. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and its CPU painter here, on a shared container's CPU, paints a 1080p frame in about 70 ms (`web/player.mjs`).
+CI cannot say. Headless Chromium composites WebGPU on SwiftShader at about a frame a second.
+
+**The CPU fallback has room.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 30 fps, painting each 1080p frame in about 28 ms (`web/player.mjs`). Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The rest of a paint is the page's copy of the frame into an `ImageBitmap`.
 
 **The player measures itself.** With `?fps` it shows a frame meter while the deck plays, for the run so far:
 - frames a second;
@@ -37,19 +39,19 @@ The bar is Jay's call.
 
 ## 2. Edit → lint → preview round trip under 200 ms on a 40-state deck: met
 
-`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. Its latest run had a median round trip of 125 ms:
-- compile 23 ms;
-- the frame 76 ms;
-- the lint of the state shown 41 ms.
+`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. Its latest run had a median round trip of 83 ms. The last edit took:
+- compile 16 ms;
+- the frame 28 ms;
+- the lint of the state shown 33 ms.
 
-PLAN 2.3 measured 114 ms.
+PLAN 2.3 measured 114 ms. Before ADR-0004 finding 15, the frame alone took 76 ms.
 
 The lint of every state, once typing stops, takes 1.2 s. It is not part of the round trip.
 
 ## 3. A single-file export opens offline from a USB stick: met in headless Chromium
 
 `web/standalone.mjs` exports the torture deck with `scaena export --format html`, then opens the file from its address on disk with the network off:
-- it shows its first frame about 0.55 s after navigation;
+- it shows its first frame 0.47 s after navigation;
 - all 68 golden frames are within SPEC §13.5;
 - its content security policy lets nothing load, and nothing asks for more than the file and its worker's blob;
 - WebGPU paints a file, and the presenter view opens from one.

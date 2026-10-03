@@ -528,9 +528,25 @@ pub mod cpu {
                 &mut resources,
                 RasterizerSettings { render_mode: self.mode, ..Default::default() },
             );
-            let rgba = pixmap.take_unpremultiplied().into_iter().flat_map(|p| [p.r, p.g, p.b, p.a]).collect();
-            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
+            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba: unpremultiplied(&pixmap) })
         }
+    }
+
+    /// The pixmap's pixels as straight RGBA, as a PNG or an `ImageData` takes them: exactly
+    /// what `Pixmap::take_unpremultiplied` computes, without its division for each opaque
+    /// pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates to `c`). A slide is
+    /// opaque nearly everywhere, and in the browser that division was most of a frame's paint.
+    fn unpremultiplied(pixmap: &Pixmap) -> Vec<u8> {
+        let mut rgba = pixmap.data_as_u8_slice().to_vec();
+        for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
+            if *a != 255 && *a != 0 {
+                let alpha = 255.0 / f32::from(*a);
+                for c in [r, g, b] {
+                    *c = (f32::from(*c) * alpha + 0.5) as u8;
+                }
+            }
+        }
+        rgba
     }
 
     struct Cx<'a> {
@@ -670,6 +686,24 @@ pub mod cpu {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
                 }
             }
+        }
+
+        /// The painter's unpremultiply is vello's own, byte for byte: every alpha against
+        /// every channel value, the impossible ones over alpha included.
+        #[test]
+        fn unpremultiplied_is_vellos_take_unpremultiplied_for_every_pixel() {
+            let pixels = || {
+                (0..=255u8)
+                    .flat_map(|a| (0..=255u8).map(move |c| PremulRgba8 { r: c, g: c / 2, b: 255 - c, a }))
+                    .collect::<Vec<_>>()
+            };
+            let ours = unpremultiplied(&Pixmap::from_parts(pixels(), 256, 256));
+            let vellos: Vec<u8> = Pixmap::from_parts(pixels(), 256, 256)
+                .take_unpremultiplied()
+                .into_iter()
+                .flat_map(|p| [p.r, p.g, p.b, p.a])
+                .collect();
+            assert_eq!(ours, vellos);
         }
 
         #[test]
