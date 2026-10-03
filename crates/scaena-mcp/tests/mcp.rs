@@ -4,12 +4,14 @@
 
 use base64::Engine as _;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ClientConfig, ContentBlock, ReadResourceRequestParams, ResourceContents,
+    CacheScope, CallToolRequestParams, CallToolResult, ClientConfig, ContentBlock, ProtocolVersion,
+    ReadResourceRequestParams, ResourceContents,
 };
 use rmcp::service::RunningService;
-use rmcp::{RoleClient, ServiceExt};
+use rmcp::{ClientLifecycleMode, ClientServiceExt, RoleClient, ServiceExt};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const EXAMPLES: &str = "../../docs/examples";
 
@@ -22,16 +24,33 @@ async fn connect() -> Client {
 
 /// The same, the client giving `name` as its own when it connects.
 async fn connect_as(name: Option<&str>) -> Client {
-    let (server_io, client_io) = tokio::io::duplex(1 << 22);
-    tokio::spawn(async move {
-        let server = scaena_mcp::Scaena::default().serve(server_io).await.unwrap();
-        server.waiting().await.unwrap();
-    });
     let mut config = ClientConfig::default();
     if let Some(name) = name {
         config.client_info.name = name.into();
     }
-    config.serve(client_io).await.unwrap()
+    connect_with(config, ClientLifecycleMode::Initialize).await
+}
+
+/// The same, the client connecting as `config` says by `lifecycle`: the `initialize`
+/// handshake, or protocol 2026-07-28's discovery, after which it names itself and its
+/// protocol on every request.
+async fn connect_with(config: ClientConfig, lifecycle: ClientLifecycleMode) -> Client {
+    serve(scaena_mcp::Scaena::default(), config, lifecycle).await
+}
+
+/// `server`, and a client of it.
+async fn serve(server: scaena_mcp::Scaena, config: ClientConfig, lifecycle: ClientLifecycleMode) -> Client {
+    let (server_io, client_io) = tokio::io::duplex(1 << 22);
+    tokio::spawn(async move {
+        let server = server.serve(server_io).await.unwrap();
+        server.waiting().await.unwrap();
+    });
+    config.serve_with_lifecycle(client_io, lifecycle).await.unwrap()
+}
+
+/// Discovery at protocol 2026-07-28, with no handshake.
+fn discover() -> ClientLifecycleMode {
+    ClientLifecycleMode::Discover { preferred_versions: vec![ProtocolVersion::V_2026_07_28] }
 }
 
 async fn call(client: &Client, tool: &str, args: Value) -> CallToolResult {
@@ -113,6 +132,25 @@ async fn the_tools_and_resources_are_listed() {
     assert_eq!(spine["title"], "Scaena spine projection");
     assert!(client.read_resource(ReadResourceRequestParams::new("scaena://nothing")).await.is_err());
     client.cancel().await.unwrap();
+}
+
+/// From protocol 2026-07-28, which a client reaches by discovery (a handshake settles on
+/// 2025-11-25 at most), what `resources/list` and `resources/read` return says how long a
+/// client may keep it and who may share it, and a client rejects a result that does not
+/// (SEP-2549). A client that shook hands gets the shape it knows.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_resources_say_how_long_to_keep_them() {
+    for (lifecycle, hinted) in [(ClientLifecycleMode::Initialize, false), (discover(), true)] {
+        let client = connect_with(ClientConfig::default(), lifecycle.clone()).await;
+        let server = client.peer_info().and_then(|info| info.server_info.clone()).expect("the server names itself");
+        assert_eq!((server.name.as_str(), server.version.as_str()), ("scaena", env!("CARGO_PKG_VERSION")));
+        let hints = hinted.then_some((3_600_000, CacheScope::Public));
+        let list = client.list_resources(None).await.unwrap();
+        assert_eq!(list.ttl_ms.zip(list.cache_scope), hints, "{lifecycle:?}: resources/list");
+        let read = client.read_resource(ReadResourceRequestParams::new("scaena://lint/catalog")).await.unwrap();
+        assert_eq!(read.ttl_ms.zip(read.cache_scope), hints, "{lifecycle:?}: resources/read");
+        client.cancel().await.unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -207,16 +245,64 @@ async fn a_tool_that_stops_says_why() {
     client.cancel().await.unwrap();
 }
 
+/// An export that outlives the client's wait keeps going (SPEC §7.2): the call answers
+/// that it is running and how far it has got, the same call again waits for the rest, and
+/// a different export of the same file is refused until it is done.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_export_keeps_going_while_the_client_asks_after_it() {
+    // A server that waits for nothing, so every export outlives its first call.
+    let server = scaena_mcp::Scaena::default().with_export_wait(Duration::ZERO);
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let dir = scratch("long-export").join("images");
+    let (images, deck) = (path(&dir), path(&Path::new(EXAMPLES).join("revenue.deck.json")));
+    let png = json!({ "bundle": deck, "format": "png", "out": images });
+    let first = ok(&client, "deck_export", png.clone()).await;
+    let running = &first["running"];
+    assert_eq!((first["out"].as_str(), running["unit"].as_str()), (Some(images.as_str()), Some("images")), "{first:#}");
+    assert!(running["of"].as_u64().is_some_and(|of| of > 0) && running["next"].is_string(), "{first:#}");
+    assert!(first.get("files").is_none(), "nothing else is said until it is done: {first:#}");
+    // Another export of the same file waits its turn.
+    let refused = call(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("is running"), "{}", text(&refused));
+    // Asked again, it says how it is going until it is done, then gives what it wrote.
+    let mut done = None;
+    for _ in 0..2400 {
+        let again = ok(&client, "deck_export", png.clone()).await;
+        if again.get("running").is_none() {
+            done = Some(again);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let done = done.expect("the export finishes");
+    let files = done["files"].as_array().expect("the images it wrote");
+    assert_eq!(Some(files.len()), done["pages"].as_array().map(Vec::len));
+    assert_eq!(dir.read_dir().unwrap().count(), files.len());
+    // Handed back, it is done with: the next export of the file starts afresh.
+    let svg = ok(&client, "deck_export", json!({ "bundle": deck, "format": "svg", "out": images })).await;
+    assert!(svg["running"]["of"].as_u64().is_some_and(|of| of as usize == files.len()), "{svg:#}");
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_edits_are_its_own_in_a_bundles_history() {
     let bundle = scratch("history").join("q3");
     let opts = scaena_store::SaveOptions { subset_fonts: false, now: "2026-10-03T00:00:00Z".into(), history: true };
     scaena_ops::open(&Path::new(EXAMPLES).join("revenue.deck.json")).unwrap().save(&bundle, &opts).unwrap();
-    let client = connect_as(Some("claude-test")).await;
-    let ops = json!([{ "op": "set_text", "node": "title", "text": "Q3, in full" }]);
-    ok(&client, "deck_patch", json!({ "bundle": path(&bundle), "ops": ops })).await;
-    let doc = scaena_ops::open(&bundle).unwrap().history().unwrap().expect("it keeps history");
-    let last = doc.changes().pop().unwrap();
-    assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("agent:claude-test"), Some("patch: set_text")));
-    client.cancel().await.unwrap();
+    // A client that shakes hands names itself once; one that discovers, on every request.
+    for (name, lifecycle, title) in
+        [("claude-test", ClientLifecycleMode::Initialize, "Q3, in full"), ("claude-next", discover(), "Q3, again")]
+    {
+        let mut config = ClientConfig::default();
+        config.client_info.name = name.into();
+        let client = connect_with(config, lifecycle).await;
+        let ops = json!([{ "op": "set_text", "node": "title", "text": title }]);
+        ok(&client, "deck_patch", json!({ "bundle": path(&bundle), "ops": ops })).await;
+        let doc = scaena_ops::open(&bundle).unwrap().history().unwrap().expect("it keeps history");
+        let last = doc.changes().pop().unwrap();
+        let author = format!("agent:{name}");
+        assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some(&*author), Some("patch: set_text")));
+        client.cancel().await.unwrap();
+    }
 }

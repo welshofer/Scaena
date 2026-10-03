@@ -16,40 +16,153 @@ use indexmap::IndexMap;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ErrorData, InitializeRequestParams, InitializeResult, ListResourcesResult,
-    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ServerCapabilities, ServerConfig, Tool,
+    CacheScope, CallToolResult, ContentBlock, ErrorData, Implementation, ListResourcesResult, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource, ResourceContents,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use scaena_core::Finding;
 use scaena_ops::OpsError;
-use scaena_ops::export::Exported;
+use scaena_ops::export::{Exported, Progress, Running};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
     tool_router: ToolRouter<Self>,
-    /// Who the client is, as the history of a bundle it edits names it: `agent:<name>`,
-    /// by the name it gives when it connects (SPEC §8.2).
-    author: Arc<Mutex<String>>,
+    /// The exports this server is running, or has run and not yet handed back, by the
+    /// file each writes (SPEC §7.2).
+    exports: Arc<Mutex<HashMap<PathBuf, Export>>>,
+    /// How long `deck_export` waits for an export before it answers that it is running.
+    wait: Duration,
 }
 
 impl Default for Scaena {
     fn default() -> Self {
-        Scaena { tool_router: Self::tool_router(), author: Arc::new(Mutex::new("agent".into())) }
+        let mut tool_router = Self::tool_router();
+        for route in tool_router.map.values_mut() {
+            route.attr.input_schema = standard(&route.attr.input_schema);
+            route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
+        }
+        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT }
     }
 }
 
 impl Scaena {
-    fn author(&self) -> String {
-        self.author.lock().map(|a| a.clone()).unwrap_or_else(|_| "agent".into())
+    /// The same server, its exports answering after `wait` at most.
+    pub fn with_export_wait(mut self, wait: Duration) -> Self {
+        self.wait = wait;
+        self
     }
+}
+
+/// How long `deck_export` waits for an export before it answers that the export is still
+/// running: under the minute a client commonly gives a tool call (Claude Code's limit, and
+/// the TypeScript SDK's default), with room to answer.
+pub const EXPORT_WAIT: Duration = Duration::from_secs(40);
+
+/// An export the server runs beyond the call that asked for it.
+#[derive(Debug)]
+struct Export {
+    /// What was asked: the arguments, and the deck and theme they were asked of.
+    asked: u64,
+    format: String,
+    out: String,
+    started: Instant,
+    progress: Arc<Progress>,
+    /// What it wrote, or why it stopped, once it is done.
+    done: watch::Receiver<Option<Result<Exported, String>>>,
+}
+
+impl Export {
+    /// How far it has got, and what to do while it runs.
+    fn running(&self) -> Running {
+        let (done, of) = self.progress.get();
+        Running {
+            done,
+            of,
+            unit: scaena_ops::export::unit(&self.format).into(),
+            elapsed_ms: self.started.elapsed().as_millis() as u64,
+            next: "It is still being written. Call deck_export again with the same arguments to wait for the rest; \
+                   it then returns what it wrote."
+                .into(),
+        }
+    }
+}
+
+/// What a call to `deck_export` asks: its arguments, and the deck and theme it reads.
+fn asked(a: &DeckExport, b: &scaena_ops::Bundle) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio).hash(&mut hasher);
+    serde_json::to_string(&b.deck).unwrap_or_default().hash(&mut hasher);
+    b.theme_json.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The formats JSON Schema defines (2020-12, §7.3).
+const FORMATS: &[&str] = &[
+    "date-time",
+    "date",
+    "time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "uri-template",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+
+/// A tool's schema with only the formats JSON Schema defines. schemars also marks a number
+/// with the width Rust gives it (`uint32`, `double`, …), which a client's validator does not
+/// know and warns of; the type and its `minimum` say what the width meant.
+fn standard(schema: &Map<String, Value>) -> Arc<Map<String, Value>> {
+    fn object(o: &mut Map<String, Value>) {
+        if o.get("format").and_then(Value::as_str).is_some_and(|f| !FORMATS.contains(&f)) {
+            o.shift_remove("format");
+        }
+        // Values, not schemas: what a `default` or an `enum` holds is left as it is.
+        for (key, v) in o.iter_mut() {
+            if !matches!(key.as_str(), "default" | "examples" | "const" | "enum") {
+                value(v);
+            }
+        }
+    }
+    fn value(v: &mut Value) {
+        match v {
+            Value::Object(o) => object(o),
+            Value::Array(a) => a.iter_mut().for_each(value),
+            _ => {}
+        }
+    }
+    let mut schema = schema.clone();
+    object(&mut schema);
+    Arc::new(schema)
+}
+
+/// Who the client is, as the history of a bundle it edits names it: `agent:<name>`, by the
+/// name it gives (SPEC §8.2). A client on protocol 2026-07-28 gives it with every request;
+/// an older one, once, when it connects.
+fn author(context: &RequestContext<RoleServer>) -> String {
+    context.client_info().map_or_else(|| "agent".into(), |client| format!("agent:{}", client.name))
 }
 
 /// Serve on stdin and stdout until the client goes.
@@ -83,6 +196,26 @@ fn failure(e: OpsError) -> String {
 }
 
 /// `f`, off the async runtime: the operations lay out and paint, and block.
+/// Starts the export `req` of `b` on a thread of its own, which runs to the end whoever is
+/// still waiting for it.
+fn start(b: scaena_ops::Bundle, req: scaena_ops::export::Request, a: &DeckExport, asked: u64) -> Export {
+    let progress = Arc::new(Progress::default());
+    let (tell, done) = watch::channel(None);
+    let watched = progress.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = scaena_ops::export::export_watched(&b, &req, &watched).map_err(failure);
+        let _ = tell.send(Some(result));
+    });
+    Export {
+        asked,
+        format: a.format.clone(),
+        out: a.out.clone().unwrap_or_default(),
+        started: Instant::now(),
+        progress,
+        done,
+    }
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, OpsError> + Send + 'static) -> Result<T, String> {
     match tokio::task::spawn_blocking(f).await {
         Ok(result) => result.map_err(failure),
@@ -362,22 +495,27 @@ impl Scaena {
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, \
         motion, and narrative in every format it lists. Findings carry a JSON pointer, and a fix when one is safe; \
         `fix` applies them.")]
-    async fn deck_lint(&self, Parameters(a): Parameters<DeckLint>) -> Result<Json<Linted>, String> {
+    async fn deck_lint(
+        &self,
+        Parameters(a): Parameters<DeckLint>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<Linted>, String> {
         let min = match a.severity {
             SeverityArg::Error => scaena_core::Severity::Error,
             SeverityArg::Warning => scaena_core::Severity::Warning,
             SeverityArg::Info => scaena_core::Severity::Info,
         };
-        let author = self.author();
+        let author = author(&context);
         blocking(move || {
             let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
@@ -446,21 +584,65 @@ impl Scaena {
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
         each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
-        the PLAN task that builds it.")]
+        the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns \
+        `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
-        blocking(move || {
-            let req = scaena_ops::export::Request {
-                format: a.format,
-                states: a.states,
-                out: a.out.map(Into::into),
-                size: a.size,
-                fps: a.fps,
-                audio: a.audio.map(Into::into),
-            };
-            scaena_ops::export::export(&open(&a.bundle)?, &req)
-        })
-        .await
-        .map(Json)
+        let req = scaena_ops::export::Request {
+            format: a.format.clone(),
+            states: a.states.clone(),
+            out: a.out.clone().map(Into::into),
+            size: a.size.clone(),
+            fps: a.fps,
+            audio: a.audio.clone().map(Into::into),
+        };
+        let bundle = a.bundle.clone();
+        let b = blocking(move || open(&bundle)).await?;
+        // The spine without `out` comes back in the result: there is nothing to wait for.
+        let Some(out) = req.out.clone() else {
+            return blocking(move || scaena_ops::export::export(&b, &req)).await.map(Json);
+        };
+        let file = std::path::absolute(&out).unwrap_or(out);
+        let asked = asked(&a, &b);
+        let mut done = {
+            let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+            match exports.get(&file) {
+                // Asked again: wait for it.
+                Some(export) if export.asked == asked => export.done.clone(),
+                Some(export) if export.done.borrow().is_none() => {
+                    let Running { done, of, unit, elapsed_ms, .. } = export.running();
+                    return Err(failure(OpsError::new(format!(
+                        "an export to {} is running, asked with other arguments or of another version of the deck: \
+                         {done} of {of} {unit} after {} s. Export to another file, or again when it is done.",
+                        export.out,
+                        elapsed_ms / 1000
+                    ))));
+                }
+                // Not running, or done and never handed back: start it.
+                _ => {
+                    let export = start(b, req, &a, asked);
+                    let done = export.done.clone();
+                    exports.insert(file.clone(), export);
+                    done
+                }
+            }
+        };
+        let waited =
+            tokio::time::timeout(self.wait, done.wait_for(Option::is_some)).await.map(|r| r.map(|d| d.clone()));
+        let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+        match waited {
+            Ok(Ok(Some(result))) => {
+                // Handed back: the next call for this file starts again.
+                if exports.get(&file).is_some_and(|e| e.asked == asked) {
+                    exports.remove(&file);
+                }
+                result.map(Json)
+            }
+            Ok(_) => Err(failure(OpsError::new("the export stopped before it was done"))),
+            Err(_) => {
+                let running = exports.get(&file).map(Export::running);
+                Ok(Json(Exported { format: a.format, out: a.out, running, ..Exported::default() }))
+            }
+        }
     }
 
     #[tool(
@@ -477,8 +659,9 @@ impl Scaena {
     async fn theme_apply(
         &self,
         Parameters(a): Parameters<ThemeApply>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run))
             .await
             .map(Json)
@@ -489,8 +672,9 @@ impl Scaena {
     async fn data_attach(
         &self,
         Parameters(a): Parameters<DataAttach>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
     }
 
@@ -509,8 +693,9 @@ impl Scaena {
     async fn spine_update(
         &self,
         Parameters(a): Parameters<SpineUpdate>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
-        let author = self.author();
+        let author = author(&context);
         blocking(move || {
             scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
         })
@@ -629,21 +814,10 @@ pub fn resource(uri: &str) -> Option<&'static str> {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Scaena {
-    async fn initialize(
-        &self,
-        request: InitializeRequestParams,
-        context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, ErrorData> {
-        if let Ok(mut author) = self.author.lock() {
-            *author = format!("agent:{}", request.client_info.name);
-        }
-        context.peer.set_peer_info(request.clone());
-        self.negotiate_initialize(&request)
-    }
-
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
-        ServerConfig::new(capabilities).with_instructions(
+        let server = Implementation::new("scaena", env!("CARGO_PKG_VERSION"));
+        ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
              with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
@@ -655,7 +829,7 @@ impl ServerHandler for Scaena {
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         let resources = RESOURCES
             .iter()
@@ -664,16 +838,37 @@ impl ServerHandler for Scaena {
                 Resource::new(*uri, *name).with_mime_type(*mime).with_size(text.len() as u64)
             })
             .collect();
-        Ok(ListResourcesResult::with_all_items(resources))
+        let mut list = ListResourcesResult::with_all_items(resources);
+        if hints(&context) {
+            list = list.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(list)
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
         let text = resource(&request.uri)
             .ok_or_else(|| ErrorData::resource_not_found(format!("no resource `{}`", request.uri), None))?;
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]).into())
+        let mut read = ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]);
+        if hints(&context) {
+            read = read.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(read.into())
     }
+}
+
+/// How long a client may keep what `resources/list` and `resources/read` return. The
+/// resources are built into the server, the same for everyone, and never change while it
+/// runs; an hour bounds how stale a client's copy can be across a rebuild.
+const RESOURCE_TTL_MS: u64 = 3_600_000;
+
+/// Whether the client negotiated a protocol (2026-07-28 on) whose list and read results
+/// carry cache hints: there `ttlMs` and `cacheScope` are required, and a client rejects a
+/// result without them (SEP-2549). Older clients get the shape they know, as rmcp's own
+/// `tools/list` does.
+fn hints(context: &RequestContext<RoleServer>) -> bool {
+    context.protocol_version().is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
 }

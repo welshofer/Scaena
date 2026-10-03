@@ -72,12 +72,7 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": {
-        "description": "The findings that are errors, with the new theme.",
-        "type": "integer",
-        "format": "uint",
-        "minimum": 0
-      }
+      "errors": { "description": "The findings that are errors, with the new theme.", "type": "integer", "minimum": 0 }
     }
   }
 }

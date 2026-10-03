@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "format"],
@@ -30,7 +30,6 @@
       "fps": {
         "description": "A video's frames a second; 60 without it.",
         "type": ["integer", "null"],
-        "format": "uint32",
         "minimum": 0,
         "default": null
       },
@@ -59,7 +58,7 @@
           "canvas": {
             "description": "The deck's canvas, in canvas units: width and height.",
             "type": "array",
-            "items": { "type": "number", "format": "double" },
+            "items": { "type": "number" },
             "minItems": 2,
             "maxItems": 2
           },
@@ -121,12 +120,7 @@
           },
           "states": { "$ref": "#/$defs/IdList" },
           "notes": { "description": "Speaker notes.", "type": ["string", "null"] },
-          "duration": {
-            "description": "Estimated seconds.",
-            "type": ["number", "null"],
-            "format": "double",
-            "minimum": 0
-          },
+          "duration": { "description": "Estimated seconds.", "type": ["number", "null"], "minimum": 0 },
           "media": {
             "description": "Projection hints (infographic priority, podcast script, …).",
             "type": ["object", "null"],
@@ -149,20 +143,14 @@
           "id": { "type": "string" },
           "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
           "notes": { "type": ["string", "null"] },
-          "hold": {
-            "description": "Its dwell at rest, ms, as the deck gives it.",
-            "type": ["number", "null"],
-            "format": "double"
-          },
+          "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": ["number", "null"] },
           "start": {
             "description": "When its transition starts on the global timeline, ms. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "span": {
             "description": "Its cue, ms: its transition and motions. Its hold follows. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           }
         },
         "additionalProperties": false,
@@ -179,13 +167,11 @@
           },
           "start": {
             "description": "When it starts on the global timeline, ms: where its first state starts. Given the\ntimeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "end": {
             "description": "When it ends, ms: where its last state's hold ends. Given the timeline.",
-            "type": ["number", "null"],
-            "format": "double"
+            "type": ["number", "null"]
           },
           "thumbnail": {
             "description": "`state` at rest, small, in the deck's own format: a path relative to the\nprojection's file. Once drawn.",
@@ -205,9 +191,9 @@
         "type": "object",
         "properties": {
           "state": { "type": "string" },
-          "start": { "description": "When it starts, ms into the video.", "type": "number", "format": "double" },
-          "span": { "type": "number", "format": "double" },
-          "hold": { "type": "number", "format": "double" }
+          "start": { "description": "When it starts, ms into the video.", "type": "number" },
+          "span": { "type": "number" },
+          "hold": { "type": "number" }
         },
         "required": ["state", "start", "span", "hold"]
       },
@@ -217,14 +203,26 @@
         "properties": {
           "beat": { "description": "The beat it plays, if a beat names its states.", "type": ["string", "null"] },
           "title": { "description": "The beat's claim, or the id of a slide no beat names.", "type": "string" },
-          "start": { "description": "Where it starts, ms into the video.", "type": "number", "format": "double" },
-          "end": {
-            "description": "Where it ends, ms: where the next starts, or the video ends.",
-            "type": "number",
-            "format": "double"
-          }
+          "start": { "description": "Where it starts, ms into the video.", "type": "number" },
+          "end": { "description": "Where it ends, ms: where the next starts, or the video ends.", "type": "number" }
         },
         "required": ["title", "start", "end"]
+      },
+      "Running": {
+        "description": "How far an export that is still going has got (SPEC §7.2).",
+        "type": "object",
+        "properties": {
+          "done": {
+            "description": "`done` of `of`, counting `unit`: frames, pages, images, or beats.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "of": { "type": "integer", "minimum": 0 },
+          "unit": { "type": "string" },
+          "elapsed_ms": { "description": "How long it has run, ms.", "type": "integer", "minimum": 0 },
+          "next": { "description": "What to do next.", "type": "string" }
+        },
+        "required": ["done", "of", "unit", "elapsed_ms", "next"]
       }
     },
     "required": ["format"],
@@ -249,21 +247,15 @@
       "size": {
         "description": "Pixels, width and height: of each image, of the video, or of the spine's\nthumbnails.",
         "type": ["array", "null"],
-        "items": { "type": "integer", "format": "uint32", "minimum": 0 },
+        "items": { "type": "integer", "minimum": 0 },
         "minItems": 2,
         "maxItems": 2
       },
-      "frames": { "description": "A video's frames.", "type": ["integer", "null"], "format": "uint64", "minimum": 0 },
-      "fps": {
-        "description": "A video's frames a second.",
-        "type": ["integer", "null"],
-        "format": "uint32",
-        "minimum": 0
-      },
+      "frames": { "description": "A video's frames.", "type": ["integer", "null"], "minimum": 0 },
+      "fps": { "description": "A video's frames a second.", "type": ["integer", "null"], "minimum": 0 },
       "duration_ms": {
         "description": "How long a video runs, ms: its frames at its rate.",
-        "type": ["number", "null"],
-        "format": "double"
+        "type": ["number", "null"]
       },
       "timeline": {
         "description": "When each state plays in a video, in order.",
@@ -278,8 +270,11 @@
       "bytes": {
         "description": "The bytes written: the document, the video, or every image together.",
         "type": ["integer", "null"],
-        "format": "uint64",
         "minimum": 0
+      },
+      "running": {
+        "description": "An export the MCP server is still running when it stops waiting for it, and how\nfar it has got (SPEC §7.2). Nothing else is said until it is done.",
+        "anyOf": [{ "$ref": "#/$defs/Running" }, { "type": "null" }]
       }
     }
   }
