@@ -304,7 +304,7 @@
       "text": "Source: q3-revenue.csv",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     }
   },

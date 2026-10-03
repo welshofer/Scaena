@@ -506,13 +506,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The schemas: the deck's in four parts (`scaena://schema/deck`, its root and states; `/nodes`; `/deltas`, what a state sets; `/values`, what both share), the theme's in four (its root; `/charts`, `/shaders`, `/motion`), and the patch's ops by reference into the deck's parts. Each part is a JSON Schema whose `$id` is its uri. A test resolves every `$ref` and checks that the parts are the files in `docs/schema/`.*
     - *`scaena://spec/format`, `scaena://spec/expr`, `scaena://examples/charts.deck.json`, and the three themes, Dusk, Daybreak, and Ember.*
     - *JSON resources come without their whitespace, which takes the trails deck from 45 KB to 26 KB as read. The largest resource is §7, at 32 KB. The author-deck skill names the sections to read; SPEC §7.2 says how resources are served.)*
-- [ ] 1.34 One vocabulary for the shipped themes.
+- [x] 1.34 One vocabulary for the shipped themes.
   - **The problem.** The retheme skill calls names the swap contract, but the shipped themes break it, so a deck cannot move between them without edits.
   - **The task.** Dusk, Daybreak, and Ember name their layouts and slots by job, the same names for the same jobs:
     - Dusk's `figure` layout, with its slots `main` and `footer`, is Ember's `chart`, with `chart` and `side`;
     - Dusk's `stat` slots `meaning` and `aside` are Ember's `claim` and `detail`.
   - **Shader presets** are named by job, too, and every theme has the ones the example decks use.
   - **The test.** It re-themes each example deck across the three and expects no E102.
+  - *(Done: Dusk, Daybreak, and Ember define the same names for the same jobs, and SPEC §3.6 lists them.*
+    - *Layouts and slots. Ember's `chart` becomes `figure`, its slots `main` and `note` (`chart` and `side`), and `narrow-chart` becomes `narrow-figure`. A stat's `meaning` and `aside` become `claim` and `detail`. A source line or a column of facts is a `note` (Dusk's `footer`, Ember's `side`), and `split`'s `left` and `right` are `body` and `main`. Each theme gains the layouts the others had, in its own geometry: Dusk and Daybreak `statement`, `poster`, `narrow-figure`, `art-left`, and `art-right`, and Ember `split` and `quote`. Dusk's kicker runs in the bottom corner, its top row being the header's.*
+    - *Grids. Dusk and Daybreak lay out on 12 rows, as Ember does. Each slot covers the two rows its one did, so nothing moves, and an `at.row` names the same cell in each theme. Before, higher-ed's rows past 6 stopped lint on Dusk.*
+    - *Roles: Dusk and Daybreak gain `lede`, `kicker`, `figure`, and `quote`, and Ember `code`, in JetBrains Mono. Ember gains the color `accent-2` and the spring `heavy`. The shader presets are `backdrop` and `texture` (Dusk's `mesh-soft` and `noise-fine`), and the palettes `ambient` and `texture` (Dusk's `ember`, named for a theme), in each theme.*
+    - *`theme_apply` lists a theme's families in the deck's `fonts` when the bundle holds their files (`listed`), which E102 asked for by hand.*
+    - *The example decks use the new names. A test re-themes each of the six onto each theme: none is refused, and none has an E102. Another checks that the three themes name the same things. What remains in those deltas is the new look's to report: Dusk's larger headlines in higher-ed's header slots (E100), text over trails' storm photo on Daybreak (E110), and a few more.)*
 - [x] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
   *(Done: `theme_apply` validates the deck with the new theme before it writes. A theme that adds a validation error is refused: `refused` in its result, exit 1. The deck keeps its theme, and the theme is copied into `themes/` all the same, for one `patch` with the `retheme` op and the fixes. `--force` (`force`) applies it anyway. The retheme skill shows the patch, and SPEC §7.1–§7.2 say so. A CLI test is refused, finds the `retheme` op alone refused too, and forces.)*
 - [ ] 1.36 Lint sees what gate 1's renders showed.
@@ -520,6 +526,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - A narrative rule reports a spine whose beats run in another order than their states, which leaves the PDF and the video telling the story in different orders.
   - A chart squashed by a theme's grid below a legible plot is flagged.
   - `at.align` on a grid placement either places the grid in its cells or is rejected. In attempt 3 it did nothing.
+- [ ] 1.37 A placement outside the theme's grid is a finding, not a stop. An `at.col` or `at.row` past the grid's tracks makes layout fail, and `lint` exits 2 with no findings. It should be E102 at the node's `at`, naming the grid's size, with the rest of the deck linted. (Found in 1.34: a 12-row deck on a 6-row theme.)
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.

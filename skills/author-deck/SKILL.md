@@ -46,7 +46,7 @@ Errors:
    - For anything beyond a plain chart, follow the `chart-from-data` skill.
 3. **Nodes.**
    - Create each object once, with a meaningful id, a `type`, a `role` (text), and a `semantic` (`claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`).
-   - Place a node in a slot of the theme's layout templates with `at: { in: <slot> }` (the theme's `layouts`), or on its grid with `at: { col, row }`.
+   - Place a node in a slot of the theme's layout templates with `at: { in: <slot> }` (the theme's `layouts`), or on its grid with `at: { col, row }`. The shipped themes share their layouts, slots, and 12 × 12 grid (SPEC §3.6), so either kind of placement survives a swap between them.
    - For rows of cards, stat blocks, and photo grids, place a container (`stack`, `grid`, `frame`) like any node, then put each child in it with `at: { parent: <container> }`. The child goes nowhere else, and `at.index` reorders.
    - In a stack, text and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares).
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.

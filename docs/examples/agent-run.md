@@ -279,7 +279,7 @@ Each is a task in PLAN 1.33–1.36, or a note for a theme.
 
 ## Files
 
-- `docs/examples/ridgeline.deck.json`: the deck attempt 3 made, as it left it, on Ember. The rest of its bundle was byte for byte the shared files beside it: `data/ridgeline-rides.csv` (the CSV the agents were given), `themes/`, and `fonts/`. It lints clean, and a test keeps it so.
+- `docs/examples/ridgeline.deck.json`: the deck attempt 3 made, as it left it, on Ember, but for the names PLAN 1.34 changed in the shipped themes: its layout `chart` is now `figure`, and its slots `chart` and `side` are `main` and `note`. The rest of its bundle was byte for byte the shared files beside it: `data/ridgeline-rides.csv` (the CSV the agents were given), `themes/`, and `fonts/`. It lints clean, and a test keeps it so.
 - `docs/examples/agent-run/`:
   - `attempt-2.md`, `attempt-3.md`, and `narrative-repair.md`: the condensed transcripts, as tool calls and the agents' reports. Attempt 1 stopped before writing anything.
   - `dusk.jpg` and `ember.jpg`: the contact sheets.

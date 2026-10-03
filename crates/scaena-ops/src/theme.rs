@@ -5,6 +5,7 @@
 use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::Finding;
+use scaena_core::document::FontRef;
 use scaena_core::lint::{Delta, delta};
 use scaena_core::validate::{BundleFiles, validate_bundle};
 use schemars::JsonSchema;
@@ -24,6 +25,9 @@ pub struct Themed {
     /// Families set in the bundle's font of that family, the theme's own file not being in
     /// the bundle: `family `key`: theirs → ours`.
     pub mapped: Vec<String>,
+    /// The theme's families the deck's `fonts` now lists, as rendering needs them to be:
+    /// `family `key`: file`. Each is a file the bundle holds that the deck did not list.
+    pub listed: Vec<String>,
     /// What `validate` and `lint` find with the new theme that they did not before.
     pub added: Vec<Finding>,
     /// What they found before that they do not with it.
@@ -38,7 +42,8 @@ pub struct Themed {
 /// Point the bundle's deck at the theme file `theme`, copying it to `themes/` unless it is
 /// in the bundle already. A family whose file the bundle does not hold is set in the bundle
 /// font of that family, if it has one: a saved bundle names fonts by their content. The
-/// deck is not otherwise touched, and is written canonically.
+/// deck's `fonts` lists each of the theme's families the bundle holds, as rendering needs
+/// it to (E102). The deck is not otherwise touched, and is written canonically.
 ///
 /// A theme that lacks a name the deck uses would leave it invalid, and an invalid deck is
 /// not laid out, so lint could not say what else the theme breaks. Such a theme is refused,
@@ -81,6 +86,15 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     let before = lint(b)?.findings;
     let mut deck = b.deck.clone();
     deck.theme = Some(serde_json::Value::String(rel.clone()));
+    let mut listed = Vec::new();
+    for (key, family) in parsed.pointer("/type/families").and_then(|f| f.as_object()).into_iter().flatten() {
+        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
+        if b.files.exists(file) && !deck.fonts.iter().any(|f| f.file == file) {
+            listed.push(format!("family `{key}`: {file}"));
+            let axes = serde_json::from_value(family["axes"].clone()).ok();
+            deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style: None, axes });
+        }
+    }
     let view = View::of(b).with(rel.clone(), text.clone().into_bytes());
     let after = lint_in(&deck, &view)?.findings;
 
@@ -107,6 +121,7 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
         was,
         applied: !dry_run && !refused,
         mapped,
+        listed,
         added,
         removed,
         errors: errors(&after),

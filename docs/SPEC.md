@@ -275,8 +275,8 @@ See `docs/schema/theme.schema.json`. Shape:
   "grid":   { "columns": 12, "gutter": 24, "margin": 96, "baseline": 8 },
   "layouts": {
     "title":  { "slots": { "title": {...}, "subtitle": {...} } },
-    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } },
-                "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 3] }, "right": { "col": [1, 12], "row": [4, 6] } } } } },
+    "split":  { "slots": { "body": { "col": [1, 6] }, "main": { "col": [7, 12] } },
+                "formats": { "9:16": { "slots": { "body": { "col": [1, 12], "row": [1, 3] }, "main": { "col": [1, 12], "row": [4, 6] } } } } },
     "full":   { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } }
   },
   "formats": { "9:16": { "grid": { "columns": 12, "rows": 8, "gutter": 24, "margin": [96, 64] } } },
@@ -286,7 +286,7 @@ See `docs/schema/theme.schema.json`. Shape:
     "springs":   { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 }, "gentle": { "stiffness": 170, "damping": 26, "mass": 1 } },
     "presets":   { "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
-  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
+  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "backdrop": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral", "show": "auto" }, "legend": { "role": "label", "place": "direct" },
               "strokeWidth": "thin", "cornerRadius": 0, "barGap": 0.5, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 6, "donutHole": 0.72, "tickCount": 5,
               "maxTicks": 5, "signal": "accent",
@@ -303,6 +303,13 @@ See `docs/schema/theme.schema.json`. Shape:
 - **`overrides`** holds a delta per node, checked against the node's type like a state's (E106; E104 for `type`; E102 for a node that is not there). It merges into the node after tracking, in every state, the same way a delta does: it wins over the theme, the defaults, and every state, and `null` deletes. Each key it sets is one override, and an object counts by its keys, so `style: { size, color }` is two. `scaena inspect --resolved` shows each node's overrides and each text node's look, and lint I402 names them.
 - **Colors** are a token or color role the theme names (role → token → literal), or a literal written out: `#rrggbb[aa]`, `oklch(L C H [/ A])`, or `oklab(L a b [/ A])`, read as CSS Color 4 reads them. Oklab converts to sRGB through `libm` (§13), and a color outside sRGB is clipped.
 - **Names are the swap contract.** Two themes swap cleanly when they define the same names (roles, layouts and slots, presets, palettes), so name them for their job: a background palette is `ambient`, not `dusk`. `scaena theme --apply` reports what a swap breaks (§7.1).
+- **The shipped themes share one vocabulary** (PLAN 1.34). Dusk, Daybreak, and Ember define the same names for the same jobs, on grids of 12 columns and 12 rows, so a deck moves between them by swapping the file: no name is missing, and a cell is a cell in each. What changes is the look. Each theme puts its slots where its design wants them, and lint says what the new type and colors break.
+  - **Layouts and their slots:** `title` (kicker, title, subtitle, art); `statement` (kicker, statement, support); `poster` (kicker, statement, support, note, art); `full`, `figure`, and `narrow-figure` (kicker, header, main, note); `stat` (kicker, number, claim, detail, under); `split` (body, main); `art-left` and `art-right` (kicker, header, art, body); `quote` (quote, who).
+  - **A slot is named for what goes in it.** `main` is the one thing a slide shows, `note` what is said of it (its source, or the facts beside it), `header` the slide's claim, and `kicker` the line that names its section. `claim` and `detail` are what a stat's number means and what stands behind it.
+  - **Roles:** display, headline, title, lede, body, caption, kicker, label, axis, value, numeral, figure (a number among facts), quote, and code.
+  - **Colors:** ink, paper, paper-2, accent, accent-2, muted, and line, with the same color roles and data palettes.
+  - **Shaders:** the presets `backdrop` (a mesh behind a title) and `texture` (a slow noise field), and the palettes `ambient` and `texture`.
+  - **Motion:** the same durations, easings, springs, and presets.
 
 ### 3.7 Charts
 
@@ -422,9 +429,9 @@ Requirements:
 
 ```jsonc
 // theme
-"shaders": { "presets": { "noise-fine": { "kind": "noise", "palette": "ember", "params": { "octaves": 4, "scale": 0.0015 } } } }
+"shaders": { "presets": { "texture": { "kind": "noise", "palette": "texture", "params": { "octaves": 4, "scale": 0.0015 } } } }
 // deck
-"bg": { "type": "shader", "kind": "noise", "preset": "noise-fine", "seed": 3, "params": { "contrast": 0.6 } }
+"bg": { "type": "shader", "kind": "noise", "preset": "texture", "seed": 3, "params": { "contrast": 0.6 } }
 ```
 
 **Params** are numbers, or a name a kind lists (a gradient's `shape`). The schema types them by kind, as the tables below do; the engine types them again when it resolves the node, and an unknown or out-of-range one is an error naming the node. A shader op carries numbers only: a name is its place in the kind's list (§6).
@@ -644,7 +651,7 @@ state revenue layout:figure transition:{duration: standard, ease: standard} hold
     labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
     semantic:evidence at:in(main)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
-    at:in(footer)
+    at:in(note)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
   choreo note enter:fade delay:600ms
 
@@ -856,7 +863,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
-`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
+`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck's `fonts` lists each of the theme's families the bundle holds, as rendering needs it to (`listed`). The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
 
 A theme that would leave the deck invalid is refused, as `patch` refuses a patch that makes the deck invalid, and exits 1 (PLAN 1.35). Most often it lacks a name the deck uses (E102), and an invalid deck is not laid out, so lint could not say what else the theme breaks. The deck keeps its theme, and the new one is copied in all the same. Then one `patch` with the `retheme` op and the fixes swaps it with the deck valid throughout. `--force` applies the theme anyway.
 
@@ -880,7 +887,7 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
-| `theme_apply` | `scaena theme --apply`, `force` its `--force`. | `{ theme, was, applied, refused, mapped, added, removed, errors }` |
+| `theme_apply` | `scaena theme --apply`, `force` its `--force`. | `{ theme, was, applied, refused, mapped, listed, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
 | `spine_read` | The spine projection (§10), without the times and renders `export --format spine` adds: it runs no layout. | the projection |
 | `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |

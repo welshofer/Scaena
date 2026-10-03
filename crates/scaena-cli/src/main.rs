@@ -534,6 +534,9 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
         for m in &t.mapped {
             println!("  {m}");
         }
+        for l in &t.listed {
+            println!("  fonts lists {l}");
+        }
         print_delta(&t.added, &t.removed);
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })

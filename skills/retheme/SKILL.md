@@ -20,7 +20,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - The dry run checks the new theme against `docs/schema/theme.schema.json` (`scaena://schema/theme`). It reports the delta in what validation and lint find, as `added` and `removed`.
    - Every name the deck uses that the new theme lacks is a new E102: roles, layouts and slots, presets, durations, easings, springs, palettes, colors, and families.
 2. **Fix what the delta reports**, in the deck or by choosing another theme.
-   - Names are the swap contract.
+   - Names are the swap contract. The shipped themes, Dusk, Daybreak, and Ember, share one vocabulary (SPEC §3.6), so a deck moves between them with no E102, and the delta holds only what the new look breaks.
    - A palette or slot named for a theme (`dusk`) rather than its job (`ambient`) is the theme's problem, not the deck's.
 3. **Swap.**
    - Run it again without the dry run. It copies the theme into `themes/` and points the deck at it.

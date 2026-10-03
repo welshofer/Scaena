@@ -175,3 +175,90 @@ fn copy_dir(from: &Path, to: &Path) {
         }
     }
 }
+
+/// The shipped themes, by name: Dusk, its light twin Daybreak, and Ember.
+const SHIPPED: [(&str, &str); 3] = [
+    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
+    ("daybreak", DAYBREAK),
+    ("ember", "../../docs/examples/themes/ember.theme.json"),
+];
+
+/// What a theme names that a deck may use (SPEC §3.6): its layouts and their slots, roles,
+/// families, colors, color roles, data palettes, shader presets and palettes, motion, and the
+/// shape of its grid.
+fn vocabulary(path: &str) -> serde_json::Value {
+    let t: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let keys = |v: &serde_json::Value| {
+        let mut k: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+        k.sort();
+        k
+    };
+    let layouts: serde_json::Map<String, serde_json::Value> =
+        t["layouts"].as_object().unwrap().iter().map(|(name, l)| (name.clone(), keys(&l["slots"]).into())).collect();
+    serde_json::json!({
+        "layouts": layouts,
+        "roles": keys(&t["type"]["roles"]),
+        "families": keys(&t["type"]["families"]),
+        "colors": keys(&t["tokens"]["color"]),
+        "colorRoles": keys(&t["tokens"]["roles"]),
+        "data": keys(&t["tokens"]["data"]),
+        "presets": keys(&t["shaders"]["presets"]),
+        "palettes": keys(&t["shaders"]["palettes"]),
+        "durations": keys(&t["motion"]["durations"]),
+        "easings": keys(&t["motion"]["easings"]),
+        "springs": keys(&t["motion"]["springs"]),
+        "motion": keys(&t["motion"]["presets"]),
+        "grid": [&t["grid"]["columns"], &t["grid"]["rows"]],
+    })
+}
+
+/// One vocabulary for the shipped themes (PLAN 1.34): each defines the names the others do,
+/// for the same jobs, on a grid of the same shape, so a deck moves between them by swapping
+/// the file. Dusk's copy in the authorability bundle is Dusk.
+#[test]
+fn the_shipped_themes_name_the_same_things() {
+    let dusk = vocabulary(SHIPPED[0].1);
+    for (name, path) in &SHIPPED[1..] {
+        assert_eq!(vocabulary(path), dusk, "{name} names what Dusk does");
+    }
+    assert_eq!(
+        std::fs::read("../../docs/examples/authorability/themes/dusk.theme.json").unwrap(),
+        std::fs::read(SHIPPED[0].1).unwrap()
+    );
+}
+
+/// Every example deck re-themes onto every shipped theme with no name it lacks (PLAN 1.34):
+/// no E102, so no swap is refused. What the new type and colors break is lint's to say, in
+/// the delta.
+#[test]
+fn every_example_deck_moves_between_the_shipped_themes() {
+    let decks = [
+        "revenue.deck.json",
+        "charts.deck.json",
+        "trails.deck.json",
+        "higher-ed.deck.json",
+        "ridgeline.deck.json",
+        "authorability",
+    ];
+    let runs: Vec<(String, String)> = std::thread::scope(|s| {
+        let jobs: Vec<_> = decks
+            .iter()
+            .flat_map(|deck| SHIPPED.iter().map(move |(name, theme)| (*deck, *name, *theme)))
+            .map(|(deck, name, theme)| {
+                s.spawn(move || {
+                    let path = format!("../../docs/examples/{deck}");
+                    let out = scaena(&["--json", "theme", &path, "--apply", theme, "--dry-run"]);
+                    (format!("{deck} onto {name}"), String::from_utf8(out.stdout).unwrap())
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    for (run, stdout) in runs {
+        let t: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{run}: {e}: {stdout}"));
+        assert_eq!(t["refused"], false, "{run}: {t:#}");
+        let missing: Vec<&serde_json::Value> =
+            t["added"].as_array().unwrap().iter().filter(|f| f["code"] == "E102").collect();
+        assert!(missing.is_empty(), "{run}: {missing:#?}");
+    }
+}

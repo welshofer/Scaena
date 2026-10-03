@@ -50,7 +50,7 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "required": ["theme", "applied", "mapped", "added", "removed", "errors", "refused"],
+    "required": ["theme", "applied", "mapped", "listed", "added", "removed", "errors", "refused"],
     "type": "object",
     "properties": {
       "theme": { "description": "The theme's path in the bundle.", "type": "string" },
@@ -64,6 +64,11 @@
       },
       "mapped": {
         "description": "Families set in the bundle's font of that family, the theme's own file not being in\nthe bundle: `family `key`: theirs → ours`.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "listed": {
+        "description": "The theme's families the deck's `fonts` now lists, as rendering needs them to be:\n`family `key`: file`. Each is a file the bundle holds that the deck did not list.",
         "type": "array",
         "items": { "type": "string" }
       },
