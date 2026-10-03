@@ -16,7 +16,7 @@ Motion is a cue: the transition into a state and the state's motions run on one 
 | set motion | `scaena patch <bundle> --ops ops.json --dry-run`, then without `--dry-run` | `deck_patch`, with `dry_run` first |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | see a frame mid-cue | `scaena render <bundle> --state <id> --t <ms> --out frame.png` | `deck_render` with `t` |
-| watch it play (needs ffmpeg) | `scaena export <bundle> --format mp4 --states <id>,<id> --size 960x540 --fps 30 --out preview.mp4` | `deck_export` with `format: "mp4"` |
+| watch it play (needs ffmpeg) | `scaena export <bundle> --format mp4 --states <id>,<id> --size 960x540 --fps 30 --out preview.mp4` | `deck_export` with `format: "mp4"`; while it answers `running`, call it again with the same arguments |
 
 The theme names what you may use, under `motion` in the theme file the deck names (`themes/*.theme.json`):
 - `presets` (Dusk: `fade`, `rise`, `grow`, `draw`, and `words` to enter; `pulse` for emphasis);

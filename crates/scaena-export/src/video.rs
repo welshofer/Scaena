@@ -15,8 +15,10 @@
 //!   PCM in QuickTime.
 //! - Chapters, if they are given, mark where each part starts and ends, by title: the
 //!   caller's beats (SPEC §10).
-//! - The video is written beside `out` and renamed to it once ffmpeg has finished, so a
-//!   failed export leaves no half-written file, and an earlier one stays as it was.
+//! - The video is written beside `out`, under a name of its own, and renamed to it once
+//!   ffmpeg has finished. A failed export leaves no half-written file, and an earlier one
+//!   stays as it was. Two exports of one file never write over each other's: the last to
+//!   finish is the one that stays.
 
 use crate::ExportError;
 use scaena_core::displaylist::DisplayList;
@@ -29,6 +31,7 @@ use std::io::{Read as _, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A video's codec, in its container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,8 +141,7 @@ pub fn encode(
     if let Some(audio) = settings.audio.as_deref().filter(|a| !a.is_file()) {
         return Err(bad(format!("--audio {}: no such file", audio.display())));
     }
-    let partial = partial(out);
-    let chapters = beside(out, ".chapters");
+    let (partial, chapters) = beside_once(out);
     if !settings.chapters.is_empty() {
         std::fs::write(&chapters, metadata(&settings.chapters))
             .map_err(|e| bad(format!("writing {}: {e}", chapters.display())))?;
@@ -308,9 +310,12 @@ fn rgb(rgba: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Where the video is written until it is whole: beside `out`, so renaming it is a move.
-fn partial(out: &Path) -> PathBuf {
-    beside(out, ".partial")
+/// Where this export writes until the video is whole: the video, and its chapters for
+/// ffmpeg. Beside `out`, so renaming the video is a move, and named for this export alone.
+fn beside_once(out: &Path) -> (PathBuf, PathBuf) {
+    static EXPORTS: AtomicU64 = AtomicU64::new(0);
+    let this = format!("{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed));
+    (beside(out, &format!(".{this}.partial")), beside(out, &format!(".{this}.chapters")))
 }
 
 /// A file beside `out`, named for it with `suffix`.
@@ -454,7 +459,14 @@ mod tests {
 
     #[test]
     fn the_video_is_written_beside_where_it_goes() {
-        assert_eq!(partial(Path::new("out/deck.mp4")), Path::new("out/deck.mp4.partial"));
+        let out = Path::new("out/deck.mp4");
+        let ((video, chapters), (again, _)) = (beside_once(out), beside_once(out));
+        for written in [&video, &chapters, &again] {
+            assert_eq!(written.parent(), out.parent());
+            assert!(written.file_name().unwrap().to_str().unwrap().starts_with("deck.mp4."), "{}", written.display());
+        }
+        assert!(video.to_str().unwrap().ends_with(".partial") && chapters.to_str().unwrap().ends_with(".chapters"));
+        assert_ne!(video, again, "each export writes a file of its own");
         let args = args(
             &VideoSettings { codec: Codec::ProRes, ..VideoSettings::default() },
             [1920, 1080],
@@ -478,11 +490,21 @@ mod tests {
         );
     }
 
+    /// Held to run stand-ins, and alone to write one: a child forked while a script is
+    /// being written holds it open for writing, and running the script then fails
+    /// (ETXTBSY), so no test spawns while another writes.
+    static SPAWNS: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+    fn may_spawn() -> std::sync::RwLockReadGuard<'static, ()> {
+        SPAWNS.read().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// A stand-in for ffmpeg, at `dir/name`: a shell script that runs `body` with `$out`,
     /// the file it is given last.
     #[cfg(unix)]
     fn stand_in(dir: &Path, name: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt as _;
+        let _alone = SPAWNS.write().unwrap_or_else(|e| e.into_inner());
         std::fs::create_dir_all(dir).unwrap();
         let path = dir.join(name);
         std::fs::write(&path, format!("#!/bin/sh\nfor out; do :; done\n{body}\n")).unwrap();
@@ -510,14 +532,54 @@ mod tests {
         let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 128]);
         let mut lists = vec![filled(red), filled(red), filled(blue), filled(red)].into_iter();
         let settings = VideoSettings { ffmpeg, fps: 10, ..VideoSettings::default() };
+        let spawning = may_spawn();
         let encoded = encode(&out, [4.0, 2.0], &settings, &Assets::new(), || lists.next().map(Ok)).unwrap();
+        drop(spawning);
         assert_eq!(encoded, Encoded { frames: 4, painted: 3, size: [4, 2] });
         // Each frame's pixels, in order: half-transparent blue over black.
         let px = |c: [u8; 3]| c.repeat(8);
         let want = [px([255, 0, 0]), px([255, 0, 0]), px([0, 0, 128]), px([255, 0, 0])].concat();
         assert_eq!(std::fs::read(&out).unwrap(), want);
-        assert!(!partial(&out).exists(), "the partial file is renamed");
+        assert_eq!(leftovers(&dir), Vec::<String>::new(), "the partial file is renamed");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What an export left beside its video: a partial file or a chapters file.
+    fn leftovers(dir: &Path) -> Vec<String> {
+        let names = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap());
+        names.filter(|n| n.ends_with(".partial") || n.ends_with(".chapters")).collect()
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn two_exports_of_one_file_never_write_over_each_other() {
+        let dir = std::env::temp_dir().join(format!("scaena-video-twice-{}", std::process::id()));
+        // ffmpeg that writes slowly, so the two exports overlap.
+        let ffmpeg = stand_in(&dir, "slow", "cat > \"$out\"; sleep 0.3");
+        let out = dir.join("deck.mp4");
+        let export = |color: [u8; 4], frames: usize| {
+            let (out, ffmpeg) = (out.clone(), ffmpeg.clone());
+            std::thread::spawn(move || {
+                let settings = VideoSettings { ffmpeg, fps: 10, chapters: chaptered(), ..VideoSettings::default() };
+                let mut lists = std::iter::repeat_with(|| filled(color)).take(frames);
+                encode(&out, [4.0, 2.0], &settings, &Assets::new(), || lists.next().map(Ok))
+            })
+        };
+        let spawning = may_spawn();
+        let (first, second) = (export([255, 0, 0, 255], 3), export([0, 0, 255, 255], 5));
+        let (first, second) = (first.join().unwrap().unwrap(), second.join().unwrap().unwrap());
+        drop(spawning);
+        assert_eq!((first.frames, second.frames), (3, 5));
+        // What stays is one export's video, whole: never the two mixed.
+        let video = std::fs::read(&out).unwrap();
+        let (red, blue) = ([255, 0, 0].repeat(8 * 3), [0, 0, 255].repeat(8 * 5));
+        assert!(video == red || video == blue, "{} bytes, neither export's", video.len());
+        assert_eq!(leftovers(&dir), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn chaptered() -> Vec<Chapter> {
+        vec![Chapter { beat: Some("all".into()), title: "All".into(), start: 0.0, end: 100.0 }]
     }
 
     #[test]
@@ -528,9 +590,11 @@ mod tests {
         let out = dir.join("deck.mp4");
         let settings = VideoSettings { ffmpeg: refuses, ..VideoSettings::default() };
         let mut lists = std::iter::repeat_with(|| filled([9, 9, 9, 255])).take(100);
+        let spawning = may_spawn();
         let err = encode(&out, [4.0, 2.0], &settings, &Assets::new(), || lists.next().map(Ok)).unwrap_err();
+        drop(spawning);
         assert!(err.to_string().contains("Unknown encoder 'libx264'"), "{err}");
-        assert!(!out.exists() && !partial(&out).exists());
+        assert!(!out.exists() && leftovers(&dir).is_empty());
         // A frame that cannot be made stops the video, and what ffmpeg wrote is removed.
         let copies = stand_in(&dir, "copies", "cat > \"$out\"");
         let settings = VideoSettings { ffmpeg: copies, ..VideoSettings::default() };
@@ -539,9 +603,11 @@ mod tests {
             k += 1;
             Some(if k < 5 { Ok(filled([9, 9, 9, 255])) } else { Err(ExportError::Video("no frame 5".into())) })
         };
+        let spawning = may_spawn();
         let err = encode(&out, [4.0, 2.0], &settings, &Assets::new(), next).unwrap_err();
+        drop(spawning);
         assert_eq!(err.to_string(), "video: no frame 5");
-        assert!(!out.exists() && !partial(&out).exists());
+        assert!(!out.exists() && leftovers(&dir).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
