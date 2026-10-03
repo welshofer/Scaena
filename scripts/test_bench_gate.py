@@ -6,6 +6,9 @@
 import contextlib
 import io
 import json
+import math
+import re
+import statistics
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,6 +69,28 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 0, report)
         self.assertEqual(self.verdicts(report), {"sample/b1": "ok: not slower again"})
 
+    def test_a_bench_regresses_only_when_slower_in_every_turn(self):
+        now, base = run(sample__b1=1.3), run(sample__b1=1.0)
+        turns = [run(sample__b1=t) for t in (1.20, 1.25, 1.02)]
+        bases = [run(sample__b1=1.0)] * 3
+
+        def judge(turns):
+            argv = ["check", "--history", self.dir / "history.json", "--run", self.write("run.json", now)]
+            argv += ["--base", self.write("base.json", base), "--again"]
+            argv += [self.write(f"again-{i}.json", t) for i, t in enumerate(turns)]
+            argv += ["--base-again"] + [self.write(f"base-again-{i}.json", b) for i, b in enumerate(bases)]
+            return self.gate(*argv)
+
+        # One fast turn of three: a slow run swayed the other two.
+        code, report = judge(turns)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(self.verdicts(report), {"sample/b1": "ok: not slower again"})
+        self.assertIn("| +20.0% · +25.0% · +2.0% |", report)
+        code, report = judge(turns[:2] + [run(sample__b1=1.15)])
+        self.assertEqual(code, 1, report)
+        self.assertIn("::error title=bench regression::sample/b1", report)
+        self.assertIn("+20.0% · +25.0% · +15.0% timed again", report)
+
     def test_within_the_floor_and_faster_pass(self):
         code, report = self.check(run(sample__b1=1.08, layout__b1=7.0), run(sample__b1=1.0, layout__b1=10.0))
         self.assertEqual(code, 0, report)
@@ -104,6 +129,39 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 0, report)
         self.assertEqual(self.verdicts(report), {"sample/b1": "recorded"})
         self.assertIn("Recorded, not judged", report)
+
+    def spread(self, stray: float, **target) -> tuple[dict, dict]:
+        """Forty benches beside an identical base that stray from it as a machine does, by
+        `stray` (a standard deviation of the log ratio), and `target` (ms, base 1.0): a run
+        and its base."""
+        normal = statistics.NormalDist(0, math.log(1 + stray))
+        now = {f"layout__b{i}": math.exp(normal.inv_cdf((i + 0.5) / 40)) for i in range(40)}
+        return run(**now, **target), run(**{k: 1.0 for k in now}, **{k: 1.0 for k in target})
+
+    def floor_in(self, report: str) -> int:
+        return int(re.search(r"so the floor is (\d+)%", report).group(1))
+
+    def test_a_noisy_machine_raises_the_floor(self):
+        # Benches that stray by 10% when nothing changed: a 25% slowdown, twice, is noise there.
+        now, base = self.spread(0.10, sample__b1=1.25)
+        code, report = self.check(now, base, run(sample__b1=1.25), run(sample__b1=1.0))
+        self.assertEqual(code, 0, report)
+        self.assertEqual(self.verdicts(report)["sample/b1"], "ok")
+        self.assertRegex(report, r"the 41 benches strayed by (9\.\d|10\.\d)% here")
+        self.assertTrue(25 < self.floor_in(report) < 30, report)
+
+    def test_a_quiet_machine_keeps_the_floor_at_ten_percent(self):
+        now, base = self.spread(0.01, sample__b1=1.12)
+        code, report = self.check(now, base, run(sample__b1=1.12), run(sample__b1=1.0))
+        self.assertEqual(code, 1, report)
+        self.assertEqual(self.verdicts(report)["sample/b1"], "**slower**")
+        self.assertIn("so the floor is 10%: 2.5 σ, or 10% if that is more", report)
+
+    def test_the_suspects_are_past_the_runs_floor(self):
+        out = self.dir / "suspects.txt"
+        now, base = self.spread(0.10, sample__b1=1.25, video__b1=1.4)
+        self.gate("suspects", "--run", self.write("now.json", now), "--base", self.write("base.json", base), "--out", out)
+        self.assertEqual(out.read_text(), "video/b1\n")
 
     def test_the_suspects_are_the_benches_slower_than_their_base(self):
         out = self.dir / "suspects.txt"
