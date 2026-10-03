@@ -108,10 +108,12 @@ web-dev:
     cd web && npm run dev
 
 # The web player in headless Chromium: every torture frame shown, painted in its worker by
-# WebGPU and by the CPU painter (PLAN 2.1); then the parity harness holds both to the goldens.
+# WebGPU and by the CPU painter (PLAN 2.1), and the parity harness holds both to the goldens;
+# then its controls and presenter view (PLAN 2.2).
 web-smoke: web
     node web/smoke.mjs
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
+    node web/player.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

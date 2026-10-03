@@ -55,10 +55,10 @@ jobs:
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
-    # PLAN 2.1: the web player shows every torture frame, painted in its worker by WebGPU and by
-    # the CPU painter. PLAN 0.9: then the parity harness compares the painters (vello_cpu
-    # goldens, vello on lavapipe, vello on WebGPU in the browser, and the player's two) on every
-    # state.
+    # PLAN 2.1–2.2: the web player shows every torture frame, painted in its worker by WebGPU
+    # and by the CPU painter, and its controls and presenter view work. PLAN 0.9: then the
+    # parity harness compares the painters on every state: the vello_cpu goldens, vello on
+    # lavapipe, vello on WebGPU in the browser, and the player's two.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -87,6 +87,7 @@ jobs:
       - run: node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena 5 | tee -a "$GITHUB_STEP_SUMMARY"
       - run: cd web && npm ci && npm run build
       - run: node web/smoke.mjs
+      - run: node web/player.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:

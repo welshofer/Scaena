@@ -5,20 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Scaena</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: dark; --bar: 44px; }
       body { margin: 0; background: #1d1c1a; color: #ddd; font: 14px system-ui, sans-serif; }
+      button, select { font: inherit; }
       /* At its own size where it fits, scaled down to fit where it does not. */
-      #stage { display: block; margin: 0 auto; max-width: 100vw; max-height: calc(100vh - 40px); }
-      p { margin: 0; padding: 8px 12px; height: 24px; }
+      #stage { display: block; margin: 0 auto; max-width: 100vw; max-height: calc(100vh - var(--bar)); touch-action: none; }
+      .bar { display: flex; gap: 8px; align-items: center; height: var(--bar); padding: 0 12px; box-sizing: border-box; }
+      .bar input[type="range"] { flex: 1; min-width: 80px; }
+      #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      /* Fullscreen is the slide alone. */
+      :fullscreen .bar { display: none; }
+      :fullscreen #stage { max-height: 100vh; }
+      /* The presenter view: the slide as the room sees it, and beside it what comes next. */
+      body.presenter { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; height: 100vh; padding: 16px; box-sizing: border-box; }
+      .presenter main { display: flex; align-items: center; justify-content: center; min-width: 0; }
+      .presenter #stage { max-width: 100%; max-height: calc(100vh - 32px); }
+      .presenter aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; }
+      .presenter #upnext { display: block; width: 100%; height: auto; opacity: 0.85; }
+      .presenter .clock { font-size: 28px; font-variant-numeric: tabular-nums; margin: 0; }
+      .presenter .notes { font-size: 20px; line-height: 1.4; white-space: pre-wrap; flex: 1; }
+      .presenter p { margin: 0; }
     </style>
   </head>
   <body>
     <canvas id="stage"></canvas>
-    <p>
+    <div class="bar">
+      <button id="back" aria-label="Back">◀</button>
+      <button id="on" aria-label="On">▶</button>
+      <input id="scrub" type="range" min="0" max="0" step="any" value="0" aria-label="States" />
       <select id="state" aria-label="State"></select>
       <select id="format" aria-label="Format"><option value="">own canvas</option></select>
       <span id="status" role="status">loading…</span>
-    </p>
+      <button id="present" aria-label="Presenter view">Presenter</button>
+      <button id="full" aria-label="Fullscreen">⛶</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

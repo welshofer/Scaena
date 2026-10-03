@@ -10,32 +10,15 @@
 // size, opaque, and more than one color. The frames are saved as
 // <out-dir>/player-webgpu/<frame>.png and <out-dir>/player-cpu/<frame>.png (default out-dir
 // target/web-smoke), where the parity harness holds them to the goldens (SPEC §13.5; `just
-// web-smoke` runs it). Exits 1 on any failure. Needs Playwright and its Chromium, as
-// crates/scaena-wasm/www/smoke.mjs does.
-import { createServer } from "node:http";
+// web-smoke` runs it). Exits 1 on any failure. Needs Playwright and its Chromium (serve.mjs).
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { extname, join, normalize } from "node:path";
+import { join } from "node:path";
 import { inflateSync } from "node:zlib";
+import { launch, serve } from "./serve.mjs";
 
-const { chromium } = createRequire(import.meta.url)("playwright");
-
-const root = process.cwd();
 const out = process.argv[2] ?? "target/web-smoke";
-const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json" };
-const server = createServer(async (req, res) => {
-  let path = normalize(join(root, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-  if (!path.startsWith(root)) return res.writeHead(403).end();
-  if (path.endsWith("/")) path = join(path, "index.html");
-  try {
-    const body = await readFile(path);
-    res.writeHead(200, { "content-type": types[extname(path)] ?? "application/octet-stream" }).end(body);
-  } catch {
-    res.writeHead(404).end();
-  }
-}).listen(0, "127.0.0.1");
-await new Promise((ok) => server.once("listening", ok));
-const player = (painter) => `http://127.0.0.1:${server.address().port}/web/dist/?painter=${painter}`;
+const server = await serve();
+const player = (painter) => `${server.origin}/web/dist/?painter=${painter}`;
 
 /** A PNG's pixels as RGBA: 8-bit RGB or RGBA, not interlaced, as Chromium writes them. */
 function decode(png) {
@@ -74,10 +57,7 @@ function decode(png) {
 }
 
 const frames = (await readFile("tests/golden/torture/raw.fnv1a", "utf8")).trim().split("\n").map((l) => l.split(" ")[0]);
-const browser = await chromium.launch({
-  // Headless Chromium leaves WebGPU canvases blank unless its compositor runs on Vulkan.
-  args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await launch();
 const failures = [];
 try {
   for (const [painter, expected] of [["gpu", "webgpu"], ["cpu", "cpu"]]) {

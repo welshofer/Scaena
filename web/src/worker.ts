@@ -1,6 +1,7 @@
-// The engine's worker (PLAN 2.1, SPEC §9.2): the bundle, the WASM engine, and the canvas the
-// page handed over. It paints with vello on WebGPU where the browser has an adapter, and
-// otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps.
+// The engine's worker (PLAN 2.1–2.2, SPEC §9.2): the bundle, the WASM engine, and the canvas
+// the page handed over. It paints with vello on WebGPU where the browser has an adapter, and
+// otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
+// deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold.
 import init, { Canvas, Player } from "@scaena/wasm";
 import type { FromWorker, Painter, Slot, ToWorker } from "./protocol";
 
@@ -13,9 +14,11 @@ let canvas: OffscreenCanvas;
 let gpu: Canvas | undefined;
 /** Where the CPU painter's frames go, when it paints. */
 let bitmaps: ImageBitmapRenderingContext | undefined;
-/** The format the engine lays frames out in now; `undefined` is the deck's own canvas. */
+/** The format the engine lays frames out in now (`undefined`: the deck's own canvas), and
+ * the deck's timeline in it. */
 let format: string | undefined;
-/** Counts the requests that paint: a cue playing stops when a newer one comes. */
+let slots: Slot[] = [];
+/** Counts the requests that paint: a run stops when a newer one comes. */
 let latest = 0;
 
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
@@ -31,17 +34,37 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         await paint(data.state, data.t ?? Infinity);
         return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
       }
-      case "play":
-        layOut(data.format);
-        return play(data.state, ++latest);
       case "timeline":
         layOut(data.format);
-        return post({ type: "timeline", id: data.id, slots: JSON.parse(player.timeline()) as Slot[] });
+        return post({ type: "timeline", id: data.id, slots });
+      case "run":
+        layOut(data.format);
+        return run(data.index, data.t, ++latest);
+      case "seek": {
+        latest++;
+        layOut(data.format);
+        const slot = slots[data.index];
+        if (!slot) throw new Error(`the deck has no slot ${data.index}: it has ${slots.length}`);
+        const t = data.t ?? slot.span;
+        await paint(slot.state, t);
+        return post({ type: "at", id: data.id, index: data.index, t, global: slot.start + t, playing: false });
+      }
+      case "pause":
+        latest++;
+        return;
     }
   } catch (e) {
     post({ type: "error", id, message: said(e) });
   }
 };
+
+interface DeckFiles {
+  theme: string;
+  fonts?: { file: string }[];
+  data?: Record<string, { source?: unknown }>;
+  states: { id: string; notes?: string }[];
+  spine?: { sections?: { beats?: { states?: string[]; notes?: string }[] }[] };
+}
 
 async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
   await init();
@@ -53,7 +76,7 @@ async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
   };
   const bytes = async (path: string) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const;
   const json = await (await get(deck)).text();
-  const files = JSON.parse(json) as { theme: string; fonts?: { file: string }[]; data?: Record<string, { source?: unknown }> };
+  const files = JSON.parse(json) as DeckFiles;
   player = new Player(json, await (await get(files.theme)).text());
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const [fonts, tables, images] = await Promise.all(
@@ -62,6 +85,7 @@ async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
   for (const [path, font] of fonts) player.addFont(path, font);
   for (const [path, table] of tables) player.addData(path, table);
   for (const [path, image] of images) player.addImage(path, image);
+  slots = JSON.parse(player.timeline()) as Slot[];
   canvas = target;
   [canvas.width, canvas.height] = size();
   if (painter !== "cpu") {
@@ -83,9 +107,19 @@ async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
     type: "ready",
     states: player.states(),
     formats: player.formats(),
+    notes: notes(files),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
   });
+}
+
+/** Each state's notes: its own, else those of the first beat that names it. */
+function notes(files: DeckFiles): string[] {
+  const beats = new Map<string, string>();
+  for (const section of files.spine?.sections ?? [])
+    for (const beat of section.beats ?? [])
+      for (const state of beat.states ?? []) if (!beats.has(state)) beats.set(state, beat.notes ?? "");
+  return files.states.map((s) => s.notes ?? beats.get(s.id) ?? "");
 }
 
 /** The canvas frames are laid out on now, in whole pixels. */
@@ -96,9 +130,11 @@ function layOut(next: string | undefined) {
   if (next === format) return;
   player.setFormat(next);
   format = next;
+  slots = JSON.parse(player.timeline()) as Slot[];
 }
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first. */
+/** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
+ * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
 async function paint(state: string, t: number) {
   const [width, height] = size();
   if (canvas.width !== width || canvas.height !== height) {
@@ -111,20 +147,34 @@ async function paint(state: string, t: number) {
   bitmaps!.transferFromImageBitmap(await createImageBitmap(frame));
 }
 
-/** The cue into `state`, a frame each time the display takes one, then its rest. */
-function play(state: string, run: number) {
-  const span = player.duration(state);
+/** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state
+ * that holds, short of the last, gives way to the next when its cue and hold are over; one
+ * that does not hold, and the last, comes to rest and waits. */
+function run(index: number, t: number, run: number) {
+  const goesOn = (i: number) => slots[i].hold > 0 && i < slots.length - 1;
   const start = performance.now();
+  /** Where the clock started, from the slot it is in now. */
+  let offset = t;
   const frame = async (now: number) => {
     if (run !== latest) return;
-    const t = now - start;
+    let t = offset + Math.max(0, now - start);
+    while (goesOn(index) && t >= slots[index].span + slots[index].hold) {
+      offset -= slots[index].span + slots[index].hold;
+      t -= slots[index].span + slots[index].hold;
+      index++;
+    }
+    const slot = slots[index];
+    const playing = goesOn(index) || t < slot.span;
+    if (!playing) t = slot.span;
     try {
-      await paint(state, t < span ? t : Infinity);
+      await paint(slot.state, t);
     } catch (e) {
       return post({ type: "error", message: said(e) });
     }
-    if (t < span) next(frame);
-    else post({ type: "rested", state });
+    // A newer request came while the CPU painter painted: its frame is the one to report.
+    if (run !== latest) return;
+    post({ type: "at", index, t, global: slot.start + t, playing });
+    if (playing) next(frame);
   };
   next(frame);
 }
