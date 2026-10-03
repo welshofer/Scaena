@@ -18,6 +18,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 1. **Preview.**
    - The dry run checks the new theme against `docs/schema/theme.schema.json` (`scaena://schema/theme`). It reports the delta in what validation and lint find, as `added` and `removed`.
    - Every name the deck uses that the new theme lacks is a new E102: roles, layouts and slots, presets, durations, easings, springs, palettes, colors, and families.
+   - Each such E102 lists the names of that kind the new theme has ("layout `figure` is not in the theme, which has title, full, chart"). Choose from them; there is no need to guess.
 2. **Fix what the delta reports**, in the deck or by choosing another theme.
    - Names are the swap contract.
    - A palette or slot named for a theme (`dusk`) rather than its job (`ambient`) is the theme's problem, not the deck's.

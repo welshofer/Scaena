@@ -350,7 +350,7 @@ impl LoadedTheme {
         let mut out = Vec::new();
         let mut need = |defined: bool, what: &str, name: &str, path: String| {
             if !defined {
-                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme"), &path));
+                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme{}", self.has(what)), &path));
             }
         };
         for (name, color) in &t.tokens.roles {
@@ -485,6 +485,38 @@ impl LoadedTheme {
             "sequential" => data.sequential.is_some(),
             "diverging" => data.diverging.is_some(),
             _ => false,
+        }
+    }
+
+    /// What the theme has of the kind `what` names, for a finding about a name it lacks:
+    /// `, which has a, b, c`, or `, which has none`. Long lists end in their count.
+    fn has(&self, what: &str) -> String {
+        fn listed<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<&'a str> {
+            keys.map(String::as_str).collect()
+        }
+        let t = &self.theme;
+        let shaders = t.shaders.as_ref();
+        let names: Vec<&str> = match what {
+            "text role" => listed(t.typography.roles.keys()),
+            "layout" => listed(t.layouts.keys()),
+            "font family" => listed(t.typography.families.keys()),
+            "color" => listed(t.tokens.roles.keys().chain(t.tokens.color.keys())),
+            "shader palette" => listed(shaders.and_then(|s| s.palettes.as_ref()).into_iter().flat_map(|p| p.keys())),
+            "shader preset" => listed(shaders.and_then(|s| s.presets.as_ref()).into_iter().flat_map(|p| p.keys())),
+            "data palette" => {
+                ["categorical", "sequential", "diverging"].into_iter().filter(|p| self.data_palette(p)).collect()
+            }
+            "motion preset" => listed(t.motion.presets.keys()),
+            "duration" => listed(t.motion.durations.keys()),
+            "easing" => listed(t.motion.easings.keys()),
+            "spring" => listed(t.motion.springs.keys()),
+            _ => return String::new(),
+        };
+        const SHOWN: usize = 24;
+        match names.len() {
+            0 => ", which has none".into(),
+            n if n > SHOWN => format!(", which has {}, … ({n} in all)", names[..SHOWN].join(", ")),
+            _ => format!(", which has {}", names.join(", ")),
         }
     }
 }
@@ -1279,8 +1311,8 @@ impl Names<'_> {
         if defined {
             return;
         }
-        let mut finding =
-            Finding::new("E102", Severity::Error, format!("{what} `{name}` is not in the theme")).at(path);
+        let message = format!("{what} `{name}` is not in the theme{}", self.theme.has(what));
+        let mut finding = Finding::new("E102", Severity::Error, message).at(path);
         if let Some(state) = state {
             finding = finding.state(state);
         }
