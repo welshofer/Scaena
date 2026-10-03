@@ -167,7 +167,6 @@ pub fn encode(
             return Err(e);
         }
     };
-    let mut stdin = child.stdin.take().expect("stdin is piped");
     let mut stderr = child.stderr.take().expect("stderr is piped");
     // Read as it comes, so ffmpeg never waits on a full pipe while we wait on it.
     let said = std::thread::spawn(move || {
@@ -175,8 +174,11 @@ pub fn encode(
         let _ = stderr.read_to_string(&mut s);
         s
     });
-    let pumped = pump(&mut stdin, size, settings.scale, assets, &mut next);
-    drop(stdin);
+    // The frames, then the end of ffmpeg's input: its stdin closes as the block ends.
+    let pumped = {
+        let mut stdin = child.stdin.take().expect("stdin is piped");
+        pump(&mut stdin, size, settings.scale, assets, &mut next)
+    };
     if pumped.is_err() {
         // The frames stopped short: what ffmpeg has is not the video.
         let _ = child.kill();

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
+const web = fileURLToPath(new URL(".", import.meta.url));
 
 /** In development, the repository's bundles at their paths in it (`/tests/fixtures/torture.scaena`),
  * as a static server at the repository's root serves them beside the built player. */
@@ -30,5 +31,9 @@ export default defineConfig({
   resolve: { alias: { "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js") } },
   worker: { format: "es" },
   server: { fs: { allow: [repo] } },
-  build: { target: "es2022" },
+  build: {
+    target: "es2022",
+    // The player (PLAN 2.1–2.2) and the source editor (PLAN 2.3), sharing the engine's worker.
+    rollupOptions: { input: { player: join(web, "index.html"), editor: join(web, "editor.html") } },
+  },
 });

@@ -1,9 +1,10 @@
-// The engine's worker (PLAN 2.1–2.2, SPEC §9.2): the bundle, the WASM engine, and the canvas
+// The engine's worker (PLAN 2.1–2.3, SPEC §9.2): the bundle, the WASM engine, and the canvas
 // the page handed over. It paints with vello on WebGPU where the browser has an adapter, and
 // otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
-// deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold.
+// deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold. For
+// the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state.
 import init, { Canvas, Player } from "@scaena/wasm";
-import type { FromWorker, Painter, Slot, ToWorker } from "./protocol";
+import type { Edited, Finding, FromWorker, Painter, Slot, ToWorker } from "./protocol";
 
 const post = (message: FromWorker) => self.postMessage(message);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -52,6 +53,21 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "pause":
         latest++;
         return;
+      case "source":
+        return post({ type: "source", id: data.id, source: player.source() });
+      case "edit":
+        latest++;
+        return post({ type: "edited", id: data.id, ...(await edit(data.source, data.index, data.format)) });
+      case "lint": {
+        const start = performance.now();
+        const linted = JSON.parse(player.lint(undefined)) as { findings: Finding[]; laid: boolean; whole: boolean };
+        return post({ type: "linted", id: data.id, ...linted, ms: performance.now() - start });
+      }
+      case "fix":
+        return post({ type: "fixed", id: data.id, source: player.fix(JSON.stringify(data.patch)) });
+      case "inspect":
+        layOut(data.format);
+        return post({ type: "inspected", id: data.id, inspected: JSON.parse(player.inspect(data.state)) });
     }
   } catch (e) {
     post({ type: "error", id, message: said(e) });
@@ -125,12 +141,55 @@ function notes(files: DeckFiles): string[] {
 /** The canvas frames are laid out on now, in whole pixels. */
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
-/** Lay frames out in `next` from now on. */
-function layOut(next: string | undefined) {
-  if (next === format) return;
+/** Lay frames out in `next` from now on; `again` after the deck has changed. */
+function layOut(next: string | undefined, again = false) {
+  if (next === format && !again) return;
   player.setFormat(next);
   format = next;
   slots = JSON.parse(player.timeline()) as Slot[];
+}
+
+/** Compile `source`. Once it validates, repaint slot `index` at rest from the new deck, then
+ * lint it: the editor's round trip (PLAN 2.3), each step timed. */
+async function edit(source: string, index: number, at: string | undefined): Promise<Edited> {
+  const start = performance.now();
+  const compiled = JSON.parse(player.compile(source)) as {
+    error?: Finding;
+    findings: Finding[];
+    states: [string, number][];
+    valid: boolean;
+  };
+  const compiledAt = performance.now();
+  let where: Edited["at"];
+  let shown: string | undefined;
+  if (compiled.valid) {
+    // A format the deck no longer lists falls back to its own canvas.
+    layOut(at !== undefined && player.formats().includes(at) ? at : undefined, true);
+    const i = Math.min(index, slots.length - 1);
+    const slot = slots[i];
+    if (slot) {
+      await paint(slot.state, slot.span);
+      where = { index: i, t: slot.span, global: slot.start + slot.span, playing: false };
+      shown = slot.state;
+    }
+  }
+  const paintedAt = performance.now();
+  // The state shown, laid out alone: the rest waits for typing to stop.
+  const linted = compiled.error
+    ? undefined
+    : (JSON.parse(player.lint(shown)) as { findings: Finding[]; laid: boolean; whole: boolean });
+  const lintedAt = performance.now();
+  return {
+    error: compiled.error,
+    findings: linted?.findings ?? compiled.findings,
+    states: compiled.states,
+    valid: compiled.valid,
+    laid: linted?.laid ?? false,
+    whole: linted?.whole ?? true,
+    slots,
+    at: where,
+    ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
+  };
 }
 
 /** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it

@@ -566,7 +566,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The page's `Stage` is a canvas and its worker. The player has one, and the presenter view two: the slide as the room sees it, and the next state at rest.*
     - *The test drives the keys, the scrubber, a click, a swipe, and fullscreen. It checks a hold going on by itself, the last state resting, the scrubber's frame matching `show`'s for the same state and time, and the presenter view following the player and steering it. `just web-smoke` runs it after 2.1's checks, and so does CI's wasm job.*
     - *It runs on the CPU painter. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames.)*
-- [ ] 2.3 Source editor: CodeMirror 6 `.scn` mode, live compile, lint gutter with fixes, live preview; inspector (resolved values, override counts, timeline).
+- [x] 2.3 Source editor: CodeMirror 6 `.scn` mode, live compile, lint gutter with fixes, live preview; inspector (resolved values, override counts, timeline).
+  *(Done: SPEC §9.2 says how the editor behaves. `web/editor.mjs` checks it in headless Chromium, on the revenue example and on B1.*
+    - *The operations are `scaena-ops`' (ADR-0009). Compile with its source map, lint with an engine the caller keeps, and inspect from a deck already in memory moved there from the CLI. `scaena-wasm`'s `editor` feature binds them for the worker.*
+    - *Each finding stands where the source wrote what it is about. A finding about a whole node in a state stands at the node's line in that state.*
+    - *An edit lints the state shown, and every state is linted once typing stops. A lint of every state takes 1.2 s on B1 in the browser (SPEC §15 budgets 1 s natively), so it cannot be gate 2's round trip. The engine's lint lays out one state on request. `crates/scaena-ops/tests/lint.rs` holds it to the whole lint on every torture state.*
+    - *Gate 2's round trip on B1 has a median of 114 ms (compile 16, the frame 66, lint 32) on the CPU painter in headless Chromium.*
+    - *The WASM engine with the editor's operations is 2.76 MB gzipped (SPEC §15: 3.0). `just web-smoke` and CI's wasm job run the test after 2.2's.)*
 - [ ] 2.4 Storage: OPFS + File System Access; open/save bundle; drag-and-drop assets with hashing; font subsetting in WASM.
 - [ ] 2.5 Single-file HTML export (engine + bundle inlined; no network at runtime).
 - [ ] 2.6 BYOK assistant in the Worker: Anthropic (direct browser header), OpenAI, Gemini adapters; function-calling onto the same operations; session-only key option; skills loaded from the bundle/repo.

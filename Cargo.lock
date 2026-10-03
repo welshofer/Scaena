@@ -3042,7 +3042,9 @@ version = "0.1.0"
 dependencies = [
  "scaena-core",
  "scaena-engine",
+ "scaena-ops",
  "scaena-paint",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "vello",

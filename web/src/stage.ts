@@ -1,8 +1,11 @@
-// One canvas and the engine's worker that paints it (PLAN 2.1–2.2): the page's side of
-// `protocol.ts`. The player shows one; the presenter view, two.
-import type { At, FromWorker, Opened, Painter, Slot, ToWorker } from "./protocol";
+// One canvas and the engine's worker that paints it (PLAN 2.1–2.3): the page's side of
+// `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
+import type { At, Edited, FromWorker, Inspected, Linted, Opened, Painter, Slot, ToWorker } from "./protocol";
 
-type Reply = Extract<FromWorker, { type: "shown" | "timeline" | "at" }>;
+type Reply = Extract<
+  FromWorker,
+  { type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" }
+>;
 
 export class Stage {
   /** Where the deck is, as the worker last said. */
@@ -77,6 +80,38 @@ export class Stage {
     this.send({ type: "pause" });
   }
 
+  /** The deck as canonical `.scn`. */
+  source(): Promise<string> {
+    return this.ask<"source">({ type: "source", id: ++this.asked }).then(({ source }) => source);
+  }
+
+  /** Compile `source`; once it validates, show slot `index` from it at rest, and lint that
+   * slot's state. */
+  edit(source: string, index: number, format?: string): Promise<Edited> {
+    return this.ask<"edited">({ type: "edit", id: ++this.asked, source, index, format }).then((edited) => {
+      if (edited.at) {
+        this.at = edited.at;
+        this.onAt(edited.at);
+      }
+      return edited;
+    });
+  }
+
+  /** Lint the deck compiled last, laying out every state. */
+  lint(): Promise<Linted> {
+    return this.ask<"linted">({ type: "lint", id: ++this.asked });
+  }
+
+  /** The source compiled last with `patch`, a finding's fix, applied. */
+  fix(patch: unknown[]): Promise<string> {
+    return this.ask<"fixed">({ type: "fix", id: ++this.asked, patch }).then(({ source }) => source);
+  }
+
+  /** `state` inspected, in `format` or on the deck's own canvas. */
+  inspect(state: string, format?: string): Promise<Inspected> {
+    return this.ask<"inspected">({ type: "inspect", id: ++this.asked, state, format }).then(({ inspected }) => inspected);
+  }
+
   private send(message: ToWorker) {
     this.worker.postMessage(message);
   }
@@ -92,6 +127,11 @@ export class Stage {
     switch (data.type) {
       case "shown":
       case "timeline":
+      case "source":
+      case "edited":
+      case "linted":
+      case "fixed":
+      case "inspected":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

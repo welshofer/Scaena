@@ -1099,7 +1099,13 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
   - **Controls.** The keys are → ↓ PageDown Space Enter to go on, ← ↑ PageUp Backspace to go back, Home and End, F for fullscreen, and P for the presenter view. A click or a tap goes on, and a swipe goes either way.
   - **The state scrubber** gives each state an equal step, however long its cue, and runs through the cue within the step.
   - **The presenter view** follows the player frame by frame, and shows the state's notes (its beat's, where it has none), the next state at rest, and a clock. It steers the player back and on.
-- Editor v1: CodeMirror 6 with a `.scn` mode, live lint gutter, live preview; inspector shows resolved values and override counts; direct manipulation deferred (emits patches when it arrives).
+- Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in CodeMirror 6, with a `.scn` mode. Direct manipulation is deferred; it will emit patches when it arrives.
+  - **Each edit** compiles in the worker as it is typed (`scaena-ops`' compile, ADR-0009). A source that does not compile says where, and the preview keeps the deck it had. A deck that validates is shown from then on.
+  - **The preview** shows the state the cursor is in, at rest: the last state whose `state` line starts at or before it.
+  - **Lint, in two steps.** An edit lints the state shown, laid out alone after the one before it. The deck's other states keep what lint last found in them. Once typing stops for half a second, every state is linted. Linting one state finds in it what the whole lint finds there. It finds more only where the whole lint reports the same finding once, at another state: where a collision starts, or where text reads worst (`crates/scaena-ops/tests/lint.rs`).
+  - **Findings** stand in the gutter and under the source, each where the source wrote what it is about: a node's prop in the state that sets it, or its declaration. A fix is one click. The fix patches the deck, which is written back as canonical source. The editor takes only the lines that changed.
+  - **The inspector** shows the state's cue (where it starts, its span, its hold, its transition, and each motion as placed). It shows each node, each text node's look, and how many props its overrides set.
+  - **Speed.** On B1, an edit's round trip (compile, the frame, lint of the state shown) takes a median of 114 ms in headless Chromium painting on the CPU, against gate 2's 200 ms. The lint of every state that follows takes 1.2 s (`web/editor.mjs`).
 - Storage: OPFS + File System Access API; bundle import/export; **single-file HTML export** (engine + bundle inlined; no network).
 - Assistant (BYOK, §11) runs in the worker and uses the same operations as the CLI.
 

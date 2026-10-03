@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scaena editor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface: #1d1c1a;
+        --panel: #252421;
+        --line: #3a3833;
+        --ink: #ddd9d0;
+        --muted: #a29e95;
+        --error: #e88a7a;
+        --warning: #e8c46d;
+        --info: #9cc4e4;
+      }
+      body { margin: 0; background: var(--surface); color: var(--ink); font: 14px system-ui, sans-serif; }
+      main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); height: 100vh; }
+      #source { display: grid; grid-template-rows: minmax(0, 1fr) auto; border-right: 1px solid var(--line); min-height: 0; }
+      #code { min-height: 0; overflow: hidden; }
+      #code .cm-editor { height: 100%; }
+      #problems { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
+      #problems li { padding: 2px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #problems li:hover { background: var(--line); }
+      #problems .code { display: inline-block; width: 4.5em; font-variant-numeric: tabular-nums; }
+      #problems .error .code { color: var(--error); }
+      #problems .warning .code { color: var(--warning); }
+      #problems .info .code { color: var(--info); }
+      #problems .where { color: var(--muted); margin-left: 0.5em; }
+      aside { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+      #stage { display: block; width: 100%; height: auto; background: #000; }
+      aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      #status { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #inspector { padding: 0 12px 12px; }
+      #inspector h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 4px; }
+      #inspector table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+      #inspector td, #inspector th { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+      #inspector th { color: var(--muted); font-weight: 500; }
+      .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="source">
+        <div id="code"></div>
+        <ul id="problems" aria-label="Problems"></ul>
+      </section>
+      <aside>
+        <canvas id="stage"></canvas>
+        <p>
+          <select id="state" aria-label="State"></select>
+          <select id="format" aria-label="Format"><option value="">own canvas</option></select>
+          <span id="status" role="status">loading…</span>
+        </p>
+        <div id="inspector" aria-label="Inspector"></div>
+      </aside>
+    </main>
+    <script type="module" src="/src/editor.ts"></script>
+  </body>
+</html>

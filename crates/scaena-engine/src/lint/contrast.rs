@@ -333,11 +333,11 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
             let finding = match part {
-                None => cx.finding(code, Severity::Error, &cx.states[index], format!("text `{node}` has {reads}")),
+                None => cx.finding(code, Severity::Error, cx.laid(index), format!("text `{node}` has {reads}")),
                 Some(part) => cx.finding(
                     code,
                     Severity::Error,
-                    &cx.states[index],
+                    cx.laid(index),
                     format!("chart `{node}`: its {} `{}` has {reads}", part.name(), said.as_deref().unwrap_or_default()),
                 ),
             };

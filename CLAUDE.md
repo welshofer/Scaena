@@ -88,7 +88,7 @@ Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.33–1.36, and 1
 
 ## Phase 2
 
-The web player is `web/` (PLAN 2.1, SPEC §9.2). The page hands its canvas to a worker that holds the WASM engine and paints with `vello` on WebGPU, or with `vello_cpu` into `ImageBitmap`s where there is no adapter. `web/src/protocol.ts` is what the two say. The worker keeps the deck's clock, and the page has the controls (PLAN 2.2): keys, click and swipe, a state scrubber, holds that go on by themselves, fullscreen, and a presenter view in a second window. A place in the deck is a state and a time into its cue, never a place on the global timeline, where states with no cue or hold share an instant. `web/README.md` says how to run it and how it fits.
+The web player is `web/` (PLAN 2.1, SPEC §9.2). The page hands its canvas to a worker that holds the WASM engine and paints with `vello` on WebGPU, or with `vello_cpu` into `ImageBitmap`s where there is no adapter. `web/src/protocol.ts` is what the two say. The worker keeps the deck's clock, and the page has the controls (PLAN 2.2): keys, click and swipe, a state scrubber, holds that go on by themselves, fullscreen, and a presenter view in a second window. A place in the deck is a state and a time into its cue, never a place on the global timeline, where states with no cue or hold share an instant. The source editor is `web/editor.html` (PLAN 2.3): the deck as `.scn` in CodeMirror 6, compiled by `scaena-ops` in the worker as it is typed. The preview follows the cursor. Findings stand where the source sets what they are about, with fixes. An edit lints the state shown (`lint_state`), and every state is linted once typing stops. `web/README.md` says how to run it and how it fits.
 
 ## Working with Jay
 

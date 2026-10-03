@@ -8,6 +8,7 @@
 // fullscreen; P the presenter view. A click or a tap on the slide goes on; a swipe goes
 // either way. Going on plays the next state's cue; a state that holds goes on by itself
 // when its hold is over (SPEC §2.4). Going on during a cue finishes it.
+import { deckFile } from "./bundle";
 import type { At, Painter, Slot } from "./protocol";
 import { Stage } from "./stage";
 
@@ -19,15 +20,6 @@ const painter = (params.get("painter") ?? "auto") as Painter;
 const channel = new BroadcastChannel(`scaena:${deck}`);
 type Follow = { type: "at"; format?: string } & At;
 type Steer = { type: "on" } | { type: "back" } | { type: "hello" };
-
-/** A bundle's deck file: the bundle's `deck.json`, or a deck file named outright, whose
- * directory is then the bundle (SPEC §3.1). */
-function deckFile(bundle: URL): string {
-  if (bundle.pathname.endsWith(".json")) return bundle.href;
-  const dir = new URL(bundle);
-  if (!dir.pathname.endsWith("/")) dir.pathname += "/";
-  return new URL("deck.json", dir).href;
-}
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));

@@ -13,6 +13,9 @@
 //! - [`Player::pixels`] paints it with `vello_cpu`, the painter the goldens hold, into
 //!   RGBA pixels: the web player's fallback where WebGPU is missing (SPEC §9.2).
 //!
+//! - With the `editor` feature, a session compiles `.scn` as it is typed, lints it with
+//!   its engine, applies a finding's fix, and inspects a state (PLAN 2.3, [`editor`]).
+//!
 //! [`Session`] is the same engine surface in plain Rust, so it is tested natively.
 
 use scaena_core::Deck;
@@ -27,6 +30,9 @@ use scaena_engine::{Engine, EngineError, FrameRequest, project};
 use scaena_paint::{Assets, PaintError};
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "editor")]
+pub mod editor;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("deck.json: {0}")]
@@ -37,6 +43,10 @@ pub enum Error {
     Paint(#[from] PaintError),
     #[error("add every font and image before the first frame: the engine is built from them then")]
     AfterFrame,
+    #[error("compile a source before linting or fixing it")]
+    NothingCompiled,
+    #[error("{0}")]
+    Ops(String),
 }
 
 /// One bundle's engine: the deck, its theme, fonts, and data files, and the layout
@@ -54,12 +64,27 @@ pub struct Session {
     format: Option<String>,
     /// The same fonts and images, as painters read them.
     store: Assets,
+    /// The theme's file, as the deck names it, and its JSON; and the fonts and images
+    /// handed over, by path: what validation finds in the bundle.
+    theme_path: Option<String>,
+    theme_json: String,
+    font_paths: Vec<String>,
+    image_paths: Vec<String>,
+    /// The source the editor compiled last (PLAN 2.3).
+    #[cfg(feature = "editor")]
+    edit: Option<editor::Edit>,
+    /// What the layout rules found in every state the last time they ran on all of them:
+    /// kept for the states a lint of one state does not lay out.
+    #[cfg(feature = "editor")]
+    laid: Vec<scaena_core::Finding>,
 }
 
 impl Session {
     pub fn new(deck_json: &str, theme_json: &str) -> Result<Self, Error> {
+        let deck = Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?;
+        let theme_path = deck.theme.as_ref().and_then(|t| t.as_str()).map(str::to_string);
         Ok(Self {
-            deck: Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?,
+            deck,
             theme: Theme::from_json(theme_json)?,
             data: DataFiles::new(),
             pending: Some((BundleFonts::new(), BundleImages::new())),
@@ -67,7 +92,35 @@ impl Session {
             transition: None,
             format: None,
             store: Assets::new(),
+            theme_path,
+            theme_json: theme_json.to_string(),
+            font_paths: Vec::new(),
+            image_paths: Vec::new(),
+            #[cfg(feature = "editor")]
+            edit: None,
+            #[cfg(feature = "editor")]
+            laid: Vec::new(),
         })
+    }
+
+    /// Show `deck` from now on, with the fonts, images, and data already handed over: an
+    /// edit (PLAN 2.3). A format the deck no longer lists falls back to its own canvas.
+    pub fn set_deck(&mut self, deck: Deck) {
+        if self.format.as_ref().is_some_and(|f| !deck.formats.contains(f)) {
+            self.format = None;
+        }
+        self.deck = deck;
+        self.transition = None;
+    }
+
+    /// Build the engine from the fonts and images handed over, if it is not built yet.
+    fn build(&mut self) -> Result<&mut Engine, Error> {
+        if self.engine.is_none() {
+            let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
+            fonts.check_theme(&self.theme)?;
+            self.engine = Some(Engine::new(fonts).with_images(images));
+        }
+        Ok(self.engine.as_mut().expect("built above"))
     }
 
     /// Register a font file under its bundle id (its path in the bundle, as the deck's
@@ -76,6 +129,7 @@ impl Session {
         let (fonts, _) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
         fonts.register(id, bytes.clone())?;
         self.store.insert_font(id, bytes);
+        self.font_paths.push(id.to_string());
         Ok(())
     }
 
@@ -89,6 +143,7 @@ impl Session {
         let (_, images) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
         let info = images.register(path, &bytes)?;
         self.store.insert_image(&info.id, &bytes)?;
+        self.image_paths.push(path.to_string());
         Ok(())
     }
 
@@ -127,17 +182,10 @@ impl Session {
     /// The deck's states end to end, ms (SPEC §2.4): each state's start, its span (its
     /// transition and motions), and its hold. Builds the engine, as a frame does.
     pub fn timeline(&mut self) -> Result<Timeline, Error> {
+        self.build()?;
         let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
-        let (deck, theme, data) = (deck.as_ref(), theme.as_ref(), &self.data);
-        let engine = match self.engine.as_mut() {
-            Some(engine) => engine,
-            None => {
-                let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
-                fonts.check_theme(theme)?;
-                self.engine.insert(Engine::new(fonts).with_images(images))
-            }
-        };
-        Ok(engine.timeline(deck, theme, data)?)
+        let engine = self.engine.as_mut().expect("built above");
+        Ok(engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?)
     }
 
     /// The span of `state`, ms: its transition and every motion of its cue. Past it, the
@@ -266,6 +314,41 @@ impl Player {
     #[cfg(feature = "cpu")]
     pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
         Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
+    }
+}
+
+/// The source editor (PLAN 2.3): every result as JSON, as `editor`'s types serialize.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck as canonical `.scn`: what the editor opens on.
+    pub fn source(&self) -> String {
+        self.0.source()
+    }
+
+    /// Compile `source`: `{ error?, findings, states, valid }`, each place in it in UTF-16
+    /// offsets. A deck that validates is what frames show from now on.
+    pub fn compile(&mut self, source: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.compile(source)).map_err(js)
+    }
+
+    /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
+    /// With `state`, the layout rules run on that state alone, the one being edited, and
+    /// the other states keep what they found when they last ran on every state.
+    pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
+    pub fn fix(&self, patch: &str) -> Result<String, JsError> {
+        let patch: Vec<serde_json::Value> = serde_json::from_str(patch).map_err(js)?;
+        self.0.fix(&patch).map_err(js)
+    }
+
+    /// `state` inspected: its nodes resolved, each text node's look, what its overrides
+    /// set, and its cue.
+    pub fn inspect(&mut self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inspect(state).map_err(js)?).map_err(js)
     }
 }
 

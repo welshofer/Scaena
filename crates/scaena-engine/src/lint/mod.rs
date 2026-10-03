@@ -85,6 +85,12 @@ impl Cx<'_> {
         }
     }
 
+    /// State `index` of the deck, as laid out: what a rule reports a finding at, where it
+    /// may have laid out only some states.
+    pub fn laid(&self, index: usize) -> &Laid {
+        self.states.iter().find(|s| s.index == index).expect("a rule reports at a state it was given")
+    }
+
     /// The pointer to `node` in the deck: its entry in `nodes`.
     pub fn node_path(&self, node: &str) -> String {
         format!("/nodes/{}", node.replace('~', "~0").replace('/', "~1"))
@@ -99,7 +105,33 @@ pub fn lint(
     deck: &Deck,
     theme: &Theme,
     data: &DataFiles,
+    backdrop: Option<&mut dyn Backdrop>,
+) -> Result<Vec<Finding>, EngineError> {
+    lint_in(engine, deck, theme, data, backdrop, None)
+}
+
+/// What the layout-level rules find in one state of `deck`, in every format, laid out
+/// after the state before it: what an editor answers at once for the state being edited
+/// (PLAN 2.3), where [`lint`] lays out every state. A finding that holds from an earlier
+/// state on, which [`lint`] reports where it starts, is reported at this one.
+pub fn lint_state(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
+    backdrop: Option<&mut dyn Backdrop>,
+    state: &str,
+) -> Result<Vec<Finding>, EngineError> {
+    lint_in(engine, deck, theme, data, backdrop, Some(state))
+}
+
+fn lint_in(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
     mut backdrop: Option<&mut dyn Backdrop>,
+    only: Option<&str>,
 ) -> Result<Vec<Finding>, EngineError> {
     engine.lenient = true;
     let mut out = Vec::new();
@@ -112,7 +144,14 @@ pub fn lint(
             if format.is_some() && matches!(d, Cow::Borrowed(_)) {
                 continue;
             }
-            let states = lay_out(engine, &d, &t, data)?;
+            let only = match only {
+                Some(id) => match d.states.iter().position(|s| s.id == id) {
+                    Some(i) => Some(i),
+                    None => return Err(EngineError::Layout(format!("no state `{id}`"))),
+                },
+                None => None,
+            };
+            let states = lay_out(engine, &d, &t, data, only)?;
             let cx = Cx { deck: &d, theme: &t, format, states: &states };
             for rule in rules() {
                 // Motion is the same in every format but for what layout counts; it is
@@ -170,18 +209,32 @@ fn verify(
     Ok(())
 }
 
-/// Every state of the (projected) deck, laid out, with its slot and its cue.
-fn lay_out(engine: &mut Engine, deck: &Deck, theme: &Theme, data: &DataFiles) -> Result<Vec<Laid>, EngineError> {
+/// Every state of the (projected) deck, or only state `only`, laid out, with its slot and
+/// its cue.
+fn lay_out(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
+    only: Option<usize>,
+) -> Result<Vec<Laid>, EngineError> {
     let snapshots = scaena_core::resolve_states(deck)?;
     let timeline = engine.timeline(deck, theme, data)?;
-    let mut out: Vec<Laid> = Vec::with_capacity(snapshots.len());
-    for (i, snap) in snapshots.iter().enumerate() {
+    let range = only.map_or(0..snapshots.len(), |i| i..i + 1);
+    let mut out: Vec<Laid> = Vec::with_capacity(range.len());
+    for i in range {
+        let snap = &snapshots[i];
         let scene = engine.scene(deck, theme, data, snap)?;
         let state = &deck.states[i];
         let timing = Timing::parse(theme, state.transition.as_ref())?;
         let before = i.checked_sub(1).map(|p| &snapshots[p]);
         let items = cues::items(deck, theme, state, before, snap, timing.matched)?;
-        let from = i.checked_sub(1).map(|p| out[p].scene.clone());
+        // The state before, as laid out already, or laid out for the cue into this one.
+        let from = match (i.checked_sub(1), out.last()) {
+            (Some(_), Some(laid)) => Some(laid.scene.clone()),
+            (Some(p), None) => Some(engine.scene(deck, theme, data, &snapshots[p])?),
+            (None, _) => None,
+        };
         let schedule = Transition::new(from, scene.clone(), timing, &items, 0.0)?.schedule().clone();
         out.push(Laid {
             index: i,

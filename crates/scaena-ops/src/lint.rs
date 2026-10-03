@@ -90,12 +90,24 @@ pub fn lint(b: &Bundle) -> Result<Linted, OpsError> {
 
 /// What `lint` finds in `deck` with the files `files`.
 pub fn lint_in(deck: &Deck, files: &View) -> Result<Linted, OpsError> {
+    lint_scoped(deck, files, None)
+}
+
+/// What `lint` finds in `deck` with the files `files`, the layout rules laying out `state`
+/// alone: what an editor answers at once for the state being edited (PLAN 2.3). In that
+/// state it finds what [`lint_in`] finds, and what holds there from an earlier state,
+/// which [`lint_in`] reports where it starts.
+pub fn lint_state_in(deck: &Deck, files: &View, state: &str) -> Result<Linted, OpsError> {
+    lint_scoped(deck, files, Some(state))
+}
+
+fn lint_scoped(deck: &Deck, files: &View, only: Option<&str>) -> Result<Linted, OpsError> {
     let theme = files.theme(deck)?;
     lint_with(deck, files, theme.as_deref(), |theme| {
         let mut assets = Assets::new();
         let mut engine = engine_in(deck, files, theme, Some(&mut assets))?;
         let data = data_in(deck, files)?;
-        layout_rules(&mut engine, deck, theme, &data, &assets)
+        layout_rules(&mut engine, deck, theme, &data, &assets, only)
     })
 }
 
@@ -121,16 +133,21 @@ pub fn lint_with(
 }
 
 /// The layout rules on `deck` as `engine` lays it out, in its own format and each of its
-/// `formats`, with contrast judged over what the CPU painter paints from `assets`.
+/// `formats`, with contrast judged over what the CPU painter paints from `assets`: on every
+/// state, or on `only`, the state an editor is editing (PLAN 2.3).
 pub fn layout_rules(
     engine: &mut Engine,
     deck: &Deck,
     theme: &Theme,
     data: &DataFiles,
     assets: &Assets,
+    only: Option<&str>,
 ) -> Result<Vec<Finding>, OpsError> {
     let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets };
-    Ok(scaena_engine::lint::lint(engine, deck, theme, data, Some(&mut backdrop))?)
+    Ok(match only {
+        Some(state) => scaena_engine::lint::lint_state(engine, deck, theme, data, Some(&mut backdrop), state)?,
+        None => scaena_engine::lint::lint(engine, deck, theme, data, Some(&mut backdrop))?,
+    })
 }
 
 /// What `lint --fix` did: the findings whose fixes it applied, and what lint finds after.

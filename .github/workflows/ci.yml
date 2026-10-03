@@ -142,6 +142,7 @@ jobs:
       - run: cd web && npm ci && npm run build
       - run: node web/smoke.mjs
       - run: node web/player.mjs
+      - run: node web/editor.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
