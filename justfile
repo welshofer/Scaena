@@ -51,8 +51,8 @@ scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
-# beside it on the same machine, by more than the run's floor twice: 10%, or 2.5 times the run's
-# noise if that is more (.github/workflows/bench.yml, scripts/bench_gate.py).
+# beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
+# run's noise if that is more (.github/workflows/bench.yml, scripts/bench_gate.py).
 # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
 bench *FILTER:
     cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
