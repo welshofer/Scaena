@@ -670,6 +670,9 @@ pub struct ChartLayout {
     /// Value labels that overlap as laid out, by their marks' keys (lint W310); none
     /// when `labels.collide` resolves them.
     pub collisions: Vec<(String, String)>,
+    /// Category labels that overlap, by category: a text axis keeps every one, where an
+    /// ordered axis keeps fewer (lint W310).
+    pub crowded: Vec<(String, String)>,
     /// Annotations: bands under the gridlines, rules and callouts over the marks.
     pub notes: Vec<Note>,
 }

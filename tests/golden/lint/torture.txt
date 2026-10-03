@@ -145,6 +145,8 @@ W302 - baseline-grid grid-body /nodes/grid-body/at/col
 W302 - baseline-grid grid-loose /nodes/grid-loose/at/col
 W302 - baseline-grid grid-foot /nodes/grid-foot/at/col
 W302 - baseline-grid grid-row /nodes/grid-row/at/col
+W310 9:16 motion mo-bars /nodes/mo-bars/x
+W310 9:16 motion mo-bars /nodes/mo-bars/x
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27
