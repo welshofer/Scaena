@@ -970,7 +970,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 
 | Code | Sev | Rule |
 |---|---|---|
-| E100 | error | text that does not fit its box, under `wrap`, `clip`, `grow`, or `error`; a table whose rows do not fit its cell. Fix: `fit: shrink`, where it works |
+| E100 | error | text that does not fit its box, under `wrap`, `clip`, `grow`, or `error`; a table whose rows do not fit its cell; text a chart sets past its sides, where the chart cuts it off. Fix: `fit: shrink`, where it works |
 | E101 | error | two nodes that draw content (text, a chart, a table, an image) overlap in the same container at the same `z`, by more than 2 cu each way. Text counts by its lines as set, not its cell. What is meant to lie on top says so with a higher `z`; `semantic: decoration` is exempt |
 | E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color); or a theme family the deck's `fonts` does not list |
 | E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have; a chart's or a table's key that repeats, in any state that shows it (§3.3, §3.7) |
