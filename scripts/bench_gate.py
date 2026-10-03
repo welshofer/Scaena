@@ -8,8 +8,12 @@ request is judged beside its base, built and timed on the same machine in the sa
 
 - the two are timed a group of benches at a time, the base first, so a spell of load on the
   machine falls on both;
-- a bench is **slower** when the pull request takes more than `--floor` (10%) longer than
-  its base;
+- a bench is **slower** when the pull request takes longer than its base by more than the
+  run's floor: `--floor` (10%), or `--sigmas` (2.5) times the run's own noise if that is more.
+  The noise is how far the benches stray from their base when nothing changed: a pull
+  request changes few of them, so the spread of all their changes, robustly (1.4826 × MAD of
+  the log ratios), measures the machine. On a quiet machine the floor is 10%; on one whose
+  benches stray by 10% beside an identical base, it is 27%;
 - a slower bench is timed again, beside its base bench by bench, twice: the pull request
   first, then the base first. Each side counts at its fastest, since load on the machine
   only ever slows a run. The bench **regresses** when it is slower again.
@@ -31,6 +35,7 @@ Standard library only.
 
 import argparse
 import json
+import math
 import os
 import statistics
 import sys
@@ -57,6 +62,9 @@ BUDGETS = [
 ]
 DECKS = ["b1", "b2", "b3", "b4"]
 PROBE = "probe/"
+# The fewest benches beside a base that measure a run's noise; with fewer, the floor is
+# `--floor` alone.
+NOISE_BENCHES = 10
 
 
 def fmt_ns(ns: float) -> str:
@@ -115,11 +123,33 @@ def ns(run: dict, bench: str):
     return b["ns"] if b else None
 
 
+def noise(run: dict, base: dict):
+    """How far a bench strays from its base on this machine, as a standard deviation of the
+    log ratio: 1.4826 × the median absolute deviation of every judged bench's. Robust, so the
+    few benches a pull request changes do not count. `None` without enough benches."""
+    logs = [
+        math.log(ns(run, b) / ns(base, b))
+        for b in run["benches"]
+        if not b.startswith(PROBE) and ns(base, b) and ns(run, b)
+    ]
+    if len(logs) < NOISE_BENCHES:
+        return None
+    middle = statistics.median(logs)
+    return 1.4826 * statistics.median(abs(x - middle) for x in logs), len(logs)
+
+
+def floor(run: dict, base: dict, opts) -> float:
+    """The smallest slowdown that counts in this run: `--floor`, or `--sigmas` times the
+    run's noise if that is more."""
+    measured = noise(run, base)
+    return opts.floor if measured is None else max(opts.floor, math.exp(opts.sigmas * measured[0]) - 1)
+
+
 class Judged:
     """One bench of a run: beside its base on the same machine, and main's runs for context."""
 
-    def __init__(self, bench: str, run: dict, base: dict, again: dict, base_again: dict, past: list, opts):
-        self.bench, self.now, self.floor = bench, run["benches"][bench], opts.floor
+    def __init__(self, bench: str, run: dict, base: dict, again: dict, base_again: dict, past: list, opts, floor):
+        self.bench, self.now, self.floor = bench, run["benches"][bench], floor
         self.probe = bench.startswith(PROBE)
         self.base = ns(base, bench)
         self.change = self.now["ns"] / self.base - 1 if self.base else None
@@ -163,26 +193,28 @@ class Judged:
         )
 
 
-def judge(args) -> tuple[dict, list[Judged]]:
+def judge(args) -> tuple[dict, list[Judged], float]:
     run = load(args.run)
     base, again, base_again = load(args.base), load(args.again), load(args.base_again)
     history = load_history(args.history)
+    at = floor(run, base, args)
     judged = [
-        Judged(bench, run, base, again, base_again, history["benches"].get(bench, []), args)
+        Judged(bench, run, base, again, base_again, history["benches"].get(bench, []), args, at)
         for bench in sorted(run["benches"])
     ]
-    return run, judged
+    return run, judged, at
 
 
 def suspects(args) -> None:
-    """The benches slower than their base by more than the floor, to time again."""
+    """The benches slower than their base by more than the run's floor, to time again."""
     run, base = load(args.run), load(args.base)
+    at = floor(run, base, args)
     slower = [
         b for b in sorted(run["benches"])
-        if not b.startswith(PROBE) and ns(base, b) and ns(run, b) / ns(base, b) - 1 > args.floor
+        if not b.startswith(PROBE) and ns(base, b) and ns(run, b) / ns(base, b) - 1 > at
     ]
     Path(args.out).write_text("".join(f"{b}\n" for b in slower))
-    print(f"{len(slower)} benches to time again" + (f": {', '.join(slower)}" if slower else ""))
+    print(f"floor {at:.0%}: {len(slower)} benches to time again" + (f": {', '.join(slower)}" if slower else ""))
 
 
 def budget_rows(run: dict) -> list[str]:
@@ -211,7 +243,7 @@ def budget_rows(run: dict) -> list[str]:
 
 
 def check(args) -> int:
-    run, judged = judge(args)
+    run, judged, at = judge(args)
     slower = [j for j in judged if j.slower]
     lines = [f"### Benchmarks on {run.get('runner') or 'this runner'}", ""]
     about = [run.get("machine"), run.get("sha") and f"commit `{run['sha'][:12]}`"]
@@ -224,21 +256,29 @@ def check(args) -> int:
         "Per element is per state, cue, or frame.",
         "",
     ]
-    floor, count = f"{args.floor:.0%}", sum(j.judged for j in judged)
+    floor_, count = f"{at:.0%}", sum(j.judged for j in judged)
     if not count:
         verdict = "Recorded, not judged: only a pull request is timed beside a base"
     elif slower:
-        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor}, twice"
+        verdict = f"**{len(slower)} of {count} benches regressed**: slower than the base by more than {floor_}, twice"
         if args.accept:
             verdict += "; the pull request accepts it (`bench-accept`)"
     else:
-        verdict = f"No bench slower than the base by more than {floor} twice, of {count} judged"
+        verdict = f"No bench slower than the base by more than {floor_} twice, of {count} judged"
     lines.append(
         f"{verdict}. The base, the commit a pull request merges onto, is built and timed on the same machine in "
-        f"the same job, a group of benches at a time and the base first. A bench slower than it by more than {floor} "
+        f"the same job, a group of benches at a time and the base first. A bench slower than it by more than {floor_} "
         "is timed twice more beside it, and regresses when it is slower again, each side at its fastest. Main's runs "
         "on this runner, on other machines, are shown for context and do not judge."
     )
+    measured = noise(run, load(args.base))
+    if count and measured:
+        sigma, n = measured
+        lines.append(
+            f"Beside the base, the {n} benches strayed by {math.exp(sigma) - 1:.1%} here (σ, from their median absolute "
+            f"change), so the floor is {floor_}: {args.sigmas:g} σ, or {args.floor:.0%} if that is more. A slowdown "
+            "under it cannot be told from this machine's noise."
+        )
     for j in judged:
         if j.probe and j.change is not None:
             lines.append(f"The probe ran {abs(j.change):.0%} {'slower' if j.change > 0 else 'faster'} than the base's on this machine.")
@@ -301,7 +341,8 @@ def main(argv=None) -> int:
     ck.add_argument("--accept", action="store_true", help="report regressions without failing (`bench-accept`)")
     ck.add_argument("--report-only", action="store_true", help="never fail (main: the change is in)")
     for p in (s, ck):
-        p.add_argument("--floor", type=float, default=0.10, help="the smallest slowdown that counts")
+        p.add_argument("--floor", type=float, default=0.10, help="the smallest slowdown that counts on a quiet machine")
+        p.add_argument("--sigmas", type=float, default=2.5, help="how many times the run's noise a slowdown must pass")
     r = sub.add_parser("record", help="add a run of main to the history")
     r.add_argument("--history", required=True)
     r.add_argument("--run", required=True)

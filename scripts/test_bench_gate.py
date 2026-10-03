@@ -6,6 +6,9 @@
 import contextlib
 import io
 import json
+import math
+import re
+import statistics
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,6 +107,39 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 0, report)
         self.assertEqual(self.verdicts(report), {"sample/b1": "recorded"})
         self.assertIn("Recorded, not judged", report)
+
+    def spread(self, stray: float, **target) -> tuple[dict, dict]:
+        """Forty benches beside an identical base that stray from it as a machine does, by
+        `stray` (a standard deviation of the log ratio), and `target` (ms, base 1.0): a run
+        and its base."""
+        normal = statistics.NormalDist(0, math.log(1 + stray))
+        now = {f"layout__b{i}": math.exp(normal.inv_cdf((i + 0.5) / 40)) for i in range(40)}
+        return run(**now, **target), run(**{k: 1.0 for k in now}, **{k: 1.0 for k in target})
+
+    def floor_in(self, report: str) -> int:
+        return int(re.search(r"so the floor is (\d+)%", report).group(1))
+
+    def test_a_noisy_machine_raises_the_floor(self):
+        # Benches that stray by 10% when nothing changed: a 25% slowdown, twice, is noise there.
+        now, base = self.spread(0.10, sample__b1=1.25)
+        code, report = self.check(now, base, run(sample__b1=1.25), run(sample__b1=1.0))
+        self.assertEqual(code, 0, report)
+        self.assertEqual(self.verdicts(report)["sample/b1"], "ok")
+        self.assertRegex(report, r"the 41 benches strayed by (9\.\d|10\.\d)% here")
+        self.assertTrue(25 < self.floor_in(report) < 30, report)
+
+    def test_a_quiet_machine_keeps_the_floor_at_ten_percent(self):
+        now, base = self.spread(0.01, sample__b1=1.12)
+        code, report = self.check(now, base, run(sample__b1=1.12), run(sample__b1=1.0))
+        self.assertEqual(code, 1, report)
+        self.assertEqual(self.verdicts(report)["sample/b1"], "**slower**")
+        self.assertIn("so the floor is 10%: 2.5 σ, or 10% if that is more", report)
+
+    def test_the_suspects_are_past_the_runs_floor(self):
+        out = self.dir / "suspects.txt"
+        now, base = self.spread(0.10, sample__b1=1.25, video__b1=1.4)
+        self.gate("suspects", "--run", self.write("now.json", now), "--base", self.write("base.json", base), "--out", out)
+        self.assertEqual(out.read_text(), "video/b1\n")
 
     def test_the_suspects_are_the_benches_slower_than_their_base(self):
         out = self.dir / "suspects.txt"
