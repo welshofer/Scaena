@@ -270,7 +270,7 @@ mod tests {
         let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
         // Dusk: margin [96, 120] = 96 top/bottom, 120 left/right.
         assert_eq!((grid.cols[0].0, grid.rows[0].0), (120.0, 96.0));
-        assert_eq!((grid.cols[11].1, grid.rows[5].1), (1800.0, 984.0));
+        assert_eq!((grid.cols[11].1, grid.rows[11].1), (1800.0, 984.0));
     }
 
     #[test]

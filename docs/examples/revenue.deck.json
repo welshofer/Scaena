@@ -208,7 +208,7 @@
       "text": "Revenue in $M. Enterprise recognized on delivery.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     }
   },

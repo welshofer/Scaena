@@ -292,7 +292,7 @@
       "alt": "Total monthly trips across the three neighborhoods, rising every month from 4,200 in January to 18,900 in December.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       }
     },
     "total-note": {
@@ -301,7 +301,7 @@
       "text": "Monthly trips, all three pilot neighborhoods. Source: Ridgeline pilot ride data.",
       "semantic": "source",
       "at": {
-        "in": "side"
+        "in": "note"
       }
     },
     "hoods-title": {
@@ -341,7 +341,7 @@
       "alt": "Monthly trips by neighborhood. Riverside rises from 2,000 to 7,800 and Old Town from 1,600 to 6,900. Hilltop stays near 600 to 680 until May, then rises to 4,200.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       }
     },
     "hoods-note": {
@@ -350,7 +350,7 @@
       "text": "Monthly trips by neighborhood. Source: Ridgeline pilot ride data.",
       "semantic": "source",
       "at": {
-        "in": "side"
+        "in": "note"
       }
     },
     "ebike-title": {
@@ -368,7 +368,7 @@
       "text": "Hilltop monthly trips. E-bikes arrived in June. Source: Ridgeline pilot ride data.",
       "semantic": "source",
       "at": {
-        "in": "side"
+        "in": "note"
       }
     },
     "six-number": {
@@ -520,7 +520,7 @@
       "text": "Operating cost per trip. Source: Ridgeline transportation office.",
       "semantic": "source",
       "at": {
-        "in": "side"
+        "in": "note"
       }
     },
     "setup-number": {
@@ -964,7 +964,7 @@
     {
       "id": "total",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "fast",
       "props": {
         "total-title": {},
@@ -994,7 +994,7 @@
     {
       "id": "hoods",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "fast",
       "props": {
         "hoods-title": {},
@@ -1024,7 +1024,7 @@
     {
       "id": "ebikes",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "standard",
       "props": {
         "ebike-title": {},
@@ -1092,9 +1092,34 @@
       "hold": 6000.0
     },
     {
+      "id": "lesson",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "lesson-title": {},
+        "lesson-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "lesson-title",
+              "enter": "rise"
+            },
+            {
+              "target": "lesson-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 4500.0
+    },
+    {
       "id": "cost",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "fast",
       "props": {
         "cost-title": {},
@@ -1161,34 +1186,9 @@
       "hold": 5500.0
     },
     {
-      "id": "lesson",
-      "mode": "absolute",
-      "layout": "title",
-      "transition": "fast",
-      "props": {
-        "lesson-title": {},
-        "lesson-sub": {}
-      },
-      "choreography": [
-        {
-          "sequence": [
-            {
-              "target": "lesson-title",
-              "enter": "rise"
-            },
-            {
-              "target": "lesson-sub",
-              "enter": "rise"
-            }
-          ]
-        }
-      ],
-      "hold": 4500.0
-    },
-    {
       "id": "recap",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "fast",
       "props": {
         "recap-title": {},
@@ -1227,7 +1227,7 @@
     {
       "id": "plan",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": "fast",
       "props": {
         "plan-title": {},

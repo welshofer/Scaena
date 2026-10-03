@@ -154,7 +154,7 @@ The spine is 5 sections of 10 beats over 12 states, one state per click:
 - **The rest.** Three stat slides (18,900, 6x, $1.4M), the cost in two cards ($1.20 against $2.90), a statement, a recap and a plan in cards, and the ask.
 - **Backdrops.** Under Dusk the cover has a mesh and the ask has noise.
 
-The spine and the states disagree in one place. The spine puts `lesson` before the cost beats, and the states put it after them. The PDF reads in spine order and the video in state order, so they tell the story in different orders (Findings).
+The spine and the states disagree in one place. The spine puts `lesson` before the cost beats, and the states put it after them. The PDF reads in spine order and the video in state order, so they tell the story in different orders (Findings). Lint now reports it as W426 (PLAN 1.36).
 
 Under Dusk, from the PDF:
 
@@ -279,7 +279,7 @@ Each is a task in PLAN 1.33–1.36, or a note for a theme.
 
 ## Files
 
-- `docs/examples/ridgeline.deck.json`: the deck attempt 3 made, as it left it, on Ember. The rest of its bundle was byte for byte the shared files beside it: `data/ridgeline-rides.csv` (the CSV the agents were given), `themes/`, and `fonts/`. It lints clean, and a test keeps it so.
+- `docs/examples/ridgeline.deck.json`: the deck attempt 3 made, as it left it, on Ember, but for the names PLAN 1.34 changed in the shipped themes: its layout `chart` is now `figure`, and its slots `chart` and `side` are `main` and `note`. And for W426 (PLAN 1.36): its `lesson` state plays after `sixfold`, where the spine tells it, so the video and the PDF tell the story in one order. The rest of its bundle was byte for byte the shared files beside it: `data/ridgeline-rides.csv` (the CSV the agents were given), `themes/`, and `fonts/`. It lints clean, and a test keeps it so.
 - `docs/examples/agent-run/`:
   - `attempt-2.md`, `attempt-3.md`, and `narrative-repair.md`: the condensed transcripts, as tool calls and the agents' reports. Attempt 1 stopped before writing anything.
   - `dusk.jpg` and `ember.jpg`: the contact sheets.

@@ -44,7 +44,7 @@ state revenue layout:figure transition:{duration: standard, ease: standard} hold
     labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
     semantic:evidence at:in(main)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
-    at:in(footer)
+    at:in(note)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
   choreo note enter:fade delay:600ms
 
