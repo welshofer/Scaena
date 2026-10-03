@@ -112,6 +112,22 @@ class Gate(unittest.TestCase):
         self.gate("suspects", "--run", now, "--base", base, "--out", out)
         self.assertEqual(out.read_text(), "sample/b1\n")
 
+    def test_collect_keeps_each_bench_at_its_fastest(self):
+        def criterion(home: str, bench: str, ms: float):
+            d = self.dir / home / bench.replace("/", "_") / "new"
+            d.mkdir(parents=True)
+            (d / "benchmark.json").write_text(json.dumps({"full_id": bench, "throughput": None}))
+            median = {"point_estimate": ms * 1e6, "confidence_interval": {"lower_bound": 0, "upper_bound": 0}}
+            (d / "estimates.json").write_text(json.dumps({"median": median}))
+
+        criterion("again-1", "video/b1", 9.0)
+        criterion("again-1", "sample/b1", 1.0)
+        criterion("again-2", "video/b1", 6.0)
+        code, out = self.gate("collect", self.dir / "again-1", self.dir / "again-2", "--out", self.dir / "again.json")
+        self.assertEqual(code, 0, out)
+        collected = json.loads((self.dir / "again.json").read_text())["benches"]
+        self.assertEqual({k: v["ns"] / 1e6 for k, v in collected.items()}, {"video/b1": 6.0, "sample/b1": 1.0})
+
 
 if __name__ == "__main__":
     unittest.main()

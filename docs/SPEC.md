@@ -1178,8 +1178,11 @@ Budgets are per stage, on named benchmark decks, on a reference machine (M-serie
 **How they are measured** (PLAN 1.24). `crates/scaena-cli/benches/stages.rs` times every stage in the table on B1–B4 (`just bench`). A bench is named `stage/deck`. A stage that goes over a deck's states, cues, or frames counts them, so its time is also given per state, cue, or frame. A `_one` stage times the deck's slowest state. CI's `bench` workflow runs the benches on each runner: macOS on Apple Silicon, which also paints on Metal, and Linux. It runs on every push to `main` and every pull request that could change a number. A pull request is timed beside its base, and `scripts/bench_gate.py` judges it bench by bench:
 
 - the workflow builds the base too, the commit the pull request merges onto, and times both on the same machine in the same job;
-- a bench slower than the base by more than 10% is timed again, the base first this time;
+- it builds both before it times either, then times them a group of benches at a time, the base first, so a spell of load on the machine falls on both;
+- a bench slower than the base by more than 10% is timed twice more beside it, bench by bench: the pull request first, then the base first. Each side counts at its fastest, since load only ever slows a run;
 - it **regresses** when it is slower than the base by more than 10% both times.
+
+On macOS the workflow turns Spotlight off first: it indexes the files a build writes while the benches run.
 
 A pull request with a regression fails, unless it carries the label `bench-accept`. Runs of the same code on different CI machines spread too far to judge a change by. Of six runs of `main` on the macOS runner, 46% of the times were more than 10% from their bench's median and 13% more than 30%, and Linux runs land on different processors. So each runner's history of `main`'s runs, kept by the workflow, is shown beside each bench for context and does not judge. The run summary shows the budgets below for every deck, then every bench against its base and `main`'s runs. A `probe` bench, a fixed sort, shows how fast the runner was, to tell a slow machine from a slow change. The `wasm` job checks the WASM size and records B1's cold start in headless Chromium.
 
