@@ -69,6 +69,28 @@ class Gate(unittest.TestCase):
         self.assertEqual(code, 0, report)
         self.assertEqual(self.verdicts(report), {"sample/b1": "ok: not slower again"})
 
+    def test_a_bench_regresses_only_when_slower_in_every_turn(self):
+        now, base = run(sample__b1=1.3), run(sample__b1=1.0)
+        turns = [run(sample__b1=t) for t in (1.20, 1.25, 1.02)]
+        bases = [run(sample__b1=1.0)] * 3
+
+        def judge(turns):
+            argv = ["check", "--history", self.dir / "history.json", "--run", self.write("run.json", now)]
+            argv += ["--base", self.write("base.json", base), "--again"]
+            argv += [self.write(f"again-{i}.json", t) for i, t in enumerate(turns)]
+            argv += ["--base-again"] + [self.write(f"base-again-{i}.json", b) for i, b in enumerate(bases)]
+            return self.gate(*argv)
+
+        # One fast turn of three: a slow run swayed the other two.
+        code, report = judge(turns)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(self.verdicts(report), {"sample/b1": "ok: not slower again"})
+        self.assertIn("| +20.0% · +25.0% · +2.0% |", report)
+        code, report = judge(turns[:2] + [run(sample__b1=1.15)])
+        self.assertEqual(code, 1, report)
+        self.assertIn("::error title=bench regression::sample/b1", report)
+        self.assertIn("+20.0% · +25.0% · +15.0% timed again", report)
+
     def test_within_the_floor_and_faster_pass(self):
         code, report = self.check(run(sample__b1=1.08, layout__b1=7.0), run(sample__b1=1.0, layout__b1=10.0))
         self.assertEqual(code, 0, report)
