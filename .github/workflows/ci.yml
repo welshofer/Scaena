@@ -1,14 +1,60 @@
 name: ci
+# A draft pull request gets the fast checks on each push: Linux, the WASM build in Chromium, and the
+# schemas. Marked ready for review, and on `main`, a release tag, or a manual run, it gets macOS too
+# (Metal, NEON against the x86-64 goldens). A draft cannot merge, so nothing reaches `main` without
+# both runners. A pull request that changes only prose skips the Rust and WASM jobs; the schemas,
+# which also read the examples, always run.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+concurrency:
+  # A new push to a pull request supersedes its run; each push to `main` is checked in full.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      os: ${{ steps.diff.outputs.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A pull request's merge commit and its base, its first parent.
+          fetch-depth: 2
+      # Prose is Markdown outside what the build and tests read: SPEC (served over MCP and checked
+      # against the skills), the skills, the examples, and anything under crates/ or tests/.
+      - id: diff
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          code=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            code=false
+            for f in $(git diff --name-only HEAD^1 HEAD); do
+              case "$f" in
+                docs/SPEC.md | docs/examples/* | skills/* | crates/* | tests/*) code=true ;;
+                *.md) ;;
+                *) code=true ;;
+              esac
+            done
+          fi
+          if [ "$DRAFT" = true ]; then os='["ubuntu-latest"]'; else os='["ubuntu-latest","macos-latest"]'; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code; runners: $os" | tee -a "$GITHUB_STEP_SUMMARY"
   rust:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
     runs-on: ${{ matrix.os }}
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours.
     timeout-minutes: 45
@@ -57,6 +103,8 @@ jobs:
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
     # PLAN 0.9: then the parity harness compares all three painters (vello_cpu goldens, vello on
     # lavapipe, vello on WebGPU in the browser) on every state.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

@@ -8,12 +8,22 @@ name: bench
 # (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
 # so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
 # bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
-# §15's budgets first, goes to the run summary.
+# §15's budgets first, goes to the run summary. A draft pull request is not timed: an hour on each
+# runner per push is spent once it is ready for review, and from then on each push is timed, so
+# what merges was timed beside its base.
 on:
   push:
     branches: [main]
+    paths:
+      - "crates/**"
+      - "tests/bench/**"
+      - "tests/fixtures/torture.scaena/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench_gate.py"
+      - ".github/workflows/bench.yml"
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "crates/**"
       - "tests/bench/**"
@@ -26,12 +36,15 @@ on:
   workflow_dispatch:
 concurrency:
   # Main's runs one at a time, each recording into the history the one before it left.
-  group: bench-${{ github.ref }}
+  # Another label is a run of its own that does nothing, so it must not cancel one that times.
+  group: bench-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'bench-accept' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   criterion:
     # Of the labels, only the one that accepts a regression changes the verdict.
-    if: github.event.action != 'labeled' || github.event.label.name == 'bench-accept'
+    if: >-
+      !github.event.pull_request.draft &&
+      (github.event.action != 'labeled' || github.event.label.name == 'bench-accept')
     strategy:
       fail-fast: false
       matrix:
