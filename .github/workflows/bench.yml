@@ -3,8 +3,9 @@ name: bench
 # Apple Silicon, the closest to SPEC's reference machine, which also paints on Metal; and Linux.
 # A pull request is timed beside its base, both built and then run on the same machine in the same
 # job, a group of benches at a time, the base first. It fails when a bench is slower than the base
-# by more than 10%, and again when that bench is timed beside its base twice more, each side at
-# its fastest (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
+# by more than the run's floor (10%, or 2.5 times how far its benches stray from the base, if that
+# is more), and again when that bench is timed beside its base twice more, each side at its
+# fastest (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
 # so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
 # bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
 # §15's budgets first, goes to the run summary.
