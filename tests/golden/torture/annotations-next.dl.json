@@ -183,7 +183,7 @@
           [161,78.96875,24.484375]
         ],"clusters":[0,1,2,3,4,5]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,79.640625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,73.296875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Target: $25","glyphs":[
           [86,0.0,24.484375],
           [124,16.328125,24.484375],
@@ -198,7 +198,7 @@
           [420,123.5,24.484375]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,648.7344,59.640625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,648.7344,53.296875],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Record","glyphs":[
           [76,0.0,24.484375],
           [143,18.046875,24.484375],
@@ -321,7 +321,7 @@
             [422,14.5625,24.484375]
           ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,657.2656,173.67188],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,657.2656,167.32812],"opacity":1.0,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Core leads","glyphs":[
             [15,0.0,24.484375],
             [186,18.671875,24.484375],

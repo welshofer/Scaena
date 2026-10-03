@@ -6,11 +6,6 @@ E100 9:16 hyphenation hyph-off /nodes/hyph-off fix
 E101 9:16 hyphenation hyph-off /nodes/hyph-off
 E110 - mesh case /nodes/case
 E110 9:16 mesh case /nodes/case
-E111 - chart-kinds-2 k-dot /nodes/k-dot
-E111 - annotations n-bars /nodes/n-bars
-E111 - annotations-next n-bars /nodes/n-bars
-E111 9:16 chart-kinds-2-next k-dot /nodes/k-dot
-E111 9:16 annotations n-lines /nodes/n-lines
 E111 9:16 stagger st-line /nodes/st-line
 W202 - formats fm-claim /nodes/fm-claim fix
 W202 9:16 balance balance-head /nodes/balance-head fix
@@ -145,8 +140,6 @@ W302 - baseline-grid grid-body /nodes/grid-body/at/col
 W302 - baseline-grid grid-loose /nodes/grid-loose/at/col
 W302 - baseline-grid grid-foot /nodes/grid-foot/at/col
 W302 - baseline-grid grid-row /nodes/grid-row/at/col
-W310 9:16 motion mo-bars /nodes/mo-bars/x
-W310 9:16 motion mo-bars /nodes/mo-bars/x
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

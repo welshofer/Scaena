@@ -210,7 +210,7 @@
           [161,78.96875,24.484375]
         ],"clusters":[0,1,2,3,4,5]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,86.6875],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,80.34375],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Target: $20","glyphs":[
           [86,0.0,24.484375],
           [124,16.328125,24.484375],
@@ -225,7 +225,7 @@
           [415,123.5,24.484375]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,86.6875],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,0.0,80.34375],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Target: $25","glyphs":[
           [86,0.0,24.484375],
           [124,16.328125,24.484375],
@@ -240,7 +240,7 @@
           [420,123.5,24.484375]
         ],"clusters":[0,1,2,3,4,5,6,7,8,9,10]}}
       ]}},
-      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,654.9844,56.40625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
+      {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,654.9844,50.0625],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Record","glyphs":[
           [76,0.0,24.484375],
           [143,18.046875,24.484375],
@@ -363,7 +363,7 @@
             [422,14.5625,24.484375]
           ],"clusters":[0,1]}}
         ]}},
-        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,630.53125,182.625],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,630.53125,176.28125],"opacity":0.122166395,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Cloud doubles","glyphs":[
             [15,0.0,24.484375],
             [176,18.5625,24.484375],
@@ -380,7 +380,7 @@
             [201,172.28125,24.484375]
           ],"clusters":[0,1,2,3,4,5,6,7,8,9,10,11,12]}}
         ]}},
-        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,630.53125,182.625],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
+        {"layer":{"node":null,"cell":null,"transform":[1.0,0.0,0.0,1.0,630.53125,176.28125],"opacity":0.8778336,"blend":"normal","clip":null,"ops":[
           {"glyphs":{"font":0,"size":26.0,"coords":[0,793,3277,0],"paint":{"solid":"#3F718CFF"},"text":"Core leads","glyphs":[
             [15,0.0,24.484375],
             [186,18.671875,24.484375],

@@ -1233,14 +1233,26 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 // Where a value's line box stands, and so where its name goes.
                 let mut stands: Option<(f32, f32)> = None;
                 if let Some(text) = value {
-                    let value = ValueLabel { value: r.y, below: false, offset: offset(cos, &text), align, drop: 0.5 * cap(&text) };
+                    let value = ValueLabel {
+                        value: r.y,
+                        below: false,
+                        offset: offset(cos, &text),
+                        align,
+                        drop: 0.5 * cap(&text),
+                    };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
                     stands = Some((origin[1], origin[1] + text.height));
                     out.labels.push(Label::new(r.key.clone(), origin, text, Some(value)));
                 }
                 if let Some((color, text)) = name.take() {
-                    let at = ValueLabel { value: r.y, below: false, offset: offset(cos, &text), align, drop: 0.5 * cap(&text) };
+                    let at = ValueLabel {
+                        value: r.y,
+                        below: false,
+                        offset: offset(cos, &text),
+                        align,
+                        drop: 0.5 * cap(&text),
+                    };
                     let [ax, baseline] = at.anchor(&shape);
                     let y = match stands {
                         Some((top, _)) if cos >= 0.0 => top - text.height,
