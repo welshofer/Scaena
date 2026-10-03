@@ -5,11 +5,11 @@ description: Author a Scaena deck from a brief and, optionally, a data file. Int
 
 # author-deck
 
-You are writing a Scaena document. It is either `deck.json` (schema `docs/schema/deck.schema.json`, or `scaena://schema/deck` over MCP) or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier.
+You are writing a Scaena document. It is either `deck.json` (schema `docs/schema/deck.schema.json`; over MCP, `scaena://schema/deck` and the parts it names) or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier.
 
 `docs/examples/trails.deck.json` (`scaena://examples/trails.deck.json`) is fifteen slides that use most of what a deck can hold: a spine, a stat, a photograph, five kinds of chart, a table, rows of cards, a quote, and motion. Read it before you write your first deck.
 
-Read SPEC §2–§4 once per session (`scaena://spec` over MCP). The model:
+Read SPEC §2–§4 once per session. Over MCP, `scaena://spec` is its index and each section a resource: `scaena://spec/2`, `scaena://spec/4`, and §3's parts as you need them (`scaena://spec/3.3` for nodes, `scaena://spec/3.7` for charts). The model:
 - Nodes exist for the whole deck.
 - States are cues, and unchanged properties track forward.
 - The theme owns typography and layout. You name roles, slots, and presets, never pixels.

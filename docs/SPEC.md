@@ -898,11 +898,18 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
   - The server checks every op as `patch` does, and names the one that fails.
 
 **Resources** let an agent learn the format without the docs:
-- `scaena://schema/deck`, `scaena://schema/theme`, `scaena://schema/patch`, and `scaena://schema/spine`, the spine projection;
+- `scaena://schema/deck`, `scaena://schema/theme`, `scaena://schema/patch`, and `scaena://schema/spine`, the spine projection. The deck's and the theme's schemas are served in parts:
+  - the deck's definitions are in `scaena://schema/deck/nodes`, `scaena://schema/deck/deltas` (what a state sets), and `scaena://schema/deck/values` (what both use);
+  - the theme's are in `scaena://schema/theme/charts`, `scaena://schema/theme/shaders`, and `scaena://schema/theme/motion`.
+
+  Each schema and each part is a JSON Schema whose `$id` is its uri, and a `$ref` names the part that holds its definition. The patch schema refers to the deck's parts for the definitions they share. Together, the parts are the files in `docs/schema/`.
 - `scaena://lint/catalog` (§7.5);
-- `scaena://spec`: this document;
+- `scaena://spec`: this document's index. Each section is a resource of its own, and so is each numbered subsection: `scaena://spec/7` is §7, and `scaena://spec/3.7` is §3.7. A section too large to arrive whole, as §3 is, holds its text up to its first subsection and the uris of its subsections.
+- `scaena://spec/format` and `scaena://spec/expr`: the number and date formats, and the data expressions (`docs/spec/`);
 - `scaena://skills/<name>`: the five skills (§7.6);
-- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme; and `trails.deck.json`, fifteen slides that use most of what a deck can hold.
+- `scaena://examples/*`: the example deck as JSON and `.scn`, and its patch; `trails.deck.json`, fifteen slides that use most of what a deck can hold; `charts.deck.json`, every kind of chart and a table with no style set; and three themes, `dusk.theme.json`, `daybreak.theme.json`, and `ember.theme.json`.
+
+Each resource arrives whole (PLAN 1.33). Claude Code keeps an MCP result over 25,000 tokens in a file, which an agent with no tools for files cannot open. So no resource weighs over 40 KB as `resources/read` returns it, and a test holds every one under that. A JSON resource comes without the whitespace its file has: the same document, in fewer tokens.
 
 They are compiled into the binary, so they describe the format it reads, the same for everyone. From 2026-07-28 a client rejects a list or read result that does not say how long it may keep it (SEP-2549), so `resources/list` and `resources/read` say `ttlMs` 3,600,000 (an hour) and `cacheScope` `public`. A client on an earlier protocol gets results without them.
 

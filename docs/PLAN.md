@@ -497,9 +497,14 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
 ### 1I What gate 1's agent runs found (2026-10-03)
 *From `docs/examples/agent-run.md`, Findings. The runs found eight problems that are fixed (#53–#58); these are the rest.*
-- [ ] 1.33 Resources an MCP-only agent can read whole.
+- [x] 1.33 Resources an MCP-only agent can read whole.
   - **The problem.** Claude Code saves a resource over its output limit to a file, and an agent with no file tools cannot open it. The deck schema (74 KB) and SPEC (157 KB) never reached gate 1's agents, which learned `dataTransform`'s syntax from E106 messages.
   - **The task.** Serve SPEC by section, and `docs/spec/format.md`, `docs/spec/expr.md`, and the example themes on their own, each small enough to arrive whole. The server's tests hold every resource under that size.
+  - *(Done: every resource weighs under 40 KB as `resources/read` returns it, its text escaped (`scaena_mcp::LIMIT`). Gate 1's agent got a 45 KB result whole and a 74 KB one as a file; Claude Code's documented limit is 25,000 tokens.*
+    - *SPEC: `scaena://spec` is an index; each `##` section is `scaena://spec/N`, and each numbered subsection `scaena://spec/N.M`. §3, too large to arrive whole, holds its text up to §3.1 and the uris of its subsections, which are listed. The other subsections read by uri. Their texts in order are SPEC, which a test checks.*
+    - *The schemas: the deck's in four parts (`scaena://schema/deck`, its root and states; `/nodes`; `/deltas`, what a state sets; `/values`, what both share), the theme's in four (its root; `/charts`, `/shaders`, `/motion`), and the patch's ops by reference into the deck's parts. Each part is a JSON Schema whose `$id` is its uri. A test resolves every `$ref` and checks that the parts are the files in `docs/schema/`.*
+    - *`scaena://spec/format`, `scaena://spec/expr`, `scaena://examples/charts.deck.json`, and the three themes, Dusk, Daybreak, and Ember.*
+    - *JSON resources come without their whitespace, which takes the trails deck from 45 KB to 26 KB as read. The largest resource is §7, at 32 KB. The author-deck skill names the sections to read; SPEC §7.2 says how resources are served.)*
 - [ ] 1.34 One vocabulary for the shipped themes.
   - **The problem.** The retheme skill calls names the swap contract, but the shipped themes break it, so a deck cannot move between them without edits.
   - **The task.** Dusk, Daybreak, and Ember name their layouts and slots by job, the same names for the same jobs:

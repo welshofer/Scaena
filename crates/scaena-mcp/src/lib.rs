@@ -35,6 +35,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
+mod resources;
+pub use resources::{LIMIT, resource};
+
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
@@ -704,114 +707,6 @@ impl Scaena {
     }
 }
 
-// --- resources ------------------------------------------------------------------------
-
-/// What the server serves as resources: (uri, name, MIME type, text).
-const RESOURCES: &[(&str, &str, &str, &str)] = &[
-    (
-        "scaena://schema/deck",
-        "The deck format",
-        "application/schema+json",
-        include_str!("../../../docs/schema/deck.schema.json"),
-    ),
-    (
-        "scaena://schema/theme",
-        "The theme format",
-        "application/schema+json",
-        include_str!("../../../docs/schema/theme.schema.json"),
-    ),
-    (
-        "scaena://schema/patch",
-        "A patch's ops",
-        "application/schema+json",
-        include_str!("../../../docs/schema/patch.schema.json"),
-    ),
-    (
-        "scaena://schema/spine",
-        "The spine projection: what `spine.json` holds",
-        "application/schema+json",
-        include_str!("../../../docs/schema/spine.schema.json"),
-    ),
-    ("scaena://lint/catalog", "The lint catalog", "text/markdown", ""),
-    ("scaena://spec", "The specification", "text/markdown", include_str!("../../../docs/SPEC.md")),
-    (
-        "scaena://skills/author-deck",
-        "How to author a deck",
-        "text/markdown",
-        include_str!("../../../skills/author-deck/SKILL.md"),
-    ),
-    (
-        "scaena://skills/chart-from-data",
-        "How to make a chart or table from data",
-        "text/markdown",
-        include_str!("../../../skills/chart-from-data/SKILL.md"),
-    ),
-    (
-        "scaena://skills/motion-pass",
-        "How to set a deck's motion",
-        "text/markdown",
-        include_str!("../../../skills/motion-pass/SKILL.md"),
-    ),
-    (
-        "scaena://skills/retheme",
-        "How to apply another theme",
-        "text/markdown",
-        include_str!("../../../skills/retheme/SKILL.md"),
-    ),
-    (
-        "scaena://skills/tighten-copy",
-        "How to tighten a deck's words",
-        "text/markdown",
-        include_str!("../../../skills/tighten-copy/SKILL.md"),
-    ),
-    (
-        "scaena://examples/revenue.deck.json",
-        "An example deck",
-        "application/json",
-        include_str!("../../../docs/examples/revenue.deck.json"),
-    ),
-    (
-        "scaena://examples/trails.deck.json",
-        "A fifteen-slide example: text, a stat, a photograph, five kinds of chart, a table, cards, and a quote",
-        "application/json",
-        include_str!("../../../docs/examples/trails.deck.json"),
-    ),
-    (
-        "scaena://examples/revenue.deck.scn",
-        "The example deck as .scn",
-        "text/plain",
-        include_str!("../../../docs/examples/revenue.deck.scn"),
-    ),
-    (
-        "scaena://examples/revenue.patch.json",
-        "An example patch",
-        "application/json",
-        include_str!("../../../docs/examples/revenue.patch.json"),
-    ),
-    (
-        "scaena://examples/dusk.theme.json",
-        "An example theme",
-        "application/json",
-        include_str!("../../../docs/examples/themes/dusk.theme.json"),
-    ),
-];
-
-/// The lint catalog: SPEC §7.5, as SPEC writes it.
-fn catalog() -> &'static str {
-    let spec = include_str!("../../../docs/SPEC.md");
-    let start = spec.find("### 7.5").unwrap_or(0);
-    let end = spec[start..].find("### 7.6").map_or(spec.len(), |i| start + i);
-    &spec[start..end]
-}
-
-/// A resource's text, by its uri.
-pub fn resource(uri: &str) -> Option<&'static str> {
-    match uri {
-        "scaena://lint/catalog" => Some(catalog()),
-        _ => RESOURCES.iter().find(|r| r.0 == uri).map(|r| r.3),
-    }
-}
-
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Scaena {
     fn get_info(&self) -> ServerConfig {
@@ -821,8 +716,8 @@ impl ServerHandler for Scaena {
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
              with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
-             deck_render. The resources hold the schemas, the lint catalog, the specification, the skills (procedures to \
-             follow: scaena://skills/author-deck first), and examples.",
+             deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
+             its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
         )
     }
 
@@ -831,14 +726,12 @@ impl ServerHandler for Scaena {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        let resources = RESOURCES
+        let listed = resources::all()
             .iter()
-            .map(|(uri, name, mime, _)| {
-                let text = resource(uri).unwrap_or_default();
-                Resource::new(*uri, *name).with_mime_type(*mime).with_size(text.len() as u64)
-            })
+            .filter(|r| r.listed)
+            .map(|r| Resource::new(&r.uri, &r.name).with_mime_type(r.mime).with_size(r.text.len() as u64))
             .collect();
-        let mut list = ListResourcesResult::with_all_items(resources);
+        let mut list = ListResourcesResult::with_all_items(listed);
         if hints(&context) {
             list = list.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
         }
@@ -850,9 +743,17 @@ impl ServerHandler for Scaena {
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        let text = resource(&request.uri)
+        let served = resources::all()
+            .iter()
+            .find(|r| r.uri == request.uri)
             .ok_or_else(|| ErrorData::resource_not_found(format!("no resource `{}`", request.uri), None))?;
-        let mut read = ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]);
+        let contents = ResourceContents::TextResourceContents {
+            uri: request.uri,
+            mime_type: Some(served.mime.into()),
+            text: served.text.clone(),
+            meta: None,
+        };
+        let mut read = ReadResourceResult::new(vec![contents]);
         if hints(&context) {
             read = read.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
         }
