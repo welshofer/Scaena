@@ -10,7 +10,10 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "paths": { "@scaena/wasm": ["../crates/scaena-wasm/www/pkg/scaena_wasm.d.ts"] }
+    "paths": {
+      "@scaena/wasm": ["../crates/scaena-wasm/www/pkg/scaena_wasm.d.ts"],
+      "@scaena/subset": ["../crates/scaena-subset/pkg/scaena_subset.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["src/worker.ts"]

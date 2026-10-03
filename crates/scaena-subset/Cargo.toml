@@ -1,0 +1,16 @@
+[package]
+name = "scaena-subset"
+description = "The font subsetter as its own WASM module, which a page loads when it downloads a bundle (PLAN 2.4)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+scaena-store.workspace = true
+wasm-bindgen.workspace = true

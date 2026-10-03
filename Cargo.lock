@@ -3037,6 +3037,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-subset"
+version = "0.1.0"
+dependencies = [
+ "scaena-store",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "scaena-wasm"
 version = "0.1.0"
 dependencies = [
@@ -3044,6 +3052,7 @@ dependencies = [
  "scaena-engine",
  "scaena-ops",
  "scaena-paint",
+ "scaena-store",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

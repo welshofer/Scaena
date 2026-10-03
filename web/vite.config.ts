@@ -27,8 +27,14 @@ export default defineConfig({
   // Relative paths: the build plays from any directory.
   base: "./",
   plugins: [bundles],
-  // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8).
-  resolve: { alias: { "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js") } },
+  // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8), and the font
+  // subsetter, which the worker loads only to download a bundle (PLAN 2.4).
+  resolve: {
+    alias: {
+      "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js"),
+      "@scaena/subset": join(repo, "crates/scaena-subset/pkg/scaena_subset.js"),
+    },
+  },
   worker: { format: "es" },
   server: { fs: { allow: [repo] } },
   build: {

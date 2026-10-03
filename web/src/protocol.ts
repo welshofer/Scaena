@@ -1,6 +1,27 @@
-// What the pages and the engine's worker say to each other (PLAN 2.1–2.3, SPEC §9.2).
+// What the pages and the engine's worker say to each other (PLAN 2.1–2.4, SPEC §9.2).
 // Each request names the format it is in: one of the deck's `formats`, or the deck's own
 // canvas when it names none (SPEC §3.4).
+
+/** Where a bundle comes from (SPEC §3.1, §9.2). */
+export type Source =
+  /** A deck file at a URL, whose directory is the bundle: it reads the files the deck names,
+   * and every file its manifest lists. */
+  | { url: string }
+  /** A bundle kept in the browser's own storage (the origin-private file system), by its
+   * name there. */
+  | { opfs: string }
+  /** A folder on disk the page was given (File System Access). */
+  | { folder: FileSystemDirectoryHandle }
+  /** A `.scaena` zip's bytes and its name, without `.scaena`: copied into the browser's
+   * storage, and kept there. */
+  | { zip: ArrayBuffer; name: string };
+
+/** Where an open bundle is kept, and saves to: a folder on disk, or the browser's storage,
+ * by name. A bundle read from a URL is kept nowhere until it is saved. */
+export interface Where {
+  kind: "folder" | "opfs";
+  name: string;
+}
 
 /** Who paints: WebGPU where the browser has an adapter, else the CPU painter (`auto`), or
  * one of them whatever the browser has (`gpu`, `cpu`). */
@@ -17,8 +38,8 @@ export interface Slot {
 
 /** The page to the worker. */
 export type ToWorker =
-  /** Load the bundle whose deck file is at `deck`, and paint into `canvas` by `painter`. */
-  | { type: "open"; deck: string; painter: Painter; canvas: OffscreenCanvas }
+  /** Open the bundle at `source`, and paint into `canvas` by `painter`. */
+  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -42,10 +63,25 @@ export type ToWorker =
   /** The source compiled last with `patch`, a finding's `fix`, applied. */
   | { type: "fix"; id: number; patch: unknown[] }
   /** `state` inspected, in `format` or on the deck's own canvas. */
-  | { type: "inspect"; id: number; state: string; format?: string };
+  | { type: "inspect"; id: number; state: string; format?: string }
+  /** Save the bundle with the deck `source` compiles to as `scaena save` does (SPEC §3.1),
+   * fonts kept whole, where it is kept; one kept nowhere goes into the browser's storage under
+   * its name (`name-2`, … where that is taken). A source that does not compile, or a deck
+   * that does not validate, is not saved. The session goes on from the save (PLAN 2.4). */
+  | { type: "save"; id: number; source: string }
+  /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
+   * what the deck draws. */
+  | { type: "zip"; id: number; source: string }
+  /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
+   * is named by its SHA-256 (`Player.place`). */
+  | { type: "drop"; id: number; name: string; bytes: ArrayBuffer };
 
 /** An open bundle, as the worker reports it. */
 export interface Opened {
+  /** The bundle's name: its folder's, or its deck file's without `.deck.json`. */
+  name: string;
+  /** Where it is kept, if anywhere. */
+  where?: Where;
   states: string[];
   formats: string[];
   /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
@@ -159,6 +195,14 @@ export type FromWorker =
   | ({ type: "linted"; id: number } & Linted)
   | { type: "fixed"; id: number; source: string }
   | { type: "inspected"; id: number; inspected: Inspected }
+  /** The bundle is saved `where`, and the session goes on from it: the files the save
+   * renamed, from and to, each a path the source may name; and how many files it wrote. */
+  | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number }
+  /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
+   * after, bytes. */
+  | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
+  /** The dropped file is in the bundle at `path`. */
+  | { type: "dropped"; id: number; path: string }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean };

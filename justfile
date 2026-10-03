@@ -35,7 +35,7 @@ bless:
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset --all-features --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
 # (needs python3; `pip install jsonschema fonttools==4.66.1`).
@@ -86,11 +86,13 @@ example:
 spike: wasm-smoke
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/wasm-smoke cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
 
-# Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8).
+# Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8), and the font
+# subsetter, which a page loads to download a bundle, into crates/scaena-subset/pkg (PLAN 2.4).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+    cargo build -p scaena-wasm -p scaena-subset --target wasm32-unknown-unknown --release --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and
 # every torture state paints (PLAN 0.8). Needs Node and Playwright with its Chromium.
@@ -109,12 +111,14 @@ web-dev:
 
 # The web player in headless Chromium: every torture frame shown, painted in its worker by
 # WebGPU and by the CPU painter (PLAN 2.1), and the parity harness holds both to the goldens;
-# then its controls and presenter view (PLAN 2.2), and the source editor (PLAN 2.3).
+# then its controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), and its
+# storage: open, save, download, and drop (PLAN 2.4).
 web-smoke: web
     node web/smoke.mjs
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
     node web/player.mjs
     node web/editor.mjs
+    node web/storage.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

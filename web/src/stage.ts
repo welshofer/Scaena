@@ -1,10 +1,12 @@
-// One canvas and the engine's worker that paints it (PLAN 2.1–2.3): the page's side of
+// One canvas and the engine's worker that paints it (PLAN 2.1–2.4): the page's side of
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
-import type { At, Edited, FromWorker, Inspected, Linted, Opened, Painter, Slot, ToWorker } from "./protocol";
+import type { At, Edited, FromWorker, Inspected, Linted, Opened, Painter, Slot, Source, ToWorker } from "./protocol";
 
 type Reply = Extract<
   FromWorker,
-  { type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" }
+  {
+    type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" | "saved" | "zipped" | "dropped";
+  }
 >;
 
 export class Stage {
@@ -27,10 +29,10 @@ export class Stage {
     worker.onerror = (e) => this.onError(new Error(e.message));
   }
 
-  /** Open the deck at `deck` in a new worker, which paints into a new canvas in `canvas`'s
-   * place: a canvas WebGPU has held takes no other painter, so falling back to the CPU
-   * painter starts over. */
-  static async open(canvas: HTMLCanvasElement, deck: string, painter: Painter): Promise<Stage> {
+  /** Open the bundle at `source` in a new worker, which paints into a new canvas in
+   * `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling back to the
+   * CPU painter starts over. */
+  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter): Promise<Stage> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
     const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
@@ -39,7 +41,7 @@ export class Stage {
       worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
     });
     const offscreen = fresh.transferControlToOffscreen();
-    worker.postMessage({ type: "open", deck, painter, canvas: offscreen } satisfies ToWorker, [offscreen]);
+    worker.postMessage({ type: "open", source, painter, canvas: offscreen } satisfies ToWorker, [offscreen]);
     const first = await reply;
     if (first.type === "ready") {
       const { type: _, ...opened } = first;
@@ -49,7 +51,7 @@ export class Stage {
     const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
     if (first.type === "error" && first.webgpu && painter === "auto") {
       console.warn(`${message}; the CPU painter paints instead`);
-      return Stage.open(fresh, deck, "cpu");
+      return Stage.open(fresh, source, "cpu");
     }
     throw new Error(message);
   }
@@ -112,6 +114,29 @@ export class Stage {
     return this.ask<"inspected">({ type: "inspect", id: ++this.asked, state, format }).then(({ inspected }) => inspected);
   }
 
+  /** Save the bundle with the deck `source` compiles to where it is kept, or into the
+   * browser's storage (PLAN 2.4). The session goes on from the save. */
+  save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
+    return this.ask<"saved">({ type: "save", id: ++this.asked, source });
+  }
+
+  /** The bundle with the deck `source` compiles to, as a `.scaena` zip with its fonts subset. */
+  zip(source: string): Promise<{ bytes: ArrayBuffer; subset: [string, number, number][] }> {
+    return this.ask<"zipped">({ type: "zip", id: ++this.asked, source });
+  }
+
+  /** Add a file dropped on the page to the bundle; resolves to its path there. */
+  drop(name: string, bytes: ArrayBuffer): Promise<string> {
+    return this.ask<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+  }
+
+  /** Stop the worker: the page opens another bundle. What was asked of it is never answered:
+   * what asked it is closed too. */
+  close() {
+    this.worker.terminate();
+    this.waiting.clear();
+  }
+
   private send(message: ToWorker) {
     this.worker.postMessage(message);
   }
@@ -132,6 +157,9 @@ export class Stage {
       case "linted":
       case "fixed":
       case "inspected":
+      case "saved":
+      case "zipped":
+      case "dropped":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

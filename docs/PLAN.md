@@ -573,11 +573,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *An edit lints the state shown, and every state is linted once typing stops. A lint of every state takes 1.2 s on B1 in the browser (SPEC §15 budgets 1 s natively), so it cannot be gate 2's round trip. The engine's lint lays out one state on request. `crates/scaena-ops/tests/lint.rs` holds it to the whole lint on every torture state.*
     - *Gate 2's round trip on B1 has a median of 114 ms (compile 16, the frame 66, lint 32) on the CPU painter in headless Chromium.*
     - *The WASM engine with the editor's operations is 2.76 MB gzipped (SPEC §15: 3.0). `just web-smoke` and CI's wasm job run the test after 2.2's.)*
-- [ ] 2.4 Storage: OPFS + File System Access; open/save bundle; drag-and-drop assets with hashing; font subsetting in WASM.
+- [x] 2.4 Storage: OPFS + File System Access; open/save bundle; drag-and-drop assets with hashing; font subsetting in WASM.
+  *(Done: SPEC §9.2 says how a page keeps a bundle. `web/storage.mjs` checks it in headless Chromium.*
+    - *The WASM session holds every file of the bundle by its path. The engine is built from the fonts and images the deck names, and again once it names others, so a file can join after the first frame. `scaena-store` opens a bundle in memory, from its files or a zip's bytes, and saves it to files in memory (`Bundle::saving`), which the page writes where the bundle is kept, or zips.*
+    - *A bundle opens from a URL (with every file its manifest lists), a folder (File System Access), a `.scaena` file, or the browser's storage (OPFS, `?bundle=opfs:NAME`, which the player opens too). Save writes as `scaena save` does, fonts whole, where the bundle is kept, and the source takes the save's renames and nothing else. Download subsets the fonts with the subsetter's own module (`scaena-subset`, 244 KB gzipped), which the worker loads the first time, into the bytes `scaena save` writes. A file dropped on the source joins the bundle where its kind goes, an image named by its SHA-256, and its path goes where it was dropped.*
+    - *The engine's module stays at 2.75 MB gzipped (SPEC §15: 3.0): the subsetter (0.24 MB) and the CRDT (0.95 MB) are kept out of it, and validation reads the committed schemas rather than generating them, which takes `schemars` out (0.15 MB).*
+    - *The page keeps no CRDT: a bundle's history is carried as it is, and the page's edits go in as `fs`'s when a client that records next writes the deck (2.9).*
+    - *`just web-smoke` and CI's wasm job run the test after 2.3's.)*
 - [ ] 2.5 Single-file HTML export (engine + bundle inlined; no network at runtime).
 - [ ] 2.6 BYOK assistant in the Worker: Anthropic (direct browser header), OpenAI, Gemini adapters; function-calling onto the same operations; session-only key option; skills loaded from the bundle/repo.
 - [ ] 2.7 Static deploy (existing hosting) with a demo deck.
 - [ ] 2.8 Accessibility pass: keyboard, reduced-motion preference (collapses transitions to cuts), screen-reader order from the spine.
+- [ ] 2.9 The page records into a bundle's history: the CRDT as a WASM module of its own, loaded to save a bundle that keeps one, as the subsetter is, so the page's edits go in as `user`'s (SPEC §8, §9.2). *(Found by 2.4: in the engine's module, the CRDT takes it to 3.7 MB gzipped.)*
 
 ### Exit criteria (gate 2)
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox.

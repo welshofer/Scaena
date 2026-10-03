@@ -103,14 +103,15 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset --all-features --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
     # PLAN 2.1–2.2: the web player shows every torture frame, painted in its worker by WebGPU
     # and by the CPU painter, and its controls and presenter view work. PLAN 0.9: then the
     # parity harness compares the painters on every state: the vello_cpu goldens, vello on
-    # lavapipe, vello on WebGPU in the browser, and the player's two.
+    # lavapipe, vello on WebGPU in the browser, and the player's two. PLAN 2.3–2.4: the editor
+    # edits, opens, saves, downloads, and takes dropped files.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -127,14 +128,18 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
-      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped.
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
+      # subsetter, which a page loads only to download a bundle, is recorded beside it.
       - name: WASM size
         run: |
           wasm=crates/scaena-wasm/www/pkg/scaena_wasm_bg.wasm
           gz=$(gzip -9 -c "$wasm" | wc -c)
           echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          subset=crates/scaena-subset/pkg/scaena_subset_bg.wasm
+          echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
@@ -143,6 +148,7 @@ jobs:
       - run: node web/smoke.mjs
       - run: node web/player.mjs
       - run: node web/editor.mjs
+      - run: node web/storage.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:

@@ -1,5 +1,6 @@
 // The player page (PLAN 2.1–2.2, SPEC §9.2). `?bundle=` is a bundle's directory or its deck
-// file (the torture deck by default); `?painter=gpu` or `cpu` chooses who paints (WebGPU where
+// file (the torture deck by default), or `opfs:NAME`, a bundle the browser keeps (PLAN 2.4);
+// `?painter=gpu` or `cpu` chooses who paints (WebGPU where
 // the browser has an adapter, else the CPU painter, by default); `?state=` is the state to
 // open on. `?view=presenter` is the presenter view, which follows and steers the player that
 // opened it, over a BroadcastChannel.
@@ -8,16 +9,17 @@
 // fullscreen; P the presenter view. A click or a tap on the slide goes on; a swipe goes
 // either way. Going on plays the next state's cue; a state that holds goes on by itself
 // when its hold is over (SPEC §2.4). Going on during a cue finishes it.
-import { deckFile } from "./bundle";
+import { sourceOf } from "./bundle";
 import type { At, Painter, Slot } from "./protocol";
 import { Stage } from "./stage";
 
 const params = new URLSearchParams(location.search);
-const deck = deckFile(new URL(params.get("bundle") ?? "../../tests/fixtures/torture.scaena", location.href));
+const bundle = params.get("bundle") ?? "../../tests/fixtures/torture.scaena";
+const deck = sourceOf(bundle, bundle);
 const painter = (params.get("painter") ?? "auto") as Painter;
 /** The player and its presenter view: the player says where the deck is; the presenter view
  * steers it. */
-const channel = new BroadcastChannel(`scaena:${deck}`);
+const channel = new BroadcastChannel(`scaena:${new URL(bundle, location.href).href}`);
 type Follow = { type: "at"; format?: string } & At;
 type Steer = { type: "on" } | { type: "back" } | { type: "hello" };
 

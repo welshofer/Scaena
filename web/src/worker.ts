@@ -1,15 +1,21 @@
-// The engine's worker (PLAN 2.1–2.3, SPEC §9.2): the bundle, the WASM engine, and the canvas
+// The engine's worker (PLAN 2.1–2.4, SPEC §9.2): the bundle, the WASM engine, and the canvas
 // the page handed over. It paints with vello on WebGPU where the browser has an adapter, and
 // otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
 // deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold. For
-// the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state.
+// the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state; it
+// saves the bundle where it is kept, zips it, and takes files dropped on the page.
 import init, { Canvas, Player } from "@scaena/wasm";
-import type { Edited, Finding, FromWorker, Painter, Slot, ToWorker } from "./protocol";
+import { keptBundle, newBundle, readAll, remove, write } from "./folders";
+import type { Edited, Finding, FromWorker, Painter, Slot, Source, ToWorker, Where } from "./protocol";
 
-const post = (message: FromWorker) => self.postMessage(message);
+const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMessage(message, transfer);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 let player: Player;
+/** The bundle's name, and where it is kept, if anywhere: a folder on disk, or one in the
+ * browser's storage. */
+let name = "deck";
+let home: { dir: FileSystemDirectoryHandle; where: Where } | undefined;
 let canvas: OffscreenCanvas;
 /** WebGPU, when it paints. */
 let gpu: Canvas | undefined;
@@ -27,7 +33,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   try {
     switch (data.type) {
       case "open":
-        return await open(data.deck, data.painter, data.canvas);
+        return await open(data.source, data.painter, data.canvas);
       case "show": {
         latest++;
         const start = performance.now();
@@ -68,6 +74,27 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "inspect":
         layOut(data.format);
         return post({ type: "inspected", id: data.id, inspected: JSON.parse(player.inspect(data.state)) });
+      case "save":
+        saveable(data.source);
+        return post({ type: "saved", id: data.id, ...(await save()) });
+      case "zip": {
+        saveable(data.source);
+        await subsetFonts();
+        const saved = player.save(new Date().toISOString(), true);
+        try {
+          const bytes = saved.zip().buffer as ArrayBuffer;
+          const { subset } = JSON.parse(saved.summary()) as { subset: [string, number, number][] };
+          return post({ type: "zipped", id: data.id, bytes, subset }, [bytes]);
+        } finally {
+          saved.free();
+        }
+      }
+      case "drop": {
+        const bytes = new Uint8Array(data.bytes);
+        const path = Player.place(data.name, bytes);
+        player.addFile(path, bytes);
+        return post({ type: "dropped", id: data.id, path });
+      }
     }
   } catch (e) {
     post({ type: "error", id, message: said(e) });
@@ -82,30 +109,13 @@ interface DeckFiles {
   spine?: { sections?: { beats?: { states?: string[]; notes?: string }[] }[] };
 }
 
-async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
+async function open(source: Source, painter: Painter, target: OffscreenCanvas) {
   await init();
-  // Every file is where the deck names it, from the deck's directory: the bundle (SPEC §3.1).
-  const get = async (path: string) => {
-    const response = await fetch(new URL(path, deck));
-    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
-    return response;
-  };
-  const bytes = async (path: string) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const;
-  const json = await (await get(deck)).text();
-  const files = JSON.parse(json) as DeckFiles;
-  player = new Player(json, await (await get(files.theme)).text());
-  const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
-  const [fonts, tables, images] = await Promise.all(
-    [(files.fonts ?? []).map((f) => f.file), data, player.imageFiles()].map((paths) => Promise.all(paths.map(bytes))),
-  );
-  for (const [path, font] of fonts) player.addFont(path, font);
-  for (const [path, table] of tables) player.addData(path, table);
-  for (const [path, image] of images) player.addImage(path, image);
-  slots = JSON.parse(player.timeline()) as Slot[];
   canvas = target;
-  [canvas.width, canvas.height] = size();
   if (painter !== "cpu") {
-    // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other painter.
+    // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
+    // painter. Both come before the bundle, so a page that starts over on the CPU painter
+    // opens it once.
     const adapter = "gpu" in navigator ? await navigator.gpu.requestAdapter().catch(() => null) : null;
     if (adapter) {
       try {
@@ -119,14 +129,140 @@ async function open(deck: string, painter: Painter, target: OffscreenCanvas) {
     bitmaps = canvas.getContext("bitmaprenderer") ?? undefined;
     if (!bitmaps) throw new Error("the canvas takes no ImageBitmap");
   }
+  await load(source);
+  slots = JSON.parse(player.timeline()) as Slot[];
+  [canvas.width, canvas.height] = size();
+  gpu?.resize(canvas.width, canvas.height);
+  const deck = JSON.parse(new TextDecoder().decode(player.file("deck.json"))) as DeckFiles;
   post({
     type: "ready",
+    name,
+    where: home?.where,
     states: player.states(),
     formats: player.formats(),
-    notes: notes(files),
+    notes: notes(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
   });
+}
+
+/** Open the bundle at `source` (SPEC §3.1). A zip is copied into the browser's storage, and
+ * kept there from then on. */
+async function load(source: Source) {
+  if ("url" in source) {
+    player = await fetched(source.url);
+    name = nameOf(source.url);
+  } else if ("zip" in source) {
+    player = Player.fromZip(new Uint8Array(source.zip));
+    const dir = await newBundle(source.name);
+    for (const path of player.files()) await write(dir, path, player.file(path)!);
+    home = { dir, where: { kind: "opfs", name: dir.name } };
+    name = dir.name;
+  } else {
+    const dir = "opfs" in source ? await keptBundle(source.opfs) : source.folder;
+    player = opened(await readAll(dir));
+    home = { dir, where: { kind: "opfs" in source ? "opfs" : "folder", name: dir.name } };
+    name = dir.name;
+  }
+}
+
+/** The bundle whose deck file is at `deck`: every file is where the deck names it, from the
+ * deck's directory (SPEC §3.1). A saved bundle's manifest lists the rest: licenses, the
+ * history. */
+async function fetched(deck: string): Promise<Player> {
+  const get = async (path: string) => {
+    const response = await fetch(new URL(path, deck));
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return response;
+  };
+  const json = await (await get(deck)).text();
+  const files = JSON.parse(json) as DeckFiles;
+  const fetchedPlayer = new Player(json, await (await get(files.theme)).text());
+  const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
+  const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
+  if (new URL(deck).pathname.endsWith("/deck.json")) {
+    const manifest = await fetch(new URL("manifest.json", deck)).catch(() => undefined);
+    if (manifest?.ok) {
+      const bytes = new Uint8Array(await manifest.arrayBuffer());
+      fetchedPlayer.addFile("manifest.json", bytes);
+      const listed = (JSON.parse(new TextDecoder().decode(bytes)) as { files?: Record<string, string> }).files;
+      for (const path of Object.keys(listed ?? {})) paths.add(path);
+    }
+  }
+  paths.delete(files.theme);
+  const bytes = await Promise.all(
+    [...paths].map(async (path) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const),
+  );
+  for (const [path, file] of bytes) fetchedPlayer.addFile(path, file);
+  return fetchedPlayer;
+}
+
+/** A bundle's files, by their paths inside it, opened. */
+function opened(files: Map<string, Uint8Array>): Player {
+  const text = (path: string) => {
+    const bytes = files.get(path);
+    if (!bytes) throw new Error(`the bundle has no ${path}`);
+    return new TextDecoder().decode(bytes);
+  };
+  const deck = text("deck.json");
+  const theme = (JSON.parse(deck) as { theme?: unknown }).theme;
+  const session = new Player(deck, typeof theme === "string" ? text(theme) : JSON.stringify(theme));
+  for (const [path, bytes] of files) if (path !== "deck.json" && path !== theme) session.addFile(path, bytes);
+  return session;
+}
+
+/** A bundle's name, from its deck file's URL: its directory's, or the deck file's own, without
+ * `.scaena`, `.deck.json`, or `.json`. */
+function nameOf(deck: string): string {
+  const parts = new URL(deck).pathname.split("/").filter(Boolean);
+  const file = parts.at(-1) === "deck.json" ? parts.at(-2) : parts.at(-1);
+  return decodeURIComponent(file ?? "").replace(/\.scaena$|(\.deck)?\.json$/, "") || "deck";
+}
+
+/** Compile `source`, the editor's as it stands, for a save: one that does not compile, or
+ * whose deck does not validate, is not saved, and the error says why and where. */
+function saveable(source: string) {
+  const compiled = JSON.parse(player.compile(source)) as { error?: Finding; findings: Finding[]; valid: boolean };
+  const why = compiled.error ?? (compiled.valid ? undefined : compiled.findings.find((f) => f.severity === "error"));
+  if (!why) return;
+  const where = why.at ? ` (line ${why.at.line})` : "";
+  const what = compiled.error ? "the source does not compile" : "the deck does not validate";
+  throw new Error(`${what}: ${why.message}${where}`);
+}
+
+/** Subset each font a save subsets to the characters the deck can draw, with the subsetter's
+ * own module, loaded the first time (PLAN 2.4): the engine's module leaves it out. */
+async function subsetFonts() {
+  const { chars, fonts } = JSON.parse(player.subsetting()) as { chars: string; fonts: string[] };
+  const subsetter = await import("@scaena/subset");
+  await subsetter.default();
+  for (const font of fonts) player.addSubset(font, chars, subsetter.subset(player.file(font)!, chars));
+}
+
+/** Save the bundle with the deck shown, fonts kept whole, where it is kept, or into the
+ * browser's storage: the files first, the deck and its manifest last, so the deck never names
+ * a file not yet written; then the files the save renamed go. The session goes on from the
+ * save. */
+async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number }> {
+  if (!home) {
+    const dir = await newBundle(name);
+    home = { dir, where: { kind: "opfs", name: dir.name } };
+    name = dir.name;
+  }
+  const saved = player.save(new Date().toISOString(), false);
+  try {
+    const paths = saved.paths();
+    const last = ["deck.json", "manifest.json"];
+    for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))])
+      await write(home.dir, path, saved.file(path)!);
+    const written = new Set(paths);
+    for (const path of saved.replaced()) if (!written.has(path)) await remove(home.dir, path);
+    const { renamed } = JSON.parse(saved.summary()) as { renamed: [string, string][] };
+    player.adopt(saved);
+    return { where: home.where, renamed, files: paths.length };
+  } finally {
+    saved.free();
+  }
 }
 
 /** Each state's notes: its own, else those of the first beat that names it. */

@@ -10,6 +10,7 @@ members = [
   "crates/scaena-cli",
   "crates/scaena-mcp",
   "crates/scaena-wasm",
+  "crates/scaena-subset",
   "crates/scaena-ffi",
 ]
 default-members = [
@@ -117,6 +118,13 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 strip = true
+
+# The font subsetter, which a page loads only to download a bundle (PLAN 2.4), built for size:
+# its module is 244 KB gzipped, against 296 KB at opt-level 3.
+[profile.release.package.skera]
+opt-level = "s"
+[profile.release.package.write-fonts]
+opt-level = "s"
 
 [profile.dev.package."*"]
 opt-level = 1

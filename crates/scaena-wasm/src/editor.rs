@@ -10,12 +10,12 @@
 use crate::{Error, Session};
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity};
-use scaena_engine::data::DataFiles;
 use scaena_ops::compile::{Compiled, compile, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
 use scaena_ops::lint::{layout_rules, lint_with};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// The source compiled last, and what lint found in it.
 pub(crate) struct Edit {
@@ -24,27 +24,17 @@ pub(crate) struct Edit {
     findings: Vec<Finding>,
 }
 
-/// The files a page handed the session, as validation reads them: the theme, the fonts,
-/// the images, and the data.
-pub(crate) struct Handed<'a> {
-    pub theme: Option<(&'a str, &'a str)>,
-    pub fonts: &'a [String],
-    pub images: &'a [String],
-    pub data: &'a DataFiles,
-}
+/// The files a page handed the session, by their paths in the bundle, as validation reads
+/// them.
+pub(crate) struct Handed<'a>(pub &'a BTreeMap<String, Vec<u8>>);
 
 impl BundleFiles for Handed<'_> {
     fn exists(&self, path: &str) -> bool {
-        self.theme.is_some_and(|(p, _)| p == path)
-            || self.fonts.iter().chain(self.images).any(|p| p == path)
-            || self.data.get(path).is_some()
+        self.0.contains_key(path)
     }
 
     fn read_text(&self, path: &str) -> Option<String> {
-        match self.theme {
-            Some((p, text)) if p == path => Some(text.to_string()),
-            _ => String::from_utf8(self.data.get(path)?.to_vec()).ok(),
-        }
+        String::from_utf8(self.0.get(path)?.clone()).ok()
     }
 }
 
@@ -103,16 +93,6 @@ pub struct Linting {
 }
 
 impl Session {
-    /// The files handed over so far, as validation reads them.
-    fn handed(&self) -> Handed<'_> {
-        Handed {
-            theme: self.theme_path.as_deref().map(|p| (p, self.theme_json.as_str())),
-            fonts: &self.font_paths,
-            images: &self.image_paths,
-            data: &self.data,
-        }
-    }
-
     /// The deck as canonical `.scn` (SPEC §4): what the editor opens on.
     pub fn source(&self) -> String {
         scaena_core::dsl::decompile(&self.deck)
@@ -121,7 +101,7 @@ impl Session {
     /// Compile `source` and validate it against the files handed over. A deck that
     /// validates becomes the session's: timelines and frames show it from now on.
     pub fn compile(&mut self, source: &str) -> Compiling {
-        let compiled = match compile(source, &self.handed()) {
+        let compiled = match compile(source, &Handed(&self.files)) {
             Ok(compiled) => compiled,
             Err(e) => {
                 let finding = Finding::new("E106", Severity::Error, e.message.clone());
@@ -160,16 +140,10 @@ impl Session {
             return Ok(Linting { findings, laid: false, whole: only.is_none() });
         };
         self.build()?;
-        let Session { engine, store, data, theme_path, theme_json, font_paths, image_paths, laid, .. } = self;
+        let Session { engine, store, data, theme_json, laid, files, .. } = self;
         let engine = engine.as_mut().expect("built above");
-        let files = Handed {
-            theme: theme_path.as_deref().map(|p| (p, theme_json.as_str())),
-            fonts: font_paths,
-            images: image_paths,
-            data,
-        };
         let mut fresh = None;
-        let linted = lint_with(&deck, &files, Some(theme_json.as_str()), |theme| {
+        let linted = lint_with(&deck, &Handed(files), Some(theme_json.as_str()), |theme| {
             let found = layout_rules(engine, &deck, theme, data, store, only)?;
             fresh = Some(found.clone());
             let Some(only) = only else { return Ok(found) };
@@ -233,11 +207,11 @@ mod tests {
         let mut s = Session::new(&deck, &read("themes/dusk.theme.json")).unwrap();
         let parsed = Deck::from_json(&deck).unwrap();
         for font in &parsed.fonts {
-            s.add_font(&font.file, std::fs::read(format!("{dir}/{}", font.file)).unwrap()).unwrap();
+            s.add_file(&font.file, std::fs::read(format!("{dir}/{}", font.file)).unwrap());
         }
         for source in parsed.data.values() {
             if let serde_json::Value::String(path) = &source.source {
-                s.add_data(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+                s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
             }
         }
         s

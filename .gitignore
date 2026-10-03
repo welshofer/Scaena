@@ -11,4 +11,5 @@ Cargo.lock.bak
 .env
 __pycache__/
 /crates/scaena-wasm/www/pkg/
+/crates/scaena-subset/pkg/
 /node_modules/

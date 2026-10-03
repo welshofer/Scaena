@@ -5,11 +5,19 @@
 //! shape lets a violation say what the author meant. A node is checked as its own `type`,
 //! so a chart's mistake reads as a chart's, not as "matches none of nine node types". An
 //! unknown property names the node types that have it, or the closest known name.
+//!
+//! The checker reads the schemas as committed in `docs/schema/`, which the model generates
+//! (`tests/schemas.rs` holds the two together), rather than generating them: generation
+//! would carry `schemars` and every type's schema into the browser's engine (PLAN 2.4).
 
-use super::{deck_schema, spine_schema, theme_schema};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
+
+/// A schema as committed in `docs/schema/`.
+fn committed(text: &str) -> Value {
+    serde_json::from_str(text).expect("a committed schema is JSON")
+}
 
 /// The keywords this checker understands. Annotations (`description`, `default`, `format`,
 /// …) say nothing about validity.
@@ -86,19 +94,19 @@ impl Checker {
     /// `docs/schema/deck.schema.json`.
     pub fn deck() -> &'static Checker {
         static DECK: OnceLock<Checker> = OnceLock::new();
-        DECK.get_or_init(|| Checker::new(deck_schema()))
+        DECK.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/deck.schema.json"))))
     }
 
     /// `docs/schema/theme.schema.json`.
     pub fn theme() -> &'static Checker {
         static THEME: OnceLock<Checker> = OnceLock::new();
-        THEME.get_or_init(|| Checker::new(theme_schema()))
+        THEME.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/theme.schema.json"))))
     }
 
     /// `docs/schema/spine.schema.json`: what `export --format spine` writes (SPEC §10).
     pub fn spine() -> &'static Checker {
         static SPINE: OnceLock<Checker> = OnceLock::new();
-        SPINE.get_or_init(|| Checker::new(spine_schema()))
+        SPINE.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/spine.schema.json"))))
     }
 
     fn new(root: Value) -> Checker {
