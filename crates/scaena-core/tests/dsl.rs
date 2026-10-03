@@ -10,6 +10,7 @@ fn corpus() -> Vec<(String, String)> {
     let mut files = vec![
         "docs/examples/revenue.deck.json".to_string(),
         "docs/examples/trails.deck.json".into(),
+        "docs/examples/higher-ed.deck.json".into(),
         "docs/examples/authorability/deck.json".into(),
         "tests/fixtures/torture.scaena/deck.json".into(),
         "tests/bench/b1.scaena/deck.json".into(),

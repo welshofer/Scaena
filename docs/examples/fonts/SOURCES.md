@@ -8,6 +8,6 @@ Built by `scripts/build_bundle_fonts.py` (fontTools 4.66.1) from [google/fonts](
 | `Inter-VF.ttf` | `ofl/inter/Inter[opsz,wght].ttf` | `29160a80ff49ddca…` | `744a5c4c70c482c0…` | 856 KB → 256 KB | `body` |
 | `JetBrainsMono-VF.ttf` | `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` | `48715a42ec242c21…` | `79d234941e622c63…` | 182 KB → 103 KB | `mono` |
 
-**Subset:** every character in `revenue.deck.json` ∪ `trails.deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC. All OpenType layout features, all name records, variations and hinting kept.
+**Subset:** every character in `revenue.deck.json` ∪ `trails.deck.json` ∪ `higher-ed.deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC. All OpenType layout features, all name records, variations and hinting kept.
 
 **Licenses:** SIL Open Font License 1.1; each `OFL-*.txt` beside the fonts is the upstream license file (sha256-pinned in the script).
