@@ -9,6 +9,7 @@
     "build": "npm run typecheck && vite build && vite build --config vite.standalone.config.ts"
   },
   "devDependencies": {
+    "axe-core": "4.13.0",
     "typescript": "7.0.2",
     "vite": "8.3.2"
   },

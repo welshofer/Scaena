@@ -21,6 +21,7 @@ The page reads these parameters:
 | `painter` | `gpu` or `cpu`. By default, WebGPU where the browser has an adapter, and the CPU painter elsewhere. |
 | `state` | the state to open on; the first by default. |
 | `view` | `presenter` for the presenter view. The player opens it with P. |
+| `motion` | `reduce` for cuts in place of cues, `full` for the cues whatever the system asks. By default, the system's `prefers-reduced-motion`. |
 
 ## Present with it
 
@@ -36,6 +37,12 @@ A state with a `hold` goes on to the next by itself once its cue and hold are ov
 
 Edit opens the editor on the bundle.
 
+For a screen reader (PLAN 2.8), the canvas is hidden, and the page keeps how the state shown reads in a polite live region, out of sight: each heading, paragraph, figure (by its alt text), and table, in paint order, as a single file reads it (SPEC §3.12). What reads as it did stays put, so a screen reader says what each state changed. The state picker is the spine's outline: a group for each section, each state named with its beat's claim.
+
+With less motion asked for (`prefers-reduced-motion`, or `?motion=reduce`), each cue is a cut to its state at rest, and the deck keeps its pace: a state that holds goes on when its cue and hold are over.
+
+A focused button or link keeps Enter and Space, and the scrubber and the pickers keep every key; the deck's keys work everywhere else, so → goes on after a click on ▶. The scrubber says which state it is at.
+
 The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest, and a clock, and its ◀ ▶ and keys steer the player. The two talk on a `BroadcastChannel` named for the deck.
 
 ## Edit with it
@@ -47,6 +54,7 @@ The presenter view follows the player frame by frame. It shows the state's notes
 - **Lint.** An edit lints the state shown at once, and every state once typing stops for half a second. The status line says how long each step took.
 - **Findings** stand in the gutter and in the list under the source, where the source sets what each is about. A click on one goes there, and a fix is one click: the fix comes back as source, and only the lines it changes change.
 - **The inspector** shows the state's cue (where it starts, its span, its hold, its transition, and each motion), each node, each text node's look, and how many props its overrides set.
+- **Keys.** A finding under the source is a button that goes to where it stands. F8 and Shift-F8 move between findings, and Mod-Shift-M lists them. Tab indents, so Escape then Tab leaves the source. The arrow keys move between the tabs.
 
 ## Keep it
 
@@ -107,6 +115,7 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
 
 ## How it fits
 
+- `src/reading.ts` keeps how the state shown reads in the live region, from the engine (`Player.reading`) or, in a single file, from what the export wrote.
 - `src/player.ts` is the player, or the presenter view, on any page that plays a bundle: `src/main.ts`, the web player's page, which names the bundle by its address, and `src/standalone.ts`, a single file's, which carries it. `src/player.css` is their styles. `src/editor.ts` is the editor's page: CodeMirror 6, with the `.scn` mode in `src/scn.ts`, and a stage for the preview.
 - `src/stage.ts` is a canvas and the worker that paints it. The player has one; the presenter view has two. A page says how its worker starts: `src/spawn.ts`, a module of its own beside the engine's module, for the player and the editor; the inline worker and the compiled module it carries, for a single file.
 - `src/assistant/` is the assistant (PLAN 2.6): `providers.ts`, one conversation in each provider's wire format; `converse.ts`, the loop of answers and calls; `tools.ts`, the MCP tools' schemas less what names a place on disk; `prompt.ts`, the system prompt; `index.ts`, what the worker loads the first time the user asks, with the resources' own WASM module (`crates/scaena-resources`); and, on the page, `panel.ts` and `keys.ts`. The worker runs each call in the engine's module (`Player.tool`), and compiles, shows, and lints each edit before the next call.
@@ -115,8 +124,9 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
   - If WebGPU fails anyway, the page starts over on a new canvas with the CPU painter.
 - `src/protocol.ts` is what the page and the worker say to each other:
   - `show`: a frame, a state at rest or a time into its cue.
-  - `run`, `seek`, `pause`: the clock. A run plays from a state and a time in it, cue by cue and hold by hold, and the worker says where the deck is (`at`) with each frame.
+  - `run`, `seek`, `pause`: the clock. A run plays from a state and a time in it, cue by cue and hold by hold, and the worker says where the deck is (`at`) with each frame. A `still` run cuts to each state at rest, says so once, and waits out its cue and hold without frames.
   - `timeline`: the deck's slots.
+  - `read`: how a state reads at rest, as HTML (PLAN 2.8).
   - `source`, `edit`, `lint`, `fix`, `inspect`: the editor's (`Player.source`, `compile`, `lint`, `fix`, `inspect`, from `scaena-wasm`'s `editor` feature). An edit compiles, repaints the state shown, and lints it; `lint` lints every state. Places in the source are UTF-16 offsets, as JavaScript counts them, with a line and a column.
   - `ask`, `stop`, `forget`, `models`: the assistant's. An `ask` comes back as `assistant` events, one for each thing it says, each call, each result, and each edit (its source, with what the edit came to), until it is `done` or `failed`.
   - `open` names its source: a URL, a bundle the browser keeps, a folder's handle, a zip's bytes, or a single file's files and the states it plays; and hands over the engine's module when the page carries it. `save`, `zip`, `drop`: the bundle's (`Player.save`, `adopt`, `subsetting`, `addSubset`, `addFile`, `place`). The worker writes a save with `src/folders.ts`, the same calls for a folder on disk and the browser's storage, and goes on from it.
@@ -128,7 +138,8 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
   - `editor.mjs` types into the editor on the revenue example: an overflow, its fix, a source that does not compile, the cursor leading the preview and the inspector. Then it times an edit's round trip on B1, which gate 2 holds under 200 ms, and the lint of every state that follows.
   - `storage.mjs` saves the revenue example into the browser's storage and reloads it, plays it from there, drops an image into it, downloads it with its fonts subset and opens the download, and saves a folder in place.
   - `assistant.mjs` runs PLAN 1.19's agent loop through the editor's assistant against a scripted server for each provider: a headline too long for its slot, the E100, its fix, a clean lint, and a render. It checks what the browser sends (the key in its header, Anthropic's opt-in header, the prompt, the tools, each result, the frame as an image, Gemini's thought signatures), that the source takes each edit and lints clean, that Stop stops, and how the key is kept.
+  - `a11y.mjs` checks what a reader needs. axe-core finds nothing against WCAG 2.1 A and AA on the player, the presenter view, the editor with each tab, and a single file. The live region reads each state as the single file does, and keeps what reads as it did. The state picker is the spine's outline. Less motion cuts to each state at rest and keeps the deck's pace, and `?motion=` overrides the system. The keys work after a click on ▶, Enter on it goes on once, and the scrubber says where it is. In the editor, a finding is a button that goes to its line, F8 goes to the next, and the arrow keys move between the tabs.
   - `site.mjs` serves `target/site` from a path under a plain static server, with each file's media type, as a host would. The player plays the demo deck, each state painting a frame. Edit opens it in the editor, which lints it clean, and Play opens the player again. The subsetter and the assistant load from the site, and nothing is asked of anywhere else (but the assistant's scripted provider) or found missing.
   - `standalone.mjs` exports the torture deck and the revenue example as single files (with `cargo run`, so `scaena` is built after the page) and opens them from their addresses on disk with the network off. The engine a file carries paints every golden frame byte for byte as the web player's does (run in Node), and the torture deck's file shows every golden frame by the CPU painter for the parity harness. The revenue example's plays, reads as it plays, and opens the presenter view; WebGPU paints it; and nothing asks for more than the file and its worker's blob.
 
-For tests and the console, the page sets `window.scaena`. It holds the open bundle's states, formats, notes, and painter, and these calls: `show(state, t?, format?)`, `timeline(format?)`, `seek(index, t?)`, `run(index, t?)`, `at()`, `on()`, and `back()`. The editor's has `source()`, `type(text)`, `cursor(offset)`, `fix(code)`, `last()`, `trips()`, `wholes()`, `shown()`, `inspector()`, and `at()`; for its storage, `open(source)`, `save()`, `download()`, `drop(name, bytes, at?)`, and `where()`; and `assistant`, with `ask(text)`, `transcript()`, and `usage()`.
+For tests and the console, the page sets `window.scaena`. It holds the open bundle's states, formats, notes, outline, and painter, and these calls: `show(state, t?, format?)`, `timeline(format?)`, `seek(index, t?)`, `run(index, t?, format?, still?)`, `at()`, `on()`, and `back()`. The editor's has `source()`, `type(text)`, `cursor(offset)`, `fix(code)`, `last()`, `trips()`, `wholes()`, `shown()`, `inspector()`, and `at()`; for its storage, `open(source)`, `save()`, `download()`, `drop(name, bytes, at?)`, and `where()`; and `assistant`, with `ask(text)`, `transcript()`, and `usage()`.

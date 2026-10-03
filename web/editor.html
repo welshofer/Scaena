@@ -22,8 +22,11 @@
       #code { min-height: 0; overflow: hidden; }
       #code .cm-editor { height: 100%; }
       #problems { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
-      #problems li { padding: 2px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #problems li:hover { background: var(--line); }
+      #problems li { padding: 2px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #problems li:has(button) { padding: 0; }
+      #problems li button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 2px 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+      #problems li button:hover { background: var(--line); }
+      #problems li button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
       #problems .code { display: inline-block; width: 4.5em; font-variant-numeric: tabular-nums; }
       #problems .error .code { color: var(--error); }
       #problems .warning .code { color: var(--warning); }

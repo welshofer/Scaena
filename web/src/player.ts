@@ -7,7 +7,13 @@
 // fullscreen; P the presenter view. A click or a tap on the slide goes on; a swipe goes
 // either way. Going on plays the next state's cue; a state that holds goes on by itself
 // when its hold is over (SPEC §2.4). Going on during a cue finishes it.
-import type { At, Painter, Slot, Source } from "./protocol";
+//
+// For a screen reader (PLAN 2.8, SPEC §3.12): the canvas is hidden, and the page keeps how the
+// state shown reads in a live region (`#reading`). The state picker is the spine's outline.
+// For a reader who asks for less motion (`prefers-reduced-motion`, or `?motion=reduce`; and
+// `?motion=full` to have it anyway), each cue is a cut, and the deck keeps its pace.
+import type { At, Painter, Section, Slot, Source } from "./protocol";
+import { reader } from "./reading";
 import { type Engine, Stage } from "./stage";
 
 /** How a page plays a bundle. */
@@ -18,8 +24,9 @@ export interface Play {
   channel: string;
   /** The state to open on, by id. */
   state?: string | null;
-  /** Called as the deck moves, each frame of a run and each seek, with the slots it plays. */
-  onAt?: (at: At, slots: Slot[]) => void;
+  /** How a state reads, as HTML: the reading a single file carries for each state it plays.
+   * Without it, the engine reads the state in the format shown. */
+  read?: (state: string, format?: string) => string | Promise<string>;
 }
 
 type Follow = { type: "at"; format?: string } & At;
@@ -35,6 +42,13 @@ export function start(deck: Source, how: Play): Promise<void> {
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Whether the reader asked for less motion: the page's `?motion=`, else the system's. */
+const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+const still = () => {
+  const motion = new URLSearchParams(location.search).get("motion");
+  return motion === "reduce" || (motion !== "full" && reduced.matches);
+};
+
 /** The keys the player and the presenter view answer to, as `on`, `back`, and the rest. */
 function keys(act: Partial<Record<"on" | "back" | "first" | "last" | "full" | "present", () => void>>) {
   const names: Record<string, keyof typeof act> = {
@@ -43,8 +57,11 @@ function keys(act: Partial<Record<"on" | "back" | "first" | "last" | "full" | "p
     Home: "first", End: "last", f: "full", F: "full", p: "present", P: "present",
   };
   addEventListener("keydown", (e) => {
-    const target = e.target as HTMLElement;
-    if (e.metaKey || e.ctrlKey || e.altKey || target.closest("input, select, textarea, button, a")) return;
+    // A control keeps the keys it answers to: a button or a link Enter and Space, the scrubber,
+    // a picker, or a text field every key.
+    const control = (e.target as HTMLElement).closest("input, select, textarea, button, a");
+    const its = control && (!control.matches("button, a") || e.key === "Enter" || e.key === " ");
+    if (e.metaKey || e.ctrlKey || e.altKey || its) return;
     const action = act[names[e.key]];
     if (!action) return;
     e.preventDefault();
@@ -67,6 +84,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   stage.onError = (e) => (status.textContent = `error: ${e.message}`);
   const format = () => formatPicker.value || undefined;
   let slots: Slot[] = await stage.timeline();
+  const region = document.querySelector("#reading");
+  const read = region && reader(region, how.read ?? ((state, format) => stage.reading(state, format)));
   // The scrubber runs over the states, each a step of it, however long its cue: most decks'
   // states take no time on the timeline but their cues. Within a step it runs through the
   // state's cue, and its end is the state at rest.
@@ -88,10 +107,11 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       .join(" · ");
     // The status is a live region: it changes when the deck's place does, not every frame.
     if (status.textContent !== line) status.textContent = line;
-    if (statesPicker.selectedIndex !== at.index) statesPicker.selectedIndex = at.index;
+    if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
+    scrub.setAttribute("aria-valuetext", `${at.index + 1} of ${slots.length}: ${slots[at.index].state}`);
     channel.postMessage({ type: "at", ...at, format: format() } satisfies Follow);
-    how.onAt?.(at, slots);
+    void read?.(slots[at.index].state, format());
   };
   stage.onAt = report;
 
@@ -99,7 +119,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const on = () => {
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
-    if (index + 1 < slots.length) stage.run(index + 1, 0, format());
+    if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
   };
   /** Back: the state before, at rest. */
   const back = () => void stage.seek(Math.max(0, stage.at.index - 1), undefined, format());
@@ -110,9 +130,13 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     open(url, "scaena-presenter", "popup,width=1280,height=800");
   };
 
-  for (const slot of slots) statesPicker.add(new Option(slot.state, slot.state));
+  outline(statesPicker, slots, stage.opened.outline);
   for (const id of stage.opened.formats) formatPicker.add(new Option(id, id));
-  statesPicker.onchange = () => stage.run(statesPicker.selectedIndex, 0, format());
+  statesPicker.onchange = () => stage.run(Number(statesPicker.value), 0, format(), still());
+  // A change of mind while the deck plays takes hold where it is.
+  reduced.onchange = () => {
+    if (stage.at.playing) stage.run(stage.at.index, stage.at.t, format(), still());
+  };
   formatPicker.onchange = async () => {
     slots = await stage.timeline(format());
     go(Math.min(stage.at.index, slots.length - 1));
@@ -158,6 +182,26 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       back,
     },
   });
+}
+
+/** The state picker as the spine's outline (SPEC §3.11–3.12): a group for each section, in
+ * the spine's order, each state named with its beat's claim; a deck without a spine lists its
+ * states as they play. Each option's value is its slot. */
+function outline(picker: HTMLSelectElement, slots: Slot[], sections: Section[]) {
+  const slotOf = new Map(slots.map((slot, i) => [slot.state, i]));
+  const option = (state: string, claim?: string) =>
+    new Option(claim ? `${state} · ${claim}` : state, String(slotOf.get(state)));
+  if (!sections.length) return void picker.replaceChildren(...slots.map((slot) => option(slot.state)));
+  picker.replaceChildren(
+    ...sections.map(({ title, states }) => {
+      const options = states.filter(({ state }) => slotOf.has(state)).map(({ state, claim }) => option(state, claim));
+      if (!title) return options;
+      const group = document.createElement("optgroup");
+      group.label = title;
+      group.append(...options);
+      return [group];
+    }).flat(),
+  );
 }
 
 /** The presenter view: the deck as the player shows it, the next state, the notes, and a

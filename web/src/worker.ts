@@ -11,7 +11,19 @@
 // a browser starts no module worker from a file's page.
 import init, { Canvas, Player } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
-import type { Asking, AssistantEvent, Edited, Finding, FromWorker, Painter, Slot, Source, ToWorker, Where } from "./protocol";
+import type {
+  Asking,
+  AssistantEvent,
+  Edited,
+  Finding,
+  FromWorker,
+  Painter,
+  Section,
+  Slot,
+  Source,
+  ToWorker,
+  Where,
+} from "./protocol";
 
 const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMessage(message, transfer);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -51,9 +63,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "timeline":
         layOut(data.format);
         return post({ type: "timeline", id: data.id, slots });
+      case "read":
+        layOut(data.format);
+        return post({ type: "reading", id: data.id, html: player.reading(data.state) });
       case "run":
         layOut(data.format);
-        return run(data.index, data.t, ++latest);
+        return run(data.index, data.t, ++latest, data.still);
       case "seek": {
         latest++;
         layOut(data.format);
@@ -124,7 +139,7 @@ interface DeckFiles {
   fonts?: { file: string }[];
   data?: Record<string, { source?: unknown }>;
   states: { id: string; notes?: string }[];
-  spine?: { sections?: { beats?: { states?: string[]; notes?: string }[] }[] };
+  spine?: { sections?: { title?: string; beats?: { claim?: string; states?: string[]; notes?: string }[] }[] };
 }
 
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
@@ -160,6 +175,7 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
     states: slots.map((slot) => slot.state),
     formats: player.formats(),
     notes: slots.map((slot) => noted.get(slot.state) ?? ""),
+    outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
   });
@@ -318,6 +334,24 @@ async function ask(id: number, source: string, question: Asking) {
   }
 }
 
+/** The spine as a reader goes through it (SPEC §3.11–3.12): its sections in order, each
+ * titled by its title or its first beat's claim, with each of its beats' states and the
+ * beat's claim; then the states no beat names. A state two beats name stands at the first. */
+function outline(files: DeckFiles): Section[] {
+  const placed = new Set<string>();
+  const sections: Section[] = [];
+  for (const section of files.spine?.sections ?? []) {
+    const states = (section.beats ?? []).flatMap((beat) =>
+      (beat.states ?? []).filter((s) => !placed.has(s) && placed.add(s)).map((state) => ({ state, claim: beat.claim })),
+    );
+    const title = section.title ?? section.beats?.find((b) => b.claim)?.claim;
+    if (states.length) sections.push({ title, states });
+  }
+  const rest = files.states.filter((s) => !placed.has(s.id)).map((s) => ({ state: s.id }));
+  if (sections.length && rest.length) sections.push({ states: rest });
+  return sections;
+}
+
 /** Each state's notes, by its id: its own, else those of the first beat that names it. */
 function notes(files: DeckFiles): Map<string, string> {
   const beats = new Map<string, string>();
@@ -404,12 +438,15 @@ async function paint(state: string, t: number) {
 
 /** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state
  * that holds, short of the last, gives way to the next when its cue and hold are over; one
- * that does not hold, and the last, comes to rest and waits. */
-function run(index: number, t: number, run: number) {
+ * that does not hold, and the last, comes to rest and waits. `still`: each cue is a cut, the
+ * state painted at rest once, and the clock waits out its cue and hold without frames. */
+function run(index: number, t: number, run: number, still = false) {
   const goesOn = (i: number) => slots[i].hold > 0 && i < slots.length - 1;
   const start = performance.now();
   /** Where the clock started, from the slot it is in now. */
   let offset = t;
+  /** The slot painted at rest, when still. */
+  let rested = -1;
   const frame = async (now: number) => {
     if (run !== latest) return;
     let t = offset + Math.max(0, now - start);
@@ -419,17 +456,22 @@ function run(index: number, t: number, run: number) {
       index++;
     }
     const slot = slots[index];
-    const playing = goesOn(index) || t < slot.span;
-    if (!playing) t = slot.span;
-    try {
-      await paint(slot.state, t);
-    } catch (e) {
-      return post({ type: "error", message: said(e) });
+    const playing = goesOn(index) || (!still && t < slot.span);
+    const shown = still || !playing ? slot.span : t;
+    if (rested !== index) {
+      try {
+        await paint(slot.state, shown);
+      } catch (e) {
+        return post({ type: "error", message: said(e) });
+      }
+      // A newer request came while the CPU painter painted: its frame is the one to report.
+      if (run !== latest) return;
+      post({ type: "at", index, t: shown, global: slot.start + shown, playing });
+      if (still) rested = index;
     }
-    // A newer request came while the CPU painter painted: its frame is the one to report.
-    if (run !== latest) return;
-    post({ type: "at", index, t, global: slot.start + t, playing });
-    if (playing) next(frame);
+    if (!playing) return;
+    if (still) setTimeout(() => frame(performance.now()), slot.span + slot.hold - t);
+    else next(frame);
   };
   next(frame);
 }

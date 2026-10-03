@@ -277,6 +277,17 @@ impl Session {
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
     }
 
+    /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
+    /// shows a screen reader, unseen, in a live region (PLAN 2.8), and what a single-file
+    /// export carries for each state it plays (PLAN 2.5).
+    pub fn reading(&mut self, state: &str) -> Result<String, Error> {
+        let list = self.frame(state, f64::INFINITY)?;
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let snap = (snapshots.iter().find(|s| s.state_id == state))
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        Ok(scaena_core::reading::html(&self.deck, snap, &list))
+    }
+
     /// The fonts and images the engine was built from, as painters read them.
     pub fn assets(&self) -> &Assets {
         &self.store
@@ -370,6 +381,12 @@ impl Player {
     /// The display list for `state` at `t_ms` (`Infinity`: at rest), postcard-encoded.
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<Vec<u8>, JsError> {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
+    }
+
+    /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
+    /// shows that is read, in paint order, an element that names it (`data-node`).
+    pub fn reading(&mut self, state: &str) -> Result<String, JsError> {
+        self.0.reading(state).map_err(js)
     }
 
     /// `state` at `t_ms` (`Infinity`: at rest), painted by `vello_cpu` `width` pixels wide,
@@ -826,6 +843,46 @@ mod tests {
             let d = diff::compare(&expected, &got).unwrap();
             assert!(d.passes(), "{name}: {d}");
         }
+    }
+
+    /// The revenue example, its files handed over as a page hands them.
+    fn revenue() -> Session {
+        let dir = "../../docs/examples";
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(&read("revenue.deck.json"), &read("themes/dusk.theme.json")).unwrap();
+        for path in ["fonts/Fraunces-VF.ttf", "fonts/Inter-VF.ttf", "fonts/JetBrainsMono-VF.ttf", "data/q3-revenue.csv"]
+        {
+            s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        s
+    }
+
+    /// A state reads as a single-file export reads it (PLAN 2.5, 2.8): these are what `scaena
+    /// export --format html` writes for the revenue example's states. In another format the
+    /// same nodes read, in that format's paint order.
+    #[test]
+    fn each_state_reads_as_a_single_file_reads_it() {
+        let mut s = revenue();
+        let chart = r#"<div role="img" data-node="rev" aria-label="Quarterly revenue by product, Q4 2025 through Q3 2026."></div>"#;
+        let note = r#"<p data-node="note">Revenue in $M. Enterprise recognized on delivery.</p>"#;
+        let read = [
+            (
+                "intro",
+                r#"<h1 data-node="title">Q3 Review</h1><h2 data-node="subtitle">This quarter changed the shape of the business.</h2>"#.to_string(),
+            ),
+            ("revenue", format!(r#"<h1 data-node="title">Revenue doubled</h1>{chart}{note}"#)),
+            ("mix", format!(r#"<h1 data-node="title">…and the mix shifted</h1>{chart}{note}"#)),
+            ("close", r#"<h1 data-node="title">Thank you</h1>"#.to_string()),
+        ];
+        for (state, expected) in &read {
+            assert_eq!(&s.reading(state).unwrap(), expected, "{state}");
+        }
+        s.set_format(Some("9:16")).unwrap();
+        let tall = s.reading("revenue").unwrap();
+        for node in ["title", "rev", "note"] {
+            assert!(tall.contains(&format!(r#"data-node="{node}""#)), "{node} reads in 9:16: {tall}");
+        }
+        assert!(matches!(s.reading("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
     }
 
     #[test]

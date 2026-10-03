@@ -132,8 +132,9 @@ web-dev:
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
 # the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its
 # storage: open, save, download, and drop (PLAN 2.4), and its assistant, against a scripted
-# server for each provider (PLAN 2.6). Last, the static site from a path under its host
-# (PLAN 2.7).
+# server for each provider (PLAN 2.6). Then the static site from a path under its host (PLAN
+# 2.7), and, last, what a reader needs: axe-core's audit, the reading, less motion, and keys
+# (PLAN 2.8).
 web-smoke: site
     node web/smoke.mjs
     node web/standalone.mjs
@@ -143,6 +144,7 @@ web-smoke: site
     node web/storage.mjs
     node web/assistant.mjs
     node web/site.mjs
+    node web/a11y.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

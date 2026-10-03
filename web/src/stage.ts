@@ -19,7 +19,20 @@ import type {
 type Reply = Extract<
   FromWorker,
   {
-    type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" | "saved" | "zipped" | "dropped" | "models";
+    type:
+      | "shown"
+      | "timeline"
+      | "reading"
+      | "at"
+      | "source"
+      | "edited"
+      | "linted"
+      | "fixed"
+      | "inspected"
+      | "saved"
+      | "zipped"
+      | "dropped"
+      | "models";
   }
 >;
 
@@ -91,9 +104,15 @@ export class Stage {
     return this.request<"timeline">({ type: "timeline", id: ++this.asked, format }).then(({ slots }) => slots);
   }
 
-  /** Play from slot `index`, `t` ms into its cue, until a state that waits comes to rest. */
-  run(index: number, t = 0, format?: string) {
-    this.send({ type: "run", index, t, format });
+  /** How `state` reads at rest in `format`, as HTML (SPEC §3.12). */
+  reading(state: string, format?: string): Promise<string> {
+    return this.request<"reading">({ type: "read", id: ++this.asked, state, format }).then(({ html }) => html);
+  }
+
+  /** Play from slot `index`, `t` ms into its cue, until a state that waits comes to rest:
+   * `still`, each cue a cut to its state at rest, at the deck's pace (PLAN 2.8). */
+  run(index: number, t = 0, format?: string, still?: boolean) {
+    this.send({ type: "run", index, t, format, still });
   }
 
   /** Show slot `index` `t` ms into its cue (at rest without `t`), still. Resolves once it is
@@ -211,6 +230,7 @@ export class Stage {
     switch (data.type) {
       case "shown":
       case "timeline":
+      case "reading":
       case "source":
       case "edited":
       case "linted":

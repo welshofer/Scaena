@@ -18,7 +18,7 @@
 // as in the player. Play opens the player on the bundle as it was last saved.
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
-import { type Diagnostic, lintGutter, linter, setDiagnostics } from "@codemirror/lint";
+import { type Diagnostic, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
 import {
   drawSelection,
@@ -215,7 +215,10 @@ async function edit(source: Source) {
         history(),
         drawSelection(),
         highlightActiveLine(),
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...lintKeymap, indentWithTab]),
+        // Named for a screen reader, and in the tab order by its own attribute: Tab indents,
+        // so Escape then Tab leaves it.
+        EditorView.contentAttributes.of({ "aria-label": "The deck's source", tabindex: "0" }),
         scn,
         syntaxHighlighting(scnHighlight),
         lintGutter(),
@@ -348,17 +351,25 @@ async function edit(source: Source) {
     view.dispatch({ changes: change(view.state.doc.toString(), next), userEvent: "input.fix" });
   }
 
-  /** Every finding under the source; a click goes to it. */
+  /** Every finding under the source; one that stands in it is a button, which goes there. */
   function list(findings: Finding[]) {
     problems.replaceChildren(
       ...findings.map((f) => {
         const li = document.createElement("li");
         li.className = f.severity;
         const where = f.at ? `${f.at.line}:${f.at.col}` : (f.file ?? "");
-        li.innerHTML = `<span class="code">${f.code}</span>${html(f.message)}<span class="where">${html(
+        const said = `<span class="code">${f.code}</span>${html(f.message)}<span class="where">${html(
           [f.state, f.format, where].filter(Boolean).join(" · "),
         )}</span>`;
-        if (f.at) li.onclick = () => view.dispatch({ selection: { anchor: f.at!.from }, scrollIntoView: true });
+        if (!f.at) li.innerHTML = said;
+        else {
+          const go = li.appendChild(document.createElement("button"));
+          go.innerHTML = said;
+          go.onclick = () => {
+            view.dispatch({ selection: { anchor: f.at!.from }, scrollIntoView: true });
+            view.focus();
+          };
+        }
         return li;
       }),
     );
@@ -550,17 +561,30 @@ async function edit(source: Source) {
   });
 }
 
-/** The tabs under the preview: the inspector, and the assistant. */
+/** The tabs under the preview: the inspector, and the assistant. The arrow keys, Home, and
+ * End move between them, and only the one shown is in the tab order. */
 function tabs() {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];
-  for (const button of buttons)
-    button.onclick = () => {
-      for (const other of buttons) {
-        const on = other === button;
-        other.setAttribute("aria-selected", String(on));
-        $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
-      }
+  const pick = (button: HTMLButtonElement) => {
+    for (const other of buttons) {
+      const on = other === button;
+      other.setAttribute("aria-selected", String(on));
+      other.tabIndex = on ? 0 : -1;
+      $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
+    }
+  };
+  buttons.forEach((button, i) => {
+    button.tabIndex = button.getAttribute("aria-selected") === "true" ? 0 : -1;
+    button.onclick = () => pick(button);
+    button.onkeydown = (e) => {
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      const next = buttons[(to + buttons.length) % buttons.length];
+      pick(next);
+      next.focus();
     };
+  });
 }
 
 tabs();

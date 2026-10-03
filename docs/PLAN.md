@@ -611,7 +611,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
       *`just web-smoke` and CI's wasm job run it.*
     - *Open: putting it on the host Jay picks. The repository is private, and a site on Pages is public. Either run the `site` workflow with "Publish to GitHub Pages" ticked, once the repository's Pages source is GitHub Actions, or copy `target/site` (or the run's artifact) to the existing host. Then tick, with the address.)*
-- [ ] 2.8 Accessibility pass: keyboard, reduced-motion preference (collapses transitions to cuts), screen-reader order from the spine.
+- [x] 2.8 Accessibility pass: keyboard, reduced-motion preference (collapses transitions to cuts), screen-reader order from the spine.
+  *(Done: SPEC §3.12 and §9.2 say what a reader gets. `web/a11y.mjs` checks it in headless Chromium.*
+    - *How a state reads moved from `scaena-export` into `scaena-core::reading`, where the PDF tags, the single-file export, and the engine's module all read it. The module writes it with `Player.reading`, in the format shown: 6 KB more gzipped on the editor's module (2.74 MB) and 7 KB on the player's (2.15 MB), against SPEC §15's 3.0 MB. A native test holds each of the revenue example's states to what `export --format html` writes.*
+    - *Screen reader: the web player hides its canvas and keeps the state's reading in a polite live region, as a single file does, from one shared reader (`web/src/reading.ts`). What reads as it did stays put. The state picker is the spine's outline: a group for each section, each state named with its beat's claim, then the states no beat names.*
+    - *Less motion: `prefers-reduced-motion`, or `?motion=reduce`, makes each cue a cut. The worker paints the state at rest once, says so once, and waits out its cue and hold, so the deck keeps its pace; `?motion=full` plays the cues anyway. On the revenue example, `revenue` stayed 7.52 s against its cue and hold's 7.44 s, with no frame inside a cue.*
+    - *Keys: a focused button or link keeps Enter and Space, and the deck's keys work everywhere else, so → goes on after a click on ▶ (before, a clicked button swallowed them). The scrubber says which state it is at. In the editor, a finding is a button, F8 and Mod-Shift-M are CodeMirror's lint keys, the source is named, and the arrow keys move between the tabs.*
+    - *axe-core 4.13 finds nothing against WCAG 2.1 A and AA on the player, the presenter view, the editor with each tab, and a single file. Its first run found the source without a name and its scroller without focusable content; both are fixed. `just web-smoke` and CI's wasm job run the check.)*
 - [ ] 2.9 The page records into a bundle's history: the CRDT as a WASM module of its own, loaded to save a bundle that keeps one, as the subsetter is, so the page's edits go in as `user`'s (SPEC §8, §9.2). *(Found by 2.4: in the engine's module, the CRDT takes it to 3.7 MB gzipped.)*
 
 ### Exit criteria (gate 2)

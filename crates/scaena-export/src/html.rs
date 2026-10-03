@@ -6,7 +6,7 @@
 //! - [`html`] fills it in with a bundle: its title and language, every file the player
 //!   reads (each gzipped, in base64, by its path in the bundle), the states it plays, and
 //!   how each reads.
-//! - How a state reads is [`reading`]'s HTML, from the same data a tagged PDF is built from
+//! - How a state reads is [`scaena_core::reading::html`], from the same data a tagged PDF is built from
 //!   (SPEC §3.12): each node the state shows, in paint order, as a heading, a paragraph, a
 //!   figure with its alt text, or a table by rows of header and data cells. The page shows
 //!   the state's reading, unseen, in a live region, so a screen reader says what each state
@@ -16,14 +16,11 @@
 //! load, and nothing in it is anywhere else.
 
 use crate::ExportError;
-use crate::reading::{self, Kind, Reading};
 use base64::Engine as _;
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use scaena_core::displaylist::{DisplayList, Op};
-use scaena_core::{Deck, Snapshot};
-use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use scaena_core::Deck;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 
@@ -111,140 +108,6 @@ fn gzip(bytes: &[u8]) -> Result<Vec<u8>, ExportError> {
     gz.write_all(bytes).and_then(|()| gz.finish()).map_err(|e| ExportError::Html(e.to_string()))
 }
 
-/// How the state `snap` resolves, drawn as `list` at rest, reads (SPEC §3.12), as HTML:
-/// each node it shows that is read, in paint order, an element of its own that names it
-/// (`data-node`). A heading (`h1`, `h2`) or paragraph says the node's text, or its alt text
-/// instead; a figure (`role="img"`) is named by its alt text; a table reads by rows, its
-/// header row's cells headers, with a cell for every column of every row. A group's members
-/// read in turn, or as one figure when it has alt text. What no node reads (decoration, a
-/// container's panel, the background) is not there.
-pub fn reading(deck: &Deck, snap: &Snapshot, list: &DisplayList) -> String {
-    let readings = reading::readings(deck, snap);
-    let lang = deck.meta.as_ref().and_then(|m| m.lang.as_deref());
-    let mut out = String::new();
-    Reader { snap, readings: &readings, lang }.read(&list.ops, &mut out);
-    out
-}
-
-struct Reader<'a> {
-    snap: &'a Snapshot,
-    readings: &'a HashMap<String, Reading>,
-    /// The deck's language: a node in another says so.
-    lang: Option<&'a str>,
-}
-
-impl Reader<'_> {
-    fn read(&self, ops: &[Op], out: &mut String) {
-        for op in ops {
-            let Op::Layer { node, ops: inner, .. } = op else { continue };
-            let Some(id) = node.as_deref() else {
-                self.read(inner, out);
-                continue;
-            };
-            let reading = self.readings.get(id);
-            let alt = reading.and_then(|r| r.alt.as_deref());
-            match reading.map_or(Kind::Group, |r| r.kind) {
-                Kind::Artifact => {}
-                Kind::Heading(level) => self.text(&format!("h{level}"), id, reading, out),
-                Kind::Paragraph => self.text("p", id, reading, out),
-                Kind::Table => self.table(id, reading, inner, out),
-                Kind::Group if alt.is_none() => self.read(inner, out),
-                Kind::Figure | Kind::Group => {
-                    let named = alt.map(|alt| format!(r#" aria-label="{}""#, attr(alt))).unwrap_or_default();
-                    let _ =
-                        write!(out, r#"<div role="img" data-node="{}"{named}{}></div>"#, attr(id), self.lang(reading));
-                }
-            }
-        }
-    }
-
-    /// A text node's element: its words as the deck writes them (its `text`, or its runs'),
-    /// or its alt text instead. One with none reads nothing.
-    fn text(&self, tag: &str, id: &str, reading: Option<&Reading>, out: &mut String) {
-        let words = match reading.and_then(|r| r.alt.clone()) {
-            Some(alt) => alt,
-            None => self.snap.nodes.get(id).map(words).unwrap_or_default(),
-        };
-        if words.trim().is_empty() {
-            return;
-        }
-        let _ = write!(out, r#"<{tag} data-node="{}"{}>{}</{tag}>"#, attr(id), self.lang(reading), text(&words));
-    }
-
-    /// A table by rows of cells, each with the text it draws: the first row's headers of
-    /// their columns. A row with no text in a column (a null) has an empty cell there.
-    fn table(&self, id: &str, reading: Option<&Reading>, ops: &[Op], out: &mut String) {
-        let mut cells: BTreeMap<(u32, u32), String> = BTreeMap::new();
-        for op in ops {
-            if let Op::Layer { cell: Some([row, column]), ops, .. } = op {
-                cells.insert((*row, *column), drawn(ops));
-            }
-        }
-        let named = reading
-            .and_then(|r| r.alt.as_deref())
-            .map(|alt| format!(r#" aria-label="{}""#, attr(alt)))
-            .unwrap_or_default();
-        let _ = write!(out, r#"<table data-node="{}"{named}{}>"#, attr(id), self.lang(reading));
-        let columns = cells.keys().map(|&(_, c)| c + 1).max().unwrap_or(0);
-        if let (Some(&(first, _)), Some(&(last, _))) = (cells.keys().next(), cells.keys().next_back()) {
-            for row in first..=last {
-                out.push_str("<tr>");
-                for column in 0..columns {
-                    let said = cells.get(&(row, column)).map(|t| text(t)).unwrap_or_default();
-                    if row == 0 {
-                        let _ = write!(out, r#"<th scope="col">{said}</th>"#);
-                    } else {
-                        let _ = write!(out, "<td>{said}</td>");
-                    }
-                }
-                out.push_str("</tr>");
-            }
-        }
-        out.push_str("</table>");
-    }
-
-    /// ` lang="…"` for a node in another language than the deck's.
-    fn lang(&self, reading: Option<&Reading>) -> String {
-        match reading.and_then(|r| r.lang.as_deref()) {
-            Some(lang) if Some(lang) != self.lang => format!(r#" lang="{}""#, attr(lang)),
-            _ => String::new(),
-        }
-    }
-}
-
-/// A text node's words: its `text`, or its runs' texts in turn.
-fn words(props: &scaena_core::document::Props) -> String {
-    match (props.get("text"), props.get("runs")) {
-        (Some(Value::String(text)), _) => text.clone(),
-        (_, Some(Value::Array(runs))) => runs.iter().filter_map(|r| r.get("text")?.as_str()).collect(),
-        _ => String::new(),
-    }
-}
-
-/// The text `ops` draw: their glyph runs' in turn, a line break a space. A hyphen drawn at a
-/// break is not said.
-fn drawn(ops: &[Op]) -> String {
-    fn walk(ops: &[Op], out: &mut String, line: &mut Option<f32>) {
-        for op in ops {
-            match op {
-                Op::Layer { ops, .. } => walk(ops, out, line),
-                Op::Glyphs { text, glyphs, .. } if text != "\u{AD}" => {
-                    let y = glyphs.first().map(|g| g.y);
-                    if line.is_some() && y.is_some() && y != *line && !out.ends_with(char::is_whitespace) {
-                        out.push(' ');
-                    }
-                    out.push_str(text);
-                    *line = glyphs.last().map(|g| g.y).or(*line);
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut out = String::new();
-    walk(ops, &mut out, &mut None);
-    out.trim().to_string()
-}
-
 /// `s` as HTML text.
 fn text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
@@ -259,33 +122,8 @@ fn attr(s: &str) -> String {
 mod tests {
     use super::*;
     use flate2::read::GzDecoder;
-    use scaena_core::displaylist::{Blend, Color, FillRule, Glyph, IDENTITY, Paint, Path};
     use serde_json::json;
     use std::io::Read as _;
-
-    fn layer(node: Option<&str>, cell: Option<[u32; 2]>, ops: Vec<Op>) -> Op {
-        Op::Layer {
-            node: node.map(str::to_string),
-            cell,
-            transform: IDENTITY,
-            opacity: 1.0,
-            blend: Blend::Normal,
-            clip: None,
-            ops,
-        }
-    }
-
-    fn glyphs(text: &str, y: f32) -> Op {
-        Op::Glyphs {
-            font: 0,
-            size: 20.0,
-            coords: Vec::new(),
-            paint: Paint::Solid(Color([0, 0, 0, 255])),
-            text: text.to_string(),
-            glyphs: vec![Glyph { id: 1, x: 0.0, y }],
-            clusters: vec![0],
-        }
-    }
 
     fn deck() -> Deck {
         Deck::from_json(
@@ -311,54 +149,6 @@ mod tests {
             .to_string(),
         )
         .expect("a deck")
-    }
-
-    #[test]
-    fn a_state_reads_in_paint_order_as_its_nodes_do() {
-        let deck = deck();
-        let snaps = scaena_core::resolve_states(&deck).expect("snapshots");
-        let mut list = DisplayList::new([1920.0, 1080.0]);
-        list.ops = vec![
-            // The background, drawn outside every node, reads nothing.
-            Op::Fill {
-                path: Path::rect([0.0, 0.0, 1920.0, 1080.0]),
-                rule: FillRule::NonZero,
-                paint: Paint::Solid(Color([0, 0, 0, 255])),
-            },
-            layer(Some("rule"), None, vec![]),
-            layer(Some("title"), None, vec![glyphs("REVENUE & GROWTH", 100.0)]),
-            layer(Some("pair"), None, vec![layer(Some("sub"), None, vec![]), layer(Some("fr"), None, vec![])]),
-            layer(Some("x"), None, vec![]),
-            layer(Some("rev"), None, vec![layer(None, None, vec![glyphs("Q1", 900.0)])]),
-            layer(
-                Some("table"),
-                None,
-                vec![
-                    layer(None, Some([0, 0]), vec![glyphs("Region", 10.0)]),
-                    layer(None, Some([0, 1]), vec![glyphs("Total", 10.0)]),
-                    layer(None, Some([1, 0]), vec![glyphs("North", 40.0), glyphs("east", 70.0)]),
-                    layer(None, Some([2, 0]), vec![glyphs("South", 100.0)]),
-                    layer(
-                        None,
-                        Some([2, 1]),
-                        vec![glyphs("pre", 130.0), glyphs("\u{AD}", 130.0), glyphs("sold", 160.0)],
-                    ),
-                ],
-            ),
-        ];
-        let html = reading(&deck, &snaps[0], &list);
-        assert_eq!(
-            html,
-            concat!(
-                r#"<h1 data-node="title">Revenue &amp; growth</h1>"#,
-                r#"<p data-node="sub">Up 12%</p>"#,
-                r#"<p data-node="fr" lang="fr">Bonjour</p>"#,
-                r#"<p data-node="x">four point two times</p>"#,
-                r#"<div role="img" data-node="rev" aria-label="Revenue by quarter, &quot;up&quot;"></div>"#,
-                r#"<table data-node="table"><tr><th scope="col">Region</th><th scope="col">Total</th></tr>"#,
-                r#"<tr><td>North east</td><td></td></tr><tr><td>South</td><td>pre sold</td></tr></table>"#,
-            )
-        );
     }
 
     #[test]

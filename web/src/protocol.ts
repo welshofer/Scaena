@@ -50,10 +50,14 @@ export type ToWorker =
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
   | { type: "timeline"; id: number; format?: string }
+  /** How `state` reads at rest, as HTML (SPEC §3.12; PLAN 2.8). */
+  | { type: "read"; id: number; state: string; format?: string }
   /** Play the deck from slot `index`, `t` ms into its cue, a frame each time the display
    * takes one: each cue, then its state's hold, then the next state's cue. A state that does
-   * not hold, and the last, comes to rest and waits there. */
-  | { type: "run"; index: number; t: number; format?: string }
+   * not hold, and the last, comes to rest and waits there. `still`, for a reader who asks for
+   * less motion (PLAN 2.8): each cue is a cut to its state at rest, and the deck keeps its
+   * pace, a state that holds going on when its cue and hold are over. */
+  | { type: "run"; index: number; t: number; format?: string; still?: boolean }
   /** Slot `index`, `t` ms into its cue (at rest without `t`), still. */
   | { type: "seek"; id: number; index: number; t?: number; format?: string }
   /** Stop where the deck is. */
@@ -137,10 +141,20 @@ export interface Opened {
   formats: string[];
   /** Each state's speaker notes: its own, else its beat's (SPEC §3.11), else empty. */
   notes: string[];
+  /** The spine's sections in its order, each with its title (else its first beat's claim)
+   * and its states, each with its beat's claim; then the states no beat names, in a section
+   * with no title. Empty for a deck without a spine (SPEC §3.11–3.12). */
+  outline: Section[];
   /** What paints: vello on WebGPU, or vello_cpu. */
   painter: "webgpu" | "cpu";
   /** The adapter WebGPU paints with, as far as the browser tells. */
   adapter: string;
+}
+
+/** A section of the spine, as a reader goes through it (PLAN 2.8). */
+export interface Section {
+  title?: string;
+  states: { state: string; claim?: string }[];
 }
 
 /** Where the deck is. A place on the timeline names it only where states take time: states
@@ -238,6 +252,9 @@ export type FromWorker =
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */
   | { type: "shown"; id: number; size: [number, number]; ms: number }
   | { type: "timeline"; id: number; slots: Slot[] }
+  /** How the state `read` named reads: each node it shows that is read, in paint order, an
+   * element that names it (`data-node`). */
+  | { type: "reading"; id: number; html: string }
   /** A frame of `run` is on the canvas, or the one request `id` sought; posted for each, and
    * when the clock stops. */
   | ({ type: "at"; id?: number } & At)

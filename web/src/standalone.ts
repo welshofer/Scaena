@@ -26,29 +26,11 @@ const unpacked = (element: Element): Promise<ArrayBuffer> =>
   new Response(new Blob([decoded(element.textContent ?? "")]).stream().pipeThrough(new DecompressionStream("gzip")))
     .arrayBuffer();
 
-/** Show how `state` reads in `region`, a live region: what reads as it did stays put, so a
- * screen reader says what the state changed. Each state's reading is a template the export
- * wrote, each node in it an element of its own (`data-node`). */
-function reader(region: Element): (state: string) => void {
-  const readings = new Map(
-    [...document.querySelectorAll<HTMLTemplateElement>("template[data-state]")].map((t) => [t.dataset.state!, t]),
-  );
-  let shown: string | undefined;
-  return (state) => {
-    if (state === shown) return;
-    shown = state;
-    const kept = new Map([...region.children].map((el) => [el.outerHTML, el]));
-    const next = [...(readings.get(state)?.content.children ?? [])].map((el) => {
-      const same = kept.get(el.outerHTML);
-      kept.delete(el.outerHTML);
-      return same ?? document.importNode(el, true);
-    });
-    for (const gone of kept.values()) gone.remove();
-    next.forEach((el, i) => {
-      if (region.children[i] !== el) region.insertBefore(el, region.children[i] ?? null);
-    });
-  };
-}
+/** How each state the export wrote reads: a template of its own, each node an element of
+ * its own (`data-node`). The player shows it in the live region as the deck comes to it. */
+const readings = new Map(
+  [...document.querySelectorAll<HTMLTemplateElement>("template[data-state]")].map((t) => [t.dataset.state!, t.innerHTML]),
+);
 
 try {
   const [module, files] = await Promise.all([
@@ -60,7 +42,6 @@ try {
     ),
   ]);
   const { name, states } = JSON.parse($("#scaena-deck").textContent!) as { name: string; states: string[] };
-  const read = reader($("#reading"));
   await start(
     { files: Object.fromEntries(files), name, states },
     {
@@ -68,7 +49,7 @@ try {
       engine: { spawn: () => new Inline(), module },
       channel: `scaena:${location.href.split(/[?#]/)[0]}`,
       state: params.get("state"),
-      onAt: (at, slots) => read(slots[at.index].state),
+      read: (state) => readings.get(state) ?? "",
     },
   );
 } catch (e) {

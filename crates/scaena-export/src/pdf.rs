@@ -14,13 +14,12 @@
 //!   (SPEC §3.8), placed as the CPU painter places them.
 //! - The PDF is tagged (SPEC §3.12). Its structure follows the spine: a section per
 //!   spine section, holding the pages of its beats' slides, then the pages no beat
-//!   names. A page reads in paint order, each node as [`crate::reading`] says: a heading
+//!   names. A page reads in paint order, each node as [`scaena_core::reading`] says: a heading
 //!   or paragraph, a figure with its alt text, a table by rows of header and data
 //!   cells. What no node reads (the page's background, decoration, a container's panel)
 //!   is an artifact. The spine's sections are the document's outline.
 
 use crate::ExportError;
-use crate::reading::{self, Kind, Reading};
 use krilla::color::rgb;
 use krilla::destination::XyzDestination;
 use krilla::geom::{Path as KPath, PathBuilder, Point, Rect as KRect, Size, Transform};
@@ -45,6 +44,7 @@ use scaena_core::displaylist::{
     Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, Op, Paint, Path, PathEl, Quality,
 };
 use scaena_core::document::Section;
+use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
 use std::collections::{BTreeMap, HashMap};

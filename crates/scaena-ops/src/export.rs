@@ -263,7 +263,7 @@ fn standalone(
     for state in &pages {
         let list = at_rest(&mut engine, b, &theme, &data, state)?;
         let snap = snapshots.iter().find(|s| &s.state_id == state).expect("`named` checked the state");
-        read.push((state.clone(), scaena_export::html::reading(&b.deck, snap, &list)));
+        read.push((state.clone(), scaena_core::reading::html(&b.deck, snap, &list)));
         progress.step();
     }
     let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
