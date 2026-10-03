@@ -433,6 +433,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *B3 paints a frame in 208 ms against 25 ms, and its video reaches 0.16× realtime against 0.5×. The mesh's CPU reference renders one pixel at a time on one thread. Each pixel is its own, so rows can go to threads with the same result.*
 
     *The runners' numbers are in each run's summary.*
+  - *On CI's macOS runner (Apple M1, virtual, 3 cores), its first run:*
+    - *B1 and B2 are within budget for CPU paint and video.*
+      - *Their slowest frames paint in 4.6 and 4.4 ms.*
+      - *Their video takes 4.4 and 4.6 ms a frame, past 3× realtime.*
+      - *So the container's overruns are the container's.*
+    - *B3 stays over: 119 ms to paint a frame, and 70 ms a video frame.*
+    - *GPU paint with its readback takes 16–26 ms a frame on B1–B3. SPEC's 6 ms budget is for the paint alone, so the report records this stage without judging it.*
   - *Not measured:*
     - *GPU paint alone: the GPU stage reads its frame back.*
     - *The GPU video path, which does not exist yet.)*

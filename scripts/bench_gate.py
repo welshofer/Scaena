@@ -37,12 +37,14 @@ from pathlib import Path
 
 # SPEC §15's budgets, by bench group: the stage as SPEC names it, whether the budget is per
 # iteration or per element (each state, cue, or frame the bench counts), and the budget in ms
-# for each deck SPEC names. The video budgets are realtime at 60 fps: 1× is 16.7 ms a frame.
+# for each deck SPEC names, or why the stage is not judged against one. The video budgets are
+# realtime at 60 fps: 1× is 16.7 ms a frame.
 BUDGETS = [
     ("layout_one", "Resolve + layout, one snapshot (the slowest)", "iteration", {"b1": 15}),
     ("layout", "Resolve + layout, all snapshots", "iteration", {"b1": 400}),
     ("sample", "Sample one frame", "element", {"b1": 1, "b2": 1}),
-    ("gpu_paint", "GPU paint, one frame at 1080p (and read it back)", "element", {"b1": 6, "b2": 6, "b3": 6}),
+    ("gpu_paint", "GPU paint, one frame at 1080p, and its readback", "element",
+     "not judged: SPEC's ≤ 6 ms (B1, B2, B3) is for the paint alone"),
     ("cpu_paint_one", "CPU paint, one frame at 1080p (the slowest, one thread)", "iteration", {"b1": 12, "b2": 12, "b3": 25}),
     ("render_cold", "Headless PNG render, cold", "iteration", {"b1": 300}),
     ("lint_document", "Lint, document-level", "iteration", {"b1": 100}),
@@ -164,6 +166,8 @@ def budget_rows(run: dict) -> list[str]:
     head = "| SPEC §15 stage | Budget | " + " | ".join(d.upper() for d in DECKS) + " |"
     rows = [head, "|---|---|" + "---|" * len(DECKS)]
     for group, stage, per, budgets in BUDGETS:
+        why = budgets if isinstance(budgets, str) else None
+        budgets = {} if why else budgets
         cells = []
         for deck in DECKS:
             b = benches.get(f"{group}/{deck}")
@@ -177,7 +181,7 @@ def budget_rows(run: dict) -> list[str]:
         by_budget: dict[float, list[str]] = {}
         for deck, ms in budgets.items():
             by_budget.setdefault(ms, []).append(deck.upper())
-        budget = " · ".join(f"≤ {fmt_ns(ms * 1e6)} ({', '.join(decks)})" for ms, decks in by_budget.items())
+        budget = why or " · ".join(f"≤ {fmt_ns(ms * 1e6)} ({', '.join(decks)})" for ms, decks in by_budget.items())
         rows.append(f"| {stage} | {budget} | " + " | ".join(cells) + " |")
     return rows
 
