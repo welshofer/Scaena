@@ -1,13 +1,14 @@
 # web/ — player and source editor (Phase 2)
 
-Vite + TypeScript, no backend (SPEC §9.2). Today it is the player (PLAN 2.1–2.2), the source editor (PLAN 2.3) with its storage (PLAN 2.4) and its assistant (PLAN 2.6), and the page a single-file export fills in (PLAN 2.5). The player is the engine as WASM in a Web Worker, painting into the page's canvas, handed over as an `OffscreenCanvas`, with its controls and a presenter view. The editor is the deck as `.scn`, compiled, shown, and linted as it is typed, and saved where the bundle is kept. The assistant works on it with the user's own key.
+Vite + TypeScript, no backend (SPEC §9.2). Today it is the player (PLAN 2.1–2.2), the source editor (PLAN 2.3) with its storage (PLAN 2.4) and its assistant (PLAN 2.6), the page a single-file export fills in (PLAN 2.5), and the two pages as a static site with a demo deck (PLAN 2.7). The player is the engine as WASM in a Web Worker, painting into the page's canvas, handed over as an `OffscreenCanvas`, with its controls and a presenter view. The editor is the deck as `.scn`, compiled, shown, and linted as it is typed, and saved where the bundle is kept. The assistant works on it with the user's own key.
 
 ## Run it
 
 ```
 just web        # the WASM engine (`just wasm`), then the player and editor into web/dist, and the single-file page
 just web-dev    # Vite's dev server, on the WASM engine `just wasm` last built
-just web-smoke  # in headless Chromium: every torture frame by each painter and from a single file, the parity harness, the controls, the editor, the assistant
+just web-smoke  # in headless Chromium: every torture frame by each painter and from a single file, the parity harness, the controls, the editor, the assistant, the site
+just site       # the player and editor as a static site with a demo deck, into target/site (see "Put it online")
 ```
 
 `just web` builds two static pages: serve the repository's root and open `/web/dist/` for the player, or `/web/dist/editor.html` for the editor. It also builds the page a single-file export fills in, into `crates/scaena-export/player/`, which `scaena` carries when it is built after it (see "Export one file"). `just web-dev` serves the repository's bundles at their paths in it, as that root does. Needs Node 22; the versions are pinned in `package-lock.json`.
@@ -16,7 +17,7 @@ The page reads these parameters:
 
 | parameter | |
 |---|---|
-| `bundle` | a bundle's directory or its deck file, by URL: `/tests/fixtures/torture.scaena` (the default) or `/docs/examples/revenue.deck.json`. Its files are where the deck names them, from the deck's directory, and a saved bundle's manifest lists the rest. `opfs:NAME` is a bundle the browser keeps; in the editor, `folder:NAME` is a folder opened before. |
+| `bundle` | a bundle's directory or its deck file, by URL: `/tests/fixtures/torture.scaena` (the default, but on the site, whose default is its demo deck) or `/docs/examples/revenue.deck.json`. Its files are where the deck names them, from the deck's directory, and a saved bundle's manifest lists the rest. `opfs:NAME` is a bundle the browser keeps; in the editor, `folder:NAME` is a folder opened before. |
 | `painter` | `gpu` or `cpu`. By default, WebGPU where the browser has an adapter, and the CPU painter elsewhere. |
 | `state` | the state to open on; the first by default. |
 | `view` | `presenter` for the presenter view. The player opens it with P. |
@@ -33,11 +34,13 @@ The page reads these parameters:
 
 A state with a `hold` goes on to the next by itself once its cue and hold are over; one without, and the last, waits (SPEC §2.4). The state scrubber gives each state an equal step and runs through its cue within it. Picking a state plays its cue; picking a format lays the deck out again in it.
 
+Edit opens the editor on the bundle.
+
 The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest, and a clock, and its ◀ ▶ and keys steer the player. The two talk on a `BroadcastChannel` named for the deck.
 
 ## Edit with it
 
-`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default; `painter` works as in the player.
+`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default (on the site, its demo deck); `painter` works as in the player. Play opens the player on the bundle as last saved, in a new tab.
 
 - **Each edit** compiles in the worker as you type. A source that does not compile says where, and the preview keeps the deck it had.
 - **The preview** shows the state the cursor is in, at rest. The state picker moves the cursor to a state's line.
@@ -85,6 +88,23 @@ just cli export docs/examples/revenue.deck.json --format html --out revenue.html
 - **No network.** The page's content security policy lets nothing load.
 - **Read aloud.** Each state reads in a live region the page keeps out of sight, as the export wrote it: headings, paragraphs, figures by their alt text, and tables (SPEC §3.12). What reads as it did stays put, so a screen reader says what a state changed. The canvas is hidden from screen readers.
 
+## Put it online
+
+```
+just site                        # the pages into target/site, with the trails example as the demo deck
+just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a deck file
+```
+
+`target/site` is a static site (PLAN 2.7, SPEC §9.2). Copy it to any static host, at its root or under any path: its paths are relative. `index.html` is the player and `editor.html` the editor, and both open the demo deck in `decks/NAME/` when the address names no bundle. The deck is saved as `scaena save` saves it, with its fonts whole, so the editor sets any character they carry. Its files are named by their content, but for `deck.json` and `manifest.json`. `?bundle=` opens any other bundle the browser can fetch: one on the same host, or one whose host lets the site's origin read it (CORS).
+
+- **What a host must do.**
+  - Serve the files over HTTPS. WebGPU, the browser's storage, the folder picker, and the assistant's kept keys need a secure context (`localhost` is one).
+  - Serve `.wasm` as `application/wasm`. Otherwise the engine compiles only once all of it has arrived.
+  - Compress, where the host can: the engine is 7.7 MB, 2.7 MB gzipped.
+  - Nothing else: no code on the server, no rewrites, no other headers.
+- **What the site holds**: the pages, their code, the engine, and the deck, 11 MB in all, the trails example 0.85 MB of it. It also holds the subsetter and what the assistant reads, which the pages load only when asked.
+- **GitHub Pages.** The `site` workflow builds the same directory from the branch chosen, by hand only (Actions → site → Run workflow), and keeps it as the run's artifact. With "Publish to GitHub Pages" ticked, it publishes the site there. That needs the repository's Pages source set to GitHub Actions, and a site on Pages is public.
+
 ## How it fits
 
 - `src/player.ts` is the player, or the presenter view, on any page that plays a bundle: `src/main.ts`, the web player's page, which names the bundle by its address, and `src/standalone.ts`, a single file's, which carries it. `src/player.css` is their styles. `src/editor.ts` is the editor's page: CodeMirror 6, with the `.scn` mode in `src/scn.ts`, and a stage for the preview.
@@ -102,12 +122,13 @@ just cli export docs/examples/revenue.deck.json --format html --out revenue.html
   - `open` names its source: a URL, a bundle the browser keeps, a folder's handle, a zip's bytes, or a single file's files and the states it plays; and hands over the engine's module when the page carries it. `save`, `zip`, `drop`: the bundle's (`Player.save`, `adopt`, `subsetting`, `addSubset`, `addFile`, `place`). The worker writes a save with `src/folders.ts`, the same calls for a folder on disk and the browser's storage, and goes on from it.
 
   A place in the deck is a state and a time into its cue, never a place on the global timeline: states with no transition and no hold all stand at one instant, as 23 of the torture deck's do at 0 ms. Each request names a format, one of the deck's `formats`, or none for the deck's own canvas.
-- `serve.mjs` serves the repository, launches headless Chromium, and shows and screenshots the golden frames (`shoot`) for the checks:
+- `serve.mjs` serves the repository (or a directory, at a path), launches headless Chromium, and shows and screenshots the golden frames (`shoot`) for the checks:
   - `smoke.mjs` opens the built player with each painter, shows every frame the golden rasters hold, and saves its screenshots under `target/web-smoke/`. The parity harness (`crates/scaena-paint/tests/parity.rs`) holds them to the goldens within SPEC §13.5.
   - `player.mjs` drives the controls and the presenter view on the CPU painter. Headless Chromium composites WebGPU on SwiftShader at about a frame a second, and the clock keeps the display's frames.
   - `editor.mjs` types into the editor on the revenue example: an overflow, its fix, a source that does not compile, the cursor leading the preview and the inspector. Then it times an edit's round trip on B1, which gate 2 holds under 200 ms, and the lint of every state that follows.
   - `storage.mjs` saves the revenue example into the browser's storage and reloads it, plays it from there, drops an image into it, downloads it with its fonts subset and opens the download, and saves a folder in place.
   - `assistant.mjs` runs PLAN 1.19's agent loop through the editor's assistant against a scripted server for each provider: a headline too long for its slot, the E100, its fix, a clean lint, and a render. It checks what the browser sends (the key in its header, Anthropic's opt-in header, the prompt, the tools, each result, the frame as an image, Gemini's thought signatures), that the source takes each edit and lints clean, that Stop stops, and how the key is kept.
+  - `site.mjs` serves `target/site` from a path under a plain static server, with each file's media type, as a host would. The player plays the demo deck, each state painting a frame. Edit opens it in the editor, which lints it clean, and Play opens the player again. The subsetter and the assistant load from the site, and nothing is asked of anywhere else (but the assistant's scripted provider) or found missing.
   - `standalone.mjs` exports the torture deck and the revenue example as single files (with `cargo run`, so `scaena` is built after the page) and opens them from their addresses on disk with the network off. The engine a file carries paints every golden frame byte for byte as the web player's does (run in Node), and the torture deck's file shows every golden frame by the CPU painter for the parity harness. The revenue example's plays, reads as it plays, and opens the presenter view; WebGPU paints it; and nothing asks for more than the file and its worker's blob.
 
 For tests and the console, the page sets `window.scaena`. It holds the open bundle's states, formats, notes, and painter, and these calls: `show(state, t?, format?)`, `timeline(format?)`, `seek(index, t?)`, `run(index, t?)`, `at()`, `on()`, and `back()`. The editor's has `source()`, `type(text)`, `cursor(offset)`, `fix(code)`, `last()`, `trips()`, `wholes()`, `shown()`, `inspector()`, and `at()`; for its storage, `open(source)`, `save()`, `download()`, `drop(name, bytes, at?)`, and `where()`; and `assistant`, with `ask(text)`, `transcript()`, and `usage()`.

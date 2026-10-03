@@ -12,9 +12,10 @@
 // The assistant (PLAN 2.6) works on the deck with the user's own key: the source is read-only
 // while it works, and each edit it makes comes into the source as it is made.
 //
-// `?bundle=` is a bundle's directory or its deck file (the revenue example by default),
-// `opfs:NAME` for one the browser keeps, or `folder:NAME` for a folder opened before;
-// `?painter=` chooses who paints, as in the player.
+// `?bundle=` is a bundle's directory or its deck file (by default the bundle the build names,
+// the site's demo deck (PLAN 2.7), or else the revenue example), `opfs:NAME` for one the
+// browser keeps, or `folder:NAME` for a folder opened before; `?painter=` chooses who paints,
+// as in the player. Play opens the player on the bundle as it was last saved.
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, linter, setDiagnostics } from "@codemirror/lint";
@@ -37,6 +38,8 @@ import { Stage } from "./stage";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
+/** The bundle the editor opens when the address names none. */
+const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.deck.json";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -127,7 +130,7 @@ async function controls() {
  * which takes a click. */
 async function first(): Promise<Source> {
   const bundle = params.get("bundle");
-  if (!bundle?.startsWith("folder:")) return sourceOf(bundle, "../../docs/examples/revenue.deck.json");
+  if (!bundle?.startsWith("folder:")) return sourceOf(bundle, fallback);
   const name = bundle.slice("folder:".length);
   const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
   if (!handle) throw new Error(`no folder named ${name} was opened here: open it again`);
@@ -157,6 +160,7 @@ async function edit(source: Source) {
   const problems = $<HTMLUListElement>("#problems");
   const inspector = $("#inspector");
   const whereLine = $("#where");
+  const play = $<HTMLAnchorElement>("#play");
   const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
   stage.onError = failed;
   formatPicker.replaceChildren(new Option("own canvas", ""));
@@ -173,6 +177,11 @@ async function edit(source: Source) {
   const tell = () => {
     const kept = where ? (where.kind === "folder" ? `folder ${where.name}` : `kept in this browser as ${where.name}`) : `${name}, not saved`;
     whereLine.textContent = `${kept}${dirty() ? " · changed" : ""}`;
+    // The player opens a bundle by its address or from the browser's storage, not a folder.
+    const playing = new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
+    if (params.has("painter")) playing.set("painter", painter);
+    play.href = `index.html?${playing}`;
+    play.hidden = where?.kind === "folder";
   };
   address(where);
   tell();

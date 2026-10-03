@@ -114,6 +114,14 @@ wasm-smoke: wasm
 web: wasm
     cd web && npm ci && npm run build
 
+# The web player and editor as a static site (PLAN 2.7): one directory, target/site, that any
+# static host serves from its root or from any path under it, with a demo deck the pages open:
+# the trails example by default, or the bundle or deck file given. The deck is saved as
+# `scaena save` saves it, its fonts whole, so the editor sets any character they carry.
+site deck="docs/examples/trails.deck.json": web
+    cd web && VITE_BUNDLE=decks/{{file_stem(file_stem(deck))}}/ npx vite build --outDir ../target/site --emptyOutDir
+    SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save {{deck}} --to target/site/decks/{{file_stem(file_stem(deck))}} --keep-fonts
+
 # The web player on Vite's dev server, with the repository's bundles at their paths in it
 # (/?bundle=/docs/examples/ridgeline.deck.json), on the WASM engine `just wasm` last built.
 web-dev:
@@ -124,8 +132,9 @@ web-dev:
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
 # the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its
 # storage: open, save, download, and drop (PLAN 2.4), and its assistant, against a scripted
-# server for each provider (PLAN 2.6).
-web-smoke: web
+# server for each provider (PLAN 2.6). Last, the static site from a path under its host
+# (PLAN 2.7).
+web-smoke: site
     node web/smoke.mjs
     node web/standalone.mjs
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu:{{justfile_directory()}}/target/web-smoke/standalone-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
@@ -133,6 +142,7 @@ web-smoke: web
     node web/editor.mjs
     node web/storage.mjs
     node web/assistant.mjs
+    node web/site.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

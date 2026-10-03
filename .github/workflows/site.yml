@@ -1,0 +1,66 @@
+name: site
+
+# PLAN 2.7: the web player and editor as a static site with the demo deck, as `just site`
+# builds it, from the branch or tag chosen. It runs only by hand (Actions → site → Run
+# workflow). Each run keeps the site as its `github-pages` artifact, a tar of the directory any
+# static host serves. With "deploy" ticked, it also publishes the site to GitHub Pages. That
+# needs the repository's Pages source set to GitHub Actions (Settings → Pages), and the site
+# it publishes is public.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publish to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The CLI must match the wasm-bindgen version in Cargo.lock.
+      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The engine, the subsetter, and what the assistant reads, as `just wasm` builds them.
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-resources --target wasm32-unknown-unknown --release --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
+      # Then `just site`: the pages, opening the demo deck by default, and the deck beside them.
+      - run: cd web && npm ci && npm run typecheck && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
+      - name: Size
+        run: |
+          echo "The site: $(du -sh target/site | cut -f1), $(find target/site -type f | wc -l) files" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site
+  deploy:
+    if: inputs.deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

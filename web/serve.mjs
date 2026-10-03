@@ -11,15 +11,20 @@ import { inflateSync } from "node:zlib";
 
 const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json" };
 
-/** The repository at `root`, served on a free port: `{ origin, close }`. */
-export async function serve(root = process.cwd()) {
+/** The repository at `root`, served on a free port: `{ origin, close }`. `at` is the path it
+ * is served at, ending in `/` (`/` by default), and `more` names the media types of other
+ * extensions. */
+export async function serve(root = process.cwd(), { at = "/", more = {} } = {}) {
+  const known = { ...types, ...more };
   const server = createServer(async (req, res) => {
-    let path = normalize(join(root, decodeURIComponent(new URL(req.url, "http://x").pathname)));
+    const asked = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    if (!asked.startsWith(at)) return res.writeHead(404).end();
+    let path = normalize(join(root, asked.slice(at.length - 1)));
     if (!path.startsWith(root)) return res.writeHead(403).end();
     if (path.endsWith("/")) path = join(path, "index.html");
     try {
       const body = await readFile(path);
-      res.writeHead(200, { "content-type": types[extname(path)] ?? "application/octet-stream" }).end(body);
+      res.writeHead(200, { "content-type": known[extname(path)] ?? "application/octet-stream" }).end(body);
     } catch {
       res.writeHead(404).end();
     }

@@ -6,6 +6,7 @@ button, select { font: inherit; }
 #stage { display: block; margin: 0 auto; max-width: 100vw; max-height: calc(100vh - var(--bar)); touch-action: none; }
 .bar { display: flex; gap: 8px; align-items: center; height: var(--bar); padding: 0 12px; box-sizing: border-box; }
 .bar input[type="range"] { flex: 1; min-width: 80px; }
+.bar a { color: inherit; }
 #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Fullscreen is the slide alone. */
 :fullscreen .bar { display: none; }

@@ -44,7 +44,7 @@ function keys(act: Partial<Record<"on" | "back" | "first" | "last" | "full" | "p
   };
   addEventListener("keydown", (e) => {
     const target = e.target as HTMLElement;
-    if (e.metaKey || e.ctrlKey || e.altKey || target.closest("input, select, textarea, button")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || target.closest("input, select, textarea, button, a")) return;
     const action = act[names[e.key]];
     if (!action) return;
     e.preventDefault();

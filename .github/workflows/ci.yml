@@ -114,7 +114,8 @@ jobs:
     # export plays from its address on disk with the network off. PLAN 0.9: then the parity
     # harness compares the painters on every state: the vello_cpu goldens, vello on lavapipe,
     # vello on WebGPU in the browser, the player's two, and the single file's. PLAN 2.3–2.4:
-    # the editor edits, opens, saves, downloads, and takes dropped files.
+    # the editor edits, opens, saves, downloads, and takes dropped files. PLAN 2.7: the static
+    # site plays, edits, and asks from a path under its host.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -165,6 +166,10 @@ jobs:
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
+      # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
+      - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
+      - run: node web/site.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:

@@ -32,6 +32,7 @@
       aside { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
       button, select, .button { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
       button:hover, .button:hover { border-color: var(--muted); }
+      a.button { text-decoration: none; }
       #bundle { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
       #where { color: var(--muted); }
       #stage { display: block; width: 100%; height: auto; background: #000; }
@@ -82,6 +83,7 @@
           <select id="kept" aria-label="Kept in this browser"></select>
           <button id="save" title="Save where the bundle is kept (⌘S, Ctrl+S)">Save</button>
           <button id="download" title="The bundle as a .scaena file, its fonts subset">Download .scaena</button>
+          <a id="play" class="button" target="_blank" title="The player, on the bundle as last saved" hidden>Play</a>
           <button id="again" hidden></button>
           <span id="where"></span>
         </nav>

@@ -599,6 +599,18 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *On B1, in headless Chromium, a patch takes 2.5 s (it lints before and after), a lint 1.2 s, and a render 1.3 s after an edit.*
     - *Gate 2's fourth criterion asks for the user's own key: a run with a real one closes it, in the gate log.)*
 - [ ] 2.7 Static deploy (existing hosting) with a demo deck.
+  *(Built and tested; the deploy itself is open. SPEC §9.2 says what the site is and what a host must do. `web/site.mjs` checks it in headless Chromium.*
+    - *`just site` builds the player and the editor into `target/site`, with a demo deck in `decks/NAME/`: the trails example by default, saved as `scaena save` saves it, fonts whole. The pages open it when the address names no bundle, as the build says (`VITE_BUNDLE`). The player's Edit opens the editor on its bundle, and the editor's Play opens the player on the bundle as last saved.*
+    - *Its paths are relative, so any static host serves it, at its root or under any path. The host must serve it over HTTPS, with `.wasm` as `application/wasm`; it needs no code on the server, no rewrites, and no other headers. The site is 11 MB: the engine is 7.7 MB of it (2.7 MB gzipped), and the trails example 0.85 MB.*
+    - *The `site` workflow builds it by hand from the branch chosen, keeps it as the run's artifact, and publishes it to GitHub Pages only when asked.*
+    - *`web/site.mjs` serves it from a path under a plain static server, with each file's media type, as a host would:*
+      - *The player plays the deck's 15 states, each painting a frame.*
+      - *Edit opens the editor, which lints the deck clean, and Play opens the player again.*
+      - *Download loads the subsetter from the site. The assistant, asked a question of a scripted server, loads its code and what it reads from the site.*
+      - *Nothing is asked of another origin or outside the site's path, and no file is missing.*
+
+      *`just web-smoke` and CI's wasm job run it.*
+    - *Open: putting it on the host Jay picks. The repository is private, and a site on Pages is public. Either run the `site` workflow with "Publish to GitHub Pages" ticked, once the repository's Pages source is GitHub Actions, or copy `target/site` (or the run's artifact) to the existing host. Then tick, with the address.)*
 - [ ] 2.8 Accessibility pass: keyboard, reduced-motion preference (collapses transitions to cuts), screen-reader order from the spine.
 - [ ] 2.9 The page records into a bundle's history: the CRDT as a WASM module of its own, loaded to save a bundle that keeps one, as the subsetter is, so the page's edits go in as `user`'s (SPEC §8, §9.2). *(Found by 2.4: in the engine's module, the CRDT takes it to 3.7 MB gzipped.)*
 
