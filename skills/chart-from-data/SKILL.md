@@ -65,6 +65,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Lint for E103 (fields, types, keys), W310 (labels that collide, when you set `labels.show`), and E100 and E101 (the chart's cell).
    - Chart text is judged like any text. E110 and E111 read each label against the marks, rules, and bands under it, at the opacity a highlight dims it to; a finding names the label (`measure.part`, `measure.label`). A label over a mark usually means the chart is too tight for its values: give it a larger cell, or show fewer values.
    - W312 flags chart text under 12 pt at presentation size (24 cu on a 1920 × 1080 canvas). The size is the theme's: its `charts` roles, or the chart's own `labels.role` for its values.
+   - W313 flags a chart squashed below a legible plot: under 120 cu across or down for its marks once its labels, axes, and legend have their room, as a one-row slot leaves it. Give it more rows of the grid, or put less beside it.
    - Render, and read it as the audience will: is the point visible in two seconds?
 9. **Move the data, not the chart.**
    - For "next quarter" or "after the change", add a state that changes the chart's `data` or `dataTransform` (a new `filter`), not a new chart.

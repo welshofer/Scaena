@@ -18,6 +18,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(W423EvidenceNotShown),
         Box::new(W424TooManyClaims),
         Box::new(W425RepeatedClaim),
+        Box::new(W426SpineOutOfOrder),
     ]
 }
 
@@ -312,5 +313,45 @@ impl Rule for W425RepeatedClaim {
                 .hint("Merge the beats, or say what the second one adds.")
             })
             .collect()
+    }
+}
+
+/// W426: a beat that comes after another in the spine while its states play before that
+/// one's. The PDF reads a deck in spine order and the video in state order, so the two
+/// would tell the story in different orders. A beat stands where its first state plays;
+/// one with no states, or none the deck has, is not judged.
+struct W426SpineOutOfOrder;
+impl Rule for W426SpineOutOfOrder {
+    fn code(&self) -> &'static str {
+        "W426"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        let plays = |id: &str| cx.deck.states.iter().position(|s| s.id == id);
+        // The beat whose states play last so far, and where.
+        let mut latest: Option<(usize, &str)> = None;
+        let mut out = Vec::new();
+        for (path, beat) in beats(cx) {
+            let Some(first) = beat.states.iter().filter_map(|s| plays(s)).min() else { continue };
+            match latest {
+                Some((at, before)) if first < at => out.push(
+                    Finding::new(
+                        self.code(),
+                        self.severity(),
+                        format!(
+                            "beat `{}` comes after `{before}` in the spine, and its states play before `{before}`'s: \
+                             the PDF and the video would tell them in different orders",
+                            beat.id
+                        ),
+                    )
+                    .at(path)
+                    .hint("Move the beat to where its states play, or move its states to where the beat stands."),
+                ),
+                _ => latest = Some((first, beat.id.as_str())),
+            }
+        }
+        out
     }
 }

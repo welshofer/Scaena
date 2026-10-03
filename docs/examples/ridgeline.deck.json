@@ -1092,6 +1092,31 @@
       "hold": 6000.0
     },
     {
+      "id": "lesson",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "lesson-title": {},
+        "lesson-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "lesson-title",
+              "enter": "rise"
+            },
+            {
+              "target": "lesson-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 4500.0
+    },
+    {
       "id": "cost",
       "mode": "absolute",
       "layout": "figure",
@@ -1159,31 +1184,6 @@
         }
       ],
       "hold": 5500.0
-    },
-    {
-      "id": "lesson",
-      "mode": "absolute",
-      "layout": "title",
-      "transition": "fast",
-      "props": {
-        "lesson-title": {},
-        "lesson-sub": {}
-      },
-      "choreography": [
-        {
-          "sequence": [
-            {
-              "target": "lesson-title",
-              "enter": "rise"
-            },
-            {
-              "target": "lesson-sub",
-              "enter": "rise"
-            }
-          ]
-        }
-      ],
-      "hold": 4500.0
     },
     {
       "id": "recap",
