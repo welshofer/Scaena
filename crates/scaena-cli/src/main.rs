@@ -97,20 +97,36 @@ enum Cmd {
         /// Keep fonts whole instead of subsetting them.
         #[arg(long)]
         keep_fonts: bool,
+        /// Start keeping history in `history/deck.loro` (SPEC §8): every change from here on
+        /// is recorded, with who made it. A bundle that keeps it keeps it either way.
+        #[arg(long)]
+        history: bool,
     },
-    /// Export a projection: pdf|png|svg|mp4|webm|html|spine.
+    /// Export a projection: pdf|png|svg|mp4|webm|prores|html|spine.
     Export {
         bundle: PathBuf,
         #[arg(long)]
         format: String,
+        /// Where to write it: a file (pdf, video, spine), or a directory that gets an
+        /// image per state (png, svg). The spine prints without it.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The states to export, comma-separated. Default: every state; for pdf, each
-        /// slide once, at its last state.
+        /// The states to export, comma-separated, in that order. Default: every state;
+        /// for pdf, each slide once, at its last state, in spine order; for video, the
+        /// whole timeline.
         #[arg(long, value_delimiter = ',')]
         states: Option<Vec<String>>,
-        #[arg(long, default_value_t = 60)]
-        fps: u32,
+        /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio. Default:
+        /// the canvas's size.
+        #[arg(long)]
+        size: Option<String>,
+        /// A video's frames a second. Default: 60.
+        #[arg(long)]
+        fps: Option<u32>,
+        /// A video's sound track (any file ffmpeg reads), from the first frame: cut where
+        /// the video ends, or carried on in silence until it does.
+        #[arg(long)]
+        audio: Option<PathBuf>,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -125,7 +141,8 @@ enum Cmd {
         dry_run: bool,
     },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
-    /// changes in what `validate` and `lint` find.
+    /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
+    /// is refused.
     Theme {
         bundle: PathBuf,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
@@ -134,6 +151,10 @@ enum Cmd {
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme,
+        /// and the new one is copied in for a patch with the `retheme` op and the fixes.
+        #[arg(long)]
+        force: bool,
     },
     /// Dev server with live preview (PLAN 2.x).
     Serve {
@@ -261,10 +282,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             report(&findings, cli.json);
             Ok(if findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
         }
-        Cmd::Save { bundle, to, keep_fonts } => {
+        Cmd::Save { bundle, to, keep_fonts, history } => {
             let b = open(&bundle)?;
             let to = to.unwrap_or(bundle);
-            let opts = SaveOptions { subset_fonts: !keep_fonts, now: now_rfc3339() };
+            let opts = SaveOptions { subset_fonts: !keep_fonts, now: now_rfc3339(), history };
             let saved = b.save(&to, &opts).with_context(|| format!("saving to {}", to.display()))?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&saved)?);
@@ -321,36 +342,27 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, .. } => {
-            if format == "pdf" && out.is_none() {
-                return Err(scaena_ops::OpsError::new("`export --format pdf` writes a file: give it --out FILE").into());
-            }
-            match scaena_ops::export::export(&open(&bundle)?, &format, states.as_deref())? {
-                scaena_ops::export::Export::Spine(v) => {
-                    let s = serde_json::to_string_pretty(&v)?;
-                    if let Some(p) = &out {
-                        std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
+        Cmd::Export { bundle, format, out, states, size, fps, audio } => {
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio };
+            let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&exported)?);
+            } else if let Some(spine) = &exported.spine {
+                println!("{}", serde_json::to_string_pretty(spine)?);
+            } else {
+                let out = exported.out.as_deref().unwrap_or_default();
+                match (&exported.pages, &exported.files, exported.frames) {
+                    (_, Some(files), _) if exported.format == "spine" => {
+                        println!("wrote {out} and {} renders beside it", files.len())
                     }
-                    if cli.json {
-                        let mut summary = serde_json::json!({ "format": "spine", "out": out });
-                        if out.is_none() {
-                            summary["spine"] = v;
-                        }
-                        println!("{}", serde_json::to_string_pretty(&summary)?);
-                    } else if out.is_none() {
-                        println!("{s}");
-                    }
-                }
-                scaena_ops::export::Export::Pdf { bytes, pages } => {
-                    let p = out.as_ref().expect("checked above");
-                    std::fs::write(p, &bytes).with_context(|| format!("writing {}", p.display()))?;
-                    if cli.json {
-                        let summary =
-                            serde_json::json!({ "format": "pdf", "out": out, "pages": pages, "bytes": bytes.len() });
-                        println!("{}", serde_json::to_string_pretty(&summary)?);
-                    } else {
-                        println!("wrote {} ({} pages: {})", p.display(), pages.len(), pages.join(", "));
-                    }
+                    (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
+                    (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),
+                    (_, _, Some(frames)) => println!(
+                        "wrote {out} ({frames} frames at {} fps, {:.1} s)",
+                        exported.fps.unwrap_or_default(),
+                        exported.duration_ms.unwrap_or_default() / 1000.0
+                    ),
+                    _ => println!("wrote {out}"),
                 }
             }
             Ok(ExitCode::SUCCESS)
@@ -374,7 +386,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
-        Cmd::Theme { bundle, apply, dry_run } => theme_apply(&bundle, &apply, dry_run, cli.json),
+        Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
         Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.x")),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
@@ -507,16 +519,23 @@ fn line_col(source: &str, offset: usize) -> (usize, usize) {
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
 /// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
-/// its `theme`. Findings after it, if any are errors, exit 1.
-fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
-    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run)?;
+/// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
+/// exits 1. Findings after it, if any are errors, exit 1.
+fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
+    let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&t)?);
+    } else if t.refused {
+        let copied = if dry_run { "" } else { ", and the theme is copied in for `patch`'s `retheme` op" };
+        println!("refused: {} would leave the deck invalid; the deck keeps its theme{copied}", t.theme);
     } else {
         let verb = if dry_run { "would apply" } else { "applied" };
         println!("{verb} {} (was {})", t.theme, t.was.as_deref().unwrap_or("no theme"));
         for m in &t.mapped {
             println!("  {m}");
+        }
+        for l in &t.listed {
+            println!("  fonts lists {l}");
         }
         print_delta(&t.added, &t.removed);
     }
@@ -806,8 +825,14 @@ fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// The bundle at `path`, edited by `$SCAENA_AUTHOR` (`user` without it): its history
+/// records what this command changes as theirs (SPEC §8.2).
 fn open(path: &Path) -> Result<Bundle> {
-    Ok(scaena_ops::open(path)?)
+    let mut b = scaena_ops::open(path)?;
+    if let Some(author) = std::env::var("SCAENA_AUTHOR").ok().filter(|a| !a.trim().is_empty()) {
+        b.author = author;
+    }
+    Ok(b)
 }
 
 /// Now, in RFC 3339 UTC: `SOURCE_DATE_EPOCH` when set (reproducible saves), else the clock.

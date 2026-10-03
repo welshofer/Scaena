@@ -2404,6 +2404,7 @@ mod tests {
             x_grid: Vec::new(),
             notes: Vec::new(),
             collisions: Vec::new(),
+            crowded: Vec::new(),
             covers: Vec::new(),
         }
     }

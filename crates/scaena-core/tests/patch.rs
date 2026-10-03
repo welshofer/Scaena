@@ -56,14 +56,14 @@ fn each_op_compiles_against_the_deck_the_ops_before_it_leave() {
         &example(),
         json!([
             { "op": "add_node", "id": "kicker", "node": { "type": "text", "role": "caption", "text": "Q3 FY26" },
-              "state": "revenue", "props": { "at": { "in": "footer" } } },
+              "state": "revenue", "props": { "at": { "in": "note" } } },
             { "op": "set_prop", "node": "kicker", "state": "mix", "prop": "text", "value": "Q3 FY26, by product" },
             { "op": "set_prop", "node": "rev", "state": "mix", "prop": "legend", "value": "bottom" },
             { "op": "set_prop", "node": "title", "state": "revenue", "prop": "at/in", "value": "main" },
             { "op": "set_prop", "node": "rev", "prop": "y/title", "value": "Revenue (USD M)" },
             { "op": "set_text", "node": "subtitle", "text": "A quarter that changed the business." },
             { "op": "test", "path": "/nodes/subtitle/text", "value": "A quarter that changed the business." },
-            // `close` lays out a title slide, which has no footer.
+            // `close` lays out a title slide, which has no note.
             { "op": "hide_node", "node": "kicker", "state": "close" },
         ]),
     )
@@ -72,7 +72,7 @@ fn each_op_compiles_against_the_deck_the_ops_before_it_leave() {
         rfc(&c),
         json!([
             { "op": "add", "path": "/nodes/kicker", "value": { "type": "text", "role": "caption", "text": "Q3 FY26" } },
-            { "op": "add", "path": "/states/1/props/kicker", "value": { "at": { "in": "footer" } } },
+            { "op": "add", "path": "/states/1/props/kicker", "value": { "at": { "in": "note" } } },
             { "op": "add", "path": "/states/2/props/kicker", "value": { "text": "Q3 FY26, by product" } },
             { "op": "add", "path": "/states/2/props/rev/legend", "value": "bottom" },
             { "op": "add", "path": "/states/1/props/title/at/in", "value": "main" },
@@ -244,7 +244,7 @@ fn presets_data_and_themes() {
         &example(),
         json!([
             { "op": "apply_preset", "node": "note", "preset": "rise", "motion": "enter", "state": "revenue" },
-            { "op": "apply_preset", "node": "bg", "preset": "noise-fine" },
+            { "op": "apply_preset", "node": "bg", "preset": "texture" },
             { "op": "bind_data", "node": "rev", "data": "@q4", "state": "mix",
               "source": { "source": "data/q3-revenue.csv", "schema": { "quarter": "string", "product": "string",
                                                                       "revenue": "number", "customers": "number" } } },
@@ -258,7 +258,7 @@ fn presets_data_and_themes() {
             { "op": "add", "path": "/states/1/props/note/enter", "value": "rise" },
             // The shader takes the preset whole: its kind, and none of its own palette or params.
             { "op": "add", "path": "/nodes/bg/kind", "value": "noise" },
-            { "op": "add", "path": "/nodes/bg/preset", "value": "noise-fine" },
+            { "op": "add", "path": "/nodes/bg/preset", "value": "texture" },
             { "op": "remove", "path": "/nodes/bg/palette" },
             { "op": "remove", "path": "/nodes/bg/params" },
             { "op": "add", "path": "/data/q4", "value": { "source": "data/q3-revenue.csv", "schema": {
@@ -274,7 +274,7 @@ fn presets_data_and_themes() {
             "no motion preset `bounce`",
         ),
         (json!([{ "op": "apply_preset", "node": "note", "preset": "rise" }]), "name the `motion`"),
-        (json!([{ "op": "apply_preset", "node": "bg", "preset": "mesh-loud" }]), "`mesh-soft`, `noise-fine`"),
+        (json!([{ "op": "apply_preset", "node": "bg", "preset": "mesh-loud" }]), "`backdrop`, `texture`"),
         (json!([{ "op": "bind_data", "node": "rev", "data": "q4" }]), "no data source `q4`"),
         (json!([{ "op": "bind_data", "node": "note", "data": "q3" }]), "charts and tables read data"),
         (json!([{ "op": "retheme", "theme": "themes/daybreak.theme.json" }]), "`scaena theme --apply` copies"),
@@ -351,7 +351,7 @@ fn set_text_takes_runs_away_and_null_takes_a_property_away() {
 fn json_patch_and_semantic_ops_mix_and_fail_together() {
     let doc = example();
     let ops = json!([
-        { "op": "add", "path": "/nodes/kicker", "value": { "type": "text", "text": "Q3", "at": { "in": "footer" } } },
+        { "op": "add", "path": "/nodes/kicker", "value": { "type": "text", "text": "Q3", "at": { "in": "note" } } },
         { "op": "show_node", "node": "kicker", "state": "close" },
         { "op": "replace", "path": "/states/3/hold", "value": 2000 },
     ]);

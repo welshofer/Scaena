@@ -2,10 +2,10 @@
 //! deck, checked as `validate` checks a bundle, and written canonically unless that adds a
 //! validation finding.
 
-use crate::lint::{View, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::lint::{Delta, delta};
-use scaena_core::patch::JsonOp;
+use scaena_core::patch::{JsonOp, Renamed};
 use scaena_core::validate::validate_bundle;
 use scaena_core::{Deck, Finding};
 use schemars::JsonSchema;
@@ -35,6 +35,11 @@ pub struct Patched {
 /// does not apply stops it with `op`, its index; a patch that would make the deck invalid is
 /// refused. Neither, nor a dry run, writes anything.
 pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError> {
+    patch_as(b, ops, dry_run, None)
+}
+
+/// [`patch`], recorded in the bundle's history as `what`; without it, by its ops' names.
+pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str>) -> Result<Patched, OpsError> {
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
@@ -60,7 +65,16 @@ pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError
         let before = lint(b)?.findings;
         let after = lint_in(&next, &View::of(b))?.findings;
         if !dry_run && compiled.doc != doc {
-            write_deck(b, &next, BTreeMap::new())?;
+            let mut names: Vec<&str> = list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)).collect();
+            names.dedup();
+            let mut why = Why::new(what.map_or_else(|| format!("patch: {}", names.join(", ")), String::from));
+            for renamed in &compiled.renamed {
+                match renamed {
+                    Renamed::Node { from, to } => why.renamed_nodes.push((from.clone(), to.clone())),
+                    Renamed::State { from, to } => why.renamed_states.push((from.clone(), to.clone())),
+                }
+            }
+            write_deck(b, &next, BTreeMap::new(), &why)?;
         }
         (before, after)
     };

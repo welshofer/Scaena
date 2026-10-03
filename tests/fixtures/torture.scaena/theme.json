@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.6",
+  "scaena-theme": "0.7",
   "name": "Torture",
   "description": "Fixture theme for the typography torture deck (PLAN 0.2). Every case-specific typographic setting lives here as a role, so the deck itself references roles only.",
   "tokens": {
@@ -219,6 +219,17 @@
         "leading": 1.2,
         "tracking": 0.04,
         "opsz": 22,
+        "wrap": "greedy",
+        "box": "cap",
+        "color": "onSurfaceMuted"
+      },
+      "chart": {
+        "family": "serif",
+        "size": 24,
+        "weight": 600,
+        "leading": 1.2,
+        "tracking": 0.04,
+        "opsz": 24,
         "wrap": "greedy",
         "box": "cap",
         "color": "onSurfaceMuted"
@@ -448,6 +459,50 @@
         "leading": 1.5,
         "wrap": "greedy",
         "box": "line"
+      },
+      "grid-body": {
+        "family": "serif",
+        "size": 32,
+        "weight": 400,
+        "leading": 1.25,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "snap": "baseline",
+        "minLastLineWords": 2
+      },
+      "grid-caption": {
+        "family": "serif",
+        "size": 22,
+        "weight": 400,
+        "leading": 1.4545,
+        "opsz": 22,
+        "wrap": "greedy",
+        "box": "line",
+        "snap": "baseline",
+        "color": "onSurfaceMuted"
+      },
+      "grid-loose": {
+        "family": "serif",
+        "size": 32,
+        "weight": 400,
+        "leading": 1.35,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "snap": "baseline",
+        "minLastLineWords": 2
+      },
+      "grid-display": {
+        "family": "serif",
+        "size": 80,
+        "weight": 600,
+        "leading": 1.0,
+        "tracking": -0.015,
+        "opsz": 80,
+        "wrap": "balance",
+        "box": "cap",
+        "snap": "cap"
       },
       "axis": {
         "family": "serif",

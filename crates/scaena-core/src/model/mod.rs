@@ -132,6 +132,17 @@ pub fn manifest_schema() -> Value {
     v
 }
 
+/// `docs/schema/spine.schema.json`: the spine projection (`crate::spine`, SPEC §10), what
+/// `export --format spine` writes for the pipelines beyond the deck. Versioned with the
+/// deck format, which it carries in `scaena`.
+pub fn spine_schema() -> Value {
+    let generator = SchemaSettings::draft2020_12().into_generator();
+    let schema = generator.into_root_schema_for::<crate::spine::SpineProjection>();
+    let mut v = serde_json::to_value(schema).expect("a schema serializes");
+    finish(&mut v, "spine", Some("scaena"), crate::FORMAT_VERSION);
+    v
+}
+
 /// The node types as named definitions, `Node` one of them, with the properties every type
 /// has written once (`NodeProps`) rather than once per type. A definition only a type's
 /// `then` names (a shader kind's params) follows that type.

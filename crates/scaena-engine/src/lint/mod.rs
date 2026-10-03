@@ -45,6 +45,9 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W203ShrinkFloor),
         Box::new(text::W220MixedAlignment),
         Box::new(text::W310LabelCollision),
+        Box::new(space::W311ShaderBehindData),
+        Box::new(text::W312ChartTextSize),
+        Box::new(space::W313ChartSquashed),
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
     ]

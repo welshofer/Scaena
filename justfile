@@ -4,7 +4,7 @@ default:
     @just --list
 
 # fmt + clippy (-D warnings, all features) + tests (CPU and GPU) + schema + wasm32. Must be green before any commit; mirrors CI.
-check: fmt-check clippy test test-gpu schema wasm-check
+check: fmt-check clippy test test-gpu schema scripts wasm-check
 
 fmt:
     cargo fmt --all
@@ -44,13 +44,26 @@ schema:
     python3 scripts/build_torture_fonts.py --check
     python3 scripts/build_torture_images.py --check
     python3 scripts/build_bundle_fonts.py --check
+    python3 scripts/build_bench_decks.py --check
 
-# Per-stage timings against SPEC §15 (PLAN 0.14): B1 and B4 in one process each, then B1's cold
-# start in headless Chromium. CI runs the first half on Apple Silicon (.github/workflows/bench.yml).
-bench: wasm
+# The scripts' own tests: the bench gate's judgment (PLAN 1.24).
+scripts:
+    python3 -m unittest discover -s scripts -p 'test_*.py'
+
+# CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
+# beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
+# run's noise if that is more (.github/workflows/bench.yml, scripts/bench_gate.py).
+# SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
+bench *FILTER:
+    cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
+
+# Per-state medians and worst cases on one bundle, in one process (PLAN 0.14's tables).
+stages BUNDLE="tests/bench/b1.scaena":
     cargo build --release --locked -p scaena-cli --features gpu --bins --examples
-    target/release/examples/stages tests/bench/b1.scaena
-    target/release/examples/stages tests/fixtures/torture.scaena
+    target/release/examples/stages {{BUNDLE}}
+
+# B1's cold start in headless Chromium: WASM load to the first frame at 1080p (SPEC §15).
+coldstart: wasm
     node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena
 
 # Rebuild the torture deck's subset fonts from pinned upstream files (network; PLAN 0.2).

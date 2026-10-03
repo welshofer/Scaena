@@ -1,0 +1,1003 @@
+{
+  "scaena-theme": "0.7",
+  "name": "Ember",
+  "description": "Near-black surface, warm white ink, one signal orange. Serif claims and figures over a neutral sans; data in quiet grays with the orange spent on the point.",
+  "tokens": {
+    "color": {
+      "ink": "#F6F4EF",
+      "paper": "#0E0E12",
+      "paper-2": "#1A1A1F",
+      "accent": "#FF4100",
+      "accent-2": "#FFB27A",
+      "muted": "#BEBDC3",
+      "line": "#3A3A40"
+    },
+    "roles": {
+      "surface": "paper",
+      "surface-2": "paper-2",
+      "onSurface": "ink",
+      "onSurfaceMuted": "muted",
+      "accent": "accent",
+      "onAccent": "paper",
+      "line": "line"
+    },
+    "data": {
+      "categorical": [
+        "#C9C8CD",
+        "#9E9DA4",
+        "#7E7D84",
+        "#B3B2B8"
+      ],
+      "sequential": [
+        "#2A2A30",
+        "#5A2A1C",
+        "#8F3315",
+        "#C73A0C",
+        "#FF4100"
+      ],
+      "diverging": [
+        "#9E9DA4",
+        "#1A1A1F",
+        "#FF4100"
+      ]
+    },
+    "space": {
+      "unit": 8,
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128,
+        192
+      ]
+    },
+    "radius": {
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        32
+      ]
+    },
+    "stroke": {
+      "hairline": 1,
+      "thin": 2,
+      "regular": 3,
+      "thick": 5
+    }
+  },
+  "type": {
+    "families": {
+      "display": {
+        "family": "Fraunces",
+        "file": "fonts/Fraunces-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        },
+        "fallback": [
+          "body"
+        ]
+      },
+      "body": {
+        "family": "Inter",
+        "file": "fonts/Inter-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        },
+        "features": {
+          "cv11": true,
+          "ss01": false
+        }
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "file": "fonts/JetBrainsMono-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      }
+    },
+    "scale": {
+      "ratio": 1.25,
+      "base": 28
+    },
+    "roles": {
+      "display": {
+        "family": "display",
+        "size": 116,
+        "weight": 600,
+        "leading": 0.96,
+        "tracking": -0.022,
+        "opsz": 144,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 18,
+        "maxLines": 4,
+        "minSize": 72,
+        "opticalMargins": true,
+        "hangingPunctuation": true,
+        "minLastLineWords": 1
+      },
+      "headline": {
+        "family": "display",
+        "size": 58,
+        "weight": 560,
+        "leading": 1.04,
+        "tracking": -0.014,
+        "opsz": 72,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 30,
+        "maxLines": 3,
+        "minSize": 48,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "quote": {
+        "family": "display",
+        "size": 44,
+        "weight": 460,
+        "leading": 1.18,
+        "tracking": -0.01,
+        "opsz": 48,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 34,
+        "maxLines": 3,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "figure": {
+        "family": "display",
+        "size": 54,
+        "weight": 560,
+        "leading": 1.0,
+        "tracking": -0.02,
+        "opsz": 72,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "proportional-lining",
+        "color": "accent"
+      },
+      "numeral": {
+        "family": "display",
+        "size": 300,
+        "weight": 520,
+        "leading": 0.9,
+        "tracking": -0.04,
+        "opsz": 144,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "proportional-lining",
+        "color": "accent"
+      },
+      "title": {
+        "family": "body",
+        "size": 36,
+        "weight": 620,
+        "leading": 1.18,
+        "tracking": -0.012,
+        "opsz": 32,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 34,
+        "maxLines": 3
+      },
+      "lede": {
+        "family": "body",
+        "size": 34,
+        "weight": 400,
+        "leading": 1.36,
+        "tracking": -0.006,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "measure": 44,
+        "minLastLineWords": 2,
+        "color": "onSurfaceMuted"
+      },
+      "body": {
+        "family": "body",
+        "size": 30,
+        "weight": 420,
+        "leading": 1.36,
+        "tracking": 0,
+        "opsz": 30,
+        "wrap": "pretty",
+        "box": "line",
+        "measure": 44,
+        "minLastLineWords": 2,
+        "hyphenate": false
+      },
+      "caption": {
+        "family": "body",
+        "size": 22,
+        "weight": 450,
+        "leading": 1.3,
+        "tracking": 0.005,
+        "opsz": 20,
+        "wrap": "pretty",
+        "box": "line",
+        "measure": 64,
+        "color": "onSurfaceMuted"
+      },
+      "kicker": {
+        "family": "body",
+        "size": 20,
+        "weight": 650,
+        "leading": 1.2,
+        "tracking": 0.14,
+        "opsz": 18,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "color": "accent"
+      },
+      "label": {
+        "family": "body",
+        "size": 20,
+        "weight": 600,
+        "leading": 1.2,
+        "tracking": 0.1,
+        "opsz": 18,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "axis": {
+        "family": "body",
+        "size": 24,
+        "weight": 450,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 24,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "value": {
+        "family": "body",
+        "size": 26,
+        "weight": 560,
+        "leading": 1.2,
+        "tracking": 0,
+        "opsz": 26,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining",
+        "color": "onSurface"
+      },
+      "code": {
+        "family": "mono",
+        "size": 24,
+        "weight": 400,
+        "leading": 1.4,
+        "tracking": 0,
+        "wrap": "greedy",
+        "box": "line",
+        "measure": 72
+      }
+    }
+  },
+  "grid": {
+    "columns": 12,
+    "rows": 12,
+    "gutter": 24,
+    "margin": [
+      72,
+      120
+    ],
+    "baseline": 8
+  },
+  "layouts": {
+    "title": {
+      "description": "The opening: kicker, title, subtitle, and the art beside them.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "title": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "display"
+        },
+        "subtitle": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            10,
+            12
+          ],
+          "role": "lede"
+        },
+        "art": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            3,
+            9
+          ]
+        }
+      }
+    },
+    "statement": {
+      "description": "One sentence, set large, and what supports it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "statement": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "display"
+        },
+        "support": {
+          "col": [
+            1,
+            8
+          ],
+          "row": [
+            10,
+            12
+          ],
+          "role": "lede"
+        }
+      }
+    },
+    "poster": {
+      "description": "A statement beside its art: a section's hinge or the close.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            7
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "statement": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "display"
+        },
+        "support": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            9,
+            11
+          ],
+          "role": "lede"
+        },
+        "note": {
+          "col": [
+            1,
+            7
+          ],
+          "row": 12,
+          "role": "caption"
+        },
+        "art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            3,
+            11
+          ]
+        }
+      }
+    },
+    "full": {
+      "description": "A claim over the figure that shows it, across the grid.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ]
+        },
+        "note": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 12,
+          "role": "caption"
+        }
+      }
+    },
+    "figure": {
+      "description": "A claim, its figure, and a note on it beside it: the facts behind it, or its source.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            4,
+            12
+          ]
+        },
+        "note": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ]
+        }
+      }
+    },
+    "narrow-figure": {
+      "description": "As `figure`, for a figure of two or three bars.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline"
+        },
+        "main": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            4,
+            12
+          ]
+        },
+        "note": {
+          "col": [
+            7,
+            11
+          ],
+          "row": [
+            4,
+            12
+          ]
+        }
+      }
+    },
+    "stat": {
+      "description": "One number, what it means, and what stands behind it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "number": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            3,
+            9
+          ],
+          "role": "numeral"
+        },
+        "claim": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            3,
+            6
+          ],
+          "role": "headline"
+        },
+        "detail": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            7,
+            12
+          ]
+        },
+        "under": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            7,
+            8
+          ]
+        }
+      }
+    },
+    "art-left": {
+      "description": "The art, then the claim's case beside it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline"
+        },
+        "art": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            4,
+            12
+          ]
+        },
+        "body": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ]
+        }
+      }
+    },
+    "art-right": {
+      "description": "The claim's case, then the art beside it.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 1,
+          "role": "kicker"
+        },
+        "header": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline"
+        },
+        "body": {
+          "col": [
+            1,
+            6
+          ],
+          "row": [
+            4,
+            12
+          ]
+        },
+        "art": {
+          "col": [
+            8,
+            12
+          ],
+          "row": [
+            4,
+            12
+          ]
+        }
+      }
+    },
+    "split": {
+      "description": "Text, and the figure beside it. A chart or table here reads on the plain surface.",
+      "slots": {
+        "body": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            1,
+            12
+          ]
+        },
+        "main": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ]
+        }
+      }
+    },
+    "quote": {
+      "description": "A quotation with attribution.",
+      "slots": {
+        "quote": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "quote",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "who": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "caption"
+        }
+      }
+    }
+  },
+  "motion": {
+    "durations": {
+      "fast": 180,
+      "standard": 420,
+      "slow": 800
+    },
+    "easings": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "in": [
+        0.4,
+        0,
+        1,
+        1
+      ],
+      "out": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "linear": [
+        0,
+        0,
+        1,
+        1
+      ]
+    },
+    "springs": {
+      "snappy": {
+        "stiffness": 420,
+        "damping": 34,
+        "mass": 1
+      },
+      "gentle": {
+        "stiffness": 170,
+        "damping": 26,
+        "mass": 1
+      },
+      "heavy": {
+        "stiffness": 120,
+        "damping": 30,
+        "mass": 1.6
+      }
+    },
+    "presets": {
+      "fade": {
+        "from": {
+          "opacity": 0
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Opacity only."
+      },
+      "rise": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              24
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Fade up from 24cu below."
+      },
+      "grow": {
+        "from": {
+          "transform": {
+            "scale": [
+              1,
+              0
+            ],
+            "anchor": [
+              0.5,
+              1
+            ]
+          }
+        },
+        "spring": "snappy",
+        "split": "marks",
+        "stagger": 40,
+        "description": "Bars grow from their baseline."
+      },
+      "draw": {
+        "from": {
+          "params": {
+            "progress": 0
+          }
+        },
+        "duration": "slow",
+        "ease": "standard",
+        "description": "A shape's outline draws on from where it starts."
+      },
+      "words": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              12
+            ]
+          }
+        },
+        "split": "words",
+        "stagger": 28,
+        "ease": "out",
+        "duration": "fast",
+        "description": "Word-by-word rise."
+      },
+      "pulse": {
+        "to": {
+          "transform": {
+            "scale": 1.04
+          }
+        },
+        "spring": "gentle",
+        "description": "Emphasis: a single soft pulse."
+      }
+    },
+    "maxConcurrent": 12,
+    "maxBuild": 2500
+  },
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#0E0E12",
+        "#2A1610",
+        "#7A2A0E",
+        "#FF4100"
+      ],
+      "texture": [
+        "#0E0E12",
+        "#1A1A1F",
+        "#3A3A40",
+        "#BEBDC3"
+      ]
+    },
+    "presets": {
+      "backdrop": {
+        "kind": "mesh",
+        "palette": "ambient",
+        "params": {
+          "points": 5,
+          "drift": 0.12,
+          "softness": 0.85,
+          "grain": 0.035
+        }
+      },
+      "texture": {
+        "kind": "noise",
+        "palette": "texture",
+        "params": {
+          "octaves": 4,
+          "scale": 0.0015,
+          "speed": 0.05,
+          "contrast": 0.6
+        }
+      }
+    }
+  },
+  "charts": {
+    "signal": "accent",
+    "axis": {
+      "role": "axis",
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "gridlines": {
+      "stroke": "hairline",
+      "color": "line",
+      "opacity": 0.6
+    },
+    "label": {
+      "role": "value"
+    },
+    "legend": {
+      "role": "value"
+    },
+    "title": {
+      "role": "axis"
+    },
+    "strokeWidth": "regular",
+    "pointRadius": 6,
+    "barGap": 0.45,
+    "maxTicks": 5,
+    "annotation": {
+      "color": "accent",
+      "stroke": "thin",
+      "dimmed": 0.45
+    }
+  },
+  "tables": {
+    "cell": {
+      "role": "body"
+    },
+    "rowRule": {
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "rowGap": 10,
+    "stretch": true
+  },
+  "density": {
+    "maxWordsPerState": 40
+  }
+}

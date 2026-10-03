@@ -79,7 +79,7 @@ fn a_bundle_from_a_theme_then_data_then_a_chart() {
     let updated = scaena_ops::read::spine_update(&b, spine, false).unwrap();
     assert!(updated.applied, "{updated:#?}");
     let b = scaena_ops::open(&dir).unwrap();
-    assert_eq!(scaena_ops::read::spine(&b)["spine"]["sections"][0]["beats"][0]["id"], "growth");
+    assert_eq!(scaena_ops::read::spine(&b).spine.unwrap().sections[0].beats[0].id, "growth");
 }
 
 #[test]

@@ -13,9 +13,11 @@ scaena-core.workspace = true
 scaena-engine.workspace = true
 scaena-paint.workspace = true
 serde.workspace = true
+schemars.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 krilla.workspace = true
 kurbo.workspace = true
 skrifa.workspace = true
-# PLAN 1.21–1.22 add: png, csv.
+png.workspace = true
+base64.workspace = true

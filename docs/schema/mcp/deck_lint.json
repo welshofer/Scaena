@@ -69,7 +69,7 @@
         "type": ["array", "null"],
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": { "description": "The findings that are errors.", "type": "integer", "format": "uint", "minimum": 0 },
+      "errors": { "description": "The findings that are errors.", "type": "integer", "minimum": 0 },
       "laid": {
         "description": "Whether the layout rules ran: they run once validation and the document rules\nfind no error.",
         "type": "boolean"

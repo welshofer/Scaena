@@ -116,6 +116,10 @@ pub struct TextSpec {
     pub optical_margins: bool,
     /// `hyphenate`: words may break at the hyphenation points of `lang`.
     pub hyphenate: bool,
+    /// The baseline grid's pitch, when the text's role snaps its baselines to it (SPEC
+    /// §3.4): each line sits a whole number of grid lines below the one before, its gap
+    /// rounded up. Where the first line lands is placement's.
+    pub line_grid: Option<f32>,
 }
 
 /// How a paragraph's lines sit across its box, in the paragraph's direction (SPEC §3.4).
@@ -268,6 +272,9 @@ pub struct TextLayout {
     /// Where its lines break: the box's width, or its `measure` if that is narrower. A
     /// line wider than this holds a word that cannot break (lint W201).
     pub measure: f32,
+    /// The weight its look sets it in, before any span's own: what makes it bold text
+    /// for contrast (lint E110, E111).
+    pub weight: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,7 +283,8 @@ pub struct LineBox {
     pub top: f32,
     /// Baseline, from the paragraph top.
     pub baseline: f32,
-    /// Line-box height (leading × size of the tallest run).
+    /// Line-box height: leading × size of the tallest run, and on a line grid the room
+    /// above the line that puts its baseline whole grid lines below the one before.
     pub height: f32,
     pub ascent: f32,
     pub descent: f32,
@@ -441,6 +449,7 @@ impl TextSpec {
             hanging_punctuation: false,
             optical_margins: false,
             hyphenate: false,
+            line_grid: None,
         }
     }
 }
@@ -550,6 +559,8 @@ impl TextEngine {
             measure: max_width,
             words,
             widow,
+            line_grid: spec.line_grid,
+            weight: spec.role.weight,
         };
         read_layout(&layout, text, fonts, &hyphens, paragraph)
     }
@@ -1260,6 +1271,10 @@ struct Paragraph {
     words: Vec<Range<usize>>,
     /// A last line shorter than `minLastLineWords` that breaking could not hold.
     widow: bool,
+    /// The baseline grid's pitch its lines are spaced on, if they are.
+    line_grid: Option<f32>,
+    /// Its look's weight.
+    weight: f32,
 }
 
 impl Paragraph {
@@ -1277,8 +1292,19 @@ impl Paragraph {
             measure: 0.0,
             words: Vec::new(),
             widow: false,
+            line_grid: None,
+            weight: 400.0,
         }
     }
+}
+
+/// How far a length may miss a whole number of grid lines and still count as whole, in
+/// grid lines: float error in `size × leading` (SPEC §3.4, lint W221).
+pub const GRID_EPSILON: f32 = 1.0e-3;
+
+/// `gap` rounded up to whole grid lines of `pitch`, and at least one.
+fn on_grid(gap: f32, pitch: f32) -> f32 {
+    (gap / pitch - GRID_EPSILON).ceil().max(1.0) * pitch
 }
 
 fn read_layout(
@@ -1293,8 +1319,18 @@ fn read_layout(
     let mut runs = Vec::new();
     let mut synthesized = false;
     let mut top = 0.0_f32;
+    // On a line grid, how far the lines so far have moved down: each gap between
+    // baselines rounded up to whole grid lines, the room above the line that moved.
+    let (mut moved, mut before) = (0.0_f32, None);
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
+        let room = match (p.line_grid, before) {
+            (Some(pitch), Some(before)) => on_grid(m.baseline - before, pitch) - (m.baseline - before),
+            _ => 0.0,
+        };
+        before = Some(m.baseline);
+        moved += room;
+        let baseline = m.baseline + moved;
         let hung = p.hang.at(layout, text, line.text_range(), p.rtl);
         let (hang, mut hang_end) = match p.hang.edge {
             Edge::Start => (hung, 0.0),
@@ -1346,7 +1382,7 @@ fn read_layout(
                 x_height = run.metrics().x_height;
             }
             let glyphs: Vec<Glyph> =
-                glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y }).collect();
+                glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y + moved }).collect();
             let advances: Vec<f32> = glyph_run.positioned_glyphs().map(|g| g.advance).collect();
             if taken.0 != run.cluster_range() {
                 taken = (run.cluster_range(), 0);
@@ -1376,7 +1412,7 @@ fn read_layout(
         if let Some(h) = hyphen {
             let mut run = h.run.clone();
             for g in &mut run.glyphs {
-                (g.x, g.y) = (g.x + ink + shift, g.y + m.baseline);
+                (g.x, g.y) = (g.x + ink + shift, g.y + baseline);
             }
             // It goes with the letter before the soft hyphen.
             let shy = line.text_range().end - SHY.len_utf8();
@@ -1391,8 +1427,8 @@ fn read_layout(
         // box itself starts where the previous one ended.
         lines.push(LineBox {
             top,
-            baseline: m.baseline,
-            height: m.line_height,
+            baseline,
+            height: m.line_height + room,
             ascent: m.ascent,
             descent: m.descent,
             width,
@@ -1405,7 +1441,7 @@ fn read_layout(
             cap_height,
             x_height,
         });
-        top += m.line_height;
+        top += m.line_height + room;
     }
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     Ok(TextLayout {
@@ -1413,7 +1449,7 @@ fn read_layout(
         lines,
         runs,
         width,
-        height: layout.height(),
+        height: layout.height() + moved,
         wrap: p.wrap,
         fallback: p.fallback,
         words: p.words,
@@ -1422,5 +1458,6 @@ fn read_layout(
         synthesized,
         align: p.align,
         measure: p.measure,
+        weight: p.weight,
     })
 }

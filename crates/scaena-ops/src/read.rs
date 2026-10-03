@@ -1,6 +1,6 @@
 //! Read a deck and its spine, and replace the spine (SPEC §2.6, §3.11).
 
-use crate::patch::{Patched, patch};
+use crate::patch::Patched;
 use crate::{Bundle, OpsError};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -25,14 +25,20 @@ pub fn read(b: &Bundle, scn: bool) -> Result<Read, OpsError> {
     })
 }
 
-/// The deck's spine: its sections and beats, each beat with its states (SPEC §3.11), as
-/// `export --format spine` writes it.
-pub fn spine(b: &Bundle) -> Value {
-    scaena_export::spine_json(&b.deck)
+/// The deck's spine projection (SPEC §10): its sections and beats, each beat with its
+/// states and the one that shows it (SPEC §3.11), as `export --format spine` writes it
+/// without placing it on the timeline or drawing its renders.
+pub fn spine(b: &Bundle) -> scaena_core::spine::SpineProjection {
+    scaena_core::spine::projection(&b.deck, None)
 }
 
 /// The deck's spine replaced by `spine`, as a patch: checked, refused if it makes the deck
 /// invalid, with its lint delta.
 pub fn spine_update(b: &Bundle, spine: Value, dry_run: bool) -> Result<Patched, OpsError> {
-    patch(b, &json!([{ "op": "add", "path": "/spine", "value": spine }]), dry_run)
+    crate::patch::patch_as(
+        b,
+        &json!([{ "op": "add", "path": "/spine", "value": spine }]),
+        dry_run,
+        Some("spine_update"),
+    )
 }

@@ -131,15 +131,43 @@ pub fn lint_fix(b: &Bundle) -> Result<Fixed, OpsError> {
     }
     let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
     if !fixed.is_empty() {
-        write_deck(b, &deck, BTreeMap::new())?;
+        let mut codes: Vec<&str> = fixed.iter().map(|f| f.code.as_str()).collect();
+        codes.dedup();
+        write_deck(b, &deck, BTreeMap::new(), &Why::new(format!("lint --fix: {}", codes.join(", "))))?;
     }
     let findings = lint_in(&deck, &View::of(b))?.findings;
     Ok(Fixed { fixed, findings })
 }
 
-/// Write `deck` canonically into the bundle, with `files` beside it.
-pub fn write_deck(b: &Bundle, deck: &Deck, mut files: BTreeMap<String, Vec<u8>>) -> Result<(), OpsError> {
+/// What a write does to the deck, as the bundle's history records it (SPEC §8.2): the
+/// operation, and the ids it renamed, so each renamed node and state stays what it was.
+#[derive(Debug, Clone, Default)]
+pub struct Why {
+    pub message: String,
+    pub renamed_nodes: Vec<(String, String)>,
+    pub renamed_states: Vec<(String, String)>,
+}
+
+impl Why {
+    pub fn new(message: impl Into<String>) -> Self {
+        Why { message: message.into(), ..Why::default() }
+    }
+}
+
+/// Write `deck` canonically into the bundle, with `files` beside it; and, if the bundle
+/// keeps history, the change, by the bundle's author, as `why` says.
+pub fn write_deck(b: &Bundle, deck: &Deck, mut files: BTreeMap<String, Vec<u8>>, why: &Why) -> Result<(), OpsError> {
     files.insert(b.deck_file.clone(), (deck.to_json()? + "\n").into_bytes());
+    let edit = scaena_store::crdt::Edit {
+        author: &b.author,
+        message: Some(&why.message),
+        timestamp: None,
+        renamed_nodes: &why.renamed_nodes,
+        renamed_states: &why.renamed_states,
+    };
+    if let Some(history) = b.record(deck, &edit).context("recording the change in the bundle's history")? {
+        files.insert(scaena_store::HISTORY.into(), history);
+    }
     b.write(&files).with_context(|| format!("writing {}", b.root.display()))
 }
 

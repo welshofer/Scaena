@@ -158,6 +158,10 @@ pub struct Role {
     pub wrap: Option<super::nodes::Wrap>,
     #[serde(rename = "box", default, skip_serializing_if = "Option::is_none")]
     pub text_box: Option<super::nodes::TextBox>,
+    /// What of the text sits on the baseline grid (`grid.baseline`, SPEC §3.4): every
+    /// baseline, or the first line's cap height. Nothing snaps when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snap: Option<Snap>,
     /// Max characters per line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]
@@ -189,6 +193,16 @@ pub struct Role {
     pub color: Option<String>,
 }
 
+/// What of a text role sits on the baseline grid (SPEC §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Snap {
+    /// Every line's baseline, the lines whole grid lines apart: body text.
+    Baseline,
+    /// The first line's cap height, the lines below at the role's leading: display text.
+    Cap,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Case {
@@ -210,7 +224,8 @@ pub struct Grid {
     #[schemars(range(min = 0))]
     pub gutter: f64,
     pub margin: Margin,
-    /// Baseline grid in cu; text leading snaps to multiples.
+    /// Baseline grid: the distance between its lines in cu, which run from the top
+    /// margin. Text roles with `snap` sit on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]
     pub baseline: Option<f64>,

@@ -24,6 +24,23 @@ pub struct Grid {
     cols: Vec<(f32, f32)>,
     /// `(start, end)` of each row, top to bottom.
     rows: Vec<(f32, f32)>,
+    /// Its baseline grid, if the theme sets `grid.baseline`.
+    pub baseline: Option<BaselineGrid>,
+}
+
+/// A baseline grid's lines (SPEC §3.4): one every `pitch` canvas units, through the top
+/// margin and on up and down the canvas.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BaselineGrid {
+    pub origin: f32,
+    pub pitch: f32,
+}
+
+impl BaselineGrid {
+    /// The first line at or below `y`. A line above `y` by float error is at it.
+    pub fn next(&self, y: f32) -> f32 {
+        self.origin + ((y - self.origin) / self.pitch - crate::text::GRID_EPSILON).ceil() * self.pitch
+    }
 }
 
 impl Grid {
@@ -56,6 +73,7 @@ impl Grid {
             canvas,
             cols: tracks(left, canvas[0] - left - right, columns),
             rows: tracks(top, canvas[1] - top - bottom, rows),
+            baseline: grid.baseline.map(|pitch| BaselineGrid { origin: top, pitch: pitch as f32 }),
         })
     }
 
@@ -252,7 +270,7 @@ mod tests {
         let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
         // Dusk: margin [96, 120] = 96 top/bottom, 120 left/right.
         assert_eq!((grid.cols[0].0, grid.rows[0].0), (120.0, 96.0));
-        assert_eq!((grid.cols[11].1, grid.rows[5].1), (1800.0, 984.0));
+        assert_eq!((grid.cols[11].1, grid.rows[11].1), (1800.0, 984.0));
     }
 
     #[test]

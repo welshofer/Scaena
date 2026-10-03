@@ -1,32 +1,174 @@
 name: bench
-# Per-stage timings against SPEC §15 (PLAN 0.14). SPEC's reference machine is an M-series Mac;
-# GitHub's macos-latest runner is Apple Silicon (virtualized), the closest CI has. The tables go
-# to the run summary. Recorded, not gated: shared runners are too noisy for a hard budget.
+# SPEC §15's stages, timed by criterion on B1–B4 (PLAN 1.24). Linux times each pull request ready
+# for review and each push to `main` that could change a number. macOS on Apple Silicon, the
+# closest to SPEC's reference machine, which also paints on Metal, bills ten Linux minutes for each
+# of its own and judges only regressions over about 30% (its noise), so it times `main` once a week
+# and on a manual run, into its history, and judges no pull request.
+# A pull request is timed beside its base, both built and then run on the same machine in the same
+# job, a group of benches at a time, the base first. It fails when a bench is slower than the base
+# by more than the run's floor (10%, or 2.5 times how far its benches stray from the base, if that
+# is more), and in each of three more turns beside its base, bench by bench
+# (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
+# so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
+# bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
+# §15's budgets first, goes to the run summary. A draft pull request is not timed; once it is ready
+# for review each push is, so what merges was timed beside its base.
 on:
   push:
     branches: [main]
-  pull_request:
     paths:
+      - "crates/**"
       - "tests/bench/**"
-      - "crates/scaena-cli/examples/stages.rs"
+      - "tests/fixtures/torture.scaena/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench_gate.py"
       - ".github/workflows/bench.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    paths:
+      - "crates/**"
+      - "tests/bench/**"
+      - "tests/fixtures/torture.scaena/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench_gate.py"
+      - ".github/workflows/bench.yml"
+  # On main, a manual run records like a push: a few of them fill a new runner's history.
   workflow_dispatch:
+  schedule:
+    - cron: "41 7 * * 1"
+concurrency:
+  # Main's runs one at a time, each recording into the history the one before it left.
+  # Another label is a run of its own that does nothing, so it must not cancel one that times.
+  group: bench-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'bench-accept' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  stages:
-    runs-on: macos-latest
-    timeout-minutes: 45
+  criterion:
+    # Of the labels, only the one that accepts a regression changes the verdict.
+    if: >-
+      !github.event.pull_request.draft &&
+      (github.event.action != 'labeled' || github.event.label.name == 'bench-accept')
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          && '[{"os":"macos-latest","features":"--features gpu"},{"os":"ubuntu-latest","features":""}]'
+          || '[{"os":"ubuntu-latest","features":""}]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      FEATURES: ${{ matrix.features }}
+      RECORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      ACCEPT: ${{ contains(github.event.pull_request.labels.*.name, 'bench-accept') && '--accept' || '' }}
+      REPORT_ONLY: ${{ github.event_name != 'pull_request' && '--report-only' || '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull request's merge commit and its parents: the first is the base it is timed beside.
+          fetch-depth: 2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p scaena-cli --features gpu --bins --examples
-      - name: Machine
+        with:
+          shared-key: bench
+          # Main's runs keep the cache; a pull request's, which build its base too, only read it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Runner
         run: |
-          echo "$(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, $(sw_vers -productName) $(sw_vers -productVersion)" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
-      - name: B1 (text) and B4 (torture)
+          if [ "$RUNNER_OS" = macOS ]; then
+            machine="$(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores"
+          else
+            machine="$(lscpu | sed -n 's/^Model name: *//p' | head -n 1), $(nproc) cores"
+          fi
+          echo "BENCH_MACHINE=$machine" >> "$GITHUB_ENV"
+          echo "BENCH_RUNNER=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_ENV"
+          # Outside target/, which the cache restores: a run reads only its own results.
+          echo "CRITERION_HOME=$RUNNER_TEMP/criterion" >> "$GITHUB_ENV"
+          echo "BASE_TARGET=$RUNNER_TEMP/base-target" >> "$GITHUB_ENV"
+          echo "$machine"
+          # Spotlight indexes the files a build writes, on three cores, while the benches run.
+          if [ "$RUNNER_OS" = macOS ]; then sudo mdutil -a -i off || true; fi
+      - uses: actions/cache/restore@v4
+        with:
+          path: bench-history.json
+          key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: bench-history-${{ runner.os }}-${{ runner.arch }}-
+      # Both built before either is timed. The base builds into a copy of the target directory:
+      # what the two share is built already, and each keeps its own `scaena`, which the cold
+      # benches run from there.
+      - name: Build the benches, and a pull request's base's
         run: |
-          for bundle in tests/bench/b1.scaena tests/fixtures/torture.scaena; do
-            target/release/examples/stages "$bundle" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo >> "$GITHUB_STEP_SUMMARY"
-          done
+          cargo bench --locked -p scaena-cli $FEATURES --bench stages --no-run
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git worktree add "$RUNNER_TEMP/base" HEAD^1
+            if [ "$RUNNER_OS" = macOS ]; then cp -Rcp target "$BASE_TARGET"; else cp -a --reflink=auto target "$BASE_TARGET"; fi
+            (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages --no-run)
+          fi
+      # A pull request's run and its base's take turns, a group of benches at a time, the base
+      # first, so a spell of load on the machine falls on both.
+      - name: Time the benches, beside the base on a pull request
+        run: |
+          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            for group in $(this --list | sed -n 's|^\([a-z0-9_]*\)/.*: benchmark$|\1|p' | sort -u); do
+              CRITERION_HOME="$CRITERION_HOME-base" base "^$group/"
+              this "^$group/"
+            done
+            python3 scripts/bench_gate.py collect "$CRITERION_HOME-base" --out bench-base.json
+          else
+            this
+          fi
+          python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
+      # Each bench slower than the base by more than the run's floor, timed again beside it, bench
+      # by bench, in three turns: the pull request first, then the base first, then the pull
+      # request first. It regresses when it is slower than the floor in every turn.
+      - name: Time again what is slower than the base
+        if: github.event_name == 'pull_request'
+        run: |
+          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
+          python3 scripts/bench_gate.py suspects --run bench-run.json --base bench-base.json --out suspects.txt
+          if [ -s suspects.txt ]; then
+            for bench in $(cat suspects.txt); do
+              CRITERION_HOME="$CRITERION_HOME-again-1" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-1" base "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-2" base "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-again-2" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-again-3" this "^$bench\$"
+              CRITERION_HOME="$CRITERION_HOME-base-again-3" base "^$bench\$"
+            done
+            for turn in 1 2 3; do
+              python3 scripts/bench_gate.py collect "$CRITERION_HOME-again-$turn" --out "bench-again-$turn.json"
+              python3 scripts/bench_gate.py collect "$CRITERION_HOME-base-again-$turn" --out "bench-base-again-$turn.json"
+            done
+          fi
+      - name: Judge beside the base
+        run: |
+          args="--history bench-history.json --run bench-run.json"
+          if [ -f bench-base.json ]; then args="$args --base bench-base.json"; fi
+          if [ -f bench-again-1.json ]; then
+            args="$args --again bench-again-1.json bench-again-2.json bench-again-3.json"
+            args="$args --base-again bench-base-again-1.json bench-base-again-2.json bench-base-again-3.json"
+          fi
+          python3 scripts/bench_gate.py check $args --summary "$GITHUB_STEP_SUMMARY" $ACCEPT $REPORT_ONLY
+          if [ "$RECORD" = true ]; then
+            python3 scripts/bench_gate.py record --history bench-history.json --run bench-run.json
+          fi
+      - if: env.RECORD == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bench-history.json
+          key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            bench-run.json
+            bench-base.json
+            bench-again-*.json
+            bench-base-again-*.json
+            bench-history.json
+          if-no-files-found: ignore

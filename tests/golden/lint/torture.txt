@@ -6,6 +6,12 @@ E100 9:16 hyphenation hyph-off /nodes/hyph-off fix
 E101 9:16 hyphenation hyph-off /nodes/hyph-off
 E110 - mesh case /nodes/case
 E110 9:16 mesh case /nodes/case
+E111 - chart-kinds-2 k-dot /nodes/k-dot
+E111 - annotations n-bars /nodes/n-bars
+E111 - annotations-next n-bars /nodes/n-bars
+E111 9:16 chart-kinds-2-next k-dot /nodes/k-dot
+E111 9:16 annotations n-lines /nodes/n-lines
+E111 9:16 stagger st-line /nodes/st-line
 W202 - formats fm-claim /nodes/fm-claim fix
 W202 9:16 balance balance-head /nodes/balance-head fix
 W202 9:16 fit fit-shrink /nodes/fit-shrink
@@ -18,6 +24,7 @@ W220 - hyphenation - /states/31
 W220 9:16 alignment - /states/28
 W220 9:16 case-measure - /states/29
 W220 9:16 hyphenation - /states/31
+W221 - - - /type/roles/grid-loose/leading
 W302 - axes axes-wght-100 /nodes/axes-wght-100/at/col
 W302 - axes axes-wght-900 /nodes/axes-wght-900/at/col
 W302 - axes axes-wdth-50 /nodes/axes-wdth-50/at/col
@@ -133,6 +140,13 @@ W302 - morph mf-arrow /nodes/mf-arrow/at/col
 W302 - stagger st-stack /nodes/st-stack/at/col
 W302 - stagger st-donut /nodes/st-donut/at/col
 W302 - stagger st-line /nodes/st-line/at/col
+W302 - baseline-grid grid-head /nodes/grid-head/at/col
+W302 - baseline-grid grid-body /nodes/grid-body/at/col
+W302 - baseline-grid grid-loose /nodes/grid-loose/at/col
+W302 - baseline-grid grid-foot /nodes/grid-foot/at/col
+W302 - baseline-grid grid-row /nodes/grid-row/at/col
+W310 9:16 motion mo-bars /nodes/mo-bars/x
+W310 9:16 motion mo-bars /nodes/mo-bars/x
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

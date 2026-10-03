@@ -340,22 +340,162 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Shader images embed losslessly and are large: the trails example is 15 MB (ADR-0004 finding 13).*
     - *PDF/UA conformance is not checked. `krilla` can validate it; headings would need titles first.*
     - *A PDF is drawn in the canvas format only, not in another of the deck's `formats`.)*
-- [ ] 1.21 PNG/SVG per state; video via frame sequence → `ffmpeg` (mp4/webm/ProRes); `hold` dwell.
-- [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
+- [x] 1.21 PNG/SVG per state; video via frame sequence → `ffmpeg` (mp4/webm/ProRes); `hold` dwell. *(Done. `scaena export --format png|svg|mp4|webm|prores`, and `deck_export`; `scaena-export::svg` and `::video`; SPEC §7.1, §7.2, §10; ADR-0004 finding 14:*
+  - *`export` writes every format where `--out` says and returns what it wrote. png and svg write an image of each state at rest into a directory, `<state>.png`, at `--size`; a video writes a file. The spine still prints without `--out`.*
+  - *A PNG is the CPU painter's frame.*
+  - *An SVG is written by hand:*
+    - *layers are groups (transform, clip, opacity, `mix-blend-mode`);*
+    - *paths and linear and radial gradients stay vectors;*
+    - *each glyph is an outline path, unhinted, with each run's text laid transparent over it, so the SVG selects and copies as the deck reads;*
+    - *images embed as PNG, indexed where they hold 256 colors or fewer, and are filtered as the painters filter them;*
+    - *shaders, COLR and bitmap glyphs, and sweep gradients are the CPU painter's pixels at the SVG's size.*
+  - *Rasterized by `resvg`, every torture state's SVG passes SPEC §13.5 against the CPU painter, and so does every trails slide at half size. In headless Chromium the torture SVGs draw within ΔE 5 of it on 99% of pixels, and their text selects and copies (checked by hand).*
+  - *A video plays the global timeline, or the states `--states` names in that order: each state's cue, then its `hold`, at `--fps` (60).*
+    - *Frames are the CPU painter's, painted one per core, each single-threaded, so their pixels do not depend on the core count. This answers the spike report's question about threaded rasters. A frame that draws what the one before it drew is painted once.*
+    - *Frames go to `ffmpeg` as RGB over black, with BT.709 named and tagged: H.264 at CRF 18 in MP4, VP9 in WebM, or ProRes 422 HQ in QuickTime.*
+    - *`--audio` lays a sound track under the frames.*
+    - *The video is written beside `--out` and renamed when whole, so a failed export leaves nothing behind.*
+  - *Frame k shows the moment `render --t` draws (`Reel`). Decoded, each tested frame is within 2/255 of it on average, and nearer it than to the moments 100 ms either side.*
+  - *The trails example, 110 s at 1080p60 (6,624 frames), exports to a 7.8 MB MP4 in 2 min 43 s on 4 cores (release build), 1.5× its running time.*
+  - *CI installs ffmpeg on Linux and requires it there; elsewhere the video tests skip.*
+  - *Not done:*
+    - *Exports in another of the deck's formats (`9:16`), as for PDF.*
+    - *Per-beat chapters in a video (SPEC §10's motion graphic), with the spine: PLAN 1.22.*
+    - *A state with no cue and no hold has no frame, so a deck without holds plays only its transitions. Nothing warns about it.*
+    - *The SVG's text layer is set in a system font stretched to each run, so a selection covers runs, not glyphs.)*
+- [x] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines. *(Done. `scaena export --format spine --out FILE`, `deck_export`, and `spine_read`; `scaena-core::spine`, `docs/schema/spine.schema.json`; `docs/projections.md`; SPEC §7.1, §7.2, §10:*
+  - *The projection is typed in `scaena-core::spine`, and its schema is generated (ADR-0007). It holds the deck's title, language, canvas, and formats; the spine; every state, with its slide, notes, and place on the global timeline; and every beat, with the state that shows it (the last of its states in deck order) and where it starts and ends. `spine_read` returns it untimed, so it runs no layout. The schema is also the MCP resource `scaena://schema/spine`.*
+  - *Written with `--out`, each beat is drawn at rest into `renders/` beside the file: a thumbnail 480 px wide (or `--size`), and the beat laid out again in each other format the deck lists, at that format's canvas size. The result lists the files. The projection itself is returned only when it is not written, by the CLI and the MCP tool alike.*
+  - *A video carries a chapter per beat, titled by its claim, through ffmpeg's metadata input: a chapter track in MP4 and QuickTime, Matroska chapters in WebM. A state no beat names is a chapter of its slide; a deck without a spine has none. The video tests read the chapters back with ffprobe from all three containers, and the export's result lists them.*
+  - *`docs/projections.md` says what each pipeline reads, and how to time a narration to the beats: lengthen a beat by its last state's `hold` with `patch`, then lay the track under the video with `--audio`.*
+  - *Found on the way:*
+    - *ffmpeg's `-map_metadata -1` strips chapter titles, and in MP4 and QuickTime the chapter track itself. The video now strips only global and stream metadata, and takes no chapters from a sound file.*
+    - *SPEC §3.1 reserves a bundle's `spine.json` for an externalized spine, which nothing reads yet; the projection has the same name. The note says to write the projection outside the bundle. Rename the bundle's file when 1.23 lays the bundle out.*
+  - *Not done:*
+    - *No existing pipeline was run against it; they live outside this repository.*
+    - *A video plays only in the deck's own format, so a portrait motion piece waits on the same work as 1.21's other formats.*
+    - *Times are the deck's own format's; a cue that counts lines can run differently in another format.)*
 
 ### 1E Store
-- [ ] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add.
+- [x] 1.23 `scaena-store`: Loro document with the container layout in SPEC §8.1; `deck.json` export/import; `fs`-authored changes; undo manager; fork/merge smoke test. (If Loro's rich-text or tree APIs fight the model, ADR-0002 names Automerge as the fallback — decide by end of week 2 of this phase.) The order of `nodes` is paint order at equal `z` and flow order in a container (`displaylist::paint_order`), and a CRDT map keeps no order of its keys: hold it apart, as a movable list of ids, and keep `rename_node` (1.16) a rename, not a remove and an add. *(Done. `scaena-store::crdt` (`DeckDoc`), `history/deck.loro`, `scaena save --history`; SPEC §3.1, §7.1, §7.2, §8; ADR-0002 records the decision: Loro stays:*
+  - *The containers are SPEC §8.1's.*
+    - *Nodes are keyed by keys of the CRDT's own. Everything that names a node does so by key: state props, `remove`, choreography, overrides, and `at.parent`. So a rename sets one field, one operation.*
+    - *`order`, a movable list of the keys, holds paint order.*
+  - *Values are JSON text, and each map keeps its key order beside it: a Loro map keeps none, and neither does a map value. Every deck in the repository comes out of the CRDT as it went in, byte for byte, saved and loaded.*
+  - *A deck goes in as the smallest change. Text is edited by character. Runs are re-marked only where they changed. States and beats are moved, not made again.*
+  - *In a bundle that keeps history, every write through the CLI and MCP records its change: by its author (`$SCAENA_AUTHOR`, or `agent:<client>`), saying what it did. A `deck.json` edited outside Scaena goes in first, as a change by `fs`.*
+  - *Undo and redo are per author, and never undo `fs` changes or other peers'.*
+  - *Tests:*
+    - *every repository deck through the CRDT and back;*
+    - *concurrent edits;*
+    - *a rename against an edit;*
+    - *beats moving between sections;*
+    - *states moved and renamed;*
+    - *rich-text runs;*
+    - *nodes made apart under one id;*
+    - *undo;*
+    - *through ops and MCP, the history a bundle keeps.*
+  - *Found on the way:*
+    - *serde_json's `Map::remove` with `preserve_order` swaps the last key into the removed one's place.*
+    - *SPEC §3.1's optional `spine.json` is gone. The CRDT holds the spine as a tree and `deck.json` carries it, so a third copy would be a third authority. It also shared its name with the projection (1.22).*
+  - *Not done:*
+    - *A `history` command (list, undo, branches) for the CLI and MCP. The editors of Phases 2 and 3 use `DeckDoc` directly.*
+    - *`deck.scn` is not regenerated from the CRDT.)*
 
 ### 1F Benchmarks
-- [ ] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)*
+- [x] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)* *(Done:*
+  - *The decks. `scripts/build_bench_decks.py` writes `tests/bench/b2.scaena` and `b3.scaena` on B1's theme and fonts, and `just schema` checks the committed ones against it. Both validate and lint clean.*
+    - *B2: six charts (bar, stacked bar, line, area, donut, scatter), each shown and then updated by key, for 12 states.*
+    - *B3: a full-bleed mesh with grain over it on all 8 states, its seed and palette changing between them.*
+  - *The benches. `crates/scaena-cli/benches/stages.rs` (`just bench`) names each `stage/deck` and covers every SPEC §15 stage the code has, on B1–B4:*
+    - *load and fonts;*
+    - *layout: fresh, warm, and the slowest state;*
+    - *cues and sampling;*
+    - *CPU paint, every state and the slowest;*
+    - *GPU paint with readback;*
+    - *both lints;*
+    - *a cold `scaena render`, and the MCP `deck_render` round trip;*
+    - *video's frame loop over the longest cue;*
+    - *a probe of the machine.*
+
+    *A stage that goes over states, cues, or frames counts them.*
+  - *The gate. CI's `bench` workflow runs the benches on macOS (Apple Silicon, Metal) and on Linux. Each runner keeps a history of `main`'s runs in the Actions cache, and `scripts/bench_gate.py` judged every run against it:*
+    - *a bench regressed when it was slower than the median of `main`'s runs by more than max(10%, 4σ), σ being their spread (1.4826 × MAD);*
+    - *one that looked slower was run again, and judged on the faster of its two runs;*
+    - *`bench-accept` lets a regression through.*
+
+    *SPEC §15 says how.*
+  - *The gate, again (2026-10-03). Judged against `main`'s history, the macOS runner failed three of the four pull requests that gate 1's agent runs opened, each on a bench it did not touch. The history was six runs, each on a different virtual machine. Of their times, 46% were more than 10% from their bench's median and 13% more than 30%, while the MAD of six put most benches' noise at the 10% floor. Linux runs landed on five processor models. Now a pull request is timed beside its base, built in the same job on the same machine:*
+    - *a bench regresses when it is slower than the base by more than 10%, and again when the two are timed a second time, the base first;*
+    - *`main`'s history is shown beside each bench, and no longer judges;*
+    - *`scripts/test_bench_gate.py` tests the judgment, in `just check` and CI.*
+    - *A third time: #61, which changed no code, failed on macOS. Two of its 60 benches came out 11–16% slower than the base, twice. Beside an identical base, that runner's benches strayed by 12% (σ, from their median absolute change), and Linux's by 1.6%, so a fixed 10% floor fails a bench or two on most macOS runs by chance. Now each run sets its own floor: 10%, or 2.5σ of its benches' changes if that is more. That is 10% on Linux and about 30% on macOS, where only a larger regression shows. The report says which. And a bench timed again is judged turn by turn, three turns of the two side by side: it regresses when it is slower than the floor in every turn. Each side at its fastest of two let one slow run decide, as it did for #62's `layout_one/b3` (+34%, then +11.8%).*
+    - *On its own pull request, which changed no Rust, the macOS run still failed seven benches. Timed after its build, the pull request ran 20–80% slower than the base on most benches; timed again, the base first, the gap closed on all but the benches that paint on every core, which a spell of load on three cores slows by half. So both are built before either is timed, the two take turns a group of benches at a time, a slower bench is timed twice more beside its base bench by bench, each side counting at its fastest, and Spotlight is off on macOS.*
+  - *The `wasm` job fails the engine over 3.0 MB gzipped, and records B1's cold start in headless Chromium.*
+  - *On this Linux container (Xeon @ 2.8 GHz, 4 vCPU, AVX2; frames 1080 high, a frame painted on one thread):*
+    - *B1:*
+      - *the slowest state lays out in 0.73 ms, and all 40 in 20 ms;*
+      - *a frame samples in 6 µs;*
+      - *the slowest frame paints in 23 ms;*
+      - *`scaena render` takes 38 ms cold, and the MCP round trip 49 ms;*
+      - *document lint takes 0.5 ms, and layout lint 0.97 s;*
+      - *video plays its longest cue at 56 frames a second.*
+    - *Over budget there: CPU paint and video.*
+      - *B1's and B2's slowest frames paint in 21–23 ms against 12 ms. Gate 0 measured Apple Silicon at about 3.4× this container, on one thread.*
+      - *B1's video reaches 0.94× realtime at 60 fps, and B2's 1.1×. The frame loop paints a batch on every core, then writes it, so painting and writing never overlap.*
+      - *B3 paints a frame in 208 ms against 25 ms, and its video reaches 0.16× realtime against 0.5×. The mesh's CPU reference renders one pixel at a time on one thread. Each pixel is its own, so rows can go to threads with the same result.*
+
+    *The runners' numbers are in each run's summary.*
+  - *On CI's macOS runner (Apple M1, virtual, 3 cores), its first run:*
+    - *B1 and B2 are within budget for CPU paint and video.*
+      - *Their slowest frames paint in 4.6 and 4.4 ms.*
+      - *Their video takes 4.4 and 4.6 ms a frame, past 3× realtime.*
+      - *So the container's overruns are the container's.*
+    - *B3 stays over: 119 ms to paint a frame, and 70 ms a video frame.*
+    - *GPU paint with its readback takes 16–26 ms a frame on B1–B3. SPEC's 6 ms budget is for the paint alone, so the report records this stage without judging it.*
+  - *Not measured:*
+    - *GPU paint alone: the GPU stage reads its frame back.*
+    - *The GPU video path, which does not exist yet.)*
 
 ### 1G Design calls (Jay, 2026-10-02)
-- [ ] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases.
-- [ ] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures.
-- [ ] 1.27 Chart text is judged.
+- [x] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases. *(Done:*
+  - *A text role's `snap` (theme format 0.7) sets it on the baseline grid, whose lines run every `grid.baseline` cu from the grid's top margin:*
+    - *`baseline`: every baseline on a grid line. Layout rounds each gap between lines up to whole grid lines, so `fit` and containers measure the text as set.*
+    - *`cap`: the first line's cap height on a grid line, the lines below at the role's leading.*
+  - *After its alignment, a snapping text moves down to the next grid line, or, aligned to its box's foot (`end`, `baseline`), up to the line above. Texts aligned to one line move together. Charts and tables do not snap.*
+  - *W221 is a document rule over the theme's roles. It flags a `snap: baseline` role whose `size × leading` is not a whole number of grid lines (the theme's grid, and each listed format's that has a baseline of its own), and a grid with no baseline at all. It points into the theme file. Its fixtures carry inline themes.*
+  - *Dusk and Daybreak:*
+    - *body (32 cu) and caption (22 cu) snap their baselines, at leadings of 40 and 32 cu, five and four grid lines;*
+    - *display, headline, title, and numeral snap their cap heights.*
+
+    *For Jay: body is set tighter than before (1.35 → 1.25) and caption looser (1.3 → 1.4545). The example decks still lint clean.*
+  - *The torture deck's case 45, `baseline-grid`, has goldens, and its lint golden gains W221 for the case's off-grid role. No other golden moved.*
+  - *Not done: a node cannot turn snapping on or off; `snap` belongs to the role.)*
+- [x] 1.26 Data stays legible: the shipped themes keep the mesh off data slides, and lint warns about a shader painted behind a chart or a table, a new code beside W310. SPEC §3.8, §7.5; fixtures. *(Done:*
+  - *W311, a layout rule, flags a shader painted behind a chart or a table where they overlap, by paint order. It reports once per shader and chart or table, at the shader, naming every state it happens in. Fixtures are in `tests/lint/W311`.*
+  - *Dusk and Daybreak say where the mesh goes: their `title` layout is the place for a shader backdrop, and `figure` and `split` keep the plain surface. The author-deck skill says so too.*
+  - *No deck in the repository has W311: the examples already keep the mesh on title slides.*
+  - *Not done: a shader painted over a chart, such as a grain overlay, is not judged. W311 reads paint order and flags only what lies under the data.)*
+- [x] 1.27 Chart text is judged.
   - E110 and E111 cover a chart's labels, ticks, and direct names: in their colors, at their dimmed opacities, over what is painted behind them. `contrast.rs` skips them today.
   - A new code beside W310 flags chart text under 12 pt at presentation size (24 units on a 1920-unit canvas, scaling with the canvas).
-  - SPEC §7.5; fixtures. *(Jay's chart style guide: "presentation labels at least 12 pt"; PLAN 1.9, second pass.)*
+  - SPEC §7.5; fixtures. *(Jay's chart style guide: "presentation labels at least 12 pt"; PLAN 1.9, second pass.)* *(Done:*
+    - *E110 and E111 judge every text a chart sets (category and value labels, axis labels, titles, series names, annotations) in its color, at the opacity a highlight dims it to, over the chart's own marks, rules, and bands. The backdrop drops a chart's glyphs and keeps the rest. A chart is reported once for each kind of its text that fails, naming the text.*
+    - *Contrast now reads the ink. Each pixel counts by how much of it the glyphs cover, painted on their own, so a rule under a baseline no longer fails the text over it. Text at no opacity is not judged, and a run is bold by its role's weight, so a bold table header counts as WCAG's large text.*
+    - *W312 flags chart text under 12 pt at presentation size: 24 cu where the canvas's shorter side is 1080 cu, in proportion on others. One finding per chart names each kind of text and its size. Fixtures are in `tests/lint/W312`.*
+    - *Defects the rules found, fixed in the engine:*
+      - *a grouped bar's value label wider than its bar lay over the taller bar beside it (the revenue deck in 9:16); it now starts or ends with its bar, whichever clears;*
+      - *a donut's values at twelve and six o'clock touched the ring; they now stand half their cap height farther out;*
+      - *a rule's text and a callout's text crossed their own line with their descenders; they now clear it.*
+    - *The torture theme, B1's (whose charts are B2's), and the lint bundle's set chart text in a new `chart` role at 24 cu, the guide's floor, so the torture deck's chart goldens moved with the larger text.*
+    - *Not done: six findings in the torture deck's lint golden are value labels and callouts the layout lets marks and rules cross (PLAN 1.32; PR #41 holds most of the fix).)*
+- [ ] 1.32 Chart text clears what it would cross. 1.27's contrast check found text the layout lets a mark or a line cross, now E111s in the torture deck's lint golden:
+  - a dot's value over another series' dot (`k-dot`, both formats);
+  - a steep line through its first value in 9:16 (`st-line`, `n-lines`);
+  - a `y` rule across a bar's value (`n-bars`);
+  - a callout's text on another annotation's rule (`n-bars` in `annotations-next`).
+
+  PR #41 (chart pass 3, open for Jay's review) already moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. Landing it on 1.27 should clear all but the steep lines, which need their first value moved off the line where the plot's side clamps it. Then the six findings leave the golden. *(Found by 1.27.)*
 
 ### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
 *Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
@@ -363,6 +503,50 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 1.29 Horizontal bars: `bar` and `stackedBar` take `orient: horizontal`, with categories down the side and their names read across, for rankings and long names. SPEC §3.7; schema; a torture case.
 - [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
+
+### 1I What gate 1's agent runs found (2026-10-03)
+*From `docs/examples/agent-run.md`, Findings. The runs found eight problems that are fixed (#53–#58); these are the rest.*
+- [x] 1.33 Resources an MCP-only agent can read whole.
+  - **The problem.** Claude Code saves a resource over its output limit to a file, and an agent with no file tools cannot open it. The deck schema (74 KB) and SPEC (157 KB) never reached gate 1's agents, which learned `dataTransform`'s syntax from E106 messages.
+  - **The task.** Serve SPEC by section, and `docs/spec/format.md`, `docs/spec/expr.md`, and the example themes on their own, each small enough to arrive whole. The server's tests hold every resource under that size.
+  - *(Done: every resource weighs under 40 KB as `resources/read` returns it, its text escaped (`scaena_mcp::LIMIT`). Gate 1's agent got a 45 KB result whole and a 74 KB one as a file; Claude Code's documented limit is 25,000 tokens.*
+    - *SPEC: `scaena://spec` is an index; each `##` section is `scaena://spec/N`, and each numbered subsection `scaena://spec/N.M`. §3, too large to arrive whole, holds its text up to §3.1 and the uris of its subsections, which are listed. The other subsections read by uri. Their texts in order are SPEC, which a test checks.*
+    - *The schemas: the deck's in four parts (`scaena://schema/deck`, its root and states; `/nodes`; `/deltas`, what a state sets; `/values`, what both share), the theme's in four (its root; `/charts`, `/shaders`, `/motion`), and the patch's ops by reference into the deck's parts. Each part is a JSON Schema whose `$id` is its uri. A test resolves every `$ref` and checks that the parts are the files in `docs/schema/`.*
+    - *`scaena://spec/format`, `scaena://spec/expr`, `scaena://examples/charts.deck.json`, and the three themes, Dusk, Daybreak, and Ember.*
+    - *JSON resources come without their whitespace, which takes the trails deck from 45 KB to 26 KB as read. The largest resource is §7, at 32 KB. The author-deck skill names the sections to read; SPEC §7.2 says how resources are served.)*
+- [x] 1.34 One vocabulary for the shipped themes.
+  - **The problem.** The retheme skill calls names the swap contract, but the shipped themes break it, so a deck cannot move between them without edits.
+  - **The task.** Dusk, Daybreak, and Ember name their layouts and slots by job, the same names for the same jobs:
+    - Dusk's `figure` layout, with its slots `main` and `footer`, is Ember's `chart`, with `chart` and `side`;
+    - Dusk's `stat` slots `meaning` and `aside` are Ember's `claim` and `detail`.
+  - **Shader presets** are named by job, too, and every theme has the ones the example decks use.
+  - **The test.** It re-themes each example deck across the three and expects no E102.
+  - *(Done: Dusk, Daybreak, and Ember define the same names for the same jobs, and SPEC §3.6 lists them.*
+    - *Layouts and slots. Ember's `chart` becomes `figure`, its slots `main` and `note` (`chart` and `side`), and `narrow-chart` becomes `narrow-figure`. A stat's `meaning` and `aside` become `claim` and `detail`. A source line or a column of facts is a `note` (Dusk's `footer`, Ember's `side`), and `split`'s `left` and `right` are `body` and `main`. Each theme gains the layouts the others had, in its own geometry: Dusk and Daybreak `statement`, `poster`, `narrow-figure`, `art-left`, and `art-right`, and Ember `split` and `quote`. Dusk's kicker runs in the bottom corner, its top row being the header's.*
+    - *Grids. Dusk and Daybreak lay out on 12 rows, as Ember does. Each slot covers the two rows its one did, so nothing moves, and an `at.row` names the same cell in each theme. Before, higher-ed's rows past 6 stopped lint on Dusk.*
+    - *Roles: Dusk and Daybreak gain `lede`, `kicker`, `figure`, and `quote`, and Ember `code`, in JetBrains Mono. Ember gains the color `accent-2` and the spring `heavy`. The shader presets are `backdrop` and `texture` (Dusk's `mesh-soft` and `noise-fine`), and the palettes `ambient` and `texture` (Dusk's `ember`, named for a theme), in each theme.*
+    - *`theme_apply` lists a theme's families in the deck's `fonts` when the bundle holds their files (`listed`), which E102 asked for by hand.*
+    - *The example decks use the new names. A test re-themes each of the six onto each theme: none is refused, and none has an E102. Another checks that the three themes name the same things. What remains in those deltas is the new look's to report: Dusk's larger headlines in higher-ed's header slots (E100), text over trails' storm photo on Daybreak (E110), and a few more.)*
+- [x] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
+  *(Done: `theme_apply` validates the deck with the new theme before it writes. A theme that adds a validation error is refused: `refused` in its result, exit 1. The deck keeps its theme, and the theme is copied into `themes/` all the same, for one `patch` with the `retheme` op and the fixes. `--force` (`force`) applies it anyway. The retheme skill shows the patch, and SPEC §7.1–§7.2 say so. A CLI test is refused, finds the `retheme` op alone refused too, and forces.)*
+- [x] 1.36 Lint sees what gate 1's renders showed.
+  - E101 judges a container's children against the nodes around it (in attempt 3, a source note over the cost cards).
+  - A narrative rule reports a spine whose beats run in another order than their states, which leaves the PDF and the video telling the story in different orders.
+  - A chart squashed by a theme's grid below a legible plot is flagged.
+  - `at.align` on a grid placement either places the grid in its cells or is rejected. In attempt 3 it did nothing.
+  *(Done:*
+    - *E101 compares two nodes where their paint paths part: the nodes themselves in one container, else the containers they are in. So a card in a stack collides with a note beside the stack when the stack and the note share a `z`, and the finding names the container whose `z` ties.*
+    - *W426 reports a beat that comes after another in the spine while its states play first. The ridgeline example now plays `lesson` after `sixfold`, where its beat stands.*
+    - *W313 flags a chart whose plot, the room its marks have once its labels, axes, and legend have theirs, is under 120 cu across or down at presentation size.*
+    - *A root container whose own `align` or `at.align` names an axis takes its content's size on that axis and aligns in its box, as SPEC §3.4 now says. Before, it filled the box, and the alignment had nothing to move. A slot's `align` is for text, and shrinks no container.*
+    - *Fixtures for W313 and W426, E101's trigger widened to a stack and a note, and a container test. The example decks still lint clean, and the torture deck's lint golden is unchanged.)*
+- [x] 1.37 A placement outside the theme's grid is a finding, not a stop. An `at.col` or `at.row` past the grid's tracks makes layout fail, and `lint` exits 2 with no findings. It should be E102 at the node's `at`, naming the grid's size, with the rest of the deck linted. (Found in 1.34: a 12-row deck on a 6-row theme.)
+  *(Done: validation reports each cell past the theme's grid as E102, so `lint` exits 1 with it, beside whatever else validation and the document rules find.*
+    - *A node's `at.col` or `at.row` past the grid is reported at the node's or the state's `at`: "`late` is placed in rows 6–7, past the theme's grid, which has 6 rows".*
+    - *A slot a node stands in that runs past the grid is reported in the theme. A slot no node uses places nothing, and is not judged.*
+    - *Each format the deck lists is judged on its own grid, and with its own slots.*
+    - *A range that runs backward is E106.*
+    - *A re-theme onto a smaller grid is refused, as for a missing name: a test re-themes higher-ed onto a 6-row Ember. SPEC §3.4 and §7.5 and the retheme skill say so.)*
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.
@@ -464,6 +648,6 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Gate | Date | Result | Notes |
 |---|---|---|---|
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
-| 1 | — | — | — |
+| 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | — | — |
 | 3 | — | — | — |

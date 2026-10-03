@@ -22,6 +22,7 @@ fn every_bundle_in_the_repository_validates() {
         "../../tests/bench/b1.scaena",
         "../../docs/examples/revenue.deck.json",
         "../../docs/examples/trails.deck.json",
+        "../../docs/examples/higher-ed.deck.json",
         "../../docs/examples/authorability",
     ] {
         let out = scaena(&["validate", bundle]);

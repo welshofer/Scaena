@@ -931,6 +931,45 @@ fn box_cap_trims_to_the_cap_height_and_slots_align_by_it() {
     assert!((anchors(&label).0 - 96.0).abs() < 1e-3);
 }
 
+// --- baseline grid (PLAN 1.25) ------------------------------------------------------
+
+/// How far `y` is from the torture grid's nearest baseline-grid line (every 8 cu from the
+/// 96 cu top margin), in grid lines.
+fn off_grid(y: f32) -> f32 {
+    let lines = (y - 96.0) / 8.0;
+    (lines - lines.round()).abs()
+}
+
+fn baselines(p: &PlacedText) -> Vec<f32> {
+    p.text.lines.iter().map(|l| p.origin[1] + l.baseline).collect()
+}
+
+#[test]
+fn the_grid_roles_set_their_baselines_and_cap_heights_on_the_baseline_grid() {
+    let mut fx = fixture();
+    // Body (40 cu: five lines), the off-grid leading (43.2 cu, set at six), the caption (32).
+    for (node, apart) in [("grid-body", 40.0), ("grid-loose", 48.0), ("grid-foot", 32.0)] {
+        let on = baselines(&fx.placed("baseline-grid", node));
+        assert!(on.len() >= 2, "`{node}` sets one line: {on:?}");
+        assert!(on.iter().all(|y| off_grid(*y) < 1e-3), "`{node}`: {on:?}");
+        assert!(on.windows(2).all(|p| (p[1] - p[0] - apart).abs() < 1e-3), "`{node}`: {on:?}");
+    }
+    // Both paragraphs start on row 3, at 324 cu, off the grid: their first baselines meet.
+    let (body, loose) = (fx.placed("baseline-grid", "grid-body"), fx.placed("baseline-grid", "grid-loose"));
+    assert!((baselines(&body)[0] - baselines(&loose)[0]).abs() < 1e-3);
+    // The headline's cap top sits on a grid line.
+    let head = fx.placed("baseline-grid", "grid-head");
+    assert!(off_grid(anchors(&head).0) < 1e-3, "cap top at {}", anchors(&head).0);
+    // The caption aligned to its box's foot moved up, so it stays in the box.
+    let foot = fx.placed("baseline-grid", "grid-foot");
+    let (bottom, cell_bottom) = (foot.origin[1] + foot.text.height, foot.cell[1] + foot.cell[3]);
+    assert!(bottom <= cell_bottom + 1e-3 && cell_bottom - bottom < 8.0, "{bottom} {cell_bottom}");
+    // The row's body text and caption share one baseline, on the grid.
+    let figure = anchors(&fx.placed("baseline-grid", "grid-row-figure")).2;
+    let label = anchors(&fx.placed("baseline-grid", "grid-row-label")).2;
+    assert!((figure - label).abs() < 1e-3 && off_grid(figure) < 1e-3, "{figure} {label}");
+}
+
 // --- catalogue (characterized as observed) ----------------------------------------
 
 /// Known failure: EB Garamond maps the regional indicators and precedes the emoji font

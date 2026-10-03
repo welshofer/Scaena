@@ -1,0 +1,16 @@
+{
+  "scaena": "0.9",
+  "_comment": "W311 clean: the mesh opens the deck alone, and the chart's state drops it.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": {"inline": [{"q": "Q1", "v": 10}, {"q": "Q2", "v": 12}, {"q": "Q3", "v": 15}]}, "schema": {"v": "number"}}},
+  "nodes": {
+    "bg": {"type": "shader", "kind": "mesh", "seed": 7, "palette": "ambient", "at": {"in": "canvas"}},
+    "c": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "q"}, "y": {"field": "v"}, "alt": "Sales rise each quarter.", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"bg": {}}},
+    {"id": "b", "layout": "full", "props": {"c": {}}, "remove": ["bg"]}
+  ]
+}

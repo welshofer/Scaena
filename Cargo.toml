@@ -89,6 +89,7 @@ sha2  = "0.10"
 # export
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] } # no `simple-text`: we never shape here
 hayro  = { version = "0.7.1", default-features = false } # tests only: rasterizes PDFs to compare with the painters
+resvg  = { version = "0.48.1", default-features = false, features = ["raster-images"] } # tests only: rasterizes SVGs to compare with the painters
 png    = "0.18.1"
 image  = { version = "0.25", default-features = false, features = ["png"] }
 
@@ -100,8 +101,11 @@ loro = "1.16"
 
 # agent surface
 rmcp   = { version = "3.5", default-features = false, features = ["server", "macros", "schemars", "transport-io"] }
-tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sync", "time"] }
 base64 = "0.23"
+
+# benchmarks (SPEC §15, PLAN 1.24): no plots, no rayon; `cargo bench` runs them
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
 # wasm / ffi (versions as Cargo.lock already resolves them through wgpu)
 wasm-bindgen = "0.2.129"
