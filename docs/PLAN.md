@@ -495,6 +495,25 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
 
+### 1I What gate 1's agent runs found (2026-10-03)
+*From `docs/examples/agent-run.md`, Findings. The runs found eight problems that are fixed (#53–#58); these are the rest.*
+- [ ] 1.33 Resources an MCP-only agent can read whole.
+  - **The problem.** Claude Code saves a resource over its output limit to a file, and an agent with no file tools cannot open it. The deck schema (74 KB) and SPEC (157 KB) never reached gate 1's agents, which learned `dataTransform`'s syntax from E106 messages.
+  - **The task.** Serve SPEC by section, and `docs/spec/format.md`, `docs/spec/expr.md`, and the example themes on their own, each small enough to arrive whole. The server's tests hold every resource under that size.
+- [ ] 1.34 One vocabulary for the shipped themes.
+  - **The problem.** The retheme skill calls names the swap contract, but the shipped themes break it, so a deck cannot move between them without edits.
+  - **The task.** Dusk, Daybreak, and Ember name their layouts and slots by job, the same names for the same jobs:
+    - Dusk's `figure` layout, with its slots `main` and `footer`, is Ember's `chart`, with `chart` and `side`;
+    - Dusk's `stat` slots `meaning` and `aside` are Ember's `claim` and `detail`.
+  - **Shader presets** are named by job, too, and every theme has the ones the example decks use.
+  - **The test.** It re-themes each example deck across the three and expects no E102.
+- [ ] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
+- [ ] 1.36 Lint sees what gate 1's renders showed.
+  - E101 judges a container's children against the nodes around it (in attempt 3, a source note over the cost cards).
+  - A narrative rule reports a spine whose beats run in another order than their states, which leaves the PDF and the video telling the story in different orders.
+  - A chart squashed by a theme's grid below a legible plot is flagged.
+  - `at.align` on a grid placement either places the grid in its cells or is rejected. In attempt 3 it did nothing.
+
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.
 2. Re-theme the same deck with a second theme via `theme_apply`; lint delta is empty or explained.
@@ -595,6 +614,6 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Gate | Date | Result | Notes |
 |---|---|---|---|
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
-| 1 | — | — | — |
+| 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | — | — |
 | 3 | — | — | — |

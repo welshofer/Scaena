@@ -74,6 +74,16 @@ The CLI today: `scaena validate | lint | inspect | diff | save | compile | decom
 
 Prove text parity, adversarially. The stack is pinned (PLAN 0.1): `parley` (shaping by `harfrust`, fonts read by `skrifa`), `fontique`, `taffy`, `peniko`, `kurbo`, `vello_cpu`, `vello`; versions, feature choices, and open findings are in ADR-0004. System fonts are compiled out: get a font context only from `scaena_engine::fonts::bundle_font_context`. Build the typography torture deck under `tests/fixtures/torture.scaena/` (PLAN 0.2 lists every case and which ones are kill criteria). `scaena render --state … --painter cpu` emits a PNG and a display list (PLAN 0.6; golden rasters in `tests/golden/torture/`), and `--painter gpu` paints the same display list with vello (PLAN 0.7; draw glyphs one run per glyph, ADR-0004 finding 6). The engine runs as WASM, bit-identical to native, and paints through WebGPU in `crates/scaena-wasm/www/` (PLAN 0.8; `just wasm-smoke`). The parity harness compares all three painters on every torture state (PLAN 0.9; `just spike`). Chart data motion (values animating in, the next quarter by key) samples two laid-out snapshots through `Engine::transition` (PLAN 0.10); frames never lay out or shape. Charts stay minimal until the chart and table sprint (PLAN 1.9), where Jay sets the aesthetic. The mesh shader's CPU reference and WGSL twin sit side by side in `scaena-core::shader`, and `shader_parity` holds them together (PLAN 0.11); a shader's clock is the global timeline. In the authorability spike (PLAN 0.13), fresh agents wrote and edited a deck from the docs alone; `docs/examples/agent-authorability.md` records it and its findings. Gate 0 is met and logged (PLAN 0.14): `docs/spike-report.md` holds the verdict, the evidence per criterion, the SPEC §15 timings on B1 (`tests/bench/b1.scaena`) and B4, and what Phase 1 inherits. Phase 1 starts at PLAN 1.1. If parity cannot be reached, follow the no-go path in PLAN §0 — do not quietly lower the bar.
 
+## Gate 1
+
+Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per exit criterion. `docs/examples/agent-run.md` records three runs:
+
+- **Making a deck.** An agent with MCP alone made `docs/examples/ridgeline.deck.json` from a CSV and a brief, exported it, and re-themed it.
+- **A narrative repair.** A fresh agent repaired a narrative lint finding on the authorability deck.
+- **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
+
+Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.33–1.36, and 1.9 and 1.28–1.32 as Jay reviews and schedules them.
+
 ## Working with Jay
 
 Direct, rigorous, no filler. State the decision, the evidence, and the trade. If something in SPEC is wrong, say so and propose the ADR. Don't pad commits or reports; the task list and the gate log are the status report.
