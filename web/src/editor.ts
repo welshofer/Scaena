@@ -9,13 +9,16 @@
 // `.scaena` zip with its fonts subset. A file dropped on the source joins the bundle, and its
 // path goes where it was dropped (PLAN 2.4).
 //
+// The assistant (PLAN 2.6) works on the deck with the user's own key: the source is read-only
+// while it works, and each edit it makes comes into the source as it is made.
+//
 // `?bundle=` is a bundle's directory or its deck file (the revenue example by default),
 // `opfs:NAME` for one the browser keeps, or `folder:NAME` for a folder opened before;
 // `?painter=` chooses who paints, as in the player.
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, linter, setDiagnostics } from "@codemirror/lint";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -24,6 +27,7 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
+import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { keptNames } from "./folders";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, Source, Where } from "./protocol";
@@ -186,6 +190,11 @@ async function edit(source: Source) {
   /** A lint of every state, waiting for typing to stop. */
   let pending: ReturnType<typeof setTimeout> | undefined;
   const pause = 500;
+  /** Whether the source takes typing: not while the assistant works. */
+  const locked = new Compartment();
+  /** The source the assistant's last edit made, and what the worker found in it: the lint of
+   * that source takes it as it is, rather than asking the worker again. */
+  let assisted: { source: string; edited: Edited } | undefined;
 
   const view = new EditorView({
     parent: $("#code"),
@@ -202,6 +211,7 @@ async function edit(source: Source) {
         syntaxHighlighting(scnHighlight),
         lintGutter(),
         linter(lint, { delay: 150 }),
+        locked.of([]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             version++;
@@ -251,7 +261,7 @@ async function edit(source: Source) {
     const sent = performance.now();
     let edited: Edited;
     try {
-      edited = await stage.edit(source, shown, format());
+      edited = assisted?.source === source ? assisted.edited : await stage.edit(source, shown, format());
     } catch (e) {
       status.textContent = `error: ${said(e)}`;
       return [];
@@ -455,6 +465,16 @@ async function edit(source: Source) {
     return paths;
   }
 
+  const assistant = panel(stage, {
+    source: () => view.state.doc.toString(),
+    apply: (source, edited) => {
+      assisted = { source, edited };
+      view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
+    },
+    lock: (on) =>
+      view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) }),
+  });
+
   $<HTMLButtonElement>("#save").onclick = () => void save().catch(failed);
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
   onkeydown = (e) => {
@@ -515,10 +535,26 @@ async function edit(source: Source) {
       shown: () => shown,
       inspector: () => inspector.textContent,
       at: () => stage.at,
+      /** The assistant: ask it something, and read the conversation. */
+      assistant,
     },
   });
 }
 
+/** The tabs under the preview: the inspector, and the assistant. */
+function tabs() {
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];
+  for (const button of buttons)
+    button.onclick = () => {
+      for (const other of buttons) {
+        const on = other === button;
+        other.setAttribute("aria-selected", String(on));
+        $(`#${other.getAttribute("aria-controls")}`).hidden = !on;
+      }
+    };
+}
+
+tabs();
 controls()
   .then(first)
   .then(edit)

@@ -11,6 +11,7 @@ members = [
   "crates/scaena-mcp",
   "crates/scaena-wasm",
   "crates/scaena-subset",
+  "crates/scaena-resources",
   "crates/scaena-ffi",
 ]
 default-members = [
@@ -40,6 +41,7 @@ scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
+scaena-resources = { path = "crates/scaena-resources" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }

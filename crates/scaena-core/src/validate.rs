@@ -516,7 +516,7 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 out.push(repeated(&at).file(path.clone()));
             }
             out.extend(Checker::theme().check(&value).into_iter().map(|v| schema_finding(v).file(path.clone())));
-            let theme = serde_json::from_value(value).ok()?;
+            let theme = Theme::from_json(&text).ok()?;
             Some(LoadedTheme { theme, file: Some(path.clone()), root: "" })
         }
         inline @ Value::Object(_) => {
@@ -524,7 +524,7 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 let path = format!("/theme{}", v.path);
                 out.push(schema_finding(Violation { path, ..v }));
             }
-            let theme = serde_json::from_value(inline.clone()).ok()?;
+            let theme = Theme::from_value(inline).ok()?;
             Some(LoadedTheme { theme, file: None, root: "/theme" })
         }
         _ => None,

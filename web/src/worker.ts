@@ -3,14 +3,15 @@
 // otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
 // deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold. For
 // the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state; it
-// saves the bundle where it is kept, zips it, and takes files dropped on the page.
+// saves the bundle where it is kept, zips it, and takes files dropped on the page; and the
+// assistant works here, with the bundle's tools (PLAN 2.6).
 //
 // A single-file export (PLAN 2.5) builds it as a classic script, against the player's module
 // alone, which its page hands over compiled with the bundle's files: its page is a file, and
 // a browser starts no module worker from a file's page.
 import init, { Canvas, Player } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
-import type { Edited, Finding, FromWorker, Painter, Slot, Source, ToWorker, Where } from "./protocol";
+import type { Asking, AssistantEvent, Edited, Finding, FromWorker, Painter, Slot, Source, ToWorker, Where } from "./protocol";
 
 const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMessage(message, transfer);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -69,6 +70,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "source", id: data.id, source: player.source() });
       case "edit":
         latest++;
+        shown = { index: data.index, format: data.format };
         return post({ type: "edited", id: data.id, ...(await edit(data.source, data.index, data.format)) });
       case "lint": {
         const start = performance.now();
@@ -100,6 +102,16 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const path = Player.place(data.name, bytes);
         player.addFile(path, bytes);
         return post({ type: "dropped", id: data.id, path });
+      }
+      case "ask":
+        return await ask(data.id, data.source, data.ask);
+      case "stop":
+        return asking?.abort();
+      case "forget":
+        return (await import("@scaena/assistant")).forget();
+      case "models": {
+        const { providers } = await import("@scaena/assistant");
+        return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
       }
     }
   } catch (e) {
@@ -273,6 +285,36 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
     return { where: home.where, renamed, files: paths.length };
   } finally {
     saved.free();
+  }
+}
+
+/** The assistant's question being answered, to stop. */
+let asking: AbortController | undefined;
+/** Where the editor shows the deck: the slot and format of its last edit. */
+let shown: { index: number; format?: string } = { index: 0 };
+
+/** Ask the assistant `question` about the deck `source` says (PLAN 2.6), which must compile
+ * and validate: the assistant's tools work on that deck, and each edit they make comes back to
+ * the editor as source. The assistant's code and what it reads load the first time. */
+async function ask(id: number, source: string, question: Asking) {
+  saveable(source);
+  const assistant = await import("@scaena/assistant");
+  asking?.abort();
+  const stop = (asking = new AbortController());
+  const emit = (event: AssistantEvent) => post({ type: "assistant", id, event });
+  // Each edit the assistant makes is compiled, shown, and linted here, as the editor's edit of
+  // its source would be, before its next call: the editor takes the source and what the edit
+  // came to, and sends nothing back that the assistant has moved past.
+  const edited = async (source: string) => {
+    latest++;
+    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format) });
+  };
+  try {
+    await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
+  } catch (e) {
+    emit({ kind: "failed", message: said(e) });
+  } finally {
+    if (asking === stop) asking = undefined;
   }
 }
 

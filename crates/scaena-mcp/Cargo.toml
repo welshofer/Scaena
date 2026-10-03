@@ -15,6 +15,7 @@ gpu = ["scaena-ops/gpu"]
 [dependencies]
 scaena-core.workspace = true
 scaena-ops.workspace = true
+scaena-resources.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 base64.workspace = true

@@ -36,6 +36,8 @@ use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "editor")]
+pub mod assistant;
+#[cfg(feature = "editor")]
 pub mod editor;
 #[cfg(feature = "editor")]
 mod store;
@@ -54,6 +56,10 @@ pub enum Error {
     NothingCompiled,
     #[error("{0}")]
     Ops(String),
+    /// An operation the assistant called stopped (PLAN 2.6): why, as its MCP tool says it.
+    #[cfg(feature = "editor")]
+    #[error("{}", .0.message)]
+    Tool(scaena_ops::OpsError),
 }
 
 /// One bundle's engine: the deck, its theme, every file of the bundle handed over, and the
@@ -453,6 +459,77 @@ impl Player {
     /// `assets/`, named by its SHA-256, as a save names it.
     pub fn place(name: &str, bytes: &[u8]) -> String {
         scaena_store::place(name, bytes)
+    }
+}
+
+/// The assistant's tools (PLAN 2.6, SPEC §11): MCP's operations on this bundle.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The tools the assistant has, by their MCP names.
+    #[wasm_bindgen(js_name = toolNames)]
+    pub fn tool_names() -> Vec<String> {
+        assistant::TOOLS.iter().map(|t| t.to_string()).collect()
+    }
+
+    /// Call the tool `name` with `args` (JSON), as its MCP tool takes them less `bundle`,
+    /// `out`, and `painter`. A tool that stops says why in the result, as an MCP tool's
+    /// error result does, rather than throwing: either way it is what the model is told.
+    pub fn tool(&mut self, name: &str, args: &str) -> ToolResult {
+        let called = match serde_json::from_str(args) {
+            Ok(args) => self.0.tool(name, args),
+            Err(e) => Err(Error::Ops(format!("{name}: the arguments are not JSON: {e}"))),
+        };
+        match called {
+            Ok(c) => ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame },
+            Err(e) => {
+                let json = assistant::failure(&e).to_string();
+                ToolResult { json, error: true, edited: false, frame: None }
+            }
+        }
+    }
+}
+
+/// What a tool returned (PLAN 2.6).
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct ToolResult {
+    json: String,
+    error: bool,
+    edited: bool,
+    frame: Option<scaena_paint::Raster>,
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl ToolResult {
+    /// What the tool returned, as JSON: its MCP tool's result, or why it stopped.
+    #[wasm_bindgen(getter)]
+    pub fn json(&self) -> String {
+        self.json.clone()
+    }
+
+    /// Whether it stopped: `json` then says why (`{ message, plan?, op? }`).
+    #[wasm_bindgen(getter)]
+    pub fn error(&self) -> bool {
+        self.error
+    }
+
+    /// Whether it changed the deck: the page takes the source again.
+    #[wasm_bindgen(getter)]
+    pub fn edited(&self) -> bool {
+        self.edited
+    }
+
+    /// `deck_render`'s frame, `[width, height]` pixels.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> Option<Vec<u32>> {
+        self.frame.as_ref().map(|r| vec![r.width, r.height])
+    }
+
+    /// `deck_render`'s frame as RGBA, for an `ImageData`; empty from any other tool.
+    pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.frame.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
     }
 }
 

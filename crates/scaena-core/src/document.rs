@@ -222,6 +222,16 @@ impl NodeType {
     }
 }
 
+/// What a JSON error says, without where in its text: the text of a value written out to
+/// be parsed, a line no file holds.
+pub(crate) fn unplaced(e: serde_json::Error) -> String {
+    let message = e.to_string();
+    match message.rsplit_once(" at line ") {
+        Some((what, _)) if e.line() > 0 => what.to_string(),
+        _ => message,
+    }
+}
+
 /// A node in the scene graph: a type plus its default properties.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
@@ -356,6 +366,20 @@ impl Deck {
     /// Serialize canonically (pretty, key order preserved).
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
+    }
+
+    /// The deck as a JSON value, through its canonical text: the one serializer of the
+    /// model a WASM module carries, where `serde_json::to_value` would compile in a second
+    /// (SPEC §15).
+    pub fn to_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::from_str(&self.to_json()?)
+    }
+
+    /// A deck from a JSON value, through its text, with the one parser of the model
+    /// ([`Deck::from_json`]); an error says what is wrong without a place in that text,
+    /// which no file holds.
+    pub fn from_value(value: &serde_json::Value) -> Result<Deck, String> {
+        Deck::from_json(&value.to_string()).map_err(unplaced)
     }
 
     /// Index of a state by id.

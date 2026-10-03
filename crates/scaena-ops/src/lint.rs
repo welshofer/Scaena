@@ -122,7 +122,7 @@ pub fn lint_with(
     layout: impl FnOnce(&Theme) -> Result<Vec<Finding>, OpsError>,
 ) -> Result<Linted, OpsError> {
     let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
-    let model: Option<scaena_core::model::theme::Theme> = theme.and_then(|t| serde_json::from_str(t).ok());
+    let model = theme.and_then(|t| scaena_core::model::theme::Theme::from_json(t).ok());
     found.extend(scaena_core::lint::check(deck, model.as_ref()));
     let laid = theme.is_some() && !found.iter().any(|f| f.severity == Severity::Error);
     if let (true, Some(text)) = (laid, theme) {
@@ -160,8 +160,19 @@ pub struct Fixed {
 /// Apply every fix lint offers, each checked by laying its state out again with it and
 /// never a change of content; write the deck canonically if any applied; lint again.
 pub fn lint_fix(b: &Bundle) -> Result<Fixed, OpsError> {
+    let (fixed, deck) = fixing(b)?;
+    if let Some(deck) = deck {
+        write(b, deck)?;
+    }
+    Ok(fixed)
+}
+
+/// [`lint_fix`] with nothing written: what it fixes and finds after, and the deck to write,
+/// if any fix applied. A client that keeps its bundle in memory writes it there (the web
+/// page's assistant, PLAN 2.6).
+pub fn fixing(b: &Bundle) -> Result<(Fixed, Option<Write>), OpsError> {
     let found = lint(b)?.findings;
-    let mut doc = serde_json::to_value(&b.deck)?;
+    let mut doc = b.deck.to_value()?;
     let mut fixed = Vec::new();
     for f in found.into_iter().filter(|f| f.fix.is_some()) {
         // Two findings can carry one fix (the same text in two states); it applies once.
@@ -173,13 +184,37 @@ pub fn lint_fix(b: &Bundle) -> Result<Fixed, OpsError> {
         }
     }
     let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
-    if !fixed.is_empty() {
+    let findings = lint_in(&deck, &View::of(b))?.findings;
+    let write = (!fixed.is_empty()).then(|| {
         let mut codes: Vec<&str> = fixed.iter().map(|f| f.code.as_str()).collect();
         codes.dedup();
-        write_deck(b, &deck, BTreeMap::new(), &Why::new(format!("lint --fix: {}", codes.join(", "))))?;
+        Write::new(deck, Why::new(format!("lint --fix: {}", codes.join(", "))))
+    });
+    Ok((Fixed { fixed, findings }, write))
+}
+
+/// What an operation writes: the deck, the files beside it, and why. Operations that edit
+/// a bundle compute it and write it with [`write`]; each has a twin that only computes it,
+/// for a client that keeps the bundle somewhere else. The web page keeps its bundle in
+/// memory and records no history yet (PLAN 2.9), so it never reaches the CRDT, which stays
+/// out of its module (SPEC §15).
+#[derive(Debug, Clone)]
+pub struct Write {
+    pub deck: Deck,
+    /// Files to write beside it, by their paths in the bundle: a data file attached.
+    pub files: BTreeMap<String, Vec<u8>>,
+    pub why: Why,
+}
+
+impl Write {
+    pub fn new(deck: Deck, why: Why) -> Write {
+        Write { deck, files: BTreeMap::new(), why }
     }
-    let findings = lint_in(&deck, &View::of(b))?.findings;
-    Ok(Fixed { fixed, findings })
+}
+
+/// Write what an operation computed into the bundle, recorded in its history if it keeps one.
+pub fn write(b: &Bundle, w: Write) -> Result<(), OpsError> {
+    write_deck(b, &w.deck, w.files, &w.why)
 }
 
 /// What a write does to the deck, as the bundle's history records it (SPEC §8.2): the

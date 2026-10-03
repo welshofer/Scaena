@@ -186,7 +186,7 @@ fn verify(
         let works = (|| -> Option<bool> {
             let mut doc = json.clone();
             scaena_core::patch::apply(&mut doc, f.fix.as_deref()?).ok()?;
-            let patched: Deck = serde_json::from_value(doc).ok()?;
+            let patched = Deck::from_value(&doc).ok()?;
             let (d, t) = project(&patched, theme, f.format.as_deref()).ok()?;
             let snaps = scaena_core::resolve_states(&d).ok()?;
             let index = snaps.iter().position(|s| Some(&s.state_id) == f.state.as_ref())?;

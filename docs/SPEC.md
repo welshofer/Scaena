@@ -1119,7 +1119,13 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
   - **The export fills it in** with the deck's title and language, every file the player reads (each gzipped, in base64, by its path in the bundle: what `scaena save` writes, fonts subset to what the deck draws, without the manifest or the history), the states it plays, and how each reads (§3.12).
   - **A file's page starts no module worker, and no worker from its own address.** The page compiles the engine and hands it to the worker, which starts from the page's own code as a classic script. Nothing the page keeps goes into the browser's storage.
   - **No network.** The page's content security policy lets nothing load, and nothing in it is anywhere else. Opened from its address on disk with the network off, the torture deck's file shows every golden frame within §13.5 of the goldens by the CPU painter, and WebGPU paints a file too. The engine it carries paints each frame byte for byte as the web player's engine does (`web/standalone.mjs`).
-- Assistant (BYOK, §11) runs in the worker and uses the same operations as the CLI.
+- **Assistant** (BYOK, §11; PLAN 2.6), in the editor's Assistant tab, with the user's own key.
+  - **Who answers.** Anthropic's Messages API (with its header for a browser's direct calls; the system prompt cached), OpenAI's Chat Completions (or a server that speaks it, at an address the user gives), or Gemini's generateContent. The page lists the models the key can use and names none itself.
+  - **Keys** go from the page to their provider and nowhere else, and never into a bundle. A key is kept for the tab alone by default. Kept on the device, when the user asks, it is encrypted (AES-GCM) with a key the browser keeps in IndexedDB and never hands out; the panel says that a script the page runs could still use it. Forget key forgets it.
+  - **Its tools are the MCP server's (§7.2)**, on the bundle the page holds: the same names and arguments, less `bundle`, `out`, and `painter`. They are `deck_read`, `deck_patch`, `deck_lint`, `deck_inspect`, `deck_diff`, `deck_render` (the CPU painter's frame, sent to the model as an image), `spine_read`, `spine_update`, and `data_attach`, which declares a data file the bundle holds already, as one dropped on the page does. `resource_read` reads what the server serves as resources, and a skill the bundle carries (`skills/NAME/SKILL.md`, `bundle://skills/NAME`). `deck_create`, `theme_apply`, and `deck_export` are not among them: the page opens and downloads bundles itself, and the assistant asks the user when the work needs a new bundle, another theme, or an export. The worker runs each tool in the engine's module (`Player.tool`), by the operations of `scaena-ops` (ADR-0009). Each operation that writes has a twin that computes what to write and writes nothing, which is what the page calls, so the CRDT stays out of the module (ADR-0011).
+  - **The prompt** is the author-deck skill, the deck in a few facts, and the list of resources. The resources are a WASM module of their own (`scaena-resources`, 0.21 MB gzipped), which the worker loads with the assistant's code the first time the user asks something.
+  - **While it works** the source is read-only. Each edit it makes is compiled, shown, and linted in the worker before its next call, and comes into the source as an edit, which undoes as one. Stop ends it after the call it is in. A question takes at most 32 rounds of calls. The model is sent the newest two frames it drew, and the older ones by name.
+  - The agent loop of PLAN 1.19 runs through the editor against a scripted server for each provider's wire format (`web/assistant.mjs`).
 
 ### 9.3 Mac client (Phase 3)
 
@@ -1156,7 +1162,7 @@ The existing export code integrates against `spine.json` + `scaena render`/`expo
 ## 11. LLM integration (BYOK, no backend)
 
 1. **Any agent via MCP** (Phase 1). No keys handled by Scaena.
-2. **In-app assistant** (Phase 2/3). Provider adapters: Anthropic Messages API (direct browser calls with the explicit opt-in header), OpenAI, Gemini. Keys: Keychain (Mac), encrypted local storage with a session-only option (web). Keys are never written into a bundle. The assistant uses the same operations as the CLI through function calling; prompts come from `skills/`.
+2. **In-app assistant** (Phase 2/3). Provider adapters: Anthropic Messages API (direct browser calls with the explicit opt-in header), OpenAI (Chat Completions, or a server that speaks it), Gemini. Keys: Keychain (Mac); the tab's own storage, or the device's, encrypted, when the user asks (web). Keys are never written into a bundle. The assistant uses the same operations as the CLI through function calling: on the web, the MCP server's tools on the bundle the page holds (§9.2, ADR-0011). Prompts come from `skills/`: the author-deck skill, and the rest as resources the model reads.
 3. **On-device** (Mac): Apple Foundation Models for lint explanations, notes drafting, copy tightening.
 
 ---
@@ -1172,7 +1178,9 @@ crates/
   scaena-ops      the operations every client exposes, over a bundle, with typed results (ADR-0009)
   scaena-cli      `scaena` binary over scaena-ops
   scaena-mcp      MCP server (rmcp) over scaena-ops
+  scaena-resources what agents read (SPEC by section, the schemas in parts, the lint catalog, the skills, examples): the MCP server's resources, and a WASM module of its own for the page's assistant
   scaena-wasm     wasm-bindgen bindings
+  scaena-subset   the font subsetter as a WASM module of its own, which a page loads to download a bundle
   scaena-ffi      C ABI (cbindgen) for Swift
   scaena-store    CRDT document (loro), ops, history, bundle I/O
 web/              Vite + TS player/editor (Phase 2)
@@ -1227,7 +1235,7 @@ Budgets are per stage, on named benchmark decks, on a reference machine (M-serie
 
 On macOS the workflow turns Spotlight off first: it indexes the files a build writes while the benches run.
 
-A pull request with a regression fails, unless it carries the label `bench-accept`. Runs of the same code on different CI machines spread too far to judge a change by. Of six runs of `main` on the macOS runner, 46% of the times were more than 10% from their bench's median and 13% more than 30%, and Linux runs land on different processors. So each runner's history of `main`'s runs, kept by the workflow, is shown beside each bench for context and does not judge. The run summary shows the budgets below for every deck, then every bench against its base and `main`'s runs. A `probe` bench, a fixed sort, shows how fast the runner was, to tell a slow machine from a slow change. The `wasm` job checks the engine's WASM size, records the font subsetter's beside it (a module of its own, which a page loads only to download a bundle, §9.2) and the player's module (the engine without the editor's operations, which a single-file export carries), and records B1's cold start in headless Chromium.
+A pull request with a regression fails, unless it carries the label `bench-accept`. Runs of the same code on different CI machines spread too far to judge a change by. Of six runs of `main` on the macOS runner, 46% of the times were more than 10% from their bench's median and 13% more than 30%, and Linux runs land on different processors. So each runner's history of `main`'s runs, kept by the workflow, is shown beside each bench for context and does not judge. The run summary shows the budgets below for every deck, then every bench against its base and `main`'s runs. A `probe` bench, a fixed sort, shows how fast the runner was, to tell a slow machine from a slow change. The `wasm` job checks the engine's WASM size, records the font subsetter's beside it (a module of its own, which a page loads only to download a bundle, §9.2), what the assistant reads (another, loaded the first time it is asked something), and the player's module (the engine without the editor's operations, which a single-file export carries), and records B1's cold start in headless Chromium.
 
 | Stage | Budget (warm unless noted) | Deck |
 |---|---|---|

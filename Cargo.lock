@@ -2982,6 +2982,7 @@ dependencies = [
  "rmcp",
  "scaena-core",
  "scaena-ops",
+ "scaena-resources",
  "scaena-store",
  "schemars",
  "serde",
@@ -3022,6 +3023,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "scaena-resources"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "scaena-store"
 version = "0.1.0"
 dependencies = [
@@ -3049,6 +3058,7 @@ dependencies = [
 name = "scaena-wasm"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "scaena-core",
  "scaena-engine",
  "scaena-ops",

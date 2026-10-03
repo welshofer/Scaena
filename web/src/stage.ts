@@ -1,11 +1,25 @@
 // One canvas and the engine's worker that paints it (PLAN 2.1–2.4): the page's side of
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
-import type { At, Edited, FromWorker, Inspected, Linted, Opened, Painter, Slot, Source, ToWorker } from "./protocol";
+import type {
+  Asking,
+  AssistantEvent,
+  At,
+  Edited,
+  FromWorker,
+  Inspected,
+  Linted,
+  Opened,
+  Painter,
+  ProviderId,
+  Slot,
+  Source,
+  ToWorker,
+} from "./protocol";
 
 type Reply = Extract<
   FromWorker,
   {
-    type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" | "saved" | "zipped" | "dropped";
+    type: "shown" | "timeline" | "at" | "source" | "edited" | "linted" | "fixed" | "inspected" | "saved" | "zipped" | "dropped" | "models";
   }
 >;
 
@@ -25,6 +39,8 @@ export class Stage {
   onError: (error: Error) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
+  /** What hears each step of the assistant's answer to a question, by the question's id. */
+  private hearing = new Map<number, (event: AssistantEvent) => void>();
   private asked = 0;
 
   private constructor(
@@ -67,12 +83,12 @@ export class Stage {
   /** Paint `state` `t` ms into its cue (at rest without `t`), in `format` or on the deck's
    * own canvas. Resolves once the frame is on the canvas. */
   show(state: string, t?: number, format?: string): Promise<{ size: [number, number]; ms: number }> {
-    return this.ask<"shown">({ type: "show", id: ++this.asked, state, t, format }).then(({ size, ms }) => ({ size, ms }));
+    return this.request<"shown">({ type: "show", id: ++this.asked, state, t, format }).then(({ size, ms }) => ({ size, ms }));
   }
 
   /** The deck's timeline in `format`, or on its own canvas. */
   timeline(format?: string): Promise<Slot[]> {
-    return this.ask<"timeline">({ type: "timeline", id: ++this.asked, format }).then(({ slots }) => slots);
+    return this.request<"timeline">({ type: "timeline", id: ++this.asked, format }).then(({ slots }) => slots);
   }
 
   /** Play from slot `index`, `t` ms into its cue, until a state that waits comes to rest. */
@@ -83,7 +99,7 @@ export class Stage {
   /** Show slot `index` `t` ms into its cue (at rest without `t`), still. Resolves once it is
    * on the canvas. */
   seek(index: number, t?: number, format?: string): Promise<At> {
-    return this.ask<"at">({ type: "seek", id: ++this.asked, index, t, format }).then(() => this.at);
+    return this.request<"at">({ type: "seek", id: ++this.asked, index, t, format }).then(() => this.at);
   }
 
   pause() {
@@ -92,13 +108,13 @@ export class Stage {
 
   /** The deck as canonical `.scn`. */
   source(): Promise<string> {
-    return this.ask<"source">({ type: "source", id: ++this.asked }).then(({ source }) => source);
+    return this.request<"source">({ type: "source", id: ++this.asked }).then(({ source }) => source);
   }
 
   /** Compile `source`; once it validates, show slot `index` from it at rest, and lint that
    * slot's state. */
   edit(source: string, index: number, format?: string): Promise<Edited> {
-    return this.ask<"edited">({ type: "edit", id: ++this.asked, source, index, format }).then((edited) => {
+    return this.request<"edited">({ type: "edit", id: ++this.asked, source, index, format }).then((edited) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
@@ -109,33 +125,67 @@ export class Stage {
 
   /** Lint the deck compiled last, laying out every state. */
   lint(): Promise<Linted> {
-    return this.ask<"linted">({ type: "lint", id: ++this.asked });
+    return this.request<"linted">({ type: "lint", id: ++this.asked });
   }
 
   /** The source compiled last with `patch`, a finding's fix, applied. */
   fix(patch: unknown[]): Promise<string> {
-    return this.ask<"fixed">({ type: "fix", id: ++this.asked, patch }).then(({ source }) => source);
+    return this.request<"fixed">({ type: "fix", id: ++this.asked, patch }).then(({ source }) => source);
   }
 
   /** `state` inspected, in `format` or on the deck's own canvas. */
   inspect(state: string, format?: string): Promise<Inspected> {
-    return this.ask<"inspected">({ type: "inspect", id: ++this.asked, state, format }).then(({ inspected }) => inspected);
+    return this.request<"inspected">({ type: "inspect", id: ++this.asked, state, format }).then(({ inspected }) => inspected);
   }
 
   /** Save the bundle with the deck `source` compiles to where it is kept, or into the
    * browser's storage (PLAN 2.4). The session goes on from the save. */
   save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
-    return this.ask<"saved">({ type: "save", id: ++this.asked, source });
+    return this.request<"saved">({ type: "save", id: ++this.asked, source });
   }
 
   /** The bundle with the deck `source` compiles to, as a `.scaena` zip with its fonts subset. */
   zip(source: string): Promise<{ bytes: ArrayBuffer; subset: [string, number, number][] }> {
-    return this.ask<"zipped">({ type: "zip", id: ++this.asked, source });
+    return this.request<"zipped">({ type: "zip", id: ++this.asked, source });
   }
 
   /** Add a file dropped on the page to the bundle; resolves to its path there. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
-    return this.ask<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+    return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
+  }
+
+  /** Ask the assistant `asking.text` about the deck `source` says, which must compile and
+   * validate (PLAN 2.6). `hear` hears each step; the promise holds the last, `done` or
+   * `failed`, and fails if the question could not be asked. */
+  ask(source: string, asking: Asking, hear: (event: AssistantEvent) => void): Promise<AssistantEvent> {
+    const id = ++this.asked;
+    return new Promise((resolve, reject) => {
+      this.hearing.set(id, (event) => {
+        hear(event);
+        if (event.kind === "done" || event.kind === "failed") {
+          this.hearing.delete(id);
+          this.waiting.delete(id);
+          resolve(event);
+        }
+      });
+      this.waiting.set(id, { resolve: () => {}, reject: (e) => (this.hearing.delete(id), reject(e)) });
+      this.send({ type: "ask", id, source, ask: asking });
+    });
+  }
+
+  /** Stop the assistant: the call it is in finishes, and it says no more. */
+  stop() {
+    this.send({ type: "stop" });
+  }
+
+  /** Start a new conversation with the assistant. */
+  forget() {
+    this.send({ type: "forget" });
+  }
+
+  /** The models `key` can use at `provider`, at its own address or `base`. */
+  models(provider: ProviderId, key: string, base?: string): Promise<string[]> {
+    return this.request<"models">({ type: "models", id: ++this.asked, provider, key, base }).then(({ models }) => models);
   }
 
   /** Stop the worker: the page opens another bundle. What was asked of it is never answered:
@@ -143,13 +193,14 @@ export class Stage {
   close() {
     this.worker.terminate();
     this.waiting.clear();
+    this.hearing.clear();
   }
 
   private send(message: ToWorker) {
     this.worker.postMessage(message);
   }
 
-  private ask<T extends Reply["type"]>(message: Extract<ToWorker, { id: number }>): Promise<Extract<Reply, { type: T }>> {
+  private request<T extends Reply["type"]>(message: Extract<ToWorker, { id: number }>): Promise<Extract<Reply, { type: T }>> {
     return new Promise((resolve, reject) => {
       this.waiting.set(message.id, { resolve: resolve as (reply: Reply) => void, reject });
       this.send(message);
@@ -168,8 +219,12 @@ export class Stage {
       case "saved":
       case "zipped":
       case "dropped":
+      case "models":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
+        return;
+      case "assistant":
+        this.hearing.get(data.id)?.(data.event);
         return;
       case "at": {
         const { type: _, id, ...at } = data;

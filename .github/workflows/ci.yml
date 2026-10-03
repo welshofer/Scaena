@@ -103,7 +103,7 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
       # The player's engine alone, as a single-file export carries it (PLAN 2.5).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
@@ -131,9 +131,11 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset --target wasm32-unknown-unknown --release --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-resources --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5).
       - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
@@ -148,6 +150,8 @@ jobs:
           echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
           player=crates/scaena-wasm/player/scaena_wasm_bg.wasm
           echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
+          read=crates/scaena-resources/pkg/scaena_resources_bg.wasm
+          echo "What the assistant reads: $(wc -c < "$read") bytes, $(gzip -9 -c "$read" | wc -c) gzipped, loaded to ask" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
@@ -159,6 +163,8 @@ jobs:
       - run: node web/player.mjs
       - run: node web/editor.mjs
       - run: node web/storage.mjs
+      # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
+      - run: node web/assistant.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:

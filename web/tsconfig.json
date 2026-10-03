@@ -12,7 +12,9 @@
     "skipLibCheck": true,
     "paths": {
       "@scaena/wasm": ["../crates/scaena-wasm/www/pkg/scaena_wasm.d.ts"],
-      "@scaena/subset": ["../crates/scaena-subset/pkg/scaena_subset.d.ts"]
+      "@scaena/subset": ["../crates/scaena-subset/pkg/scaena_subset.d.ts"],
+      "@scaena/resources": ["../crates/scaena-resources/pkg/scaena_resources.d.ts"],
+      "@scaena/assistant": ["./src/assistant/index.ts"]
     }
   },
   "include": ["src"],

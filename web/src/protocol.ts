@@ -80,7 +80,52 @@ export type ToWorker =
   | { type: "zip"; id: number; source: string }
   /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
    * is named by its SHA-256 (`Player.place`). */
-  | { type: "drop"; id: number; name: string; bytes: ArrayBuffer };
+  | { type: "drop"; id: number; name: string; bytes: ArrayBuffer }
+  /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
+   * validates, which its tools then work on. Each step comes back as an `assistant` event,
+   * until one that is `done` or `failed`. */
+  | { type: "ask"; id: number; source: string; ask: Asking }
+  /** Stop the assistant: the call it is in finishes, and it says no more. */
+  | { type: "stop" }
+  /** Start a new conversation with the assistant. */
+  | { type: "forget" }
+  /** The models `key` can use at `provider`. */
+  | { type: "models"; id: number; provider: ProviderId; key: string; base?: string };
+
+/** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
+ * Completions), or Gemini, with the user's own key (SPEC §11). */
+export type ProviderId = "anthropic" | "openai" | "gemini";
+
+/** A question for the assistant, and who answers it: the provider, at its own address or at
+ * `base`, with the user's key, and the model they picked. */
+export interface Asking {
+  provider: ProviderId;
+  model: string;
+  key: string;
+  base?: string;
+  text: string;
+}
+
+/** What the page hears as the assistant works. */
+export type AssistantEvent =
+  /** The model said `text`. */
+  | { kind: "text"; text: string }
+  /** It calls tool `name`. */
+  | { kind: "call"; id: string; name: string; args: unknown }
+  /** Call `id` returned: `summary` says what it came to; `json` is what the model is told,
+   * and `png` a frame it drew, in base64. */
+  | { kind: "result"; id: string; name: string; error: boolean; summary: string; json: string; png?: string }
+  /** The deck changed: its source now, which the editor takes, compiled, shown, and linted
+   * as an edit of it would be: the worker does it as the change is made, so the editor asks
+   * nothing of a source the assistant has moved past. */
+  | { kind: "edited"; source: string; edited: Edited }
+  /** Tokens in and out of one answer, as the provider counts them. */
+  | { kind: "usage"; input: number; output: number }
+  /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
+   * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
+  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  /** It failed: the provider refused, or the network did. */
+  | { kind: "failed"; message: string };
 
 /** An open bundle, as the worker reports it. */
 export interface Opened {
@@ -209,6 +254,9 @@ export type FromWorker =
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
+  /** A step of the assistant's answer to `ask` request `id`. */
+  | { type: "assistant"; id: number; event: AssistantEvent }
+  | { type: "models"; id: number; models: string[] }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean };

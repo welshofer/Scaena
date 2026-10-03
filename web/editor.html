@@ -43,6 +43,30 @@
       #inspector td, #inspector th { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
       #inspector th { color: var(--muted); font-weight: 500; }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+      #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+      #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
+      #tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+      #assistant { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; min-height: 0; }
+      #assistant[hidden] { display: none; }
+      #assistant input, #assistant textarea { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+      #who { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+      #who #key { flex: 1 1 10em; min-width: 8em; }
+      #who #model { max-width: 16em; }
+      #who #base { width: 100%; }
+      .note { color: var(--muted); font-size: 12px; margin: 0; }
+      #transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+      #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
+      #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
+      #transcript .call { font-size: 12px; color: var(--muted); }
+      #transcript .call code { color: var(--ink); }
+      #transcript .call.stopped .outcome { color: var(--error); }
+      #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
+      #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
+      #transcript .failed { color: var(--error); }
+      #transcript .end { color: var(--muted); font-size: 12px; }
+      #asking { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+      #question { flex: 1 1 100%; resize: vertical; }
+      #usage { color: var(--muted); font-size: 12px; margin-left: auto; }
     </style>
   </head>
   <body>
@@ -67,7 +91,34 @@
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>
           <span id="status" role="status">loading…</span>
         </p>
-        <div id="inspector" aria-label="Inspector"></div>
+        <nav id="tabs" role="tablist">
+          <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
+          <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
+        </nav>
+        <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector"></div>
+        <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
+          <div id="who">
+            <select id="provider" aria-label="Provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="your API key" aria-label="API key" />
+            <select id="model" aria-label="Model"></select>
+            <label class="note"><input id="keep-key" type="checkbox" /> keep on this device</label>
+            <button id="forget-key" type="button" title="Forget this provider's key">Forget key</button>
+            <input id="base" type="url" spellcheck="false" aria-label="The API's address" />
+          </div>
+          <p class="note" id="keynote"></p>
+          <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
+          <form id="asking">
+            <textarea id="question" rows="3" placeholder="Ask about the deck, or for a change to it (Enter to ask, Shift+Enter for a new line)" aria-label="Question"></textarea>
+            <button id="ask" type="submit">Ask</button>
+            <button id="stop" type="button" hidden>Stop</button>
+            <button id="new" type="button">New conversation</button>
+            <span id="usage"></span>
+          </form>
+        </section>
       </aside>
     </main>
     <script type="module" src="/src/editor.ts"></script>

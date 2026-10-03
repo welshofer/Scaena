@@ -40,7 +40,7 @@ impl Session {
     }
 
     /// The bundle as it stands: the deck shown, in the files handed over.
-    fn bundle(&self) -> Bundle {
+    pub(crate) fn bundle(&self) -> Bundle {
         Bundle {
             root: "deck.scaena".into(),
             deck_file: "deck.json".into(),

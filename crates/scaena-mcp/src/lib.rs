@@ -35,8 +35,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
-mod resources;
-pub use resources::{LIMIT, resource};
+use scaena_resources as resources;
+pub use scaena_resources::{LIMIT, resource};
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]

@@ -1,4 +1,11 @@
-//! The resources (SPEC §7.2): what an agent reads to learn the format without the docs.
+//! # scaena-resources
+//!
+//! What an agent reads to learn the format without the docs (SPEC §7.2): the schemas, the
+//! lint catalog, the specification by section, the skills, and examples. The MCP server
+//! serves them (`resources/list`, `resources/read`), and the web page's assistant reads the
+//! same texts (PLAN 2.6), from this crate built as a WASM module of its own ([`list`],
+//! [`text`]). The page loads it the first time the assistant is asked something, so the
+//! engine's module carries none of it (SPEC §15).
 //!
 //! Claude Code keeps an MCP result over 25,000 tokens in a file (`MAX_MCP_OUTPUT_TOKENS`),
 //! out of reach of an agent with no tools for files. So every resource arrives whole, under
@@ -8,6 +15,7 @@
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
+use wasm_bindgen::prelude::*;
 
 /// The most a resource may weigh as `resources/read` returns it, in bytes of JSON with its
 /// text escaped. Gate 1's agent got a 45 KB result whole and a 74 KB one as a file; at two
@@ -34,6 +42,23 @@ pub fn all() -> &'static [Served] {
 /// A resource's text, by its uri.
 pub fn resource(uri: &str) -> Option<&'static str> {
     ALL.iter().find(|r| r.uri == uri).map(|r| r.text.as_str())
+}
+
+/// The resources an agent is shown, as JSON: `[{ uri, name, mimeType, size }]`, as
+/// `resources/list` names them; `size` in bytes of text. A page's assistant lists them for
+/// its model (PLAN 2.6).
+#[wasm_bindgen]
+pub fn list() -> String {
+    let listed: Vec<Value> = (ALL.iter().filter(|r| r.listed))
+        .map(|r| json!({ "uri": r.uri, "name": r.name, "mimeType": r.mime, "size": r.text.len() }))
+        .collect();
+    Value::Array(listed).to_string()
+}
+
+/// A resource's text, by its uri, as `resources/read` returns it: listed or not.
+#[wasm_bindgen]
+pub fn text(uri: &str) -> Option<String> {
+    resource(uri).map(str::to_string)
 }
 
 const SCHEMA: &str = "application/schema+json";
@@ -488,4 +513,24 @@ fn spec(text: &str) -> Vec<Served> {
         listed("scaena://spec", "The specification: its index, and a resource per section", MARKDOWN, &index),
     );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The module a page loads lists what `resources/list` lists and reads what
+    /// `resources/read` reads.
+    #[test]
+    fn the_module_lists_and_reads_what_the_server_serves() {
+        let listed: Vec<Value> = serde_json::from_str(&list()).unwrap();
+        let uris: Vec<&str> = listed.iter().map(|r| r["uri"].as_str().unwrap()).collect();
+        let served: Vec<&str> = all().iter().filter(|r| r.listed).map(|r| r.uri.as_str()).collect();
+        assert_eq!(uris, served);
+        assert!(uris.contains(&"scaena://skills/author-deck") && uris.contains(&"scaena://spec"));
+        for r in all() {
+            assert_eq!(text(&r.uri).as_deref(), Some(r.text.as_str()), "{}", r.uri);
+        }
+        assert_eq!(text("scaena://nothing"), None);
+    }
 }

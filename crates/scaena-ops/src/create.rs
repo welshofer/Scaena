@@ -2,7 +2,7 @@
 //! made from a theme, its fonts, a deck, and data files. It is checked as `validate` checks
 //! a bundle before anything is written, and written only if valid.
 
-use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write, write_deck};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
 use scaena_core::lint::{Delta, delta};
@@ -53,7 +53,20 @@ pub struct Attached {
 /// Attach the data file `req.file` to the bundle as source `req.id`: copy it into `data/`
 /// and declare it, typed. Written only if the deck it makes validates no worse.
 pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
-    let Source { path: source, bytes, decl: value, rows } = source(req)?;
+    let bytes = std::fs::read(&req.file).with_context(|| format!("reading {}", req.file.display()))?;
+    let (attached, deck) = attaching(b, req, bytes)?;
+    if let Some(deck) = deck {
+        write(b, deck)?;
+    }
+    Ok(attached)
+}
+
+/// [`attach`] with nothing written, the file's bytes given: what it attaches, and the deck
+/// and file to write, unless it is refused. A client that keeps its bundle in memory writes
+/// them there (the web page's assistant, PLAN 2.6), where `req.file` is a file the bundle
+/// holds already, as a file dropped on the page is.
+pub fn attaching(b: &Bundle, req: &Attach, bytes: Vec<u8>) -> Result<(Attached, Option<Write>), OpsError> {
+    let Source { path: source, bytes, decl: value, rows } = source(req, bytes)?;
     if b.deck.data.contains_key(&req.id) {
         return Err(OpsError::new(format!(
             "the deck has a data source `{}` already; `bind_data` with a `source` replaces one (SPEC §7.3)",
@@ -64,7 +77,7 @@ pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
         return Err(OpsError::new(format!("the bundle has another `{source}`; name the file differently")));
     }
     let schema = schema_of(&value);
-    let mut doc = serde_json::to_value(&b.deck)?;
+    let mut doc = b.deck.to_value()?;
     match doc.get_mut("data").and_then(Value::as_object_mut) {
         Some(data) => drop(data.insert(req.id.clone(), value)),
         None => doc["data"] = json!({ req.id.clone(): value }),
@@ -79,31 +92,26 @@ pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
     if !broken.is_empty() {
         let added = broken.into_iter().cloned().collect();
         let errors = errors(&invalid_after);
-        return Ok(Attached {
-            attached: false,
-            id: req.id.clone(),
-            source,
-            schema,
-            rows,
-            added,
-            removed: vec![],
-            errors,
-        });
+        let refused =
+            Attached { attached: false, id: req.id.clone(), source, schema, rows, added, removed: vec![], errors };
+        return Ok((refused, None));
     }
     let before = lint(b)?.findings;
     let after = lint_in(&next, &view)?.findings;
-    write_deck(b, &next, BTreeMap::from([(source.clone(), bytes)]), &Why::new(format!("data_attach {}", req.id)))?;
     let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
-    Ok(Attached {
+    let attached = Attached {
         attached: true,
         id: req.id.clone(),
-        source,
+        source: source.clone(),
         schema,
         rows,
         added: added.into_iter().cloned().collect(),
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
-    })
+    };
+    let mut write = Write::new(next, Why::new(format!("data_attach {}", req.id)));
+    write.files.insert(source, bytes);
+    Ok((attached, Some(write)))
 }
 
 /// A data file to attach, read and typed.
@@ -116,15 +124,14 @@ struct Source {
     rows: usize,
 }
 
-/// The data file `req` names.
-fn source(req: &Attach) -> Result<Source, OpsError> {
+/// The data file `req` names, whose bytes are `bytes`.
+fn source(req: &Attach, bytes: Vec<u8>) -> Result<Source, OpsError> {
     if !scaena_core::ids::is_valid_id(&req.id) {
         return Err(OpsError::new(format!(
             "`{}` is not an id: a lowercase letter, then lowercase letters, digits, `-`, and `_`",
             req.id
         )));
     }
-    let bytes = std::fs::read(&req.file).with_context(|| format!("reading {}", req.file.display()))?;
     let name = req.file.file_name().and_then(|n| n.to_str()).context("the data file has no name")?;
     let path = format!("data/{name}");
     let inferred = scaena_core::data::infer(&path, &bytes).map_err(|e| OpsError::new(e.to_string()))?;
@@ -233,7 +240,8 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
     fields.insert("theme".into(), json!(rel));
     fields.insert("fonts".into(), Value::Array(fonts));
     for attach in &req.data {
-        let Source { path, bytes, decl, .. } = source(attach)?;
+        let bytes = std::fs::read(&attach.file).with_context(|| format!("reading {}", attach.file.display()))?;
+        let Source { path, bytes, decl, .. } = source(attach, bytes)?;
         files.insert(path, bytes);
         let data = fields.entry("data").or_insert_with(|| json!({}));
         data[attach.id.as_str()] = decl;

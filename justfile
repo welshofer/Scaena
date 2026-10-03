@@ -35,7 +35,7 @@ bless:
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
@@ -89,14 +89,16 @@ spike: wasm-smoke
 
 # Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8), the font
 # subsetter, which a page loads to download a bundle, into crates/scaena-subset/pkg (PLAN 2.4),
+# what the assistant reads (the resources MCP serves) into crates/scaena-resources/pkg (PLAN 2.6),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
 # what a single-file HTML export carries (PLAN 2.5). Cargo keeps each feature set's build, so
 # building one after the other rebuilds neither.
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm -p scaena-subset --target wasm32-unknown-unknown --release --locked
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-resources --target wasm32-unknown-unknown --release --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
     wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
     cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
 
@@ -120,8 +122,9 @@ web-dev:
 # The web player in headless Chromium: every torture frame shown, painted in its worker by
 # WebGPU and by the CPU painter (PLAN 2.1); a single-file export's, from its address on disk
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
-# the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), and its
-# storage: open, save, download, and drop (PLAN 2.4).
+# the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its
+# storage: open, save, download, and drop (PLAN 2.4), and its assistant, against a scripted
+# server for each provider (PLAN 2.6).
 web-smoke: web
     node web/smoke.mjs
     node web/standalone.mjs
@@ -129,6 +132,7 @@ web-smoke: web
     node web/player.mjs
     node web/editor.mjs
     node web/storage.mjs
+    node web/assistant.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
 versions:

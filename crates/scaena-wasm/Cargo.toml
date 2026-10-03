@@ -23,7 +23,7 @@ cpu = ["scaena-paint/cpu"]
 # The source editor (PLAN 2.3): compile `.scn`, lint with fixes, inspect, by `scaena-ops`'
 # operations (ADR-0009). Its lint judges contrast over what the CPU painter paints. It opens
 # and saves bundles in memory with `scaena-store` (PLAN 2.4).
-editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "cpu"]
+editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "cpu"]
 
 [dependencies]
 scaena-core.workspace = true
@@ -33,6 +33,7 @@ scaena-paint = { path = "../scaena-paint", default-features = false }
 scaena-ops = { workspace = true, optional = true }
 scaena-store = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
