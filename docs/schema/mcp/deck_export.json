@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection: `spine`, or `pdf` written to `out` (each slide at its last state, or `states`, one page each). Frames and video (PLAN 1.21) and HTML (2.5) say which task builds them.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "format"],
@@ -8,17 +8,34 @@
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
       "format": {
-        "description": "`spine` or `pdf`; `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that\nbuild them.",
+        "description": "`spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task\nthat builds it.",
         "type": "string"
       },
       "states": {
-        "description": "The states a frame export draws; every state without it.",
+        "description": "The states a frame export draws, in this order: an image each (png, svg), a page\neach (pdf), or each one's part of the timeline (video). Without it: every state; a\nPDF's slides, each at its last state, in spine order; a video's whole timeline.",
         "type": ["array", "null"],
         "items": { "type": "string" },
         "default": null
       },
       "out": {
-        "description": "Also write the export here; a PDF is written only here.",
+        "description": "Where to write it: a file (pdf, video, spine), or a directory that gets an image per\nstate (png, svg). Only the spine needs none.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "size": {
+        "description": "`WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's\nsize without it.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "fps": {
+        "description": "A video's frames a second; 60 without it.",
+        "type": ["integer", "null"],
+        "format": "uint32",
+        "minimum": 0,
+        "default": null
+      },
+      "audio": {
+        "description": "A video's sound track, any file ffmpeg reads, from the first frame: cut where the\nvideo ends, or carried on in silence until it does.",
         "type": ["string", "null"],
         "default": null
       }
@@ -27,6 +44,19 @@
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Played": {
+        "description": "A state's part of a video, ms: its cue (`span`, its transition and motions), then its\n`hold`, from `start`.",
+        "type": "object",
+        "properties": {
+          "state": { "type": "string" },
+          "start": { "description": "When it starts, ms into the video.", "type": "number", "format": "double" },
+          "span": { "type": "number", "format": "double" },
+          "hold": { "type": "number", "format": "double" }
+        },
+        "required": ["state", "start", "span", "hold"]
+      }
+    },
     "required": ["format"],
     "type": "object",
     "properties": {
@@ -34,14 +64,43 @@
       "out": { "description": "Where it was written.", "type": ["string", "null"] },
       "spine": { "description": "The spine, for `spine`.", "type": ["object", "null"], "additionalProperties": true },
       "pages": {
-        "description": "The state each page draws, in order, for `pdf`.",
+        "description": "The state each page draws, in order: a PDF's pages, or the images of png and svg.",
         "type": ["array", "null"],
         "items": { "type": "string" }
       },
-      "bytes": {
-        "description": "The document's size in bytes, for `pdf`.",
+      "files": {
+        "description": "The files written for png and svg, in the order of `pages`.",
+        "type": ["array", "null"],
+        "items": { "type": "string" }
+      },
+      "size": {
+        "description": "Pixels, width and height: of each image, or of the video.",
+        "type": ["array", "null"],
+        "items": { "type": "integer", "format": "uint32", "minimum": 0 },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "frames": { "description": "A video's frames.", "type": ["integer", "null"], "format": "uint64", "minimum": 0 },
+      "fps": {
+        "description": "A video's frames a second.",
         "type": ["integer", "null"],
-        "format": "uint",
+        "format": "uint32",
+        "minimum": 0
+      },
+      "duration_ms": {
+        "description": "How long a video runs, ms: its frames at its rate.",
+        "type": ["number", "null"],
+        "format": "double"
+      },
+      "timeline": {
+        "description": "When each state plays in a video, in order.",
+        "type": ["array", "null"],
+        "items": { "$ref": "#/$defs/Played" }
+      },
+      "bytes": {
+        "description": "The bytes written: the document, the video, or every image together.",
+        "type": ["integer", "null"],
+        "format": "uint64",
         "minimum": 0
       }
     }

@@ -23,6 +23,7 @@ use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use scaena_core::Finding;
 use scaena_ops::OpsError;
+use scaena_ops::export::Exported;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -203,15 +204,29 @@ pub struct DeckRender {
 pub struct DeckExport {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// `spine` or `pdf`; `png`, `svg`, `mp4`, `webm`, and `html` name the PLAN tasks that
-    /// build them.
+    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task
+    /// that builds it.
     pub format: String,
-    /// The states a frame export draws; every state without it.
+    /// The states a frame export draws, in this order: an image each (png, svg), a page
+    /// each (pdf), or each one's part of the timeline (video). Without it: every state; a
+    /// PDF's slides, each at its last state, in spine order; a video's whole timeline.
     #[serde(default)]
     pub states: Option<Vec<String>>,
-    /// Also write the export here; a PDF is written only here.
+    /// Where to write it: a file (pdf, video, spine), or a directory that gets an image per
+    /// state (png, svg). Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
+    /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
+    /// size without it.
+    #[serde(default)]
+    pub size: Option<String>,
+    /// A video's frames a second; 60 without it.
+    #[serde(default)]
+    pub fps: Option<u32>,
+    /// A video's sound track, any file ffmpeg reads, from the first frame: cut where the
+    /// video ends, or carried on in silence until it does.
+    #[serde(default)]
+    pub audio: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -280,23 +295,6 @@ pub struct Inspected {
 pub struct Diffed {
     /// By node: it enters, exits, or changes these props.
     pub changes: IndexMap<String, scaena_ops::inspect::Change>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct Exported {
-    pub format: String,
-    /// Where it was written.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub out: Option<String>,
-    /// The spine, for `spine`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub spine: Option<Map<String, Value>>,
-    /// The state each page draws, in order, for `pdf`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pages: Option<Vec<String>>,
-    /// The document's size in bytes, for `pdf`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<usize>,
 }
 
 /// A rendered frame's facts; the PNG is the result's image.
@@ -432,28 +430,21 @@ impl Scaena {
         Ok(CallToolResult::success(vec![ContentBlock::image(png, "image/png"), ContentBlock::text(facts)]))
     }
 
-    #[tool(description = "Export a projection: `spine`, or `pdf` written to `out` (each slide at its last state, \
-        or `states`, one page each). Frames and video (PLAN 1.21) and HTML (2.5) say which task builds them.")]
+    #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
+        each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
+        each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
+        the PLAN task that builds it.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
         blocking(move || {
-            if a.format == "pdf" && a.out.is_none() {
-                return Err(OpsError::new("`pdf` writes a file: give `out`"));
-            }
-            match scaena_ops::export::export(&open(&a.bundle)?, &a.format, a.states.as_deref())? {
-                scaena_ops::export::Export::Spine(v) => {
-                    if let Some(out) = &a.out {
-                        let text = serde_json::to_string_pretty(&v)? + "\n";
-                        std::fs::write(out, text).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
-                    }
-                    Ok(Exported { format: a.format, out: a.out, spine: Some(object(v)), pages: None, bytes: None })
-                }
-                scaena_ops::export::Export::Pdf { bytes, pages } => {
-                    let out = a.out.clone().expect("checked above");
-                    std::fs::write(&out, &bytes).map_err(|e| OpsError::new(format!("writing {out}: {e}")))?;
-                    let size = bytes.len();
-                    Ok(Exported { format: a.format, out: a.out, spine: None, pages: Some(pages), bytes: Some(size) })
-                }
-            }
+            let req = scaena_ops::export::Request {
+                format: a.format,
+                states: a.states,
+                out: a.out.map(Into::into),
+                size: a.size,
+                fps: a.fps,
+                audio: a.audio.map(Into::into),
+            };
+            scaena_ops::export::export(&open(&a.bundle)?, &req)
         })
         .await
         .map(Json)

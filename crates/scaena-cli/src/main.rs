@@ -98,19 +98,31 @@ enum Cmd {
         #[arg(long)]
         keep_fonts: bool,
     },
-    /// Export a projection: pdf|png|svg|mp4|webm|html|spine.
+    /// Export a projection: pdf|png|svg|mp4|webm|prores|html|spine.
     Export {
         bundle: PathBuf,
         #[arg(long)]
         format: String,
+        /// Where to write it: a file (pdf, video, spine), or a directory that gets an
+        /// image per state (png, svg). The spine prints without it.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The states to export, comma-separated. Default: every state; for pdf, each
-        /// slide once, at its last state.
+        /// The states to export, comma-separated, in that order. Default: every state;
+        /// for pdf, each slide once, at its last state, in spine order; for video, the
+        /// whole timeline.
         #[arg(long, value_delimiter = ',')]
         states: Option<Vec<String>>,
-        #[arg(long, default_value_t = 60)]
-        fps: u32,
+        /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio. Default:
+        /// the canvas's size.
+        #[arg(long)]
+        size: Option<String>,
+        /// A video's frames a second. Default: 60.
+        #[arg(long)]
+        fps: Option<u32>,
+        /// A video's sound track (any file ffmpeg reads), from the first frame: cut where
+        /// the video ends, or carried on in silence until it does.
+        #[arg(long)]
+        audio: Option<PathBuf>,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -321,36 +333,28 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, .. } => {
-            if format == "pdf" && out.is_none() {
-                return Err(scaena_ops::OpsError::new("`export --format pdf` writes a file: give it --out FILE").into());
-            }
-            match scaena_ops::export::export(&open(&bundle)?, &format, states.as_deref())? {
-                scaena_ops::export::Export::Spine(v) => {
-                    let s = serde_json::to_string_pretty(&v)?;
-                    if let Some(p) = &out {
-                        std::fs::write(p, &s).with_context(|| format!("writing {}", p.display()))?;
-                    }
-                    if cli.json {
-                        let mut summary = serde_json::json!({ "format": "spine", "out": out });
-                        if out.is_none() {
-                            summary["spine"] = v;
-                        }
-                        println!("{}", serde_json::to_string_pretty(&summary)?);
-                    } else if out.is_none() {
-                        println!("{s}");
-                    }
+        Cmd::Export { bundle, format, out, states, size, fps, audio } => {
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio };
+            let mut exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
+            if cli.json {
+                // The spine prints when it is not written.
+                if exported.out.is_some() {
+                    exported.spine = None;
                 }
-                scaena_ops::export::Export::Pdf { bytes, pages } => {
-                    let p = out.as_ref().expect("checked above");
-                    std::fs::write(p, &bytes).with_context(|| format!("writing {}", p.display()))?;
-                    if cli.json {
-                        let summary =
-                            serde_json::json!({ "format": "pdf", "out": out, "pages": pages, "bytes": bytes.len() });
-                        println!("{}", serde_json::to_string_pretty(&summary)?);
-                    } else {
-                        println!("wrote {} ({} pages: {})", p.display(), pages.len(), pages.join(", "));
-                    }
+                println!("{}", serde_json::to_string_pretty(&exported)?);
+            } else if let Some(spine) = exported.spine.as_ref().filter(|_| exported.out.is_none()) {
+                println!("{}", serde_json::to_string_pretty(spine)?);
+            } else {
+                let out = exported.out.as_deref().unwrap_or_default();
+                match (&exported.pages, &exported.files, exported.frames) {
+                    (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
+                    (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),
+                    (_, _, Some(frames)) => println!(
+                        "wrote {out} ({frames} frames at {} fps, {:.1} s)",
+                        exported.fps.unwrap_or_default(),
+                        exported.duration_ms.unwrap_or_default() / 1000.0
+                    ),
+                    _ => println!("wrote {out}"),
                 }
             }
             Ok(ExitCode::SUCCESS)

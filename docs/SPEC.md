@@ -807,7 +807,7 @@ scaena validate  <bundle>                             # schema + semantic valida
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
 scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data]   # absolute snapshot, resolved styles, cue, rows
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
-scaena export    <bundle> --format pdf|png|svg|mp4|webm|html|spine [--states a,b] [--fps 60] [--out DIR|FILE]
+scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts]   # write the bundle as §3.1 lays it out
@@ -829,7 +829,7 @@ Exit codes: `0` ok; `1` findings that are errors (`validate`, `lint`, `compile`,
 | `decompile` | `{ out, scn? }` |
 | `render` | `{ state, format, t_ms, span_ms, painter, adapter, size, out, display_list, ms }`: `ms` holds the stage timings |
 | `save` | `{ renamed, subset, manifest }` |
-| `export` | `{ format, out, spine? }`; a PDF adds `pages`, the state each page draws, and `bytes` |
+| `export` | `{ format, out }`, and the spine when it is not written (`spine`); a PDF adds `pages`, the state each page draws, and `bytes`; png and svg add `pages`, `files` (in the order of `pages`), `size`, and `bytes`; a video adds `size`, `frames`, `fps`, `duration_ms`, `timeline` (each state's `start` in the video, `span`, and `hold`), and `bytes` |
 | `theme` | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `patch` | `{ applied, patch, added, removed, errors }`: the patch as RFC 6902, and the lint delta. An op that does not apply adds `op`, its index, to the error object |
 
@@ -845,7 +845,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `diff` without `--json` prints a line per node: `+ id` enters, `- id` exits, and `~ id: keys` changes those keys.
 
-`export --states a,b` picks the states a frame export draws (png, pdf, svg, video, html). `spine` is the whole spine, and takes no `--states`. A PDF is written to the file `--out` names. Without `--states` it draws each slide once, at its last state, in spine order (§3.11): the slides of the states the beats name, then the slides no beat names, in deck order.
+`export` writes where `--out` says: a file for pdf, video, and the spine (which prints without it), and a directory for png and svg, which get an image of each state at rest named for it (`<state>.png`, `<state>.svg`), over one of that name. `--states a,b` picks the states a frame export draws, in that order (png, svg, pdf, video, html). `spine` is the whole spine, and takes no `--states`. Without `--states`, png and svg draw every state; a PDF draws each slide once, at its last state, in spine order (§3.11): the slides of the states the beats name, then the slides no beat names, in deck order; and a video plays the whole timeline. `--size` sets the pixels of png, svg, and video, in the canvas's aspect ratio, as `render`'s does. `--fps` (default 60) and `--audio` are a video's. A video needs `ffmpeg` on the PATH, and a width and height that are even (§10).
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
@@ -869,7 +869,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
 | `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, and `data`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
-| `deck_export` | `scaena export`. A PDF needs `out`. | `{ format, out?, spine?, pages?, bytes? }` |
+| `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, bytes? }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
 | `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
@@ -1081,8 +1081,9 @@ All exports consume the same resolved document. The **spine** is the contract fo
 | Projection | Mechanism |
 |---|---|
 | PDF | `pdf` painter (krilla, PLAN 1.20): a page per slide at its last state, in spine order, or per state with `--states`; the canvas at 2 units to the point (1920 × 1080 is a 960 × 540 pt page); paths and gradients as vectors; text as text in subset fonts, each glyph saying its cluster (§6); images at their own resolution; shaders as images of their CPU reference at 2× the canvas (§3.8); tagged and outlined from the spine (§3.12) |
-| PNG/SVG | per state at any size |
-| Video (mp4/webm/ProRes) | global timeline sampled at `fps`; `hold` provides dwell; deterministic frames; audio track optional (external) |
+| PNG | each state at rest, by the CPU painter (§13), at any size in the canvas's aspect ratio |
+| SVG | each state at rest (PLAN 1.21): the canvas is the `viewBox`, at any size. A layer is a group: its transform, clip, opacity, and blend (CSS `mix-blend-mode`). Paths fill and stroke in colors and linear and radial gradients, as the painters' sRGB stops spell out their Oklab blend (§6). Glyphs are outlines, a path each, unhinted as the painters draw them, so nothing lays the text out again; over each run lies its text, transparent and stretched across the run, so the SVG selects, copies, and searches as the deck reads. Images embed as PNG, filtered as the painters filter them. What SVG cannot draw is an image of the CPU painter's pixels at the SVG's size: shaders (their CPU reference, §3.8), color glyphs (COLR, bitmaps), and sweep gradients. Drawn by an SVG rasterizer, every torture state passes §13.5 against the CPU painter |
+| Video (mp4/webm/ProRes) | the global timeline (§2.4), or the states `--states` names in that order, sampled at `fps` (default 60): frame *k* shows the moment *k*/`fps` seconds in. Each state plays its cue, then its `hold`, the dwell that makes a deck a video; a state with neither has no frame. Frames are the CPU painter's, so deterministic; one that draws what the frame before it drew is painted once. They are piped to `ffmpeg` as RGB over black, converted to BT.709 video-range YUV and tagged so: H.264 (CRF 18, 4:2:0) in MP4, VP9 (CRF 30, 4:2:0) in WebM, or ProRes 422 HQ (10-bit 4:2:2) in QuickTime (`prores`). A sound track (`--audio`, any file ffmpeg reads) plays from the first frame, cut where the frames end or carried on in silence until they do. The video is written beside `--out` and renamed to it when whole |
 | Single-file HTML | player + bundle, offline |
 | **Spine JSON** (`export --format spine`) | sections, beats, claims, evidence, notes, per-beat rendered thumbnails and alt-format renders |
 | Infographic | external: spine + `formats:["9:16"]` renders per beat → existing pipeline |

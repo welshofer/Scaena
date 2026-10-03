@@ -172,9 +172,11 @@ async fn a_tool_that_stops_says_why() {
     let client = connect().await;
     let example = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
     for (tool, args, says) in [
-        ("deck_export", json!({ "bundle": example, "format": "mp4" }), json!({ "plan": "1.21" })),
-        // A PDF is a file: it needs `out`.
+        ("deck_export", json!({ "bundle": example, "format": "html" }), json!({ "plan": "2.5" })),
+        // A PDF and a video are files, and PNGs go in a directory: each needs `out`.
         ("deck_export", json!({ "bundle": example, "format": "pdf" }), json!({})),
+        ("deck_export", json!({ "bundle": example, "format": "mp4" }), json!({})),
+        ("deck_export", json!({ "bundle": example, "format": "png" }), json!({})),
         (
             "deck_patch",
             json!({ "bundle": example, "dry_run": true, "ops": [{ "op": "remove_node", "id": "nobody" }] }),
