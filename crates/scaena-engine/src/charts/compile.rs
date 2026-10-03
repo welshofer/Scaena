@@ -54,6 +54,8 @@ struct Row {
     label: String,
     /// Its x as a number, on a continuous x: a number, or a date in seconds.
     x: Option<f64>,
+    /// Its x, when that is a date.
+    date: Option<DateTime>,
     y: f64,
     /// Its series, if the chart has one.
     series: Option<String>,
@@ -67,6 +69,84 @@ type Encoding<'a> = Option<&'a Map<String, Value>>;
 
 fn field<'a>(e: Encoding<'a>) -> Option<&'a str> {
     e.and_then(|e| e.get("field")).and_then(Value::as_str)
+}
+
+/// The calendar unit a column of dates steps by, read off what all its dates share: a
+/// year's first day, a month's, a midnight, or none of them (times of day).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DateUnit {
+    Years,
+    Months,
+    Days,
+    Times,
+}
+
+/// How a date column with no `x.format` prints (SPEC §3.7): by its unit (`%b` for
+/// months), and where a label begins a run of the unit above it, the year (a time's
+/// day), naming that too (`long`): `Jan 2026`, `Feb`, … `Dec`, `Jan 2027`. A label
+/// alone, as a donut's legend entry, prints long.
+struct DateLabels {
+    unit: DateUnit,
+    short: DateFormat,
+    /// None where it would print as `short` does (years).
+    long: Option<DateFormat>,
+}
+
+impl DateLabels {
+    fn of(dates: &[DateTime]) -> Option<DateLabels> {
+        let unit = (dates.iter().map(|t| t.civil()))
+            .map(|c| {
+                if (c.hour, c.minute, c.second) != (0, 0, 0) {
+                    DateUnit::Times
+                } else if c.day != 1 {
+                    DateUnit::Days
+                } else if c.month != 1 {
+                    DateUnit::Months
+                } else {
+                    DateUnit::Years
+                }
+            })
+            .max()?;
+        let minutes = dates.iter().any(|t| t.civil().minute != 0);
+        let (short, long) = match unit {
+            DateUnit::Years => ("%Y", None),
+            DateUnit::Months => ("%b", Some("%b %Y")),
+            DateUnit::Days => ("%b %-d", Some("%b %-d, %Y")),
+            DateUnit::Times if minutes => ("%-I:%M %p", Some("%b %-d, %-I:%M %p")),
+            DateUnit::Times => ("%-I %p", Some("%b %-d, %-I %p")),
+        };
+        let parse = |f: &str| DateFormat::parse(f).expect("date label formats parse");
+        Some(DateLabels { unit, short: parse(short), long: long.map(parse) })
+    }
+
+    /// How `t` prints alone.
+    fn whole(&self, t: DateTime, locale: &Locale) -> String {
+        self.long.as_ref().unwrap_or(&self.short).format(t, locale)
+    }
+
+    /// The run of the unit above its own that `t` falls in: its year, or a time's day.
+    fn period(&self, t: DateTime) -> i64 {
+        match self.unit {
+            DateUnit::Times => t.0.div_euclid(86_400),
+            _ => t.civil().year,
+        }
+    }
+}
+
+/// How many categories apart the labels of a crowded ordered axis stand, the fewest
+/// first: steps of the calendar for dates (a quarter of months, a week of days), 1–2–5
+/// steps for years and numbers; then the last of those times 2, 5, 10, 20, ….
+fn strides(unit: Option<DateUnit>) -> impl Iterator<Item = usize> {
+    let nice: &'static [usize] = match unit {
+        Some(DateUnit::Months) => &[1, 2, 3, 4, 6, 12],
+        Some(DateUnit::Days) => &[1, 2, 7, 14],
+        Some(DateUnit::Times) => &[1, 2, 3, 6, 12, 24],
+        Some(DateUnit::Years) | None => &[1, 2, 5, 10],
+    };
+    let last = nice[nice.len() - 1];
+    let more =
+        (0..).map(|e| 10usize.saturating_pow(e)).flat_map(move |p| [2, 5, 10].map(|m| last.saturating_mul(m * p)));
+    nice.iter().copied().chain(more)
 }
 
 /// A datum as a number: a number, or a date in seconds.
@@ -170,6 +250,14 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let x_format = (x.get("format").and_then(Value::as_str))
         .map(|f| CategoryFormat::parse(f, table.types[xc], x_field, "x"))
         .transpose()?;
+    let date = |d: &Datum| match d {
+        Datum::Date(t) => Some(*t),
+        _ => None,
+    };
+    let date_labels = match (&x_format, table.types[xc]) {
+        (None, ColumnType::Date) => DateLabels::of(&table.rows.iter().filter_map(|r| date(&r[xc])).collect::<Vec<_>>()),
+        _ => None,
+    };
     let series_col = field(series_enc).map(col).transpose()?;
     let color_col = field(color_enc).map(col).transpose()?;
     let size_col = field(size_enc).map(col).transpose()?;
@@ -186,9 +274,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             Datum::Null => continue,
             _ => return Err(EngineError::Data(format!("`{y_field}` must be a number in every row"))),
         };
-        let label = match &x_format {
-            Some(f) => f.print(&row[xc], locale),
-            None => row[xc].label(),
+        let label = match (&x_format, &date_labels, date(&row[xc])) {
+            (Some(f), ..) => f.print(&row[xc], locale),
+            (None, Some(d), Some(t)) => d.whole(t, locale),
+            _ => row[xc].label(),
         };
         let category = row[xc].label();
         let series = group_col.map(|c| row[c].label());
@@ -209,6 +298,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             category,
             label,
             x: continuous.then(|| number(&row[xc])).flatten(),
+            date: date(&row[xc]),
             y: v,
             series,
             shade,
@@ -224,10 +314,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     }
     // Categories and series in order of first appearance.
     let mut categories: Vec<(String, String)> = Vec::new();
+    let mut category_dates: Vec<Option<DateTime>> = Vec::new();
     let mut series: Vec<String> = Vec::new();
     for r in &rows {
         if !categories.iter().any(|(k, _)| *k == r.category) {
             categories.push((r.category.clone(), r.label.clone()));
+            category_dates.push(r.date);
         }
         if let Some(s) = &r.series
             && !series.contains(s)
@@ -568,16 +660,38 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
         None => Vec::new(),
     };
+    // Under a band, a date with no format prints short (`Feb`), or long (`Jan 2026`) where
+    // it begins a run of its year among the labels the axis keeps, which depends on how
+    // crowded they are (below): so each is set both ways where it could begin one.
+    let periods: Vec<Option<i64>> = match &date_labels {
+        Some(d) if !continuous => category_dates.iter().map(|t| t.map(|t| d.period(t))).collect(),
+        _ => Vec::new(),
+    };
+    let one_period = periods.iter().flatten().collect::<BTreeSet<_>>().len() <= 1;
     let x_texts: Vec<(String, TextLayout)> = match (x_show, continuous) {
         (false, _) => Vec::new(),
-        (true, false) => categories
-            .iter()
-            .map(|(k, l)| Ok((k.clone(), set(l.clone(), &tick_role)?)))
+        (true, false) => (categories.iter().zip(&category_dates))
+            .map(|((k, l), t)| {
+                let text = match (&date_labels, t) {
+                    (Some(d), Some(t)) => d.short.format(*t, locale),
+                    _ => l.clone(),
+                };
+                Ok((k.clone(), set(text, &tick_role)?))
+            })
             .collect::<Result<_, EngineError>>()?,
         (true, true) => x_ticks
             .iter()
             .map(|(_, t)| Ok((t.clone(), set(t.clone(), &tick_role)?)))
             .collect::<Result<_, EngineError>>()?,
+    };
+    let x_longs: Vec<Option<TextLayout>> = match (&date_labels, x_show && !continuous) {
+        (Some(DateLabels { long: Some(long), .. }), true) => (category_dates.iter().enumerate())
+            .map(|(i, t)| match t {
+                Some(t) if i == 0 || !one_period => set(long.format(*t, locale), &tick_role).map(Some),
+                _ => Ok(None),
+            })
+            .collect::<Result<_, EngineError>>()?,
+        _ => Vec::new(),
     };
     let titles: Vec<(&str, TextLayout)> = [("y", &y_title), ("x", &x_title)]
         .into_iter()
@@ -796,6 +910,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         legend: Vec::new(),
         x_grid: Vec::new(),
         collisions: Vec::new(),
+        crowded: Vec::new(),
         notes: Vec::new(),
     };
     for (v, key, label) in tick_labels {
@@ -1137,18 +1252,68 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             out.legend.push(LegendEntry { key, swatch, color, label });
         }
     }
-    // Category labels under each band, or x ticks along a continuous x.
-    for (key, text) in x_texts {
-        let x = match (&x_scale, x_ticks.iter().find(|(_, t)| *t == key)) {
-            (Some(s), Some((v, _))) => s.map(*v),
-            _ => {
-                let i = categories.iter().position(|(k, _)| *k == key).unwrap_or(0);
-                left + (i as f32 + 0.5) * band
-            }
+    // Category labels under each band, or x ticks along a continuous x, each centered on
+    // its band or tick but inside the plot's sides.
+    let center = |i: usize| match &x_scale {
+        Some(s) => x_ticks.get(i).map_or(left, |(v, _)| s.map(*v)),
+        None => left + (i as f32 + 0.5) * band,
+    };
+    let at = |i: usize, text: &TextLayout| (center(i) - 0.5 * text.width).clamp(left, (right - text.width).max(left));
+    // The labels at a stride of `k` from the first, each long where its year (a time's
+    // day) is not the last one kept's.
+    let pick = |k: usize| -> Vec<(usize, bool)> {
+        let mut last = None;
+        (0..x_texts.len())
+            .step_by(k)
+            .map(|i| {
+                let period = periods.get(i).copied().flatten();
+                let long = period.is_some() && period != last && x_longs.get(i).is_some_and(Option::is_some);
+                last = period;
+                (i, long)
+            })
+            .collect()
+    };
+    let text = |&(i, long): &(usize, bool)| match long {
+        true => x_longs[i].as_ref().unwrap_or(&x_texts[i].1),
+        false => &x_texts[i].1,
+    };
+    // Neighbors less than `space` apart.
+    let crowded = |kept: &[(usize, bool)], space: f32| -> Vec<(usize, usize)> {
+        (kept.windows(2))
+            .filter(|w| {
+                let (a, b) = (text(&w[0]), text(&w[1]));
+                at(w[0].0, a) + a.width + space > at(w[1].0, b)
+            })
+            .map(|w| (w[0].0, w[1].0))
+            .collect()
+    };
+    // Where an ordered axis's labels (dates, numbers) come within a space of each other,
+    // it keeps every k-th from the first, at the smallest stride that clears them. A
+    // text axis keeps every category, and reports those that overlap (W310).
+    let n = x_texts.len();
+    let ordered = matches!(table.types[xc], ColumnType::Date | ColumnType::Number);
+    let kept = match (&x_scale, ordered) {
+        (Some(_), _) => pick(1),
+        (None, true) => (strides(date_labels.as_ref().map(|d| d.unit)).take_while(|&k| k < n))
+            .map(&pick)
+            .find(|kept| crowded(kept, gap).is_empty())
+            .unwrap_or_else(|| pick(n.max(1))),
+        (None, false) => {
+            let kept = pick(1);
+            let keys = |(a, b): (usize, usize)| (x_texts[a].0.clone(), x_texts[b].0.clone());
+            out.crowded = crowded(&kept, 0.25 * gap).into_iter().map(keys).collect();
+            kept
+        }
+    };
+    let mut shorts: Vec<Option<(String, TextLayout)>> = x_texts.into_iter().map(Some).collect();
+    let mut longs = x_longs;
+    for (i, long) in kept {
+        let Some((key, short)) = shorts[i].take() else { continue };
+        let text = match long.then(|| longs.get_mut(i).and_then(Option::take)).flatten() {
+            Some(text) => text,
+            None => short,
         };
-        // Centered under its tick, but inside the plot's sides.
-        let x0 = (x - 0.5 * text.width).clamp(left, (right - text.width).max(left));
-        let origin = [x0, y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
+        let origin = [at(i, &text), y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
         out.ticks.push(Label::new(key, origin, text, None));
     }
     // Value labels that overlap: hidden or nudged apart as `labels.collide` says, else
