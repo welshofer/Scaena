@@ -218,11 +218,15 @@ One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans th
 
 **Text fit policy** (`fit`): `wrap` (default) | `shrink` (down to `minSize`) | `grow` (up to `maxSize`) | `clip` | `error`. Text fits when its box, as `box` trims it, is no taller than the cell, no line is wider, and it has no more lines than `maxLines`. `shrink` and `grow` set the text at the largest size between its bounds at which it fits, found by bisection (12 steps), so the same text in the same box always gets the same size. Every span scales together, with leading, tracking, and `measure` following. The bounds are the node's `minSize`/`maxSize`, else its role's, else half and twice its size. `clip` cuts the text to its cell; `error` refuses to draw a text that does not fit. Overflow under `wrap`/`clip` is lint **E100**; under `shrink` it is **W203** once the minimum is reached.
 
-**Baseline grid.** Themes MAY define a baseline grid (`grid.baseline`, cu). The engine does not snap text to it yet. Snapping waits on a typographic pass, and lint **W221** waits with it.
+**Baseline grid** (PLAN 1.25, theme format 0.7). A theme MAY give its grid a baseline grid: `grid.baseline`, the distance between its lines in canvas units. Its lines run that far apart from the grid's top margin, up and down the canvas, and a format's grid has its own. A text role opts in with `snap` (§3.6). A role without it keeps the place its alignment gives it, and so does text in a chart or a table.
+- `snap: "baseline"`: every baseline sits on a grid line. Lines are set whole grid lines apart: each gap between baselines is rounded up to whole lines, the room going above the line that moves, so `fit` and a container measure the text as set. A role whose leading (`size × leading`) is not a whole number of grid lines is lint **W221**.
+- `snap: "cap"`: the first line's cap height sits on a grid line (the line's top, in a font without one), and the lines below keep the role's leading. This is display type's alignment.
+- After its alignment, a snapping text moves to the next grid line down. Aligned to the foot of its box (`y: end` or `baseline`), it moves to the line above instead, so it stays in the box. A text that fills its box can pass its edge by less than a grid line, and its fit is judged as set. Texts aligned to one line in a row move together when they snap alike. Text in a container moves inside the box the container gives it.
+- Dusk and Daybreak snap body and caption by their baselines, at leadings of 5 and 4 lines of their 8 cu grid. Display, headline, title, and numeral snap by their cap heights.
 
 ### 3.5 Typography
 
-Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, and variable axes (`wght`, `opsz`, `wdth`). `measure` counts characters in `ch`, the advance of `0` in the text's look (CSS `ch`). `case` is `upper`, `lower`, `title` (each word's first letter capitalized), or `smallcaps`. Small capitals are the font's `smcp`, and none are synthesized: a family without them shows the letters as written. The case mappings are Unicode's defaults, the same in every language. A text node's `style` refines its role's look (§3.6). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
+Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, variable axes (`wght`, `opsz`, `wdth`), and what of it sits on the baseline grid (`snap`, §3.4). `measure` counts characters in `ch`, the advance of `0` in the text's look (CSS `ch`). `case` is `upper`, `lower`, `title` (each word's first letter capitalized), or `smallcaps`. Small capitals are the font's `smcp`, and none are synthesized: a family without them shows the letters as written. The case mappings are Unicode's defaults, the same in every language. A text node's `style` refines its role's look (§3.6). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
@@ -250,7 +254,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.6",
+  "scaena-theme": "0.7",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -264,7 +268,7 @@ See `docs/schema/theme.schema.json`. Shape:
     "families": { "display": { "family": "...", "file": "fonts/...", "axes": {...} }, "body": {...}, "mono": {...} },
     "scale":    { "ratio": 1.25, "base": 32 },
     "roles": {
-      "display":  { "family": "display", "size": 128, "weight": 650, "leading": 0.95, "tracking": -0.02, "opsz": 96, "wrap": "balance", "box": "cap", "minSize": 72, "measure": 18 },
+      "display":  { "family": "display", "size": 128, "weight": 650, "leading": 0.95, "tracking": -0.02, "opsz": 96, "wrap": "balance", "box": "cap", "snap": "cap", "minSize": 72, "measure": 18 },
       "headline": { "...": "..." }, "body": { "...": "..." }, "caption": { "...": "..." }, "numeral": { "numeric": "tabular-lining", "...": "..." }
     }
   },
@@ -975,7 +979,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W203 | warn | `fit: shrink` reached its minimum size and the text still does not fit |
 | W210 | warn | density: more words on screen in a state than the theme's `density.maxWordsPerState` (40) |
 | W220 | warn | paragraphs (text of two lines or more) aligned more than one way in a state |
-| W221 | warn | *(reserved)* baseline-grid violation: waits on the engine snapping text to the grid (§3.4) |
+| W221 | warn | a role that snaps its baselines to the baseline grid (`snap: "baseline"`) with a leading (`size × leading`) that is not a whole number of grid lines, so its lines sit farther apart than it says; or a grid the deck is laid out on with no baseline for it to snap to. It points into the theme (§3.4) |
 | W300 | warn | style literal outside `overrides`: a color written out where a theme color goes, a text `size`, a length in canvas units where a theme token goes (`radius`, `gap`, `padding`, `inset`, a stroke's `width`, a child's `size`) |
 | W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
 | W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |

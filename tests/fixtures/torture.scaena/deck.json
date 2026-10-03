@@ -3149,6 +3149,106 @@
       },
       "alt": "Revenue by product over four quarters, one line after another.",
       "semantic": "evidence"
+    },
+    "grid-head": {
+      "type": "text",
+      "role": "grid-display",
+      "text": "Set on the grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2,
+        "align": {
+          "y": "center"
+        }
+      }
+    },
+    "grid-body": {
+      "type": "text",
+      "role": "grid-body",
+      "text": "Each line sits on a line of the grid, eight units apart from the top margin; lines are five grid lines apart.",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          3,
+          8
+        ]
+      }
+    },
+    "grid-loose": {
+      "type": "text",
+      "role": "grid-loose",
+      "text": "At a leading of 43.2 units each gap rounds up to six grid lines, and lint warns.",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          3,
+          8
+        ]
+      }
+    },
+    "grid-foot": {
+      "type": "text",
+      "role": "grid-caption",
+      "text": "Aligned to its foot, this caption moves up to the grid line above.",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          3,
+          5
+        ],
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "grid-row": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.4",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "grid-row-figure": {
+      "type": "text",
+      "role": "grid-body",
+      "text": "Body",
+      "align": {
+        "y": "baseline"
+      },
+      "at": {
+        "parent": "grid-row"
+      }
+    },
+    "grid-row-label": {
+      "type": "text",
+      "role": "grid-caption",
+      "text": "and caption, on one baseline",
+      "align": {
+        "y": "baseline"
+      },
+      "at": {
+        "parent": "grid-row"
+      }
     }
   },
   "states": [
@@ -4047,6 +4147,25 @@
         }
       ],
       "notes": "Pass: the state cuts in and each chart's marks grow in one after another, 120 ms apart, on the theme's snappy spring (frames `stagger@0.3` and `@0.6` of its span). The stacked bars build layer by layer in data order: every Core segment on the baseline, then each Cloud segment on its Core, then Edge, each standing on the one under it as it is at that moment, never under it or apart from it. The donut's slices sweep open clockwise from twelve, each from where the one before it ends, so the ring is one ring however far each has come. The line's three series rise one after another, each whole: no point drops to the baseline while its neighbors are up. Value labels count with their marks and never pass their values, though the spring carries the marks past them. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "baseline-grid",
+      "name": "Baseline grid",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "45 · Baseline grid: baselines and cap heights on 8 cu lines · recorded"
+        },
+        "grid-head": {},
+        "grid-body": {},
+        "grid-loose": {},
+        "grid-foot": {},
+        "grid-row": {},
+        "grid-row-figure": {},
+        "grid-row-label": {}
+      },
+      "notes": "Recorded (PLAN 1.25): the theme's baseline grid has a line every 8 cu from the 96 cu top margin, and the grid roles snap to it; the rows start off it, from 210 cu. The headline's cap top sits on a grid line, moved down from where centering put it. Left, the body paragraph's baselines sit on grid lines 40 cu (five lines) apart, its first moved down to the next line. Middle, text of the same size at a leading of 43.2 cu sets its lines 48 apart, every gap rounded up to whole grid lines, and lint W221 warns about its leading. Right, the caption aligned to the foot of its box (rows 3-5) moved up to the grid line above, its lines 32 cu apart and still in the box. Rows 7-8, right: a row stack whose 32 cu body text and 22 cu caption share one baseline on the row's foot; both moved up to the same grid line."
     }
   ],
   "overrides": {

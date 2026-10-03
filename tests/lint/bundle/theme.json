@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.6",
+  "scaena-theme": "0.7",
   "name": "Lint",
   "description": "The bundle every lint fixture is checked in (tests/lint/README.md): two of the torture deck's families, dark ground, and low motion limits so small decks reach them.",
   "tokens": {
