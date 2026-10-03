@@ -78,7 +78,7 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
     - `CpuPainter` unpremultiplies itself and copies an opaque pixel as it is, which `take_unpremultiplied` leaves unchanged: `c · 255/255 + 0.5` truncates to `c`. A test holds the two byte for byte over every alpha and channel value.
     - `.cargo/config.toml` builds wasm32 with `+simd128`. Every browser gate 2 names has run WebAssembly SIMD since 2023 (Safari 16.4); without it, a module fails to compile.
 
-    B1's median frame went from 51.5 ms to 18.0 ms with the first, and to 12.9 ms with both; its worst, from 89 ms to 17.6 ms. The torture deck's median went from 54.7 ms to 14.4 ms. Every module is smaller, with the scalar paths no longer compiled: the editor's engine is 2.70 MB gzipped, from 2.74, and the player's 2.12, from 2.15. WASM display lists stay identical to native ones (`just wasm-smoke`), and the browser's frames stay within SPEC §13.5 of the goldens (`just web-smoke`).
+    B1's median frame went from 51.5 ms to 18.0 ms with the first, and to 12.9 ms with both; its worst, from 89 ms to 17.6 ms. The torture deck's median went from 54.7 ms to 14.4 ms. Every module is smaller, with the scalar paths no longer compiled: the editor's engine is 2.70 MB gzipped, from 2.74, and the player's 2.12, from 2.15. WASM display lists stay identical to native ones (`just wasm-smoke`), and the browser's frames stay within SPEC §13.5 of the goldens (`just web-smoke`). In the page, each CPU frame then reached the canvas by `createImageBitmap` and a `bitmaprenderer` context, which took 10–14 ms a 1080p frame in headless Chromium. `putImageData` on the canvas's 2D context takes 1.6 ms, so the worker paints that way.
 
 ## Alternatives
 

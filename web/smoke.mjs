@@ -4,7 +4,7 @@
 //
 // The built player opens the torture deck twice: with `?painter=gpu`, which must paint with
 // vello on WebGPU into the worker's OffscreenCanvas, and with `?painter=cpu`, whose vello_cpu
-// frames reach the canvas as ImageBitmaps. Each time it shows every frame the golden rasters
+// frames go onto the canvas by its 2D context. Each time it shows every frame the golden rasters
 // hold (tests/golden/torture/raw.fnv1a names them: a state at rest, a fraction of the cue into
 // it, another format), and the frame on the page is screenshotted. Each must be the canvas's
 // size, opaque, and more than one color. The frames are saved as

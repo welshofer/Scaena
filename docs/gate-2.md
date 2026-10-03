@@ -12,7 +12,7 @@ The gate log stays open until both are run. Each section below gives the steps, 
 
 CI cannot say. Headless Chromium composites WebGPU on SwiftShader at about a frame a second.
 
-**The CPU fallback has room.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 30 fps, painting each 1080p frame in about 28 ms (`web/player.mjs`). Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The rest of a paint is the page's copy of the frame into an `ImageBitmap`.
+**The CPU fallback has room.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 42 fps (`web/player.mjs`). It paints each 1080p frame in about 20 ms, and its worst frame comes 33 ms after the one before. Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The page then puts each frame on the canvas in under 2 ms.
 
 **The player measures itself.** With `?fps` it shows a frame meter while the deck plays, for the run so far:
 - frames a second;
@@ -39,10 +39,10 @@ The bar is Jay's call.
 
 ## 2. Edit → lint → preview round trip under 200 ms on a 40-state deck: met
 
-`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. Its latest run had a median round trip of 83 ms. The last edit took:
-- compile 16 ms;
-- the frame 28 ms;
-- the lint of the state shown 33 ms.
+`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. Its latest run had a median round trip of 85 ms. The last edit took:
+- compile 15 ms;
+- the frame 19 ms;
+- the lint of the state shown 34 ms.
 
 PLAN 2.3 measured 114 ms. Before ADR-0004 finding 15, the frame alone took 76 ms.
 

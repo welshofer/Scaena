@@ -1,6 +1,6 @@
 // The engine's worker (PLAN 2.1–2.5, SPEC §9.2): the bundle, the WASM engine, and the canvas
 // the page handed over. It paints with vello on WebGPU where the browser has an adapter, and
-// otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
+// otherwise with vello_cpu, whose frames go onto the canvas by its 2D context. It keeps the
 // deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold. For
 // the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state; it
 // saves the bundle where it is kept, zips it, and takes files dropped on the page; and the
@@ -37,7 +37,7 @@ let canvas: OffscreenCanvas;
 /** WebGPU, when it paints. */
 let gpu: Canvas | undefined;
 /** Where the CPU painter's frames go, when it paints. */
-let bitmaps: ImageBitmapRenderingContext | undefined;
+let raster: OffscreenCanvasRenderingContext2D | undefined;
 /** The format the engine lays frames out in now (`undefined`: the deck's own canvas), and
  * the deck's timeline in it. */
 let format: string | undefined;
@@ -159,8 +159,8 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
     } else if (painter === "gpu") throw new Error("this browser has no WebGPU adapter");
   }
   if (!gpu) {
-    bitmaps = canvas.getContext("bitmaprenderer") ?? undefined;
-    if (!bitmaps) throw new Error("the canvas takes no ImageBitmap");
+    raster = canvas.getContext("2d") ?? undefined;
+    if (!raster) throw new Error("the canvas has no 2D context");
   }
   await load(source);
   slots = timeline();
@@ -441,9 +441,10 @@ async function paint(state: string, t: number) {
     gpu?.resize(width, height);
   }
   if (gpu) return player.paint(gpu, state, t);
-  // A copy out of the module's memory, on an ArrayBuffer of its own.
+  // A copy out of the module's memory, on an ArrayBuffer of its own, then one onto the canvas:
+  // a tenth of the time an ImageBitmap took to make and hand over (ADR-0004 finding 15).
   const frame = new ImageData(player.pixels(state, t, width) as Uint8ClampedArray<ArrayBuffer>, width);
-  bitmaps!.transferFromImageBitmap(await createImageBitmap(frame));
+  raster!.putImageData(frame, 0, 0);
 }
 
 /** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state
