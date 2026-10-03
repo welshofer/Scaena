@@ -5,13 +5,15 @@
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
-use scaena_core::Snapshot;
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{self, CubicBezier, Look};
+use scaena_core::{Deck, Snapshot};
+use scaena_engine::Engine;
 use scaena_engine::cascade;
 use scaena_engine::data::{self, DataFiles, Datum};
 use scaena_engine::layout::Grid;
+use scaena_engine::theme::Theme;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -207,8 +209,7 @@ pub struct Rows {
 /// Each state of the bundle's deck, or the one named, inspected.
 pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Inspected>, OpsError> {
     let snaps = scaena_core::resolve_states(&b.deck).context("tracking")?;
-    let selected: Vec<&Snapshot> = snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
-    if selected.is_empty() {
+    if !snaps.iter().any(|s| state.is_none_or(|id| s.state_id == id)) {
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let theme = match views.resolved || views.timeline {
@@ -218,40 +219,69 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     let files = if views.timeline || views.data { data_files(b)? } else { DataFiles::new() };
     // A cue on lines, words, or a chart's marks counts them after layout, so the timeline
     // needs the engine, with the bundle's fonts and images, as `render` does.
-    let mut cues = match (&theme, views.timeline) {
-        (Some(theme), true) => {
-            let mut engine = engine_with(b, theme, None)?;
-            let timeline = engine.timeline(&b.deck, theme, &files)?;
+    let mut engine = match (&theme, views.timeline) {
+        (Some(theme), true) => Some(engine_with(b, theme, None)?),
+        _ => None,
+    };
+    inspect_deck(&b.deck, theme.as_ref(), &files, engine.as_mut(), state, views)
+}
+
+/// Each state of `deck`, or the one named, inspected with the theme, data files, and engine
+/// the caller holds: `resolved` needs the theme, and `timeline` the theme and an engine with
+/// the deck's fonts and images. A client that keeps them between edits (the web editor,
+/// PLAN 2.3) passes its own; [`inspect`] builds them.
+pub fn inspect_deck(
+    deck: &Deck,
+    theme: Option<&Theme>,
+    files: &DataFiles,
+    engine: Option<&mut Engine>,
+    state: Option<&str>,
+    views: Views,
+) -> Result<Vec<Inspected>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let selected: Vec<&Snapshot> = snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
+    if selected.is_empty() {
+        return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
+    }
+    let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
+    let theme = match (views.resolved || views.timeline, theme) {
+        (true, None) => return Err(needs(if views.resolved { "resolved values" } else { "the timeline" })),
+        (_, theme) => theme,
+    };
+    let mut cues = match (theme, views.timeline, engine) {
+        (Some(theme), true, Some(engine)) => {
+            let timeline = engine.timeline(deck, theme, files)?;
             Some((engine, timeline))
         }
+        (_, true, None) => return Err(OpsError::new("inspecting the timeline needs an engine with the deck's fonts")),
         _ => None,
     };
     let mut out = Vec::new();
     for s in selected {
-        let snapshot = if views.resolved { cascade::with_overrides(&b.deck, s) } else { s.clone() };
+        let snapshot = if views.resolved { cascade::with_overrides(deck, s) } else { s.clone() };
         let mut inspected = Inspected { snapshot, looks: None, overrides: None, timeline: None, data: None };
-        if let (true, Some(theme)) = (views.resolved, &theme) {
+        if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
             for (id, props) in &inspected.snapshot.nodes {
-                if b.deck.nodes[id].node_type == NodeType::Text {
+                if deck.nodes[id].node_type == NodeType::Text {
                     let slot = Grid::slot_role(theme, inspected.snapshot.layout.as_deref(), props.get("at"));
                     let look = cascade::look(theme, props, slot.as_deref()).with_context(|| format!("node `{id}`"))?;
                     looks.insert(id.clone(), TextLook::from(look));
                 }
-                let over = b.deck.overridden(id);
+                let over = deck.overridden(id);
                 if !over.is_empty() {
                     overrides.insert(id.clone(), over);
                 }
             }
             (inspected.looks, inspected.overrides) = (Some(looks), Some(overrides));
         }
-        if let (Some((engine, timeline)), Some(theme)) = (&mut cues, &theme) {
+        if let (Some((engine, timeline)), Some(theme)) = (&mut cues, theme) {
             let slot = timeline.slot(&s.state_id).context("a state missing from the timeline")?;
-            let cue = engine.transition(&b.deck, theme, &files, &s.state_id)?;
+            let cue = engine.transition(deck, theme, files, &s.state_id)?;
             inspected.timeline = Some(cue_of(slot, &cue));
         }
         if views.data {
-            inspected.data = Some(rows(b, &files, &cascade::with_overrides(&b.deck, s))?);
+            inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
         }
         out.push(inspected);
     }
@@ -338,7 +368,7 @@ fn curve(c: &timeline::Curve) -> Curve {
 
 /// The rows each chart and table in a state reads (SPEC §3.10): its source through its
 /// `dataTransform`, as the engine reads them.
-fn rows(b: &Bundle, files: &DataFiles, snap: &Snapshot) -> Result<IndexMap<String, Rows>, OpsError> {
+fn rows(deck: &Deck, files: &DataFiles, snap: &Snapshot) -> Result<IndexMap<String, Rows>, OpsError> {
     let cell = |d: &Datum| match d {
         Datum::Number(n) => serde_json::json!(n),
         Datum::Text(s) => serde_json::json!(s),
@@ -348,13 +378,13 @@ fn rows(b: &Bundle, files: &DataFiles, snap: &Snapshot) -> Result<IndexMap<Strin
     };
     let mut out = IndexMap::new();
     for (id, props) in &snap.nodes {
-        if !matches!(b.deck.nodes[id].node_type, NodeType::Chart | NodeType::Table) {
+        if !matches!(deck.nodes[id].node_type, NodeType::Chart | NodeType::Table) {
             continue;
         }
         let Some(source) = props.get("data").and_then(|d| d.as_str()).and_then(|d| d.strip_prefix('@')) else {
             continue;
         };
-        let table = data::load(&b.deck, files, source)
+        let table = data::load(deck, files, source)
             .and_then(|t| data::transform(t, props.get("dataTransform")))
             .with_context(|| format!("node `{id}` in state `{}`", snap.state_id))?;
         out.insert(

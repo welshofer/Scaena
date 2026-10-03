@@ -91,20 +91,46 @@ pub fn lint(b: &Bundle) -> Result<Linted, OpsError> {
 /// What `lint` finds in `deck` with the files `files`.
 pub fn lint_in(deck: &Deck, files: &View) -> Result<Linted, OpsError> {
     let theme = files.theme(deck)?;
+    lint_with(deck, files, theme.as_deref(), |theme| {
+        let mut assets = Assets::new();
+        let mut engine = engine_in(deck, files, theme, Some(&mut assets))?;
+        let data = data_in(deck, files)?;
+        layout_rules(&mut engine, deck, theme, &data, &assets)
+    })
+}
+
+/// What `lint` finds in `deck` with the files `files` and the theme whose JSON is `theme`:
+/// validation and the document rules, then, once nothing they find is an error, the layout
+/// rules as `layout` runs them. A client that keeps its engine between edits (the web
+/// editor, PLAN 2.3) lays out with it; [`lint_in`] builds one.
+pub fn lint_with(
+    deck: &Deck,
+    files: &dyn BundleFiles,
+    theme: Option<&str>,
+    layout: impl FnOnce(&Theme) -> Result<Vec<Finding>, OpsError>,
+) -> Result<Linted, OpsError> {
     let mut found = scaena_core::validate::validate_bundle(&deck.to_json()?, files)?;
-    let model: Option<scaena_core::model::theme::Theme> = theme.as_deref().and_then(|t| serde_json::from_str(t).ok());
+    let model: Option<scaena_core::model::theme::Theme> = theme.and_then(|t| serde_json::from_str(t).ok());
     found.extend(scaena_core::lint::check(deck, model.as_ref()));
     let laid = theme.is_some() && !found.iter().any(|f| f.severity == Severity::Error);
-    if let (true, Some(text)) = (laid, &theme) {
-        let theme = Theme::from_json(text)?;
-        let mut assets = Assets::new();
-        let mut engine = engine_in(deck, files, &theme, Some(&mut assets))?;
-        let data = data_in(deck, files)?;
-        let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets: &assets };
-        found.extend(scaena_engine::lint::lint(&mut engine, deck, &theme, &data, Some(&mut backdrop))?);
+    if let (true, Some(text)) = (laid, theme) {
+        found.extend(layout(&Theme::from_json(text)?)?);
     }
     scaena_core::lint::sort(&mut found);
     Ok(Linted { findings: found, laid })
+}
+
+/// The layout rules on `deck` as `engine` lays it out, in its own format and each of its
+/// `formats`, with contrast judged over what the CPU painter paints from `assets`.
+pub fn layout_rules(
+    engine: &mut Engine,
+    deck: &Deck,
+    theme: &Theme,
+    data: &DataFiles,
+    assets: &Assets,
+) -> Result<Vec<Finding>, OpsError> {
+    let mut backdrop = scaena_paint::Backdrop { painter: CpuPainter::default(), assets };
+    Ok(scaena_engine::lint::lint(engine, deck, theme, data, Some(&mut backdrop))?)
 }
 
 /// What `lint --fix` did: the findings whose fixes it applied, and what lint finds after.

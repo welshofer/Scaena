@@ -401,7 +401,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
 fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
     let source = std::fs::read_to_string(input).with_context(|| format!("reading {}", input.display()))?;
     let name = input.display().to_string();
-    let (doc, map) = match scaena_core::dsl::compile_json(&source) {
+    // The bundle the deck is checked in: the one it is written to, or the source's.
+    let root = out.unwrap_or(input).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let compiled = match scaena_ops::compile::compile(&source, &scaena_store::Files::Dir(root.to_path_buf())) {
         Ok(compiled) => compiled,
         Err(e) => {
             if json {
@@ -416,24 +418,18 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
             return Ok(ExitCode::from(2));
         }
     };
-    let deck_json = serde_json::to_string(&doc)?;
-    // The bundle the deck is checked in: the one it is written to, or the source's.
-    let root = out.unwrap_or(input).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let findings = scaena_core::validate::validate_bundle(&deck_json, &scaena_store::Files::Dir(root.to_path_buf()))?;
+    let findings = &compiled.findings;
     if !findings.is_empty() {
         // A finding about the deck is about the source that wrote that part of it; one
         // about another file (the theme) is about that file.
-        let span = |f: &Finding| match (&f.file, &f.path) {
-            (None, Some(path)) => map.locate(path),
-            _ => None,
-        };
+        let span = |f: &Finding| compiled.span(f);
         if json {
             let located: Vec<serde_json::Value> = findings
                 .iter()
                 .map(|f| {
                     let mut v = serde_json::to_value(f).expect("a finding is JSON");
                     if let Some((offset, _)) = span(f) {
-                        let (line, col) = line_col(&source, offset);
+                        let (line, col) = scaena_ops::compile::line_col(&source, offset);
                         v["line"] = serde_json::json!(line);
                         v["col"] = serde_json::json!(col);
                     }
@@ -443,7 +439,7 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
             let summary = serde_json::json!({ "out": null, "findings": located });
             println!("{}", serde_json::to_string_pretty(&summary)?);
         } else {
-            for f in &findings {
+            for f in findings {
                 let message = match &f.file {
                     Some(file) => format!("{file} {}: {}", f.path.as_deref().unwrap_or(""), f.message),
                     None => f.message.clone(),
@@ -457,7 +453,7 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
         }
         return Ok(ExitCode::from(1));
     }
-    let deck = scaena_core::document::Deck::from_json(&deck_json).context("the compiled deck")?;
+    let deck = scaena_core::document::Deck::from_json(&compiled.json.to_string()).context("the compiled deck")?;
     let canonical = deck.to_json()? + "\n";
     if let Some(p) = out {
         std::fs::write(p, &canonical).with_context(|| format!("writing {}", p.display()))?;
@@ -507,13 +503,6 @@ fn diagnostic(
         .render_report(&mut out, report.as_ref())
         .expect("drawing to a string");
     out
-}
-
-/// 1-based line and column (in characters) of a byte offset into `source`.
-fn line_col(source: &str, offset: usize) -> (usize, usize) {
-    let before = &source[..offset.min(source.len())];
-    let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
-    (before.matches('\n').count() + 1, col)
 }
 
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the

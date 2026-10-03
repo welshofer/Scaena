@@ -69,6 +69,12 @@ impl SourceMap {
             p = &p[..p.rfind('/')?];
         }
     }
+
+    /// The source the part of the deck at `pointer` came from, if the source wrote that
+    /// part itself: no ancestor's.
+    pub fn exact(&self, pointer: &str) -> Option<(usize, usize)> {
+        self.0.get(pointer).copied()
+    }
 }
 
 /// `source` as a deck.
