@@ -396,7 +396,46 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *`deck.scn` is not regenerated from the CRDT.)*
 
 ### 1F Benchmarks
-- [ ] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)*
+- [x] 1.24 Benchmarks (SPEC §15): B2 (chart-heavy, with 1.9) and B3 (shader-heavy, with 1.10) under `tests/bench/`; `criterion` benches for every stage on B1–B4 with a recorded baseline per CI runner, failing CI on a regression beyond that runner's measured noise. Gate 1 criterion 4 is judged on these. *(Added by 0.14: SPEC §15 asks for criterion benches from Phase 0 on; `crates/scaena-cli/examples/stages.rs` is the stopgap that recorded gate 0.)* *(Done:*
+  - *The decks. `scripts/build_bench_decks.py` writes `tests/bench/b2.scaena` and `b3.scaena` on B1's theme and fonts, and `just schema` checks the committed ones against it. Both validate and lint clean.*
+    - *B2: six charts (bar, stacked bar, line, area, donut, scatter), each shown and then updated by key, for 12 states.*
+    - *B3: a full-bleed mesh with grain over it on all 8 states, its seed and palette changing between them.*
+  - *The benches. `crates/scaena-cli/benches/stages.rs` (`just bench`) names each `stage/deck` and covers every SPEC §15 stage the code has, on B1–B4:*
+    - *load and fonts;*
+    - *layout: fresh, warm, and the slowest state;*
+    - *cues and sampling;*
+    - *CPU paint, every state and the slowest;*
+    - *GPU paint with readback;*
+    - *both lints;*
+    - *a cold `scaena render`, and the MCP `deck_render` round trip;*
+    - *video's frame loop over the longest cue;*
+    - *a probe of the machine.*
+
+    *A stage that goes over states, cues, or frames counts them.*
+  - *The gate. CI's `bench` workflow runs the benches on macOS (Apple Silicon, Metal) and on Linux. Each runner keeps a history of `main`'s runs in the Actions cache, and `scripts/bench_gate.py` judges every run against it:*
+    - *a bench regresses when it is slower than the median of `main`'s runs by more than max(10%, 4σ), σ being their spread (1.4826 × MAD);*
+    - *one that looks slower is run again, and judged on the faster of its two runs;*
+    - *`bench-accept` lets a regression through, and `main` slower on both runs starts that bench's history over.*
+
+    *SPEC §15 says how.*
+  - *The `wasm` job fails the engine over 3.0 MB gzipped, and records B1's cold start in headless Chromium.*
+  - *On this Linux container (Xeon @ 2.8 GHz, 4 vCPU, AVX2; frames 1080 high, a frame painted on one thread):*
+    - *B1:*
+      - *the slowest state lays out in 0.73 ms, and all 40 in 20 ms;*
+      - *a frame samples in 6 µs;*
+      - *the slowest frame paints in 23 ms;*
+      - *`scaena render` takes 38 ms cold, and the MCP round trip 49 ms;*
+      - *document lint takes 0.5 ms, and layout lint 0.97 s;*
+      - *video plays its longest cue at 56 frames a second.*
+    - *Over budget there: CPU paint and video.*
+      - *B1's and B2's slowest frames paint in 21–23 ms against 12 ms. Gate 0 measured Apple Silicon at about 3.4× this container, on one thread.*
+      - *B1's video reaches 0.94× realtime at 60 fps, and B2's 1.1×. The frame loop paints a batch on every core, then writes it, so painting and writing never overlap.*
+      - *B3 paints a frame in 208 ms against 25 ms, and its video reaches 0.16× realtime against 0.5×. The mesh's CPU reference renders one pixel at a time on one thread. Each pixel is its own, so rows can go to threads with the same result.*
+
+    *The runners' numbers are in each run's summary.*
+  - *Not measured:*
+    - *GPU paint alone: the GPU stage reads its frame back.*
+    - *The GPU video path, which does not exist yet.)*
 
 ### 1G Design calls (Jay, 2026-10-02)
 - [ ] 1.25 Baseline grid: snapping is opt-in per text role, on for `body` and `caption` in the shipped themes (Dusk, Daybreak), and display text aligns by its cap height. W221 stops being reserved: it flags a snapping role whose leading is not a whole number of grid lines. SPEC §3.4, §3.6, §7.5; goldens for the torture deck's text cases.

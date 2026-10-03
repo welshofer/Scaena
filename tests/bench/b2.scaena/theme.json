@@ -1,0 +1,692 @@
+{
+  "scaena-theme": "0.6",
+  "name": "B2 bench",
+  "description": "B1's theme with a `figure` layout: the SPEC §15 B2 benchmark theme. Written by scripts/build_bench_decks.py.",
+  "tokens": {
+    "color": {
+      "ink": "#F2F0E9",
+      "paper": "#101014",
+      "paper-2": "#17171D",
+      "accent": "#FF6A3D",
+      "accent-2": "#FFC857",
+      "muted": "#8A8A96",
+      "line": "#2A2A33"
+    },
+    "roles": {
+      "surface": "paper",
+      "surface-2": "paper-2",
+      "onSurface": "ink",
+      "onSurfaceMuted": "muted",
+      "accent": "accent",
+      "onAccent": "paper",
+      "line": "line"
+    },
+    "data": {
+      "categorical": [
+        "#FF6A3D",
+        "#FFC857",
+        "#4FB3BF",
+        "#9B8CFF",
+        "#7CD992",
+        "#F28DB2"
+      ],
+      "sequential": [
+        "#2A2A33",
+        "#5A3A2E",
+        "#A3482F",
+        "#FF6A3D",
+        "#FFC857"
+      ],
+      "diverging": [
+        "#4FB3BF",
+        "#17171D",
+        "#FF6A3D"
+      ]
+    },
+    "space": {
+      "unit": 8,
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128,
+        192
+      ]
+    },
+    "radius": {
+      "scale": [
+        0,
+        4,
+        8,
+        16,
+        32
+      ]
+    },
+    "stroke": {
+      "hairline": 1,
+      "thin": 2,
+      "thick": 4
+    }
+  },
+  "type": {
+    "families": {
+      "display": {
+        "family": "Fraunces",
+        "file": "fonts/Fraunces-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            9,
+            144
+          ],
+          "SOFT": [
+            0,
+            100
+          ],
+          "WONK": [
+            0,
+            1
+          ]
+        },
+        "fallback": [
+          "body"
+        ]
+      },
+      "body": {
+        "family": "Inter",
+        "file": "fonts/Inter-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ],
+          "opsz": [
+            14,
+            32
+          ]
+        },
+        "features": {
+          "cv11": true,
+          "ss01": false
+        }
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "file": "fonts/JetBrainsMono-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
+        }
+      },
+      "text": {
+        "family": "Source Serif 4",
+        "file": "fonts/SourceSerif4-VF.ttf",
+        "axes": {
+          "wght": [
+            200,
+            900
+          ],
+          "opsz": [
+            8,
+            60
+          ]
+        }
+      }
+    },
+    "scale": {
+      "ratio": 1.25,
+      "base": 32
+    },
+    "roles": {
+      "display": {
+        "family": "display",
+        "size": 144,
+        "weight": 600,
+        "leading": 0.92,
+        "tracking": -0.025,
+        "opsz": 144,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 16,
+        "maxLines": 3,
+        "minSize": 80,
+        "opticalMargins": true,
+        "hangingPunctuation": true,
+        "minLastLineWords": 1
+      },
+      "headline": {
+        "family": "display",
+        "size": 80,
+        "weight": 550,
+        "leading": 1.0,
+        "tracking": -0.015,
+        "opsz": 72,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 24,
+        "maxLines": 3,
+        "minSize": 56,
+        "opticalMargins": true,
+        "hangingPunctuation": true
+      },
+      "title": {
+        "family": "body",
+        "size": 48,
+        "weight": 600,
+        "leading": 1.1,
+        "tracking": -0.01,
+        "opsz": 32,
+        "wrap": "balance",
+        "box": "cap",
+        "measure": 32,
+        "maxLines": 2
+      },
+      "body": {
+        "family": "body",
+        "size": 32,
+        "weight": 400,
+        "leading": 1.35,
+        "tracking": 0,
+        "opsz": 32,
+        "wrap": "pretty",
+        "box": "line",
+        "measure": 58,
+        "minLastLineWords": 2,
+        "hyphenate": false
+      },
+      "caption": {
+        "family": "body",
+        "size": 22,
+        "weight": 450,
+        "leading": 1.3,
+        "tracking": 0.005,
+        "opsz": 20,
+        "wrap": "pretty",
+        "box": "line",
+        "measure": 64,
+        "color": "onSurfaceMuted"
+      },
+      "label": {
+        "family": "body",
+        "size": 20,
+        "weight": 500,
+        "leading": 1.2,
+        "tracking": 0.02,
+        "opsz": 18,
+        "wrap": "greedy",
+        "box": "cap",
+        "case": "upper",
+        "numeric": "tabular-lining",
+        "color": "onSurfaceMuted"
+      },
+      "numeral": {
+        "family": "display",
+        "size": 112,
+        "weight": 500,
+        "leading": 1.0,
+        "tracking": -0.03,
+        "opsz": 144,
+        "wrap": "greedy",
+        "box": "cap",
+        "numeric": "tabular-lining"
+      },
+      "code": {
+        "family": "mono",
+        "size": 26,
+        "weight": 400,
+        "leading": 1.4,
+        "tracking": 0,
+        "wrap": "greedy",
+        "box": "line",
+        "measure": 72
+      },
+      "quote": {
+        "family": "text",
+        "size": 44,
+        "weight": 400,
+        "leading": 1.25,
+        "tracking": -0.005,
+        "opsz": 48,
+        "wrap": "pretty",
+        "box": "cap",
+        "measure": 30,
+        "maxLines": 7,
+        "hangingPunctuation": true
+      }
+    }
+  },
+  "grid": {
+    "columns": 12,
+    "rows": 6,
+    "gutter": 24,
+    "margin": [
+      96,
+      120
+    ],
+    "baseline": 8
+  },
+  "layouts": {
+    "title": {
+      "description": "Opening or section title.",
+      "slots": {
+        "title": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            2,
+            4
+          ],
+          "align": {
+            "x": "start",
+            "y": "cap"
+          },
+          "role": "display"
+        },
+        "subtitle": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 5,
+          "role": "title"
+        }
+      }
+    },
+    "full": {
+      "description": "One thing, full bleed to the grid.",
+      "slots": {
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            1,
+            6
+          ]
+        },
+        "header": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 1,
+          "role": "headline"
+        },
+        "footer": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 6,
+          "role": "caption"
+        }
+      }
+    },
+    "belief": {
+      "description": "A claim, its argument, and one line to remember.",
+      "slots": {
+        "kicker": {
+          "col": [
+            1,
+            6
+          ],
+          "row": 1,
+          "role": "label",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "headline": {
+          "col": [
+            1,
+            9
+          ],
+          "row": [
+            2,
+            3
+          ],
+          "role": "headline",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "body": {
+          "col": [
+            1,
+            7
+          ],
+          "row": [
+            4,
+            6
+          ],
+          "role": "body"
+        },
+        "aside": {
+          "col": [
+            9,
+            12
+          ],
+          "row": [
+            4,
+            6
+          ],
+          "role": "quote",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        }
+      }
+    },
+    "list": {
+      "description": "A heading and the points under it.",
+      "slots": {
+        "header": {
+          "col": [
+            1,
+            9
+          ],
+          "row": [
+            1,
+            2
+          ],
+          "role": "headline",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "items": {
+          "col": [
+            1,
+            10
+          ],
+          "row": [
+            3,
+            6
+          ],
+          "role": "body"
+        }
+      }
+    },
+    "quote": {
+      "description": "A quotation with attribution.",
+      "slots": {
+        "quote": {
+          "col": [
+            2,
+            10
+          ],
+          "row": [
+            2,
+            4
+          ],
+          "role": "quote",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "who": {
+          "col": [
+            2,
+            10
+          ],
+          "row": 5,
+          "role": "caption"
+        }
+      }
+    },
+    "figure": {
+      "description": "A headline over one figure, its caption and its source below.",
+      "slots": {
+        "header": {
+          "col": [
+            1,
+            9
+          ],
+          "row": 1,
+          "role": "headline"
+        },
+        "aside": {
+          "col": [
+            10,
+            12
+          ],
+          "row": 1,
+          "role": "quote"
+        },
+        "main": {
+          "col": [
+            1,
+            12
+          ],
+          "row": [
+            2,
+            5
+          ]
+        },
+        "footer": {
+          "col": [
+            1,
+            8
+          ],
+          "row": 6,
+          "role": "caption"
+        },
+        "source": {
+          "col": [
+            9,
+            12
+          ],
+          "row": 6,
+          "role": "code"
+        }
+      }
+    }
+  },
+  "motion": {
+    "durations": {
+      "fast": 180,
+      "standard": 420,
+      "slow": 800
+    },
+    "easings": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "in": [
+        0.4,
+        0,
+        1,
+        1
+      ],
+      "out": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "linear": [
+        0,
+        0,
+        1,
+        1
+      ]
+    },
+    "springs": {
+      "snappy": {
+        "stiffness": 420,
+        "damping": 34,
+        "mass": 1
+      },
+      "gentle": {
+        "stiffness": 170,
+        "damping": 26,
+        "mass": 1
+      },
+      "heavy": {
+        "stiffness": 120,
+        "damping": 30,
+        "mass": 1.6
+      }
+    },
+    "presets": {
+      "fade": {
+        "from": {
+          "opacity": 0
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Opacity only."
+      },
+      "rise": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              24
+            ]
+          }
+        },
+        "duration": "standard",
+        "ease": "out",
+        "description": "Fade up from 24cu below."
+      },
+      "grow": {
+        "from": {
+          "transform": {
+            "scale": [
+              1,
+              0
+            ],
+            "anchor": [
+              0.5,
+              1
+            ]
+          }
+        },
+        "spring": "snappy",
+        "split": "marks",
+        "stagger": 40,
+        "description": "Bars grow from their baseline."
+      },
+      "draw": {
+        "from": {
+          "params": {
+            "progress": 0
+          }
+        },
+        "duration": "slow",
+        "ease": "standard",
+        "description": "A shape's outline draws on from where it starts."
+      },
+      "words": {
+        "from": {
+          "opacity": 0,
+          "transform": {
+            "translate": [
+              0,
+              12
+            ]
+          }
+        },
+        "split": "words",
+        "stagger": 28,
+        "ease": "out",
+        "duration": "fast",
+        "description": "Word-by-word rise."
+      },
+      "pulse": {
+        "to": {
+          "transform": {
+            "scale": 1.04
+          }
+        },
+        "spring": "gentle",
+        "description": "Emphasis: a single soft pulse."
+      }
+    },
+    "maxConcurrent": 12,
+    "maxBuild": 2500
+  },
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#1B1430",
+        "#3A1F4F",
+        "#B0452C",
+        "#FF6A3D"
+      ],
+      "ember": [
+        "#0E0C14",
+        "#2B1A1A",
+        "#7A2E1E",
+        "#FFC857"
+      ]
+    },
+    "presets": {
+      "mesh-soft": {
+        "kind": "mesh",
+        "palette": "ambient",
+        "params": {
+          "points": 5,
+          "drift": 0.12,
+          "softness": 0.85,
+          "grain": 0.035
+        }
+      },
+      "noise-fine": {
+        "kind": "noise",
+        "palette": "ember",
+        "params": {
+          "octaves": 4,
+          "scale": 0.0015,
+          "speed": 0.05,
+          "contrast": 0.6
+        }
+      }
+    }
+  },
+  "charts": {
+    "axis": {
+      "role": "label",
+      "stroke": "hairline",
+      "color": "line"
+    },
+    "gridlines": {
+      "stroke": "hairline",
+      "color": "line",
+      "opacity": 0.6
+    },
+    "label": {
+      "role": "label"
+    },
+    "strokeWidth": "thin",
+    "cornerRadius": 2,
+    "barGap": 0.28
+  },
+  "density": {
+    "maxWordsPerState": 110
+  }
+}

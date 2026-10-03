@@ -44,13 +44,21 @@ schema:
     python3 scripts/build_torture_fonts.py --check
     python3 scripts/build_torture_images.py --check
     python3 scripts/build_bundle_fonts.py --check
+    python3 scripts/build_bench_decks.py --check
 
-# Per-stage timings against SPEC §15 (PLAN 0.14): B1 and B4 in one process each, then B1's cold
-# start in headless Chromium. CI runs the first half on Apple Silicon (.github/workflows/bench.yml).
-bench: wasm
+# CI runs these on each runner, and fails a pull request on a regression beyond that runner's
+# noise (.github/workflows/bench.yml, scripts/bench_gate.py).
+# SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
+bench *FILTER:
+    cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
+
+# Per-state medians and worst cases on one bundle, in one process (PLAN 0.14's tables).
+stages BUNDLE="tests/bench/b1.scaena":
     cargo build --release --locked -p scaena-cli --features gpu --bins --examples
-    target/release/examples/stages tests/bench/b1.scaena
-    target/release/examples/stages tests/fixtures/torture.scaena
+    target/release/examples/stages {{BUNDLE}}
+
+# B1's cold start in headless Chromium: WASM load to the first frame at 1080p (SPEC §15).
+coldstart: wasm
     node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena
 
 # Rebuild the torture deck's subset fonts from pinned upstream files (network; PLAN 0.2).

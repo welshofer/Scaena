@@ -1,5 +1,5 @@
 //! Per-stage timings on one bundle against SPEC §15's budgets (PLAN 0.14): the numbers
-//! behind gate 0 criterion 6. Release builds only:
+//! behind gate 0 criterion 6. Release builds only (`just stages BUNDLE`):
 //!
 //!     cargo build --release -p scaena-cli --features gpu --bins --examples
 //!     target/release/examples/stages tests/bench/b1.scaena
@@ -7,7 +7,8 @@
 //! Prints a Markdown table. Every stage runs in this process except the cold render,
 //! which starts `scaena render` (the binary beside `examples/`) once per state and
 //! times the whole process. Without the `gpu` feature or an adapter, the GPU row says
-//! why. Not a criterion bench: medians and worst cases, no statistics, no baseline.
+//! why. Medians and worst cases per state, without statistics: the criterion benches in
+//! `benches/stages.rs` are what CI judges (PLAN 1.24).
 
 use anyhow::{Context, Result};
 use scaena_engine::data::DataFiles;
