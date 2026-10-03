@@ -333,7 +333,29 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Shader images embed losslessly and are large: the trails example is 15 MB (ADR-0004 finding 13).*
     - *PDF/UA conformance is not checked. `krilla` can validate it; headings would need titles first.*
     - *A PDF is drawn in the canvas format only, not in another of the deck's `formats`.)*
-- [ ] 1.21 PNG/SVG per state; video via frame sequence → `ffmpeg` (mp4/webm/ProRes); `hold` dwell.
+- [x] 1.21 PNG/SVG per state; video via frame sequence → `ffmpeg` (mp4/webm/ProRes); `hold` dwell. *(Done. `scaena export --format png|svg|mp4|webm|prores`, and `deck_export`; `scaena-export::svg` and `::video`; SPEC §7.1, §7.2, §10; ADR-0004 finding 14:*
+  - *`export` writes every format where `--out` says and returns what it wrote. png and svg write an image of each state at rest into a directory, `<state>.png`, at `--size`; a video writes a file. The spine still prints without `--out`.*
+  - *A PNG is the CPU painter's frame.*
+  - *An SVG is written by hand:*
+    - *layers are groups (transform, clip, opacity, `mix-blend-mode`);*
+    - *paths and linear and radial gradients stay vectors;*
+    - *each glyph is an outline path, unhinted, with each run's text laid transparent over it, so the SVG selects and copies as the deck reads;*
+    - *images embed as PNG, indexed where they hold 256 colors or fewer, and are filtered as the painters filter them;*
+    - *shaders, COLR and bitmap glyphs, and sweep gradients are the CPU painter's pixels at the SVG's size.*
+  - *Rasterized by `resvg`, every torture state's SVG passes SPEC §13.5 against the CPU painter, and so does every trails slide at half size. In headless Chromium the torture SVGs draw within ΔE 5 of it on 99% of pixels, and their text selects and copies (checked by hand).*
+  - *A video plays the global timeline, or the states `--states` names in that order: each state's cue, then its `hold`, at `--fps` (60).*
+    - *Frames are the CPU painter's, painted one per core, each single-threaded, so their pixels do not depend on the core count. This answers the spike report's question about threaded rasters. A frame that draws what the one before it drew is painted once.*
+    - *Frames go to `ffmpeg` as RGB over black, with BT.709 named and tagged: H.264 at CRF 18 in MP4, VP9 in WebM, or ProRes 422 HQ in QuickTime.*
+    - *`--audio` lays a sound track under the frames.*
+    - *The video is written beside `--out` and renamed when whole, so a failed export leaves nothing behind.*
+  - *Frame k shows the moment `render --t` draws (`Reel`). Decoded, each tested frame is within 2/255 of it on average, and nearer it than to the moments 100 ms either side.*
+  - *The trails example, 110 s at 1080p60 (6,624 frames), exports to a 7.8 MB MP4 in 2 min 43 s on 4 cores (release build), 1.5× its running time.*
+  - *CI installs ffmpeg on Linux and requires it there; elsewhere the video tests skip.*
+  - *Not done:*
+    - *Exports in another of the deck's formats (`9:16`), as for PDF.*
+    - *Per-beat chapters in a video (SPEC §10's motion graphic), with the spine: PLAN 1.22.*
+    - *A state with no cue and no hold has no frame, so a deck without holds plays only its transitions. Nothing warns about it.*
+    - *The SVG's text layer is set in a system font stretched to each run, so a selection covers runs, not glyphs.)*
 - [ ] 1.22 `export --format spine` + per-beat renders; integration note for the existing infographic/motion/podcast pipelines.
 
 ### 1E Store

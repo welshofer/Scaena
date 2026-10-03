@@ -27,3 +27,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 hayro.workspace = true
+# Rasterizes SVGs to compare with the painters (PLAN 1.21). Without its text feature: an
+# SVG's text is the transparent layer a reader selects, which no painter draws.
+resvg.workspace = true
