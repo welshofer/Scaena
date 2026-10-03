@@ -86,7 +86,7 @@ BUNDLES = {
         "bundle": ROOT / "docs/examples",
         "deck": "revenue.deck.json",
         # Decks beside it that share its fonts: the subset covers them all, and each is checked.
-        "also": ["trails.deck.json"],
+        "also": ["trails.deck.json", "higher-ed.deck.json"],
         "every_family": False,
         "fonts": EXAMPLE_FONTS,
         "licenses": LICENSES,
