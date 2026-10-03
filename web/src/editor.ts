@@ -28,6 +28,7 @@ import { sourceOf } from "./bundle";
 import { keptNames } from "./folders";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
+import { worker } from "./spawn";
 import { Stage } from "./stage";
 
 const params = new URLSearchParams(location.search);
@@ -152,7 +153,7 @@ async function edit(source: Source) {
   const problems = $<HTMLUListElement>("#problems");
   const inspector = $("#inspector");
   const whereLine = $("#where");
-  const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter);
+  const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
   stage.onError = failed;
   formatPicker.replaceChildren(new Option("own canvas", ""));
   for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));

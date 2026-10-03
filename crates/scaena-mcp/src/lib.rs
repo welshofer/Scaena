@@ -373,16 +373,16 @@ pub struct DeckRender {
 pub struct DeckExport {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task
-    /// that builds it.
+    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, `prores`, or `html`.
     pub format: String,
     /// The states a frame export draws, in this order: an image each (png, svg), a page
-    /// each (pdf), or each one's part of the timeline (video). Without it: every state; a
-    /// PDF's slides, each at its last state, in spine order; a video's whole timeline.
+    /// each (pdf), each one's part of the timeline (video), or the states it plays (html).
+    /// Without it: every state; a PDF's slides, each at its last state, in spine order; a
+    /// video's whole timeline.
     #[serde(default)]
     pub states: Option<Vec<String>>,
-    /// Where to write it: a file (pdf, video, spine), or a directory that gets an image per
-    /// state (png, svg). Only the spine needs none.
+    /// Where to write it: a file (pdf, video, html, spine), or a directory that gets an
+    /// image per state (png, svg). Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
@@ -605,8 +605,9 @@ impl Scaena {
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
-        each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
-        the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns \
+        each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
+        browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
+        that takes longer than 40 s keeps going: the call returns \
         `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
         let req = scaena_ops::export::Request {

@@ -39,16 +39,6 @@ impl Session {
         Session::open(Arc::unwrap_or_clone(files))
     }
 
-    /// Every file of the bundle the session holds, by its path inside it, sorted.
-    pub fn files(&self) -> Vec<String> {
-        self.files.keys().cloned().collect()
-    }
-
-    /// The file at `path` in the bundle, as it was handed over.
-    pub fn file(&self, path: &str) -> Option<&[u8]> {
-        self.files.get(path).map(Vec::as_slice)
-    }
-
     /// The bundle as it stands: the deck shown, in the files handed over.
     fn bundle(&self) -> Bundle {
         Bundle {

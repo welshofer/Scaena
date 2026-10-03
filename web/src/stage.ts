@@ -9,6 +9,13 @@ type Reply = Extract<
   }
 >;
 
+/** How a page starts the engine: a worker, and the engine's module, compiled, if the page
+ * carries it, as a single-file export does (PLAN 2.5). A worker without it loads its own. */
+export interface Engine {
+  spawn: () => Worker;
+  module?: WebAssembly.Module;
+}
+
 export class Stage {
   /** Where the deck is, as the worker last said. */
   at: At = { index: 0, t: 0, global: 0, playing: false };
@@ -29,19 +36,20 @@ export class Stage {
     worker.onerror = (e) => this.onError(new Error(e.message));
   }
 
-  /** Open the bundle at `source` in a new worker, which paints into a new canvas in
-   * `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling back to the
-   * CPU painter starts over. */
-  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter): Promise<Stage> {
+  /** Open the bundle at `source` in a new worker of `engine`'s, which paints into a new
+   * canvas in `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling
+   * back to the CPU painter starts over. */
+  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
-    const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    const worker = engine.spawn();
     const reply = new Promise<FromWorker>((resolve, reject) => {
       worker.onmessage = ({ data }: MessageEvent<FromWorker>) => resolve(data);
       worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
     });
     const offscreen = fresh.transferControlToOffscreen();
-    worker.postMessage({ type: "open", source, painter, canvas: offscreen } satisfies ToWorker, [offscreen]);
+    const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module };
+    worker.postMessage(open, [offscreen]);
     const first = await reply;
     if (first.type === "ready") {
       const { type: _, ...opened } = first;
@@ -51,7 +59,7 @@ export class Stage {
     const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
     if (first.type === "error" && first.webgpu && painter === "auto") {
       console.warn(`${message}; the CPU painter paints instead`);
-      return Stage.open(fresh, source, "cpu");
+      return Stage.open(fresh, source, "cpu", engine);
     }
     throw new Error(message);
   }

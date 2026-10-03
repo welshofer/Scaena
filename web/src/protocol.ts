@@ -14,7 +14,11 @@ export type Source =
   | { folder: FileSystemDirectoryHandle }
   /** A `.scaena` zip's bytes and its name, without `.scaena`: copied into the browser's
    * storage, and kept there. */
-  | { zip: ArrayBuffer; name: string };
+  | { zip: ArrayBuffer; name: string }
+  /** A bundle's files by their paths inside it, and its name: a single-file export's, which
+   * carries them (PLAN 2.5). Kept nowhere. It plays `states`, in that order, or every state
+   * without them. */
+  | { files: Record<string, ArrayBuffer>; name: string; states?: string[] };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, or the browser's storage,
  * by name. A bundle read from a URL is kept nowhere until it is saved. */
@@ -38,8 +42,10 @@ export interface Slot {
 
 /** The page to the worker. */
 export type ToWorker =
-  /** Open the bundle at `source`, and paint into `canvas` by `painter`. */
-  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas }
+  /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
+   * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
+   * without it. */
+  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */

@@ -1,6 +1,6 @@
-//! Export a projection (SPEC §10): the spine, PDF (PLAN 1.20), PNG and SVG per state, and
-//! video (1.21); single-file HTML (2.5) names the task that builds it. An export is
-//! written where `out` says; the spine is returned when it is not.
+//! Export a projection (SPEC §10): the spine, PDF (PLAN 1.20), PNG and SVG per state,
+//! video (1.21), and single-file HTML (2.5). An export is written where `out` says; the
+//! spine is returned when it is not.
 
 use crate::lint::data_files;
 use crate::render::scale_for;
@@ -12,14 +12,16 @@ use scaena_engine::images::BundleImages;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
+use scaena_export::html::Standalone;
 use scaena_export::pdf::{Page, PdfSettings, pdf};
 use scaena_export::svg::{SvgSettings, svg};
 use scaena_export::video::{Chapter, Codec, VideoSettings};
 use scaena_paint::cpu::CpuPainter;
 use scaena_paint::{Assets, Painter as _};
+use scaena_store::{SaveOptions, StoreError};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -29,12 +31,12 @@ pub struct Request {
     /// `pdf`, `png`, `svg`, `mp4`, `webm`, `prores`, `html`, or `spine`.
     pub format: String,
     /// The states a frame export draws, in this order: for png and svg, an image each;
-    /// for pdf, a page each; for video, each state's part of the timeline. Without it,
-    /// png and svg draw every state, a PDF each slide at its last state, and a video
-    /// plays the whole timeline.
+    /// for pdf, a page each; for video, each state's part of the timeline; for html, the
+    /// states it plays. Without it, png, svg, and html take every state, a PDF each slide
+    /// at its last state, and a video plays the whole timeline.
     pub states: Option<Vec<String>>,
-    /// Where it is written: a file for pdf, video, and the spine; a directory for png
-    /// and svg, an image per state named for it.
+    /// Where it is written: a file for pdf, video, html, and the spine; a directory for
+    /// png and svg, an image per state named for it.
     pub out: Option<PathBuf>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
     /// size without it.
@@ -57,7 +59,8 @@ pub struct Exported {
     /// `docs/schema/spine.schema.json`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spine: Option<scaena_core::spine::SpineProjection>,
-    /// The state each page draws, in order: a PDF's pages, or the images of png and svg.
+    /// The state each page draws, in order: a PDF's pages, the images of png and svg, or
+    /// the states a single-file HTML plays.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<String>>,
     /// The files written for png and svg, in the order of `pages`; for the spine, each
@@ -83,7 +86,7 @@ pub struct Exported {
     /// A video's chapters: the spine's beats as it plays them, each titled by its claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chapters: Option<Vec<Chapter>>,
-    /// The bytes written: the document, the video, or every image together.
+    /// The bytes written: the document, the video, the page, or every image together.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
     /// An export the MCP server is still running when it stops waiting for it, and how
@@ -147,6 +150,7 @@ pub fn unit(format: &str) -> &'static str {
         Ok(Format::Mp4 | Format::Webm | Format::Prores) => "frames",
         Ok(Format::Pdf) => "pages",
         Ok(Format::Spine) => "beats",
+        Ok(Format::Html) => "states",
         _ => "images",
     }
 }
@@ -217,11 +221,73 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
             exported.out = shown;
             Ok(exported)
         }
-        Format::Html => Err(OpsError::not_built(
-            format!("`export --format {format_name}` is not implemented yet — see docs/PLAN.md task 2.5"),
-            "2.5",
-        )),
+        Format::Html => {
+            let out = out.ok_or_else(|| OpsError::new("`export --format html` writes a file: give it --out FILE"))?;
+            let page = scaena_export::html::player().ok_or_else(|| {
+                OpsError::not_built(
+                    "this scaena was built without the web player a single-file export carries: build it with \
+                     `just web`, then build scaena again",
+                    "2.5",
+                )
+            })?;
+            let (html, pages) = standalone(b, states, page, progress)?;
+            write(out, html.as_bytes())?;
+            Ok(Exported {
+                format: format_name,
+                out: shown,
+                pages: Some(pages),
+                bytes: written(html.len()),
+                ..Exported::default()
+            })
+        }
     }
+}
+
+/// The deck as one HTML file that plays offline (PLAN 2.5): `page`, the web player built
+/// with the engine, filled in with the bundle and how each state it plays reads. The bundle
+/// is what a save writes, fonts subset to what the deck draws, without its manifest or its
+/// history: the page plays it, and records nothing.
+fn standalone(
+    b: &Bundle,
+    states: Option<&[String]>,
+    page: &str,
+    progress: &Progress,
+) -> Result<(String, Vec<String>), OpsError> {
+    let pages = named(&b.deck, states)?;
+    progress.start(pages.len());
+    let theme = crate::theme(b)?;
+    let data = data_files(b)?;
+    let (mut engine, _) = engine(b, &theme)?;
+    let snapshots = scaena_core::resolve_states(&b.deck)?;
+    let mut read = Vec::with_capacity(pages.len());
+    for state in &pages {
+        let list = at_rest(&mut engine, b, &theme, &data, state)?;
+        let snap = snapshots.iter().find(|s| &s.state_id == state).expect("`named` checked the state");
+        read.push((state.clone(), scaena_export::html::reading(&b.deck, snap, &list)));
+        progress.step();
+    }
+    let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
+    let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
+        scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
+    };
+    let saved = b.saving_with(&opts, |_| Ok(None), subset)?;
+    let files: BTreeMap<String, Vec<u8>> = (saved.files.into_iter())
+        .filter(|(path, _)| path != "manifest.json" && !path.starts_with("history/"))
+        .collect();
+    let name = bundle_name(b);
+    let standalone = Standalone { deck: &b.deck, name: &name, files: &files, states: &read };
+    let html = scaena_export::html::html(page, &standalone).map_err(|e| OpsError::new(e.to_string()))?;
+    Ok((html, pages))
+}
+
+/// A bundle's name: its directory's or zip's, or its deck file's, without `.scaena`,
+/// `.deck.json`, or `.json`.
+fn bundle_name(b: &Bundle) -> String {
+    let root = std::fs::canonicalize(&b.root).unwrap_or_else(|_| b.root.clone());
+    let file = if b.deck_file == "deck.json" { root.file_name() } else { Path::new(&b.deck_file).file_name() };
+    let file = file.map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = [".scaena", ".deck.json", ".json"].iter().find_map(|end| file.strip_suffix(end)).unwrap_or(&file);
+    if name.is_empty() { "deck".into() } else { name.to_string() }
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), OpsError> {

@@ -1,9 +1,13 @@
-// The engine's worker (PLAN 2.1–2.4, SPEC §9.2): the bundle, the WASM engine, and the canvas
+// The engine's worker (PLAN 2.1–2.5, SPEC §9.2): the bundle, the WASM engine, and the canvas
 // the page handed over. It paints with vello on WebGPU where the browser has an adapter, and
 // otherwise with vello_cpu, whose frames reach the canvas as ImageBitmaps. It keeps the
 // deck's clock: a run plays the global timeline (SPEC §2.4), cue by cue and hold by hold. For
 // the editor it compiles `.scn` as it is typed, lints it, fixes it, and inspects a state; it
 // saves the bundle where it is kept, zips it, and takes files dropped on the page.
+//
+// A single-file export (PLAN 2.5) builds it as a classic script, against the player's module
+// alone, which its page hands over compiled with the bundle's files: its page is a file, and
+// a browser starts no module worker from a file's page.
 import init, { Canvas, Player } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type { Edited, Finding, FromWorker, Painter, Slot, Source, ToWorker, Where } from "./protocol";
@@ -27,13 +31,15 @@ let format: string | undefined;
 let slots: Slot[] = [];
 /** Counts the requests that paint: a run stops when a newer one comes. */
 let latest = 0;
+/** The states a single-file export plays, in its order; every state without it. */
+let only: string[] | undefined;
 
 self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   const id = "id" in data ? data.id : undefined;
   try {
     switch (data.type) {
       case "open":
-        return await open(data.source, data.painter, data.canvas);
+        return await open(data.source, data.painter, data.canvas, data.engine);
       case "show": {
         latest++;
         const start = performance.now();
@@ -109,8 +115,8 @@ interface DeckFiles {
   spine?: { sections?: { beats?: { states?: string[]; notes?: string }[] }[] };
 }
 
-async function open(source: Source, painter: Painter, target: OffscreenCanvas) {
-  await init();
+async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
+  await init(engine && { module_or_path: engine });
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -130,17 +136,18 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas) {
     if (!bitmaps) throw new Error("the canvas takes no ImageBitmap");
   }
   await load(source);
-  slots = JSON.parse(player.timeline()) as Slot[];
+  slots = timeline();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
   const deck = JSON.parse(new TextDecoder().decode(player.file("deck.json"))) as DeckFiles;
+  const noted = notes(deck);
   post({
     type: "ready",
     name,
     where: home?.where,
-    states: player.states(),
+    states: slots.map((slot) => slot.state),
     formats: player.formats(),
-    notes: notes(deck),
+    notes: slots.map((slot) => noted.get(slot.state) ?? ""),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
   });
@@ -152,6 +159,10 @@ async function load(source: Source) {
   if ("url" in source) {
     player = await fetched(source.url);
     name = nameOf(source.url);
+  } else if ("files" in source) {
+    player = opened(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
+    name = source.name;
+    only = source.states;
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);
@@ -265,13 +276,20 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
   }
 }
 
-/** Each state's notes: its own, else those of the first beat that names it. */
-function notes(files: DeckFiles): string[] {
+/** Each state's notes, by its id: its own, else those of the first beat that names it. */
+function notes(files: DeckFiles): Map<string, string> {
   const beats = new Map<string, string>();
   for (const section of files.spine?.sections ?? [])
     for (const beat of section.beats ?? [])
       for (const state of beat.states ?? []) if (!beats.has(state)) beats.set(state, beat.notes ?? "");
-  return files.states.map((s) => s.notes ?? beats.get(s.id) ?? "");
+  return new Map(files.states.map((s) => [s.id, s.notes ?? beats.get(s.id) ?? ""]));
+}
+
+/** The deck's timeline in the format frames are laid out in: the slots of the states it
+ * plays, in the order it plays them. */
+function timeline(): Slot[] {
+  const all = JSON.parse(player.timeline()) as Slot[];
+  return only ? only.flatMap((state) => all.filter((slot) => slot.state === state)) : all;
 }
 
 /** The canvas frames are laid out on now, in whole pixels. */
@@ -282,7 +300,7 @@ function layOut(next: string | undefined, again = false) {
   if (next === format && !again) return;
   player.setFormat(next);
   format = next;
-  slots = JSON.parse(player.timeline()) as Slot[];
+  slots = timeline();
 }
 
 /** Compile `source`. Once it validates, repaint slot `index` at rest from the new deck, then

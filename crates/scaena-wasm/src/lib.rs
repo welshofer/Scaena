@@ -16,7 +16,9 @@
 //! - With the `editor` feature, a session compiles `.scn` as it is typed, lints it with
 //!   its engine, applies a finding's fix, and inspects a state (PLAN 2.3, [`editor`]). It
 //!   opens a bundle from its files or a `.scaena` zip and saves it as `scaena save` does,
-//!   fonts subset in the module (PLAN 2.4, `store`).
+//!   fonts subset in the module (PLAN 2.4, `store`). Without it (`--no-default-features
+//!   --features gpu,cpu`), the module is the player's alone, a fifth smaller: the one a
+//!   single-file HTML export carries (PLAN 2.5).
 //!
 //! [`Session`] is the same engine surface in plain Rust, so it is tested natively.
 
@@ -75,7 +77,8 @@ pub struct Session {
     format: Option<String>,
     /// The fonts and images the engine was built from, as painters read them.
     store: Assets,
-    /// The theme's JSON, as handed over.
+    /// The theme's JSON, as handed over: what lint and a save read (PLAN 2.3–2.4).
+    #[cfg(feature = "editor")]
     theme_json: String,
     /// The source the editor compiled last (PLAN 2.3).
     #[cfg(feature = "editor")]
@@ -116,6 +119,7 @@ impl Session {
             transition: None,
             format: None,
             store: Assets::new(),
+            #[cfg(feature = "editor")]
             theme_json: theme_json.to_string(),
             #[cfg(feature = "editor")]
             edit: None,
@@ -167,6 +171,16 @@ impl Session {
     /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
+    }
+
+    /// Every file of the bundle the session holds, by its path inside it, sorted.
+    pub fn files(&self) -> Vec<String> {
+        self.files.keys().cloned().collect()
+    }
+
+    /// The file at `path` in the bundle, as it was handed over.
+    pub fn file(&self, path: &str) -> Option<&[u8]> {
+        self.files.get(path).map(Vec::as_slice)
     }
 
     /// Build the engine from the fonts and images the deck names, if it is not built yet.
@@ -302,6 +316,16 @@ impl Player {
         self.0.image_files()
     }
 
+    /// Every file of the bundle the session holds, by its path inside it, sorted.
+    pub fn files(&self) -> Vec<String> {
+        self.0.files()
+    }
+
+    /// The file at `path` in the bundle, as it was handed over.
+    pub fn file(&self, path: &str) -> Option<Vec<u8>> {
+        self.0.file(path).map(<[u8]>::to_vec)
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
     }
@@ -394,16 +418,6 @@ impl Player {
     #[wasm_bindgen(js_name = fromZip)]
     pub fn from_zip(bytes: &[u8]) -> Result<Player, JsError> {
         Session::from_zip(bytes).map(Player).map_err(js)
-    }
-
-    /// Every file of the bundle the session holds, by its path inside it, sorted.
-    pub fn files(&self) -> Vec<String> {
-        self.0.files()
-    }
-
-    /// The file at `path` in the bundle, as it was handed over.
-    pub fn file(&self, path: &str) -> Option<Vec<u8>> {
-        self.0.file(path).map(<[u8]>::to_vec)
     }
 
     /// What a save that subsets needs subset, as JSON: `{ chars, fonts }`, the characters

@@ -104,14 +104,17 @@ jobs:
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
       - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5).
+      - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
     # PLAN 2.1–2.2: the web player shows every torture frame, painted in its worker by WebGPU
-    # and by the CPU painter, and its controls and presenter view work. PLAN 0.9: then the
-    # parity harness compares the painters on every state: the vello_cpu goldens, vello on
-    # lavapipe, vello on WebGPU in the browser, and the player's two. PLAN 2.3–2.4: the editor
-    # edits, opens, saves, downloads, and takes dropped files.
+    # and by the CPU painter, and its controls and presenter view work. PLAN 2.5: a single-file
+    # export plays from its address on disk with the network off. PLAN 0.9: then the parity
+    # harness compares the painters on every state: the vello_cpu goldens, vello on lavapipe,
+    # vello on WebGPU in the browser, the player's two, and the single file's. PLAN 2.3–2.4:
+    # the editor edits, opens, saves, downloads, and takes dropped files.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -131,6 +134,9 @@ jobs:
       - run: cargo build -p scaena-wasm -p scaena-subset --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      # The player's engine alone, which a single-file export carries (PLAN 2.5).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.
       - name: WASM size
@@ -140,12 +146,16 @@ jobs:
           echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
           subset=crates/scaena-subset/pkg/scaena_subset_bg.wasm
           echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
+          player=crates/scaena-wasm/player/scaena_wasm_bg.wasm
+          echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
       - run: node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena 5 | tee -a "$GITHUB_STEP_SUMMARY"
       - run: cd web && npm ci && npm run build
       - run: node web/smoke.mjs
+      # Exports with a `scaena` built after the web build, which carries its single-file page.
+      - run: node web/standalone.mjs
       - run: node web/player.mjs
       - run: node web/editor.mjs
       - run: node web/storage.mjs
@@ -153,7 +163,7 @@ jobs:
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
-          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke:${{ github.workspace }}/target/web-smoke/player-webgpu:${{ github.workspace }}/target/web-smoke/player-cpu
+          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke:${{ github.workspace }}/target/web-smoke/player-webgpu:${{ github.workspace }}/target/web-smoke/player-cpu:${{ github.workspace }}/target/web-smoke/standalone-cpu
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

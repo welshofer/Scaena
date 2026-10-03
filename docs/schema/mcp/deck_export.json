@@ -1,6 +1,6 @@
 {
   "name": "deck_export",
-  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
+  "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "format"],
@@ -8,17 +8,17 @@
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
       "format": {
-        "description": "`spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task\nthat builds it.",
+        "description": "`spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, `prores`, or `html`.",
         "type": "string"
       },
       "states": {
-        "description": "The states a frame export draws, in this order: an image each (png, svg), a page\neach (pdf), or each one's part of the timeline (video). Without it: every state; a\nPDF's slides, each at its last state, in spine order; a video's whole timeline.",
+        "description": "The states a frame export draws, in this order: an image each (png, svg), a page\neach (pdf), each one's part of the timeline (video), or the states it plays (html).\nWithout it: every state; a PDF's slides, each at its last state, in spine order; a\nvideo's whole timeline.",
         "type": ["array", "null"],
         "items": { "type": "string" },
         "default": null
       },
       "out": {
-        "description": "Where to write it: a file (pdf, video, spine), or a directory that gets an image per\nstate (png, svg). Only the spine needs none.",
+        "description": "Where to write it: a file (pdf, video, html, spine), or a directory that gets an\nimage per state (png, svg). Only the spine needs none.",
         "type": ["string", "null"],
         "default": null
       },
@@ -235,7 +235,7 @@
         "anyOf": [{ "$ref": "#/$defs/SpineProjection" }, { "type": "null" }]
       },
       "pages": {
-        "description": "The state each page draws, in order: a PDF's pages, or the images of png and svg.",
+        "description": "The state each page draws, in order: a PDF's pages, the images of png and svg, or\nthe states a single-file HTML plays.",
         "type": ["array", "null"],
         "items": { "type": "string" }
       },
@@ -268,7 +268,7 @@
         "items": { "$ref": "#/$defs/Chapter" }
       },
       "bytes": {
-        "description": "The bytes written: the document, the video, or every image together.",
+        "description": "The bytes written: the document, the video, the page, or every image together.",
         "type": ["integer", "null"],
         "minimum": 0
       },

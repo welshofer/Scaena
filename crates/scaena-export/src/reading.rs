@@ -1,6 +1,6 @@
 //! How a deck reads (SPEC §3.12): what each node a state shows is to someone who hears
-//! the deck rather than sees it. A tagged PDF is built from it (PLAN 1.20), and HTML
-//! export's ARIA will be (PLAN 2.5).
+//! the deck rather than sees it. A tagged PDF is built from it (PLAN 1.20), and so is what
+//! a single-file HTML export's screen reader reads (PLAN 2.5, [`crate::html::reading`]).
 
 use scaena_core::document::{NodeType, Props};
 use scaena_core::{Deck, Snapshot};

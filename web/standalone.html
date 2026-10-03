@@ -1,12 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="__SCAENA_LANG__">
   <head>
     <meta charset="utf-8" />
+    <!-- A single-file export (PLAN 2.5): nothing it does reaches the network. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; worker-src blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Scaena</title>
+    <meta name="generator" content="Scaena" />
+    <title>__SCAENA_TITLE__</title>
   </head>
   <body>
-    <canvas id="stage"></canvas>
+    <canvas id="stage" aria-hidden="true"></canvas>
     <div class="bar">
       <button id="back" aria-label="Back">◀</button>
       <button id="on" aria-label="On">▶</button>
@@ -17,6 +23,9 @@
       <button id="present" aria-label="Presenter view">Presenter</button>
       <button id="full" aria-label="Fullscreen">⛶</button>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <section id="reading" class="reading" aria-live="polite" aria-label="The slide"></section>
+    <!--__SCAENA_ENGINE__-->
+    <!--__SCAENA_DECK__-->
+    <script type="module" src="/src/standalone.ts"></script>
   </body>
 </html>

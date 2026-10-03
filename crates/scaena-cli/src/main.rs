@@ -107,13 +107,13 @@ enum Cmd {
         bundle: PathBuf,
         #[arg(long)]
         format: String,
-        /// Where to write it: a file (pdf, video, spine), or a directory that gets an
-        /// image per state (png, svg). The spine prints without it.
+        /// Where to write it: a file (pdf, video, html, spine), or a directory that gets
+        /// an image per state (png, svg). The spine prints without it.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The states to export, comma-separated, in that order. Default: every state;
-        /// for pdf, each slide once, at its last state, in spine order; for video, the
-        /// whole timeline.
+        /// The states to export, comma-separated, in that order (for html, the states it
+        /// plays). Default: every state; for pdf, each slide once, at its last state, in
+        /// spine order; for video, the whole timeline.
         #[arg(long, value_delimiter = ',')]
         states: Option<Vec<String>>,
         /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio. Default:
@@ -354,6 +354,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 match (&exported.pages, &exported.files, exported.frames) {
                     (_, Some(files), _) if exported.format == "spine" => {
                         println!("wrote {out} and {} renders beside it", files.len())
+                    }
+                    (Some(states), None, _) if exported.format == "html" => {
+                        let kb = exported.bytes.unwrap_or_default().div_ceil(1024);
+                        println!("wrote {out} ({kb} KB, playing {} states: {})", states.len(), states.join(", "))
                     }
                     (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
                     (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),

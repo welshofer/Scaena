@@ -117,7 +117,9 @@ fn a_command_that_stops_prints_an_error_object() {
         (vec!["export", EXAMPLE, "--format", "pdf"], 2, None),
         // A video is a file: it needs `--out`.
         (vec!["export", EXAMPLE, "--format", "mp4", "--states", "intro,revenue"], 2, None),
-        (vec!["export", EXAMPLE, "--format", "html"], 3, Some("2.5")),
+        // So is a single-file page; a scaena built without the web player stops with 3
+        // (scaena-ops' tests/html.rs).
+        (vec!["export", EXAMPLE, "--format", "html"], 2, None),
         (vec!["serve", TORTURE], 3, Some("2.x")),
     ] {
         let (got, v) = json(&args);
