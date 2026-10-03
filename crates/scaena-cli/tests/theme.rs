@@ -116,6 +116,34 @@ fn a_theme_that_would_leave_the_deck_invalid_is_refused_unless_forced() {
 }
 
 #[test]
+fn a_theme_whose_grid_is_too_small_is_refused_at_each_placement_past_it() {
+    // Gate 1's case (PLAN 1.37): a deck placed on 12 rows, onto a theme of 6. Each cell past
+    // the grid is an E102 naming its size, so the re-theme is refused, as for a missing name.
+    let dir = example("small-grid");
+    let mut ember: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/examples/themes/ember.theme.json").unwrap()).unwrap();
+    ember["grid"]["rows"] = 6.into();
+    let small = dir.join("small.theme.json");
+    std::fs::write(&small, serde_json::to_vec_pretty(&ember).unwrap()).unwrap();
+    let deck = "../../docs/examples/higher-ed.deck.json";
+    let out = scaena(&["--json", "theme", deck, "--apply", small.to_str().unwrap(), "--dry-run"]);
+    assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
+    let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(t["refused"], true, "{t:#}");
+    let past: Vec<&str> = t["added"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["code"] == "E102")
+        .map(|f| f["message"].as_str().unwrap())
+        .collect();
+    assert!(
+        !past.is_empty() && past.iter().all(|m| m.ends_with("past the theme's grid, which has 6 rows")),
+        "{past:#?}"
+    );
+}
+
+#[test]
 fn a_zip_bundle_is_rewritten_with_its_new_theme() {
     let dir = example("zip");
     let zip = dir.with_extension("scaena");

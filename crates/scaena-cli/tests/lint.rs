@@ -272,6 +272,20 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
 }
 
 #[test]
+fn a_placement_past_the_grid_is_a_finding_not_a_stop() {
+    // The lint theme's grid has 6 rows. A node in row 7 cannot be laid out, and lint says
+    // so, with the rest of what validation finds, instead of stopping.
+    let late =
+        serde_json::json!({ "type": "text", "role": "body", "text": "Late", "at": { "col": [1, 12], "row": 7 } });
+    let dir = bundle("past-grid", &deck(serde_json::json!({}), serde_json::json!({ "t": late })), |_| {});
+    let (exit, found) = lint(&dir);
+    assert_eq!(exit, 1, "{found:#?}");
+    let past: Vec<&str> =
+        found.iter().filter(|f| f["code"] == "E102").map(|f| f["message"].as_str().unwrap()).collect();
+    assert_eq!(past, ["`t` is placed in row 7, past the theme's grid, which has 6 rows"], "{found:#?}");
+}
+
+#[test]
 fn the_example_decks_and_b1_lint_clean() {
     for bundle in [
         "docs/examples/revenue.deck.json",

@@ -533,7 +533,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *W313 flags a chart whose plot, the room its marks have once its labels, axes, and legend have theirs, is under 120 cu across or down at presentation size.*
     - *A root container whose own `align` or `at.align` names an axis takes its content's size on that axis and aligns in its box, as SPEC §3.4 now says. Before, it filled the box, and the alignment had nothing to move. A slot's `align` is for text, and shrinks no container.*
     - *Fixtures for W313 and W426, E101's trigger widened to a stack and a note, and a container test. The example decks still lint clean, and the torture deck's lint golden is unchanged.)*
-- [ ] 1.37 A placement outside the theme's grid is a finding, not a stop. An `at.col` or `at.row` past the grid's tracks makes layout fail, and `lint` exits 2 with no findings. It should be E102 at the node's `at`, naming the grid's size, with the rest of the deck linted. (Found in 1.34: a 12-row deck on a 6-row theme.)
+- [x] 1.37 A placement outside the theme's grid is a finding, not a stop. An `at.col` or `at.row` past the grid's tracks makes layout fail, and `lint` exits 2 with no findings. It should be E102 at the node's `at`, naming the grid's size, with the rest of the deck linted. (Found in 1.34: a 12-row deck on a 6-row theme.)
+  *(Done: validation reports each cell past the theme's grid as E102, so `lint` exits 1 with it, beside whatever else validation and the document rules find.*
+    - *A node's `at.col` or `at.row` past the grid is reported at the node's or the state's `at`: "`late` is placed in rows 6–7, past the theme's grid, which has 6 rows".*
+    - *A slot a node stands in that runs past the grid is reported in the theme. A slot no node uses places nothing, and is not judged.*
+    - *Each format the deck lists is judged on its own grid, and with its own slots.*
+    - *A range that runs backward is E106.*
+    - *A re-theme onto a smaller grid is refused, as for a missing name: a test re-themes higher-ed onto a 6-row Ember. SPEC §3.4 and §7.5 and the retheme skill say so.)*
 
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.
