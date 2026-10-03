@@ -12,4 +12,4 @@ B2 and B3 use B1's theme and fonts. `scripts/build_bundle_fonts.py` subsets the 
     python3 scripts/build_bench_decks.py                                # B2 and B3
     python3 scripts/build_bundle_fonts.py --only b2 --only b3           # their fonts (network)
 
-`just bench` times every SPEC §15 stage on all four decks (`crates/scaena-cli/benches/stages.rs`), and `just bench layout/b2` times one. CI runs the benches on each runner, and times every pull request beside its base on the same machine (`scripts/bench_gate.py`; SPEC §15).
+`just bench` times every SPEC §15 stage on all four decks (`crates/scaena-cli/benches/stages.rs`), and `just bench layout/b2` times one. CI times every pull request ready for review (not a draft) beside its base on the same Linux machine, and `main` on macOS once a week (`scripts/bench_gate.py`; SPEC §15).

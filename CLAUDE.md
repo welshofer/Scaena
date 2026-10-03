@@ -66,7 +66,7 @@ just wasm-smoke     # the WebGPU page in headless Chromium: WASM display lists m
 just web            # the web player (PLAN 2.1) into web/dist; `just web-dev` serves it with the repository's bundles
 just web-smoke      # the web player in headless Chromium: every torture frame by WebGPU and by the CPU painter, held to the goldens; its controls
 just spike          # parity harness: vello_cpu goldens vs vello on this GPU vs vello on WebGPU in Chromium (PLAN 0.9)
-just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request beside its base on one machine (scripts/bench_gate.py)
+just bench [FILTER] # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); CI times each pull request ready for review beside its base on one Linux machine, and macOS weekly (scripts/bench_gate.py)
 just stages BUNDLE  # per-state medians and worst cases on one bundle (PLAN 0.14's tables); `just coldstart`: B1's WASM cold start
 ```
 
