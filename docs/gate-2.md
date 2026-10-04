@@ -12,7 +12,18 @@ The gate log stays open until both are run. Each section below gives the steps, 
 
 CI cannot say. Headless Chromium composites WebGPU on SwiftShader at about a frame a second.
 
-**The CPU fallback has room.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 42 fps (`web/player.mjs`). It paints each 1080p frame in about 20 ms, and its worst frame comes 33 ms after the one before. Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The page then puts each frame on the canvas in under 2 ms.
+**The CPU fallback has room, except under a full-canvas shader.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 44 fps (`web/player.mjs`). It paints each 1080p frame in about 19 ms. Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The page then puts each frame on the canvas in under 2 ms.
+
+The trails example shows where the fallback falls short. On the same container, after PLAN 2.15–2.17, its states played at 1920 × 1080 with `?painter=cpu&fps`, each through its cue and its hold:
+- `cover`, over the themes' mesh backdrop: 16 fps, 64 ms a paint;
+- `storm`, a full-bleed photograph: 29 fps, 34 ms a paint;
+- `next`, over the themes' noise texture: 4.5 fps, 218 ms a paint;
+- the other twelve: 44–57 fps, 14–20 ms a paint.
+
+A full-canvas shader is computed afresh for every frame, on one thread. What would lift those states, each with its trade:
+- **Compute a shader's rows on every core.** The rows are independent, so no byte would change. But a page without cross-origin isolation shares no memory between workers, so each core needs its own worker and its own instance of the engine's module.
+- **Draw shaders with WebGL2 on the CPU fallback.** Firefox without WebGPU still has WebGL2. But each kind would gain a third twin to hold to its CPU reference.
+- **Accept it.** The trails example draws its shaders on its first and last slides only.
 
 **The player measures itself.** With `?fps` it shows a frame meter while the deck plays, for the run so far:
 - frames a second;
