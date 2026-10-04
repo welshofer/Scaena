@@ -11,7 +11,8 @@
 //! per-pixel function is `+ − × ÷` and comparisons, here and in `mesh.wgsl` alike.
 
 use super::{
-    ShaderError, SplitMix64, Words, device_box, encode, invert, linear, linear_to_oklab, lowbias32, thresholds,
+    BLOCK, Encoder, ShaderError, SplitMix64, Words, device_box, encode, invert, linear, linear_to_oklab, lowbias32,
+    thresholds,
 };
 use crate::displaylist::Color;
 use std::collections::BTreeMap;
@@ -187,13 +188,81 @@ impl Frame {
         [encode(r) as u8, encode(g) as u8, encode(bl) as u8, a8 as u8]
     }
 
-    /// The whole box, row-major.
+    /// The whole box, row-major: [`Frame::pixel`]'s bytes, worked out a [`BLOCK`] of a
+    /// row at a time, one step of `pixel` across the block before the next. Each pixel
+    /// does `pixel`'s arithmetic in its order, so the bytes are the same
+    /// (`render_is_pixel_for_pixel`), and each step runs as SIMD.
     pub fn render(&self) -> Vec<u8> {
-        let [_, _, w, h] = self.bbox;
-        let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-        for gy in 0..h {
-            for gx in 0..w {
-                out.extend_from_slice(&self.pixel(gx, gy));
+        let [x0, y0, width, height] = self.bbox;
+        let mut out = vec![0; width as usize * height as usize * 4];
+        if width == 0 {
+            return out;
+        }
+        let enc = Encoder::new();
+        let [a, b, c, d, e, f] = self.map;
+        // Where every point is opaque, `alpha` gathers `w × 1`, which is `w`: it is `sum`.
+        let opaque = self.points.iter().all(|p| p[2] == 1.0);
+        let (mut x, mut y, mut noise) = ([0.0_f32; BLOCK], [0.0_f32; BLOCK], [0.0_f32; BLOCK]);
+        let mut acc = [[0.0_f32; BLOCK]; 5];
+        let mut rgb = [[0.0_f32; BLOCK]; 3];
+        let mut a8 = [0_u8; BLOCK];
+        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+            let py = (y0 + gy) as f32 + 0.5;
+            let (cpy, dpy) = (c * py, d * py);
+            let hy = lowbias32(gy);
+            for (gx, pixels) in (0..).step_by(BLOCK).zip(row.chunks_mut(BLOCK * 4)) {
+                let n = pixels.len() / 4;
+                let (x, y, noise) = (&mut x[..n], &mut y[..n], &mut noise[..n]);
+                for i in 0..n {
+                    let px = (x0 + gx + i as u32) as f32 + 0.5;
+                    x[i] = a * px + cpy + e;
+                    y[i] = b * px + dpy + f;
+                    let hash = lowbias32(self.key ^ lowbias32((gx + i as u32) ^ hy));
+                    noise[i] = (hash >> 8) as f32 * (1.0 / 16_777_216.0) - 0.5;
+                }
+                let [sum, l, ca, cb, alpha] = &mut acc;
+                let (sum, l, ca, cb, alpha) = (&mut sum[..n], &mut l[..n], &mut ca[..n], &mut cb[..n], &mut alpha[..n]);
+                for v in [&mut *sum, &mut *l, &mut *ca, &mut *cb, &mut *alpha] {
+                    v.fill(0.0);
+                }
+                for (p, k) in self.points.iter().zip(&self.colors) {
+                    for i in 0..n {
+                        let dx = x[i] - p[0];
+                        let dy = y[i] - p[1];
+                        let u = 1.0 + (dx * dx + dy * dy) * self.inv_sigma2;
+                        let w = 1.0 / (u * u);
+                        sum[i] += w;
+                        l[i] += w * k[0];
+                        ca[i] += w * k[1];
+                        cb[i] += w * k[2];
+                        if !opaque {
+                            alpha[i] += w * p[2];
+                        }
+                    }
+                }
+                let alpha: &[f32] = if opaque { sum } else { alpha };
+                let [r, g, bl] = &mut rgb;
+                let (r, g, bl, a8) = (&mut r[..n], &mut g[..n], &mut bl[..n], &mut a8[..n]);
+                for i in 0..n {
+                    let inv = 1.0 / sum[i];
+                    let lg = l[i] * inv + self.grain * noise[i];
+                    let (ca, cb) = (ca[i] * inv, cb[i] * inv);
+                    let lm = lg + 0.396_337_78 * ca + 0.215_803_76 * cb;
+                    let mm = lg - 0.105_561_346 * ca - 0.063_854_17 * cb;
+                    let sm = lg - 0.089_484_18 * ca - 1.291_485_5 * cb;
+                    let lc = lm * lm * lm;
+                    let mc = mm * mm * mm;
+                    let sc = sm * sm * sm;
+                    r[i] = 4.076_741_7 * lc - 3.307_711_6 * mc + 0.230_969_94 * sc;
+                    g[i] = -1.268_438 * lc + 2.609_757_4 * mc - 0.341_319_38 * sc;
+                    bl[i] = -0.004_196_086_4 * lc - 0.703_418_6 * mc + 1.707_614_7 * sc;
+                    // `pixel` casts this to a byte. Clamped, it is NaN or from 0.5 to 255.5,
+                    // which a cast through `i32` takes where `as u8` does, and as SIMD.
+                    a8[i] = ((alpha[i] * inv).clamp(0.0, 1.0) * 255.0 + 0.5) as i32 as u8;
+                }
+                for (i, px) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                    *px = [enc.byte(r[i]), enc.byte(g[i]), enc.byte(bl[i]), a8[i]];
+                }
             }
         }
         out
@@ -280,6 +349,48 @@ mod tests {
         let mean = diffs.iter().sum::<i32>() as f64 / diffs.len() as f64;
         assert!(diffs.iter().any(|d| *d != 0), "grain changes pixels");
         assert!(mean.abs() < 0.5, "and averages out: mean shift {mean}");
+    }
+
+    /// `render` is `pixel` at every pixel, bit for bit: in boxes whose rows are not whole
+    /// blocks, scaled, offset, and turned onto the device, with every count of points
+    /// from 2 to 16 and palettes opaque and not.
+    #[test]
+    fn render_is_pixel_for_pixel() {
+        let clear = [Color([15, 118, 110, 255]), Color([67, 56, 202, 128]), Color([194, 65, 12, 0])];
+        let turned = [0.8, 0.6, -0.6, 0.8, 150.0, 20.0];
+        // A palette, params, a rect, the device transform, and the raster's size.
+        type Case<'a> = (&'a [Color], Params, [f32; 4], [f64; 6], [u32; 2]);
+        let cases: [Case; 4] = [
+            (&PALETTE, Params::default(), [0.0, 0.0, 160.0, 90.0], ID, [160, 90]),
+            (
+                &PALETTE,
+                Params { points: 16, drift: 0.4, softness: 0.05, grain: 0.25 },
+                [3.5, 7.25, 301.0, 77.0],
+                [1.5, 0.0, 0.0, 1.5, 0.25, 0.0],
+                [600, 200],
+            ),
+            (&clear, Params { points: 7, ..Params::default() }, [0.0, 0.0, 300.0, 300.0], turned, [400, 400]),
+            (
+                &PALETTE[..1],
+                Params { points: 2, grain: 0.0, ..Params::default() },
+                [10.0, 10.0, 129.0, 3.0],
+                ID,
+                [200, 20],
+            ),
+        ];
+        for (i, (palette, params, rect, device, size)) in cases.into_iter().enumerate() {
+            let f = Frame::new(i as u64 * 7919, 2.5, palette, &params, rect, device, size).unwrap().unwrap();
+            let [_, _, w, h] = f.bbox;
+            let want: Vec<u8> =
+                (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| f.pixel(x, y)).collect();
+            assert!(f.render() == want, "case {i}, box {:?}", f.bbox);
+        }
+        for points in 2..=16 {
+            let f = frame(points.into(), 0.75, Params { points, ..Params::default() });
+            let want: Vec<u8> =
+                (0..90).flat_map(|y| (0..160).map(move |x| (x, y))).flat_map(|(x, y)| f.pixel(x, y)).collect();
+            assert!(f.render() == want, "{points} points");
+        }
     }
 
     #[test]

@@ -94,7 +94,7 @@ impl Job {
             Job::Mesh(f) => f.render(),
             Job::Gradient(f) => render(f.bbox, |x, y| f.pixel(x, y)),
             Job::Noise(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Grain(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Grain(f) => f.render(),
             Job::Particles(f) => render(f.bbox, |x, y| f.pixel(x, y)),
         }
     }
@@ -398,6 +398,48 @@ fn encode(v: f32) -> u32 {
     k as u32
 }
 
+/// How many pixels of a row a fast [`Job::render`] works through at once: one step of
+/// the reference's arithmetic across them all before the next, which the compiler
+/// runs as SIMD.
+const BLOCK: usize = 128;
+
+/// The parts of the unit [`Encoder`] steps by.
+const STEPS: usize = 4096;
+
+/// [`encode`] by table, for a fast [`Job::render`]: for each 4096th of the unit, how
+/// many [`thresholds`] lie at or below its start, and the one that lies inside it, if
+/// one does. No two thresholds are within 1/3295 of each other, so no 4096th holds two,
+/// and this is `encode` for every `f32` (`the_table_encodes_as_the_thresholds_do`). The
+/// two tables are read side by side, neither waiting on the other.
+#[derive(Clone, Copy)]
+struct Encoder(&'static ([u8; STEPS], [f32; STEPS]));
+
+impl Encoder {
+    fn new() -> Self {
+        static TABLES: OnceLock<([u8; STEPS], [f32; STEPS])> = OnceLock::new();
+        Encoder(TABLES.get_or_init(|| {
+            let t = &thresholds()[..255];
+            // A 4096th with no threshold inside it holds NaN, which no value reaches.
+            let (mut below, mut inside) = ([0; STEPS], [f32::NAN; STEPS]);
+            for i in 0..STEPS {
+                let (start, end) = (i as f32 / STEPS as f32, (i + 1) as f32 / STEPS as f32);
+                below[i] = t.iter().filter(|&&v| v <= start).count() as u8;
+                inside[i] = t.iter().copied().find(|&v| start < v && v < end).unwrap_or(f32::NAN);
+            }
+            (below, inside)
+        }))
+    }
+
+    /// [`encode`]`(v)`. Scaling by 4096 is exact, and the cast takes NaN to 0 and what
+    /// is past either end of the table to that end.
+    #[inline]
+    fn byte(self, v: f32) -> u8 {
+        let (below, inside) = self.0;
+        let i = ((v * STEPS as f32) as i32).clamp(0, STEPS as i32 - 1) as usize;
+        below[i] + u8::from(inside[i] <= v)
+    }
+}
+
 /// Chris Wellons' `lowbias32` integer hash; WGSL's `u32` arithmetic wraps the same way.
 fn lowbias32(mut x: u32) -> u32 {
     x ^= x >> 16;
@@ -451,6 +493,40 @@ mod tests {
         assert_eq!((encode(-0.5), encode(0.0), encode(1.0), encode(7.0)), (0, 0, 255, 255));
         // Halfway in sRGB, not in linear light: 0.5 linear is 188 (187.5 rounds up).
         assert_eq!(encode(0.5), 188);
+    }
+
+    /// The values `Encoder` could get wrong: each threshold and each 4096th of the unit,
+    /// and the floats on either side of them; zeros, NaN, the infinities, and the ends of
+    /// the range; and a sweep of every 1009th float from 0 to 1.
+    #[test]
+    fn the_table_encodes_as_the_thresholds_do() {
+        let (enc, t) = (Encoder::new(), thresholds());
+        for k in 1..255 {
+            assert!(
+                (t[k - 1] * 4096.0).floor() < (t[k] * 4096.0).floor(),
+                "thresholds {} and {k} share a 4096th",
+                k - 1
+            );
+        }
+        let edges = (t[..255].iter().copied()).chain((0..=STEPS).map(|i| i as f32 / STEPS as f32));
+        let mut values: Vec<f32> = edges.flat_map(|v| [v.next_down(), v, v.next_up()]).collect();
+        values.extend([0.0, -0.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, 1e-40, 2.0, 7.0]);
+        values.extend((0..=1.0_f32.to_bits()).step_by(1009).map(f32::from_bits));
+        for v in values {
+            assert_eq!(u32::from(enc.byte(v)), encode(v), "{v:?} ({:#010x})", v.to_bits());
+        }
+    }
+
+    /// Every one of the 2³² floats. Slow unoptimized: `cargo test --release -p scaena-core
+    /// every_float -- --ignored`.
+    #[test]
+    #[ignore]
+    fn the_table_encodes_every_float_as_the_thresholds_do() {
+        let enc = Encoder::new();
+        for bits in 0..=u32::MAX {
+            let v = f32::from_bits(bits);
+            assert_eq!(u32::from(enc.byte(v)), encode(v), "{v:?} ({bits:#010x})");
+        }
     }
 
     #[test]

@@ -8,7 +8,7 @@
 //!
 //! Per pixel it is integer hashing and `+ − × ÷`, here and in `grain.wgsl` alike.
 
-use super::{ShaderError, Words, frame_box, grain_noise, lowbias32, seed_key, within};
+use super::{BLOCK, ShaderError, Words, frame_box, grain_noise, lowbias32, seed_key, within};
 use crate::displaylist::Color;
 use std::collections::BTreeMap;
 
@@ -91,6 +91,44 @@ impl Frame {
         [r, g, b, (alpha * 255.0 + 0.5) as u8]
     }
 
+    /// The whole box, row-major: [`Frame::pixel`]'s bytes, worked out a [`BLOCK`] of a
+    /// row at a time, one step of `pixel` across the block before the next. Each pixel
+    /// does `pixel`'s arithmetic in its order, so the bytes are the same
+    /// (`render_is_pixel_for_pixel`), and each step runs as SIMD.
+    pub fn render(&self) -> Vec<u8> {
+        let [_, _, width, height] = self.bbox;
+        let mut out = vec![0; width as usize * height as usize * 4];
+        if width == 0 {
+            return out;
+        }
+        let (Color(dark), Color(light)) = (self.dark, self.light);
+        let opacity = [f32::from(dark[3]) / 255.0, f32::from(light[3]) / 255.0];
+        let (mut noise, mut a8) = ([0.0_f32; BLOCK], [0_u8; BLOCK]);
+        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+            let hy = lowbias32(gy);
+            for (gx, pixels) in (0..).step_by(BLOCK).zip(row.chunks_mut(BLOCK * 4)) {
+                let n = pixels.len() / 4;
+                let (noise, a8) = (&mut noise[..n], &mut a8[..n]);
+                for (i, noise) in noise.iter_mut().enumerate() {
+                    let hash = lowbias32(self.key ^ lowbias32((gx + i as u32) ^ hy));
+                    *noise = (hash >> 8) as f32 * (1.0 / 16_777_216.0) - 0.5;
+                }
+                for i in 0..n {
+                    let (far, opacity) = if noise[i] < 0.0 { (-noise[i], opacity[0]) } else { (noise[i], opacity[1]) };
+                    let alpha = far * 2.0 * self.amount * opacity;
+                    // `pixel` casts this to a byte. It is at least 0.5 and at most 255.5, which
+                    // a cast through `i32` takes where `as u8` does, and as SIMD.
+                    a8[i] = (alpha * 255.0 + 0.5) as i32 as u8;
+                }
+                for (i, px) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                    let [r, g, b, _] = if noise[i] < 0.0 { dark } else { light };
+                    *px = [r, g, b, a8[i]];
+                }
+            }
+        }
+        out
+    }
+
     /// The uniform buffer `grain.wgsl` declares as `Grain`, for output rows `stride`
     /// words apart.
     pub fn uniforms(&self, stride: u32) -> Vec<u8> {
@@ -123,6 +161,33 @@ mod tests {
         assert!(pixels.iter().all(|p| (p[..3] == [0, 0, 0] || p[..3] == [255, 255, 255]) && p[3] <= 128));
         let dark = pixels.iter().filter(|p| p[0] == 0).count();
         assert!((1600..2500).contains(&dark), "about half dark: {dark} of 4096");
+    }
+
+    /// `render` is `pixel` at every pixel, bit for bit, in boxes whose rows are not whole
+    /// blocks, with colors opaque and not.
+    #[test]
+    fn render_is_pixel_for_pixel() {
+        let clear = [Color([20, 10, 40, 200]), Color([255, 240, 220, 90])];
+        // A palette, params, a rect, the device transform, and the raster's size.
+        type Case<'a> = (&'a [Color], Params, [f32; 4], [f64; 6], [u32; 2]);
+        let cases: [Case; 3] = [
+            (&PALETTE, Params::default(), [0.0, 0.0, 64.0, 64.0], ID, [64, 64]),
+            (
+                &clear,
+                Params { amount: 1.0, fps: 24.0 },
+                [5.5, 2.0, 300.0, 40.0],
+                [1.25, 0.0, 0.0, 1.25, 0.0, 0.0],
+                [500, 80],
+            ),
+            (&PALETTE[1..], Params { amount: 0.3, fps: 0.0 }, [0.0, 0.0, 129.0, 2.0], ID, [129, 2]),
+        ];
+        for (i, (palette, params, rect, device, size)) in cases.into_iter().enumerate() {
+            let f = Frame::new(i as u64 * 104_729, 1.3, palette, &params, rect, device, size).unwrap().unwrap();
+            let [_, _, w, h] = f.bbox;
+            let want: Vec<u8> =
+                (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| f.pixel(x, y)).collect();
+            assert!(f.render() == want, "case {i}, box {:?}", f.bbox);
+        }
     }
 
     #[test]
