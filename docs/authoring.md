@@ -58,7 +58,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - The state picker jumps to a state's line.
   - The format picker shows the deck in each of its `formats`.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
-  - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it.
+  - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
   - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.
 - **Check.** Each edit lints the state shown, and every state once you stop typing.
   - Findings stand in the gutter at the line they are about, and in the list under the source. F8 goes to the next one.
@@ -68,10 +68,12 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 
 | | |
 |---|---|
+| **New…** | a new deck: a title and a theme (Dusk, Daybreak, or Ember), with its fonts and one empty state. It is kept nowhere until you save it. |
 | **Open folder…** (Chrome, Edge) | a bundle folder on your disk. **Save** writes back into it. Use this to keep your work as files. |
 | **Open .scaena…** | a `.scaena` file, copied into the browser's storage. |
 | **Kept in this browser** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. |
 | **Save** (⌘S) | writes the bundle where it is kept, as `scaena save` writes it, fonts whole. Files are renamed by their content (a hash in the name), and `manifest.json` is written; that is normal. Source that does not compile is not saved. |
+| **Save as…** | the bundle saved somewhere new, and kept there from then on: under another name in the browser, or, in Chrome and Edge, in a folder on your disk. |
 | **Download .scaena** | the bundle as one file, fonts subset, to keep, send, or open with the command line. |
 | **Served** (`scaena serve`) | the folder on disk the server serves. **Save** writes back into it, in any browser, and into its `deck.scn` where it keeps one; the editor opens that `deck.scn` as its source. A change on disk comes in as it is made, or, over changes of yours not saved, is offered. |
 
@@ -79,7 +81,7 @@ A file dropped on the source joins the bundle, and its path, quoted, goes where 
 
 **Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
-There is no **New deck** or **Save as** yet (PLAN 2.12). Start from a copy: duplicate a bundle folder, such as the site's `decks/trails`, rename it, and open the copy.
+**Start a deck.** **New…** asks for a title and a theme. The deck it makes has the theme, the fonts the theme names, and one state with nothing on it, as an assistant's `deck_create` makes one. Its first **Save** keeps it in the browser under a name made from its title; **Save as…** puts it in a folder on your disk instead. To start from another deck, open that one and **Save as…** under a new name.
 
 ## The command line: edit, check, look
 

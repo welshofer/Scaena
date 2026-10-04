@@ -11,12 +11,15 @@
 
 use crate::assistant::Caller;
 use crate::{Error, Session};
-use scaena_core::Deck;
+use scaena_core::{Deck, Severity};
+use scaena_ops::OpsError;
+use scaena_ops::create::{Create, creating};
 use scaena_ops::lint::Why;
 use scaena_store::crdt::{FS, OUTSIDE, Recorded};
 use scaena_store::subset::SubsetError;
 use scaena_store::{Bundle, Files, HISTORY, SaveOptions, Saving, StoreError};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::Arc;
 
 /// What records a save in a bundle's history: given the history the bundle holds and the
@@ -54,6 +57,33 @@ impl Session {
             session.add_file(&path, bytes);
         }
         Ok(session)
+    }
+
+    /// A new bundle (PLAN 2.12), as `deck_create` makes one (SPEC §7.2), opened: the theme file
+    /// named `file` (`dusk.theme.json`), whose text is `theme`; each font its families name,
+    /// from `fonts` by the path it gives it; and one state with nothing on it, titled `title`, on
+    /// a 1920 × 1080 canvas. A theme that makes no valid deck says why.
+    pub fn create(file: &str, theme: &str, fonts: &BTreeMap<String, Vec<u8>>, title: &str) -> Result<Session, Error> {
+        let req = Create { theme: file.into(), title: Some(title.into()), ..Create::default() };
+        let font = |path: &str| -> Result<Vec<u8>, OpsError> {
+            fonts
+                .get(path)
+                .cloned()
+                .ok_or_else(|| OpsError::new(format!("the theme's font `{path}` was not handed over")))
+        };
+        let data = |path: &Path| -> Result<Vec<u8>, OpsError> {
+            Err(OpsError::new(format!("{}: a new deck here attaches no data", path.display())))
+        };
+        let (created, made) = creating(&req, theme.into(), &font, &data).map_err(|e| Error::Ops(e.to_string()))?;
+        let Some(made) = made else {
+            let errors = created.findings.iter().filter(|f| f.severity == Severity::Error);
+            let said: Vec<String> = errors.map(|f| format!("{} {}", f.code, f.message)).collect();
+            return Err(Error::Deck(format!("{file} makes no valid deck: {}", said.join("; "))));
+        };
+        let mut files = made.files;
+        let deck = made.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
+        files.insert("deck.json".into(), (deck + "\n").into_bytes());
+        Session::open(files)
     }
 
     /// A `.scaena` zip's bytes, opened.
@@ -200,6 +230,36 @@ mod tests {
     use scaena_store::crdt::DeckDoc;
     use serde_json::json;
     use std::path::Path;
+
+    /// A new deck from each theme that ships (PLAN 2.12), as the editor's New makes one: it
+    /// opens with its title, its theme, and the fonts the theme names; its source compiles, and
+    /// it lints with no error, laid out. A font not handed over is named.
+    #[test]
+    fn a_new_deck_from_each_theme_that_ships_lints_with_no_error() {
+        let examples = Path::new("../../docs/examples");
+        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
+            .iter()
+            .map(|f| (format!("fonts/{f}"), std::fs::read(examples.join("fonts").join(f)).unwrap()))
+            .collect();
+        for theme in ["themes/dusk.theme.json", "authorability/themes/daybreak.theme.json", "themes/ember.theme.json"] {
+            let text = std::fs::read_to_string(examples.join(theme)).unwrap();
+            let file = Path::new(theme).file_name().unwrap().to_str().unwrap();
+            let mut made = Session::create(file, &text, &fonts, "Field notes").unwrap();
+            assert!(fonts.keys().all(|f| made.file(f).is_some()), "{file}: its fonts");
+            let source = made.source();
+            assert!(source.starts_with(&format!("deck \"Field notes\" theme:\"themes/{file}\"")), "{source}");
+            assert!(made.compile(&source).valid, "{file}: {source}");
+            let linted = made.lint(None).unwrap();
+            let errors: Vec<&str> = (linted.findings.iter())
+                .filter(|f| f.finding.severity == Severity::Error)
+                .map(|f| f.finding.code.as_str())
+                .collect();
+            assert!(errors.is_empty() && linted.laid, "{file}: {errors:?}");
+        }
+        let dusk = std::fs::read_to_string(examples.join("themes/dusk.theme.json")).unwrap();
+        let lacking = Session::create("dusk.theme.json", &dusk, &BTreeMap::new(), "Field notes").err().unwrap();
+        assert!(lacking.to_string().contains("`fonts/Fraunces-VF.ttf` was not handed over"), "{lacking}");
+    }
 
     /// A bundle on disk as a page holds it: every file of it, by its path inside it.
     fn files(path: &str) -> BTreeMap<String, Vec<u8>> {

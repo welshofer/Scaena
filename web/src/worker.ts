@@ -115,6 +115,19 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "save":
         saveable(data.source);
         return post({ type: "saved", id: data.id, ...(await save()) });
+      case "saveAs": {
+        saveable(data.source);
+        // Kept where it was, if the save does not go through.
+        const was = { home, name };
+        home = "folder" in data.to ? keptIn(data.to.folder, "folder") : keptIn(await newBundle(data.to.opfs), "opfs");
+        name = home.where.name;
+        try {
+          return post({ type: "saved", id: data.id, ...(await save()) });
+        } catch (e) {
+          ({ home, name } = was);
+          throw e;
+        }
+      }
       case "zip": {
         saveable(data.source);
         await subsetFonts();
@@ -243,6 +256,9 @@ async function load(source: Source) {
       name = state.name || name;
       home = served(source.url, source.serve, name);
     }
+  } else if ("create" in source) {
+    player = await made(source.create.theme, source.create.title);
+    name = nameFor(source.create.title);
   } else if ("files" in source) {
     player = bundleOf(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
@@ -290,6 +306,35 @@ async function fetched(deck: string): Promise<Player> {
   );
   for (const [path, file] of bytes) fetchedPlayer.addFile(path, file);
   return fetchedPlayer;
+}
+
+/** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
+ * `theme` and the fonts it names, which the page carries (`themes.ts`) and fetches now, and one
+ * state with nothing on it. */
+async function made(theme: string, title: string): Promise<Player> {
+  const { themes, fonts } = await import("@scaena/themes");
+  const chosen = themes[theme];
+  if (!chosen) throw new Error(`no theme ships as ${theme}: ${Object.keys(themes).join(", ") || "none here"}`);
+  const fetched = async (url: string) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: ${response.status}`);
+    return response;
+  };
+  const text = await (await fetched(chosen.url)).text();
+  const families = (JSON.parse(text) as { type?: { families?: Record<string, { file?: string }> } }).type?.families;
+  const given = new Map<string, Uint8Array>();
+  for (const { file } of Object.values(families ?? {})) {
+    if (!file || given.has(file)) continue;
+    if (!fonts[file]) throw new Error(`${theme} names a font the page does not carry: ${file}`);
+    given.set(file, new Uint8Array(await (await fetched(fonts[file])).arrayBuffer()));
+  }
+  return Player.create(chosen.file, text, title, given);
+}
+
+/** A bundle's name for a deck titled `title`: lowercase, its words joined by `-`. */
+function nameFor(title: string): string {
+  const words = title.normalize("NFKD").toLowerCase().replace(/['’]/g, "").match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.join("-").slice(0, 64) || "untitled";
 }
 
 /** A bundle's files, by their paths inside it, opened. */

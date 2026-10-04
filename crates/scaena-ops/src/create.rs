@@ -2,7 +2,7 @@
 //! made from a theme, its fonts, a deck, and data files. It is checked as `validate` checks
 //! a bundle before anything is written, and written only if valid.
 
-use crate::lint::{View, Why, Write, errors, lint, lint_in, write, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
 use scaena_core::lint::{Delta, delta};
@@ -199,27 +199,60 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
             path.display()
         )));
     }
-    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    // The theme, and the fonts its families name.
-    let text = std::fs::read_to_string(&req.theme).with_context(|| format!("reading {}", req.theme.display()))?;
-    let theme: Value = serde_json::from_str(&text).with_context(|| format!("{} is not JSON", req.theme.display()))?;
-    let name = req.theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
-    let rel = format!("themes/{name}");
-    let mut fonts = Vec::new();
-    for family in theme.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
+    let theme = std::fs::read_to_string(&req.theme).with_context(|| format!("reading {}", req.theme.display()))?;
+    // A font is beside the theme, or above it: in the bundle the theme belongs to.
+    let font = |file: &str| -> Result<Vec<u8>, OpsError> {
         let found =
             req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
                 format!("the theme's font `{file}` is not beside {} or above it", req.theme.display())
             })?;
-        files.insert(file.to_string(), std::fs::read(&found)?);
-        let mut font = json!({ "family": name, "file": file });
+        Ok(std::fs::read(&found)?)
+    };
+    let data = |file: &Path| -> Result<Vec<u8>, OpsError> {
+        std::fs::read(file).with_context(|| format!("reading {}", file.display()))
+    };
+    let (created, made) = creating(req, theme, &font, &data)?;
+    let Some(made) = made else { return Ok(created) };
+    std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
+    let b = Bundle {
+        root: path.to_path_buf(),
+        deck_file: "deck.json".into(),
+        deck: made.deck.clone(),
+        theme_json: None,
+        files: scaena_store::Files::Dir(path.to_path_buf()),
+        author: "user".into(),
+    };
+    write(&b, made)?;
+    Ok(created)
+}
+
+/// [`create`] with nothing written: the bundle `req` makes from `theme`, the text of the theme
+/// file it names, with each font the theme names read by `font`, by the path the theme gives
+/// it, and each data file by `data`. What it made, and, if it validates, the deck and every
+/// file beside it, to write. A client that keeps its bundle in memory opens them instead: the
+/// web editor's New (PLAN 2.12).
+pub fn creating(
+    req: &Create,
+    theme: String,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+    data: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>,
+) -> Result<(Created, Option<Write>), OpsError> {
+    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    // The theme, and the fonts its families name.
+    let parsed: Value = serde_json::from_str(&theme).with_context(|| format!("{} is not JSON", req.theme.display()))?;
+    let name = req.theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
+    let rel = format!("themes/{name}");
+    let mut fonts = Vec::new();
+    for family in parsed.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
+        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
+        files.insert(file.to_string(), font(file)?);
+        let mut entry = json!({ "family": name, "file": file });
         if let Some(axes) = family.get("axes") {
-            font["axes"] = axes.clone();
+            entry["axes"] = axes.clone();
         }
-        fonts.push(font);
+        fonts.push(entry);
     }
-    files.insert(rel.clone(), text.into_bytes());
+    files.insert(rel.clone(), theme.into_bytes());
     // The deck: given, compiled, or made here.
     let mut doc = match (&req.deck, &req.scn) {
         (Some(_), Some(_)) => return Err(OpsError::new("give the deck as `deck` or as `scn`, not both")),
@@ -240,33 +273,25 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
     fields.insert("theme".into(), json!(rel));
     fields.insert("fonts".into(), Value::Array(fonts));
     for attach in &req.data {
-        let bytes = std::fs::read(&attach.file).with_context(|| format!("reading {}", attach.file.display()))?;
-        let Source { path, bytes, decl, .. } = source(attach, bytes)?;
+        let Source { path, bytes, decl, .. } = source(attach, data(&attach.file)?)?;
         files.insert(path, bytes);
-        let data = fields.entry("data").or_insert_with(|| json!({}));
-        data[attach.id.as_str()] = decl;
+        let sources = fields.entry("data").or_insert_with(|| json!({}));
+        sources[attach.id.as_str()] = decl;
     }
-    // Checked before anything is written.
-    let base = scaena_store::Files::Dir(path.to_path_buf());
-    let view = View { base: &base, pending: files.clone() };
+    // Checked as a bundle that holds these files and nothing else.
+    let nothing = scaena_store::Files::Zip(Default::default());
+    let view = View { base: &nothing, pending: files.clone() };
     let deck_json = serde_json::to_string_pretty(&doc)?;
     let invalid = validate_bundle(&deck_json, &view)?;
     let mut listed: Vec<String> = files.keys().cloned().chain(["deck.json".to_string()]).collect();
     listed.sort();
     if invalid.iter().any(|f| f.severity == scaena_core::Severity::Error) {
-        return Ok(Created { created: false, files: listed, errors: errors(&invalid), findings: invalid });
+        return Ok((Created { created: false, files: listed, errors: errors(&invalid), findings: invalid }, None));
     }
     let deck = Deck::from_json(&deck_json).context("the deck")?;
     let findings = lint_in(&deck, &view)?.findings;
-    std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
-    let b = Bundle {
-        root: path.to_path_buf(),
-        deck_file: "deck.json".into(),
-        deck,
-        theme_json: None,
-        files: base.clone(),
-        author: "user".into(),
-    };
-    write_deck(&b, &b.deck, files, &Why::new("deck_create"))?;
-    Ok(Created { created: true, files: listed, errors: errors(&findings), findings })
+    let created = Created { created: true, files: listed, errors: errors(&findings), findings };
+    let mut made = Write::new(deck, Why::new("deck_create"));
+    made.files = files;
+    Ok((created, Some(made)))
 }

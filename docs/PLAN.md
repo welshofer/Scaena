@@ -648,7 +648,14 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The folder is scanned every 150 ms. A change counts once two scans agree, and goes out as a server-sent event. A saved `deck.scn` compiles into `deck.json` first, as `scaena compile` does; one that does not compile is said at its line, in the terminal as `compile` says it and in the pages, and the deck is kept. A page's own writes carry its id, so they come back to it once, as its own.*
     - *The player (`?serve`) has the worker read the bundle again and shows the state it was on; the live region reads it anew. The editor opens the folder's `deck.scn` as its source and saves the bundle back to the folder, in any browser, then `deck.scn`. A change on disk comes into an editor with nothing of its own not saved, and is offered over changes that are.*
     - *Tests: `scaena-serve`'s, over a socket (the folder's files and nothing outside it, refusals for another host or origin, a page's write heard once as its own, a source compiled or said broken at its line); the CLI's, for both builds; and `web/live.mjs`, the whole loop in headless Chromium. `just web-smoke` and CI's wasm job run it.)*
-- [ ] 2.12 The editor starts a deck: **New**, a bundle from a theme and its fonts (as `deck_create` makes one), and **Save as**, to a folder on disk or under another name in the browser. *(Found by 2.10: today a deck starts as a copy of another bundle.)*
+- [x] 2.12 The editor starts a deck: **New**, a bundle from a theme and its fonts (as `deck_create` makes one), and **Save as**, to a folder on disk or under another name in the browser. *(Found by 2.10: until then a deck started as a copy of another bundle.)*
+  *(Done: SPEC §9.2.*
+    - *`scaena-ops::create::creating` is `create` with nothing written. The page calls it through `Player.create` with the theme, the fonts it names, and a title.*
+    - *New's dialog takes a title and one of the three themes that ship.*
+      - *The build carries them and their fonts beside the pages (`web/src/themes.ts`, 373 KB gzipped). The worker fetches them only to make a deck, and a single file carries neither.*
+      - *The deck is kept nowhere, named for its title, until its first save puts it in the browser's storage.*
+    - *Save as saves where the page is told and keeps the bundle there: another name in the browser's storage, or a folder on disk, kept by name as an opened one is. A served bundle saves to its folder alone.*
+    - *Tests: a new deck from each shipped theme lints with no error (`scaena-wasm`), and `web/new.mjs` runs New and Save as in headless Chromium.)*
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

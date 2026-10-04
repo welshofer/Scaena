@@ -3173,6 +3173,7 @@ name = "scaena-wasm"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "js-sys",
  "scaena-core",
  "scaena-engine",
  "scaena-history",

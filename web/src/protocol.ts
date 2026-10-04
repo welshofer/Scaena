@@ -19,7 +19,15 @@ export type Source =
   /** A bundle's files by their paths inside it, and its name: a single-file export's, which
    * carries them (PLAN 2.5). Kept nowhere. It plays `states`, in that order, or every state
    * without them. */
-  | { files: Record<string, ArrayBuffer>; name: string; states?: string[] };
+  | { files: Record<string, ArrayBuffer>; name: string; states?: string[] }
+  /** A new deck (PLAN 2.12), as `deck_create` makes one: one of the themes that ship
+   * (`themes.ts`, by its name), the fonts it names, and one state with nothing on it, titled
+   * `title`. Kept nowhere until it is saved. */
+  | { create: { theme: string; title: string } };
+
+/** Where Save as puts a bundle (PLAN 2.12): a folder on disk the page was given, or the
+ * browser's storage under a name (`name-2`, … where that is taken). */
+export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -84,6 +92,9 @@ export type ToWorker =
    * its name (`name-2`, … where that is taken). A source that does not compile, or a deck
    * that does not validate, is not saved. The session goes on from the save (PLAN 2.4). */
   | { type: "save"; id: number; source: string }
+  /** Save as (PLAN 2.12): the bundle saved as `save` saves it, but `to` a place of its own,
+   * where it is kept from then on. */
+  | { type: "saveAs"; id: number; source: string; to: SaveTo }
   /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
    * what the deck draws. */
   | { type: "zip"; id: number; source: string }

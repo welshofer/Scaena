@@ -450,6 +450,20 @@ impl Player {
         Session::from_zip(bytes).map(Player).map_err(js)
     }
 
+    /// A new deck (PLAN 2.12), as `deck_create` makes one: the theme file named `file`
+    /// (`dusk.theme.json`), whose text is `theme`; the fonts its families name, each in `fonts`
+    /// by the path the theme gives it (`fonts/Inter-VF.ttf` to its bytes); and one state with
+    /// nothing on it, titled `title`. Kept nowhere until it is saved.
+    pub fn create(file: &str, theme: &str, title: &str, fonts: &js_sys::Map) -> Result<Player, JsError> {
+        let mut given = BTreeMap::new();
+        fonts.for_each(&mut |bytes, path| {
+            if let Some(path) = path.as_string() {
+                given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+            }
+        });
+        Session::create(file, theme, &given, title).map(Player).map_err(js)
+    }
+
     /// What a save that subsets needs subset, as JSON: `{ chars, fonts }`, the characters
     /// the deck can draw and each font file to keep them of. The page subsets each with the
     /// subsetter's own module (`scaena-subset`) and hands it back with `addSubset`.

@@ -22,8 +22,9 @@ gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures
 cpu = ["scaena-paint/cpu"]
 # The source editor (PLAN 2.3): compile `.scn`, lint with fixes, inspect, by `scaena-ops`'
 # operations (ADR-0009). Its lint judges contrast over what the CPU painter paints. It opens
-# and saves bundles in memory with `scaena-store` (PLAN 2.4).
-editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "cpu"]
+# and saves bundles in memory with `scaena-store` (PLAN 2.4), and starts new ones from a theme
+# and its fonts, which the page hands over as a `Map` (PLAN 2.12).
+editor = ["dep:scaena-ops", "dep:scaena-store", "dep:serde", "dep:indexmap", "dep:js-sys", "cpu"]
 
 [dependencies]
 scaena-core.workspace = true
@@ -37,6 +38,7 @@ indexmap = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
+js-sys = { workspace = true, optional = true }
 vello = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "console"] }

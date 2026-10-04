@@ -333,35 +333,16 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
 
-    /// A new deck from Dusk, as `deck_create` makes one: the theme and its fonts, and one
-    /// state with a headline. The page opens such a bundle as it opens any other.
+    /// A new deck from Dusk, as `deck_create` makes one and the editor's New does (PLAN 2.12):
+    /// the theme and its fonts, and one state with nothing on it.
     fn dusk() -> Session {
         let dir = Path::new("../../docs/examples");
         let theme = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
-        let parsed: Value = serde_json::from_str(&theme).unwrap();
-        let mut files = BTreeMap::new();
-        let mut fonts = Vec::new();
-        for family in parsed["type"]["families"].as_object().unwrap().values() {
-            let file = family["file"].as_str().unwrap();
-            files.insert(file.to_string(), std::fs::read(dir.join(file)).unwrap());
-            let mut font = json!({ "family": family["family"], "file": file });
-            if let Some(axes) = family.get("axes") {
-                font["axes"] = axes.clone();
-            }
-            fonts.push(font);
-        }
-        files.insert("themes/dusk.theme.json".into(), theme.into_bytes());
-        let deck = json!({
-            "scaena": scaena_core::FORMAT_VERSION,
-            "meta": { "title": "Agent loop" },
-            "canvas": { "width": 1920, "height": 1080 },
-            "theme": "themes/dusk.theme.json",
-            "fonts": fonts,
-            "nodes": {},
-            "states": [{ "id": "start" }],
-        });
-        files.insert("deck.json".into(), serde_json::to_vec_pretty(&deck).unwrap());
-        Session::open(files).unwrap()
+        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
+            .iter()
+            .map(|f| (format!("fonts/{f}"), std::fs::read(dir.join("fonts").join(f)).unwrap()))
+            .collect();
+        Session::create("dusk.theme.json", &theme, &fonts, "Agent loop").unwrap()
     }
 
     /// A tool's result, read back, and the rest of what it returned.

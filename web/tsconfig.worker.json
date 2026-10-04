@@ -3,6 +3,6 @@
   "compilerOptions": {
     "lib": ["ES2023", "WebWorker"]
   },
-  "include": ["src/worker.ts", "src/protocol.ts", "src/folders.ts", "src/fsa.d.ts", "src/assistant/index.ts"],
+  "include": ["src/worker.ts", "src/protocol.ts", "src/folders.ts", "src/fsa.d.ts", "src/assistant/index.ts", "src/themes.ts"],
   "exclude": []
 }

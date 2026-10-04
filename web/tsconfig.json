@@ -15,7 +15,8 @@
       "@scaena/subset": ["../crates/scaena-subset/pkg/scaena_subset.d.ts"],
       "@scaena/history": ["../crates/scaena-history/pkg/scaena_history.d.ts"],
       "@scaena/resources": ["../crates/scaena-resources/pkg/scaena_resources.d.ts"],
-      "@scaena/assistant": ["./src/assistant/index.ts"]
+      "@scaena/assistant": ["./src/assistant/index.ts"],
+      "@scaena/themes": ["./src/themes.ts"]
     }
   },
   "include": ["src"],

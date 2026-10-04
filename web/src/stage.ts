@@ -11,6 +11,7 @@ import type {
   Opened,
   Painter,
   ProviderId,
+  SaveTo,
   Slot,
   Source,
   ToWorker,
@@ -170,6 +171,12 @@ export class Stage {
    * browser's storage (PLAN 2.4). The session goes on from the save. */
   save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
     return this.request<"saved">({ type: "save", id: ++this.asked, source });
+  }
+
+  /** Save as (PLAN 2.12): `source` saved `to` a place of its own, where the bundle is kept from
+   * then on. */
+  saveAs(source: string, to: SaveTo): Promise<Extract<FromWorker, { type: "saved" }>> {
+    return this.request<"saved">({ type: "saveAs", id: ++this.asked, source, to });
   }
 
   /** The bundle with the deck `source` compiles to, as a `.scaena` zip with its fonts subset. */

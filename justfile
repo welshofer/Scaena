@@ -151,6 +151,7 @@ web-smoke: site
     node web/assistant.mjs
     node web/history.mjs
     node web/live.mjs
+    node web/new.mjs
     node web/site.mjs
     node web/a11y.mjs
 

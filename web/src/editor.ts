@@ -7,7 +7,10 @@
 // The bundle opens from a URL, a folder on disk, a `.scaena` file, or the browser's own
 // storage, and saves where it is kept, or into the browser's storage; a download is a
 // `.scaena` zip with its fonts subset. A file dropped on the source joins the bundle, and its
-// path goes where it was dropped (PLAN 2.4).
+// path goes where it was dropped (PLAN 2.4). New starts a deck from a theme that ships, as
+// `deck_create` makes one, kept nowhere until it is saved; Save as saves the bundle somewhere
+// new, a folder on disk or the browser's storage under another name, and keeps it there
+// (PLAN 2.12).
 //
 // The assistant (PLAN 2.6) works on the deck with the user's own key: the source is read-only
 // while it works, and each edit it makes comes into the source as it is made.
@@ -34,10 +37,11 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
+import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { keptNames } from "./folders";
-import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, Source, Where } from "./protocol";
+import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
@@ -132,6 +136,20 @@ async function controls() {
     file.value = "";
     if (zip) await open({ zip: await zip.arrayBuffer(), name: zip.name.replace(/\.scaena$/, "") }).catch(failed);
   };
+  // New (PLAN 2.12): a title and a theme that ships.
+  const making = $<HTMLDialogElement>("#making");
+  const title = $<HTMLInputElement>("#making-name");
+  const theme = $<HTMLSelectElement>("#making-theme");
+  theme.replaceChildren(...Object.keys(themes).map((t) => new Option(t, t)));
+  $<HTMLButtonElement>("#new-deck").onclick = () => {
+    making.returnValue = "";
+    making.showModal();
+    title.select();
+  };
+  making.onclose = () => {
+    if (making.returnValue !== "create") return;
+    void open({ create: { theme: theme.value, title: title.value.trim() || "Untitled" } }).catch(failed);
+  };
 }
 
 /** The bundle `?bundle=` names. A folder kept from before asks again for leave to write,
@@ -203,7 +221,10 @@ async function edit(source: Source) {
         : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
-    play.hidden = where?.kind === "folder";
+    // Nor a new deck, until it is saved.
+    play.hidden = where?.kind === "folder" || (!where && "create" in source);
+    // A served bundle saves to its folder alone.
+    $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
   };
   address(where);
   tell();
@@ -461,6 +482,30 @@ async function edit(source: Source) {
       status.textContent = `not saved: ${said(e)}`;
       return;
     }
+    return took(done, at);
+  }
+
+  /** Save as (PLAN 2.12): the source as it stands, saved `to` a place of its own, where the
+   * bundle is kept from then on: a folder on disk, kept by name as an opened one is, or the
+   * browser's storage under a name (`name-2`, … where that is taken). */
+  async function saveAs(to: SaveTo) {
+    if (where?.kind === "serve") throw new Error("a served bundle saves to the folder scaena serve serves it from");
+    const at = edits;
+    status.textContent = "saving…";
+    let done: Extract<FromWorker, { type: "saved" }>;
+    try {
+      done = await stage.saveAs(view.state.doc.toString(), to);
+    } catch (e) {
+      status.textContent = `not saved: ${said(e)}`;
+      return;
+    }
+    if ("folder" in to) await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
+    return took(done, at);
+  }
+
+  /** A save `done` of the source as it stood at `at` edits: the bundle kept where it went, the
+   * paths the save renamed renamed in the source, and the page's address naming it. */
+  async function took(done: Extract<FromWorker, { type: "saved" }>, at: number) {
     where = done.where;
     name = done.where.name;
     quiet = true;
@@ -554,6 +599,30 @@ async function edit(source: Source) {
   }
 
   $<HTMLButtonElement>("#save").onclick = () => void save().catch(failed);
+  // Save as: a name in the browser's storage, or a folder on disk where the browser can open one.
+  const savingAs = $<HTMLDialogElement>("#saving-as");
+  const asName = $<HTMLInputElement>("#saving-as-name");
+  const asFolder = $<HTMLButtonElement>("#saving-as-folder");
+  asFolder.hidden = !window.showDirectoryPicker;
+  $<HTMLButtonElement>("#save-as").onclick = () => {
+    asName.value = name;
+    savingAs.returnValue = "";
+    savingAs.showModal();
+    asName.select();
+  };
+  savingAs.onclose = () => {
+    if (savingAs.returnValue === "opfs") void saveAs({ opfs: asName.value.trim() || name }).catch(failed);
+  };
+  asFolder.onclick = async () => {
+    savingAs.close();
+    const folder = await window.showDirectoryPicker!({ id: "scaena", mode: "readwrite" }).catch(() => undefined);
+    if (!folder) return;
+    for await (const _ of folder.entries()) {
+      if (!confirm(`${folder.name} is not empty. Save the bundle into it, over any files of the same names?`)) return;
+      break;
+    }
+    await saveAs({ folder }).catch(failed);
+  };
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -589,6 +658,8 @@ async function edit(source: Source) {
       /** Open a bundle: `{ opfs }`, `{ folder }` (any directory handle), or `{ zip, name }`. */
       open: (source: Source) => open(source),
       save,
+      /** Save as: `{ opfs: name }`, or `{ folder }` (any directory handle). */
+      saveAs,
       download,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),

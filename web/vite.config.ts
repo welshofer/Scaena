@@ -30,7 +30,8 @@ export default defineConfig({
   // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8); the font subsetter,
   // which the worker loads only to download a bundle (PLAN 2.4); the history, which it loads
   // only to save a bundle that keeps one (PLAN 2.9); and the assistant, with what it reads,
-  // which the worker loads the first time it is asked something (PLAN 2.6).
+  // which the worker loads the first time it is asked something (PLAN 2.6); and the themes a
+  // new deck starts from, with their fonts, which it loads only to make one (PLAN 2.12).
   resolve: {
     alias: {
       "@scaena/wasm": join(repo, "crates/scaena-wasm/www/pkg/scaena_wasm.js"),
@@ -38,6 +39,7 @@ export default defineConfig({
       "@scaena/history": join(repo, "crates/scaena-history/pkg/scaena_history.js"),
       "@scaena/resources": join(repo, "crates/scaena-resources/pkg/scaena_resources.js"),
       "@scaena/assistant": join(web, "src/assistant/index.ts"),
+      "@scaena/themes": join(web, "src/themes.ts"),
     },
   },
   worker: { format: "es" },

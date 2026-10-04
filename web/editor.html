@@ -71,6 +71,13 @@
       #asking { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
       #question { flex: 1 1 100%; resize: vertical; }
       #usage { color: var(--muted); font-size: 12px; margin-left: auto; }
+      dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 16px; width: min(26em, 90vw); }
+      dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+      dialog h2 { font-size: 15px; margin: 0 0 12px; }
+      dialog form { display: flex; flex-direction: column; gap: 10px; }
+      dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+      dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+      dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
     </style>
   </head>
   <body>
@@ -81,10 +88,12 @@
       </section>
       <aside>
         <nav id="bundle" aria-label="Bundle">
+          <button id="new-deck" title="A new deck from a theme that ships">New…</button>
           <button id="open-folder" hidden>Open folder…</button>
           <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
           <select id="kept" aria-label="Kept in this browser"></select>
           <button id="save" title="Save where the bundle is kept (⌘S, Ctrl+S)">Save</button>
+          <button id="save-as" title="Save the bundle somewhere new, and keep it there">Save as…</button>
           <button id="download" title="The bundle as a .scaena file, its fonts subset">Download .scaena</button>
           <a id="play" class="button" target="_blank" title="The player, on the bundle as last saved" hidden>Play</a>
           <button id="again" hidden></button>
@@ -126,6 +135,30 @@
         </section>
       </aside>
     </main>
+    <dialog id="making" aria-labelledby="making-title">
+      <form method="dialog">
+        <h2 id="making-title">New deck</h2>
+        <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
+        <label>Theme <select id="making-theme" name="theme"></select></label>
+        <p class="note">One state with nothing on it yet, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="create" id="making-create">Create</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="saving-as" aria-labelledby="saving-as-title">
+      <form method="dialog">
+        <h2 id="saving-as-title">Save as</h2>
+        <label>Name in this browser <input id="saving-as-name" name="name" required autocomplete="off" /></label>
+        <p class="note">Saved where you choose, and kept there from then on: Save writes there.</p>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" id="saving-as-folder" hidden>A folder on disk…</button>
+          <button value="opfs" id="saving-as-opfs">Keep in this browser</button>
+        </menu>
+      </form>
+    </dialog>
     <script type="module" src="/src/editor.ts"></script>
   </body>
 </html>
