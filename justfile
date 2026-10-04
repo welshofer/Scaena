@@ -68,6 +68,12 @@ stages BUNDLE="tests/bench/b1.scaena":
 coldstart: wasm
     node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena
 
+# BROWSER is chrome (the one installed), chromium, firefox, or webkit; ARGS go to web/fps.mjs, which
+# needs `just web` and Playwright.
+# Gate 2's first criterion here: a deck played state by state in a browser, the frame meter for each.
+fps BROWSER="chrome" *ARGS:
+    node web/fps.mjs --browser {{BROWSER}} {{ARGS}}
+
 # Rebuild the torture deck's subset fonts from pinned upstream files (network; PLAN 0.2).
 torture-fonts *ARGS:
     python3 scripts/build_torture_fonts.py {{ARGS}}

@@ -44,7 +44,7 @@ With less motion asked for (`prefers-reduced-motion`, or `?motion=reduce`), each
 
 A focused button or link keeps Enter and Space, and the scrubber and the pickers keep every key; the deck's keys work everywhere else, so → goes on after a click on ▶. The scrubber says which state it is at.
 
-`?fps` shows a frame meter beside the status, for gate 2's first criterion: while the deck plays, its frames a second over the run so far, its worst frame, how many frames came more than 25 ms after the one before (late for a 60 Hz display), and the mean paint. The worker times each frame of a run by the display's clock. `docs/gate-2.md` says how to read it on a real machine.
+`?fps` shows a frame meter beside the status, for gate 2's first criterion: while the deck plays, its frames a second over the run so far, its worst frame, how many frames came more than 25 ms after the one before (late for a 60 Hz display), and the mean paint. The worker times each frame of a run by the display's clock. `docs/gate-2.md` says how to read it on a real machine, and `just fps chrome` (`fps.mjs`) plays a deck state by state in a browser with a window and prints the meter's reading for each.
 
 The presenter view follows the player frame by frame. It shows the state's notes (its beat's, where it has none), the next state at rest, and a clock, and its ◀ ▶ and keys steer the player. The two talk on a `BroadcastChannel` named for the deck.
 

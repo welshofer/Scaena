@@ -42,6 +42,13 @@ The worker times each frame by the display's clock.
 6. Do the same in Firefox, which paints with the CPU where it has no WebGPU; `&painter=cpu` forces that anywhere. The status line says `CPU painter`.
 7. Record each browser, the machine, and its numbers here and in the gate log.
 
+**Or let a script play it.** `just fps chrome` runs `web/fps.mjs`:
+- It serves the repository and opens the player, built by `just web`, in the Chrome installed on the machine, in a window.
+- It plays the trails example state by state, each cue and then its hold, as a presentation does.
+- It prints what the meter read for each state. Then it prints the lowest frames a second, the worst frame, and the late frames, against the bar below.
+
+`just fps firefox --painter cpu` does the same in Playwright's Firefox, on the CPU fallback the criterion asks about; the first line it prints names the painter. Both need Playwright: `npm i -g playwright`, then `npx playwright install firefox` for Firefox, with `NODE_PATH=$(npm root -g)` set. Safari stays by hand, since Playwright's WebKit is not Safari. Headless on this container with the CPU painter (`just fps chromium --headless --painter cpu`), it reads what the table above holds: 16.0 fps on `cover` and 4.4 on `next`.
+
 **Proposed bar:**
 - Met on WebGPU: 55 fps or more on every cue, with no more than a few late frames.
 - Acceptable on the CPU fallback: 30 fps or more at the size you present at.
