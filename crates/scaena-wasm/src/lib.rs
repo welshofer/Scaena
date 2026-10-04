@@ -11,7 +11,10 @@
 //!   through `scaena_paint::gpu::scene`, the scene the native GPU painter renders. The
 //!   canvas is a page's, or an `OffscreenCanvas` a worker paints (PLAN 2.1).
 //! - [`Player::pixels`] paints it with `vello_cpu`, the painter the goldens hold, into
-//!   RGBA pixels: the web player's fallback where WebGPU is missing (SPEC §9.2).
+//!   RGBA pixels: the web player's fallback where WebGPU is missing (SPEC §9.2). A frame
+//!   can also be held while its shaders' rows are worked out in bands on other workers,
+//!   each with an instance of this module ([`Player::shading`], [`shader_rows`]): the
+//!   module has no threads (PLAN 2.28).
 //!
 //! - With the `editor` feature, a session compiles `.scn` as it is typed, lints it with
 //!   its engine, applies a finding's fix, and inspects a state (PLAN 2.3, [`editor`]). It
@@ -54,6 +57,9 @@ pub enum Error {
     Missing(String),
     #[error("compile a source before linting or fixing it")]
     NothingCompiled,
+    /// A call about a frame held for its shaders that no frame is, or that is not in it.
+    #[error("{0}")]
+    Shading(String),
     #[error("{0}")]
     Ops(String),
     /// An operation the assistant called stopped (PLAN 2.6): why, as its MCP tool says it.
@@ -83,6 +89,9 @@ pub struct Session {
     format: Option<String>,
     /// The fonts and images the engine was built from, as painters read them.
     store: Assets,
+    /// The frame held while its shaders' rows are worked out (PLAN 2.28).
+    #[cfg(feature = "cpu")]
+    shading: Option<Shading>,
     /// The theme's JSON, as handed over: what lint and a save read (PLAN 2.3–2.4).
     #[cfg(feature = "editor")]
     theme_json: String,
@@ -102,6 +111,24 @@ pub struct Session {
     /// before it (PLAN 2.9).
     #[cfg(feature = "editor")]
     recorded: Vec<scaena_store::crdt::Recorded>,
+}
+
+/// A frame held to be painted once its shaders' pixels are in (PLAN 2.28): its display
+/// list, its scale, and each shader it draws.
+#[cfg(feature = "cpu")]
+struct Shading {
+    dl: DisplayList,
+    scale: f32,
+    shaders: Vec<Shader>,
+}
+
+/// A shader a held frame draws: the spec its job is made from, the job, and its pixels,
+/// filled in a band of rows at a time.
+#[cfg(feature = "cpu")]
+struct Shader {
+    spec: scaena_core::shader::Spec,
+    job: scaena_core::shader::Job,
+    pixels: Vec<u8>,
 }
 
 /// The files a deck's engine is built from: its fonts and its images.
@@ -130,6 +157,8 @@ impl Session {
             transition: None,
             format: None,
             store: Assets::new(),
+            #[cfg(feature = "cpu")]
+            shading: None,
             #[cfg(feature = "editor")]
             theme_json: theme_json.to_string(),
             #[cfg(feature = "editor")]
@@ -309,6 +338,97 @@ impl Session {
         let scale = width as f32 / dl.viewport[0];
         Ok(scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?)
     }
+
+    /// Hold [`Session::pixels`]' frame until its shaders' pixels are in, and say how many
+    /// shaders it draws: each one's rows are worked out in bands, here ([`Session::shade`])
+    /// or on another worker from its spec ([`Session::shader_spec`], [`shader_rows`]), then
+    /// [`Session::shaded`] paints the frame (PLAN 2.28). A frame held before is let go.
+    #[cfg(feature = "cpu")]
+    pub fn shading(&mut self, state: &str, t_ms: f64, width: u32) -> Result<usize, Error> {
+        self.shading = None;
+        let dl = self.frame(state, t_ms)?;
+        let scale = width as f32 / dl.viewport[0];
+        let mut shaders = Vec::new();
+        for spec in scaena_paint::shader_specs(&dl, scale)? {
+            if let Some(job) = spec.job().map_err(PaintError::from)? {
+                let [_, _, w, h] = job.bbox();
+                shaders.push(Shader { spec, job, pixels: vec![0; w as usize * h as usize * 4] });
+            }
+        }
+        let count = shaders.len();
+        self.shading = Some(Shading { dl, scale, shaders });
+        Ok(count)
+    }
+
+    /// The held frame's shader `i`.
+    #[cfg(feature = "cpu")]
+    fn shader(&mut self, i: usize) -> Result<&mut Shader, Error> {
+        let shading = self.shading.as_mut().ok_or_else(|| Error::Shading("no frame is held for its shaders".into()))?;
+        let count = shading.shaders.len();
+        let none = || Error::Shading(format!("the frame held draws {count} shaders; there is no shader {i}"));
+        shading.shaders.get_mut(i).ok_or_else(none)
+    }
+
+    /// The spec shader `i` of the held frame is made from: what [`shader_rows`] takes.
+    #[cfg(feature = "cpu")]
+    pub fn shader_spec(&mut self, i: usize) -> Result<Vec<u8>, Error> {
+        Ok(self.shader(i)?.spec.to_bytes().map_err(PaintError::from)?)
+    }
+
+    /// How shader `i`'s rows split among `workers`: each band's first row and its rows, as
+    /// `Job::render_on` splits them among threads (`scaena_core::shader::bands`).
+    #[cfg(feature = "cpu")]
+    pub fn shader_bands(&mut self, i: usize, workers: usize) -> Result<Vec<[u32; 2]>, Error> {
+        let [_, _, _, h] = self.shader(i)?.job.bbox();
+        Ok(scaena_core::shader::bands(h, workers))
+    }
+
+    /// The bytes of shader `i`'s rows `first..first + rows` in the held frame, to fill.
+    #[cfg(feature = "cpu")]
+    pub fn shader_band(&mut self, i: usize, first: u32, rows: u32) -> Result<&mut [u8], Error> {
+        let Shader { job, pixels, .. } = self.shader(i)?;
+        let [_, _, w, h] = job.bbox();
+        let row = w as usize * 4;
+        match first.checked_add(rows).is_some_and(|end| end <= h) {
+            true => Ok(&mut pixels[first as usize * row..(first + rows) as usize * row]),
+            false => Err(Error::Shading(format!("shader {i} has {h} rows; {rows} from row {first} are not all in it"))),
+        }
+    }
+
+    /// Work out shader `i`'s rows `first..first + rows` here, into the held frame.
+    #[cfg(feature = "cpu")]
+    pub fn shade(&mut self, i: usize, first: u32, rows: u32) -> Result<(), Error> {
+        let job = self.shader(i)?.job.clone();
+        job.render_rows(first, self.shader_band(i, first, rows)?);
+        Ok(())
+    }
+
+    /// The held frame painted with its shaders' pixels, as [`Session::pixels`] paints it;
+    /// the frame is let go.
+    #[cfg(feature = "cpu")]
+    pub fn shaded(&mut self) -> Result<scaena_paint::Raster, Error> {
+        let Shading { dl, scale, shaders } =
+            self.shading.take().ok_or_else(|| Error::Shading("no frame is held for its shaders".into()))?;
+        let pixels = shaders.into_iter().map(|shader| shader.pixels).collect();
+        Ok(scaena_paint::cpu::CpuPainter::default().paint_shaded(&dl, &self.store, scale, pixels)?)
+    }
+}
+
+/// Rows `first..first + rows` of the shader whose spec is `spec` ([`Session::shader_spec`]):
+/// what a worker that holds no deck works out for one that does (PLAN 2.28). The same job,
+/// made again from the spec's bytes, gives the same bytes.
+#[cfg(feature = "cpu")]
+pub fn shader_rows(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, Error> {
+    let spec = scaena_core::shader::Spec::from_bytes(spec).map_err(PaintError::from)?;
+    let job =
+        spec.job().map_err(PaintError::from)?.ok_or_else(|| Error::Shading("the shader covers no pixel".into()))?;
+    let [_, _, w, h] = job.bbox();
+    if first.checked_add(rows).is_none_or(|end| end > h) {
+        return Err(Error::Shading(format!("the shader has {h} rows; {rows} from row {first} are not all in it")));
+    }
+    let mut out = vec![0; rows as usize * w as usize * 4];
+    job.render_rows(first, &mut out);
+    Ok(out)
 }
 
 fn js(e: impl std::fmt::Display) -> JsError {
@@ -403,6 +523,90 @@ impl Player {
     pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
         Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
     }
+}
+
+/// A frame whose shaders' rows are worked out on other workers (PLAN 2.28). The module has no
+/// threads; a page that has cores to spare starts workers of its own, each with this module
+/// ([`engine_module`]), and spreads a full-canvas shader's bands over them:
+///
+/// 1. `shading` holds `pixels`' frame and says how many shaders it draws;
+/// 2. for each, `shaderBands` splits its rows, `shaderSpec` goes to the other workers, which
+///    work out their bands with [`shader_rows`], and `shade` works out one here;
+/// 3. `takeRows` takes each band another worker worked out;
+/// 4. `paintShaded` paints the frame: `pixels`' bytes.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen]
+impl Player {
+    pub fn shading(&mut self, state: &str, t_ms: f64, width: u32) -> Result<u32, JsError> {
+        self.0.shading(state, t_ms, width).map(|n| n as u32).map_err(js)
+    }
+
+    /// Shader `i`'s spec, which [`shader_rows`] makes its job again from.
+    #[wasm_bindgen(js_name = shaderSpec)]
+    pub fn shader_spec(&mut self, i: u32) -> Result<Vec<u8>, JsError> {
+        self.0.shader_spec(i as usize).map_err(js)
+    }
+
+    /// Shader `i`'s rows split among `workers`: each band's first row, then its rows, flat.
+    #[wasm_bindgen(js_name = shaderBands)]
+    pub fn shader_bands(&mut self, i: u32, workers: u32) -> Result<Vec<u32>, JsError> {
+        Ok(self.0.shader_bands(i as usize, workers as usize).map_err(js)?.concat())
+    }
+
+    /// Work out shader `i`'s rows `first..first + rows` here.
+    pub fn shade(&mut self, i: u32, first: u32, rows: u32) -> Result<(), JsError> {
+        self.0.shade(i as usize, first, rows).map_err(js)
+    }
+
+    /// Take shader `i`'s rows from `first` as another worker worked them out ([`shader_rows`]).
+    #[wasm_bindgen(js_name = takeRows)]
+    pub fn take_rows(&mut self, i: u32, first: u32, bytes: &js_sys::Uint8Array) -> Result<(), JsError> {
+        let row = (self.0.shader(i as usize).map_err(js)?.job.bbox()[2] as usize * 4).max(1);
+        let length = bytes.length() as usize;
+        if !length.is_multiple_of(row) {
+            return Err(JsError::new(&format!("{length} bytes are not whole rows of shader {i}, {row} bytes each")));
+        }
+        bytes.copy_to(self.0.shader_band(i as usize, first, (length / row) as u32).map_err(js)?);
+        Ok(())
+    }
+
+    /// The frame held, painted: what `pixels` returns for it.
+    #[wasm_bindgen(js_name = paintShaded)]
+    pub fn paint_shaded(&mut self) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        Ok(wasm_bindgen::Clamped(self.0.shaded().map_err(js)?.rgba))
+    }
+
+    /// The frame held, painted and put on `onto` at its top left: `paintShaded`'s pixels, which
+    /// the canvas copies from the module's memory, with no copy out of it first.
+    #[wasm_bindgen(js_name = putShaded)]
+    pub fn put_shaded(&mut self, onto: &web_sys::OffscreenCanvasRenderingContext2d) -> Result<(), JsError> {
+        let raster = self.0.shaded().map_err(js)?;
+        let said = |e: JsValue| JsError::new(&format!("the frame could not go on the canvas: {e:?}"));
+        // A view of the module's memory, which nothing allocates into before the canvas has
+        // copied it.
+        let image = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(&raster.rgba),
+            raster.width,
+            raster.height,
+        )
+        .map_err(said)?;
+        onto.put_image_data(&image, 0.0, 0.0).map_err(said)
+    }
+}
+
+/// Rows `first..first + rows` of the shader whose spec `Player.shaderSpec` gave: what another
+/// worker, holding no deck, works out for the one that does (PLAN 2.28).
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = shaderRows)]
+pub fn shader_rows_js(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, JsError> {
+    shader_rows(spec, first, rows).map_err(js)
+}
+
+/// The module this is, compiled: a page hands it to the workers it starts beside the
+/// engine's, which instantiate it rather than fetch and compile it again (PLAN 2.28).
+#[wasm_bindgen(js_name = engineModule)]
+pub fn engine_module() -> JsValue {
+    wasm_bindgen::module()
 }
 
 /// The source editor (PLAN 2.3): every result as JSON, as `editor`'s types serialize.
@@ -899,6 +1103,44 @@ mod tests {
             let d = diff::compare(&expected, &got).unwrap();
             assert!(d.passes(), "{name}: {d}");
         }
+    }
+
+    /// A frame held for its shaders, its rows worked out in bands, some here and the rest
+    /// from their spec as another worker would, paints what `pixels` paints (PLAN 2.28); a
+    /// call about a frame that is not held, or rows not in it, is an error.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn shaders_worked_out_in_bands_paint_what_pixels_paints() {
+        let mut s = torture();
+        for (state, t) in [("shaders", f64::INFINITY), ("shaders", 300.0), ("images", f64::INFINITY)] {
+            let width = 1280;
+            let want = s.pixels(state, t, width).unwrap();
+            let count = s.shading(state, t, width).unwrap();
+            assert_eq!(count > 0, state == "shaders", "{state}");
+            for i in 0..count {
+                let spec = s.shader_spec(i).unwrap();
+                for (n, [first, rows]) in s.shader_bands(i, 3).unwrap().into_iter().enumerate() {
+                    match n {
+                        0 => s.shade(i, first, rows).unwrap(),
+                        _ => s
+                            .shader_band(i, first, rows)
+                            .unwrap()
+                            .copy_from_slice(&shader_rows(&spec, first, rows).unwrap()),
+                    }
+                }
+            }
+            assert!(s.shaded().unwrap() == want, "{state} at {t}");
+        }
+        assert!(matches!(s.shaded(), Err(Error::Shading(_))));
+        assert!(matches!(s.shade(0, 0, 1), Err(Error::Shading(_))));
+        let count = s.shading("shaders", f64::INFINITY, 640).unwrap();
+        assert!(matches!(s.shader_spec(count), Err(Error::Shading(_))));
+        let [first, rows] = *s.shader_bands(0, 1).unwrap().last().unwrap();
+        assert!(matches!(s.shade(0, first, rows + 1), Err(Error::Shading(_))));
+        assert!(matches!(s.shader_band(0, u32::MAX, 2), Err(Error::Shading(_))));
+        let spec = s.shader_spec(0).unwrap();
+        assert!(matches!(shader_rows(&spec, first + rows, 1), Err(Error::Shading(_))));
+        assert!(matches!(shader_rows(&spec[..spec.len() / 2], 0, 1), Err(Error::Paint(PaintError::Shader(_)))));
     }
 
     /// The revenue example, its files handed over as a page hands them.

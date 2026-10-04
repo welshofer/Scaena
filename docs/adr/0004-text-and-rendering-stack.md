@@ -90,6 +90,13 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
 
     In the browser, WASM memory is never given back, so the gain there is only the copy.
 
+17. **In the browser a shader had one core, and vello_cpu blended every image it was not told was opaque.** Measured for gate 2's bar on the trails example (V8 in Node, and headless Chromium, on the 4-core container): the cover's mesh was 30 ms of a 55 ms frame, and the close's noise 203 ms of 235. The engine's module has no threads, so PLAN 2.18's bands ran on one. vello_cpu's `Pixmap::from_parts` assumes a pixmap may be translucent, so an opaque backdrop was blended into the frame pixel by pixel; and the painter premultiplied every channel of every pixel, alpha 255 or not, which was the largest part of the cover's paint besides its rows. *Decisions (PLAN 2.28):*
+    - The worker shares a shader's bands with helper workers, each with the engine's module and the job made again from its `Spec`: postcard bytes, every number as its bits, so the bytes are the ones the worker would have worked out.
+    - The painter builds image and shader pixmaps with `from_parts_with_opacity`, saying when every pixel is opaque, and premultiplies only the pixels that are not. All 71 torture rasters, painted with and without it on one machine, are byte for byte the same: over an opaque source, vello_cpu's blend gives the source.
+    - A frame goes onto the canvas as an `ImageData` over the module's memory (`Player.putShaded`), so the canvas's copy is the only one.
+
+    In V8 alone, four workers take the noise's rows from 213 ms to 64 and the mesh's from 30 to 10, and the cover's paint besides its rows from 26 ms to 21. Headless Chromium, compositing in software on the same four cores, holds the helpers to about half that: by the same build, `?helpers=0` against the default, the cover paints in 50 ms against 44, and the close in 254 against 165.
+
 ## Alternatives
 
 - **Skia (`skia-safe` / CanvasKit):** most mature, has a PDF backend, but a ~7 MB WASM payload, C++ build, and no ownership of line breaking. Kept as the fallback for *painting* only.

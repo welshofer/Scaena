@@ -3,27 +3,40 @@
 Phase 2's exit criteria (PLAN, "Exit criteria (gate 2)"), each with its evidence so far.
 
 **Two of the four are met in headless Chromium. The other two need Jay:**
-- the first needs a real machine's browsers;
+- the first needs a real machine's browsers, held to the bar Jay set on 2026-10-04;
 - the fourth needs his own key.
 
 The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. Phase 2's tasks are done but for 2.7's deploy, which waits on where the site goes.
 
-## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox: needs a real machine
+## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox: needs a real machine
+
+**The bar.** Jay set it on 2026-10-04 ("a high bar for fps: 30, or even 60 if it is remotely achievable"). It holds on the machine you present on, at the size you present at:
+- **WebGPU,** in Chrome and in Safari 26+: 60 fps on every cue. The meter reads 58 or more, with no more than 2 frames late.
+- **The CPU fallback,** in Firefox where it has no WebGPU, or with `?painter=cpu` anywhere: 60 fps on every cue that draws no shader, and 30 or more on a cue that draws one.
+
+`just fps` holds each cue to it, and names the cues that fall short.
 
 CI cannot say. Headless Chromium composites WebGPU on SwiftShader at about a frame a second.
 
-**The CPU fallback has room, except under a full-canvas shader.** On a shared container's CPU, headless Chromium's CPU painter plays a torture cue at 44 fps (`web/player.mjs`). It paints each 1080p frame in about 19 ms. Before ADR-0004 finding 15, the same cue played at 13 fps, 71 ms a paint. In V8 alone, the engine paints B1's frames in 13 ms at the median and 18 ms at worst. The page then puts each frame on the canvas in under 2 ms.
+**The CPU fallback works a shader out on every core (PLAN 2.28).** A full-canvas shader is computed afresh for every frame, and the engine's module has no threads. Now the worker shares a shader's rows with helpers, one fewer than the browser's cores, each holding the engine's module and no deck. The bytes are the same: every torture frame still holds to the goldens through them (`just web-smoke`). A frame also goes onto the canvas with one copy, not two, and an opaque shader is drawn without blending.
 
-The trails example shows where the fallback falls short. On the same container, after PLAN 2.15–2.17, its states played at 1920 × 1080 with `?painter=cpu&fps`, each through its cue and its hold:
-- `cover`, over the themes' mesh backdrop: 16 fps, 64 ms a paint;
-- `storm`, a full-bleed photograph: 29 fps, 34 ms a paint;
-- `next`, over the themes' noise texture: 4.5 fps, 218 ms a paint;
-- the other twelve: 44–57 fps, 14–20 ms a paint.
+On this 4-core container, the trails example at 1920 × 1080, by the same build:
 
-A full-canvas shader is computed afresh for every frame, on one thread. What would lift those states, each with its trade:
-- **Compute a shader's rows on every core.** The rows are independent, so no byte would change. But a page without cross-origin isolation shares no memory between workers, so each core needs its own worker and its own instance of the engine's module.
-- **Draw shaders with WebGL2 on the CPU fallback.** Firefox without WebGPU still has WebGL2. But each kind would gain a third twin to hold to its CPU reference.
-- **Accept it.** The trails example draws its shaders on its first and last slides only.
+| | before PLAN 2.28 | with it, `?helpers=0` | with it |
+|---|---|---|---|
+| `cover`, the mesh backdrop | 16 fps, 64 ms a paint | 19.5 fps, 50 ms | 21.5 fps, 44 ms |
+| `next`, the noise texture | 4.5 fps, 218 ms | 3.9 fps, 254 ms | 5.6 fps, 165 ms |
+| the twelve without a shader | 44–57 fps, 14–20 ms | | 30–56 fps, 10–16 ms |
+
+The first column was measured on another container, before this one; read the last two against each other.
+
+Headless Chromium on four cores holds the helpers to about half speed. It composites every frame in software, on the same cores. In V8 alone (Node, the same module and container), four workers take a frame's shader rows:
+- `next`'s noise: from 213 ms to 64 ms;
+- `cover`'s mesh: from 30 ms to 10 ms.
+
+`cover`'s whole frame then comes to about 32 ms. The noise is about 400 floating-point operations a pixel, four octaves of simplex noise, and on a slower core it stays the heaviest state: 213 ms on one core here.
+
+The same headless runs hold even the states without a shader to 30–56 fps, while their frames paint in 10–16 ms. The display's frames, not the paint, set that pace: the browser's software compositor shares the four cores with the page. A real machine composites on its GPU. So only a real machine can say whether the bar is met; this container says the paint got faster.
 
 **The player measures itself.** With `?fps` it shows a frame meter while the deck plays, for the run so far:
 - frames a second;
@@ -39,21 +52,15 @@ The worker times each frame by the display's clock.
 3. The status line should say `WebGPU`. Make the window the size you present at, or press F for fullscreen.
 4. Go through the deck with →. Each cue with motion fills the meter: the cover's rise, the charts growing, the table, and the diagram. Note the lowest frames a second and the worst frame.
 5. Do the same in Safari 26 on the Mac.
-6. Do the same in Firefox, which paints with the CPU where it has no WebGPU; `&painter=cpu` forces that anywhere. The status line says `CPU painter`.
+6. Do the same in Firefox, which paints with the CPU where it has no WebGPU; `&painter=cpu` forces that anywhere. The status line says `CPU painter`. `&helpers=0` shows what the shader states cost on one core.
 7. Record each browser, the machine, and its numbers here and in the gate log.
 
 **Or let a script play it.** `just fps chrome` runs `web/fps.mjs`:
 - It serves the repository and opens the player, built by `just web`, in the Chrome installed on the machine, in a window.
 - It plays the trails example state by state, each cue and then its hold, as a presentation does.
-- It prints what the meter read for each state. Then it prints the lowest frames a second, the worst frame, and the late frames, against the bar below.
+- It prints what the meter read for each state, against the bar: 58 fps, or 30 where the state draws a shader on the CPU painter. Then it prints the lowest frames a second, the worst frame, the late frames, and the cues that fall short.
 
-`just fps firefox --painter cpu` does the same in Playwright's Firefox, on the CPU fallback the criterion asks about; the first line it prints names the painter. Both need Playwright: `npm i -g playwright`, then `npx playwright install firefox` for Firefox, with `NODE_PATH=$(npm root -g)` set. Safari stays by hand, since Playwright's WebKit is not Safari. Headless on this container with the CPU painter (`just fps chromium --headless --painter cpu`), it reads what the table above holds: 16.0 fps on `cover` and 4.4 on `next`.
-
-**Proposed bar:**
-- Met on WebGPU: 55 fps or more on every cue, with no more than a few late frames.
-- Acceptable on the CPU fallback: 30 fps or more at the size you present at.
-
-The bar is Jay's call.
+`just fps firefox --painter cpu` does the same in Playwright's Firefox, on the CPU fallback the criterion asks about; the first line it prints names the painter. `--helpers N` caps the CPU painter's helpers. Both need Playwright: `npm i -g playwright`, then `npx playwright install firefox` for Firefox, with `NODE_PATH=$(npm root -g)` set. Safari stays by hand, since Playwright's WebKit is not Safari. Headless on this container with the CPU painter (`just fps chromium --headless --painter cpu`), it reads what the table above holds.
 
 ## 2. Edit → lint → preview round trip under 200 ms on a 40-state deck: met
 

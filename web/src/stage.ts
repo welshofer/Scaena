@@ -38,6 +38,13 @@ type Reply = Extract<
   }
 >;
 
+/** The most helpers a stage starts for the CPU painter (PLAN 2.28): the page's `?helpers=`, a
+ * whole number (0: the engine's worker works out every row itself), or as many as it asks. */
+const mostHelpers = (() => {
+  const n = Number(new URLSearchParams(location.search).get("helpers") ?? Number.NaN);
+  return Number.isInteger(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
+})();
+
 /** How a page starts the engine: a worker, and the engine's module, compiled, if the page
  * carries it, as a single-file export does (PLAN 2.5). A worker without it loads its own. */
 export interface Engine {
@@ -58,11 +65,16 @@ export class Stage {
   private hearing = new Map<number, (event: AssistantEvent) => void>();
   private asked = 0;
 
+  /** Workers that work out shaders' rows for the engine's worker, when it asks (PLAN 2.28). */
+  private helpers: Worker[] = [];
+
   private constructor(
     readonly canvas: HTMLCanvasElement,
     private worker: Worker,
     /** The bundle as the worker opened it, or last read it again. */
     public opened: Opened,
+    /** How the engine's worker was started: its helpers start the same way. */
+    private engine: Engine,
   ) {
     worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
     worker.onerror = (e) => this.onError(new Error(e.message));
@@ -85,7 +97,7 @@ export class Stage {
     const first = await reply;
     if (first.type === "ready") {
       const { type: _, ...opened } = first;
-      return new Stage(fresh, worker, opened);
+      return new Stage(fresh, worker, opened, engine);
     }
     worker.terminate();
     const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
@@ -227,8 +239,29 @@ export class Stage {
    * what asked it is closed too. */
   close() {
     this.worker.terminate();
+    for (const helper of this.helpers) helper.terminate();
+    this.helpers = [];
     this.waiting.clear();
     this.hearing.clear();
+  }
+
+  /** Start `count` workers to work out shaders' rows beside the engine's (PLAN 2.28), each as
+   * the engine's worker was started, and hand it a port to each: no more than `?helpers=`
+   * allows. One that fails to start is stopped: the engine's worker works its rows out itself. */
+  private help(count: number) {
+    const ports: MessagePort[] = [];
+    for (let i = 0; i < Math.min(count, mostHelpers); i++) {
+      const helper = this.engine.spawn();
+      helper.onerror = (e) => {
+        console.warn(`a shader helper stopped: ${e.message}`);
+        helper.terminate();
+      };
+      const { port1, port2 } = new MessageChannel();
+      helper.postMessage({ type: "help", port: port2 } satisfies ToWorker, [port2]);
+      this.helpers.push(helper);
+      ports.push(port1);
+    }
+    this.worker.postMessage({ type: "helpers", ports } satisfies ToWorker, ports);
   }
 
   private send(message: ToWorker) {
@@ -281,6 +314,8 @@ export class Stage {
         } else this.onError(new Error(data.message));
         return;
       }
+      case "helpers":
+        return this.help(data.count);
       case "ready":
         return;
     }

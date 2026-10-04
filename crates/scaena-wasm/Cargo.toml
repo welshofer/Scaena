@@ -18,8 +18,10 @@ default = ["gpu", "cpu", "editor"]
 # the page paints them some other way.
 gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures"]
 # Paint with vello_cpu into RGBA pixels: the web player's fallback where WebGPU is missing
-# (PLAN 2.1, SPEC §9.2).
-cpu = ["scaena-paint/cpu"]
+# (PLAN 2.1, SPEC §9.2). A shader's rows can come from other workers, each band copied in from
+# its `Uint8Array` once, and a frame goes onto a canvas's 2D context from the module's memory
+# (PLAN 2.28).
+cpu = ["scaena-paint/cpu", "dep:js-sys", "dep:web-sys", "web-sys/ImageData", "web-sys/OffscreenCanvasRenderingContext2d"]
 # The source editor (PLAN 2.3): compile `.scn`, lint with fixes, inspect, by `scaena-ops`'
 # operations (ADR-0009). Its lint judges contrast over what the CPU painter paints. It opens
 # and saves bundles in memory with `scaena-store` (PLAN 2.4), and starts new ones from a theme
