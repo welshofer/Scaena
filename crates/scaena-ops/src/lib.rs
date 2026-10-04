@@ -19,6 +19,8 @@ pub mod lint;
 pub mod patch;
 pub mod read;
 pub mod render;
+#[cfg(feature = "shipped")]
+pub mod shipped;
 pub mod theme;
 
 pub use scaena_store::Bundle;

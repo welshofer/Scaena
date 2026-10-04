@@ -94,14 +94,15 @@ cargo install --path crates/scaena-cli --locked    # puts `scaena` in ~/.cargo/b
 
 `scaena export --format html` needs the web pages built first: run `just web`, then install the CLI again (ADR-0010). That needs [`just`](https://github.com/casey/just), Node, the `wasm32-unknown-unknown` target, and `wasm-bindgen-cli` 0.2.129.
 
-**The loop.** Turn a deck into source, serve it, and write:
+**The loop.** Start a deck, turn it into source, serve it, and write:
 
 ```sh
-unzip talk.scaena -d talk                         # a downloaded deck, as a folder
+scaena new talk --theme dusk --title "Field notes"   # a new deck: dusk, daybreak, or ember
 scaena decompile talk -o talk/deck.scn            # the deck as source
 scaena serve talk                                 # then open http://localhost:4848/, and leave it running
 ```
 
+- **Start from what you have.** `scaena new` makes a bundle as the editor's **New…** does, from a theme the CLI carries with its fonts; `--theme` also takes a theme file. A deck someone sent as a `.scaena` file is a zip: `unzip talk.scaena -d talk` makes it a folder.
 - **Each save** of `talk/deck.scn`, in any text editor, compiles into `talk/deck.json`, and the player shows it at the state it was on.
 - **A line that does not compile** is shown at its line, in the terminal as `compile` shows it and over the slide, and the deck stays as it was.
 - **`http://localhost:4848/edit`** is the editor on the same folder. Its saves go back into the folder, `deck.scn` included, in any browser.

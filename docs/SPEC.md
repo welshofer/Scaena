@@ -815,6 +815,7 @@ Rules:
 ### 7.1 CLI (`scaena`)
 
 ```
+scaena new       <dir> [--theme dusk|daybreak|ember|theme.json] [--title T]   # a bundle from a theme and its fonts, as deck_create makes one
 scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
@@ -873,6 +874,8 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
+`new` (PLAN 2.13) makes a bundle in a directory not there yet or empty, as `deck_create` makes one (§7.2): the theme, the fonts it names, and one state with nothing on it, titled `--title` (`Untitled` by default), on a 1920 × 1080 canvas. The theme is one that ships, by its name, in any case (`dusk` by default), or a theme file, whose fonts are beside it or above it. The CLI and the MCP server carry the themes that ship and their fonts, so a deck starts where no file of the repository's is at hand. The fonts cover Latin (U+0020–017F, the punctuation of U+2010–203A, and €), and each carries its copyright and license (OFL) in its name table. A directory that is not empty, or a theme that is neither a file nor one that ships, exits 2; a bundle that would not validate is not made, and exits 1.
+
 `serve` (PLAN 2.11, ADR-0012) serves the web player at `/` and the editor at `/edit` on a bundle's folder (a directory with `deck.json` in it), at `http://localhost:4848/` or the port `--port` names (0 for any free one). It answers on 127.0.0.1 alone, to a page of its own, and writes only inside the folder (§9.2). A `deck.scn` saved there compiles into `deck.json` as `compile` writes it, and the pages show each change; one that does not compile is shown on stderr as `compile` shows it, and in the pages, and `deck.json` stays as it was. Under `--json`, stdout holds where it serves, once: `{ bundle, player, editor }`. A folder that is no bundle exits 2. A `scaena` built before `just web` carries no pages, and exits 3.
 
 `render` without `--t` renders the state at rest; `--t` is milliseconds into the state's cue (its transition, then its motions, §3.9), and `--json` reports the state's span (`span_ms`). `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
@@ -883,7 +886,7 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 
 | Tool | Does | Result |
 |---|---|---|
-| `deck_create` | Makes a bundle at `bundle`, a directory that is not there yet or is empty. It copies in the `theme` file, the fonts its families name (found beside it or above it), and the `data` files. The deck comes from `deck` (JSON) or `scn` (source); without either it is one empty state titled `title`. Its `theme` and `fonts` are pointed at the copies. Written only if it validates. | `{ created, files, findings, errors }` |
+| `deck_create` | Makes a bundle at `bundle`, a directory that is not there yet or is empty. It copies in the `theme`, a theme that ships by its name (`dusk`, `daybreak`, `ember`) with its fonts, or a theme file with the fonts its families name (found beside it or above it), and the `data` files. The deck comes from `deck` (JSON) or `scn` (source); without either it is one empty state titled `title`. Its `theme` and `fonts` are pointed at the copies. Written only if it validates. | `{ created, files, findings, errors }` |
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |

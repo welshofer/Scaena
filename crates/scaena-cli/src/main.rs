@@ -33,6 +33,17 @@ struct Cli {
 enum Cmd {
     /// Schema + semantic validation of a bundle or deck.json.
     Validate { bundle: PathBuf },
+    /// A new bundle in `dir`, a directory not there yet or empty, as `deck_create` makes one
+    /// (PLAN 2.13): a theme, its fonts, and one state with nothing on it, titled `--title`.
+    New {
+        dir: PathBuf,
+        /// A theme that ships (`dusk`, `daybreak`, `ember`), which comes with its fonts; or a
+        /// theme file, whose fonts are beside it or above it.
+        #[arg(long, default_value = "dusk")]
+        theme: String,
+        #[arg(long, default_value = "Untitled")]
+        title: String,
+    },
     /// Run lint rules; exit 1 on errors.
     Lint {
         bundle: PathBuf,
@@ -280,6 +291,7 @@ fn not_built(e: &(dyn std::error::Error + 'static)) -> bool {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.cmd {
+        Cmd::New { dir, theme, title } => new(&dir, &theme, &title, cli.json),
         Cmd::Validate { bundle } => {
             let findings = scaena_ops::lint::validate(&bundle)?;
             report(&findings, cli.json);
@@ -574,6 +586,24 @@ fn diagnostic(
 /// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
 /// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
+/// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
+/// Findings that are errors exit 1, and the bundle is not made.
+fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
+    let req = scaena_ops::create::Create { theme: theme.into(), title: Some(title.into()), ..Default::default() };
+    let made = scaena_ops::create::create(dir, &req)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&made)?);
+    } else if made.created {
+        println!("made {}: {}", dir.display(), made.files.join(", "));
+        let d = dir.display();
+        println!("next: scaena decompile {d} -o {d}/deck.scn, then scaena serve {d}");
+    } else {
+        println!("not made: {} would not validate", dir.display());
+        report(&made.findings, false);
+    }
+    Ok(if made.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
     let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
     if json {

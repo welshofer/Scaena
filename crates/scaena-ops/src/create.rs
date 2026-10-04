@@ -160,7 +160,9 @@ fn schema_of(source: &Value) -> IndexMap<String, String> {
 #[serde(deny_unknown_fields)]
 pub struct Create {
     /// The theme file to start from, copied to `themes/`. The fonts its families name are
-    /// copied to `fonts/` from beside it, or above it: from the bundle it belongs to.
+    /// copied to `fonts/` from beside it, or above it: from the bundle it belongs to. Where no
+    /// such file is, a theme that ships, by its name (`dusk`, `daybreak`, `ember`), with its
+    /// fonts, in a build that carries them (PLAN 2.13).
     pub theme: PathBuf,
     /// The deck, as `deck.json` holds it. Its `theme` and `fonts` are set to the bundle's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,19 +201,25 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
             path.display()
         )));
     }
-    let theme = std::fs::read_to_string(&req.theme).with_context(|| format!("reading {}", req.theme.display()))?;
-    // A font is beside the theme, or above it: in the bundle the theme belongs to.
-    let font = |file: &str| -> Result<Vec<u8>, OpsError> {
-        let found =
-            req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
-                format!("the theme's font `{file}` is not beside {} or above it", req.theme.display())
-            })?;
-        Ok(std::fs::read(&found)?)
-    };
     let data = |file: &Path| -> Result<Vec<u8>, OpsError> {
         std::fs::read(file).with_context(|| format!("reading {}", file.display()))
     };
-    let (created, made) = creating(req, theme, &font, &data)?;
+    let (created, made) = match shipped(req, &data) {
+        Some(made) => made?,
+        None => {
+            let theme = std::fs::read_to_string(&req.theme)
+                .with_context(|| format!("reading {}{}", req.theme.display(), or_shipped()))?;
+            // A font is beside the theme, or above it: in the bundle the theme belongs to.
+            let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+                let found =
+                    req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(
+                        || format!("the theme's font `{file}` is not beside {} or above it", req.theme.display()),
+                    )?;
+                Ok(std::fs::read(&found)?)
+            };
+            creating(req, theme, &font, &data)?
+        }
+    };
     let Some(made) = made else { return Ok(created) };
     std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
     let b = Bundle {
@@ -225,6 +233,39 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
     write(&b, made)?;
     Ok(created)
 }
+
+/// What [`create`] makes from the theme that ships as `req.theme`, where no file of that name
+/// is: the theme and its fonts from the binary.
+#[cfg(feature = "shipped")]
+fn shipped(req: &Create, data: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>) -> Option<Made> {
+    if req.theme.exists() {
+        return None;
+    }
+    let theme = crate::shipped::theme(req.theme.to_str()?)?;
+    let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+        let bytes = crate::shipped::font(file)
+            .with_context(|| format!("{} names `{file}`, which does not ship", theme.name))?;
+        Ok(bytes.to_vec())
+    };
+    let req = Create { theme: theme.file.into(), ..req.clone() };
+    Some(creating(&req, theme.text.to_string(), &font, data))
+}
+
+#[cfg(not(feature = "shipped"))]
+fn shipped(_: &Create, _: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>) -> Option<Made> {
+    None
+}
+
+/// What a theme that cannot be read could have been instead.
+fn or_shipped() -> String {
+    #[cfg(feature = "shipped")]
+    return format!(" (nor is it a theme that ships: {})", crate::shipped::names());
+    #[cfg(not(feature = "shipped"))]
+    String::new()
+}
+
+/// What [`creating`] makes.
+type Made = Result<(Created, Option<Write>), OpsError>;
 
 /// [`create`] with nothing written: the bundle `req` makes from `theme`, the text of the theme
 /// file it names, with each font the theme names read by `font`, by the path the theme gives

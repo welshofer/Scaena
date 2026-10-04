@@ -657,6 +657,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Save as saves where the page is told and keeps the bundle there: another name in the browser's storage, or a folder on disk, kept by name as an opened one is. A served bundle saves to its folder alone.*
     - *Tests: a new deck from each shipped theme lints with no error (`scaena-wasm`), and `web/new.mjs` runs New and Save as in headless Chromium.)*
 
+- [x] 2.13 A deck starts anywhere: `scaena new <dir> [--theme NAME|FILE] [--title T]`, and `deck_create` takes a theme that ships by its name. The CLI and the MCP server carry Dusk, Daybreak, and Ember and their fonts, so neither a person nor an agent needs a theme file of the repository's. *(Found by 2.12: the editor could start a deck where the command line and an MCP-only agent could not.)*
+  *(Done: SPEC §7.1, §7.2.*
+    - *`scaena-ops`' `shipped` feature carries the three themes and their fonts (`shipped.rs`). The CLI and the MCP server turn it on; the browser's module does not, as the web build carries its own copy beside its pages (2.12).*
+    - *`create` takes the theme that ships by its name, in any case, where no file of that name is. A name that is neither says which themes ship.*
+    - *Each font carries its copyright and its license (OFL) in its name table, and covers Latin (U+0020–017F, U+2010–203A, and €).*
+    - *Tests: `scaena new` with each theme by name, then validated and linted with no error; a theme file with the fonts beside it; a place that is not empty, and a theme that is neither, exit 2 (`crates/scaena-cli/tests/new.rs`). MCP's agent test makes its deck from `dusk` by name.)*
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox.
