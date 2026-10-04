@@ -81,7 +81,7 @@ impl Compiled {
 
 /// 1-based line and column (in characters) of a byte offset into `source`.
 pub fn line_col(source: &str, offset: usize) -> (usize, usize) {
-    let before = &source[..offset.min(source.len())];
+    let before = &source[..source.floor_char_boundary(offset)];
     let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
     (before.matches('\n').count() + 1, col)
 }

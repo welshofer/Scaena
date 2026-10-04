@@ -100,6 +100,39 @@ fn changed_text_moves_its_shared_words_and_fades_the_rest() {
     assert!(words(&rest, "t").is_empty());
 }
 
+/// Every glyph `node`'s layers draw.
+fn glyphs(dl: &DisplayList, node: &str) -> usize {
+    fn count(ops: &[Op]) -> usize {
+        (ops.iter())
+            .map(|op| match op {
+                Op::Glyphs { glyphs, .. } => glyphs.len(),
+                Op::Layer { ops, .. } => count(ops),
+                _ => 0,
+            })
+            .sum()
+    }
+    layers(dl, node).iter().map(|(_, ops)| count(ops)).sum()
+}
+
+/// An editor empties a text before it types the next one: its words fade out over the
+/// first half of the cue as it empties and in over the second as it fills, and empty it
+/// draws nothing.
+#[test]
+fn a_text_emptied_fades_its_words_out_and_filled_fades_them_in() {
+    for (a, b) in [("Revenue grew", ""), ("", "Revenue grew")] {
+        let mut fx = two_states(json!({ "text": a }), json!({ "text": b }));
+        let (early, late) = (words(&fx.dl("two", 60.0), "t"), words(&fx.dl("two", 330.0), "t"));
+        let (fading, faded) = if b.is_empty() { (early, late) } else { (late, early) };
+        assert_eq!(fading.len(), 2, "{a:?} to {b:?}: {fading:?}");
+        assert!(fading.iter().all(|w| w.1 > 0.0 && w.1 < 1.0), "{a:?} to {b:?}: {fading:?}");
+        assert!(faded.is_empty(), "{a:?} to {b:?}: {faded:?}");
+        for (state, text) in [("one", a), ("two", b)] {
+            let drawn = glyphs(&fx.dl(state, f64::INFINITY), "t");
+            assert_eq!(drawn == 0, text.is_empty(), "{state}: {drawn} glyphs for {text:?}");
+        }
+    }
+}
+
 #[test]
 fn a_word_that_changes_size_scales_between_its_boxes_as_its_drawings_cross_fade() {
     let mut fx =

@@ -167,9 +167,7 @@ impl Lexer<'_> {
     /// range's end, or `:` and a ratio's.
     fn number(&mut self) -> Result<Tok, DslError> {
         let start = self.pos;
-        let text = self.numeral().to_string();
-        let _: serde_json::Value =
-            serde_json::from_str(&text).map_err(|_| self.error(start, &format!("`{text}` is not a number")))?;
+        let text = self.checked_numeral()?;
         let rest = &self.src[self.pos..];
         let ends_word = |n: usize| rest[n..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
         if rest.starts_with('%') {
@@ -178,17 +176,17 @@ impl Lexer<'_> {
         }
         if rest.starts_with('x') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
             self.pos += 1;
-            let height = self.numeral().to_string();
+            let height = self.checked_numeral()?;
             return Ok(Tok::Dim(text, height));
         }
         if rest.starts_with('-') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
             self.pos += 1;
-            let end = self.numeral().to_string();
+            let end = self.checked_numeral()?;
             return Ok(Tok::Range(text, end));
         }
         if rest.starts_with(':') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
             self.pos += 1;
-            let den = self.numeral().to_string();
+            let den = self.checked_numeral()?;
             return Ok(Tok::Ratio(format!("{text}:{den}")));
         }
         if rest.starts_with("cu") && ends_word(2) {
@@ -205,6 +203,17 @@ impl Lexer<'_> {
             return Err(self.error(start, &format!("`{text}` has a unit this language does not know (ms, s, cu, %)")));
         }
         Ok(Tok::Num(text))
+    }
+
+    /// A numeral from here, if it is a number JSON holds: every number a token carries is
+    /// one, so the parser reads each without asking again.
+    fn checked_numeral(&mut self) -> Result<String, DslError> {
+        let start = self.pos;
+        let text = self.numeral().to_string();
+        match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(_) => Ok(text),
+            Err(_) => Err(self.error(start, &format!("`{text}` is not a number"))),
+        }
     }
 
     /// `-?[0-9]+(.[0-9]+)?([eE][+-]?[0-9]+)?` from here.
@@ -285,7 +294,7 @@ impl Lexer<'_> {
                 for (at, line) in lines {
                     if line.is_empty() {
                         out.push(String::new());
-                    } else if line.len() >= strip && line[..strip].bytes().all(|b| b == b' ') {
+                    } else if line.len() >= strip && line.as_bytes()[..strip].iter().all(|&b| b == b' ') {
                         out.push(line[strip..].to_string());
                     } else {
                         return Err(self.error(at, "this line is indented less than the closing `\"\"\"`"));

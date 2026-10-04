@@ -50,7 +50,7 @@ pub struct Place {
 
 impl Place {
     fn of(source: &str, offset: usize, len: usize) -> Place {
-        let utf16 = |at: usize| source[..at.min(source.len())].encode_utf16().count();
+        let utf16 = |at: usize| source[..source.floor_char_boundary(at)].encode_utf16().count();
         let (line, col) = line_col(source, offset);
         Place { from: utf16(offset), to: utf16(offset + len), line, col }
     }
@@ -113,7 +113,7 @@ impl Session {
         let findings: Vec<Located> = compiled.findings.iter().map(|f| locate(source, &compiled, f)).collect();
         let states = (compiled.states().into_iter())
             .map(|(id, at)| {
-                let before = &source[..at.min(source.len())];
+                let before = &source[..source.floor_char_boundary(at)];
                 let line = before.rfind('\n').map_or(0, |i| i + 1);
                 (id, before[..line].encode_utf16().count())
             })
@@ -256,6 +256,19 @@ mod tests {
         assert!(!compiled.valid);
         // The deck the session had stays.
         assert!(s.source().contains("state revenue layout:figure"));
+    }
+
+    /// A letter typed where none goes, in any script, is an error placed around it in the
+    /// page's UTF-16 offsets, not a panic mid-keystroke.
+    #[test]
+    fn a_letter_typed_where_none_goes_is_placed_around_it() {
+        let mut s = revenue();
+        for (c, units) in [('é', 1), ('漢', 1), ('🇺', 2)] {
+            let source = s.source().replace("layout:figure", &format!("layout:{c}figure"));
+            let at = s.compile(&source).error.expect("an error").at.expect("placed");
+            let offset = source.find(c).unwrap();
+            assert_eq!((at.from, at.to), (source[..offset].encode_utf16().count(), at.from + units), "{c}");
+        }
     }
 
     #[test]

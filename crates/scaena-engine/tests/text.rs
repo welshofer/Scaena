@@ -409,3 +409,33 @@ fn split_units_of_right_to_left_text_follow_reading_order() {
     };
     assert!(x(&words[0]) > x(&words[1]) && x(&words[1]) > x(&words[2]));
 }
+
+/// An editor empties a text before it types a new one: one empty line in the node's look,
+/// whatever its wrap, alignment, and hanging, with no glyphs and no units to split.
+#[test]
+fn an_empty_text_is_one_empty_line_in_its_look() {
+    let one = set("specimen", "x", 900.0, |_| {});
+    for wrap in [Wrap::Greedy, Wrap::Balance, Wrap::Pretty] {
+        for align in [TextAlign::Start, TextAlign::Center, TextAlign::End] {
+            for width in [900.0, 0.0] {
+                let layout = set("specimen", "", width, |s| {
+                    (s.wrap, s.align, s.hanging_punctuation, s.optical_margins) = (Some(wrap), align, true, true);
+                    s.measure = Some(20.0);
+                });
+                let [line] = layout.lines.as_slice() else { panic!("{wrap:?} {align:?}: {:?}", layout.lines) };
+                assert_eq!((line.height, line.baseline), (one.lines[0].height, one.lines[0].baseline));
+                assert_eq!((line.text.clone(), line.width, layout.width), (0..0, 0.0, 0.0));
+                assert_eq!(layout.height, one.height);
+                assert!(layout.text.is_empty() && layout.runs.is_empty(), "{wrap:?} {align:?}: {:?}", layout.runs);
+                for split in [TextSplit::Lines, TextSplit::Words, TextSplit::Glyphs] {
+                    assert!(layout.units(split).iter().all(|u| u.glyphs.is_empty()), "{split:?}");
+                }
+            }
+        }
+    }
+    // A case changes nothing, and a hyphenating language has nothing to hyphenate.
+    let cased = set("specimen", "", 900.0, |s| {
+        (s.role.case, s.hyphenate, s.lang) = (Some(Case::Upper), true, Some("en-US".into()));
+    });
+    assert!(cased.runs.is_empty() && cased.lines.len() == 1);
+}

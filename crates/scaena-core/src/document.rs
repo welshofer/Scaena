@@ -14,6 +14,10 @@ use std::borrow::Cow;
 /// Ordered property bag for a node (whole, in `nodes`) or a delta (in `states[].props`).
 pub type Props = IndexMap<String, Value>;
 
+/// How many containers deep a node may sit (SPEC §3.4): far past what a slide shows, and
+/// well inside what laying out each level by recursion holds on a browser's stack.
+pub const MAX_NESTING: usize = 64;
+
 /// Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states)
 /// over a narrative spine, rendered against a theme. See docs/SPEC.md §3.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

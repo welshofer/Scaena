@@ -320,7 +320,14 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
             // Nothing but the surface behind the text: its color is the background, every
             // pixel alike, and there is nothing to paint.
             let (px, ink) = if dl.ops.len() == 1 {
-                let [w, h] = dl.viewport.map(|v| (v * scale).round().max(1.0) as u32);
+                // Sized as a painter sizes it, which refuses what it cannot hold.
+                let [w, h] = dl.viewport.map(|v| (v * scale).round());
+                if ![w, h].iter().all(|v| (1.0..=f32::from(u16::MAX)).contains(v)) {
+                    return Err(EngineError::Layout(format!(
+                        "painting for contrast: {w}×{h} px is not a raster this painter can make"
+                    )));
+                }
+                let [w, h] = [w, h].map(|v| v as u32);
                 let [r, g, b, _] = state.scene.surface.0;
                 (Pixels { width: w, height: h, rgba: [r, g, b, 255].repeat((w * h) as usize) }, None)
             } else {

@@ -5,7 +5,7 @@
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
 use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
-use crate::document::{Deck, NodeType, Props};
+use crate::document::{Deck, MAX_NESTING, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
@@ -762,17 +762,26 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
             }
             // Up the chain: a loop comes back to `id` within as many steps as there are nodes.
             let mut chain = vec![id.as_str(), parent];
-            while let Some(next) = parent_of(chain[chain.len() - 1]) {
+            let rooted = loop {
+                let Some(next) = parent_of(chain[chain.len() - 1]) else { break true };
                 if next == id {
                     chain.push(next);
                     let message = format!("containers nest in a loop: {}", chain.join(" → "));
                     out.push(finding("E106", id, "parent", message));
-                    break;
+                    break false;
                 }
                 if chain.len() > snapshot.nodes.len() {
-                    break;
+                    break false;
                 }
                 chain.push(next);
+            };
+            // The first node deeper than containers nest: what is in it is too deep as well.
+            if rooted && chain.len() - 1 == MAX_NESTING + 1 {
+                let message = format!(
+                    "node `{id}` is {} containers deep; containers nest at most {MAX_NESTING} deep",
+                    chain.len() - 1
+                );
+                out.push(finding("E106", id, "parent", message));
             }
             if let Some(area) = snapshot.nodes[id].get("at").and_then(|at| at.get("area")).and_then(Value::as_str) {
                 let areas = snapshot.nodes[parent].get("areas").and_then(Value::as_array);
