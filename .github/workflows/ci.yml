@@ -172,6 +172,8 @@ jobs:
       - run: node web/assistant.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
+      # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
+      - run: node web/live.mjs
       # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts

@@ -137,7 +137,8 @@ web-dev:
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
 # the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its
 # storage: open, save, download, and drop (PLAN 2.4), its assistant, against a scripted server
-# for each provider (PLAN 2.6), and its saves recorded in a bundle's history (PLAN 2.9). Then
+# for each provider (PLAN 2.6), its saves recorded in a bundle's history (PLAN 2.9), and the
+# pages on a folder `scaena serve` serves (PLAN 2.11). Then
 # the static site from a path under its host (PLAN 2.7), and, last, what a reader needs:
 # axe-core's audit, the reading, less motion, and keys (PLAN 2.8).
 web-smoke: site
@@ -149,6 +150,7 @@ web-smoke: site
     node web/storage.mjs
     node web/assistant.mjs
     node web/history.mjs
+    node web/live.mjs
     node web/site.mjs
     node web/a11y.mjs
 

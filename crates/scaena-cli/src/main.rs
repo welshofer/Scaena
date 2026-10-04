@@ -156,9 +156,12 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Dev server with live preview (PLAN 2.11).
+    /// The web player and editor on a bundle's folder, on this machine only (PLAN 2.11): a
+    /// `deck.scn` saved there compiles into `deck.json`, and the pages show each change.
     Serve {
+        /// A bundle's folder: a directory with `deck.json` in it.
         bundle: PathBuf,
+        /// The port on 127.0.0.1; 0 for any free one.
         #[arg(long, default_value_t = 4848)]
         port: u16,
     },
@@ -391,11 +394,68 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
-        Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.11")),
+        Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+/// `scaena serve` (PLAN 2.11, ADR-0012): the web player and the editor on a bundle's folder, on
+/// this machine only, until it is stopped. What happens is said on stderr: each change, and a
+/// `deck.scn` that does not compile, shown as `compile` shows it. Under `--json`, stdout holds
+/// where it serves, once.
+fn serve(bundle: &Path, port: u16, json: bool) -> Result<ExitCode> {
+    use scaena_serve::{Note, ServeError};
+    if !scaena_serve::pages_built() {
+        let message = "this scaena was built without the web pages `serve` carries: build them with `just web`, then \
+                       build scaena again";
+        return Ok(fail(json, 3, message, Some("2.11")));
+    }
+    let shown = bundle.display().to_string();
+    let started = |addr: std::net::SocketAddr| {
+        let url = format!("http://localhost:{}/", addr.port());
+        if json {
+            let v = serde_json::json!({ "bundle": shown, "player": url, "editor": format!("{url}edit") });
+            println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
+        } else {
+            eprintln!(
+                "Serving {shown} on this machine only.\n  The player: {url}\n  The editor: {url}edit\nCtrl-C stops it."
+            );
+        }
+    };
+    let note = |note: Note| match note {
+        Note::Compiled { ms, written: true } => {
+            eprintln!("{} compiled into {} ({ms} ms)", scaena_serve::SOURCE, scaena_serve::DECK)
+        }
+        Note::Compiled { written: false, .. } => eprintln!("{} compiled: the deck is as it was", scaena_serve::SOURCE),
+        Note::Failed(failed) => {
+            for p in &failed.problems {
+                let message = match &p.file {
+                    Some(file) => format!("{file} {}: {}", p.path.as_deref().unwrap_or(""), p.message),
+                    None => p.message.clone(),
+                };
+                let label = p.span.and(p.path.clone());
+                let shown = diagnostic(
+                    scaena_serve::SOURCE,
+                    &failed.source,
+                    p.code.as_deref(),
+                    &message,
+                    p.span,
+                    label,
+                    p.hint.as_deref(),
+                );
+                eprint!("{shown}");
+            }
+        }
+        Note::Changed { paths, by: Some(_) } => eprintln!("saved from a page: {}", paths.join(", ")),
+        Note::Changed { paths, by: None } => eprintln!("changed: {}", paths.join(", ")),
+    };
+    match scaena_serve::run(bundle, port, started, note) {
+        Ok(()) => Ok(ExitCode::SUCCESS),
+        Err(e @ (ServeError::NotABundle(_) | ServeError::Bind { .. })) => Ok(fail(json, 2, &e.to_string(), None)),
+        Err(e) => Err(e).context("serving"),
     }
 }
 
@@ -850,10 +910,6 @@ fn rfc3339(secs: u64) -> String {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3_600, rest % 3_600 / 60, rest % 60)
-}
-
-fn not_yet(json: bool, what: &str, plan: &str) -> ExitCode {
-    fail(json, 3, &format!("`{what}` is not implemented yet — see docs/PLAN.md task {plan}"), Some(plan))
 }
 
 fn report(findings: &[Finding], json: bool) {

@@ -5,8 +5,9 @@
 /** Where a bundle comes from (SPEC §3.1, §9.2). */
 export type Source =
   /** A deck file at a URL, whose directory is the bundle: it reads the files the deck names,
-   * and every file its manifest lists. */
-  | { url: string }
+   * and every file its manifest lists. `serve`, on a page `scaena serve` serves (PLAN 2.11):
+   * the page's id, which its writes carry, for the bundle is kept there, and saves back to it. */
+  | { url: string; serve?: string }
   /** A bundle kept in the browser's own storage (the origin-private file system), by its
    * name there. */
   | { opfs: string }
@@ -20,10 +21,11 @@ export type Source =
    * without them. */
   | { files: Record<string, ArrayBuffer>; name: string; states?: string[] };
 
-/** Where an open bundle is kept, and saves to: a folder on disk, or the browser's storage,
- * by name. A bundle read from a URL is kept nowhere until it is saved. */
+/** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
+ * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
+ * kept nowhere until it is saved. */
 export interface Where {
-  kind: "folder" | "opfs";
+  kind: "folder" | "opfs" | "serve";
   name: string;
 }
 
@@ -62,6 +64,9 @@ export type ToWorker =
   | { type: "seek"; id: number; index: number; t?: number; format?: string }
   /** Stop where the deck is. */
   | { type: "pause" }
+  /** Read the bundle again from its URL, keeping the canvas and who paints: `scaena serve` said
+   * it changed on disk (PLAN 2.11). */
+  | { type: "reload"; id: number }
   /** The deck as canonical `.scn` (SPEC §4): what the editor opens on. */
   | { type: "source"; id: number }
   /** Compile `source`. A deck that validates is shown from now on: slot `index` repaints at
@@ -252,6 +257,8 @@ export interface Inspected {
 /** The worker to the page. */
 export type FromWorker =
   | ({ type: "ready" } & Opened)
+  /** The bundle as `reload` read it again. */
+  | ({ type: "reloaded"; id: number } & Opened)
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */
   | { type: "shown"; id: number; size: [number, number]; ms: number }
   | { type: "timeline"; id: number; slots: Slot[] }

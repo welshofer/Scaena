@@ -17,6 +17,7 @@ import type {
   Edited,
   Finding,
   FromWorker,
+  Opened,
   Painter,
   Section,
   Slot,
@@ -29,10 +30,12 @@ const post = (message: FromWorker, transfer: Transferable[] = []) => self.postMe
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 let player: Player;
-/** The bundle's name, and where it is kept, if anywhere: a folder on disk, or one in the
- * browser's storage. */
+/** The bundle's name, and where it is kept, if anywhere: a folder on disk, one in the
+ * browser's storage, or the folder `scaena serve` serves it from. */
 let name = "deck";
-let home: { dir: FileSystemDirectoryHandle; where: Where } | undefined;
+let home: Home | undefined;
+/** Where the bundle was opened from, which `reload` reads again. */
+let from: Source;
 let canvas: OffscreenCanvas;
 /** WebGPU, when it paints. */
 let gpu: Canvas | undefined;
@@ -53,6 +56,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     switch (data.type) {
       case "open":
         return await open(data.source, data.painter, data.canvas, data.engine);
+      case "reload": {
+        if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
+        latest++;
+        const was = player;
+        player = await fetched(from.url);
+        was.free();
+        format = undefined;
+        slots = timeline();
+        [canvas.width, canvas.height] = size();
+        gpu?.resize(canvas.width, canvas.height);
+        return post({ type: "reloaded", id: data.id, ...opened() });
+      }
       case "show": {
         latest++;
         const start = performance.now();
@@ -162,14 +177,19 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
     raster = canvas.getContext("2d") ?? undefined;
     if (!raster) throw new Error("the canvas has no 2D context");
   }
+  from = source;
   await load(source);
   slots = timeline();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
+  post({ type: "ready", ...opened() });
+}
+
+/** The open bundle, as the page hears of it. */
+function opened(): Opened {
   const deck = JSON.parse(new TextDecoder().decode(player.file("deck.json"))) as DeckFiles;
   const noted = notes(deck);
-  post({
-    type: "ready",
+  return {
     name,
     where: home?.where,
     states: slots.map((slot) => slot.state),
@@ -178,7 +198,35 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
     outline: outline(deck),
     painter: gpu ? "webgpu" : "cpu",
     adapter: gpu?.adapter ?? "vello_cpu",
-  });
+  };
+}
+
+/** Where a bundle is kept: how a save writes and removes its files there. */
+interface Home {
+  where: Where;
+  write(path: string, bytes: Uint8Array): Promise<void>;
+  remove(path: string): Promise<void>;
+}
+
+/** A bundle kept in `dir`: a folder on disk, or one in the browser's storage. */
+function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
+  return {
+    where: { kind, name: dir.name },
+    write: (path, bytes) => write(dir, path, bytes),
+    remove: (path) => remove(dir, path),
+  };
+}
+
+/** The folder `scaena serve` serves the bundle whose deck is at `deck` from (PLAN 2.11): a save
+ * writes it back, as the page `id`, so the page does not hear its own save as a change. */
+function served(deck: string, id: string, folder: string): Home {
+  const sent = async (method: "PUT" | "DELETE", path: string, bytes?: Uint8Array) => {
+    const url = new URL(path.split("/").map(encodeURIComponent).join("/"), deck);
+    const body = bytes as Uint8Array<ArrayBuffer> | undefined;
+    const response = await fetch(url, { method, body, headers: { "X-Scaena-Client": id } });
+    if (!response.ok) throw new Error(`${path}: ${(await response.text()).trim() || response.status}`);
+  };
+  return { where: { kind: "serve", name: folder }, write: (path, bytes) => sent("PUT", path, bytes), remove: (path) => sent("DELETE", path) };
 }
 
 /** Open the bundle at `source` (SPEC §3.1). A zip is copied into the browser's storage, and
@@ -187,20 +235,26 @@ async function load(source: Source) {
   if ("url" in source) {
     player = await fetched(source.url);
     name = nameOf(source.url);
+    if (source.serve) {
+      // The folder's own name, as `scaena serve` says it.
+      const state = await fetch(new URL("/scaena/state", source.url)).then((r) => r.json() as Promise<{ name?: string }>);
+      name = state.name || name;
+      home = served(source.url, source.serve, name);
+    }
   } else if ("files" in source) {
-    player = opened(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
+    player = bundleOf(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
     only = source.states;
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);
     for (const path of player.files()) await write(dir, path, player.file(path)!);
-    home = { dir, where: { kind: "opfs", name: dir.name } };
+    home = keptIn(dir, "opfs");
     name = dir.name;
   } else {
     const dir = "opfs" in source ? await keptBundle(source.opfs) : source.folder;
-    player = opened(await readAll(dir));
-    home = { dir, where: { kind: "opfs" in source ? "opfs" : "folder", name: dir.name } };
+    player = bundleOf(await readAll(dir));
+    home = keptIn(dir, "opfs" in source ? "opfs" : "folder");
     name = dir.name;
   }
 }
@@ -237,7 +291,7 @@ async function fetched(deck: string): Promise<Player> {
 }
 
 /** A bundle's files, by their paths inside it, opened. */
-function opened(files: Map<string, Uint8Array>): Player {
+function bundleOf(files: Map<string, Uint8Array>): Player {
   const text = (path: string) => {
     const bytes = files.get(path);
     if (!bytes) throw new Error(`the bundle has no ${path}`);
@@ -294,7 +348,7 @@ async function history() {
 async function save(): Promise<{ where: Where; renamed: [string, string][]; files: number; recorded: boolean }> {
   if (!home) {
     const dir = await newBundle(name);
-    home = { dir, where: { kind: "opfs", name: dir.name } };
+    home = keptIn(dir, "opfs");
     name = dir.name;
   }
   const recorder = await history();
@@ -303,9 +357,9 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
     const paths = saved.paths();
     const last = ["deck.json", "manifest.json"];
     for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))])
-      await write(home.dir, path, saved.file(path)!);
+      await home.write(path, saved.file(path)!);
     const written = new Set(paths);
-    for (const path of saved.replaced()) if (!written.has(path)) await remove(home.dir, path);
+    for (const path of saved.replaced()) if (!written.has(path)) await home.remove(path);
     const { renamed } = JSON.parse(saved.summary()) as { renamed: [string, string][] };
     player.adopt(saved);
     return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined };

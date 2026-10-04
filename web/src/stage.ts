@@ -32,7 +32,8 @@ type Reply = Extract<
       | "saved"
       | "zipped"
       | "dropped"
-      | "models";
+      | "models"
+      | "reloaded";
   }
 >;
 
@@ -59,7 +60,8 @@ export class Stage {
   private constructor(
     readonly canvas: HTMLCanvasElement,
     private worker: Worker,
-    readonly opened: Opened,
+    /** The bundle as the worker opened it, or last read it again. */
+    public opened: Opened,
   ) {
     worker.onmessage = ({ data }: MessageEvent<FromWorker>) => this.listen(data);
     worker.onerror = (e) => this.onError(new Error(e.message));
@@ -123,6 +125,13 @@ export class Stage {
 
   pause() {
     this.send({ type: "pause" });
+  }
+
+  /** Read the bundle again from its URL, on the same canvas (PLAN 2.11). */
+  async reload(): Promise<Opened> {
+    const { type: _, id: __, ...opened } = await this.request<"reloaded">({ type: "reload", id: ++this.asked });
+    this.opened = opened;
+    return opened;
   }
 
   /** The deck as canonical `.scn`. */
@@ -240,6 +249,7 @@ export class Stage {
       case "zipped":
       case "dropped":
       case "models":
+      case "reloaded":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

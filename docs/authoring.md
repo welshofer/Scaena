@@ -73,10 +73,11 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
 | **Kept in this browser** | the bundles this browser keeps. A deck opened from the site's own folder saves here, under its name. |
 | **Save** (⌘S) | writes the bundle where it is kept, as `scaena save` writes it, fonts whole. Files are renamed by their content (a hash in the name), and `manifest.json` is written; that is normal. Source that does not compile is not saved. |
 | **Download .scaena** | the bundle as one file, fonts subset, to keep, send, or open with the command line. |
+| **Served** (`scaena serve`) | the folder on disk the server serves. **Save** writes back into it, in any browser, and into its `deck.scn` where it keeps one; the editor opens that `deck.scn` as its source. A change on disk comes in as it is made, or, over changes of yours not saved, is offered. |
 
 A file dropped on the source joins the bundle, and its path, quoted, goes where you dropped it: a font under `fonts/` and a data file under `data/`, by name, and an image under `assets/`, named by its content. A `.scaena` file dropped opens instead. The page warns before it closes over changes not saved.
 
-**Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**.
+**Your own deck in the site.** Copy its folder into the site's `decks/`, then open `editor.html?bundle=decks/my-talk/`, or the same address on `index.html` to play it. **Open folder…** shows only where the browser can open one (Chrome and Edge, not Safari or Firefox). Elsewhere, saves stay in the browser until you **Download .scaena**, or until you serve the folder with `scaena serve` instead.
 
 There is no **New deck** or **Save as** yet (PLAN 2.12). Start from a copy: duplicate a bundle folder, such as the site's `decks/trails`, rename it, and open the copy.
 
@@ -91,12 +92,22 @@ cargo install --path crates/scaena-cli --locked    # puts `scaena` in ~/.cargo/b
 
 `scaena export --format html` needs the web pages built first: run `just web`, then install the CLI again (ADR-0010). That needs [`just`](https://github.com/casey/just), Node, the `wasm32-unknown-unknown` target, and `wasm-bindgen-cli` 0.2.129.
 
-**The loop:**
+**The loop.** Turn a deck into source, serve it, and write:
 
 ```sh
 unzip talk.scaena -d talk                         # a downloaded deck, as a folder
 scaena decompile talk -o talk/deck.scn            # the deck as source
-# edit talk/deck.scn in any text editor
+scaena serve talk                                 # then open http://localhost:4848/, and leave it running
+```
+
+- **Each save** of `talk/deck.scn`, in any text editor, compiles into `talk/deck.json`, and the player shows it at the state it was on.
+- **A line that does not compile** is shown at its line, in the terminal as `compile` shows it and over the slide, and the deck stays as it was.
+- **`http://localhost:4848/edit`** is the editor on the same folder. Its saves go back into the folder, `deck.scn` included, in any browser.
+- **This machine only.** `serve` answers on 127.0.0.1 and writes only inside the folder. It needs a `scaena` built after `just web`.
+
+Without the server, each step is a command of its own:
+
+```sh
 scaena compile talk/deck.scn -o talk/deck.json    # the grammar, the schema, every reference
 scaena lint talk                                  # layout, contrast, motion, the argument
 scaena render talk --state revenue --out revenue.png && open revenue.png
@@ -105,14 +116,14 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
 - **`compile`** writes `deck.json` only if the deck is valid. Otherwise it shows each error at your line, and writes nothing.
 - **`lint`** exits 1 when it finds an error, so a script or CI can stop on it. `--fix` applies the fixes lint has checked by laying the state out again.
 - **`render`** draws a state at rest. `--t 400` draws 400 ms into its cue, and `--format 9:16` another of the deck's formats.
-- **To see it play,** export one file and open it: `scaena export talk --format html --out talk.html`. Or keep the bundle in the site's `decks/` folder and reload `index.html?bundle=decks/talk/` after each compile. `scaena serve`, which will show each save as it happens, is PLAN 2.11.
+- **To see it play without the server,** export one file and open it: `scaena export talk --format html --out talk.html`.
 - **Other exports:** `scaena export talk --format pdf --out talk.pdf`. `png` and `svg` write an image of each state into a directory. `mp4`, `webm`, and `prores` need `ffmpeg`.
 - **More commands:**
   - `scaena inspect talk --state revenue --resolved` shows what a state holds after the theme.
   - `scaena diff talk --from revenue --to mix` shows what a click changes.
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
 
-**Pick one place to write.** If you keep `deck.scn` by hand, it is your source. Compile it after each edit, and do not save from the editor, which writes `deck.json` and leaves your `.scn` behind. If you edit in the editor, `deck.json` is the source, and `scaena decompile` gives you its `.scn` whenever you want it.
+**Pick one place to write.** If you keep `deck.scn`, it is your source: `scaena serve` compiles it as you save, or `compile` does when you ask. The editor on a served folder opens and saves that same `deck.scn`. The editor anywhere else writes `deck.json` alone, and leaves a `deck.scn` behind. If you edit only in the editor, `deck.json` is the source, and `scaena decompile` gives you its `.scn` whenever you want it.
 
 ## An assistant
 

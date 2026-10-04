@@ -3,13 +3,14 @@
 // and what reads as it did stays put, so a screen reader says what each state changed.
 
 /** Show the reading of each state the deck comes to in `region`, as `html` gives it. The
- * readings come in the order they were asked for, and only the latest is shown. */
+ * readings come in the order they were asked for, and only the latest is shown. `again` reads
+ * the state shown anew: the deck changed under it (PLAN 2.11). */
 export function reader(region: Element, html: (state: string, format?: string) => string | Promise<string>) {
   let shown: string | undefined;
   let asked = 0;
-  return async (state: string, format?: string) => {
+  return async (state: string, format?: string, again = false) => {
     const key = `${state}\n${format ?? ""}`;
-    if (key === shown) return;
+    if (key === shown && !again) return;
     shown = key;
     const turn = ++asked;
     const parsed = document.createElement("template");

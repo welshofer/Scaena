@@ -826,7 +826,7 @@ scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) 
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts] [--history]   # write the bundle as §3.1 lays it out
 scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
-scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API (PLAN 2.11)
+scaena serve     <bundle> [--port N]                  # the player and editor on a bundle's folder, on this machine; deck.scn compiled as saved
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 
@@ -872,6 +872,8 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 `inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
+
+`serve` (PLAN 2.11, ADR-0012) serves the web player at `/` and the editor at `/edit` on a bundle's folder (a directory with `deck.json` in it), at `http://localhost:4848/` or the port `--port` names (0 for any free one). It answers on 127.0.0.1 alone, to a page of its own, and writes only inside the folder (§9.2). A `deck.scn` saved there compiles into `deck.json` as `compile` writes it, and the pages show each change; one that does not compile is shown on stderr as `compile` shows it, and in the pages, and `deck.json` stays as it was. Under `--json`, stdout holds where it serves, once: `{ bundle, player, editor }`. A folder that is no bundle exits 2. A `scaena` built before `just web` carries no pages, and exits 3.
 
 `render` without `--t` renders the state at rest; `--t` is milliseconds into the state's cue (its transition, then its motions, §3.9), and `--json` reports the state's span (`span_ms`). `--size` defaults to the canvas size and must keep the canvas's aspect ratio (to the nearest pixel): painters scale uniformly, never stretch. `--out` defaults to `<state>.png`. The display list it writes is unquantized (§13.4: only comparisons round).
 
@@ -1129,6 +1131,11 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
 
     The status says the save was recorded. The history then holds the deck as saved, so the next command that records takes in nothing by `fs`. A download records as a save does, in the copy it gives. A bundle that keeps no history saves without the module and starts none: `scaena save --history` starts one.
   - A folder opened before is kept by name across reloads (`?bundle=folder:NAME`): the browser keeps its handle, and asks again for leave to write, which takes a click.
+- **Served** (PLAN 2.11, ADR-0012): `scaena serve` (§7.1) gives the player and the editor a bundle's folder on disk, at `/bundle/`, with `?serve` in their addresses.
+  - **This machine only.** It listens on 127.0.0.1 and answers only a request that names `localhost` or `127.0.0.1` at its port, so another site's page cannot reach it through a name of its own. A write (`PUT`, `DELETE`) from any other origin is refused, and none goes outside the folder: no `..`, no name that starts with a dot, no link that leads out. Each file is written whole.
+  - **Each change shows as it is made.** The server scans the folder every 150 ms and announces each change at `/scaena/events` (server-sent events), once two scans agree. A changed `deck.scn` is compiled first, as `scaena compile` does. The player reads the bundle again, and shows it at the state it was on. A `deck.scn` that does not compile is said at its line over the slide, and in the terminal, until it does; the deck stays as it was.
+  - **The editor** opens the folder's `deck.scn` as its source, where it keeps one, rather than the deck decompiled. Its save writes the bundle back to the folder as `scaena save` does, in any browser, then `deck.scn` as the editor shows it. A change on disk comes into an editor that has nothing of its own not saved; over such changes, it is offered.
+  - **A page's own saves** carry its id (`X-Scaena-Client`), so it does not hear them back; every other page reads the bundle again. `web/live.mjs` checks it in headless Chromium.
 - Export: **single-file HTML** (PLAN 2.5, §10): `scaena export --format html` writes the player, the engine, and the bundle as one file that plays from a disk, or a USB stick, with no network.
   - **The page** is the player's (`web/standalone.html`): the same controls, holds, presenter view, and fullscreen. `just web` builds it with its code, its styles, and the engine inside it: the player's module alone, without the editor's operations, 2.12 MB gzipped (§15), in base64. A `scaena` built after it carries it.
   - **The export fills it in** with the deck's title and language, every file the player reads (each gzipped, in base64, by its path in the bundle: what `scaena save` writes, fonts subset to what the deck draws, without the manifest or the history), the states it plays, and how each reads (§3.12).
@@ -1193,6 +1200,7 @@ crates/
   scaena-ops      the operations every client exposes, over a bundle, with typed results (ADR-0009)
   scaena-cli      `scaena` binary over scaena-ops
   scaena-mcp      MCP server (rmcp) over scaena-ops
+  scaena-serve    `scaena serve`: the web pages on a bundle's folder, on this machine (hyper), the folder watched and deck.scn compiled
   scaena-resources what agents read (SPEC by section, the schemas in parts, the lint catalog, the skills, examples): the MCP server's resources, and a WASM module of its own for the page's assistant
   scaena-wasm     wasm-bindgen bindings
   scaena-subset   the font subsetter as a WASM module of its own, which a page loads to download a bundle

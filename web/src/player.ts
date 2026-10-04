@@ -12,8 +12,13 @@
 // state shown reads in a live region (`#reading`). The state picker is the spine's outline.
 // For a reader who asks for less motion (`prefers-reduced-motion`, or `?motion=reduce`; and
 // `?motion=full` to have it anyway), each cue is a cut, and the deck keeps its pace.
+//
+// On a page `scaena serve` serves (`?serve`, PLAN 2.11), each change to the bundle on disk shows
+// as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
+// compile says so, at its line, and the deck stays as it was until it does.
 import type { At, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
+import { line, listen, served } from "./served";
 import { type Engine, Stage } from "./stage";
 
 /** How a page plays a bundle. */
@@ -205,12 +210,45 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     else if (data.type === "hello") report(stage.at);
   };
 
+  /** The bundle read again, and shown where the deck was: the same state, at rest. */
+  let reloads = 0;
+  const reload = async () => {
+    const state = slots[stage.at.index]?.state;
+    await stage.reload();
+    const chosen = formatPicker.value;
+    formatPicker.replaceChildren(new Option("own canvas", ""), ...stage.opened.formats.map((id) => new Option(id, id)));
+    formatPicker.value = stage.opened.formats.includes(chosen) ? chosen : "";
+    slots = await stage.timeline(format());
+    outline(statesPicker, slots, stage.opened.outline);
+    scrub.max = String(slots.length);
+    const index = slots.findIndex((slot) => slot.state === state);
+    const at = await stage.seek(index >= 0 ? index : Math.min(stage.at.index, slots.length - 1), undefined, format());
+    await read?.(slots[at.index].state, format(), true);
+    reloads++;
+  };
+  if (served) {
+    const alert = document.querySelector<HTMLElement>("#served");
+    listen({
+      // A change to the deck's source alone shows once it compiles, as `deck.json`.
+      changed: (paths) => {
+        if (paths.some((path) => path !== "deck.scn")) void reload().catch((e) => (status.textContent = `error: ${said(e)}`));
+      },
+      status: (failed) => {
+        if (!alert) return;
+        alert.hidden = !failed;
+        alert.textContent = failed ? `deck.scn does not compile, so the deck is as it was. ${failed.problems.map(line).join(" · ")}` : "";
+      },
+    });
+  }
+
   const first = Math.max(0, slots.findIndex((slot) => slot.state === how.state));
   await stage.seek(first);
   // For tests and the console: the open bundle, its frames, and its clock.
   Object.assign(window, {
     scaena: {
       ...stage.opened,
+      opened: () => stage.opened,
+      reloads: () => reloads,
       show: stage.show.bind(stage),
       timeline: stage.timeline.bind(stage),
       seek: stage.seek.bind(stage),
@@ -260,7 +298,7 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     Stage.open($("#stage"), deck, how.painter, how.engine),
     Stage.open($("#upnext"), deck, how.painter, how.engine),
   ]);
-  const { states, notes } = now.opened;
+  let { states, notes } = now.opened;
   const steer = (message: Steer) => channel.postMessage(message);
   keys({ on: () => steer({ type: "on" }), back: () => steer({ type: "back" }), full: fullscreen });
   $("#on").onclick = () => steer({ type: "on" });
@@ -306,6 +344,19 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     latest = data;
     void follow();
   };
+  // Served (PLAN 2.11): the bundle changed on disk, so this view reads it again, as the player
+  // does, and then follows the player where it shows the deck.
+  if (served)
+    listen({
+      changed: (paths) => {
+        if (!paths.some((path) => path !== "deck.scn")) return;
+        void Promise.all([now.reload(), upNext.reload()]).then(() => {
+          ({ states, notes } = now.opened);
+          next = -1;
+          steer({ type: "hello" });
+        });
+      },
+    });
   steer({ type: "hello" });
   Object.assign(window, { scaena: { ...now.opened, follows: () => $("#where").textContent } });
 }

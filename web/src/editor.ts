@@ -16,6 +16,12 @@
 // the site's demo deck (PLAN 2.7), or else the revenue example), `opfs:NAME` for one the
 // browser keeps, or `folder:NAME` for a folder opened before; `?painter=` chooses who paints,
 // as in the player. Play opens the player on the bundle as it was last saved.
+//
+// On a page `scaena serve` serves (`?serve`, PLAN 2.11), the bundle is a folder on disk, which a
+// save writes back to, in any browser. Where the folder keeps the deck's source as `deck.scn`,
+// that is the source the editor shows and saves. A change on disk, from a text editor or
+// another page, comes into the editor when it has no changes of its own not saved; over such
+// changes, the editor offers to take it.
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
@@ -33,6 +39,7 @@ import { sourceOf } from "./bundle";
 import { keptNames } from "./folders";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
+import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
 
@@ -87,9 +94,10 @@ async function open(source: Source) {
   await edit(source);
 }
 
-/** The page's address names where the bundle is kept, so a reload opens it there. */
+/** The page's address names where the bundle is kept, so a reload opens it there. A served
+ * bundle's address names it already. */
 function address(where: Where | undefined) {
-  if (!where) return;
+  if (!where || where.kind === "serve") return;
   const url = new URL(location.href);
   url.searchParams.set("bundle", `${where.kind}:${where.name}`);
   window.history.replaceState(null, "", url);
@@ -130,7 +138,10 @@ async function controls() {
  * which takes a click. */
 async function first(): Promise<Source> {
   const bundle = params.get("bundle");
-  if (!bundle?.startsWith("folder:")) return sourceOf(bundle, fallback);
+  if (!bundle?.startsWith("folder:")) {
+    const source = sourceOf(bundle, fallback);
+    return served && "url" in source ? { ...source, serve: client } : source;
+  }
   const name = bundle.slice("folder:".length);
   const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
   if (!handle) throw new Error(`no folder named ${name} was opened here: open it again`);
@@ -163,6 +174,9 @@ async function edit(source: Source) {
   const play = $<HTMLAnchorElement>("#play");
   const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
   stage.onError = failed;
+  /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
+  const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
+  const fromDisk = async () => (await fetch(scnOnDisk!, { cache: "no-store" })).text();
   formatPicker.replaceChildren(new Option("own canvas", ""));
   for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
@@ -175,10 +189,18 @@ async function edit(source: Source) {
   /** A change the editor makes itself, which is not an edit to save. */
   let quiet = false;
   const tell = () => {
-    const kept = where ? (where.kind === "folder" ? `folder ${where.name}` : `kept in this browser as ${where.name}`) : `${name}, not saved`;
+    const kinds = {
+      folder: `folder ${where?.name}`,
+      opfs: `kept in this browser as ${where?.name}`,
+      serve: `folder ${where?.name}, served${scnOnDisk ? ", from its deck.scn" : ""}`,
+    };
+    const kept = where ? kinds[where.kind] : `${name}, not saved`;
     whereLine.textContent = `${kept}${dirty() ? " · changed" : ""}`;
     // The player opens a bundle by its address or from the browser's storage, not a folder.
-    const playing = new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
+    const playing =
+      where?.kind === "serve"
+        ? new URLSearchParams({ bundle: params.get("bundle") ?? "/bundle/", serve: "" })
+        : new URLSearchParams({ bundle: where ? `${where.kind}:${where.name}` : (params.get("bundle") ?? fallback) });
     if (params.has("painter")) playing.set("painter", painter);
     play.href = `index.html?${playing}`;
     play.hidden = where?.kind === "folder";
@@ -208,7 +230,7 @@ async function edit(source: Source) {
   const view = new EditorView({
     parent: $("#code"),
     state: EditorState.create({
-      doc: await stage.source(),
+      doc: scnOnDisk ? await fromDisk() : await stage.source(),
       extensions: [
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -444,6 +466,13 @@ async function edit(source: Source) {
     quiet = true;
     view.dispatch({ changes: change(view.state.doc.toString(), renamedIn(view.state.doc.toString(), done.renamed)) });
     quiet = false;
+    // The folder keeps the deck's source too: it is what the editor shows, renamed as the save
+    // renamed files.
+    if (scnOnDisk) {
+      const headers = { "X-Scaena-Client": client };
+      const response = await fetch(scnOnDisk, { method: "PUT", body: view.state.doc.toString(), headers });
+      if (!response.ok) throw new Error(`deck.scn: ${(await response.text()).trim() || response.status}`);
+    }
     saved = at;
     address(where);
     tell();
@@ -496,6 +525,34 @@ async function edit(source: Source) {
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) }),
   });
 
+  /** Served (PLAN 2.11): what changed on disk comes in, when nothing here is changed and not
+   * saved; otherwise it is offered. */
+  let hearing: EventSource | undefined;
+  if (served && "url" in source) {
+    const again = $<HTMLButtonElement>("#again");
+    /** The bundle as it is on disk now, and its source in the editor, which is then as saved. */
+    const take = async (paths: string[]) => {
+      again.hidden = true;
+      if (paths.some((path) => path !== "deck.scn")) await stage.reload();
+      const text = scnOnDisk ? await fromDisk() : await stage.source();
+      quiet = true;
+      view.dispatch({ changes: change(view.state.doc.toString(), text) });
+      quiet = false;
+      saved = edits;
+      tell();
+      status.textContent = `read again from disk: ${paths.join(", ")}`;
+    };
+    const changed = (paths: string[]) => {
+      if (!dirty()) return void take(paths).catch(failed);
+      again.textContent = "Changed on disk: take it";
+      again.hidden = false;
+      again.onclick = () => {
+        if (confirm("Take the deck as it is on disk, and lose the changes here not saved?")) void take(["deck.json"]).catch(failed);
+      };
+    };
+    hearing = listen({ changed, broke: () => scnOnDisk && changed(["deck.scn"]) });
+  }
+
   $<HTMLButtonElement>("#save").onclick = () => void save().catch(failed);
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
   onkeydown = (e) => {
@@ -510,6 +567,7 @@ async function edit(source: Source) {
   current = {
     close: () => {
       clearTimeout(pending);
+      hearing?.close();
       view.destroy();
       stage.close();
     },

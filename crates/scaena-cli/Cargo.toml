@@ -25,6 +25,7 @@ scaena-export.workspace = true
 scaena-store.workspace = true
 scaena-ops.workspace = true
 scaena-mcp.workspace = true
+scaena-serve.workspace = true
 clap.workspace = true
 miette.workspace = true
 serde_json.workspace = true

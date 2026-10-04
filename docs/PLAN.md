@@ -639,7 +639,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Ten planted defects each failed it: a flag in the prose, a flag and a path on a command line, a lint code, a SPEC section, a deck that does not compile, a recipe that lints with an error, an error's words, a slot, and a spring.*
     - *`web/serve.py` serves a site on this machine only, and `just site` copies it in beside the pages.*
     - *What the guide found missing is 2.11 and 2.12.)*
-- [ ] 2.11 `scaena serve <bundle>` (SPEC §7.1): the player and the editor on a bundle on disk, on this machine. The bundle is watched: a `deck.scn` saved in any text editor compiles, and the pages show the new deck, so a deck written by hand plays as it is saved. *(Found by 2.10: today a deck written on the command line is seen by `render` one state at a time, or by exporting one file.)*
+- [x] 2.11 `scaena serve <bundle>` (SPEC §7.1): the player and the editor on a bundle on disk, on this machine. The bundle is watched: a `deck.scn` saved in any text editor compiles, and the pages show the new deck, so a deck written by hand plays as it is saved. *(Found by 2.10: until then a deck written on the command line was seen by `render` one state at a time, or by exporting one file.)*
+  *(Done: ADR-0012; SPEC §7.1, §9.2.*
+    - *`crates/scaena-serve` serves the pages and the bundle's folder: HTTP/1.1 by `hyper` on the MCP server's tokio, on 127.0.0.1 alone.*
+      - *It answers only a request that names `localhost` or 127.0.0.1 at its port, and takes a write (`PUT`, `DELETE`) only from its own pages.*
+      - *It writes only inside the folder, each file whole.*
+      - *`npm run build` copies the pages into the crate, which gzips them into the binary, as the single-file page is carried (ADR-0010). A `scaena` built before them exits 3.*
+    - *The folder is scanned every 150 ms. A change counts once two scans agree, and goes out as a server-sent event. A saved `deck.scn` compiles into `deck.json` first, as `scaena compile` does; one that does not compile is said at its line, in the terminal as `compile` says it and in the pages, and the deck is kept. A page's own writes carry its id, so they come back to it once, as its own.*
+    - *The player (`?serve`) has the worker read the bundle again and shows the state it was on; the live region reads it anew. The editor opens the folder's `deck.scn` as its source and saves the bundle back to the folder, in any browser, then `deck.scn`. A change on disk comes into an editor with nothing of its own not saved, and is offered over changes that are.*
+    - *Tests: `scaena-serve`'s, over a socket (the folder's files and nothing outside it, refusals for another host or origin, a page's write heard once as its own, a source compiled or said broken at its line); the CLI's, for both builds; and `web/live.mjs`, the whole loop in headless Chromium. `just web-smoke` and CI's wasm job run it.)*
 - [ ] 2.12 The editor starts a deck: **New**, a bundle from a theme and its fonts (as `deck_create` makes one), and **Save as**, to a folder on disk or under another name in the browser. *(Found by 2.10: today a deck starts as a copy of another bundle.)*
 
 ### Exit criteria (gate 2)

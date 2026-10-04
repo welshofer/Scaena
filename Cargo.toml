@@ -9,6 +9,7 @@ members = [
   "crates/scaena-ops",
   "crates/scaena-cli",
   "crates/scaena-mcp",
+  "crates/scaena-serve",
   "crates/scaena-wasm",
   "crates/scaena-subset",
   "crates/scaena-history",
@@ -42,6 +43,7 @@ scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
+scaena-serve  = { path = "crates/scaena-serve" }
 scaena-resources = { path = "crates/scaena-resources" }
 scaena-history = { path = "crates/scaena-history" }
 
@@ -110,6 +112,11 @@ tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sy
 base64 = "0.23"
 # Gzip for a single-file HTML export's files (PLAN 2.5), on the backend zip already builds.
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+# `scaena serve` (PLAN 2.11, ADR-0012): HTTP/1.1 on the tokio the MCP server already runs on.
+hyper          = { version = "1.11", default-features = false, features = ["server", "http1"] }
+hyper-util     = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
+bytes          = "1.12"
 
 # benchmarks (SPEC §15, PLAN 1.24): no plots, no rayon; `cargo bench` runs them
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

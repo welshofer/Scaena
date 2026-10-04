@@ -22,6 +22,7 @@ The page reads these parameters:
 | `state` | the state to open on; the first by default. |
 | `view` | `presenter` for the presenter view. The player opens it with P. |
 | `motion` | `reduce` for cuts in place of cues, `full` for the cues whatever the system asks. By default, the system's `prefers-reduced-motion`. |
+| `serve` | the page is `scaena serve`'s (PLAN 2.11): it shows each change to the bundle's folder on disk, and the editor saves back to the folder. See "Serve a folder". |
 
 ## Present with it
 
@@ -73,6 +74,14 @@ The editor's bar opens and keeps bundles (PLAN 2.4, SPEC §9.2):
 A file dropped on the source joins the bundle: an image under `assets/`, named by its SHA-256, a font under `fonts/`, a data file under `data/`. Its path, quoted, goes where it was dropped, as an image node's source: `photo image "assets/…png" at:in(figure)`. A `.scaena` file dropped opens instead. The page warns before it closes or opens over changes not saved.
 
 A bundle that keeps a history (`history/deck.loro`, from `scaena save --history` on) has each save, and each download, recorded in it, and the status says so (PLAN 2.9, SPEC §8). The CRDT is a WASM module of its own (`scaena-history`, 1.00 MB gzipped), which the worker loads the first time it saves such a bundle. Your edits go in as `user`'s, and each edit the assistant made as `agent:` and the model's name, with what its tool did. A `deck.json` edited outside Scaena since goes in first, as `fs`'s. A bundle that keeps no history saves without the module, and starts none.
+
+## Serve a folder
+
+`scaena serve talk` (PLAN 2.11, ADR-0012, SPEC §7.1, §9.2) serves these pages on a bundle's folder, on this machine only. `http://localhost:4848/` is the player and `/edit` the editor, each at `?bundle=/bundle/&serve`. `npm run build` copies `dist` into `crates/scaena-serve/pages/`, and a `scaena` built after it carries the pages.
+
+- **A change on disk shows as it is made.** The server announces each at `/scaena/events`, and compiles a saved `deck.scn` into `deck.json` first; `src/served.ts` listens. The player has the worker read the bundle again (`reload`) and shows the state it was on. A `deck.scn` that does not compile is said at its line over the slide (`#served`) until it does.
+- **The editor** opens the folder's `deck.scn` as its source, where the folder keeps one. Its save writes the bundle back by `PUT` and `DELETE` (the worker's home for a served bundle), then `deck.scn`. A change on disk comes in when the editor has nothing of its own not saved; otherwise the editor offers it.
+- **A page's own writes** carry its id (`X-Scaena-Client`), so the page does not hear its own saves back.
 
 ## Ask the assistant
 
@@ -143,6 +152,10 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
   - `assistant.mjs` runs PLAN 1.19's agent loop through the editor's assistant against a scripted server for each provider: a headline too long for its slot, the E100, its fix, a clean lint, and a render. It checks what the browser sends (the key in its header, Anthropic's opt-in header, the prompt, the tools, each result, the frame as an image, Gemini's thought signatures), that the source takes each edit and lints clean, that Stop stops, and how the key is kept.
   - `a11y.mjs` checks what a reader needs. axe-core finds nothing against WCAG 2.1 A and AA on the player, the presenter view, the editor with each tab, and a single file. The live region reads each state as the single file does, and keeps what reads as it did. The state picker is the spine's outline. Less motion cuts to each state at rest and keeps the deck's pace, and `?motion=` overrides the system. The keys work after a click on ▶, Enter on it goes on once, and the scrubber says where it is. In the editor, a finding is a button that goes to its line, F8 goes to the next, and the arrow keys move between the tabs.
   - `site.mjs` serves `target/site` from a path under a plain static server, with each file's media type, as a host would. The player plays the demo deck, each state painting a frame. Edit opens it in the editor, which lints it clean, and Play opens the player again. The subsetter and the assistant load from the site, and nothing is asked of anywhere else (but the assistant's scripted provider) or found missing.
+  - `live.mjs` serves the revenue example's folder with `scaena serve`, its source beside it as `deck.scn`.
+    - A `deck.scn` saved on disk shows in the player at the state it was on, and a broken one is said at its line, the deck kept until it is mended.
+    - The editor opens `deck.scn`, and its save writes `deck.scn` and `deck.json`, which the player hears.
+    - A change on disk comes into the editor when it has nothing not saved; otherwise it is offered, and taken when asked.
   - `standalone.mjs` exports the torture deck and the revenue example as single files (with `cargo run`, so `scaena` is built after the page) and opens them from their addresses on disk with the network off. The engine a file carries paints every golden frame byte for byte as the web player's does (run in Node), and the torture deck's file shows every golden frame by the CPU painter for the parity harness. The revenue example's plays, reads as it plays, and opens the presenter view; WebGPU paints it; and nothing asks for more than the file and its worker's blob.
 
 For tests and the console, the page sets `window.scaena`. It holds the open bundle's states, formats, notes, outline, and painter, and these calls: `show(state, t?, format?)`, `timeline(format?)`, `seek(index, t?)`, `run(index, t?, format?, still?)`, `at()`, `on()`, and `back()`. The editor's has `source()`, `type(text)`, `cursor(offset)`, `fix(code)`, `last()`, `trips()`, `wholes()`, `shown()`, `inspector()`, and `at()`; for its storage, `open(source)`, `save()`, `download()`, `drop(name, bytes, at?)`, and `where()`; and `assistant`, with `ask(text)`, `transcript()`, and `usage()`.
