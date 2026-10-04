@@ -138,6 +138,10 @@ enum Cmd {
         /// the video ends, or carried on in silence until it does.
         #[arg(long)]
         audio: Option<PathBuf>,
+        /// What paints a video's frames: `gpu` is vello on the GPU (needs a CLI built with
+        /// `--features gpu`). Every other export paints with the CPU painter.
+        #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
+        painter: PainterArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -212,6 +216,15 @@ enum PainterArg {
     Cpu,
     /// `vello` on `wgpu`, read back from the GPU (needs a CLI built with `--features gpu`).
     Gpu,
+}
+
+impl From<PainterArg> for Painter {
+    fn from(painter: PainterArg) -> Self {
+        match painter {
+            PainterArg::Cpu => Painter::Cpu,
+            PainterArg::Gpu => Painter::Gpu,
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -357,8 +370,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio } => {
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio };
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter } => {
+            let painter = painter.into();
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -377,9 +391,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
                     (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),
                     (_, _, Some(frames)) => println!(
-                        "wrote {out} ({frames} frames at {} fps, {:.1} s)",
+                        "wrote {out} ({frames} frames at {} fps, {:.1} s{})",
                         exported.fps.unwrap_or_default(),
-                        exported.duration_ms.unwrap_or_default() / 1000.0
+                        exported.duration_ms.unwrap_or_default() / 1000.0,
+                        exported.adapter.as_deref().map(|a| format!(", painted on {a}")).unwrap_or_default()
                     ),
                     _ => println!("wrote {out}"),
                 }
@@ -862,11 +877,8 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let painter = match painter {
-        PainterArg::Cpu => Painter::Cpu,
-        PainterArg::Gpu => Painter::Gpu,
-    };
-    let req = scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter };
+    let req =
+        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)

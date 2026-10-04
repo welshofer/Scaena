@@ -7,6 +7,9 @@
 //! - A frame that draws what the one before it drew (a hold with nothing moving) is not
 //!   painted again. The rest are painted on every core, a batch at a time, and written
 //!   in order.
+//! - Or, if the caller asks and the build has the `gpu` feature, vello paints them on the
+//!   GPU (PLAN 2.22): each frame is painted while the ones before it are read back, and
+//!   is within SPEC §13.5's tolerance of the CPU painter's.
 //! - ffmpeg takes them as raw RGB, composited over black, converts them to BT.709 YUV
 //!   (video range), tags them so, and encodes them: H.264 in MP4, VP9 in WebM, or
 //!   ProRes 422 HQ in QuickTime.
@@ -55,10 +58,22 @@ impl Codec {
     }
 }
 
+/// Which painter paints a video's frames (SPEC §13.6).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Painter {
+    /// The CPU painter, a frame to a core: the same frames on every machine.
+    #[default]
+    Cpu,
+    /// vello on the GPU, in a build with the `gpu` feature (PLAN 2.22).
+    Gpu,
+}
+
 /// How a video is encoded.
 #[derive(Debug, Clone)]
 pub struct VideoSettings {
     pub codec: Codec,
+    /// What paints its frames.
+    pub painter: Painter,
     /// Pixels to the canvas unit.
     pub scale: f32,
     /// Frames a second.
@@ -75,6 +90,7 @@ impl Default for VideoSettings {
     fn default() -> Self {
         Self {
             codec: Codec::H264,
+            painter: Painter::Cpu,
             scale: 1.0,
             fps: 60,
             audio: None,
@@ -99,13 +115,15 @@ pub struct Chapter {
 }
 
 /// What a video holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Encoded {
     pub frames: u64,
     /// The frames painted: the rest drew what the frame before them drew.
     pub painted: u64,
     /// Pixels: width, height.
     pub size: [u32; 2],
+    /// The GPU that painted them, for the GPU painter: its name, backend, and kind.
+    pub adapter: Option<String>,
 }
 
 /// The most frames a second a video takes.
@@ -141,6 +159,8 @@ pub fn encode(
     if let Some(audio) = settings.audio.as_deref().filter(|a| !a.is_file()) {
         return Err(bad(format!("--audio {}: no such file", audio.display())));
     }
+    // Before ffmpeg starts: a GPU that cannot paint stops the export here.
+    let mut painting = Painting::new(settings.painter)?;
     let (partial, chapters) = beside_once(out);
     if !settings.chapters.is_empty() {
         std::fs::write(&chapters, metadata(&settings.chapters))
@@ -177,11 +197,13 @@ pub fn encode(
     // The frames, then the end of ffmpeg's input: its stdin closes as the block ends.
     let pumped = {
         let mut stdin = child.stdin.take().expect("stdin is piped");
-        pump(&mut stdin, size, settings.scale, assets, &mut next)
+        pump(&mut stdin, size, settings.scale, assets, &mut painting, &mut next)
     };
     if pumped.is_err() {
         // The frames stopped short: what ffmpeg has is not the video.
         let _ = child.kill();
+    } else {
+        painting.keep();
     }
     let status = child.wait().map_err(|e| bad(format!("waiting for ffmpeg: {e}")));
     let _ = std::fs::remove_file(&chapters);
@@ -211,16 +233,17 @@ enum Halt {
 use Halt::{Pipe, Stopped};
 
 /// Paints the frames `next` hands over and writes them to ffmpeg, in order. A batch's frames
-/// go to ffmpeg while the next batch paints, so the cores never wait on the pipe.
+/// go to ffmpeg while the next batch paints, so the painter never waits on the pipe.
 fn pump(
     stdin: &mut (impl Write + Send),
     size: [u32; 2],
     scale: f32,
     assets: &Assets,
+    painting: &mut Painting,
     next: &mut impl FnMut() -> Option<Result<DisplayList, ExportError>>,
 ) -> Result<Encoded, Halt> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
-    let batch = threads * 2;
+    let batch = painting.batch();
+    let adapter = painting.adapter();
     let (mut frames, mut painted) = (0_u64, 0_u64);
     // The last frame painted: what it drew, and its pixels.
     let mut last: Option<(DisplayList, Arc<Vec<u8>>)> = None;
@@ -239,7 +262,7 @@ fn pump(
                 stdin.write_all(px).map_err(|_| Pipe)?;
             }
             frames += ready.len() as u64;
-            return Ok(Encoded { frames, painted, size });
+            return Ok(Encoded { frames, painted, size, adapter });
         }
         // A frame is painted unless it draws what the one before it drew.
         let todo: Vec<usize> = (0..lists.len())
@@ -250,7 +273,7 @@ fn pump(
             .collect();
         let (mut pixels, written) = std::thread::scope(|s| {
             let writer = s.spawn(|| ready.iter().try_for_each(|px| stdin.write_all(px).map_err(|_| Pipe)));
-            let pixels = paint(&lists, &todo, threads, scale, assets);
+            let pixels = painting.paint(&lists, &todo, scale, assets);
             (pixels, writer.join().expect("the writer does not panic"))
         });
         written?;
@@ -271,6 +294,133 @@ fn pump(
         let list = lists.pop().expect("a batch holds a frame");
         last = current.map(|px| (list, px));
     }
+}
+
+/// What paints a video's frames, made before ffmpeg starts.
+enum Painting {
+    /// The CPU painter, on this many cores.
+    Cpu(usize),
+    #[cfg(feature = "gpu")]
+    Gpu(Box<scaena_paint::gpu::GpuPainter>),
+}
+
+/// The GPU painter the last export that finished made, kept for the next: making one
+/// compiles vello's shaders, which can take longer than a short video's frames.
+#[cfg(feature = "gpu")]
+static GPU: std::sync::Mutex<Option<Box<scaena_paint::gpu::GpuPainter>>> = std::sync::Mutex::new(None);
+
+/// Frames the GPU painter paints to a batch: a quarter second at 60 frames a second.
+#[cfg(feature = "gpu")]
+const GPU_BATCH: usize = 16;
+
+/// Frames the GPU painter has on their way back while it paints the next.
+#[cfg(feature = "gpu")]
+const GPU_DEPTH: usize = 2;
+
+impl Painting {
+    fn new(painter: Painter) -> Result<Self, ExportError> {
+        match painter {
+            Painter::Cpu => Ok(Painting::Cpu(std::thread::available_parallelism().map_or(1, |n| n.get()).min(16))),
+            #[cfg(feature = "gpu")]
+            Painter::Gpu => match GPU.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                Some(gpu) => Ok(Painting::Gpu(gpu)),
+                None => scaena_paint::gpu::GpuPainter::new()
+                    .map(|gpu| Painting::Gpu(Box::new(gpu)))
+                    .map_err(|e| ExportError::Video(format!("the GPU painter: {e}"))),
+            },
+            #[cfg(not(feature = "gpu"))]
+            Painter::Gpu => {
+                Err(ExportError::Video("the GPU painter is not in this build: it needs the `gpu` feature".into()))
+            }
+        }
+    }
+
+    /// Keep the GPU painter for the next export, once this one has finished with it.
+    fn keep(self) {
+        #[cfg(feature = "gpu")]
+        if let Painting::Gpu(gpu) = self {
+            *GPU.lock().unwrap_or_else(|e| e.into_inner()) = Some(gpu);
+        }
+    }
+
+    /// Frames to a batch: two for each core, or the GPU's.
+    fn batch(&self) -> usize {
+        match self {
+            Painting::Cpu(threads) => threads * 2,
+            #[cfg(feature = "gpu")]
+            Painting::Gpu(_) => GPU_BATCH,
+        }
+    }
+
+    /// The GPU that paints: its name, backend, and kind.
+    fn adapter(&self) -> Option<String> {
+        match self {
+            Painting::Cpu(_) => None,
+            #[cfg(feature = "gpu")]
+            Painting::Gpu(gpu) => {
+                let info = gpu.adapter();
+                Some(format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type))
+            }
+        }
+    }
+
+    /// The frames `todo` names: for each frame of `lists`, its RGB pixels, or none where it
+    /// was not asked for.
+    fn paint(
+        &mut self,
+        lists: &[DisplayList],
+        todo: &[usize],
+        scale: f32,
+        assets: &Assets,
+    ) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
+        match self {
+            Painting::Cpu(threads) => paint(lists, todo, *threads, scale, assets),
+            #[cfg(feature = "gpu")]
+            Painting::Gpu(gpu) => paint_gpu(gpu, lists, todo, scale, assets),
+        }
+    }
+}
+
+/// The frames `todo` names, painted on the GPU in order: each sent while up to
+/// [`GPU_DEPTH`] before it are on their way back, then received as RGB.
+#[cfg(feature = "gpu")]
+fn paint_gpu(
+    gpu: &mut scaena_paint::gpu::GpuPainter,
+    lists: &[DisplayList],
+    todo: &[usize],
+    scale: f32,
+    assets: &Assets,
+) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
+    let failed = |e: scaena_paint::PaintError| ExportError::Video(format!("the GPU painter: {e}"));
+    let mut out: Vec<Option<Result<Vec<u8>, ExportError>>> = (0..lists.len()).map(|_| None).collect();
+    let mut receive = |gpu: &mut scaena_paint::gpu::GpuPainter, i: usize| {
+        out[i] = Some(match gpu.receive() {
+            Ok(Some(raster)) => Ok(rgb(&raster.rgba)),
+            Ok(None) => Err(ExportError::Video("the GPU painter lost a frame".into())),
+            Err(e) => Err(failed(e)),
+        });
+    };
+    let mut flying = std::collections::VecDeque::with_capacity(GPU_DEPTH + 1);
+    let mut stopped = None;
+    for &i in todo {
+        if let Err(e) = gpu.send(&lists[i], assets, scale) {
+            // The frames before it still come back; the export stops at this one.
+            stopped = Some((i, failed(e)));
+            break;
+        }
+        flying.push_back(i);
+        if flying.len() > GPU_DEPTH {
+            let oldest = flying.pop_front().expect("a frame in flight");
+            receive(gpu, oldest);
+        }
+    }
+    while let Some(i) = flying.pop_front() {
+        receive(gpu, i);
+    }
+    if let Some((i, e)) = stopped {
+        out[i] = Some(Err(e));
+    }
+    out
 }
 
 /// The frames `todo` names, painted on up to `threads` cores: for each frame of `lists`,
@@ -550,7 +700,7 @@ mod tests {
         let spawning = may_spawn();
         let encoded = encode(&out, [4.0, 2.0], &settings, &Assets::new(), || lists.next().map(Ok)).unwrap();
         drop(spawning);
-        assert_eq!(encoded, Encoded { frames: 4, painted: 3, size: [4, 2] });
+        assert_eq!(encoded, Encoded { frames: 4, painted: 3, size: [4, 2], adapter: None });
         // Each frame's pixels, in order: half-transparent blue over black.
         let px = |c: [u8; 3]| c.repeat(8);
         let want = [px([255, 0, 0]), px([255, 0, 0]), px([0, 0, 128]), px([255, 0, 0])].concat();

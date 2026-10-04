@@ -3,7 +3,19 @@
   "description": "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export that takes longer than 40 s keeps going: the call returns `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "required": ["bundle", "format"],
+    "$defs": {
+      "Painter": {
+        "description": "Which painter draws the frame.",
+        "oneOf": [
+          { "description": "`vello_cpu`: every machine, the goldens' painter.", "type": "string", "const": "cpu" },
+          {
+            "description": "vello on the GPU, in a build with the `gpu` feature (PLAN 0.7).",
+            "type": "string",
+            "const": "gpu"
+          }
+        ]
+      }
+    },
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
@@ -37,9 +49,15 @@
         "description": "A video's sound track, any file ffmpeg reads, from the first frame: cut where the\nvideo ends, or carried on in silence until it does.",
         "type": ["string", "null"],
         "default": null
+      },
+      "painter": {
+        "description": "What paints a video's frames: `gpu` is vello on the GPU, in a server built with the\n`gpu` feature. Every other export paints with the CPU painter.",
+        "$ref": "#/$defs/Painter",
+        "default": "cpu"
       }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "required": ["bundle", "format"]
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -266,6 +284,11 @@
         "description": "A video's chapters: the spine's beats as it plays them, each titled by its claim.",
         "type": ["array", "null"],
         "items": { "$ref": "#/$defs/Chapter" }
+      },
+      "painter": { "description": "What painted a video's frames: `cpu` or `gpu`.", "type": ["string", "null"] },
+      "adapter": {
+        "description": "The GPU that painted them: its name, backend, and kind.",
+        "type": ["string", "null"]
       },
       "bytes": {
         "description": "The bytes written: the document, the video, the page, or every image together.",

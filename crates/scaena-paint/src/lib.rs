@@ -1151,12 +1151,40 @@ pub mod gpu {
         /// Headless `vello` (PLAN 0.7): renders into an `Rgba8Unorm` texture and reads it
         /// back. vello writes straight alpha (it unpremultiplies before storing), which
         /// is what [`Raster`] holds.
+        ///
+        /// [`GpuPainter::paint`] waits for its frame. A run of frames, a video's (PLAN
+        /// 2.22), goes through [`GpuPainter::send`] and [`GpuPainter::receive`] instead,
+        /// so a frame is painted while the ones before it are read back.
         pub struct GpuPainter {
             device: wgpu::Device,
             queue: wgpu::Queue,
             renderer: vello::Renderer,
             adapter: wgpu::AdapterInfo,
             shaders: Shaders,
+            /// What frames are painted into, kept while they keep its size.
+            target: Option<Target>,
+            /// Frames sent and not yet received, oldest first.
+            flying: std::collections::VecDeque<Flight>,
+            /// Readback buffers no frame is using.
+            spare: Vec<wgpu::Buffer>,
+        }
+
+        struct Target {
+            size: wgpu::Extent3d,
+            texture: wgpu::Texture,
+            view: wgpu::TextureView,
+        }
+
+        /// A frame painted and on its way back: copied into `buffer`, which is mapped
+        /// once the GPU has done `submitted`.
+        struct Flight {
+            buffer: wgpu::Buffer,
+            width: u32,
+            height: u32,
+            /// Bytes from one row to the next in `buffer`.
+            padded: u32,
+            submitted: wgpu::SubmissionIndex,
+            mapped: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
         }
 
         impl GpuPainter {
@@ -1191,7 +1219,16 @@ pub mod gpu {
                     pipeline_cache: None,
                 };
                 let renderer = vello::Renderer::new(&device, options).map_err(gpu)?;
-                Ok(Self { device, queue, renderer, adapter, shaders: Shaders::new() })
+                Ok(Self {
+                    device,
+                    queue,
+                    renderer,
+                    adapter,
+                    shaders: Shaders::new(),
+                    target: None,
+                    flying: std::collections::VecDeque::new(),
+                    spare: Vec::new(),
+                })
             }
 
             /// Which adapter paints: name, backend, and device type (a CPU adapter such
@@ -1211,6 +1248,24 @@ pub mod gpu {
                 encoder.copy_buffer_to_buffer(&pixels, 0, &buffer, 0, size);
                 self.queue.submit([encoder.finish()]);
                 self.read(&buffer, w * 4, stride)
+            }
+
+            /// Paint `dl` and start reading it back, without waiting for either: the next
+            /// frame can be painted while this one comes back. Frames come back from
+            /// [`GpuPainter::receive`] in the order they were sent.
+            pub fn send(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<(), PaintError> {
+                let flight = self.start(dl, fonts, scale)?;
+                self.flying.push_back(flight);
+                Ok(())
+            }
+
+            /// The oldest frame [`GpuPainter::send`] painted that has not been received,
+            /// once it is back, or `None` when every frame sent has been.
+            pub fn receive(&mut self) -> Result<Option<Raster>, PaintError> {
+                match self.flying.pop_front() {
+                    Some(flight) => self.finish(flight).map(Some),
+                    None => Ok(None),
+                }
             }
 
             fn readback(&self, size: u64) -> wgpu::Buffer {
@@ -1249,52 +1304,69 @@ pub mod gpu {
             }
 
             fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
-                let jobs = shader_jobs(dl, scale)?;
-                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
-                let raster = self.render(dl, fonts, scale, &images);
-                Shaders::release(&mut self.renderer, images);
-                raster
+                let flight = self.start(dl, fonts, scale)?;
+                self.finish(flight)
             }
         }
 
         impl GpuPainter {
+            /// Run `dl`'s shaders, paint it, and queue its copy into a readback buffer:
+            /// a frame on its way back.
+            fn start(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Flight, PaintError> {
+                let jobs = shader_jobs(dl, scale)?;
+                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
+                let flight = self.render(dl, fonts, scale, &images);
+                Shaders::release(&mut self.renderer, images);
+                flight
+            }
+
             fn render(
                 &mut self,
                 dl: &DisplayList,
                 fonts: &Assets,
                 scale: f32,
                 images: &[Option<ShaderImage>],
-            ) -> Result<Raster, PaintError> {
+            ) -> Result<Flight, PaintError> {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-                let target = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("scaena target"),
-                    size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                });
+                if self.target.as_ref().is_none_or(|t| t.size != size) {
+                    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("scaena target"),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    self.target = Some(Target { size, texture, view });
+                }
+                let target = self.target.as_ref().expect("made above");
                 let params = vello::RenderParams {
                     base_color: peniko::Color::TRANSPARENT,
                     width,
                     height,
                     antialiasing_method: vello::AaConfig::Area,
                 };
-                let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-                self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &params).map_err(gpu)?;
+                self.renderer
+                    .render_to_texture(&self.device, &self.queue, &scene, &target.view, &params)
+                    .map_err(gpu)?;
 
-                // A texture-to-buffer copy pads each row to 256 bytes.
-                let row = width * 4;
+                // A texture-to-buffer copy pads each row to 256 bytes. The queue runs in
+                // order, so the next frame paints the target only once this copy is done.
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let padded = row.div_ceil(align) * align;
-                let buffer = self.readback(u64::from(padded) * u64::from(height));
+                let padded = (width * 4).div_ceil(align) * align;
+                let bytes = u64::from(padded) * u64::from(height);
+                let buffer = match self.spare.iter().position(|b| b.size() == bytes) {
+                    Some(i) => self.spare.swap_remove(i),
+                    None => self.readback(bytes),
+                };
                 let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                 encoder.copy_texture_to_buffer(
-                    target.as_image_copy(),
+                    target.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
                         buffer: &buffer,
                         layout: wgpu::TexelCopyBufferLayout {
@@ -1305,8 +1377,33 @@ pub mod gpu {
                     },
                     size,
                 );
-                self.queue.submit([encoder.finish()]);
-                let mut rgba = self.read(&buffer, row, padded)?;
+                let submitted = self.queue.submit([encoder.finish()]);
+                let (tx, mapped) = std::sync::mpsc::channel();
+                buffer.map_async(wgpu::MapMode::Read, .., move |done| {
+                    let _ = tx.send(done);
+                });
+                Ok(Flight { buffer, width, height, padded, submitted, mapped })
+            }
+
+            /// Wait for `flight` to be back, then its pixels.
+            fn finish(&mut self, flight: Flight) -> Result<Raster, PaintError> {
+                let Flight { buffer, width, height, padded, submitted, mapped } = flight;
+                // Bounded: a GPU that never finishes is an error to report, not a hang.
+                let wait = wgpu::PollType::Wait { submission_index: Some(submitted), timeout: Some(GPU_TIMEOUT) };
+                self.device.poll(wait).map_err(gpu)?;
+                mapped
+                    .recv_timeout(GPU_TIMEOUT)
+                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
+                    .map_err(gpu)?;
+                let row = width as usize * 4;
+                let mut rgba = Vec::with_capacity(row * height as usize);
+                for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
+                    rgba.extend_from_slice(&line[..row]);
+                }
+                buffer.unmap();
+                // Kept for the frames after it, which are the same size, or dropped.
+                self.spare.retain(|b| b.size() == buffer.size());
+                self.spare.push(buffer);
                 // vello unpremultiplies as rgb / max(a, 1e-6), so a sliver of coverage below
                 // 1/255 reads back as alpha 0 with leftover colour (Metal leaves [2, 1, 1, 0]
                 // beside pixel-aligned edges). Fully transparent is fully transparent.
@@ -1375,6 +1472,36 @@ pub mod gpu {
                 for (x, y) in [(2, 0), (0, 2), (2, 2), (3, 3)] {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) on {:?}", gpu.adapter());
                 }
+            }
+
+            #[test]
+            fn frames_sent_come_back_in_order_as_paint_paints_them() {
+                let Some(mut gpu) = painter() else { return };
+                let fill = |c: [u8; 4], w: f32| {
+                    let mut dl = DisplayList::new([w, 3.0]);
+                    dl.ops.push(Op::Fill {
+                        path: Path::rect([0.0, 0.0, w, 3.0]),
+                        rule: FillRule::NonZero,
+                        paint: Paint::Solid(Color(c)),
+                    });
+                    dl
+                };
+                // The last is wider: its rows are padded otherwise, and it needs a new target.
+                let frames = [fill([255, 0, 0, 255], 5.0), fill([0, 0, 255, 128], 5.0), fill([0, 200, 0, 255], 70.0)];
+                let painted: Vec<Raster> = frames.iter().map(|f| gpu.paint(f, &Assets::new(), 2.0).unwrap()).collect();
+                assert!(gpu.receive().unwrap().is_none(), "nothing was sent");
+                for f in &frames {
+                    gpu.send(f, &Assets::new(), 2.0).unwrap();
+                }
+                // A frame painted meanwhile is its own, and leaves the ones sent waiting.
+                let between = gpu.paint(&frames[1], &Assets::new(), 2.0).unwrap();
+                assert_eq!(between.rgba, painted[1].rgba);
+                for want in &painted {
+                    let got = gpu.receive().unwrap().expect("a frame sent and not received");
+                    assert_eq!((got.width, got.height), (want.width, want.height));
+                    assert!(got.rgba == want.rgba, "a frame differs from paint's on {:?}", gpu.adapter());
+                }
+                assert!(gpu.receive().unwrap().is_none(), "every frame sent came back once");
             }
 
             #[test]

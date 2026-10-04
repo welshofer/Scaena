@@ -105,7 +105,7 @@ impl Export {
 /// What a call to `deck_export` asks: its arguments, and the deck and theme it reads.
 fn asked(a: &DeckExport, b: &scaena_ops::Bundle) -> u64 {
     let mut hasher = DefaultHasher::new();
-    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio).hash(&mut hasher);
+    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio, &a.painter).hash(&mut hasher);
     serde_json::to_string(&b.deck).unwrap_or_default().hash(&mut hasher);
     b.theme_json.hash(&mut hasher);
     hasher.finish()
@@ -397,6 +397,10 @@ pub struct DeckExport {
     /// video ends, or carried on in silence until it does.
     #[serde(default)]
     pub audio: Option<String>,
+    /// What paints a video's frames: `gpu` is vello on the GPU, in a server built with the
+    /// `gpu` feature. Every other export paints with the CPU painter.
+    #[serde(default)]
+    pub painter: scaena_ops::render::Painter,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -619,6 +623,7 @@ impl Scaena {
             size: a.size.clone(),
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
+            painter: a.painter,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;

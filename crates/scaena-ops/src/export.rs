@@ -46,6 +46,9 @@ pub struct Request {
     /// A video's sound track, any file ffmpeg reads, from the first frame: cut where the
     /// frames end, or carried on in silence until they do.
     pub audio: Option<PathBuf>,
+    /// What paints a video's frames: the CPU painter, or vello on the GPU in a build with
+    /// the `gpu` feature (PLAN 2.22). Every other export paints with the CPU painter.
+    pub painter: crate::render::Painter,
 }
 
 /// What an export wrote (SPEC §7.1).
@@ -86,6 +89,12 @@ pub struct Exported {
     /// A video's chapters: the spine's beats as it plays them, each titled by its claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chapters: Option<Vec<Chapter>>,
+    /// What painted a video's frames: `cpu` or `gpu`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub painter: Option<String>,
+    /// The GPU that painted them: its name, backend, and kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
     /// The bytes written: the document, the video, the page, or every image together.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
@@ -178,6 +187,14 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     }
     if req.audio.is_some() && video.is_none() {
         return Err(OpsError::new("--audio sets a video's sound track: mp4, webm, or prores"));
+    }
+    if req.painter == crate::render::Painter::Gpu && video.is_none() {
+        return Err(OpsError::new(
+            "--painter gpu paints a video's frames: mp4, webm, or prores; every other export paints with the CPU painter",
+        ));
+    }
+    if req.painter == crate::render::Painter::Gpu && cfg!(not(feature = "gpu")) {
+        return Err(OpsError::not_built("`--painter gpu` needs a build with `--features gpu` (PLAN 2.22)", "2.22"));
     }
     let written = |bytes: usize| Some(bytes as u64);
     let out = req.out.as_deref();
@@ -645,8 +662,13 @@ fn export_video(
         None => 1.0,
     };
     let chapters = reel.chapters(&b.deck);
+    let painter = match req.painter {
+        crate::render::Painter::Cpu => scaena_export::video::Painter::Cpu,
+        crate::render::Painter::Gpu => scaena_export::video::Painter::Gpu,
+    };
     let settings = VideoSettings {
         codec,
+        painter,
         scale,
         fps,
         audio: audio.map(Path::to_path_buf),
@@ -686,6 +708,8 @@ fn export_video(
         duration_ms: Some(reel.duration_ms()),
         timeline: Some(played),
         chapters: (!chapters.is_empty()).then_some(chapters),
+        painter: Some(if painter == scaena_export::video::Painter::Gpu { "gpu" } else { "cpu" }.into()),
+        adapter: encoded.adapter,
         bytes,
         ..Exported::default()
     })

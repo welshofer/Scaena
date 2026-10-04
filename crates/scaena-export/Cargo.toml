@@ -22,3 +22,8 @@ skrifa.workspace = true
 png.workspace = true
 base64.workspace = true
 flate2.workspace = true
+
+[features]
+# Video painted by vello on the GPU (PLAN 2.22). Off by default so the everyday build does
+# not compile wgpu.
+gpu = ["scaena-paint/gpu"]

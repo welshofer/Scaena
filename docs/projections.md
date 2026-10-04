@@ -60,7 +60,7 @@ scaena inspect <bundle> --state <state> --data --json   # [{ state_id, …, data
 ## Motion
 
 ```
-scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080] [--fps 60] [--audio track.wav] [--states a,b]
+scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080] [--fps 60] [--audio track.wav] [--states a,b] [--painter gpu]
 ```
 
 - **Timing.** The video plays the global timeline: each state's cue, then its hold. With `--states`, it plays only those states, in that order (SPEC §10).
@@ -69,6 +69,7 @@ scaena export <bundle> --format mp4|webm|prores --out deck.mp4 [--size 1920x1080
 - **Finding a beat.** Played whole, the video's clock is the global timeline, so `spine.json`'s `beats[<id>].start` and `end` are the beat's place in the video. With `--states`, read the result's `chapters` instead.
 - **A clip per beat.** Cut the video at a chapter's marks. Or export the beat's states alone, in the deck's order, with `--states`.
 - **Single frames.** Frame *k* is the moment `scaena render --state <state> --t <ms>` draws. A pipeline that composites its own motion can render stills at the moments it needs.
+- **On the GPU.** `--painter gpu`, in a `scaena` built with `--features gpu`, paints the frames with vello on the GPU. Its frames are within SPEC §13.5's tolerance of the CPU painter's, not the same bytes, so a pipeline that compares frames should export with the CPU painter, the default.
 
 ## Podcast
 
