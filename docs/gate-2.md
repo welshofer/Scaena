@@ -50,14 +50,14 @@ The bar is Jay's call.
 
 ## 2. Edit → lint → preview round trip under 200 ms on a 40-state deck: met
 
-`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. Its latest run had a median round trip of 85 ms. The last edit took:
-- compile 15 ms;
-- the frame 19 ms;
-- the lint of the state shown 34 ms.
+`web/editor.mjs` times six edits on B1 (`tests/bench/b1.scaena`, 40 states) in headless Chromium, painting with the CPU. After PLAN 2.19 and 2.20, two runs had median round trips of 36 and 34 ms. The last edit of the second took:
+- compile 10 ms;
+- the frame 15 ms;
+- the lint of the state shown 9 ms.
 
-PLAN 2.3 measured 114 ms. Before ADR-0004 finding 15, the frame alone took 76 ms.
+Before, the median was 85 ms, the lint of the state shown 34 ms of it. PLAN 2.3 measured 114 ms. Before ADR-0004 finding 15, the frame alone took 76 ms.
 
-The lint of every state, once typing stops, takes 1.2 s. It is not part of the round trip.
+The lint of every state, once typing stops, takes 85–88 ms, from 1.2 s before PLAN 2.19. It is not part of the round trip.
 
 ## 3. A single-file export opens offline from a USB stick: met in headless Chromium
 
