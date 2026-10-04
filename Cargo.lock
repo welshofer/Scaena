@@ -3114,6 +3114,7 @@ dependencies = [
  "png",
  "scaena-core",
  "sha2",
+ "skrifa 0.44.0",
  "thiserror 2.0.21",
  "vello",
  "vello_cpu 0.2.0",
