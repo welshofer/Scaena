@@ -82,7 +82,7 @@ Class: **kill** = gate 0 criterion 1 (bit-identical display lists macOS/Linux, r
 
 Each state's `notes` repeats its pass condition in full, so a rendered PNG and its notes are enough to judge it.
 
-The charts set their text in the theme's `chart` role, 24 cu, the chart style guide's 12 pt (PLAN 1.27). Lint judges that text's contrast over the marks, and `tests/golden/lint/torture.txt` records six E111s in cases 33, 34, 37, 38, and 44: value labels, and a callout, that a dot, a line, or a rule crosses. PLAN 1.32 is to lay them out clear.
+The charts set their text in the theme's `chart` role, 24 cu, the chart style guide's 12 pt (PLAN 1.27). Lint judges that text's contrast over the marks. Six E111s it found in cases 33, 34, 37, 38, and 44, value labels and a callout that a dot, a line, or a rule crossed, are laid out clear (PLAN 1.32), and `tests/golden/lint/torture.txt` records no E111 in a chart.
 
 ## How the baits were made
 

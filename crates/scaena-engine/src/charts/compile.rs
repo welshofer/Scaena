@@ -829,8 +829,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             .fold(0.0_f32, f32::max)
     };
     // First values stand two spaces from the value axis's labels, so the two read apart.
-    let first = pad(true, size[0] - gutter);
-    let left = gutter + first + if gutter > 0.0 && first > 0.0 { gap } else { 0.0 };
+    let left_of = |first: f32| gutter + first + if gutter > 0.0 && first > 0.0 { gap } else { 0.0 };
     // A legend at the right takes its widest entry, or its title, and two spaces from the
     // plot.
     let widest = legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max);
@@ -840,39 +839,65 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Kind::Line => values.iter().flatten().map(|t| t.width + gap).fold(gap, f32::max),
         _ => gap,
     };
-    let legend_width = match (beside, at_ends, legend_texts.is_empty()) {
-        (_, _, true) | (false, false, _) => 0.0,
-        (true, ..) => (swatch + 0.5 * gap + widest).max(legend_title.as_ref().map_or(0.0, |t| t.width)) + 2.0 * gap,
-        // Names `lead` past the series' ends. The farthest end stands `f` of the plot's
-        // width in from its side: on a category axis a line's or a dot's half a band, or
-        // a bar's half its gap; on a continuous one, what the axis widened past the data.
-        // A dot's name starts past the dot's edge. So the names need only what that leaves
-        // them short of: the room `g` with `edge + lead + widest <= g + f × (the plot that
-        // g leaves)`.
-        (false, true, _) => {
-            let f = match x_extent {
-                Some((a, b)) => {
-                    let last = rows.iter().filter_map(|r| r.x).fold(f64::NEG_INFINITY, f64::max);
-                    if b > a && last.is_finite() { ((b - last) / (b - a)) as f32 } else { 0.0 }
-                }
-                None => {
-                    let k = if matches!(kind, Kind::Bar | Kind::StackedBar) { 0.5 * bar_gap } else { 0.5 };
-                    k / categories.len().max(1) as f32
-                }
-            };
-            let f = f.clamp(0.0, 0.9);
-            let edge = match kind {
-                Kind::Dot => dot_radius,
-                Kind::Scatter if rows.iter().any(|r| r.size.is_some()) => 2.5 * dot_radius,
-                Kind::Scatter => dot_radius,
-                _ => 0.0,
-            };
-            ((edge + lead + widest - f * (size[0] - left)) / (1.0 - f)).max(0.0)
-        }
-    };
     // Names at the ends stand past the value there, so their gutter has its room.
     let named = at_ends && !legend_texts.is_empty();
-    let pad_right = if named { 0.0 } else { pad(false, size[0] - legend_width - left) };
+    // The legend's width, and the room past the plot's right side for last values, with
+    // the plot's left side at `left`.
+    let right_side = |left: f32| -> (f32, f32) {
+        let legend_width = match (beside, at_ends, legend_texts.is_empty()) {
+            (_, _, true) | (false, false, _) => 0.0,
+            (true, ..) => (swatch + 0.5 * gap + widest).max(legend_title.as_ref().map_or(0.0, |t| t.width)) + 2.0 * gap,
+            // Names `lead` past the series' ends. The farthest end stands `f` of the plot's
+            // width in from its side: on a category axis a line's or a dot's half a band,
+            // or a bar's half its gap; on a continuous one, what the axis widened past the
+            // data. A dot's name starts past the dot's edge. So the names need only what
+            // that leaves them short of: the room `g` with `edge + lead + widest <= g + f ×
+            // (the plot that g leaves)`.
+            (false, true, _) => {
+                let f = match x_extent {
+                    Some((a, b)) => {
+                        let last = rows.iter().filter_map(|r| r.x).fold(f64::NEG_INFINITY, f64::max);
+                        if b > a && last.is_finite() { ((b - last) / (b - a)) as f32 } else { 0.0 }
+                    }
+                    None => {
+                        let k = if matches!(kind, Kind::Bar | Kind::StackedBar) { 0.5 * bar_gap } else { 0.5 };
+                        k / categories.len().max(1) as f32
+                    }
+                };
+                let f = f.clamp(0.0, 0.9);
+                let edge = match kind {
+                    Kind::Dot => dot_radius,
+                    Kind::Scatter if rows.iter().any(|r| r.size.is_some()) => 2.5 * dot_radius,
+                    Kind::Scatter => dot_radius,
+                    _ => 0.0,
+                };
+                ((edge + lead + widest - f * (size[0] - left)) / (1.0 - f)).max(0.0)
+            }
+        };
+        let pad_right = if named { 0.0 } else { pad(false, size[0] - legend_width - left) };
+        (legend_width, pad_right)
+    };
+    // The first values' room comes out of the plot the right side leaves, and the right
+    // side's names need more the less plot there is. So the room is taken from the whole
+    // width, then again from the plot each pass leaves, until it holds: it only grows, by
+    // less each time. Taken from the whole width alone, a narrow plot left a first value
+    // short of room, pushed in over its own line (PLAN 1.32). A pass that would leave no
+    // plot is not taken.
+    let mut first = pad(true, size[0] - gutter);
+    let (mut legend_width, mut pad_right) = right_side(left_of(first));
+    for _ in 0..8 {
+        let next = pad(true, size[0] - legend_width - pad_right - left_of(first) + first);
+        let (w, p) = right_side(left_of(next));
+        if size[0] - w - p - left_of(next) <= 0.0 {
+            break;
+        }
+        let settled = next - first < 0.01;
+        (first, legend_width, pad_right) = (next, w, p);
+        if settled {
+            break;
+        }
+    }
+    let left = left_of(first);
     let right = size[0] - legend_width - pad_right;
     // How far the ends' values stand past the plot's sides, within the room beside it.
     let reach = |first: bool| {

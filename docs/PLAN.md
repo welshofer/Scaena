@@ -489,13 +489,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *a rule's text and a callout's text crossed their own line with their descenders; they now clear it.*
     - *The torture theme, B1's (whose charts are B2's), and the lint bundle's set chart text in a new `chart` role at 24 cu, the guide's floor, so the torture deck's chart goldens moved with the larger text.*
     - *Not done: six findings in the torture deck's lint golden are value labels and callouts the layout lets marks and rules cross (PLAN 1.32; PR #41 holds most of the fix).)*
-- [ ] 1.32 Chart text clears what it would cross. 1.27's contrast check found text the layout lets a mark or a line cross, now E111s in the torture deck's lint golden:
+- [x] 1.32 Chart text clears what it would cross. 1.27's contrast check found text the layout lets a mark or a line cross, now E111s in the torture deck's lint golden:
   - a dot's value over another series' dot (`k-dot`, both formats);
   - a steep line through its first value in 9:16 (`st-line`, `n-lines`);
   - a `y` rule across a bar's value (`n-bars`);
   - a callout's text on another annotation's rule (`n-bars` in `annotations-next`).
 
-  PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Open: `st-line` in 9:16, a steep line through its first value, which needs the value moved off the line where the plot's side clamps it. 1.28's `fc-line` in `forecast-next` shows the same in 9:16.)*
+  PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Done: the last, `st-line` in 9:16, and 1.28's `fc-line` in `forecast-next`, which showed the same, were first values short of room. The plot took their room out of the chart's whole width, not out of the plot the series' names left beside it, so in a narrow plot the side clamped each value and pushed it in over its own line. The room is now taken from the plot the right side leaves, again until it holds, and each first value ends at its point. Both findings left the golden, and no E111 in it is a chart's. A test in `charts.rs` fails without the change.)*
 
 ### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
 *Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*

@@ -766,6 +766,32 @@ fn a_lines_end_values_take_room_beside_a_continuous_axis() {
 }
 
 #[test]
+fn a_lines_first_values_keep_their_room_where_the_names_narrow_the_plot() {
+    // In a narrow chart, as a column of a portrait slide leaves one, the first values
+    // are wider than half a band, and the names past the last points take a share of
+    // the width. The room beside the plot is what the plot that leaves needs, not what
+    // the whole width would: each first value still ends at its point, its line leaving
+    // it clear (PLAN 1.32), and none is pushed in over the line.
+    let money = json!({ "y": { "field": "rev", "format": "$,.0f" } });
+    let lines = compile_sized(&themed(json!({})), &series_deck("line", money), [320.0, 700.0]).unwrap();
+    let [left, ..] = lines.plot;
+    let x = |key: &str| match lines.marks.iter().find(|m| m.key == key).unwrap().shape {
+        Shape::Dot { x, .. } => x,
+        other => panic!("{other:?}"),
+    };
+    let names = lines.legend.iter().map(|e| e.label.origin[0]).fold(f32::INFINITY, f32::min);
+    assert!(names < 320.0 && lines.paths.len() == 3, "names stand at {names}");
+    for path in &lines.paths {
+        let first = &path.marks[0];
+        let label = lines.labels.iter().find(|l| l.key == *first).unwrap();
+        assert!(label.text.width > x(first) - left, "{first} is wider than its room inside the plot");
+        let end = label.origin[0] + label.text.width;
+        assert!((end - x(first)).abs() < 0.01, "{first} ends at {end}, its point at {}", x(first));
+        assert!(label.origin[0] >= -0.01, "{first} stays inside the chart");
+    }
+}
+
+#[test]
 fn the_baseline_rules_zero_only_where_the_value_axis_reaches_it() {
     // Values far from zero: a line's or a dot plot's axis starts near them, and no rule
     // at the plot's foot claims to be zero. The lowest gridline rules there instead.
