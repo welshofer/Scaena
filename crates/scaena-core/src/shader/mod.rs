@@ -90,12 +90,39 @@ impl Job {
 
     /// The CPU reference: the box's pixels, row-major sRGB RGBA8 with straight alpha.
     pub fn render(&self) -> Vec<u8> {
+        self.render_on(1)
+    }
+
+    /// [`Job::render`], its rows in bands on up to `threads` threads. No row reads another,
+    /// so the bytes do not depend on how many: `render_on(n) == render()` for every `n`.
+    /// A band is at least [`BAND`] rows, and WebAssembly, which has no threads, takes one.
+    pub fn render_on(&self, threads: usize) -> Vec<u8> {
+        let [_, _, w, h] = self.bbox();
+        let row = w as usize * 4;
+        let mut out = vec![0; row * h as usize];
+        let bands = if cfg!(target_arch = "wasm32") { 1 } else { threads.min(h as usize / BAND).max(1) };
+        if bands == 1 || row == 0 {
+            self.render_rows(0, &mut out);
+        } else {
+            let rows = (h as usize).div_ceil(bands);
+            std::thread::scope(|s| {
+                for (i, band) in out.chunks_mut(rows * row).enumerate() {
+                    s.spawn(move || self.render_rows((i * rows) as u32, band));
+                }
+            });
+        }
+        out
+    }
+
+    /// The box's rows from `first` into `out`, as many as it holds whole: those rows of
+    /// [`Job::render`], byte for byte.
+    pub fn render_rows(&self, first: u32, out: &mut [u8]) {
         match self {
-            Job::Mesh(f) => f.render(),
-            Job::Gradient(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Noise(f) => f.render(),
-            Job::Grain(f) => f.render(),
-            Job::Particles(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Mesh(f) => f.render_rows(first, out),
+            Job::Gradient(f) => rows(f.bbox, first, out, |x, y| f.pixel(x, y)),
+            Job::Noise(f) => f.render_rows(first, out),
+            Job::Grain(f) => f.render_rows(first, out),
+            Job::Particles(f) => rows(f.bbox, first, out, |x, y| f.pixel(x, y)),
         }
     }
 
@@ -206,7 +233,31 @@ pub fn default(kind: ShaderKind, param: &str) -> Option<f32> {
     values.into_iter().find(|(name, _)| *name == param).map(|(_, v)| v)
 }
 
-/// The box's pixels, row-major, from `pixel(x, y)`.
+/// The fewest rows [`Job::render_on`] gives a thread: below it, a thread costs about as
+/// much to start as its band takes to work out.
+pub const BAND: usize = 64;
+
+/// The threads a shader's rows are best spread over here: the host's cores, up to the 8
+/// SPEC §15's budgets allow, and 1 in WebAssembly, which has no threads.
+pub fn cores() -> usize {
+    if cfg!(target_arch = "wasm32") { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get().min(8)) }
+}
+
+/// The box's rows from `first` into `out`, as many as it holds whole, from `pixel(x, y)`.
+fn rows(bbox: [u32; 4], first: u32, out: &mut [u8], pixel: impl Fn(u32, u32) -> [u8; 4]) {
+    let w = bbox[2];
+    if w == 0 {
+        return;
+    }
+    for (gy, row) in (first..).zip(out.chunks_exact_mut(w as usize * 4)) {
+        for (gx, px) in (0..).zip(row.as_chunks_mut::<4>().0) {
+            *px = pixel(gx, gy);
+        }
+    }
+}
+
+/// The box's pixels, row-major, from `pixel(x, y)`: what each kind's tests hold its render to.
+#[cfg(test)]
 fn render(bbox: [u32; 4], pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let [_, _, w, h] = bbox;
     let mut out = Vec::with_capacity(w as usize * h as usize * 4);
@@ -589,6 +640,31 @@ mod tests {
             assert_eq!(default(kind, "nonsense"), None);
         }
         assert!(interpolates(ShaderKind::Gradient, "angle") && !interpolates(ShaderKind::Gradient, "speed"));
+    }
+
+    /// `render_on` is `render` on any number of threads, in bands that do not split the box
+    /// evenly; and `render_rows` is `render`'s rows from anywhere. For every kind.
+    #[test]
+    fn rows_in_bands_are_the_render() {
+        let palette = vec![Color([20, 10, 40, 255]), Color([255, 240, 220, 200]), Color([90, 180, 120, 255])];
+        let (w, h) = (150_usize, 515_usize);
+        for kind in
+            [ShaderKind::Mesh, ShaderKind::Gradient, ShaderKind::Noise, ShaderKind::Grain, ShaderKind::Particles]
+        {
+            let rect = [0.0, 0.0, w as f32, h as f32];
+            let op = Op::Shader { kind, seed: 3, t: 1.25, rect, palette: palette.clone(), params: BTreeMap::new() };
+            let job = Job::new(&op, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [w as u32, h as u32]).unwrap().unwrap();
+            let whole = job.render();
+            for threads in 1..=9 {
+                assert!(job.render_on(threads) == whole, "{kind:?} on {threads} threads");
+            }
+            let row = w * 4;
+            for (first, n) in [(0, 1), (7, 13), (h - 13, 13), (BAND, BAND)] {
+                let mut out = vec![0; n * row];
+                job.render_rows(first as u32, &mut out);
+                assert!(out == whole[first * row..(first + n) * row], "{kind:?}, rows {first} to {}", first + n);
+            }
+        }
     }
 
     #[test]

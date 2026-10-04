@@ -193,10 +193,18 @@ impl Frame {
     /// does `pixel`'s arithmetic in its order, so the bytes are the same
     /// (`render_is_pixel_for_pixel`), and each step runs as SIMD.
     pub fn render(&self) -> Vec<u8> {
-        let [x0, y0, width, height] = self.bbox;
+        let [_, _, width, height] = self.bbox;
         let mut out = vec![0; width as usize * height as usize * 4];
+        self.render_rows(0, &mut out);
+        out
+    }
+
+    /// The box's rows from `first`, as many as `out` holds whole: those rows of
+    /// [`Frame::render`], byte for byte, since no row reads another.
+    pub fn render_rows(&self, first: u32, out: &mut [u8]) {
+        let [x0, y0, width, _] = self.bbox;
         if width == 0 {
-            return out;
+            return;
         }
         let enc = Encoder::new();
         let [a, b, c, d, e, f] = self.map;
@@ -206,7 +214,7 @@ impl Frame {
         let mut acc = [[0.0_f32; BLOCK]; 5];
         let mut rgb = [[0.0_f32; BLOCK]; 3];
         let mut a8 = [0_u8; BLOCK];
-        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+        for (gy, row) in (first..).zip(out.chunks_exact_mut(width as usize * 4)) {
             let py = (y0 + gy) as f32 + 0.5;
             let (cpy, dpy) = (c * py, d * py);
             let hy = lowbias32(gy);
@@ -265,7 +273,6 @@ impl Frame {
                 }
             }
         }
-        out
     }
 
     /// The uniform buffer `mesh.wgsl` declares as `Mesh`, for output rows `stride`

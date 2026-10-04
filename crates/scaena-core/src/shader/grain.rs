@@ -98,13 +98,21 @@ impl Frame {
     pub fn render(&self) -> Vec<u8> {
         let [_, _, width, height] = self.bbox;
         let mut out = vec![0; width as usize * height as usize * 4];
+        self.render_rows(0, &mut out);
+        out
+    }
+
+    /// The box's rows from `first`, as many as `out` holds whole: those rows of
+    /// [`Frame::render`], byte for byte, since no row reads another.
+    pub fn render_rows(&self, first: u32, out: &mut [u8]) {
+        let width = self.bbox[2];
         if width == 0 {
-            return out;
+            return;
         }
         let (Color(dark), Color(light)) = (self.dark, self.light);
         let opacity = [f32::from(dark[3]) / 255.0, f32::from(light[3]) / 255.0];
         let (mut noise, mut a8) = ([0.0_f32; BLOCK], [0_u8; BLOCK]);
-        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+        for (gy, row) in (first..).zip(out.chunks_exact_mut(width as usize * 4)) {
             let hy = lowbias32(gy);
             for (gx, pixels) in (0..).step_by(BLOCK).zip(row.chunks_mut(BLOCK * 4)) {
                 let n = pixels.len() / 4;
@@ -126,7 +134,6 @@ impl Frame {
                 }
             }
         }
-        out
     }
 
     /// The uniform buffer `grain.wgsl` declares as `Grain`, for output rows `stride`

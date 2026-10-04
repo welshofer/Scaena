@@ -494,7 +494,8 @@ impl Cx<'_, '_> {
         let (Some(clip), Some(size)) = (path(&Path::rect(rect)), Size::from_wh(w as f32, h as f32)) else {
             return Ok(());
         };
-        let image = Image::from_custom(Pixels::of_rgba(job.render(), w, h), true).map_err(ExportError::Pdf)?;
+        let image = Image::from_custom(Pixels::of_rgba(job.render_on(scaena_core::shader::cores()), w, h), true)
+            .map_err(ExportError::Pdf)?;
         self.surface.push_clip_path(&clip, &KRule::NonZero);
         // Texel (0, 0) on shader pixel (x, y): undo the layers' transforms and the scale.
         let place = xf.inverse() * Affine::translate((f64::from(x), f64::from(y)));

@@ -276,7 +276,8 @@ fn paint(
         let workers: Vec<_> = (0..threads.min(todo.len()))
             .map(|_| {
                 s.spawn(|| {
-                    let mut painter = CpuPainter::default();
+                    // Frames are already painted on every core, so a frame's shaders take one.
+                    let mut painter = CpuPainter { threads: 1, ..CpuPainter::default() };
                     let mut done = Vec::new();
                     loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

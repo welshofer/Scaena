@@ -499,11 +499,15 @@ pub mod cpu {
         /// (ADR-0004 finding 2). vello_cpu honours `OptimizeQuality` only when built with
         /// its `f32_pipeline` feature; without it, it paints u8 whatever this says.
         pub mode: RenderMode,
+        /// The threads a shader's rows are worked out on ([`Job::render_on`]); the bytes do
+        /// not depend on it. [`scaena_core::shader::cores`] by default; 1 where frames are
+        /// already painted on every core, as video's are.
+        pub threads: usize,
     }
 
     impl Default for CpuPainter {
         fn default() -> Self {
-            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed }
+            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed, threads: scaena_core::shader::cores() }
         }
     }
 
@@ -519,7 +523,8 @@ pub mod cpu {
             let mut ctx =
                 RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
             let mut resources = Resources::new();
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs };
+            let threads = self.threads;
+            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs, threads };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             let mut pixmap = Pixmap::new(width, height);
@@ -557,6 +562,8 @@ pub mod cpu {
         fonts: &'a [FontRef],
         /// One per shader op, in the order the walk meets them.
         jobs: std::vec::IntoIter<Option<Job>>,
+        /// [`CpuPainter::threads`].
+        threads: usize,
     }
 
     impl Cx<'_> {
@@ -639,7 +646,7 @@ pub mod cpu {
             let [x, y, w, h] = job.bbox();
             let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
             // The render's buffer becomes the pixmap's: RGBA8 is four bytes, as a pixel is.
-            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(job.render())
+            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(job.render_on(self.threads))
                 .unwrap_or_else(|(_, bytes)| bytemuck::cast_slice(&bytes).to_vec());
             for p in &mut pixels {
                 (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
@@ -677,8 +684,7 @@ pub mod cpu {
                     rule: FillRule::NonZero,
                     paint: Paint::Solid(Color(ACCENT)),
                 });
-                let raster =
-                    CpuPainter { level, mode: RenderMode::OptimizeSpeed }.paint(&dl, &Assets::new(), 1.0).unwrap();
+                let raster = CpuPainter { level, ..CpuPainter::default() }.paint(&dl, &Assets::new(), 1.0).unwrap();
                 for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     assert_eq!(raster.pixel(x, y), ACCENT, "inside ({x},{y}) at {level:?}");
                 }
@@ -740,6 +746,21 @@ pub mod cpu {
                 rect,
                 palette: vec![Color([15, 118, 110, 255]), Color([194, 65, 12, 255]), Color([245, 196, 81, 255])],
                 params: BTreeMap::new(),
+            }
+        }
+
+        /// A shader's rows worked out on many threads paint what they paint on one.
+        #[test]
+        fn shader_threads_change_no_pixel() {
+            let mut dl = DisplayList::new([200.0, 300.0]);
+            dl.ops.push(mesh_op([0.0, 0.0, 200.0, 300.0]));
+            let paint = |threads| {
+                let mut painter = CpuPainter { threads, ..CpuPainter::default() };
+                painter.paint(&dl, &Assets::new(), 1.0).unwrap().rgba
+            };
+            let one = paint(1);
+            for threads in [2, 3, 8] {
+                assert!(paint(threads) == one, "{threads} threads");
             }
         }
 

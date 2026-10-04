@@ -150,13 +150,21 @@ impl Frame {
     /// bytes. Each pixel does `pixel`'s arithmetic in its order, so the bytes are
     /// `pixel`'s (`render_is_pixel_for_pixel`).
     pub fn render(&self) -> Vec<u8> {
+        let [_, _, width, height] = self.bbox;
+        let mut out = vec![0; width as usize * height as usize * 4];
+        self.render_rows(0, &mut out);
+        out
+    }
+
+    /// The box's rows from `first`, as many as `out` holds whole: those rows of
+    /// [`Frame::render`], byte for byte, since no row reads another.
+    pub fn render_rows(&self, first: u32, out: &mut [u8]) {
         // 1/3 and 1/6, as `simplex` writes them.
         const F3: f32 = 0.333_333_34;
         const G3: f32 = 0.166_666_67;
-        let [left, top, width, height] = self.bbox;
-        let mut out = vec![0; width as usize * height as usize * 4];
+        let [left, top, width, _] = self.bbox;
         if width == 0 {
-            return out;
+            return;
         }
         let enc = Encoder::new();
         let [a, b, c, d, e, f] = self.map;
@@ -182,7 +190,7 @@ impl Frame {
         let mut lab = [[0.0_f32; BLOCK]; 4];
         let mut rgb = [[0.0_f32; BLOCK]; 3];
         let mut a8 = [0_u8; BLOCK];
-        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+        for (gy, row) in (first..).zip(out.chunks_exact_mut(width as usize * 4)) {
             let fy = (top + gy) as f32 + 0.5;
             let (cfy, dfy) = (c * fy, d * fy);
             let hy = lowbias32(gy);
@@ -257,7 +265,6 @@ impl Frame {
                 }
             }
         }
-        out
     }
 
     /// The uniform buffer `noise.wgsl` declares as `Noise`, for output rows `stride`
