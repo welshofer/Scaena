@@ -1339,7 +1339,7 @@ fn on_grid(gap: f32, pitch: f32) -> f32 {
 fn read_layout(
     layout: &Layout<Ink>,
     text: String,
-    fonts: &BundleFonts,
+    fonts: &mut BundleFonts,
     hyphens: &[Hyphen],
     p: Paragraph,
 ) -> Result<TextLayout, EngineError> {
@@ -1426,6 +1426,7 @@ fn read_layout(
                 .take(glyphs.len())
                 .collect();
             taken.1 += glyphs.len();
+            fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
             runs.push(GlyphRun {
                 font: fonts.font_ref(run.font())?,
                 size: run.font_size(),

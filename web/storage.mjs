@@ -11,7 +11,8 @@
 // - A PNG dropped on the source joins the bundle as `assets/<sha256>.png`, its path where it
 //   was dropped; an image node that shows it compiles and draws, and a save keeps it.
 // - Download .scaena is a zip whose fonts the subsetter's own module subset. Opened, it is
-//   copied into the browser's storage and edits as it was.
+//   copied into the browser's storage and edits as it was. A damaged font stops a download,
+//   which names it, and once it is whole again the next download goes through.
 // - A folder (any directory handle; here one in the browser's storage) opens and saves in
 //   place: the save names its fonts by their content and removes the old names.
 // Exits 1 on any failure.
@@ -163,6 +164,36 @@ try {
   // The repository's example fonts are subset to the examples' text already, so a subset is
   // about their size; it is other bytes, under another name.
   check(subset.length === 3 && subset.every((p) => !fonts.includes(p)), `its fonts are the subsetter's, named by their content: ${subset}`);
+
+  // A damaged font stops the subsetter's module, a panic in it a trap the worker catches: the
+  // download says which font, and with the font whole again the next one goes through (PLAN
+  // 2.25). Its `maxp` table is one byte long, where skera expects to read it.
+  {
+    const inter = subset.find((p) => p.includes("Inter"));
+    const whole = await readFile("docs/examples/fonts/Inter-VF.ttf");
+    const damaged = Buffer.from(whole);
+    for (let i = 0; i < damaged.readUInt16BE(4); i++) {
+      const record = 12 + 16 * i;
+      if (damaged.toString("latin1", record, record + 4) === "maxp") damaged.writeUInt32BE(1, record + 12);
+    }
+    const asWas = await page.evaluate(() => window.scaena.source());
+    // Dropped under its name, the font takes its place; the source is put back as it was.
+    const put = (bytes) =>
+      page.evaluate(
+        async ([name, b64, source]) => {
+          await window.scaena.drop(name, Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
+          window.scaena.type(source);
+        },
+        [inter.split("/").pop(), bytes.toString("base64"), asWas],
+      );
+    await put(damaged);
+    await page.evaluate(() => window.scaena.download());
+    const refused = await page.locator("#status").textContent();
+    check(refused.startsWith("not downloaded") && refused.includes(inter) && refused.includes("damaged"), `a damaged font stops a download, which names it: ${refused}`);
+    await put(whole);
+    const [again] = await Promise.all([page.waitForEvent("download"), page.click("#download")]);
+    check(again.suggestedFilename() === "downloaded.scaena", `with the font whole again, the next download goes through: ${await page.locator("#status").textContent()}`);
+  }
 
   // A folder, saved in place: the revenue example's files as they are in the repository.
   const deck = JSON.parse(await readFile("docs/examples/revenue.deck.json", "utf8"));

@@ -376,7 +376,16 @@ async function subsetFonts() {
   const { chars, fonts } = JSON.parse(player.subsetting()) as { chars: string; fonts: string[] };
   const subsetter = await import("@scaena/subset");
   await subsetter.default();
-  for (const font of fonts) player.addSubset(font, chars, subsetter.subset(player.file(font)!, chars));
+  for (const font of fonts) {
+    let subset: Uint8Array;
+    try {
+      subset = subsetter.subset(player.file(font)!, chars);
+    } catch (e) {
+      // A damaged font can stop the subsetter: a panic in its module is a trap here.
+      throw new Error(`${font} could not be subset (${said(e)}): the font file may be damaged`);
+    }
+    player.addSubset(font, chars, subset);
+  }
 }
 
 /** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save needs it:

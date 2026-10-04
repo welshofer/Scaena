@@ -76,8 +76,20 @@ impl Default for PdfSettings {
     }
 }
 
-/// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`.
+/// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`. krilla reads each font
+/// with a reader of its own and subsets it as the document finishes, and neither expects a
+/// damaged font: a panic in either is an error that says so (PLAN 2.25).
 pub fn pdf(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+    let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(deck, pages, assets, settings)));
+    written.unwrap_or_else(|panic| {
+        let why = (panic.downcast_ref::<&str>().map(|s| s.to_string()))
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        Err(ExportError::Pdf(format!("krilla stopped writing the PDF ({why}): a font file may be damaged")))
+    })
+}
+
+fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
     let snapshots = scaena_core::resolve_states(deck).map_err(|e| ExportError::Pdf(e.to_string()))?;
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();

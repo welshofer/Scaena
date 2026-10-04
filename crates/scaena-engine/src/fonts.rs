@@ -15,7 +15,14 @@ use crate::theme::Theme;
 use fontique::{Blob, Collection, CollectionOptions, SourceCache};
 use parley::{FontContext, FontData};
 use scaena_core::displaylist::FontRef;
-use std::collections::BTreeMap;
+use skrifa::color::{Brush, ColorPainter, CompositeMode, Transform};
+use skrifa::instance::{LocationRef, NormalizedCoord, Size};
+use skrifa::outline::{DrawSettings, OutlineGlyphCollection, OutlinePen};
+use skrifa::raw::TableProvider;
+use skrifa::raw::tables::glyf::Glyph;
+use skrifa::raw::types::BoundingBox;
+use skrifa::{GlyphId, MetadataProvider};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// A font context that can see only fonts registered from bundle bytes.
@@ -40,6 +47,9 @@ pub struct BundleFonts {
     families: BTreeMap<String, Vec<String>>,
     /// Bundle font id → what its license lets a document do with it.
     embedding: BTreeMap<String, Embedding>,
+    /// The glyphs [`BundleFonts::check_glyphs`] has found the painters can draw, by font
+    /// blob, face, and instance.
+    drawable: HashMap<(u64, u32, Vec<i16>), HashSet<u32>>,
 }
 
 impl Default for BundleFonts {
@@ -49,6 +59,7 @@ impl Default for BundleFonts {
             by_blob: BTreeMap::new(),
             families: BTreeMap::new(),
             embedding: BTreeMap::new(),
+            drawable: HashMap::new(),
         }
     }
 }
@@ -144,6 +155,48 @@ impl BundleFonts {
         Ok(())
     }
 
+    /// Check that each of `glyphs` draws in `font` at `coords` as the painters draw it: a
+    /// color glyph's paint graph, each gradient in it with stops and each outline it clips
+    /// to, or else the glyph's outline, from a font whose `head` table reads. A font damaged
+    /// inside a glyph is an error here that names the font and the glyph. The painters
+    /// cannot refuse one: the CPU painter's glyph cache unwraps what skrifa says of it, and
+    /// in the browser a panic stops the worker. Each glyph is checked once per instance.
+    pub fn check_glyphs(
+        &mut self,
+        font: &FontData,
+        coords: &[i16],
+        glyphs: impl IntoIterator<Item = u32>,
+    ) -> Result<(), EngineError> {
+        let key = (font.data.id(), font.index, coords.to_vec());
+        let done = self.drawable.get(&key);
+        let todo: Vec<u32> = glyphs.into_iter().filter(|g| done.is_none_or(|d| !d.contains(g))).collect();
+        if todo.is_empty() {
+            return Ok(());
+        }
+        let name = self.by_blob.get(&font.data.id()).map_or("a font", String::as_str);
+        let damaged = |what: String| EngineError::Font(format!("{name}: {what}: the font file is damaged"));
+        let face = skrifa::FontRef::from_index(font.data.data(), font.index).map_err(|e| damaged(e.to_string()))?;
+        face.head().map_err(|e| damaged(format!("its `head` table: {e}")))?;
+        let normalized: Vec<NormalizedCoord> = coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
+        let location = LocationRef::new(&normalized);
+        let outlines = face.outline_glyphs();
+        let colors = face.color_glyphs();
+        for &gid in &todo {
+            let id = GlyphId::new(gid);
+            let glyph = |what: String| damaged(format!("glyph {gid}: {what}"));
+            match colors.get(id) {
+                Some(color) => {
+                    let mut check = PaintCheck { face: &face, outlines: &outlines, location, error: None };
+                    color.paint(location, &mut check).map_err(|e| glyph(e.to_string()))?;
+                    check.error.map_or(Ok(()), |e| Err(glyph(e)))?;
+                }
+                None => draws(&face, &outlines, id, location).map_err(glyph)?,
+            }
+        }
+        self.drawable.entry(key).or_default().extend(todo);
+        Ok(())
+    }
+
     /// The display-list reference for a font parley selected.
     pub fn font_ref(&self, font: &FontData) -> Result<FontRef, EngineError> {
         let id = self.by_blob.get(&font.data.id()).ok_or_else(|| {
@@ -151,6 +204,95 @@ impl BundleFonts {
         })?;
         Ok(FontRef { id: id.clone(), index: font.index })
     }
+}
+
+/// Whether glyph `id`'s outline draws at `location`, unhinted, as the painters draw it. A
+/// glyph with no outline draws nothing, which is no error.
+fn draws(
+    face: &skrifa::FontRef,
+    outlines: &OutlineGlyphCollection,
+    id: GlyphId,
+    location: LocationRef,
+) -> Result<(), String> {
+    if pointless(face, id) {
+        return Err("its outline has no points and data for some".into());
+    }
+    let Some(outline) = outlines.get(id) else { return Ok(()) };
+    let settings = DrawSettings::unhinted(Size::unscaled(), location);
+    outline.draw(settings, &mut NoPen).map(|_| ()).map_err(|e| format!("its outline: {e}"))
+}
+
+/// Whether glyph `id`, or a glyph it is made of, has no points yet data for some. The
+/// read-fonts that skrifa reads outlines with here, as the CPU painter's glyph cache does
+/// (0.41), reads such a glyph's flags past the end of its points, a panic that 0.44 fixes;
+/// parley pins 0.41 until it moves. The glyph is refused before skrifa reads it.
+fn pointless(face: &skrifa::FontRef, id: GlyphId) -> bool {
+    let (Ok(loca), Ok(glyf)) = (face.loca(None), face.glyf()) else { return false };
+    let (mut todo, mut seen) = (vec![id], HashSet::new());
+    // A composite can name itself, or a glyph that names it back: each glyph is read once,
+    // and at most 64 of them.
+    while let Some(id) = todo.pop() {
+        if seen.len() > 64 || !seen.insert(id) {
+            continue;
+        }
+        match loca.get_glyf(id, &glyf) {
+            Ok(Some(Glyph::Simple(simple))) if simple.num_points() == 0 && !simple.glyph_data().is_empty() => {
+                return true;
+            }
+            Ok(Some(Glyph::Composite(composite))) => {
+                todo.extend(composite.components().map(|c| GlyphId::from(c.glyph)))
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// A pen that keeps nothing: drawing into it only reads the outline.
+struct NoPen;
+
+impl OutlinePen for NoPen {
+    fn move_to(&mut self, _: f32, _: f32) {}
+    fn line_to(&mut self, _: f32, _: f32) {}
+    fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
+    fn close(&mut self) {}
+}
+
+/// Walks a color glyph's paint graph as a painter would, keeping the first thing in it a
+/// painter could not draw: an outline it clips to that does not draw, or a gradient with
+/// no stops.
+struct PaintCheck<'a> {
+    face: &'a skrifa::FontRef<'a>,
+    outlines: &'a OutlineGlyphCollection<'a>,
+    location: LocationRef<'a>,
+    error: Option<String>,
+}
+
+impl ColorPainter for PaintCheck<'_> {
+    fn push_transform(&mut self, _: Transform) {}
+    fn pop_transform(&mut self) {}
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        if self.error.is_none()
+            && let Err(e) = draws(self.face, self.outlines, glyph_id, self.location)
+        {
+            self.error = Some(format!("glyph {} it clips to: {e}", glyph_id.to_u32()));
+        }
+    }
+    fn push_clip_box(&mut self, _: BoundingBox<f32>) {}
+    fn pop_clip(&mut self) {}
+    fn fill(&mut self, brush: Brush<'_>) {
+        let stops = match brush {
+            Brush::Solid { .. } => return,
+            Brush::LinearGradient { color_stops, .. }
+            | Brush::RadialGradient { color_stops, .. }
+            | Brush::SweepGradient { color_stops, .. } => color_stops,
+        };
+        if stops.is_empty() && self.error.is_none() {
+            self.error = Some("a gradient with no color stops".into());
+        }
+    }
+    fn push_layer(&mut self, _: CompositeMode) {}
 }
 
 #[cfg(test)]
