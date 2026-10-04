@@ -58,6 +58,10 @@ pub struct Views {
     /// cell, moved or resized.
     #[serde(default)]
     pub to: Option<[f32; 4]>,
+    /// With `snap`: the patch keeps the placement to the state inspected, written into its
+    /// own props wherever it lives now (`place`'s `fork`).
+    #[serde(default)]
+    pub fork: bool,
 }
 
 impl Views {
@@ -420,6 +424,9 @@ pub fn inspect_deck(
         (_, _, None, Some(_)) => {
             return Err(OpsError::new("`to` is a box dropped on a node's targets: say how it snaps with `snap`"));
         }
+        (_, _, None, None) if views.fork => {
+            return Err(OpsError::new("`fork` keeps a snapped patch to its state: say how it snaps with `snap`"));
+        }
         _ => {}
     }
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
@@ -507,7 +514,7 @@ pub fn inspect_deck(
             if let Some(node) = &views.targets {
                 let found = engine.targets(&req, node)?;
                 if let (Some(how), Some(to)) = (views.snap, views.to) {
-                    let Some(target) = snap(&found, how, to, state)? else {
+                    let Some(target) = snap(&found, how, to, state, views.fork)? else {
                         let ways: Vec<&str> = Targets::from(found).snaps.iter().map(|m| m.name()).collect();
                         return Err(OpsError::new(format!(
                             "`{node}` does not snap by `{}` where it is held: it snaps by {}",
@@ -549,15 +556,17 @@ impl From<scaena_engine::geometry::Targets> for Targets {
 }
 
 /// Where the box `to` lands on `found` when it snaps `how`, with the patch that puts the
-/// node there as an edit in `state`; `None` where nothing places the node that way.
+/// node there as an edit in `state`, or, to `fork` it, kept to `state`; `None` where nothing
+/// places the node that way.
 pub fn snap(
     found: &scaena_engine::geometry::Targets,
     how: SnapMode,
     to: [f32; 4],
     state: &str,
+    fork: bool,
 ) -> Result<Option<Snapped>, OpsError> {
     let Some(target) = found.snap(how.engine(), to) else { return Ok(None) };
-    let ops = target.ops(Some(state));
+    let ops = target.ops(Some(state), fork);
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Some(Snapped { cell: target.cell, patch }))
 }

@@ -86,6 +86,11 @@
         "minItems": 4,
         "maxItems": 4,
         "default": null
+      },
+      "fork": {
+        "description": "With `snap`: the patch keeps the placement to the state inspected, written into its\nown props wherever it lives now (`place`'s `fork`).",
+        "type": "boolean",
+        "default": false
       }
     },
     "additionalProperties": false

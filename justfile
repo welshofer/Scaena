@@ -154,6 +154,7 @@ web-smoke: site
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu:{{justfile_directory()}}/target/web-smoke/standalone-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
     node web/player.mjs
     node web/editor.mjs
+    node web/canvas.mjs
     node web/storage.mjs
     node web/assistant.mjs
     node web/history.mjs

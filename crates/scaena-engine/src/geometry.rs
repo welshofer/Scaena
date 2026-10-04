@@ -18,7 +18,7 @@ use crate::layout::Grid;
 use crate::sample::Scene;
 use crate::theme::Theme;
 use scaena_core::Snapshot;
-use scaena_core::displaylist::Rect;
+use scaena_core::displaylist::{DisplayList, Op, Rect};
 use scaena_core::document::{Deck, NodeType};
 use scaena_core::model::values::{Range, Rect as Placed};
 use scaena_core::patch::{SemanticOp, Spot};
@@ -78,6 +78,27 @@ impl Scene {
         out
     }
 
+    /// The state at rest, its shaders `time` seconds into the global timeline, with `node`
+    /// and everything it holds drawn `by` canvas units from where they stand, over the rest:
+    /// what a drag shows while it moves, held above the page. Only their layers move;
+    /// nothing is laid out again (ADR-0013). A member of a group composited as one layer
+    /// moves inside it, in its place.
+    pub fn moved(&self, time: f64, node: &str, by: [f32; 2]) -> DisplayList {
+        let mut dl = self.draw_at(time);
+        let mut held = vec![node];
+        let mut i = 0;
+        while let Some(id) = held.get(i).copied() {
+            held.extend(self.tree.get(id).into_iter().flat_map(|p| p.children.iter().map(String::as_str)));
+            i += 1;
+        }
+        carry(&mut dl.ops, &held, by, [1.0, 0.0, 0.0, 1.0]);
+        let carried = |op: &Op| matches!(op, Op::Layer { node: Some(id), .. } if held.contains(&id.as_str()));
+        let (over, rest): (Vec<Op>, Vec<Op>) = std::mem::take(&mut dl.ops).into_iter().partition(carried);
+        dl.ops = rest;
+        dl.ops.extend(over);
+        dl
+    }
+
     /// The containers and groups `id` sits in, innermost first.
     fn containers(&self, id: &str) -> Vec<String> {
         let mut out = Vec::new();
@@ -87,6 +108,27 @@ impl Scene {
             at = self.tree.get(parent).and_then(|p| p.parent.as_deref());
         }
         out
+    }
+}
+
+/// Move the layers of `held` in `ops` by `by`, canvas units, where `linear` is what the
+/// layers around them scale and turn by: a layer moved carries what it holds, so a node in a
+/// group's layer moves once.
+fn carry(ops: &mut [Op], held: &[&str], by: [f32; 2], linear: [f32; 4]) {
+    for op in ops {
+        let Op::Layer { node, transform, ops, .. } = op else { continue };
+        let [a, b, c, d] = linear;
+        if node.as_deref().is_some_and(|id| held.contains(&id)) {
+            // `by` in the units the layer is placed in.
+            let det = a * d - b * c;
+            if det.abs() > f32::EPSILON {
+                transform[4] += (d * by[0] - c * by[1]) / det;
+                transform[5] += (a * by[1] - b * by[0]) / det;
+            }
+            continue;
+        }
+        let [e, f, g, h] = [transform[0], transform[1], transform[2], transform[3]];
+        carry(ops, held, by, [a * e + c * f, b * e + d * f, a * g + c * h, b * g + d * h]);
     }
 }
 
@@ -152,12 +194,13 @@ pub struct Target {
 
 impl Target {
     /// The patch that puts the node there, made in `state`: a `place` per spot, each
-    /// written where that placement lives (SPEC §7.3).
-    pub fn ops(&self, state: Option<&str>) -> Vec<SemanticOp> {
+    /// written where that placement lives (SPEC §7.3), or, to `fork` them, kept to `state`.
+    pub fn ops(&self, state: Option<&str>, fork: bool) -> Vec<SemanticOp> {
         let place = |(node, spot): &(String, Spot)| SemanticOp::Place {
             node: node.clone(),
             at: spot.clone(),
             state: state.map(String::from),
+            fork,
         };
         self.spots.iter().map(place).collect()
     }

@@ -151,6 +151,8 @@ struct DeckInspect {
     snap: Option<scaena_ops::inspect::SnapMode>,
     #[serde(default)]
     to: Option<[f32; 4]>,
+    #[serde(default)]
+    fork: bool,
 }
 
 #[derive(Deserialize)]
@@ -264,6 +266,7 @@ impl Session {
                     targets: a.targets,
                     snap: a.snap,
                     to: a.to,
+                    fork: a.fork,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
