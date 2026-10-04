@@ -405,6 +405,10 @@ mod tests {
         // Something is drawn: the background is not all there is.
         let first = &frame.rgba[..4];
         assert!(frame.rgba.chunks(4).any(|p| p != first));
+        // A size past what a raster holds is an error the model reads, not an allocation that
+        // would stop the page's worker (PLAN 2.26).
+        let huge = s.tool("deck_render", json!({ "state": "start", "size": "32768x18432" }), AGENT).unwrap_err();
+        assert!(failure(&huge)["message"].as_str().unwrap().contains("not a raster"), "{}", failure(&huge));
     }
 
     #[test]

@@ -293,6 +293,12 @@ impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
     }
 }
 
+/// The most pixels a raster holds: 2^25, an 8K frame (7680 × 4320) and a little more. A
+/// painter keeps its raster in memory, and beside it an image of each shader the frame
+/// shows, as large as the frame for a background; in the browser an allocation that fails
+/// stops the worker. A larger raster is an error (SPEC §7.1).
+pub const MAX_PIXELS: u64 = 1 << 25;
+
 /// Output size in whole pixels for `dl` at `scale`.
 fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
     let (w, h) = ((dl.viewport[0] * scale).round(), (dl.viewport[1] * scale).round());
@@ -300,6 +306,16 @@ fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
         return Err(PaintError::Size(w, h));
     }
     Ok((w as u16, h as u16))
+}
+
+/// [`raster_size`] for a painter that keeps the raster: at most [`MAX_PIXELS`]. The PDF
+/// painter sizes its shaders' images by the raster it would make, and keeps none.
+fn raster(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
+    let (w, h) = raster_size(dl, scale)?;
+    match u64::from(w) * u64::from(h) <= MAX_PIXELS {
+        true => Ok((w, h)),
+        false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+    }
 }
 
 fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
@@ -518,7 +534,7 @@ pub mod cpu {
 
         fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
-            let (width, height) = raster_size(dl, scale)?;
+            let (width, height) = raster(dl, scale)?;
             let jobs = shader_jobs(dl, scale)?.into_iter();
             let mut ctx =
                 RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
@@ -735,6 +751,23 @@ pub mod cpu {
             assert_eq!(raster.pixel(5, 5), [0, 0, 0, 255]);
             assert_eq!(raster.pixel(3, 3)[3], 0);
             assert_eq!(raster.pixel(6, 6)[3], 0);
+        }
+
+        /// A raster past [`MAX_PIXELS`] is an error before the painter asks for its memory: a
+        /// size at the canvas's ratio up to 65,535 pixels a side asked for gigabytes, and in the
+        /// browser an allocation that fails stops the worker (PLAN 2.26).
+        #[test]
+        fn a_raster_past_max_pixels_is_an_error() {
+            let dl = DisplayList::new([1920.0, 1080.0]);
+            // 7724 × 4345, the first frame at its ratio past 2^25; 65280 × 36720, each side a
+            // `u16`, 9.6 GB.
+            for scale in [7724.0 / 1920.0, 17.0, 34.0f32] {
+                let want = ((1920.0 * scale).round(), (1080.0 * scale).round());
+                match CpuPainter::default().paint(&dl, &Assets::new(), scale) {
+                    Err(PaintError::Size(w, h)) => assert_eq!((w, h), want),
+                    other => panic!("{want:?}: {:?}", other.map(|r| (r.width, r.height))),
+                }
+            }
         }
 
         /// A three-color mesh op over `rect`.
@@ -1200,7 +1233,17 @@ pub mod gpu {
                 };
                 let adapter = ready(instance.request_adapter(&options))?
                     .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
-                let descriptor = wgpu::DeviceDescriptor { label: Some("scaena"), ..Default::default() };
+                // The largest textures and buffers the adapter holds, not wgpu's defaults (8192
+                // pixels a side, 128 MiB a shader's pixels): a raster the CPU painter makes, this
+                // one makes too, where the GPU can.
+                let most = adapter.limits();
+                let required_limits = wgpu::Limits {
+                    max_buffer_size: most.max_buffer_size,
+                    max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
+                    ..wgpu::Limits::default().using_resolution(most)
+                };
+                let descriptor =
+                    wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() };
                 let (device, queue) = ready(adapter.request_device(&descriptor))?.map_err(gpu)?;
                 Self::with_device(device, queue, adapter.get_info())
             }
@@ -1314,10 +1357,35 @@ pub mod gpu {
             /// a frame on its way back.
             fn start(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Flight, PaintError> {
                 let jobs = shader_jobs(dl, scale)?;
+                self.holds(dl, scale, &jobs)?;
                 let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
                 let flight = self.render(dl, fonts, scale, &images);
                 Shaders::release(&mut self.renderer, images);
                 flight
+            }
+
+            /// Whether this GPU holds what painting `dl` at `scale` makes: its target and the
+            /// buffer it is read back through, and each shader's pixels, a storage buffer of
+            /// four bytes a pixel, and texture. A frame past one is an error here, as one past
+            /// [`MAX_PIXELS`] is: wgpu's default error handler panics on a texture or buffer
+            /// the device does not hold.
+            fn holds(&self, dl: &DisplayList, scale: f32, jobs: &[Option<Job>]) -> Result<(), PaintError> {
+                let limits = self.device.limits();
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+                let fits = |w: u32, h: u32, most: u64| {
+                    let bytes = u64::from((w * 4).div_ceil(align) * align) * u64::from(h);
+                    w <= limits.max_texture_dimension_2d && h <= limits.max_texture_dimension_2d && bytes <= most
+                };
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let (w, h) = raster(dl, scale)?;
+                let shaders_fit = jobs.iter().flatten().all(|job| {
+                    let [_, _, w, h] = job.bbox();
+                    fits(w, h, storage)
+                });
+                match fits(u32::from(w), u32::from(h), limits.max_buffer_size) && shaders_fit {
+                    true => Ok(()),
+                    false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+                }
             }
 
             fn render(
@@ -1524,6 +1592,45 @@ pub mod gpu {
                 let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
                 assert!(worst <= 1, "max channel step {worst} on {:?}", gpu.adapter());
                 assert_eq!(raster.pixel(19, 10), [0; 4], "nothing left of the box");
+            }
+
+            /// A frame past what this GPU holds is an error, as one past [`MAX_PIXELS`] is: a
+            /// target wider than its textures, or a shader whose pixels outgrow a storage
+            /// buffer. wgpu's default error handler panics on either, which stopped `render
+            /// --painter gpu` past 8192 pixels a side (PLAN 2.26).
+            #[test]
+            fn a_frame_past_what_the_gpu_holds_is_an_error() {
+                let Some(mut gpu) = painter() else { return };
+                let limits = gpu.device.limits();
+                let side = limits.max_texture_dimension_2d as f32;
+                // A strip wider than a texture, with few pixels in all.
+                let strip = DisplayList::new([side + 64.0, 8.0]);
+                match gpu.paint(&strip, &Assets::new(), 1.0) {
+                    Err(PaintError::Size(w, _)) => assert_eq!(w, side + 64.0),
+                    other => panic!("a target {} pixels wide: {:?}", side + 64.0, other.map(|r| r.width)),
+                }
+                // A square of shader that a raster holds, whose pixels in rows of 256 bytes
+                // outgrow a storage buffer of wgpu's default size, 128 MiB: on a GPU whose
+                // buffers hold it, it paints.
+                let n = 5792u32;
+                let mut shaded = DisplayList::new([n as f32; 2]);
+                shaded.ops.push(crate::cpu::tests::mesh_op([0.0, 0.0, n as f32, n as f32]));
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let row = u64::from(
+                    (n * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT,
+                );
+                assert!(u64::from(n) * u64::from(n) <= MAX_PIXELS && row * u64::from(n) > 128 << 20);
+                let fits = row * u64::from(n) <= storage && n <= limits.max_texture_dimension_2d;
+                match (gpu.paint(&shaded, &Assets::new(), 1.0), fits) {
+                    (Ok(raster), true) => assert_eq!((raster.width, raster.height), (n, n)),
+                    (Err(PaintError::Size(..)), false) => {}
+                    (other, _) => {
+                        panic!("{n}² pixels of shader, {storage} bytes a buffer: {:?}", other.map(|r| r.width))
+                    }
+                }
+                // The painter paints on.
+                let small = gpu.paint(&DisplayList::new([4.0, 4.0]), &Assets::new(), 1.0).unwrap();
+                assert_eq!((small.width, small.height), (4, 4));
             }
 
             #[test]

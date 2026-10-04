@@ -1,6 +1,6 @@
 //! Any edit leaves a deck the engine draws, or one it refuses with an error, never one that
 //! panics it. In the browser the engine runs in the editor's worker, which compiles the
-//! source on every keystroke (PLAN 2.3); a panic there stops the page mid-word. Four kinds
+//! source on every keystroke (PLAN 2.3); a panic there stops the page mid-word. Five kinds
 //! of edit, each run through the session as the worker runs it:
 //!
 //! - a source typed: cut short, a run deleted, a character of any width typed anywhere, a
@@ -10,7 +10,10 @@
 //!   dropped;
 //! - a patch an assistant might send through `deck_patch` (PLAN 2.6);
 //! - a theme changed value by value, as a bundle's `theme.json` edited by hand, which the
-//!   player opens as it is (PLAN 2.24).
+//!   player opens as it is (PLAN 2.24);
+//! - calls to the assistant's tools, each argument there, left out, of the wrong kind, or
+//!   past what the tool can do: a state the deck lacks, a raster no painter could hold, a
+//!   spine changed, a file that holds no data (PLAN 2.26).
 //!
 //! A deck that compiles is drawn at rest and through its cue, read, painted, and linted and
 //! inspected in a state. One that does not is handed to the player as a bundle's `deck.json`
@@ -20,7 +23,7 @@
 use scaena_core::Deck;
 use scaena_wasm::Session;
 use scaena_wasm::assistant::Caller;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -311,6 +314,117 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
     Value::Array(ops)
 }
 
+/// Values no tool takes where they are put.
+const JUNK: &[&str] = &["null", "[]", "{}", "-1", "1e308", "\"\"", "true", "18446744073709551615", "[[[[[[]]]]]]"];
+
+/// Sizes to render at: the canvas's ratio from a pixel up, past what a raster holds, and not
+/// sizes at all.
+const SIZES: &[&str] = &[
+    "1x1",
+    "2x1",
+    "16x9",
+    "17x9",
+    "0x0",
+    "1920x0",
+    "960x540",
+    "1920x1081",
+    "8193x4609",
+    "16384x9216",
+    "65535x36864",
+    "4294967295x2415919104",
+    "4294967296x1",
+    "-1920x-1080",
+    "1e3x1e3",
+    "1920x1080x1",
+    "１９２０x1080",
+    "1080x1920",
+];
+
+/// A call the assistant might make: one of its tools, or a tool it does not have, with
+/// each argument there, left out, of the wrong kind, or at an edge of what the tool does.
+fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<String, Vec<Value>>) -> (String, Value) {
+    let junk = |r: &mut Rng| serde_json::from_str::<Value>(r.pick(JUNK)).unwrap();
+    let state = |r: &mut Rng| match r.below(6) {
+        0 => json!("no-such-state"),
+        1 => junk(r),
+        _ => json!(r.pick(states)),
+    };
+    let flag = |r: &mut Rng| if r.below(6) == 0 { junk(r) } else { json!(r.below(2) == 0) };
+    let mut tools = scaena_wasm::assistant::TOOLS.to_vec();
+    tools.push("deck_paint");
+    let name = *r.pick(&tools);
+    let mut args = Map::new();
+    // Each argument is there four times in five.
+    macro_rules! set {
+        ($key:expr, $value:expr) => {{
+            let value = $value;
+            if r.below(5) > 0 {
+                args.insert(String::from($key), value);
+            }
+        }};
+    }
+    match name {
+        "deck_read" => set!("scn", flag(r)),
+        "deck_patch" => {
+            set!("ops", if r.below(4) == 0 { junk(r) } else { patch(r, &b.deck, values) });
+            set!("dry_run", flag(r));
+        }
+        "deck_lint" => {
+            set!("state", state(r));
+            set!("severity", json!(r.pick(&["error", "warning", "info", "fatal", ""])));
+            set!("fix", flag(r));
+        }
+        "deck_inspect" => {
+            set!("state", state(r));
+            for view in ["resolved", "timeline", "data"] {
+                set!(view, flag(r));
+            }
+        }
+        "deck_diff" => {
+            set!("from", state(r));
+            set!("to", state(r));
+        }
+        "deck_render" => {
+            set!("state", state(r));
+            set!("t", r.pick(&[json!(0), json!(-1), json!(5e-324), json!(1e308), json!(u64::MAX)]).clone());
+            let format = [json!("9:16"), json!("16:9"), json!("nope"), json!("1:0"), junk(r)];
+            set!("format", r.pick(&format).clone());
+            set!("size", json!(r.pick(SIZES)));
+        }
+        "spine_update" => {
+            let mut spine = b.deck.get("spine").cloned().unwrap_or_else(|| json!({ "sections": [] }));
+            for _ in 0..r.below(3) {
+                change(r, &mut spine, values);
+            }
+            set!("spine", spine);
+            set!("dry_run", flag(r));
+        }
+        "data_attach" => {
+            let id = [json!("attached"), json!("q3"), json!(""), json!("Not An Id"), junk(r)];
+            set!("id", r.pick(&id).clone());
+            let files: Vec<&String> = b.files.iter().map(|(path, _)| path).collect();
+            let data: Vec<&String> = files.iter().copied().filter(|f| f.ends_with(".csv")).collect();
+            set!(
+                "file",
+                match r.below(4) {
+                    0 => json!("data/none.csv"),
+                    1 => json!(r.pick(&files)),
+                    _ if data.is_empty() => json!("deck.json"),
+                    _ => json!(r.pick(&data)),
+                }
+            );
+            let column = *r.pick(&["quarter", "revenue", "", "nope"]);
+            set!("schema", json!({ column: *r.pick(&["number", "date", "boolean", "nope"]) }));
+            set!("parse", json!({ column: *r.pick(&["%Y", "%", "%Q", "%Y%Y%Y%Y%Y%Y", ""]) }));
+        }
+        _ => set!("state", state(r)),
+    }
+    if r.below(12) == 0 {
+        args.insert(r.pick(&["bundle", "out", "painter"]).to_string(), junk(r));
+    }
+    (name.into(), if r.below(16) == 0 { junk(r) } else { Value::Object(args) })
+}
+
 fn short(v: &Value) -> String {
     let s = v.to_string();
     if s.len() > 60 { format!("{}… ({} bytes)", &s[..s.floor_char_boundary(60)], s.len()) } else { s }
@@ -359,7 +473,7 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
         Some((a.parse().ok()?, b.parse().ok()?))
     }) {
         Some((seed, count)) => (seed, count, true),
-        None => (0x5ca3_ed17_5ca3_ed17_u64, 80, false),
+        None => (0x5ca3_ed17_5ca3_ed17_u64, 100, false),
     };
     let bundles = bundles(all);
     let mut values = BTreeMap::new();
@@ -384,7 +498,7 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
         let b = &bundles[i];
         let s = sessions[i].get_or_insert_with(|| session(b));
         let mut said = Vec::new();
-        let ran = catch_unwind(AssertUnwindSafe(|| match case % 4 {
+        let ran = catch_unwind(AssertUnwindSafe(|| match case % 5 {
             // A source typed into the editor: what compiles replaces the deck.
             0 => {
                 let mut source = sources[i].clone();
@@ -421,6 +535,32 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                 }
                 let compiled = themed.compile(&sources[i]).valid;
                 exercise(&mut r, &mut themed, compiled, &[]);
+            }
+            // Calls the assistant makes, one after another, on the deck as it was opened. A
+            // call refused leaves the session as it was; one that edits shows its deck.
+            4 => {
+                if !s.compile(&sources[i]).valid {
+                    return;
+                }
+                let by = Caller { author: "agent:test", at: None };
+                for _ in 0..1 + r.below(3) {
+                    let states = s.states();
+                    if states.is_empty() {
+                        break;
+                    }
+                    let (name, args) = tool_call(&mut r, b, &states, &values);
+                    said.push(format!("{name} {}", short(&args)));
+                    let Ok(called) = s.tool(&name, args, by) else { continue };
+                    if let Some(frame) = &called.frame {
+                        assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
+                    }
+                    if called.edited {
+                        let compiled = s.compile(&s.source()).valid;
+                        exercise(&mut r, s, compiled, &[]);
+                    }
+                }
+                let compiled = s.compile(&s.source()).valid;
+                exercise(&mut r, s, compiled, &[]);
             }
             // A patch the assistant sends, to the deck as it was opened.
             _ => {
