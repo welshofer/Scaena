@@ -142,7 +142,8 @@ web-dev:
 # The web player in headless Chromium: every torture frame shown, painted in its worker by
 # WebGPU and by the CPU painter (PLAN 2.1); a single-file export's, from its address on disk
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
-# the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its
+# the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its canvas,
+# where a node is moved and resized (PLAN 2.31) and text typed where it stands (PLAN 2.32), its
 # storage: open, save, download, and drop (PLAN 2.4), its assistant, against a scripted server
 # for each provider (PLAN 2.6), its saves recorded in a bundle's history (PLAN 2.9), and the
 # pages on a folder `scaena serve` serves (PLAN 2.11). Then
@@ -155,6 +156,7 @@ web-smoke: site
     node web/player.mjs
     node web/editor.mjs
     node web/canvas.mjs
+    node web/typing.mjs
     node web/storage.mjs
     node web/assistant.mjs
     node web/history.mjs

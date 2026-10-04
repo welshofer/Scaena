@@ -15,8 +15,11 @@
 //   Shift, they resize it the same.
 // - Before a patch is made, the status says which states it changes ("in 3 states"). It changes
 //   the placement where it lives; Alt keeps it to the state shown (`fork`).
+// - A double click on a text, or Enter on one selected, types in it where it stands (PLAN 2.32,
+//   `typing.ts`): with Alt, what is typed is kept to the state shown.
 import type { Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
+import { typing } from "./typing";
 
 /** What the canvas asks of the editor around it. */
 export interface Editor {
@@ -32,6 +35,9 @@ export interface Editor {
   at(node: string): Placement | undefined;
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
+  /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
+   * the first of a burst of typing. */
+  typed(source: string, edited: Edited, joins: boolean): void;
   undo(): void;
   redo(): void;
   say(text: string): void;
@@ -92,6 +98,8 @@ interface Starting {
 
 /** How far the pointer moves, CSS pixels, before a press is a drag. */
 const SLOP = 4;
+/** How soon a press follows the one before to count as a second click (or a third), ms. */
+const AGAIN = 450;
 /** How long a resize pauses before the preview shows it laid out, ms. */
 const PAUSE = 300;
 
@@ -166,6 +174,18 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     return next;
   };
 
+  /** The last press: when, and where (CSS pixels), and how many clicks it counted. A key between
+   * two presses makes the next a first click. */
+  let pressed: { at: number; client: [number, number]; clicks: number } | undefined;
+  const unpress = () => (pressed = undefined);
+  document.addEventListener("keydown", unpress, true);
+  const clicks = (e: PointerEvent) => {
+    const again =
+      pressed && e.timeStamp - pressed.at < AGAIN && Math.hypot(e.clientX - pressed.client[0], e.clientY - pressed.client[1]) < SLOP;
+    pressed = { at: e.timeStamp, client: [e.clientX, e.clientY], clicks: again ? pressed!.clicks + 1 : 1 };
+    return pressed.clicks;
+  };
+
   const box = (node?: string) => (node === undefined ? undefined : boxes.find((b) => b.node === node));
   const point = (e: MouseEvent): [number, number] => {
     const r = overlay.getBoundingClientRect();
@@ -174,6 +194,27 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => size[0] / Math.max(1, overlay.getBoundingClientRect().width);
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
+
+  /** Typing in a text where it stands. */
+  const text = typing(stage, overlay, {
+    shown: () => editor.shown(),
+    format: () => editor.format(),
+    source: () => editor.source(),
+    typed: (source, edited, joins) => editor.typed(source, edited, joins),
+    undo: () => editor.undo(),
+    redo: () => editor.redo(),
+    say: (words) => editor.say(words),
+    draw: () => draw(),
+    unit,
+    box: (node) => box(node)?.rect,
+  });
+
+  /** Type in `node` (a text), at the caret nearest `at`, or at its end; `fork` keeps it to the
+   * state shown. */
+  async function type(node: string, at: [number, number] | undefined, fork: boolean) {
+    if (selected !== node) select(node);
+    if (!(await text.enter(node, at, fork))) editor.say(`${node} is no text: only a text takes typing`);
+  }
 
   /** What stands where in the state shown, asked again: the deck, the state, or the format changed. */
   async function refresh() {
@@ -184,10 +225,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (selected !== undefined && !box(selected)) select(undefined);
     else if (selected !== undefined) aimAt(selected);
     draw();
+    await text.sync();
   }
 
   function select(node: string | undefined) {
     if (node === selected) return;
+    if (text.node() !== undefined && text.node() !== node) text.leave();
     selected = node;
     aim = undefined;
     editor.selected(node);
@@ -239,10 +282,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       else if (land) parts.push(rect(land, "landing"));
     }
     const chosen = box(selected);
+    const typed = text.node() !== undefined;
     if (chosen) {
       const r = drag?.kind === "move" ? moved(chosen.rect, [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]]) : chosen.rect;
-      parts.push(rect(r, "selected"));
-      if (!drag && aim && snapOf(aim, editor.at(chosen.node), true, false)) {
+      parts.push(rect(r, typed ? "selected typed" : "selected"));
+      if (!drag && !typed && aim && snapOf(aim, editor.at(chosen.node), true, false)) {
         const s = 8 * u;
         const [x, y, w, h] = r;
         const spot: Record<Edge, [number, number]> = {
@@ -256,7 +300,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       }
     }
     const over = box(hovered);
-    if (over && over.node !== selected && !drag) parts.push(rect(over.rect, "hover"));
+    if (over && over.node !== selected && !drag && !typed) parts.push(rect(over.rect, "hover"));
+    parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
   }
 
@@ -412,11 +457,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   overlay.onpointerdown = async (e) => {
     if (e.button !== 0) return;
+    const count = clicks(e);
+    const from = point(e);
+    // Typing: a press in the text puts the caret there, and one outside it stops typing.
+    if (text.node() !== undefined) {
+      if (text.down(from, e.shiftKey, count)) {
+        e.preventDefault();
+        overlay.setPointerCapture(e.pointerId);
+        return;
+      }
+      text.leave();
+    }
     overlay.focus();
     const shown = editor.shown();
     if (!shown || drag) return editor.say(shown ? "" : "the canvas waits for a source that compiles");
     overlay.setPointerCapture(e.pointerId);
-    const from = point(e);
     const client: [number, number] = [e.clientX, e.clientY];
     const edge = (e.target as Element).closest?.("[data-edge]")?.getAttribute("data-edge") as Edge | null;
     if (edge && selected !== undefined) {
@@ -440,8 +495,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     }
   };
 
+  // A double click on a text types in it, where it was clicked: in what is topmost there, which its
+  // first click selects.
+  overlay.ondblclick = (e) => {
+    if (text.node() !== undefined || drag) return;
+    const [at, alt] = [point(e), e.altKey];
+    void inTurn(async () => {
+      const shown = editor.shown();
+      const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      if (top) await type(top.node, at, alt);
+    });
+  };
+
   overlay.onpointermove = (e) => {
     const at = point(e);
+    if (text.drag(at)) return;
     if (starting) {
       [starting.at, starting.shift, starting.alt] = [at, e.shiftKey, e.altKey];
       return;
@@ -498,6 +566,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   overlay.onpointerup = (e) => {
     if (overlay.hasPointerCapture(e.pointerId)) overlay.releasePointerCapture(e.pointerId);
+    if (text.up()) return;
     if (starting) {
       [starting.at, starting.shift, starting.alt, starting.up] = [point(e), e.shiftKey, e.altKey, true];
       return;
@@ -528,8 +597,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   };
 
   overlay.onkeydown = (e) => {
+    // The text typed in takes its own keys.
+    if (text.node() !== undefined) return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    if (e.key === "Enter" && selected !== undefined && !drag && !mod) {
+      e.preventDefault();
+      return void type(selected, undefined, e.altKey);
+    }
     if (mod && (key === "z" || key === "y")) {
       e.preventDefault();
       return key === "y" || e.shiftKey ? editor.redo() : editor.undo();
@@ -567,6 +642,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     /** Let the overlay go: the editor opens another bundle, which makes a canvas of its own. */
     close: () => {
       sized.disconnect();
+      document.removeEventListener("keydown", unpress, true);
+      text.close();
       drag = press = starting = undefined;
       svg.replaceChildren();
     },
@@ -582,5 +659,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     },
     /** Whether a drag is under way, or its request with the worker. */
     busy: () => busy || drag !== undefined || starting !== undefined,
+    /** The text typed in, if one is. */
+    typing: () => text.node(),
+    /** What is typed in it, for a test. */
+    typed: () => text.now(),
   };
 }

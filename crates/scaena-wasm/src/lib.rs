@@ -36,6 +36,7 @@ use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest, project};
 use scaena_paint::{Assets, PaintError};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "editor")]
@@ -77,7 +78,8 @@ pub struct Session {
     /// the theme's, fonts, images, data, and any other (a font's license, the history).
     /// The engine and its data are drawn from it as the deck names them; validation finds
     /// the bundle's files in it, and a save writes the deck as edited into it (PLAN 2.4).
-    files: BTreeMap<String, Vec<u8>>,
+    /// Shared, so an operation reads the bundle without copying its fonts.
+    files: Arc<BTreeMap<String, Vec<u8>>>,
     /// The data files the deck names, as the engine reads them.
     data: DataFiles,
     /// The layout engine, built on the first frame from the fonts and images the deck
@@ -164,7 +166,7 @@ impl Session {
         Ok(Self {
             deck,
             theme: Theme::from_json(theme_json)?,
-            files,
+            files: Arc::new(files),
             data: DataFiles::new(),
             engine: None,
             transition: None,
@@ -225,7 +227,7 @@ impl Session {
             self.data.insert(path, bytes.clone());
             self.forget();
         }
-        self.files.insert(path.to_string(), bytes);
+        Arc::make_mut(&mut self.files).insert(path.to_string(), bytes);
     }
 
     /// The image files the deck names: each to hand over with [`Session::add_file`].
@@ -460,6 +462,28 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn reach(&self, ops: &[serde_json::Value]) -> Result<Vec<String>, Error> {
         scaena_ops::patch::reach(&self.deck, &editor::Handed(&self.files), ops).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// Where a caret stands in `node`'s text in `state` at rest, in the format shown
+    /// (ADR-0013, PLAN 2.32): each character as written, on its line, from the layout the
+    /// frames at rest draw. `None` for a node that is no text there.
+    pub fn carets(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::carets::Carets>, Error> {
+        Ok(self.at_rest(state)?.carets(node))
+    }
+
+    /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`) made by
+    /// `user` at `at` (seconds since the epoch), validated and refused as a patch is but not
+    /// linted: the page lints the state it shows after, as it does after a keystroke in the
+    /// source. A bundle's history records a run of it as one change, `type`. Whether it
+    /// changed the deck.
+    #[cfg(feature = "editor")]
+    pub fn typed(&mut self, ops: &serde_json::Value, at: Option<i64>) -> Result<bool, Error> {
+        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, Some(store::TYPED))?;
+        if patched.refused {
+            let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
+            return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
+        }
+        self.write(write, assistant::Caller { author: "user", at })
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
@@ -767,6 +791,12 @@ impl Player {
         self.0.source()
     }
 
+    /// Whether the deck shown is the one compiled from `source`, nothing written over it since.
+    #[wasm_bindgen(js_name = compiledFrom)]
+    pub fn compiled_from(&self, source: &str) -> bool {
+        self.0.compiled_from(source)
+    }
+
     /// Compile `source`: `{ error?, findings, states, valid }`, each place in it in UTF-16
     /// offsets. A deck that validates is what frames show from now on.
     pub fn compile(&mut self, source: &str) -> Result<String, JsError> {
@@ -870,6 +900,47 @@ impl Player {
         let ops: Vec<serde_json::Value> = serde_json::from_str(ops).map_err(js)?;
         serde_json::to_string(&self.0.reach(&ops).map_err(js)?).map_err(js)
     }
+
+    /// Where a caret stands in `node`'s text in `state` at rest, in the format shown, as JSON
+    /// (ADR-0013, PLAN 2.32), its offsets in UTF-16 code units, as the page counts a string:
+    /// `{ "text", "lines": [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset,
+    /// lead, trail]] }] }`, canvas units; `null` for a node that is no text there.
+    pub fn carets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        let Some(c) = self.0.carets(state, node).map_err(js)? else { return Ok("null".into()) };
+        let units = utf16(&c.text);
+        let lines: Vec<serde_json::Value> = (c.lines.iter())
+            .map(|l| {
+                let chars: Vec<_> =
+                    l.chars.iter().map(|ch| serde_json::json!([units(ch.offset), ch.lead, ch.trail])).collect();
+                serde_json::json!({
+                    "top": l.top, "bottom": l.bottom, "x": l.x, "start": units(l.start), "end": units(l.end),
+                    "broken": l.broken, "chars": chars,
+                })
+            })
+            .collect();
+        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines })).map_err(js)
+    }
+
+    /// Make `ops` (JSON: a `replace_text`, typed on the canvas) as `user` at `at` (RFC 3339),
+    /// validated and refused as a patch is, but not linted (ADR-0013, PLAN 2.32). Whether it
+    /// changed the deck.
+    pub fn typed(&mut self, ops: &str, at: Option<String>) -> Result<bool, JsError> {
+        let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
+        self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
+    }
+}
+
+/// Byte offsets in `text` as UTF-16 code units, as the page counts a string.
+#[cfg(feature = "editor")]
+fn utf16(text: &str) -> impl Fn(usize) -> usize + '_ {
+    let mut at: Vec<(usize, usize)> = Vec::with_capacity(text.len() + 1);
+    let mut units = 0;
+    for (byte, c) in text.char_indices() {
+        at.push((byte, units));
+        units += c.len_utf16();
+    }
+    at.push((text.len(), units));
+    move |byte| at[at.partition_point(|&(b, _)| b < byte).min(at.len() - 1)].1
 }
 
 /// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).
@@ -1483,6 +1554,61 @@ mod tests {
         s.tool("deck_patch", serde_json::json!({ "ops": resize.patch }), by).unwrap();
         assert!(s.moving.is_none() && s.previewing.is_none(), "the deck changed: the drag is over");
         assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), previewed);
+    }
+
+    /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the
+    /// layout the frames at rest draw; and typing, a `replace_text` written where the text
+    /// lives, which the next frame shows. A keystroke the deck cannot take says why.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn typing_on_the_canvas_writes_where_the_text_lives() {
+        let mut s = revenue();
+        let before = s.frame("revenue", f64::INFINITY).unwrap();
+        let carets = s.carets("revenue", "title").unwrap().unwrap();
+        assert_eq!(carets.text, "Revenue doubled", "as `revenue` shows it");
+        assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "revenue"), "from the layout kept at rest");
+        assert!(s.carets("revenue", "rev").unwrap().is_none(), "a chart is no text");
+
+        let ops = serde_json::json!([
+            { "op": "replace_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "text": "tripled" }
+        ]);
+        assert!(s.typed(&ops, None).unwrap());
+        let deck = s.deck.to_value().unwrap();
+        assert_eq!(deck["states"][1]["props"]["title"]["text"], "Revenue tripled", "where `revenue` sets it");
+        assert_eq!(deck["nodes"]["title"]["text"], "Q3 Review");
+        assert_eq!(s.carets("revenue", "title").unwrap().unwrap().text, "Revenue tripled");
+        assert_ne!(s.frame("revenue", f64::INFINITY).unwrap(), before, "the frame shows it");
+
+        let past = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 99, "to": 99, "text": "!" }]);
+        let e = s.typed(&past, None).unwrap_err();
+        assert!(e.to_string().contains("15 characters"), "{e}");
+    }
+
+    /// A page reads a caret from the deck its source says (PLAN 2.32): the session says
+    /// whether that deck is the one shown, so the page compiles the source first when it is not.
+    #[test]
+    fn the_session_says_whether_the_deck_shown_is_compiled_from_a_source() {
+        let mut s = revenue();
+        let source = s.source();
+        assert!(!s.compiled_from(&source), "nothing is compiled yet");
+        assert!(s.compile(&source).valid);
+        assert!(s.compiled_from(&source));
+        assert!(!s.compiled_from(&source.replace("Revenue doubled", "Revenue tripled")));
+
+        let ops = serde_json::json!([
+            { "op": "replace_text", "node": "title", "state": "revenue", "from": 0, "to": 0, "text": "Net " }
+        ]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert!(!s.compiled_from(&source), "typing wrote over it");
+        let typed = s.source();
+        assert!(s.compile(&typed).valid);
+        assert!(s.compiled_from(&typed));
+
+        // A source that compiles but does not validate leaves the deck shown as it was.
+        let invalid = typed.replacen("role:display", "role:nowhere", 1);
+        assert!(!s.compile(&invalid).valid);
+        assert!(!s.compiled_from(&invalid));
+        assert!(!s.compiled_from(&typed), "the deck shown is from it, but it is not the source compiled last");
     }
 
     /// The revenue example, its files handed over as a page hands them.

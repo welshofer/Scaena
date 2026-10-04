@@ -21,6 +21,7 @@ import type {
   Source,
   Targets,
   ToWorker,
+  Carets,
 } from "./protocol";
 
 type Reply = Extract<
@@ -45,7 +46,10 @@ type Reply = Extract<
       | "hits"
       | "targets"
       | "dragged"
-      | "placed";
+      | "placed"
+      | "carets"
+      | "reached"
+      | "typed";
   }
 >;
 
@@ -234,6 +238,36 @@ export class Stage {
     });
   }
 
+  /** Where a caret stands in `node`'s text in `state` at rest, in the deck `source` compiles to;
+   * `null` for a node that is no text. */
+  carets(source: string, state: string, node: string, format?: string): Promise<Carets | null> {
+    return this.request<"carets">({ type: "carets", id: ++this.asked, source, state, node, format }).then(({ carets }) => carets);
+  }
+
+  /** The states `ops` (a patch) would change, by id, with nothing made. */
+  reach(ops: unknown[]): Promise<string[]> {
+    return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
+  }
+
+  /** Make `ops`, typed on the canvas, by the user on the deck `source` compiles to, and show slot
+   * `index` from it: the deck's source after, what the edit came to, and where a caret stands in
+   * `node`'s text in `state` now. */
+  type(
+    source: string,
+    ops: unknown[],
+    at: { index: number; state: string; node: string },
+    format?: string,
+  ): Promise<{ source: string; edited: Edited; carets: Carets | null }> {
+    const asked = { type: "type" as const, id: ++this.asked, source, ops, ...at, format };
+    return this.request<"typed">(asked).then(({ source, edited, carets }) => {
+      if (edited.at) {
+        this.at = edited.at;
+        this.onAt(edited.at);
+      }
+      return { source, edited, carets };
+    });
+  }
+
   /** Save the bundle with the deck `source` compiles to where it is kept, or into the
    * browser's storage (PLAN 2.4). The session goes on from the save. */
   save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
@@ -350,6 +384,9 @@ export class Stage {
       case "targets":
       case "dragged":
       case "placed":
+      case "carets":
+      case "reached":
+      case "typed":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

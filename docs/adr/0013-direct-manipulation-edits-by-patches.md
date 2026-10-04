@@ -21,10 +21,10 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
 ## Decision
 
 1. **The engine answers geometry, from the layout a state already has.** On a state laid out in a format, at rest or at a time into its cue:
-   - **Hit:** the nodes under a point, topmost first. Each comes with the chain of containers it sits in (`at.parent`), its box, and, for a text, the character under the point (parley's `Cursor::from_point`).
+   - **Hit:** the nodes under a point, topmost first. Each comes with the chain of containers it sits in (`at.parent`), its box, and, for a text, where a caret put at the point stands.
    - **Boxes:** each node's laid-out box, and a container's tracks and cells.
    - **Targets:** where a node may go. These are the theme's grid cells in that format, the template's slots, and its container's positions, each with the patch that puts the node there.
-   - **Text:** a caret's rectangle at a character, and a selection's rectangles over a range (parley's `Cursor::geometry`, `Selection::geometry`).
+   - **Text:** each character of the text as written, as a reader counts it (a grapheme cluster), on its line, with where a caret before it and after it stands (`Scene::carets`). A client draws the caret and the selection from these, puts a caret nearest a point, and moves it up and down the lines. As built, they are read from the glyphs the engine set (each run's clusters, advances, and direction, and the line's box), since a state's layout keeps those and not parley's own: parley's `Cursor` and `Selection` would need the paragraph laid out again. Case that sets a character longer (ß as SS), and the soft hyphens hyphenation inserts, map back to the text as written.
 
    These come from the snapshot's layout, the one frames sample, kept per state and format. Nothing is read back from pixels, and no client lays anything out.
 2. **Every edit is a patch.** The operations are the only way a gesture changes the deck (ADR-0009):
@@ -33,7 +33,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    |---|---|
    | Move within the grid, into a slot, or among a container's children | `place`: cells, a slot (`in`), an `area`, or an `index` |
    | Resize within the grid | `place`: spans |
-   | Typing | `set_text` |
+   | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |
    | Choosing a look | a role, a style, or a preset from the theme's vocabulary |
 
    A drag off the grid or out of the template places the node by `rect`, in canvas units: an override in SPEC §3.4's sense, allowed, and flagged by lint (W301) and in the inspector. That is what PLAN 3.7 means by visibly flagged. Every patch is validated and linted as an agent's is, and the editor shows the lint delta.
@@ -42,6 +42,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    - While a node is dragged, its layers, and those of what it holds, are drawn moved and over the rest, from the state as laid out at rest, which the session keeps (`Scene::moved`). The client draws snap guides from its targets. That is paint only: no layout runs while the pointer moves.
    - On drop, one patch; the engine lays the state out once, and lint runs. A resize reflows its text when the gesture pauses, as the source editor compiles while one types: the patch compiled and laid out once, made nowhere (`Player.preview`), never once a frame.
    - Each committed patch is one undo step, by `user`, in the CRDT.
+   - Typing is the exception that proves it: each change to the text is a patch, laid out once, so the text reflows as it is typed. A burst of typing is one undo step, and a run of it one change in the CRDT (`type`). A keystroke's patch is validated but not linted; the editor lints the state it shows after, as after a keystroke in the source.
 5. **One surface for every client.** The queries are the engine's, called by an operation in `scaena-ops`, and so reachable from:
    - the CLI;
    - the MCP server, where an agent looking at a frame asks what stands at a point;

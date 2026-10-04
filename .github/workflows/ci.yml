@@ -230,6 +230,7 @@ jobs:
       - run: node web/editor.mjs
       # The preview as a canvas: select, drag, resize, and the keys, each a patch to undo (PLAN 2.31).
       - run: node web/canvas.mjs
+      - run: node web/typing.mjs
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
