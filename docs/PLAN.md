@@ -678,6 +678,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The same bytes: `render_is_pixel_for_pixel` at each count of octaves; with cells far wider than a pixel and far narrower; in a box turned and offset whose rows are not whole blocks; with grain and without; with colors opaque and not; and on a field moved to where its cells are negative. The 1080p `texture` frame matches byte for byte. No golden moves.*
     - *Time: alone at 1080p, alternating the two in one process, 185 ms against 591.*
     - *Left: Rust's float-to-integer casts saturate. x86-64 at its baseline (SSE2) has no instruction that does, so the compiler converts one lane at a time, about a tenth of the frame here. WebAssembly's SIMD converts four lanes in one instruction, which the module uses, and so does AArch64. A shader's rows are independent, so threads are next. `gradient` (a radial one takes 122 ms at 1080p) is in no shipped theme and keeps its reference.)*
+- [x] 2.17 The CPU painter makes no copy of a frame: a shader's bytes become its image where they lie, and a frame's pixels become its raster. *(Found beside 2.15: the painter copied each shader's pixels and each frame's, 8 MB apiece at 1080p. On the Linux container glibc gave that memory back between frames, so each frame faulted it in again. B1's and B2's slowest frames painted in 13.5 and 13.9 ms, against SPEC §15's 12.)*
+  *(Done: ADR-0004 finding 16. No byte moves. By criterion on the Linux container, alternating the two builds: B1's 40 states 546 → 141 ms; the slowest frames of B1 13.5 → 2.7 ms, B2 13.9 → 4.1, B3 91 → 81, and B4 88 → 75; B3's video cue 2.25 → 2.08 s.)*
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

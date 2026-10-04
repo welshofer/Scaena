@@ -83,6 +83,9 @@ libm     = "0.2.16"
 # painters
 vello     = "0.10.0"
 vello_cpu = "0.2.0"
+# A shader's bytes and a frame's pixels as vello_cpu's pixels and back, in the same buffer. Already in
+# the graph through peniko.
+bytemuck  = { version = "1.25", features = ["extern_crate_alloc"] }
 # wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
 
 # bundle I/O (PLAN 1.4): `.scaena` zips with pure-Rust deflate; fontations' subsetter (hb-subset's

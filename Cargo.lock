@@ -3108,6 +3108,7 @@ dependencies = [
 name = "scaena-paint"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "kurbo",
  "peniko",
  "png",

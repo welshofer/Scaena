@@ -79,6 +79,16 @@ Rationale: one ecosystem (Linebender + fontations) with aligned primitives and a
     - `.cargo/config.toml` builds wasm32 with `+simd128`. Every browser gate 2 names has run WebAssembly SIMD since 2023 (Safari 16.4); without it, a module fails to compile.
 
     B1's median frame went from 51.5 ms to 18.0 ms with the first, and to 12.9 ms with both; its worst, from 89 ms to 17.6 ms. The torture deck's median went from 54.7 ms to 14.4 ms. Every module is smaller, with the scalar paths no longer compiled: the editor's engine is 2.70 MB gzipped, from 2.74, and the player's 2.12, from 2.15. WASM display lists stay identical to native ones (`just wasm-smoke`), and the browser's frames stay within SPEC §13.5 of the goldens (`just web-smoke`). In the page, each CPU frame then reached the canvas by `createImageBitmap` and a `bitmaprenderer` context, which took 10–14 ms a 1080p frame in headless Chromium. `putImageData` on the canvas's 2D context takes 1.6 ms, so the worker paints that way.
+16. **The CPU painter copied every frame, and on Linux the copies page-faulted.** `CpuPainter` collected a shader's straight bytes into a second buffer, premultiplied, and the frame's pixmap into a third, unpremultiplied, for the raster. At 1080p each buffer is 8 MB. With several of them alive at once, glibc gave the memory back to the system as a frame ended, and the next frame faulted its pages in again. On the Linux container, painting the torture deck's `shaders` and `mesh` states over and over took 5,000 to 6,000 page faults a frame. B1's slowest frame took 13.5 ms, against SPEC §15's 12. With glibc told to keep its memory (`MALLOC_MMAP_THRESHOLD_`, `MALLOC_TRIM_THRESHOLD_`), it took 5.6 ms. *Decision:* each buffer becomes the next in place, with `bytemuck`'s `cast_vec`:
+    - A shader's render becomes its pixmap, premultiplied where it lies.
+    - The frame's pixmap becomes the raster, unpremultiplied where it lies.
+
+    A frame then holds no two copies of its pixels, and glibc keeps its memory between frames: the same states take no page fault once the first frames are painted. The arithmetic is unchanged, so no byte moves: the torture rasters and `unpremultiplied_is_vellos_take_unpremultiplied_for_every_pixel` pass as they were. Criterion on the Linux container, alternating the two builds:
+    - B1's 40 states: 546 → 141 ms.
+    - The slowest frames: B1's 13.5 → 2.7 ms, B2's 13.9 → 4.1 ms, B3's 91 → 81 ms, and B4's 88 → 75 ms.
+    - B3's video cue: 2.25 → 2.08 s.
+
+    In the browser, WASM memory is never given back, so the gain there is only the copy.
 
 ## Alternatives
 

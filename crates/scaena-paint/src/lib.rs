@@ -528,16 +528,17 @@ pub mod cpu {
                 &mut resources,
                 RasterizerSettings { render_mode: self.mode, ..Default::default() },
             );
-            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba: unpremultiplied(&pixmap) })
+            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba: unpremultiplied(pixmap) })
         }
     }
 
-    /// The pixmap's pixels as straight RGBA, as a PNG or an `ImageData` takes them: exactly
-    /// what `Pixmap::take_unpremultiplied` computes, without its division for each opaque
-    /// pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates to `c`). A slide is
-    /// opaque nearly everywhere, and in the browser that division was most of a frame's paint.
-    fn unpremultiplied(pixmap: &Pixmap) -> Vec<u8> {
-        let mut rgba = pixmap.data_as_u8_slice().to_vec();
+    /// The pixmap's pixels as straight RGBA, as a PNG or an `ImageData` takes them, in the
+    /// pixmap's own buffer: exactly what `Pixmap::take_unpremultiplied` computes, without its
+    /// division for each opaque pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates
+    /// to `c`). A slide is opaque nearly everywhere, and in the browser that division was most
+    /// of a frame's paint.
+    fn unpremultiplied(pixmap: Pixmap) -> Vec<u8> {
+        let mut rgba: Vec<u8> = bytemuck::allocation::cast_vec(pixmap.take());
         for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
             if *a != 255 && *a != 0 {
                 let alpha = 255.0 / f32::from(*a);
@@ -637,14 +638,13 @@ pub mod cpu {
         fn shader(&mut self, job: &Job, rect: scaena_core::displaylist::Rect, xf: Affine) {
             let [x, y, w, h] = job.bbox();
             let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-            let pixels = job.render();
-            let pixels = pixels.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| PremulRgba8 {
-                r: premultiplied(r, a),
-                g: premultiplied(g, a),
-                b: premultiplied(b, a),
-                a,
-            });
-            let pixmap = Pixmap::from_parts(pixels.collect(), w as u16, h as u16);
+            // The render's buffer becomes the pixmap's: RGBA8 is four bytes, as a pixel is.
+            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(job.render())
+                .unwrap_or_else(|(_, bytes)| bytemuck::cast_slice(&bytes).to_vec());
+            for p in &mut pixels {
+                (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
+            }
+            let pixmap = Pixmap::from_parts(pixels, w as u16, h as u16);
             self.ctx.set_transform(xf);
             self.ctx.set_paint(Image {
                 image: ImageSource::Pixmap(Arc::new(pixmap)),
@@ -697,7 +697,7 @@ pub mod cpu {
                     .flat_map(|a| (0..=255u8).map(move |c| PremulRgba8 { r: c, g: c / 2, b: 255 - c, a }))
                     .collect::<Vec<_>>()
             };
-            let ours = unpremultiplied(&Pixmap::from_parts(pixels(), 256, 256));
+            let ours = unpremultiplied(Pixmap::from_parts(pixels(), 256, 256));
             let vellos: Vec<u8> = Pixmap::from_parts(pixels(), 256, 256)
                 .take_unpremultiplied()
                 .into_iter()
