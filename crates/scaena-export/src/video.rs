@@ -210,9 +210,10 @@ enum Halt {
 }
 use Halt::{Pipe, Stopped};
 
-/// Paints the frames `next` hands over and writes them to ffmpeg, in order.
+/// Paints the frames `next` hands over and writes them to ffmpeg, in order. A batch's frames
+/// go to ffmpeg while the next batch paints, so the cores never wait on the pipe.
 fn pump(
-    stdin: &mut impl Write,
+    stdin: &mut (impl Write + Send),
     size: [u32; 2],
     scale: f32,
     assets: &Assets,
@@ -221,8 +222,10 @@ fn pump(
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
     let batch = threads * 2;
     let (mut frames, mut painted) = (0_u64, 0_u64);
-    // The last frame written: what it drew, and its pixels.
+    // The last frame painted: what it drew, and its pixels.
     let mut last: Option<(DisplayList, Arc<Vec<u8>>)> = None;
+    // The batch before's frames, in order, not yet written.
+    let mut ready: Vec<Arc<Vec<u8>>> = Vec::new();
     loop {
         let mut lists = Vec::with_capacity(batch);
         while lists.len() < batch {
@@ -232,6 +235,10 @@ fn pump(
             }
         }
         if lists.is_empty() {
+            for px in &ready {
+                stdin.write_all(px).map_err(|_| Pipe)?;
+            }
+            frames += ready.len() as u64;
             return Ok(Encoded { frames, painted, size });
         }
         // A frame is painted unless it draws what the one before it drew.
@@ -241,7 +248,14 @@ fn pump(
                 i => lists[i] != lists[i - 1],
             })
             .collect();
-        let mut pixels = paint(&lists, &todo, threads, scale, assets);
+        let (mut pixels, written) = std::thread::scope(|s| {
+            let writer = s.spawn(|| ready.iter().try_for_each(|px| stdin.write_all(px).map_err(|_| Pipe)));
+            let pixels = paint(&lists, &todo, threads, scale, assets);
+            (pixels, writer.join().expect("the writer does not panic"))
+        });
+        written?;
+        frames += ready.len() as u64;
+        ready.clear();
         let mut current = last.take().map(|(_, px)| px);
         for slot in &mut pixels {
             if let Some(px) = slot.take() {
@@ -252,9 +266,7 @@ fn pump(
                 current = Some(Arc::new(px));
                 painted += 1;
             }
-            let px = current.as_ref().expect("the first frame is painted");
-            stdin.write_all(px).map_err(|_| Pipe)?;
-            frames += 1;
+            ready.push(Arc::clone(current.as_ref().expect("the first frame is painted")));
         }
         let list = lists.pop().expect("a batch holds a frame");
         last = current.map(|px| (list, px));
