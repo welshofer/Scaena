@@ -2,7 +2,7 @@
 //! made from a theme, its fonts, a deck, and data files. It is checked as `validate` checks
 //! a bundle before anything is written, and written only if valid.
 
-use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
 use scaena_core::lint::{Delta, delta};
@@ -53,7 +53,20 @@ pub struct Attached {
 /// Attach the data file `req.file` to the bundle as source `req.id`: copy it into `data/`
 /// and declare it, typed. Written only if the deck it makes validates no worse.
 pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
-    let Source { path: source, bytes, decl: value, rows } = source(req)?;
+    let bytes = std::fs::read(&req.file).with_context(|| format!("reading {}", req.file.display()))?;
+    let (attached, deck) = attaching(b, req, bytes)?;
+    if let Some(deck) = deck {
+        write(b, deck)?;
+    }
+    Ok(attached)
+}
+
+/// [`attach`] with nothing written, the file's bytes given: what it attaches, and the deck
+/// and file to write, unless it is refused. A client that keeps its bundle in memory writes
+/// them there (the web page's assistant, PLAN 2.6), where `req.file` is a file the bundle
+/// holds already, as a file dropped on the page is.
+pub fn attaching(b: &Bundle, req: &Attach, bytes: Vec<u8>) -> Result<(Attached, Option<Write>), OpsError> {
+    let Source { path: source, bytes, decl: value, rows } = source(req, bytes)?;
     if b.deck.data.contains_key(&req.id) {
         return Err(OpsError::new(format!(
             "the deck has a data source `{}` already; `bind_data` with a `source` replaces one (SPEC §7.3)",
@@ -64,7 +77,7 @@ pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
         return Err(OpsError::new(format!("the bundle has another `{source}`; name the file differently")));
     }
     let schema = schema_of(&value);
-    let mut doc = serde_json::to_value(&b.deck)?;
+    let mut doc = b.deck.to_value()?;
     match doc.get_mut("data").and_then(Value::as_object_mut) {
         Some(data) => drop(data.insert(req.id.clone(), value)),
         None => doc["data"] = json!({ req.id.clone(): value }),
@@ -79,31 +92,26 @@ pub fn attach(b: &Bundle, req: &Attach) -> Result<Attached, OpsError> {
     if !broken.is_empty() {
         let added = broken.into_iter().cloned().collect();
         let errors = errors(&invalid_after);
-        return Ok(Attached {
-            attached: false,
-            id: req.id.clone(),
-            source,
-            schema,
-            rows,
-            added,
-            removed: vec![],
-            errors,
-        });
+        let refused =
+            Attached { attached: false, id: req.id.clone(), source, schema, rows, added, removed: vec![], errors };
+        return Ok((refused, None));
     }
     let before = lint(b)?.findings;
     let after = lint_in(&next, &view)?.findings;
-    write_deck(b, &next, BTreeMap::from([(source.clone(), bytes)]), &Why::new(format!("data_attach {}", req.id)))?;
     let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
-    Ok(Attached {
+    let attached = Attached {
         attached: true,
         id: req.id.clone(),
-        source,
+        source: source.clone(),
         schema,
         rows,
         added: added.into_iter().cloned().collect(),
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
-    })
+    };
+    let mut write = Write::new(next, Why::new(format!("data_attach {}", req.id)));
+    write.files.insert(source, bytes);
+    Ok((attached, Some(write)))
 }
 
 /// A data file to attach, read and typed.
@@ -116,15 +124,14 @@ struct Source {
     rows: usize,
 }
 
-/// The data file `req` names.
-fn source(req: &Attach) -> Result<Source, OpsError> {
+/// The data file `req` names, whose bytes are `bytes`.
+fn source(req: &Attach, bytes: Vec<u8>) -> Result<Source, OpsError> {
     if !scaena_core::ids::is_valid_id(&req.id) {
         return Err(OpsError::new(format!(
             "`{}` is not an id: a lowercase letter, then lowercase letters, digits, `-`, and `_`",
             req.id
         )));
     }
-    let bytes = std::fs::read(&req.file).with_context(|| format!("reading {}", req.file.display()))?;
     let name = req.file.file_name().and_then(|n| n.to_str()).context("the data file has no name")?;
     let path = format!("data/{name}");
     let inferred = scaena_core::data::infer(&path, &bytes).map_err(|e| OpsError::new(e.to_string()))?;
@@ -153,7 +160,9 @@ fn schema_of(source: &Value) -> IndexMap<String, String> {
 #[serde(deny_unknown_fields)]
 pub struct Create {
     /// The theme file to start from, copied to `themes/`. The fonts its families name are
-    /// copied to `fonts/` from beside it, or above it: from the bundle it belongs to.
+    /// copied to `fonts/` from beside it, or above it: from the bundle it belongs to. Where no
+    /// such file is, a theme that ships, by its name (`dusk`, `daybreak`, `ember`), with its
+    /// fonts, in a build that carries them (PLAN 2.13).
     pub theme: PathBuf,
     /// The deck, as `deck.json` holds it. Its `theme` and `fonts` are set to the bundle's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,27 +201,99 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
             path.display()
         )));
     }
+    let data = |file: &Path| -> Result<Vec<u8>, OpsError> {
+        std::fs::read(file).with_context(|| format!("reading {}", file.display()))
+    };
+    let (created, made) = match shipped(req, &data) {
+        Some(made) => made?,
+        None => {
+            let theme = std::fs::read_to_string(&req.theme)
+                .with_context(|| format!("reading {}{}", req.theme.display(), or_shipped()))?;
+            // A font is beside the theme, or above it: in the bundle the theme belongs to.
+            let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+                let found =
+                    req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(
+                        || format!("the theme's font `{file}` is not beside {} or above it", req.theme.display()),
+                    )?;
+                Ok(std::fs::read(&found)?)
+            };
+            creating(req, theme, &font, &data)?
+        }
+    };
+    let Some(made) = made else { return Ok(created) };
+    std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
+    let b = Bundle {
+        root: path.to_path_buf(),
+        deck_file: "deck.json".into(),
+        deck: made.deck.clone(),
+        theme_json: None,
+        files: scaena_store::Files::Dir(path.to_path_buf()),
+        author: "user".into(),
+    };
+    write(&b, made)?;
+    Ok(created)
+}
+
+/// What [`create`] makes from the theme that ships as `req.theme`, where no file of that name
+/// is: the theme and its fonts from the binary.
+#[cfg(feature = "shipped")]
+fn shipped(req: &Create, data: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>) -> Option<Made> {
+    if req.theme.exists() {
+        return None;
+    }
+    let theme = crate::shipped::theme(req.theme.to_str()?)?;
+    let font = |file: &str| -> Result<Vec<u8>, OpsError> {
+        let bytes = crate::shipped::font(file)
+            .with_context(|| format!("{} names `{file}`, which does not ship", theme.name))?;
+        Ok(bytes.to_vec())
+    };
+    let req = Create { theme: theme.file.into(), ..req.clone() };
+    Some(creating(&req, theme.text.to_string(), &font, data))
+}
+
+#[cfg(not(feature = "shipped"))]
+fn shipped(_: &Create, _: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>) -> Option<Made> {
+    None
+}
+
+/// What a theme that cannot be read could have been instead.
+fn or_shipped() -> String {
+    #[cfg(feature = "shipped")]
+    return format!(" (nor is it a theme that ships: {})", crate::shipped::names());
+    #[cfg(not(feature = "shipped"))]
+    String::new()
+}
+
+/// What [`creating`] makes.
+type Made = Result<(Created, Option<Write>), OpsError>;
+
+/// [`create`] with nothing written: the bundle `req` makes from `theme`, the text of the theme
+/// file it names, with each font the theme names read by `font`, by the path the theme gives
+/// it, and each data file by `data`. What it made, and, if it validates, the deck and every
+/// file beside it, to write. A client that keeps its bundle in memory opens them instead: the
+/// web editor's New (PLAN 2.12).
+pub fn creating(
+    req: &Create,
+    theme: String,
+    font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
+    data: &dyn Fn(&Path) -> Result<Vec<u8>, OpsError>,
+) -> Result<(Created, Option<Write>), OpsError> {
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     // The theme, and the fonts its families name.
-    let text = std::fs::read_to_string(&req.theme).with_context(|| format!("reading {}", req.theme.display()))?;
-    let theme: Value = serde_json::from_str(&text).with_context(|| format!("{} is not JSON", req.theme.display()))?;
+    let parsed: Value = serde_json::from_str(&theme).with_context(|| format!("{} is not JSON", req.theme.display()))?;
     let name = req.theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = format!("themes/{name}");
     let mut fonts = Vec::new();
-    for family in theme.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
+    for family in parsed.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
         let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        let found =
-            req.theme.ancestors().skip(1).map(|dir| dir.join(file)).find(|p| p.is_file()).with_context(|| {
-                format!("the theme's font `{file}` is not beside {} or above it", req.theme.display())
-            })?;
-        files.insert(file.to_string(), std::fs::read(&found)?);
-        let mut font = json!({ "family": name, "file": file });
+        files.insert(file.to_string(), font(file)?);
+        let mut entry = json!({ "family": name, "file": file });
         if let Some(axes) = family.get("axes") {
-            font["axes"] = axes.clone();
+            entry["axes"] = axes.clone();
         }
-        fonts.push(font);
+        fonts.push(entry);
     }
-    files.insert(rel.clone(), text.into_bytes());
+    files.insert(rel.clone(), theme.into_bytes());
     // The deck: given, compiled, or made here.
     let mut doc = match (&req.deck, &req.scn) {
         (Some(_), Some(_)) => return Err(OpsError::new("give the deck as `deck` or as `scn`, not both")),
@@ -233,32 +314,25 @@ pub fn create(path: &Path, req: &Create) -> Result<Created, OpsError> {
     fields.insert("theme".into(), json!(rel));
     fields.insert("fonts".into(), Value::Array(fonts));
     for attach in &req.data {
-        let Source { path, bytes, decl, .. } = source(attach)?;
+        let Source { path, bytes, decl, .. } = source(attach, data(&attach.file)?)?;
         files.insert(path, bytes);
-        let data = fields.entry("data").or_insert_with(|| json!({}));
-        data[attach.id.as_str()] = decl;
+        let sources = fields.entry("data").or_insert_with(|| json!({}));
+        sources[attach.id.as_str()] = decl;
     }
-    // Checked before anything is written.
-    let base = scaena_store::Files::Dir(path.to_path_buf());
-    let view = View { base: &base, pending: files.clone() };
+    // Checked as a bundle that holds these files and nothing else.
+    let nothing = scaena_store::Files::Zip(Default::default());
+    let view = View { base: &nothing, pending: files.clone() };
     let deck_json = serde_json::to_string_pretty(&doc)?;
     let invalid = validate_bundle(&deck_json, &view)?;
     let mut listed: Vec<String> = files.keys().cloned().chain(["deck.json".to_string()]).collect();
     listed.sort();
     if invalid.iter().any(|f| f.severity == scaena_core::Severity::Error) {
-        return Ok(Created { created: false, files: listed, errors: errors(&invalid), findings: invalid });
+        return Ok((Created { created: false, files: listed, errors: errors(&invalid), findings: invalid }, None));
     }
     let deck = Deck::from_json(&deck_json).context("the deck")?;
     let findings = lint_in(&deck, &view)?.findings;
-    std::fs::create_dir_all(path).with_context(|| format!("making {}", path.display()))?;
-    let b = Bundle {
-        root: path.to_path_buf(),
-        deck_file: "deck.json".into(),
-        deck,
-        theme_json: None,
-        files: base.clone(),
-        author: "user".into(),
-    };
-    write_deck(&b, &b.deck, files, &Why::new("deck_create"))?;
-    Ok(Created { created: true, files: listed, errors: errors(&findings), findings })
+    let created = Created { created: true, files: listed, errors: errors(&findings), findings };
+    let mut made = Write::new(deck, Why::new("deck_create"));
+    made.files = files;
+    Ok((created, Some(made)))
 }

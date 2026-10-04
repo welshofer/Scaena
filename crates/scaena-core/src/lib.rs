@@ -17,6 +17,8 @@
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
 //! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
+//! - [`reading`] — how a deck reads to someone who hears it: each node's part, and a state as
+//!   HTML (SPEC §3.12), for a tagged PDF, a single file, and the web player.
 //! - [`spine`] — the spine projection the pipelines beyond the deck read (SPEC §10).
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
@@ -33,6 +35,7 @@ pub mod ids;
 pub mod lint;
 pub mod model;
 pub mod patch;
+pub mod reading;
 pub mod shader;
 pub mod spine;
 pub mod timeline;

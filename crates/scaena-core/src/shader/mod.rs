@@ -90,12 +90,39 @@ impl Job {
 
     /// The CPU reference: the box's pixels, row-major sRGB RGBA8 with straight alpha.
     pub fn render(&self) -> Vec<u8> {
+        self.render_on(1)
+    }
+
+    /// [`Job::render`], its rows in bands on up to `threads` threads. No row reads another,
+    /// so the bytes do not depend on how many: `render_on(n) == render()` for every `n`.
+    /// A band is at least [`BAND`] rows, and WebAssembly, which has no threads, takes one.
+    pub fn render_on(&self, threads: usize) -> Vec<u8> {
+        let [_, _, w, h] = self.bbox();
+        let row = w as usize * 4;
+        let mut out = vec![0; row * h as usize];
+        let bands = if cfg!(target_arch = "wasm32") { 1 } else { threads.min(h as usize / BAND).max(1) };
+        if bands == 1 || row == 0 {
+            self.render_rows(0, &mut out);
+        } else {
+            let rows = (h as usize).div_ceil(bands);
+            std::thread::scope(|s| {
+                for (i, band) in out.chunks_mut(rows * row).enumerate() {
+                    s.spawn(move || self.render_rows((i * rows) as u32, band));
+                }
+            });
+        }
+        out
+    }
+
+    /// The box's rows from `first` into `out`, as many as it holds whole: those rows of
+    /// [`Job::render`], byte for byte.
+    pub fn render_rows(&self, first: u32, out: &mut [u8]) {
         match self {
-            Job::Mesh(f) => f.render(),
-            Job::Gradient(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Noise(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Grain(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Particles(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Mesh(f) => f.render_rows(first, out),
+            Job::Gradient(f) => rows(f.bbox, first, out, |x, y| f.pixel(x, y)),
+            Job::Noise(f) => f.render_rows(first, out),
+            Job::Grain(f) => f.render_rows(first, out),
+            Job::Particles(f) => rows(f.bbox, first, out, |x, y| f.pixel(x, y)),
         }
     }
 
@@ -206,7 +233,31 @@ pub fn default(kind: ShaderKind, param: &str) -> Option<f32> {
     values.into_iter().find(|(name, _)| *name == param).map(|(_, v)| v)
 }
 
-/// The box's pixels, row-major, from `pixel(x, y)`.
+/// The fewest rows [`Job::render_on`] gives a thread: below it, a thread costs about as
+/// much to start as its band takes to work out.
+pub const BAND: usize = 64;
+
+/// The threads a shader's rows are best spread over here: the host's cores, up to the 8
+/// SPEC §15's budgets allow, and 1 in WebAssembly, which has no threads.
+pub fn cores() -> usize {
+    if cfg!(target_arch = "wasm32") { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get().min(8)) }
+}
+
+/// The box's rows from `first` into `out`, as many as it holds whole, from `pixel(x, y)`.
+fn rows(bbox: [u32; 4], first: u32, out: &mut [u8], pixel: impl Fn(u32, u32) -> [u8; 4]) {
+    let w = bbox[2];
+    if w == 0 {
+        return;
+    }
+    for (gy, row) in (first..).zip(out.chunks_exact_mut(w as usize * 4)) {
+        for (gx, px) in (0..).zip(row.as_chunks_mut::<4>().0) {
+            *px = pixel(gx, gy);
+        }
+    }
+}
+
+/// The box's pixels, row-major, from `pixel(x, y)`: what each kind's tests hold its render to.
+#[cfg(test)]
 fn render(bbox: [u32; 4], pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let [_, _, w, h] = bbox;
     let mut out = Vec::with_capacity(w as usize * h as usize * 4);
@@ -275,6 +326,14 @@ fn sample(stops: &[[f32; 4]], u: f32, cyclic: bool) -> [f32; 4] {
 /// An Oklab color and its alpha, 0 to 1, as sRGB RGBA8 with straight alpha: the same
 /// conversion `mesh.wgsl` makes, and every ramp kind's WGSL after it.
 fn oklab_rgba8(l: f32, ca: f32, cb: f32, alpha: f32) -> [u8; 4] {
+    let [r, g, b] = oklab_linear(l, ca, cb);
+    let a8 = alpha.clamp(0.0, 1.0) * 255.0 + 0.5;
+    [encode(r) as u8, encode(g) as u8, encode(b) as u8, a8 as u8]
+}
+
+/// An Oklab color in linear sRGB, as [`oklab_rgba8`] works it out.
+#[inline(always)]
+fn oklab_linear(l: f32, ca: f32, cb: f32) -> [f32; 3] {
     let lm = l + 0.396_337_78 * ca + 0.215_803_76 * cb;
     let mm = l - 0.105_561_346 * ca - 0.063_854_17 * cb;
     let sm = l - 0.089_484_18 * ca - 1.291_485_5 * cb;
@@ -284,8 +343,7 @@ fn oklab_rgba8(l: f32, ca: f32, cb: f32, alpha: f32) -> [u8; 4] {
     let r = 4.076_741_7 * lc - 3.307_711_6 * mc + 0.230_969_94 * sc;
     let g = -1.268_438 * lc + 2.609_757_4 * mc - 0.341_319_38 * sc;
     let b = -0.004_196_086_4 * lc - 0.703_418_6 * mc + 1.707_614_7 * sc;
-    let a8 = alpha.clamp(0.0, 1.0) * 255.0 + 0.5;
-    [encode(r) as u8, encode(g) as u8, encode(b) as u8, a8 as u8]
+    [r, g, b]
 }
 
 /// Seeded noise for pixel `(gx, gy)` of a box, uniform in `[-0.5, 0.5)`: the grain
@@ -398,6 +456,48 @@ fn encode(v: f32) -> u32 {
     k as u32
 }
 
+/// How many pixels of a row a fast [`Job::render`] works through at once: one step of
+/// the reference's arithmetic across them all before the next, which the compiler
+/// runs as SIMD.
+const BLOCK: usize = 128;
+
+/// The parts of the unit [`Encoder`] steps by.
+const STEPS: usize = 4096;
+
+/// [`encode`] by table, for a fast [`Job::render`]: for each 4096th of the unit, how
+/// many [`thresholds`] lie at or below its start, and the one that lies inside it, if
+/// one does. No two thresholds are within 1/3295 of each other, so no 4096th holds two,
+/// and this is `encode` for every `f32` (`the_table_encodes_as_the_thresholds_do`). The
+/// two tables are read side by side, neither waiting on the other.
+#[derive(Clone, Copy)]
+struct Encoder(&'static ([u8; STEPS], [f32; STEPS]));
+
+impl Encoder {
+    fn new() -> Self {
+        static TABLES: OnceLock<([u8; STEPS], [f32; STEPS])> = OnceLock::new();
+        Encoder(TABLES.get_or_init(|| {
+            let t = &thresholds()[..255];
+            // A 4096th with no threshold inside it holds NaN, which no value reaches.
+            let (mut below, mut inside) = ([0; STEPS], [f32::NAN; STEPS]);
+            for i in 0..STEPS {
+                let (start, end) = (i as f32 / STEPS as f32, (i + 1) as f32 / STEPS as f32);
+                below[i] = t.iter().filter(|&&v| v <= start).count() as u8;
+                inside[i] = t.iter().copied().find(|&v| start < v && v < end).unwrap_or(f32::NAN);
+            }
+            (below, inside)
+        }))
+    }
+
+    /// [`encode`]`(v)`. Scaling by 4096 is exact, and the cast takes NaN to 0 and what
+    /// is past either end of the table to that end.
+    #[inline]
+    fn byte(self, v: f32) -> u8 {
+        let (below, inside) = self.0;
+        let i = ((v * STEPS as f32) as i32).clamp(0, STEPS as i32 - 1) as usize;
+        below[i] + u8::from(inside[i] <= v)
+    }
+}
+
 /// Chris Wellons' `lowbias32` integer hash; WGSL's `u32` arithmetic wraps the same way.
 fn lowbias32(mut x: u32) -> u32 {
     x ^= x >> 16;
@@ -453,6 +553,40 @@ mod tests {
         assert_eq!(encode(0.5), 188);
     }
 
+    /// The values `Encoder` could get wrong: each threshold and each 4096th of the unit,
+    /// and the floats on either side of them; zeros, NaN, the infinities, and the ends of
+    /// the range; and a sweep of every 1009th float from 0 to 1.
+    #[test]
+    fn the_table_encodes_as_the_thresholds_do() {
+        let (enc, t) = (Encoder::new(), thresholds());
+        for k in 1..255 {
+            assert!(
+                (t[k - 1] * 4096.0).floor() < (t[k] * 4096.0).floor(),
+                "thresholds {} and {k} share a 4096th",
+                k - 1
+            );
+        }
+        let edges = (t[..255].iter().copied()).chain((0..=STEPS).map(|i| i as f32 / STEPS as f32));
+        let mut values: Vec<f32> = edges.flat_map(|v| [v.next_down(), v, v.next_up()]).collect();
+        values.extend([0.0, -0.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, 1e-40, 2.0, 7.0]);
+        values.extend((0..=1.0_f32.to_bits()).step_by(1009).map(f32::from_bits));
+        for v in values {
+            assert_eq!(u32::from(enc.byte(v)), encode(v), "{v:?} ({:#010x})", v.to_bits());
+        }
+    }
+
+    /// Every one of the 2³² floats. Slow unoptimized: `cargo test --release -p scaena-core
+    /// every_float -- --ignored`.
+    #[test]
+    #[ignore]
+    fn the_table_encodes_every_float_as_the_thresholds_do() {
+        let enc = Encoder::new();
+        for bits in 0..=u32::MAX {
+            let v = f32::from_bits(bits);
+            assert_eq!(u32::from(enc.byte(v)), encode(v), "{v:?} ({bits:#010x})");
+        }
+    }
+
     #[test]
     fn oklab_matches_the_published_reference() {
         // Ottosson's table: white is L = 1, a = b = 0; pure red is (0.628, 0.225, 0.126).
@@ -506,6 +640,31 @@ mod tests {
             assert_eq!(default(kind, "nonsense"), None);
         }
         assert!(interpolates(ShaderKind::Gradient, "angle") && !interpolates(ShaderKind::Gradient, "speed"));
+    }
+
+    /// `render_on` is `render` on any number of threads, in bands that do not split the box
+    /// evenly; and `render_rows` is `render`'s rows from anywhere. For every kind.
+    #[test]
+    fn rows_in_bands_are_the_render() {
+        let palette = vec![Color([20, 10, 40, 255]), Color([255, 240, 220, 200]), Color([90, 180, 120, 255])];
+        let (w, h) = (150_usize, 515_usize);
+        for kind in
+            [ShaderKind::Mesh, ShaderKind::Gradient, ShaderKind::Noise, ShaderKind::Grain, ShaderKind::Particles]
+        {
+            let rect = [0.0, 0.0, w as f32, h as f32];
+            let op = Op::Shader { kind, seed: 3, t: 1.25, rect, palette: palette.clone(), params: BTreeMap::new() };
+            let job = Job::new(&op, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [w as u32, h as u32]).unwrap().unwrap();
+            let whole = job.render();
+            for threads in 1..=9 {
+                assert!(job.render_on(threads) == whole, "{kind:?} on {threads} threads");
+            }
+            let row = w * 4;
+            for (first, n) in [(0, 1), (7, 13), (h - 13, 13), (BAND, BAND)] {
+                let mut out = vec![0; n * row];
+                job.render_rows(first as u32, &mut out);
+                assert!(out == whole[first * row..(first + n) * row], "{kind:?}, rows {first} to {}", first + n);
+            }
+        }
     }
 
     #[test]

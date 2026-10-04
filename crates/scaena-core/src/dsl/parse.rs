@@ -147,6 +147,11 @@ fn joined(pending: &mut Vec<String>, trailing: &Option<String>) -> Option<String
     if all.is_empty() { None } else { Some(all.join("\n")) }
 }
 
+/// A numeral a token carries, which the lexer read only if JSON holds it.
+fn number(numeral: &str) -> Value {
+    serde_json::from_str(numeral).expect("a number the lexer checked")
+}
+
 fn esc(token: &str) -> String {
     token.replace('~', "~0").replace('/', "~1")
 }
@@ -345,7 +350,7 @@ impl<'a> Parser<'a> {
                 let arg = match t.peek() {
                     Some(Tok::Range(a, b)) => {
                         t.next();
-                        json!([serde_json::from_str::<Value>(a).unwrap(), serde_json::from_str::<Value>(b).unwrap()])
+                        json!([number(a), number(b)])
                     }
                     _ => self.value(t, &format!("{call}/{}", args.len()))?,
                 };
@@ -397,7 +402,7 @@ impl<'a> Parser<'a> {
             ("at", _) if t.call_next() => self.calls(t, &at_key)?,
             ("canvas", Some(Tok::Dim(w, h))) => {
                 t.next();
-                json!({ "width": serde_json::from_str::<Value>(w).unwrap(), "height": serde_json::from_str::<Value>(h).unwrap() })
+                json!({ "width": number(w), "height": number(h) })
             }
             _ => self.value(t, &at_key)?,
         };

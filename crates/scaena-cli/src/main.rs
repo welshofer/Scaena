@@ -33,6 +33,17 @@ struct Cli {
 enum Cmd {
     /// Schema + semantic validation of a bundle or deck.json.
     Validate { bundle: PathBuf },
+    /// A new bundle in `dir`, a directory not there yet or empty, as `deck_create` makes one
+    /// (PLAN 2.13): a theme, its fonts, and one state with nothing on it, titled `--title`.
+    New {
+        dir: PathBuf,
+        /// A theme that ships (`dusk`, `daybreak`, `ember`), which comes with its fonts; or a
+        /// theme file, whose fonts are beside it or above it.
+        #[arg(long, default_value = "dusk")]
+        theme: String,
+        #[arg(long, default_value = "Untitled")]
+        title: String,
+    },
     /// Run lint rules; exit 1 on errors.
     Lint {
         bundle: PathBuf,
@@ -107,13 +118,13 @@ enum Cmd {
         bundle: PathBuf,
         #[arg(long)]
         format: String,
-        /// Where to write it: a file (pdf, video, spine), or a directory that gets an
-        /// image per state (png, svg). The spine prints without it.
+        /// Where to write it: a file (pdf, video, html, spine), or a directory that gets
+        /// an image per state (png, svg). The spine prints without it.
         #[arg(long)]
         out: Option<PathBuf>,
-        /// The states to export, comma-separated, in that order. Default: every state;
-        /// for pdf, each slide once, at its last state, in spine order; for video, the
-        /// whole timeline.
+        /// The states to export, comma-separated, in that order (for html, the states it
+        /// plays). Default: every state; for pdf, each slide once, at its last state, in
+        /// spine order; for video, the whole timeline.
         #[arg(long, value_delimiter = ',')]
         states: Option<Vec<String>>,
         /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio. Default:
@@ -127,6 +138,10 @@ enum Cmd {
         /// the video ends, or carried on in silence until it does.
         #[arg(long)]
         audio: Option<PathBuf>,
+        /// What paints a video's frames: `gpu` is vello on the GPU (needs a CLI built with
+        /// `--features gpu`). Every other export paints with the CPU painter.
+        #[arg(long, value_enum, default_value_t = PainterArg::Cpu)]
+        painter: PainterArg,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -156,9 +171,12 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Dev server with live preview (PLAN 2.x).
+    /// The web player and editor on a bundle's folder, on this machine only (PLAN 2.11): a
+    /// `deck.scn` saved there compiles into `deck.json`, and the pages show each change.
     Serve {
+        /// A bundle's folder: a directory with `deck.json` in it.
         bundle: PathBuf,
+        /// The port on 127.0.0.1; 0 for any free one.
         #[arg(long, default_value_t = 4848)]
         port: u16,
     },
@@ -198,6 +216,15 @@ enum PainterArg {
     Cpu,
     /// `vello` on `wgpu`, read back from the GPU (needs a CLI built with `--features gpu`).
     Gpu,
+}
+
+impl From<PainterArg> for Painter {
+    fn from(painter: PainterArg) -> Self {
+        match painter {
+            PainterArg::Cpu => Painter::Cpu,
+            PainterArg::Gpu => Painter::Gpu,
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -277,6 +304,7 @@ fn not_built(e: &(dyn std::error::Error + 'static)) -> bool {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.cmd {
+        Cmd::New { dir, theme, title } => new(&dir, &theme, &title, cli.json),
         Cmd::Validate { bundle } => {
             let findings = scaena_ops::lint::validate(&bundle)?;
             report(&findings, cli.json);
@@ -342,8 +370,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio } => {
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio };
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter } => {
+            let painter = painter.into();
+            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -355,12 +384,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     (_, Some(files), _) if exported.format == "spine" => {
                         println!("wrote {out} and {} renders beside it", files.len())
                     }
+                    (Some(states), None, _) if exported.format == "html" => {
+                        let kb = exported.bytes.unwrap_or_default().div_ceil(1024);
+                        println!("wrote {out} ({kb} KB, playing {} states: {})", states.len(), states.join(", "))
+                    }
                     (Some(pages), None, _) => println!("wrote {out} ({} pages: {})", pages.len(), pages.join(", ")),
                     (_, Some(files), _) => println!("wrote {} {} images into {out}", files.len(), exported.format),
                     (_, _, Some(frames)) => println!(
-                        "wrote {out} ({frames} frames at {} fps, {:.1} s)",
+                        "wrote {out} ({frames} frames at {} fps, {:.1} s{})",
                         exported.fps.unwrap_or_default(),
-                        exported.duration_ms.unwrap_or_default() / 1000.0
+                        exported.duration_ms.unwrap_or_default() / 1000.0,
+                        exported.adapter.as_deref().map(|a| format!(", painted on {a}")).unwrap_or_default()
                     ),
                     _ => println!("wrote {out}"),
                 }
@@ -387,11 +421,68 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
-        Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.x")),
+        Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+/// `scaena serve` (PLAN 2.11, ADR-0012): the web player and the editor on a bundle's folder, on
+/// this machine only, until it is stopped. What happens is said on stderr: each change, and a
+/// `deck.scn` that does not compile, shown as `compile` shows it. Under `--json`, stdout holds
+/// where it serves, once.
+fn serve(bundle: &Path, port: u16, json: bool) -> Result<ExitCode> {
+    use scaena_serve::{Note, ServeError};
+    if !scaena_serve::pages_built() {
+        let message = "this scaena was built without the web pages `serve` carries: build them with `just web`, then \
+                       build scaena again";
+        return Ok(fail(json, 3, message, Some("2.11")));
+    }
+    let shown = bundle.display().to_string();
+    let started = |addr: std::net::SocketAddr| {
+        let url = format!("http://localhost:{}/", addr.port());
+        if json {
+            let v = serde_json::json!({ "bundle": shown, "player": url, "editor": format!("{url}edit") });
+            println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
+        } else {
+            eprintln!(
+                "Serving {shown} on this machine only.\n  The player: {url}\n  The editor: {url}edit\nCtrl-C stops it."
+            );
+        }
+    };
+    let note = |note: Note| match note {
+        Note::Compiled { ms, written: true } => {
+            eprintln!("{} compiled into {} ({ms} ms)", scaena_serve::SOURCE, scaena_serve::DECK)
+        }
+        Note::Compiled { written: false, .. } => eprintln!("{} compiled: the deck is as it was", scaena_serve::SOURCE),
+        Note::Failed(failed) => {
+            for p in &failed.problems {
+                let message = match &p.file {
+                    Some(file) => format!("{file} {}: {}", p.path.as_deref().unwrap_or(""), p.message),
+                    None => p.message.clone(),
+                };
+                let label = p.span.and(p.path.clone());
+                let shown = diagnostic(
+                    scaena_serve::SOURCE,
+                    &failed.source,
+                    p.code.as_deref(),
+                    &message,
+                    p.span,
+                    label,
+                    p.hint.as_deref(),
+                );
+                eprint!("{shown}");
+            }
+        }
+        Note::Changed { paths, by: Some(_) } => eprintln!("saved from a page: {}", paths.join(", ")),
+        Note::Changed { paths, by: None } => eprintln!("changed: {}", paths.join(", ")),
+    };
+    match scaena_serve::run(bundle, port, started, note) {
+        Ok(()) => Ok(ExitCode::SUCCESS),
+        Err(e @ (ServeError::NotABundle(_) | ServeError::Bind { .. })) => Ok(fail(json, 2, &e.to_string(), None)),
+        Err(e) => Err(e).context("serving"),
     }
 }
 
@@ -401,7 +492,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
 fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
     let source = std::fs::read_to_string(input).with_context(|| format!("reading {}", input.display()))?;
     let name = input.display().to_string();
-    let (doc, map) = match scaena_core::dsl::compile_json(&source) {
+    // The bundle the deck is checked in: the one it is written to, or the source's.
+    let root = out.unwrap_or(input).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let compiled = match scaena_ops::compile::compile(&source, &scaena_store::Files::Dir(root.to_path_buf())) {
         Ok(compiled) => compiled,
         Err(e) => {
             if json {
@@ -416,24 +509,18 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
             return Ok(ExitCode::from(2));
         }
     };
-    let deck_json = serde_json::to_string(&doc)?;
-    // The bundle the deck is checked in: the one it is written to, or the source's.
-    let root = out.unwrap_or(input).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let findings = scaena_core::validate::validate_bundle(&deck_json, &scaena_store::Files::Dir(root.to_path_buf()))?;
+    let findings = &compiled.findings;
     if !findings.is_empty() {
         // A finding about the deck is about the source that wrote that part of it; one
         // about another file (the theme) is about that file.
-        let span = |f: &Finding| match (&f.file, &f.path) {
-            (None, Some(path)) => map.locate(path),
-            _ => None,
-        };
+        let span = |f: &Finding| compiled.span(f);
         if json {
             let located: Vec<serde_json::Value> = findings
                 .iter()
                 .map(|f| {
                     let mut v = serde_json::to_value(f).expect("a finding is JSON");
                     if let Some((offset, _)) = span(f) {
-                        let (line, col) = line_col(&source, offset);
+                        let (line, col) = scaena_ops::compile::line_col(&source, offset);
                         v["line"] = serde_json::json!(line);
                         v["col"] = serde_json::json!(col);
                     }
@@ -443,7 +530,7 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
             let summary = serde_json::json!({ "out": null, "findings": located });
             println!("{}", serde_json::to_string_pretty(&summary)?);
         } else {
-            for f in &findings {
+            for f in findings {
                 let message = match &f.file {
                     Some(file) => format!("{file} {}: {}", f.path.as_deref().unwrap_or(""), f.message),
                     None => f.message.clone(),
@@ -457,7 +544,7 @@ fn compile(input: &Path, out: Option<&Path>, json: bool) -> Result<ExitCode> {
         }
         return Ok(ExitCode::from(1));
     }
-    let deck = scaena_core::document::Deck::from_json(&deck_json).context("the compiled deck")?;
+    let deck = scaena_core::document::Deck::from_json(&compiled.json.to_string()).context("the compiled deck")?;
     let canonical = deck.to_json()? + "\n";
     if let Some(p) = out {
         std::fs::write(p, &canonical).with_context(|| format!("writing {}", p.display()))?;
@@ -509,18 +596,29 @@ fn diagnostic(
     out
 }
 
-/// 1-based line and column (in characters) of a byte offset into `source`.
-fn line_col(source: &str, offset: usize) -> (usize, usize) {
-    let before = &source[..offset.min(source.len())];
-    let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
-    (before.matches('\n').count() + 1, col)
-}
-
 /// `scaena theme --apply` (PLAN 1.6): point the deck at another theme, and report the
 /// delta in what `validate` and `lint` find: what the new theme breaks, and what it fixes.
 /// A theme change is a pure re-render (SPEC §2.5), so the deck itself is not touched beyond
 /// its `theme`. A theme that would leave the deck invalid is refused unless `force`, and
 /// exits 1. Findings after it, if any are errors, exit 1.
+/// `scaena new` (PLAN 2.13): a bundle from a theme and its fonts, as `deck_create` makes one.
+/// Findings that are errors exit 1, and the bundle is not made.
+fn new(dir: &Path, theme: &str, title: &str, json: bool) -> Result<ExitCode> {
+    let req = scaena_ops::create::Create { theme: theme.into(), title: Some(title.into()), ..Default::default() };
+    let made = scaena_ops::create::create(dir, &req)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&made)?);
+    } else if made.created {
+        println!("made {}: {}", dir.display(), made.files.join(", "));
+        let d = dir.display();
+        println!("next: scaena decompile {d} -o {d}/deck.scn, then scaena serve {d}");
+    } else {
+        println!("not made: {} would not validate", dir.display());
+        report(&made.findings, false);
+    }
+    Ok(if made.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bool) -> Result<ExitCode> {
     let t = scaena_ops::theme::theme_apply(&open(bundle)?, theme, dry_run, force)?;
     if json {
@@ -779,11 +877,8 @@ fn num(x: f64) -> String {
 /// the display list if asked for.
 fn render(args: RenderArgs, json: bool) -> Result<ExitCode> {
     let RenderArgs { bundle, state, t, format, size, out, display_list, painter } = args;
-    let painter = match painter {
-        PainterArg::Cpu => Painter::Cpu,
-        PainterArg::Gpu => Painter::Gpu,
-    };
-    let req = scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter };
+    let req =
+        scaena_ops::render::Request { state: state.clone(), t, format: format.clone(), size, painter: painter.into() };
     let r = scaena_ops::render::render(&bundle, &req)?;
     if let Some(path) = &display_list {
         std::fs::write(path, r.display_list.to_golden_json()?)
@@ -857,10 +952,6 @@ fn rfc3339(secs: u64) -> String {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3_600, rest % 3_600 / 60, rest % 60)
-}
-
-fn not_yet(json: bool, what: &str, plan: &str) -> ExitCode {
-    fail(json, 3, &format!("`{what}` is not implemented yet — see docs/PLAN.md task {plan}"), Some(plan))
 }
 
 fn report(findings: &[Finding], json: bool) {

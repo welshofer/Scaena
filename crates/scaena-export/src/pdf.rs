@@ -14,13 +14,12 @@
 //!   (SPEC §3.8), placed as the CPU painter places them.
 //! - The PDF is tagged (SPEC §3.12). Its structure follows the spine: a section per
 //!   spine section, holding the pages of its beats' slides, then the pages no beat
-//!   names. A page reads in paint order, each node as [`crate::reading`] says: a heading
+//!   names. A page reads in paint order, each node as [`scaena_core::reading`] says: a heading
 //!   or paragraph, a figure with its alt text, a table by rows of header and data
 //!   cells. What no node reads (the page's background, decoration, a container's panel)
 //!   is an artifact. The spine's sections are the document's outline.
 
 use crate::ExportError;
-use crate::reading::{self, Kind, Reading};
 use krilla::color::rgb;
 use krilla::destination::XyzDestination;
 use krilla::geom::{Path as KPath, PathBuilder, Point, Rect as KRect, Size, Transform};
@@ -45,6 +44,7 @@ use scaena_core::displaylist::{
     Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, Op, Paint, Path, PathEl, Quality,
 };
 use scaena_core::document::Section;
+use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
 use std::collections::{BTreeMap, HashMap};
@@ -76,8 +76,20 @@ impl Default for PdfSettings {
     }
 }
 
-/// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`.
+/// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`. krilla reads each font
+/// with a reader of its own and subsets it as the document finishes, and neither expects a
+/// damaged font: a panic in either is an error that says so (PLAN 2.25).
 pub fn pdf(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+    let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(deck, pages, assets, settings)));
+    written.unwrap_or_else(|panic| {
+        let why = (panic.downcast_ref::<&str>().map(|s| s.to_string()))
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        Err(ExportError::Pdf(format!("krilla stopped writing the PDF ({why}): a font file may be damaged")))
+    })
+}
+
+fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
     let snapshots = scaena_core::resolve_states(deck).map_err(|e| ExportError::Pdf(e.to_string()))?;
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();
@@ -494,7 +506,8 @@ impl Cx<'_, '_> {
         let (Some(clip), Some(size)) = (path(&Path::rect(rect)), Size::from_wh(w as f32, h as f32)) else {
             return Ok(());
         };
-        let image = Image::from_custom(Pixels::of_rgba(job.render(), w, h), true).map_err(ExportError::Pdf)?;
+        let image = Image::from_custom(Pixels::of_rgba(job.render_on(scaena_core::shader::cores()), w, h), true)
+            .map_err(ExportError::Pdf)?;
         self.surface.push_clip_path(&clip, &KRule::NonZero);
         // Texel (0, 0) on shader pixel (x, y): undo the layers' transforms and the scale.
         let place = xf.inverse() * Affine::translate((f64::from(x), f64::from(y)));

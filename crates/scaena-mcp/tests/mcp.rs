@@ -158,11 +158,12 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let client = connect().await;
     let dir = scratch("build").join("q3");
     let bundle = path(&dir);
-    let theme = path(&Path::new(EXAMPLES).join("themes/dusk.theme.json"));
     let csv = path(&Path::new(EXAMPLES).join("data/q3-revenue.csv"));
 
-    let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": theme, "title": "Q3" })).await;
+    // A theme that ships, by name, with its fonts: the agent needs no theme file (PLAN 2.13).
+    let made = ok(&client, "deck_create", json!({ "bundle": bundle, "theme": "dusk", "title": "Q3" })).await;
     assert_eq!(made["created"], true, "{made:#}");
+    assert!(made["files"].as_array().unwrap().iter().any(|f| f == "themes/dusk.theme.json"), "{made:#}");
     let attached = ok(&client, "data_attach", json!({ "bundle": bundle, "id": "q3", "file": csv })).await;
     assert_eq!(attached["schema"]["revenue"], "number");
 
@@ -222,8 +223,9 @@ async fn a_tool_that_stops_says_why() {
     let client = connect().await;
     let example = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
     for (tool, args, says) in [
-        ("deck_export", json!({ "bundle": example, "format": "html" }), json!({ "plan": "2.5" })),
-        // A PDF and a video are files, and PNGs go in a directory: each needs `out`.
+        // A PDF, a video, and a single-file page are files, and PNGs go in a directory: each
+        // needs `out`.
+        ("deck_export", json!({ "bundle": example, "format": "html" }), json!({})),
         ("deck_export", json!({ "bundle": example, "format": "pdf" }), json!({})),
         ("deck_export", json!({ "bundle": example, "format": "mp4" }), json!({})),
         ("deck_export", json!({ "bundle": example, "format": "png" }), json!({})),

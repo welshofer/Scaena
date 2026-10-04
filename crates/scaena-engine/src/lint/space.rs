@@ -106,7 +106,7 @@ impl Rule for E101Collision {
         pairs
             .into_iter()
             .map(|((a, b), (Pair { first, overlap: [w, h], states }, [sa, sb]))| {
-                let state = &cx.states[first];
+                let state = cx.laid(first);
                 // In two containers, what has the same `z` is what stacks where they part.
                 let level = |node: &str, stacks: &str| {
                     if node == stacks { format!("`{node}`") } else { format!("`{stacks}`, which `{node}` is in,") }
@@ -175,7 +175,7 @@ impl Rule for W311ShaderBehindData {
         pairs
             .into_iter()
             .map(|((shader, data), (what, Pair { first, overlap: [w, h], states }))| {
-                let state = &cx.states[first];
+                let state = cx.laid(first);
                 cx.finding(
                     self.code(),
                     self.severity(),
@@ -245,7 +245,7 @@ impl Rule for W313ChartSquashed {
                 cx.finding(
                     self.code(),
                     self.severity(),
-                    &cx.states[first],
+                    cx.laid(first),
                     format!(
                         "chart `{chart}` has {short:.0} cu {way} to plot in, in a {cw:.0} × {ch:.0} cu cell: under {floor:.0} \
                          cu, its marks are too squashed to read"

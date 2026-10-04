@@ -249,3 +249,22 @@ fn copy_dir(from: &Path, to: &Path) {
         }
     }
 }
+
+/// krilla reads each font with a reader of its own and subsets it as the document finishes,
+/// and neither expects a damaged font: a PDF of a deck whose font has an empty `hhea` table,
+/// which the engine draws, is an error that says so, not a panic (PLAN 2.25).
+#[test]
+fn a_damaged_font_stops_a_pdf_with_an_error() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("damaged.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    let font = dir.join("fonts/RobotoSerif-VF.ttf");
+    let mut bytes = std::fs::read(&font).unwrap();
+    let tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    let record = (0..tables).map(|i| 12 + 16 * i).find(|&r| &bytes[r..r + 4] == b"hhea").unwrap();
+    bytes[record + 12..record + 16].copy_from_slice(&0u32.to_be_bytes());
+    std::fs::write(&font, bytes).unwrap();
+    let bundle = scaena_ops::open(&dir).unwrap();
+    let first = vec![bundle.deck.states[0].id.clone()];
+    let error = pdf_document(&bundle, Some(&first), 1.0).expect_err("no PDF of a damaged font").to_string();
+    assert!(error.contains("damaged"), "{error}");
+}

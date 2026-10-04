@@ -14,7 +14,9 @@ gpu = ["scaena-ops/gpu"]
 
 [dependencies]
 scaena-core.workspace = true
-scaena-ops.workspace = true
+# The themes that ship, by name, for `deck_create` (PLAN 2.13).
+scaena-ops = { workspace = true, features = ["shipped"] }
+scaena-resources.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 base64.workspace = true

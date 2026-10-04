@@ -28,6 +28,7 @@
 //! | `render_cold` | `scaena render` the slowest state: the whole process | ≤ 300 ms (B1) |
 //! | `mcp_render` | start `scaena mcp`, `deck_render` the slowest state, stop it | ≤ 1 s (B1) |
 //! | `video` | the longest cue at 1080p60: frames sampled, painted on every core, and handed to an ffmpeg that discards them | ≥ 1× realtime (B1, B2), ≥ 0.5× (B3) |
+//! | `video_gpu` | the same, painted by vello on the GPU, each frame while the ones before it are read back (`--features gpu`, an adapter) | ≥ 2× realtime |
 //! | `probe/cpu` | sort a fixed list: how fast the machine is, not the code | — |
 //!
 //! SPEC's CPU paint budget is for 8 threads. The painter paints a frame on one; the video
@@ -423,12 +424,27 @@ fn processes(c: &mut Criterion, decks: &[Deck], out: &Path) {
 /// Video export's frame loop (SPEC §10) over the deck's longest cue: each frame sampled,
 /// painted on every core, and handed to an ffmpeg that discards it, so it times Scaena's
 /// side, not an encoder. The cue is laid out beforehand, as the exporter lays out each cue
-/// once; holds are left out, since a still hold paints one frame and repeats it.
+/// once; holds are left out, since a still hold paints one frame and repeats it. With the
+/// `gpu` feature and an adapter, `video_gpu` does the same with vello painting the frames
+/// on the GPU (PLAN 2.22).
 #[cfg(unix)]
 fn video(c: &mut Criterion, decks: &[Deck], out: &Path) {
+    use scaena_export::video::Painter;
+    reel(c, decks, out, "video", Painter::Cpu);
+    #[cfg(feature = "gpu")]
+    match scaena_paint::gpu::GpuPainter::new() {
+        Ok(_) => reel(c, decks, out, "video_gpu", Painter::Gpu),
+        Err(e) => eprintln!("video_gpu: not run: {e}"),
+    }
+    #[cfg(not(feature = "gpu"))]
+    eprintln!("video_gpu: not run: build with `--features gpu`");
+}
+
+#[cfg(unix)]
+fn reel(c: &mut Criterion, decks: &[Deck], out: &Path, stage: &str, painter: scaena_export::video::Painter) {
     use scaena_export::video::{VideoSettings, encode};
     let ffmpeg = sink(out);
-    let mut g = c.benchmark_group("video");
+    let mut g = c.benchmark_group(stage);
     slow(&mut g);
     for d in decks {
         let Some(i) = d.longest_cue else { continue };
@@ -436,7 +452,7 @@ fn video(c: &mut Criterion, decks: &[Deck], out: &Path) {
         let frames = (cue.duration_ms() * f64::from(FRAMES) / 1000.0).ceil() as u64;
         let canvas = [d.bundle.deck.canvas.width as f32, d.bundle.deck.canvas.height as f32];
         let settings =
-            VideoSettings { scale: d.scale, fps: FRAMES, ffmpeg: ffmpeg.clone(), ..VideoSettings::default() };
+            VideoSettings { painter, scale: d.scale, fps: FRAMES, ffmpeg: ffmpeg.clone(), ..VideoSettings::default() };
         let mp4 = out.join(format!("{}.mp4", d.name));
         g.throughput(Throughput::Elements(frames));
         g.bench_function(d.name, |b| {

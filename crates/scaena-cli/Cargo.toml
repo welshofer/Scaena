@@ -23,8 +23,10 @@ scaena-engine.workspace = true
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
-scaena-ops.workspace = true
+# The themes that ship, by name, for `new` (PLAN 2.13).
+scaena-ops = { workspace = true, features = ["shipped"] }
 scaena-mcp.workspace = true
+scaena-serve.workspace = true
 clap.workspace = true
 miette.workspace = true
 serde_json.workspace = true

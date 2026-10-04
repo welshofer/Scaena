@@ -3,7 +3,7 @@
 //! Branches merge, a renamed node is still the node it was, and undo undoes one's own.
 
 use scaena_core::Deck;
-use scaena_store::crdt::{CrdtError, DeckDoc, Edit, FS};
+use scaena_store::crdt::{CrdtError, DeckDoc, Edit, FS, OUTSIDE, Recorded};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -340,4 +340,59 @@ fn a_node_removed_on_one_branch_stays_removed() {
     let both = merged(&a, &b);
     assert!(both["nodes"].get("chart").is_none(), "{:#}", both["nodes"]);
     assert!(both["states"][1]["props"].get("chart").is_none());
+}
+
+#[test]
+fn recorded_changes_go_in_one_by_one_by_their_authors() {
+    let doc = DeckDoc::from_deck(&deck(base()), &user()).unwrap();
+    let text = |v: &Value| deck(v.clone()).to_json().unwrap();
+    let mut typed = base();
+    typed["nodes"]["title"]["text"] = json!("Revenue doubled in Q3");
+    let mut renamed = serde_json::to_string(&typed)
+        .unwrap()
+        .replace("\"title\":{", "\"headline\":{")
+        .replace("\"target\":\"title\"", "\"target\":\"headline\"");
+    renamed = renamed.replace("Revenue doubled in Q3", "Revenue doubled in Q3, again");
+    let renamed: Value = serde_json::from_str(&renamed).unwrap();
+    let changes = [
+        // The deck as it was: no change, and none recorded.
+        Recorded { deck: text(&base()), author: FS.into(), message: Some(OUTSIDE.into()), ..at(2_000) },
+        Recorded { deck: text(&typed), author: "user".into(), message: Some("edit".into()), ..at(3_000) },
+        Recorded {
+            deck: text(&renamed),
+            author: "agent:scripted".into(),
+            message: Some("patch: rename_node, set_text".into()),
+            renamed_nodes: vec![("title".into(), "headline".into())],
+            ..at(4_000)
+        },
+    ];
+    // As one module hands them to another.
+    let wire = serde_json::to_string(&changes).unwrap();
+    assert!(wire.contains("\"renamedNodes\":[[\"title\",\"headline\"]]") && !wire.contains("renamedStates"), "{wire}");
+    let changes: Vec<Recorded> = serde_json::from_str(&wire).unwrap();
+    assert_eq!(doc.record(&changes).unwrap(), 2);
+    assert_eq!(doc.deck().unwrap().to_json().unwrap(), text(&renamed));
+    let said: Vec<_> =
+        doc.changes().into_iter().map(|c| (c.author.unwrap(), c.message.unwrap_or_default(), c.timestamp)).collect();
+    assert_eq!(
+        said[1..],
+        [
+            ("user".to_string(), "edit".to_string(), 3_000),
+            ("agent:scripted".to_string(), "patch: rename_node, set_text".to_string(), 4_000)
+        ]
+    );
+    // The rename kept the node: its id changed, and its text was edited by character, not
+    // written again.
+    assert_eq!(doc.changes()[2].ops, 1 + ", again".len());
+}
+
+fn at(timestamp: i64) -> Recorded {
+    Recorded {
+        deck: String::new(),
+        author: String::new(),
+        message: None,
+        timestamp: Some(timestamp),
+        renamed_nodes: Vec::new(),
+        renamed_states: Vec::new(),
+    }
 }

@@ -3,6 +3,7 @@
 use crate::crdt::{DeckDoc, Edit};
 use crate::subset::subset;
 use crate::{Bundle, Files, HISTORY, StoreError};
+use scaena_core::Deck;
 use scaena_core::document::{Manifest, NodeType};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -33,6 +34,18 @@ pub struct Saved {
     pub manifest: Manifest,
 }
 
+/// A save, done in memory: the files [`Bundle::save`] writes, for a caller that keeps them
+/// itself, as a page does (PLAN 2.4).
+#[derive(Debug, Clone)]
+pub struct Saving {
+    /// Every file of the saved bundle, by its path inside it.
+    pub files: BTreeMap<String, Vec<u8>>,
+    /// Files of the bundle as it was that the save renamed or rewrote: one saved in place
+    /// drops those `files` does not hold.
+    pub replaced: BTreeSet<String>,
+    pub saved: Saved,
+}
+
 /// Font files, by extension.
 const FONT_EXTENSIONS: [&str; 4] = ["ttf", "otf", "woff", "woff2"];
 
@@ -50,6 +63,64 @@ impl Bundle {
     /// `to` is a directory, or a zip when it ends in `.scaena`. A directory must be absent,
     /// empty, or this bundle's own; saving in place removes the files it renamed.
     pub fn save(&self, to: &Path, opts: &SaveOptions) -> Result<Saved, StoreError> {
+        let Saving { files, replaced, saved } = self.saving(opts)?;
+        if to.extension().and_then(|e| e.to_str()) == Some("scaena") && !to.is_dir() {
+            std::fs::write(to, zip(&files)?)?;
+        } else {
+            self.write_dir(to, &files, &replaced)?;
+        }
+        Ok(saved)
+    }
+
+    /// What [`Bundle::save`] writes, as files in memory.
+    pub fn saving(&self, opts: &SaveOptions) -> Result<Saving, StoreError> {
+        let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
+            subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
+        };
+        self.saving_with(opts, |deck| self.recorded(deck, opts.history), subset)
+    }
+
+    /// What a save subsets (SPEC §3.1): every character the deck can draw, and each font
+    /// file, by its path, that it keeps those of. A caller that subsets elsewhere, as a page
+    /// does in a module of its own (PLAN 2.4), subsets these and hands them to
+    /// [`Bundle::saving_with`].
+    pub fn subsetting(&self) -> Result<(BTreeSet<char>, Vec<String>), StoreError> {
+        let theme: Option<Value> = match &self.deck.theme {
+            Some(Value::String(path)) => Some(serde_json::from_slice(&self.read(path)?)?),
+            other => other.clone(),
+        };
+        let fonts = font_files(&self.deck, theme.as_ref()).into_iter().map(|(file, _)| file).collect();
+        Ok((self.drawable_chars()?, fonts))
+    }
+
+    /// The bundle's history with `deck` saved in it, by the bundle's author; begun if
+    /// `begin`, where the bundle keeps none.
+    fn recorded(&self, deck: &Deck, begin: bool) -> Result<Option<Vec<u8>>, StoreError> {
+        let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
+        match self.record(deck, &edit)? {
+            Some(bytes) => Ok(Some(bytes)),
+            None if begin => {
+                let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
+                Ok(Some(DeckDoc::from_deck(deck, &begun)?.save()?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// [`Bundle::saving`], with the history the save writes made by `history` from the deck
+    /// as saved, and each font subset by `subset` (its path, its bytes, and the characters
+    /// to keep) where `opts` subsets them.
+    ///
+    /// `history` gives the history's bytes, or `None` to carry the bundle's history as it
+    /// is. A caller that keeps no CRDT, as a page does (PLAN 2.4), carries it: the next save
+    /// that records takes in the deck as a change by `fs`, as it does a `deck.json` edited by
+    /// hand (SPEC §8).
+    pub fn saving_with(
+        &self,
+        opts: &SaveOptions,
+        history: impl FnOnce(&Deck) -> Result<Option<Vec<u8>>, StoreError>,
+        mut subset: impl FnMut(&str, &[u8], &BTreeSet<char>) -> Result<Vec<u8>, StoreError>,
+    ) -> Result<Saving, StoreError> {
         let mut deck = self.deck.clone();
         let mut theme: Option<(String, Value)> = match &deck.theme {
             Some(Value::String(path)) => Some((path.clone(), serde_json::from_slice(&self.read(path)?)?)),
@@ -62,18 +133,12 @@ impl Bundle {
         let mut subsets = Vec::new();
 
         // Fonts: the deck's, then any other its theme's families name.
-        let mut fonts: Vec<(String, String)> = deck.fonts.iter().map(|f| (f.file.clone(), f.family.clone())).collect();
-        let theme_value = theme.as_ref().map(|(_, v)| v).or(deck.theme.as_ref());
-        for (file, family) in theme_families(theme_value) {
-            if !fonts.iter().any(|(f, _)| *f == file) {
-                fonts.push((file, family));
-            }
-        }
+        let fonts = font_files(&deck, theme.as_ref().map(|(_, v)| v).or(deck.theme.as_ref()));
         let mut names: BTreeMap<String, String> = BTreeMap::new();
         for (old, family) in fonts {
             let bytes = self.read(&old)?;
             let bytes_out = if opts.subset_fonts {
-                let smaller = subset(&bytes, &chars).map_err(|e| StoreError::Subset(old.clone(), e))?;
+                let smaller = subset(&old, &bytes, &chars)?;
                 subsets.push((old.clone(), bytes.len(), smaller.len()));
                 smaller
             } else {
@@ -135,16 +200,7 @@ impl Bundle {
         renamed.extend(names.iter().filter(|(old, new)| old != new).map(|(o, n)| (o.clone(), n.clone())));
 
         // The history, with this save in it: files renamed are a change to the deck.
-        let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
-        let history = match self.record(&deck, &edit)? {
-            Some(bytes) => Some(bytes),
-            None if opts.history => {
-                let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
-                Some(DeckDoc::from_deck(&deck, &begun)?.save()?)
-            }
-            None => None,
-        };
-        if let Some(bytes) = history {
+        if let Some(bytes) = history(&deck)? {
             replaced.insert(HISTORY.into());
             out.insert(HISTORY.into(), bytes);
         }
@@ -175,13 +231,7 @@ impl Bundle {
         };
         out.insert("deck.json".into(), deck_json);
         out.insert("manifest.json".into(), (serde_json::to_string_pretty(&manifest)? + "\n").into_bytes());
-
-        if to.extension().and_then(|e| e.to_str()) == Some("scaena") && !to.is_dir() {
-            write_zip(to, &out)?;
-        } else {
-            self.write_dir(to, &out, &replaced)?;
-        }
-        Ok(Saved { renamed, subset: subsets, manifest })
+        Ok(Saving { files: out, replaced, saved: Saved { renamed, subset: subsets, manifest } })
     }
 
     /// Every character the deck can draw: every string in it, and every character of its
@@ -236,8 +286,6 @@ impl Bundle {
     }
 }
 
-/// A zip of `files`, sorted by path, each deflated and dated 1980-01-01, so the same
-/// bundle zips to the same bytes.
 impl Bundle {
     /// Write `files` (bundle path → bytes) into the bundle where it is, each replacing what
     /// is there: in its directory, or into its zip, which is rewritten. Nothing else changes;
@@ -259,15 +307,18 @@ impl Bundle {
                 for (rel, bytes) in files {
                     all.insert(crate::normal(rel)?, bytes.clone());
                 }
-                write_zip(&self.root, &all)
+                std::fs::write(&self.root, zip(&all)?)?;
+                Ok(())
             }
         }
     }
 }
 
-fn write_zip(to: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<(), StoreError> {
-    let zip_error = |source| StoreError::Zip { path: to.to_path_buf(), source };
-    let mut zip = zip::ZipWriter::new(std::fs::File::create(to)?);
+/// `files` as a `.scaena` zip's bytes: sorted by path, each deflated and dated 1980-01-01,
+/// so the same bundle zips to the same bytes.
+pub fn zip(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, StoreError> {
+    let zip_error = |source| StoreError::Zip { path: "deck.scaena".into(), source };
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .last_modified_time(zip::DateTime::default())
@@ -276,8 +327,19 @@ fn write_zip(to: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<(), StoreEr
         zip.start_file(rel.as_str(), options).map_err(zip_error)?;
         zip.write_all(bytes)?;
     }
-    zip.finish().map_err(zip_error)?;
-    Ok(())
+    Ok(zip.finish().map_err(zip_error)?.into_inner())
+}
+
+/// The font files a save writes, as (file, family name): the deck's, then any other its
+/// theme's families name.
+fn font_files(deck: &Deck, theme: Option<&Value>) -> Vec<(String, String)> {
+    let mut fonts: Vec<(String, String)> = deck.fonts.iter().map(|f| (f.file.clone(), f.family.clone())).collect();
+    for (file, family) in theme_families(theme) {
+        if !fonts.iter().any(|(f, _)| *f == file) {
+            fonts.push((file, family));
+        }
+    }
+    fonts
 }
 
 /// The (file, family name) of each family in a theme, in theme order.
@@ -315,6 +377,18 @@ fn strings(value: &Value, chars: &mut BTreeSet<char>) {
 
 fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Where a file added to a bundle goes, by what it is (PLAN 2.4): a font under `fonts/`
+/// and a data file under `data/`, by its own name; anything else, an image above all,
+/// under `assets/`, named by its content as a save names it.
+pub fn place(name: &str, bytes: &[u8]) -> String {
+    let file = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    match extension(file).map(str::to_ascii_lowercase).as_deref() {
+        Some(ext) if FONT_EXTENSIONS.contains(&ext) => format!("fonts/{file}"),
+        Some("csv" | "tsv" | "json") => format!("data/{file}"),
+        ext => format!("assets/{}.{}", sha256(bytes), ext.unwrap_or("bin")),
+    }
 }
 
 /// A family name as a file name: its letters and digits.
