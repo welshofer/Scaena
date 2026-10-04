@@ -1010,6 +1010,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W210 | warn | density: more words on screen in a state than the theme's `density.maxWordsPerState` (40) |
 | W220 | warn | paragraphs (text of two lines or more) aligned more than one way in a state |
 | W221 | warn | a role that snaps its baselines to the baseline grid (`snap: "baseline"`) with a leading (`size × leading`) that is not a whole number of grid lines, so its lines sit farther apart than it says; or a grid the deck is laid out on with no baseline for it to snap to. It points into the theme (§3.4) |
+| W230 | warn | a font the deck lists whose license, in its OS/2 embedding bits (`fsType`), does not allow what Scaena does with a font: embedding only with its owner's permission (a bundle carries its fonts, as a PDF and a single-file export do), embedding only in documents opened read-only (a bundle is edited), no subsetting (Scaena subsets the fonts it saves and exports; `scaena save --keep-fonts` keeps a bundle's whole), or embedding only its bitmaps (exports embed outlines). Where more than one usage bit is set, the least restrictive holds, as OpenType says. One finding per font, at its entry in `fonts`, with its `fsType`. It warns and refuses nothing (§16 Q3) |
 | W300 | warn | style literal outside `overrides`: a color written out where a theme color goes, a text `size`, a length in canvas units where a theme token goes (`radius`, `gap`, `padding`, `inset`, a stroke's `width`, a child's `size`) |
 | W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
 | W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |
@@ -1290,7 +1291,7 @@ Notes: the CPU paint stage paints a frame on one thread, so the 8 threads its bu
 
 1. Vertical text and complex script timing (phase?).
 2. Video/audio nodes — decoding in the engine or in the client?
-3. Font licensing: enforce embedding permissions bits at bundle time? (Proposal: warn, don't block.)
+3. Font licensing: settled as proposed, warn and don't block. W230 reports a font whose embedding bits do not allow what a bundle does with it, and nothing refuses it (PLAN 2.14).
 4. Live data sources and refresh semantics.
 5. Direct-manipulation editing model and how it expresses patches in template-managed layouts.
 6. Multiple formats: how much per-format override is allowed before it's a second deck? PLAN 1.13 settles the minimum: a format's template set moves slots and changes the grid, and nodes and states are shared. Open: per-format node props (a shorter headline in `9:16`), and a lint for nodes placed by `col`/`row` or `rect` in a deck with formats, which do not move with the slots.

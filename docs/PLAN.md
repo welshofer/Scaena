@@ -663,6 +663,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *`create` takes the theme that ships by its name, in any case, where no file of that name is. A name that is neither says which themes ship.*
     - *Each font carries its copyright and its license (OFL) in its name table, and covers Latin (U+0020–017F, U+2010–203A, and €).*
     - *Tests: `scaena new` with each theme by name, then validated and linted with no error; a theme file with the fonts beside it; a place that is not empty, and a theme that is neither, exit 2 (`crates/scaena-cli/tests/new.rs`). MCP's agent test makes its deck from `dusk` by name.)*
+- [x] 2.14 Font licensing (SPEC §16 Q3, the fonts track): lint warns, as W230, where a font's OS/2 embedding bits (`fsType`) do not allow what a bundle does with it, a restricted license, preview and print only, no subsetting, or bitmaps only, and blocks nothing. *(Done: the engine reads each font's bits with skrifa as it registers it, and lint reports each font the deck lists once, at `/fonts/i/file`. The trigger's font is made from nothing by `scripts/build_lint_fonts.py`, plain boxes, restricted and not to be subset, so no one's font is bent to say it. Every font the repository ships is installable, so no deck's findings change.)*
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
@@ -704,8 +705,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 ## Cross-cutting tracks (run alongside phases)
 
 - **Performance:** benches from Phase 0 onward; budgets in SPEC §15; a regression fails CI.
-- **Fonts:** bundle-only policy, subsetting, licensing warnings (SPEC §16 Q3); a very large catalog to pick from, kept out of the render path (SPEC §16 Q8).
-- **Docs:** `docs/spec/format.md` (number/date formats), `docs/spec/expr.md` (data transform expressions), `docs/spec/dsl.md` (full grammar) — written in Phase 1 when the code forces decisions.
+- **Fonts:** bundle-only policy, subsetting, licensing warnings (SPEC §16 Q3; W230, PLAN 2.14); a very large catalog to pick from, kept out of the render path (SPEC §16 Q8).
+- **Docs:** `docs/spec/format.md` (number/date formats) and `docs/spec/expr.md` (data transform expressions), written in Phase 1 when the code forced the decisions. The DSL's full grammar is SPEC §4's, rewritten to the implemented language in PLAN 1.5, so it has no file of its own.
 - **Security:** no arbitrary code in documents; single-file export has no network; keys never in bundles.
 
 ---

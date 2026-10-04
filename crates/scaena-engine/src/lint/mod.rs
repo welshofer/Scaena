@@ -1,12 +1,14 @@
 //! Layout-level lint (SPEC §7.5): what a deck shows once it is laid out. Text that does
 //! not fit or lacks glyphs, content that collides, contrast against what is painted
 //! behind it, lines, chart labels, and motion, in the deck's own format and in each of
-//! its `formats`. The document-level rules are `scaena_core::lint`'s.
+//! its `formats`; and, once, fonts whose licenses do not allow what a bundle does with
+//! them. The document-level rules are `scaena_core::lint`'s.
 //!
 //! Lint lays out what a frame refuses (text under `fit: error` that does not fit, a
 //! table whose rows do not) and reports it, where a frame would stop at the first.
 
 mod contrast;
+mod fonts;
 mod motion;
 mod space;
 mod text;
@@ -134,7 +136,8 @@ fn lint_in(
     only: Option<&str>,
 ) -> Result<Vec<Finding>, EngineError> {
     engine.lenient = true;
-    let mut out = Vec::new();
+    // What a font's license allows is the same in every format: judged once.
+    let mut out = fonts::W230FontLicense::check(deck, engine.fonts());
     let mut formats: Vec<Option<&str>> = vec![None];
     formats.extend(deck.formats.iter().map(|f| Some(f.as_str())));
     let result = (|| {

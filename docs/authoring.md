@@ -193,7 +193,7 @@ A valid deck can still be shown badly. `scaena lint` lays out every state, in ev
 | Codes | Family | For example |
 |---|---|---|
 | E100–E120 | mechanical: it cannot be shown | text that does not fit its box (E100), objects that collide (E101), text that does not contrast with what is painted behind it (E110, E111), characters the font has no glyph for (E120) |
-| W200–W221 | typography | a widow (W200), too many words on screen (W210) |
+| W200–W230 | typography and fonts | a widow (W200), too many words on screen (W210), a font whose license forbids what a bundle does with it (W230) |
 | W300–W322 | the theme, charts, motion | a literal where a theme name goes (W300), chart text too small to read (W312), too much moving at once (W320) |
 | W401–W426 | the argument | a state no beat names (W401), a slide with evidence and no claim (W421), two claims on screen (W424) |
 | I400–I402 | information | a state that changes nothing (I400) |

@@ -38,11 +38,55 @@ pub struct BundleFonts {
     by_blob: BTreeMap<u64, String>,
     /// Bundle font id → family names that file provides.
     families: BTreeMap<String, Vec<String>>,
+    /// Bundle font id → what its license lets a document do with it.
+    embedding: BTreeMap<String, Embedding>,
 }
 
 impl Default for BundleFonts {
     fn default() -> Self {
-        Self { cx: bundle_font_context(), by_blob: BTreeMap::new(), families: BTreeMap::new() }
+        Self {
+            cx: bundle_font_context(),
+            by_blob: BTreeMap::new(),
+            families: BTreeMap::new(),
+            embedding: BTreeMap::new(),
+        }
+    }
+}
+
+/// What a font's license lets a document do with it: its OS/2 embedding bits (`fsType`,
+/// in OpenType's OS/2 table; SPEC §7.5 W230, §16 Q3). A font with no OS/2 table says
+/// nothing, and reads as installable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Embedding(pub u16);
+
+impl Embedding {
+    /// A font file's, from its first face.
+    pub fn of(bytes: &[u8]) -> Self {
+        use skrifa::raw::TableProvider;
+        let os2 = skrifa::FontRef::from_index(bytes, 0).ok().and_then(|f| f.os2().ok());
+        Self(os2.map_or(0, |t| t.fs_type()))
+    }
+
+    /// Embedded only with its owner's permission: bit 1, with neither less restrictive
+    /// usage bit (2 or 3) beside it. Where more than one is set, the least restrictive
+    /// holds, as OpenType says.
+    pub fn restricted(self) -> bool {
+        self.0 & 0x000e == 0x0002
+    }
+
+    /// Embedded only in a document opened read-only: bit 2, without bit 3.
+    pub fn preview_and_print(self) -> bool {
+        self.0 & 0x000c == 0x0004
+    }
+
+    /// Not to be subset before it is embedded: bit 8.
+    pub fn no_subsetting(self) -> bool {
+        self.0 & 0x0100 != 0
+    }
+
+    /// Only its bitmaps may be embedded, not its outlines: bit 9.
+    pub fn bitmap_only(self) -> bool {
+        self.0 & 0x0200 != 0
     }
 }
 
@@ -57,6 +101,7 @@ impl BundleFonts {
         if self.families.contains_key(id) {
             return Err(EngineError::Font(format!("{id}: registered twice")));
         }
+        let embedding = Embedding::of(&bytes);
         let blob = Blob::new(Arc::new(bytes));
         let blob_id = blob.id();
         let mut names: Vec<String> = Vec::new();
@@ -71,7 +116,13 @@ impl BundleFonts {
         }
         self.by_blob.insert(blob_id, id.to_string());
         self.families.insert(id.to_string(), names.clone());
+        self.embedding.insert(id.to_string(), embedding);
         Ok(names)
+    }
+
+    /// What the license of the font registered as `id` lets a document do with it.
+    pub fn embedding(&self, id: &str) -> Option<Embedding> {
+        self.embedding.get(id).copied()
     }
 
     /// Check that every family in `theme` has its file registered and that the file
@@ -138,5 +189,44 @@ mod tests {
         let bytes = std::fs::read("../../tests/fixtures/torture.scaena/fonts/NotoSansHebrew-VF.ttf").unwrap();
         assert_eq!(fonts.register("fonts/he.ttf", bytes.clone()).unwrap(), ["Noto Sans Hebrew"]);
         assert!(fonts.register("fonts/he.ttf", bytes).is_err());
+    }
+
+    /// `bytes` with its OS/2 `fsType` set to `bits`: the table's offset from the table
+    /// directory, then the field 8 bytes in. Checksums go stale, which nothing here reads.
+    fn with_fs_type(mut bytes: Vec<u8>, bits: u16) -> Vec<u8> {
+        let tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+        let record = (0..tables).map(|i| 12 + 16 * i).find(|&r| &bytes[r..r + 4] == b"OS/2").unwrap();
+        let at = u32::from_be_bytes(bytes[record + 8..record + 12].try_into().unwrap()) as usize + 8;
+        bytes[at..at + 2].copy_from_slice(&bits.to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn embedding_reads_what_a_fonts_license_allows() {
+        let font = std::fs::read("../../tests/fixtures/torture.scaena/fonts/NotoSansHebrew-VF.ttf").unwrap();
+        let says = |bits: u16| {
+            let e = Embedding::of(&with_fs_type(font.clone(), bits));
+            assert_eq!(e, Embedding(bits));
+            (e.restricted(), e.preview_and_print(), e.no_subsetting(), e.bitmap_only())
+        };
+        // Installable, and editable: nothing to say.
+        assert_eq!(says(0x0000), (false, false, false, false));
+        assert_eq!(says(0x0008), (false, false, false, false));
+        assert_eq!(says(0x0002), (true, false, false, false));
+        assert_eq!(says(0x0004), (false, true, false, false));
+        // More than one usage bit: the least restrictive holds.
+        assert_eq!(says(0x0006), (false, true, false, false));
+        assert_eq!(says(0x000a), (false, false, false, false));
+        assert_eq!(says(0x000e), (false, false, false, false));
+        // The two that limit how it is embedded stand on their own.
+        assert_eq!(says(0x0100), (false, false, true, false));
+        assert_eq!(says(0x0302), (true, false, true, true));
+        // A file that is no font says nothing.
+        assert_eq!(Embedding::of(b"not a font"), Embedding(0));
+        // The registry keeps each font's bits by its bundle id.
+        let mut fonts = BundleFonts::new();
+        fonts.register("fonts/he.ttf", with_fs_type(font, 0x0102)).unwrap();
+        assert_eq!(fonts.embedding("fonts/he.ttf"), Some(Embedding(0x0102)));
+        assert_eq!(fonts.embedding("fonts/other.ttf"), None);
     }
 }

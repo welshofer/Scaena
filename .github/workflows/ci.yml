@@ -211,6 +211,8 @@ jobs:
       - run: python3 scripts/build_torture_fonts.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # The lint fixtures' font is what its generator writes, its license bits and all (W230).
+      - run: python3 scripts/build_lint_fonts.py --check
       # B2 and B3 are what their generator writes (PLAN 1.24).
       - run: python3 scripts/build_bench_decks.py --check
       # The bench gate judges a pull request beside its base (PLAN 1.24).
