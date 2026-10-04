@@ -1,9 +1,9 @@
 name: bench
 # SPEC §15's stages, timed by criterion on B1–B4 (PLAN 1.24). Linux times each pull request ready
-# for review and each push to `main` that could change a number. macOS on Apple Silicon, the
-# closest to SPEC's reference machine, which also paints on Metal, bills ten Linux minutes for each
-# of its own and judges only regressions over about 30% (its noise), so it times `main` once a week
-# and on a manual run, into its history, and judges no pull request.
+# for review that could change a number. Linux and macOS on Apple Silicon (the closest to SPEC's
+# reference machine, which also paints on Metal) time `main` once a week and on a manual run, into
+# each runner's history. A macOS minute bills as ten Linux ones, and that runner judges only
+# regressions over about 30% (its noise), so it judges no pull request.
 # A pull request is timed beside its base, both built and then run on the same machine in the same
 # job, a group of benches at a time, the base first. It fails when a bench is slower than the base
 # by more than the run's floor (10%, or 2.5 times how far its benches stray from the base, if that
@@ -14,16 +14,6 @@ name: bench
 # §15's budgets first, goes to the run summary. A draft pull request is not timed; once it is ready
 # for review each push is, so what merges was timed beside its base.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/**"
-      - "tests/bench/**"
-      - "tests/fixtures/torture.scaena/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "scripts/bench_gate.py"
-      - ".github/workflows/bench.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
@@ -34,7 +24,7 @@ on:
       - "Cargo.lock"
       - "scripts/bench_gate.py"
       - ".github/workflows/bench.yml"
-  # On main, a manual run records like a push: a few of them fill a new runner's history.
+  # On main, a manual run records like the weekly one: a few of them fill a new runner's history.
   workflow_dispatch:
   schedule:
     - cron: "41 7 * * 1"
