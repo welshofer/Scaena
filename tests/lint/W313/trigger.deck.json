@@ -1,0 +1,14 @@
+{
+  "scaena": "0.9",
+  "_comment": "W313 trigger: a bar chart in one row of the theme's six, 128 cu tall: once its labels have their room, its bars have under 120 cu to rise in.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": {"inline": [{"q": "Q1", "v": 10}, {"q": "Q2", "v": 12}, {"q": "Q3", "v": 15}]}, "schema": {"v": "number"}}},
+  "nodes": {
+    "c": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "q"}, "y": {"field": "v"}, "labels": {"show": "all"}, "alt": "Sales rise each quarter.", "at": {"col": [1, 12], "row": 6}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"c": {}}}
+  ]
+}

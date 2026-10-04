@@ -497,6 +497,50 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
 
+### 1I What gate 1's agent runs found (2026-10-03)
+*From `docs/examples/agent-run.md`, Findings. The runs found eight problems that are fixed (#53–#58); these are the rest.*
+- [x] 1.33 Resources an MCP-only agent can read whole.
+  - **The problem.** Claude Code saves a resource over its output limit to a file, and an agent with no file tools cannot open it. The deck schema (74 KB) and SPEC (157 KB) never reached gate 1's agents, which learned `dataTransform`'s syntax from E106 messages.
+  - **The task.** Serve SPEC by section, and `docs/spec/format.md`, `docs/spec/expr.md`, and the example themes on their own, each small enough to arrive whole. The server's tests hold every resource under that size.
+  - *(Done: every resource weighs under 40 KB as `resources/read` returns it, its text escaped (`scaena_mcp::LIMIT`). Gate 1's agent got a 45 KB result whole and a 74 KB one as a file; Claude Code's documented limit is 25,000 tokens.*
+    - *SPEC: `scaena://spec` is an index; each `##` section is `scaena://spec/N`, and each numbered subsection `scaena://spec/N.M`. §3, too large to arrive whole, holds its text up to §3.1 and the uris of its subsections, which are listed. The other subsections read by uri. Their texts in order are SPEC, which a test checks.*
+    - *The schemas: the deck's in four parts (`scaena://schema/deck`, its root and states; `/nodes`; `/deltas`, what a state sets; `/values`, what both share), the theme's in four (its root; `/charts`, `/shaders`, `/motion`), and the patch's ops by reference into the deck's parts. Each part is a JSON Schema whose `$id` is its uri. A test resolves every `$ref` and checks that the parts are the files in `docs/schema/`.*
+    - *`scaena://spec/format`, `scaena://spec/expr`, `scaena://examples/charts.deck.json`, and the three themes, Dusk, Daybreak, and Ember.*
+    - *JSON resources come without their whitespace, which takes the trails deck from 45 KB to 26 KB as read. The largest resource is §7, at 32 KB. The author-deck skill names the sections to read; SPEC §7.2 says how resources are served.)*
+- [x] 1.34 One vocabulary for the shipped themes.
+  - **The problem.** The retheme skill calls names the swap contract, but the shipped themes break it, so a deck cannot move between them without edits.
+  - **The task.** Dusk, Daybreak, and Ember name their layouts and slots by job, the same names for the same jobs:
+    - Dusk's `figure` layout, with its slots `main` and `footer`, is Ember's `chart`, with `chart` and `side`;
+    - Dusk's `stat` slots `meaning` and `aside` are Ember's `claim` and `detail`.
+  - **Shader presets** are named by job, too, and every theme has the ones the example decks use.
+  - **The test.** It re-themes each example deck across the three and expects no E102.
+  - *(Done: Dusk, Daybreak, and Ember define the same names for the same jobs, and SPEC §3.6 lists them.*
+    - *Layouts and slots. Ember's `chart` becomes `figure`, its slots `main` and `note` (`chart` and `side`), and `narrow-chart` becomes `narrow-figure`. A stat's `meaning` and `aside` become `claim` and `detail`. A source line or a column of facts is a `note` (Dusk's `footer`, Ember's `side`), and `split`'s `left` and `right` are `body` and `main`. Each theme gains the layouts the others had, in its own geometry: Dusk and Daybreak `statement`, `poster`, `narrow-figure`, `art-left`, and `art-right`, and Ember `split` and `quote`. Dusk's kicker runs in the bottom corner, its top row being the header's.*
+    - *Grids. Dusk and Daybreak lay out on 12 rows, as Ember does. Each slot covers the two rows its one did, so nothing moves, and an `at.row` names the same cell in each theme. Before, higher-ed's rows past 6 stopped lint on Dusk.*
+    - *Roles: Dusk and Daybreak gain `lede`, `kicker`, `figure`, and `quote`, and Ember `code`, in JetBrains Mono. Ember gains the color `accent-2` and the spring `heavy`. The shader presets are `backdrop` and `texture` (Dusk's `mesh-soft` and `noise-fine`), and the palettes `ambient` and `texture` (Dusk's `ember`, named for a theme), in each theme.*
+    - *`theme_apply` lists a theme's families in the deck's `fonts` when the bundle holds their files (`listed`), which E102 asked for by hand.*
+    - *The example decks use the new names. A test re-themes each of the six onto each theme: none is refused, and none has an E102. Another checks that the three themes name the same things. What remains in those deltas is the new look's to report: Dusk's larger headlines in higher-ed's header slots (E100), text over trails' storm photo on Daybreak (E110), and a few more.)*
+- [x] 1.35 A re-theme is all or nothing. `theme_apply` refuses to leave a deck with new errors, as `deck_patch` does, unless asked to (`force`). The retheme skill shows the way that keeps the deck valid throughout: one `deck_patch` with the `retheme` op and the fixes the dry run's E102s name.
+  *(Done: `theme_apply` validates the deck with the new theme before it writes. A theme that adds a validation error is refused: `refused` in its result, exit 1. The deck keeps its theme, and the theme is copied into `themes/` all the same, for one `patch` with the `retheme` op and the fixes. `--force` (`force`) applies it anyway. The retheme skill shows the patch, and SPEC §7.1–§7.2 say so. A CLI test is refused, finds the `retheme` op alone refused too, and forces.)*
+- [x] 1.36 Lint sees what gate 1's renders showed.
+  - E101 judges a container's children against the nodes around it (in attempt 3, a source note over the cost cards).
+  - A narrative rule reports a spine whose beats run in another order than their states, which leaves the PDF and the video telling the story in different orders.
+  - A chart squashed by a theme's grid below a legible plot is flagged.
+  - `at.align` on a grid placement either places the grid in its cells or is rejected. In attempt 3 it did nothing.
+  *(Done:*
+    - *E101 compares two nodes where their paint paths part: the nodes themselves in one container, else the containers they are in. So a card in a stack collides with a note beside the stack when the stack and the note share a `z`, and the finding names the container whose `z` ties.*
+    - *W426 reports a beat that comes after another in the spine while its states play first. The ridgeline example now plays `lesson` after `sixfold`, where its beat stands.*
+    - *W313 flags a chart whose plot, the room its marks have once its labels, axes, and legend have theirs, is under 120 cu across or down at presentation size.*
+    - *A root container whose own `align` or `at.align` names an axis takes its content's size on that axis and aligns in its box, as SPEC §3.4 now says. Before, it filled the box, and the alignment had nothing to move. A slot's `align` is for text, and shrinks no container.*
+    - *Fixtures for W313 and W426, E101's trigger widened to a stack and a note, and a container test. The example decks still lint clean, and the torture deck's lint golden is unchanged.)*
+- [x] 1.37 A placement outside the theme's grid is a finding, not a stop. An `at.col` or `at.row` past the grid's tracks makes layout fail, and `lint` exits 2 with no findings. It should be E102 at the node's `at`, naming the grid's size, with the rest of the deck linted. (Found in 1.34: a 12-row deck on a 6-row theme.)
+  *(Done: validation reports each cell past the theme's grid as E102, so `lint` exits 1 with it, beside whatever else validation and the document rules find.*
+    - *A node's `at.col` or `at.row` past the grid is reported at the node's or the state's `at`: "`late` is placed in rows 6–7, past the theme's grid, which has 6 rows".*
+    - *A slot a node stands in that runs past the grid is reported in the theme. A slot no node uses places nothing, and is not judged.*
+    - *Each format the deck lists is judged on its own grid, and with its own slots.*
+    - *A range that runs backward is E106.*
+    - *A re-theme onto a smaller grid is refused, as for a missing name: a test re-themes higher-ed onto a 6-row Ember. SPEC §3.4 and §7.5 and the retheme skill say so.)*
+
 ### Exit criteria (gate 1)
 1. From Claude Code, using only MCP: create a 12-state deck from a CSV and a one-paragraph brief; lint to zero errors; render every state; export PDF and a 1080p60 video. Document the transcript in `docs/examples/agent-run.md`.
 2. Re-theme the same deck with a second theme via `theme_apply`; lint delta is empty or explained.
@@ -597,6 +641,6 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Gate | Date | Result | Notes |
 |---|---|---|---|
 | 0 | 2026-10-02 | met: go | All seven exit criteria met; evidence, timings, and what did not match in `docs/spike-report.md`. Phase 1 starts at 1.1. |
-| 1 | — | — | — |
+| 1 | 2026-10-03 | met | All five exit criteria met. The evidence per criterion is in `docs/gate-1.md`, and the agent runs are in `docs/examples/agent-run.md`. Phase 2 may start at 2.1. Of Phase 1's open tasks, 1.9 and 1.32 wait on Jay's review, 1.28–1.31 on his scheduling, and 1.33–1.36 come from the runs. |
 | 2 | — | — | — |
 | 3 | — | — | — |

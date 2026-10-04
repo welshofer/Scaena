@@ -405,6 +405,18 @@ fn grows(kind: NodeType) -> bool {
     matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader)
 }
 
+/// What the node's own alignment says for one axis, `x` or `y`, when it places the node
+/// rather than stretching it: `at.align` over the node's `align`, a keyword aligning both
+/// axes. The slot's alignment is for its text, and places nothing.
+fn own_align<'a>(props: &'a Props, axis: &str) -> Option<&'a str> {
+    let on = |v: Option<&'a Value>| match v? {
+        Value::String(k) => Some(k.as_str()),
+        Value::Object(o) => o.get(axis)?.as_str(),
+        _ => None,
+    };
+    on(props.get("at").and_then(|at| at.get("align"))).or_else(|| on(props.get("align"))).filter(|k| *k != "stretch")
+}
+
 /// A node's style as a child of `within`: its `size` and its alignment.
 fn item_style(
     theme: &Theme,
@@ -476,8 +488,11 @@ fn item_style(
         Within::Root | Within::Stack { .. } => {
             let row = matches!(within, Within::Stack { row: true });
             let (main, cross, cross_alignment) = if row { (&w, &h, y_align) } else { (&h, &w, x_align) };
-            // A root fills its cell; in a stack, a node with no size of its own shares the room.
-            let default_share = matches!(within, Within::Root) || grows(kind);
+            // A root fills its cell, but on an axis its own alignment names, a root with a size
+            // of its own (a container's content, an image's picture) takes that size and
+            // aligns there. In a stack, a node with no size of its own shares the room.
+            let placed = |axis| matches!(within, Within::Root) && !grows(kind) && own_align(props, axis).is_some();
+            let default_share = (matches!(within, Within::Root) && !placed("y")) || grows(kind);
             match main {
                 Some(Axis::Fixed(d)) => {
                     set_main(&mut style, row, *d);
@@ -501,6 +516,7 @@ fn item_style(
                 }
                 Some(Axis::Fit) => style.align_self = cross_align(cross_alignment, true),
                 Some(Axis::Share(_)) => style.align_self = Some(AlignSelf::STRETCH),
+                None if placed("x") => style.align_self = cross_alignment.or(Some(AlignSelf::START)),
                 None => style.align_self = cross_align(cross_alignment, false),
             }
             // An image keeps its picture's shape as it stretches across a stack.
@@ -865,6 +881,22 @@ mod tests {
         }));
         assert_eq!(b["photo"], [300.0, 200.0, 400.0, 200.0]);
         assert_eq!(b["plain"], [0.0, 0.0, 1000.0, 600.0], "no size: the cell, as before");
+    }
+
+    #[test]
+    fn a_root_container_that_aligns_takes_its_contents_size() {
+        let b = boxes(json!({
+            "cards": { "type": "grid", "cols": 2, "gap": 20, "at": { "rect": [0, 0, 1020, 600], "align": { "y": "center" } } },
+            "a": { "type": "text", "text": "Bike", "at": { "parent": "cards" } },
+            "b": { "type": "text", "text": "Bus", "at": { "parent": "cards" } },
+            "fills": { "type": "stack", "at": { "rect": [0, 0, 1020, 600] } },
+            "c": { "type": "text", "text": "Car", "at": { "parent": "fills" } }
+        }));
+        // One row of 50 cu lines, centered down the 600 cu cell, and across all of it.
+        assert_eq!(b["cards"], [0.0, 275.0, 1020.0, 50.0]);
+        assert_eq!(b["a"], [0.0, 275.0, 500.0, 50.0]);
+        // A root container with no alignment of its own fills its cell, as before.
+        assert_eq!(b["fills"], [0.0, 0.0, 1020.0, 600.0]);
     }
 
     #[test]

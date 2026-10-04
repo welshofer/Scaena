@@ -1,6 +1,6 @@
 {
   "scaena": "0.9",
-  "_comment": "E101 clean: the same paragraphs in two slots; then the chart in the figure's main, rows 2–5, clear of its caption.",
+  "_comment": "E101 clean: the same paragraphs in two slots; then the chart in the figure's main, rows 2–5, clear of its caption; then the stack of cards and the source note in two slots.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
@@ -9,10 +9,14 @@
     "a": {"type": "text", "role": "body", "text": "First paragraph"},
     "b": {"type": "text", "role": "body", "text": "Second paragraph"},
     "k": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "quarter"}, "y": {"field": "revenue"}, "series": {"field": "product"}, "alt": "Revenue by quarter and product.", "at": {"in": "main"}},
-    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}}
+    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}},
+    "cards": {"type": "stack", "at": {"in": "left"}},
+    "card": {"type": "text", "role": "body", "text": "Cost per rider", "at": {"parent": "cards"}},
+    "src": {"type": "text", "role": "caption", "text": "Source: the pilot.", "at": {"in": "right"}}
   },
   "states": [
     {"id": "s", "layout": "two", "props": {"a": {"at": {"in": "left"}}, "b": {"at": {"in": "right"}}}},
-    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}}
+    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}},
+    {"id": "u", "layout": "two", "remove": ["k", "note"], "props": {"cards": {}, "card": {}, "src": {}}}
   ]
 }
