@@ -1,13 +1,16 @@
 //! Any edit leaves a deck the engine draws, or one it refuses with an error, never one that
 //! panics it. In the browser the engine runs in the editor's worker, which compiles the
-//! source on every keystroke (PLAN 2.3); a panic there stops the page mid-word. Three kinds
+//! source on every keystroke (PLAN 2.3); a panic there stops the page mid-word. Four kinds
 //! of edit, each run through the session as the worker runs it:
 //!
 //! - a source typed: cut short, a run deleted, a character of any width typed anywhere, a
 //!   line copied, two swapped, one indented or not;
 //! - a deck changed value by value: a number at the ends of f64, a text empty or long, a
-//!   value from elsewhere in the repository's decks, an array emptied, a key dropped;
-//! - a patch an assistant might send through `deck_patch` (PLAN 2.6).
+//!   value from elsewhere in the repository's decks and themes, an array emptied, a key
+//!   dropped;
+//! - a patch an assistant might send through `deck_patch` (PLAN 2.6);
+//! - a theme changed value by value, as a bundle's `theme.json` edited by hand, which the
+//!   player opens as it is (PLAN 2.24).
 //!
 //! A deck that compiles is drawn at rest and through its cue, read, painted, and linted and
 //! inspected in a state. One that does not is handed to the player as a bundle's `deck.json`
@@ -356,12 +359,13 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
         Some((a.parse().ok()?, b.parse().ok()?))
     }) {
         Some((seed, count)) => (seed, count, true),
-        None => (0x5ca3_ed17_5ca3_ed17_u64, 60, false),
+        None => (0x5ca3_ed17_5ca3_ed17_u64, 80, false),
     };
     let bundles = bundles(all);
     let mut values = BTreeMap::new();
     for b in &bundles {
         values_by_key(&b.deck, &mut values);
+        values_by_key(&serde_json::from_str(&b.theme).unwrap(), &mut values);
     }
     let sources: Vec<String> =
         bundles.iter().map(|b| scaena_core::dsl::decompile(&Deck::from_json(&b.deck.to_string()).unwrap())).collect();
@@ -380,7 +384,7 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
         let b = &bundles[i];
         let s = sessions[i].get_or_insert_with(|| session(b));
         let mut said = Vec::new();
-        let ran = catch_unwind(AssertUnwindSafe(|| match case % 3 {
+        let ran = catch_unwind(AssertUnwindSafe(|| match case % 4 {
             // A source typed into the editor: what compiles replaces the deck.
             0 => {
                 let mut source = sources[i].clone();
@@ -404,6 +408,19 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                     s.set_deck(deck);
                 }
                 exercise(&mut r, s, compiled, &touched);
+            }
+            // A theme edited by hand, under the deck as it was opened.
+            3 => {
+                let mut theme: Value = serde_json::from_str(&b.theme).unwrap();
+                for _ in 0..1 + r.below(3) {
+                    said.push(change(&mut r, &mut theme, &values));
+                }
+                let Ok(mut themed) = Session::new(&b.deck.to_string(), &theme.to_string()) else { return };
+                for (path, bytes) in &b.files {
+                    themed.add_file(path, bytes.clone());
+                }
+                let compiled = themed.compile(&sources[i]).valid;
+                exercise(&mut r, &mut themed, compiled, &[]);
             }
             // A patch the assistant sends, to the deck as it was opened.
             _ => {

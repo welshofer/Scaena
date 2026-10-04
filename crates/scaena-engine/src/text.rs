@@ -667,6 +667,16 @@ fn style_props(
     role: &TextRole,
     spec: &TextSpec,
 ) -> Result<Vec<StyleProperty<'static, Ink>>, EngineError> {
+    // A size or line height past f32's range sets glyphs or lines an infinite length apart,
+    // which parley breaks into lines forever, and letter spacing past it sets glyphs
+    // nowhere: an error here, as a painter refuses a raster it cannot make.
+    let (size, line, spacing) = (role.size, role.size * role.leading, role.size * role.tracking);
+    if !(size.is_finite() && line.is_finite() && spacing.is_finite()) {
+        return Err(EngineError::Layout(format!(
+            "text at size {}, leading {}, tracking {} is too large to lay out",
+            role.size, role.leading, role.tracking
+        )));
+    }
     let stack = theme.family_stack(&role.family)?;
     let family =
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
