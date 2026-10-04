@@ -17,6 +17,8 @@ png.workspace = true
 vello_cpu = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true }
 vello = { workspace = true, optional = true }
+# Glyph bounds, to clip a fading layer to its ink on the GPU.
+skrifa = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The torture bundle's images by content id, as display lists name them.
@@ -27,4 +29,4 @@ default = ["cpu"]
 # Headless, deterministic painter: CI, agents, export (PLAN 0.6).
 cpu = ["dep:vello_cpu", "dep:bytemuck"]
 # vello on wgpu: WebGPU in the browser, Metal on the Mac, Vulkan/GL on Linux (PLAN 0.7).
-gpu = ["dep:vello"]
+gpu = ["dep:vello", "dep:skrifa"]

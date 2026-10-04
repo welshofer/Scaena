@@ -886,9 +886,10 @@ pub mod gpu {
 
     use super::*;
     use crate::convert::{affine, bez, brush, image_quality, isolated, mix, rect, src_to_dst, stroke};
-    use scaena_core::displaylist::{FillRule, Op};
+    use scaena_core::displaylist::{FillRule, Glyph, Join, Op};
+    use std::f64::consts::SQRT_2;
     use vello::Scene;
-    use vello::kurbo::{Affine, Rect};
+    use vello::kurbo::{Affine, Rect, Shape};
     use vello::peniko::{Fill, ImageBrush, ImageData, ImageQuality};
     use vello::wgpu;
     use vello::wgpu::util::DeviceExt;
@@ -1107,13 +1108,22 @@ pub mod gpu {
                                 Some(clip) => {
                                     self.scene.push_layer(Fill::NonZero, mix(*blend), *opacity, child, &bez(clip))
                                 }
-                                None => self.scene.push_layer(
-                                    Fill::NonZero,
-                                    mix(*blend),
-                                    *opacity,
-                                    Affine::IDENTITY,
-                                    &self.output,
-                                ),
+                                // vello layers always clip, and blend every tile the clip
+                                // covers. A layer with no clip of its own clips to the pixels
+                                // its ops can ink, so a label fading in costs its own tiles,
+                                // not the frame's: on a software adapter, a chart's labels
+                                // mid-transition took seconds a frame. Ink it cannot bound (a
+                                // color glyph) clips to the whole output; none draws nothing.
+                                None => {
+                                    let clip = match self.ink(ops, child) {
+                                        Some(ink) => ink.inflate(1.0, 1.0).expand().intersect(self.output),
+                                        None => self.output,
+                                    };
+                                    if clip.width() <= 0.0 || clip.height() <= 0.0 {
+                                        continue;
+                                    }
+                                    self.scene.push_layer(Fill::NonZero, mix(*blend), *opacity, Affine::IDENTITY, &clip)
+                                }
                             }
                             self.ops(ops, child)?;
                             self.scene.pop_layer();
@@ -1150,6 +1160,84 @@ pub mod gpu {
             }
             Ok(())
         }
+
+        /// The device pixels `ops`, drawn with `xf`, can ink: a box around every path, stroke,
+        /// glyph outline, image, and shader they draw, an empty one if they draw nothing, or
+        /// `None` where a bound is not known: a glyph from a color font, whose layers and
+        /// bitmaps reach past its outline, or a font the display list does not name.
+        fn ink(&self, ops: &[Op], xf: Affine) -> Option<Rect> {
+            let mut ink: Option<Rect> = None;
+            let mut add = |r: Rect| ink = Some(ink.map_or(r, |i| i.union(r)));
+            for op in ops {
+                match op {
+                    Op::Fill { path, .. } => add(xf.transform_rect_bbox(bez(path).bounding_box())),
+                    Op::Stroke { path, width, join, miter_limit, .. } => {
+                        // A miter reaches `miter_limit` half widths out, a square cap √2.
+                        let half = f64::from(*width) / 2.0;
+                        let reach = match join {
+                            Join::Miter => half * f64::from(*miter_limit).max(SQRT_2),
+                            Join::Round | Join::Bevel => half * SQRT_2,
+                        };
+                        add(xf.transform_rect_bbox(bez(path).bounding_box().inflate(reach, reach)))
+                    }
+                    Op::Glyphs { font, size, coords, glyphs, .. } => {
+                        if let Some(r) = self.glyph_ink(*font, *size, coords, glyphs)? {
+                            add(xf.transform_rect_bbox(r));
+                        }
+                    }
+                    Op::Image { dst, .. } => add(xf.transform_rect_bbox(rect(*dst))),
+                    Op::Shader { rect: r, .. } => add(xf.transform_rect_bbox(rect(*r))),
+                    Op::Layer { transform, clip, ops, .. } => {
+                        let child = xf * affine(transform);
+                        let inner = self.ink(ops, child)?;
+                        let clipped = match clip {
+                            Some(clip) => inner.intersect(child.transform_rect_bbox(bez(clip).bounding_box())),
+                            None => inner,
+                        };
+                        if clipped.width() > 0.0 && clipped.height() > 0.0 {
+                            add(clipped);
+                        }
+                    }
+                }
+            }
+            Some(ink.unwrap_or(Rect::ZERO))
+        }
+
+        /// The box around `glyphs`' outlines in the run's space, from the font at `size` and
+        /// `coords` as vello draws it, unhinted: `Some(None)` for a run that inks nothing,
+        /// `None` for a color font or a font the display list does not name.
+        fn glyph_ink(&self, font: u32, size: f32, coords: &[i16], glyphs: &[Glyph]) -> Option<Option<Rect>> {
+            let data = self.store.font_data(self.fonts.get(font as usize)?).ok()?;
+            let face = skrifa::FontRef::from_index(data.data.as_ref(), data.index).ok()?;
+            let color = [b"COLR", b"CBDT", b"sbix", b"SVG "];
+            if color.iter().any(|tag| face.table_data(skrifa::Tag::new(tag)).is_some()) {
+                return None;
+            }
+            let location: Vec<skrifa::instance::NormalizedCoord> =
+                coords.iter().map(|&c| skrifa::instance::NormalizedCoord::from_bits(c)).collect();
+            let metrics = skrifa::metrics::GlyphMetrics::new(
+                &face,
+                skrifa::instance::Size::new(size),
+                skrifa::instance::LocationRef::new(&location),
+            );
+            let mut ink: Option<Rect> = None;
+            for g in glyphs {
+                let b = metrics.bounds(skrifa::GlyphId::new(g.id))?;
+                if b.x_max <= b.x_min || b.y_max <= b.y_min {
+                    continue;
+                }
+                // Font units point up, the canvas's down.
+                let (x, y) = (f64::from(g.x), f64::from(g.y));
+                let r = Rect::new(
+                    x + f64::from(b.x_min),
+                    y - f64::from(b.y_max),
+                    x + f64::from(b.x_max),
+                    y - f64::from(b.y_min),
+                );
+                ink = Some(ink.map_or(r, |i| i.union(r)));
+            }
+            Some(ink)
+        }
     }
 
     #[cfg(test)]
@@ -1171,6 +1259,82 @@ pub mod gpu {
                 paint: Paint::Linear { start: [0.0, 0.0], end: [1.0, 0.0], stops: vec![] },
             });
             assert!(scene(&dl, &Assets::new(), 1.0, &[]).is_ok());
+        }
+
+        /// A layer with no clip of its own clips to the pixels its ops ink: around paths,
+        /// strokes as far as their joins reach, and glyph outlines, through every transform;
+        /// a color font's glyphs, which reach past their outlines, are not bounded.
+        #[test]
+        fn a_layer_clips_to_what_it_inks() {
+            use scaena_core::displaylist::{Cap, Color, Join, Path, PathEl};
+            let fonts = "../../tests/fixtures/torture.scaena/fonts";
+            let mut store = Assets::new();
+            for file in ["RobotoSerif-VF.ttf", "NotoColorEmoji-COLRv1.ttf"] {
+                store.insert_font(file, std::fs::read(format!("{fonts}/{file}")).unwrap());
+            }
+            let names = [
+                FontRef { id: "RobotoSerif-VF.ttf".into(), index: 0 },
+                FontRef { id: "NotoColorEmoji-COLRv1.ttf".into(), index: 0 },
+            ];
+            let cx = Cx {
+                scene: Scene::new(),
+                store: &store,
+                fonts: &names,
+                output: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                shaders: [].iter(),
+            };
+            let black = Paint::Solid(Color([0, 0, 0, 255]));
+            let fill =
+                Op::Fill { path: Path::rect([10.0, 20.0, 30.0, 40.0]), rule: FillRule::NonZero, paint: black.clone() };
+            let line = |join| Op::Stroke {
+                path: Path(vec![PathEl::MoveTo([0.0, 50.0]), PathEl::LineTo([100.0, 50.0])]),
+                paint: black.clone(),
+                width: 4.0,
+                cap: Cap::Butt,
+                join,
+                miter_limit: 4.0,
+                dash: vec![],
+                dash_offset: 0.0,
+            };
+            // `H` in each font, whose glyph ids are the subset's.
+            let h = |file: &str| {
+                let bytes = std::fs::read(format!("{fonts}/{file}")).unwrap();
+                let face = skrifa::FontRef::new(&bytes).unwrap();
+                use skrifa::MetadataProvider;
+                face.charmap().map('H').unwrap_or_default().to_u32()
+            };
+            let ids = [h("RobotoSerif-VF.ttf"), h("NotoColorEmoji-COLRv1.ttf")];
+            let glyphs = |font: u32| Op::Glyphs {
+                font,
+                size: 100.0,
+                coords: vec![],
+                paint: black.clone(),
+                text: String::new(),
+                glyphs: vec![Glyph { id: ids[font as usize], x: 200.0, y: 500.0 }],
+                clusters: vec![],
+            };
+            let scale = Affine::scale(2.0);
+            assert_eq!(cx.ink(std::slice::from_ref(&fill), scale), Some(Rect::new(20.0, 40.0, 80.0, 120.0)));
+            assert_eq!(cx.ink(&[line(Join::Miter)], Affine::IDENTITY), Some(Rect::new(-8.0, 42.0, 108.0, 58.0)));
+            let round = cx.ink(&[line(Join::Round)], Affine::IDENTITY).unwrap();
+            assert!((round.y1 - 50.0 - 2.0 * std::f64::consts::SQRT_2).abs() < 1e-9, "{round:?}");
+            // A Latin glyph's outline: above the baseline, right of the pen, under an em.
+            let text = cx.ink(&[glyphs(0)], Affine::IDENTITY).unwrap();
+            assert!(text.y0 < 500.0 && text.y1 <= 500.0 + 30.0 && text.y0 > 400.0 - 30.0, "{text:?}");
+            assert!(text.x0 >= 200.0 - 10.0 && text.x1 < 300.0 && text.width() > 10.0, "{text:?}");
+            assert_eq!(cx.ink(&[glyphs(1)], Affine::IDENTITY), None, "a color font is not bounded");
+            // A nested layer's clip and transform: only the part of the fill inside its clip.
+            let nested = Op::Layer {
+                node: None,
+                cell: None,
+                transform: [1.0, 0.0, 0.0, 1.0, 100.0, 0.0],
+                opacity: 1.0,
+                blend: scaena_core::displaylist::Blend::Normal,
+                clip: Some(Path::rect([0.0, 0.0, 25.0, 1000.0])),
+                ops: vec![fill],
+            };
+            assert_eq!(cx.ink(&[nested], Affine::IDENTITY), Some(Rect::new(110.0, 20.0, 125.0, 60.0)));
+            assert_eq!(cx.ink(&[], Affine::IDENTITY), Some(Rect::ZERO), "nothing inks nothing");
         }
     }
 
