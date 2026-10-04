@@ -83,12 +83,13 @@ impl ShaderNode {
     }
 
     /// Its op at `t` seconds on the global timeline, in the coordinates of a layer at
-    /// its rect's corner.
+    /// its rect's corner. The op keeps time in `f32`, which holds at its largest past
+    /// 3.4 × 10³⁸ s: a display list holds finite values only.
     pub fn op(&self, t: f64) -> Op {
         Op::Shader {
             kind: self.kind,
             seed: self.seed,
-            t: t as f32,
+            t: (t as f32).clamp(f32::MIN, f32::MAX),
             rect: [0.0, 0.0, self.rect[2], self.rect[3]],
             palette: self.palette.clone(),
             params: self.params.clone(),
@@ -166,6 +167,10 @@ mod tests {
         assert_eq!(s.palette[0], Color::from_hex("#0F766E").unwrap());
         let Op::Shader { t, rect, .. } = s.op(0.84) else { unreachable!() };
         assert_eq!((t, rect), (0.84, [0.0, 0.0, 1920.0, 1080.0]));
+        // A frame far past what `f32` holds keeps a finite clock: a display list holds finite
+        // values only, and `deck_render` at `t` 1e300 ms was refused for it (PLAN 2.26).
+        let Op::Shader { t, .. } = s.op(1e297) else { unreachable!() };
+        assert_eq!(t, f32::MAX);
     }
 
     #[test]

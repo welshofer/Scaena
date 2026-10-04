@@ -2,7 +2,7 @@
 //! deck, checked as `validate` checks a bundle, and written canonically unless that adds a
 //! validation finding.
 
-use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::lint::{Delta, delta};
 use scaena_core::patch::{JsonOp, Renamed};
@@ -11,7 +11,6 @@ use scaena_core::{Deck, Finding};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 /// What a patch did, or would do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -40,10 +39,23 @@ pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError
 
 /// [`patch`], recorded in the bundle's history as `what`; without it, by its ops' names.
 pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str>) -> Result<Patched, OpsError> {
+    let (mut patched, deck) = patching(b, ops, what)?;
+    match deck {
+        Some(deck) if !dry_run => write(b, deck)?,
+        _ => patched.applied &= !dry_run,
+    }
+    Ok(patched)
+}
+
+/// [`patch`] with nothing written: what the patch does, and the deck to write, if it
+/// changes it and is not refused. A client that keeps its bundle in memory writes it there
+/// (the web page's assistant, PLAN 2.6). `what` names the change in the bundle's history;
+/// without it, its ops' names do.
+pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
-    let doc = serde_json::to_value(&b.deck)?;
+    let doc = b.deck.to_value()?;
     let compiled = scaena_core::patch::compile(&doc, list, &b.files).map_err(|e| OpsError {
         message: e.to_string(),
         plan: None,
@@ -58,13 +70,14 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
     let invalid = validate_bundle(&b.deck.to_json()?, &b.files)?;
     let invalid_after = validate_bundle(&text, &b.files)?;
     let refused = !delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added.is_empty();
+    let mut write = None;
     let (before, after) = if refused {
         (invalid, invalid_after)
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
         let before = lint(b)?.findings;
         let after = lint_in(&next, &View::of(b))?.findings;
-        if !dry_run && compiled.doc != doc {
+        if compiled.doc != doc {
             let mut names: Vec<&str> = list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)).collect();
             names.dedup();
             let mut why = Why::new(what.map_or_else(|| format!("patch: {}", names.join(", ")), String::from));
@@ -74,17 +87,18 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
                     Renamed::State { from, to } => why.renamed_states.push((from.clone(), to.clone())),
                 }
             }
-            write_deck(b, &next, BTreeMap::new(), &why)?;
+            write = Some(Write::new(next, why));
         }
         (before, after)
     };
     let Delta { added, removed } = delta(&before, &was, &after, &is, &compiled.renamed);
-    Ok(Patched {
-        applied: !refused && !dry_run,
+    let patched = Patched {
+        applied: !refused,
         patch: compiled.patch,
         added: added.into_iter().cloned().collect(),
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
         refused,
-    })
+    };
+    Ok((patched, write))
 }

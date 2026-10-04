@@ -7,13 +7,13 @@
 //! |---|---|
 //! | png per state (the CPU painter, in `scaena-ops`) | PLAN 1.21, done |
 //! | svg per state (vector paths and outlined glyphs, with their text; [`svg`]) | PLAN 1.21, done |
-//! | pdf (krilla: vector paths, text, shaders as images, tagged by [`reading`]; [`pdf`]) | PLAN 1.20, done |
+//! | pdf (krilla: vector paths, text, shaders as images, tagged by `scaena_core::reading`; [`pdf`]) | PLAN 1.20, done |
 //! | mp4 / webm / prores: the global timeline's frames piped to ffmpeg, a chapter per beat ([`video`]) | PLAN 1.21–1.22, done |
-//! | single-file html | PLAN 2.5 |
+//! | single-file html: the web player, the engine, and the bundle in one file that plays offline, read aloud from `scaena_core::reading` ([`html`]) | PLAN 2.5, done |
 //! | spine json, on the timeline, with per-beat renders (`scaena_core::spine`; drawn in `scaena-ops`) | PLAN 1.22, done |
 
+pub mod html;
 pub mod pdf;
-pub mod reading;
 pub mod svg;
 pub mod video;
 
@@ -29,6 +29,8 @@ pub enum ExportError {
     Svg(String),
     #[error("video: {0}")]
     Video(String),
+    #[error("html: {0}")]
+    Html(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

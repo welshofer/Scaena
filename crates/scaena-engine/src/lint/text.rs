@@ -492,7 +492,7 @@ impl Rule for W312ChartTextSize {
                 cx.finding(
                     self.code(),
                     self.severity(),
-                    &cx.states[first],
+                    cx.laid(first),
                     format!(
                         "chart `{chart}` sets text under 12 pt at presentation size ({} cu on this canvas): {}",
                         cu(floor),

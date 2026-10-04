@@ -5,13 +5,16 @@
 //!   (`torture_rasters` keeps those goldens honest).
 //! - `gpu`: `vello` on this machine's adapter, with `--features gpu`. Without an adapter
 //!   the source is skipped and says so, unless `SCAENA_REQUIRE_GPU=1` (CI sets it).
-//! - `web`: `vello` on WebGPU in the browser, read back from the canvas by
-//!   `crates/scaena-wasm/www/smoke.mjs` into `SCAENA_WEB_PNGS=<dir>`. Skipped when the
-//!   variable is unset; required, state by state, when it is set.
+//! - the browser's: frames painted in Chromium and saved into the directories
+//!   `SCAENA_WEB_PNGS` lists (`:`-separated, as `PATH` is), a source each, named by its
+//!   directory. `crates/scaena-wasm/www/smoke.mjs` reads `vello` on WebGPU back from its
+//!   page's canvas into `wasm-smoke/`; `web/smoke.mjs` screenshots the web player's frames
+//!   into `player-webgpu/` and `player-cpu/` (PLAN 2.1). Skipped when the variable is unset;
+//!   required, state by state, for each directory it names.
 //!
 //! A failing pair writes its diff image (`diff::image`: red over ΔE 1, magenta for a
 //! half-range step, blue for tolerated differences) to
-//! `tests/golden/torture/actual/<state>.<a>-<b>.png`. `just spike` runs all three.
+//! `tests/golden/torture/actual/<state>.<a>-<b>.png`. `just spike` runs the first three.
 
 mod common;
 
@@ -45,14 +48,21 @@ fn painters_agree_within_spec_tolerance() {
     assert!(dls.len() >= 20, "found {} display-list goldens", dls.len());
     let store = assets(&dls);
     let mut gpu = gpu();
-    let web = std::env::var_os("SCAENA_WEB_PNGS").map(std::path::PathBuf::from);
+    let web: Vec<(String, std::path::PathBuf)> = std::env::var_os("SCAENA_WEB_PNGS")
+        .map(|dirs| {
+            let named = |dir: std::path::PathBuf| (dir.file_name().unwrap().to_string_lossy().into_owned(), dir);
+            std::env::split_paths(&dirs).map(named).collect()
+        })
+        .unwrap_or_default();
     println!("cpu: vello_cpu goldens");
     if let Some((_, adapter)) = &gpu {
         println!("gpu: {adapter}");
     }
-    match &web {
-        Some(dir) => println!("web: {}", dir.display()),
-        None => eprintln!("web: skipped: SCAENA_WEB_PNGS is unset (`just spike` sets it)"),
+    for (name, dir) in &web {
+        println!("{name}: {}", dir.display());
+    }
+    if web.is_empty() {
+        eprintln!("the browser's: skipped: SCAENA_WEB_PNGS is unset (`just spike` and `just web-smoke` set it)");
     }
 
     let mut failures = Vec::new();
@@ -65,8 +75,8 @@ fn painters_agree_within_spec_tolerance() {
         if let Some((painter, _)) = gpu.as_mut() {
             rasters.push(("gpu", painter.paint(dl, &store, 1.0).unwrap_or_else(|e| panic!("{state}: {e}"))));
         }
-        if let Some(dir) = &web {
-            rasters.push(("web", read(&dir.join(format!("{state}.png")))));
+        for (name, dir) in &web {
+            rasters.push((name, read(&dir.join(format!("{state}.png")))));
         }
         let mut row = format!("{state:<14}");
         for (i, (name_a, a)) in rasters.iter().enumerate() {

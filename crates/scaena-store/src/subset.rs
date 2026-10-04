@@ -41,18 +41,32 @@ pub fn subset(font: &[u8], chars: &BTreeSet<char>) -> Result<Vec<u8>, SubsetErro
     drop_tables.extend(
         skera::DEFAULT_DROP_TABLES.iter().copied().filter(|t| !SHAPING_TABLES.iter().any(|s| Tag::new(s) == *t)),
     );
-    let plan = Plan::new(
-        &IntSet::<GlyphId>::empty(),
-        &unicodes,
-        &font,
-        flags,
-        &drop_tables,
-        &IntSet::<Tag>::all(),
-        &IntSet::<Tag>::all(),
-        &IntSet::<NameId>::all(),
-        &IntSet::<u16>::all(),
-    );
-    subset_font(&font, &plan).map_err(|e| SubsetError::Subset(e.to_string()))
+    // skera unwraps much of what it reads, so a damaged font can panic it. Off the web a
+    // panic unwinds, and the save says it could not subset the font; in the browser the
+    // subsetter is a module of its own, whose page says the same (`web/src/worker.ts`).
+    let subset = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let plan = Plan::new(
+            &IntSet::<GlyphId>::empty(),
+            &unicodes,
+            &font,
+            flags,
+            &drop_tables,
+            &IntSet::<Tag>::all(),
+            &IntSet::<Tag>::all(),
+            &IntSet::<NameId>::all(),
+            &IntSet::<u16>::all(),
+        );
+        subset_font(&font, &plan)
+    }));
+    match subset {
+        Ok(subset) => subset.map_err(|e| SubsetError::Subset(e.to_string())),
+        Err(panic) => {
+            let why = (panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_default();
+            Err(SubsetError::Subset(format!("the subsetter stopped on it ({why}): the font file may be damaged")))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -61,6 +75,20 @@ mod tests {
     use write_fonts::read::TableProvider;
 
     const FONTS: &str = "../../tests/fixtures/torture.scaena/fonts";
+
+    /// skera unwraps much of what it reads, so a font damaged where it reads stops it: the
+    /// subset is an error that says so, not a panic (PLAN 2.25).
+    #[test]
+    fn a_damaged_font_does_not_subset() {
+        let mut font = std::fs::read(format!("{FONTS}/EBGaramond-VF.ttf")).unwrap();
+        // Its `maxp` table one byte long, by its record.
+        let tables = u16::from_be_bytes([font[4], font[5]]) as usize;
+        let record = (0..tables).map(|i| 12 + 16 * i).find(|&r| &font[r..r + 4] == b"maxp").unwrap();
+        font[record + 12..record + 16].copy_from_slice(&1u32.to_be_bytes());
+        let chars: BTreeSet<char> = "Office".chars().collect();
+        let error = subset(&font, &chars).expect_err("no subset of a damaged font").to_string();
+        assert!(error.contains("the subsetter stopped on it") && error.contains("damaged"), "{error}");
+    }
 
     #[test]
     fn every_torture_font_subsets_keeping_layout_variations_and_glyph_ids() {

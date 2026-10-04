@@ -1,14 +1,24 @@
 //! # scaena-wasm
 //!
 //! The engine in the browser (PLAN 0.8; SPEC §9.2 grows this into the player). A page
-//! hands over a bundle's `deck.json`, theme, fonts, and data files, then asks for
-//! frames:
+//! hands over a bundle's `deck.json` and theme, then its other files (fonts, images, data)
+//! by their paths in the bundle, then asks for frames:
 //!
 //! - [`Player::frame`] returns a state's display list, postcard-encoded (SPEC §6).
 //!   Native and WASM builds of the engine must produce the same bytes; the smoke
 //!   check in `www/` compares them with the native goldens' digests.
 //! - `Player::paint` draws it into a canvas with `vello` on WebGPU ([`Canvas`]),
-//!   through `scaena_paint::gpu::scene`, the scene the native GPU painter renders.
+//!   through `scaena_paint::gpu::scene`, the scene the native GPU painter renders. The
+//!   canvas is a page's, or an `OffscreenCanvas` a worker paints (PLAN 2.1).
+//! - [`Player::pixels`] paints it with `vello_cpu`, the painter the goldens hold, into
+//!   RGBA pixels: the web player's fallback where WebGPU is missing (SPEC §9.2).
+//!
+//! - With the `editor` feature, a session compiles `.scn` as it is typed, lints it with
+//!   its engine, applies a finding's fix, and inspects a state (PLAN 2.3, [`editor`]). It
+//!   opens a bundle from its files or a `.scaena` zip and saves it as `scaena save` does,
+//!   fonts subset in the module (PLAN 2.4, `store`). Without it (`--no-default-features
+//!   --features gpu,cpu`), the module is the player's alone, a fifth smaller: the one a
+//!   single-file HTML export carries (PLAN 2.5).
 //!
 //! [`Session`] is the same engine surface in plain Rust, so it is tested natively.
 
@@ -22,7 +32,15 @@ use scaena_engine::sample::Transition;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, EngineError, FrameRequest, project};
 use scaena_paint::{Assets, PaintError};
+use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "editor")]
+pub mod assistant;
+#[cfg(feature = "editor")]
+pub mod editor;
+#[cfg(feature = "editor")]
+mod store;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -32,66 +50,174 @@ pub enum Error {
     Engine(#[from] EngineError),
     #[error(transparent)]
     Paint(#[from] PaintError),
-    #[error("add every font and image before the first frame: the engine is built from them then")]
-    AfterFrame,
+    #[error("the deck names {0}, which is not in the bundle: hand it over with addFile")]
+    Missing(String),
+    #[error("compile a source before linting or fixing it")]
+    NothingCompiled,
+    #[error("{0}")]
+    Ops(String),
+    /// An operation the assistant called stopped (PLAN 2.6): why, as its MCP tool says it.
+    #[cfg(feature = "editor")]
+    #[error("{}", .0.message)]
+    Tool(scaena_ops::OpsError),
 }
 
-/// One bundle's engine: the deck, its theme, fonts, and data files, and the layout
-/// engine built from them on the first frame.
+/// One bundle's engine: the deck, its theme, every file of the bundle handed over, and the
+/// layout engine built from the fonts and images the deck names.
 pub struct Session {
     deck: Deck,
     theme: Theme,
+    /// Every file of the bundle handed over, by its path inside it: the deck's as opened,
+    /// the theme's, fonts, images, data, and any other (a font's license, the history).
+    /// The engine and its data are drawn from it as the deck names them; validation finds
+    /// the bundle's files in it, and a save writes the deck as edited into it (PLAN 2.4).
+    files: BTreeMap<String, Vec<u8>>,
+    /// The data files the deck names, as the engine reads them.
     data: DataFiles,
-    /// Fonts and images registered so far; the engine takes them on the first frame.
-    pending: Option<(BundleFonts, BundleImages)>,
+    /// The layout engine, built on the first frame from the fonts and images the deck
+    /// names, and again on the first frame after it names others.
     engine: Option<Engine>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
-    /// The same fonts and images, as painters read them.
+    /// The fonts and images the engine was built from, as painters read them.
     store: Assets,
+    /// The theme's JSON, as handed over: what lint and a save read (PLAN 2.3–2.4).
+    #[cfg(feature = "editor")]
+    theme_json: String,
+    /// The source the editor compiled last (PLAN 2.3).
+    #[cfg(feature = "editor")]
+    edit: Option<editor::Edit>,
+    /// What the layout rules found in every state the last time they ran on all of them:
+    /// kept for the states a lint of one state does not lay out.
+    #[cfg(feature = "editor")]
+    laid: Vec<scaena_core::Finding>,
+    /// Fonts subset by the page's subsetter for a save, by path: the characters each keeps,
+    /// and its bytes (PLAN 2.4).
+    #[cfg(feature = "editor")]
+    subsets: BTreeMap<String, (String, Vec<u8>)>,
+    /// What the next save records in the bundle's history, if it keeps one, besides the save:
+    /// each edit an operation made since the bundle was opened or saved, after the deck
+    /// before it (PLAN 2.9).
+    #[cfg(feature = "editor")]
+    recorded: Vec<scaena_store::crdt::Recorded>,
+}
+
+/// The files a deck's engine is built from: its fonts and its images.
+fn drawn_from(deck: &Deck) -> (Vec<&str>, Vec<String>) {
+    (deck.fonts.iter().map(|f| f.file.as_str()).collect(), deck.image_files())
+}
+
+/// The files a deck reads its data from: its sources that name one.
+fn read_from(deck: &Deck) -> Vec<&str> {
+    deck.data.values().filter_map(|s| s.source.as_str()).collect()
 }
 
 impl Session {
     pub fn new(deck_json: &str, theme_json: &str) -> Result<Self, Error> {
+        let deck = Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?;
+        let mut files = BTreeMap::from([("deck.json".to_string(), deck_json.as_bytes().to_vec())]);
+        if let Some(path) = deck.theme.as_ref().and_then(|t| t.as_str()) {
+            files.insert(path.to_string(), theme_json.as_bytes().to_vec());
+        }
         Ok(Self {
-            deck: Deck::from_json(deck_json).map_err(|e| Error::Deck(e.to_string()))?,
+            deck,
             theme: Theme::from_json(theme_json)?,
+            files,
             data: DataFiles::new(),
-            pending: Some((BundleFonts::new(), BundleImages::new())),
             engine: None,
             transition: None,
             format: None,
             store: Assets::new(),
+            #[cfg(feature = "editor")]
+            theme_json: theme_json.to_string(),
+            #[cfg(feature = "editor")]
+            edit: None,
+            #[cfg(feature = "editor")]
+            laid: Vec::new(),
+            #[cfg(feature = "editor")]
+            subsets: BTreeMap::new(),
+            #[cfg(feature = "editor")]
+            recorded: Vec::new(),
         })
     }
 
-    /// Register a font file under its bundle id (its path in the bundle, as the deck's
-    /// `fonts[].file` names it).
-    pub fn add_font(&mut self, id: &str, bytes: Vec<u8>) -> Result<(), Error> {
-        let (fonts, _) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
-        fonts.register(id, bytes.clone())?;
-        self.store.insert_font(id, bytes);
-        Ok(())
+    /// Show `deck` from now on, with the files already handed over: an edit (PLAN 2.3). A
+    /// format the deck no longer lists falls back to its own canvas. A deck that names other
+    /// fonts or images builds the engine again on the next frame.
+    pub fn set_deck(&mut self, deck: Deck) {
+        if self.format.as_ref().is_some_and(|f| !deck.formats.contains(f)) {
+            self.format = None;
+        }
+        if drawn_from(&deck) != drawn_from(&self.deck) {
+            self.engine = None;
+        }
+        if read_from(&deck) != read_from(&self.deck) {
+            self.data = DataFiles::new();
+            for path in read_from(&deck) {
+                if let Some(bytes) = self.files.get(path) {
+                    self.data.insert(path, bytes.clone());
+                }
+            }
+        }
+        self.deck = deck;
+        self.transition = None;
     }
 
-    /// The image files the deck names: each to add with [`Session::add_image`].
+    /// Hand over a file of the bundle by its path inside it (for a font, the deck's
+    /// `fonts[].file`; for an image, its nodes' `src`; for data, its sources'): any file,
+    /// at any time. One the deck draws with builds the engine again on the next frame;
+    /// one it names nowhere waits until it does, and a save carries it.
+    pub fn add_file(&mut self, path: &str, bytes: Vec<u8>) {
+        let (fonts, images) = drawn_from(&self.deck);
+        if fonts.contains(&path) || images.iter().any(|p| p == path) {
+            self.engine = None;
+        }
+        if read_from(&self.deck).contains(&path) {
+            self.data.insert(path, bytes.clone());
+            self.transition = None;
+        }
+        self.files.insert(path.to_string(), bytes);
+    }
+
+    /// The image files the deck names: each to hand over with [`Session::add_file`].
     pub fn image_files(&self) -> Vec<String> {
         self.deck.image_files()
     }
 
-    /// Register an image file under its bundle path, as image nodes' `src` names it.
-    pub fn add_image(&mut self, path: &str, bytes: Vec<u8>) -> Result<(), Error> {
-        let (_, images) = self.pending.as_mut().ok_or(Error::AfterFrame)?;
-        let info = images.register(path, &bytes)?;
-        self.store.insert_image(&info.id, &bytes)?;
-        Ok(())
+    /// Every file of the bundle the session holds, by its path inside it, sorted.
+    pub fn files(&self) -> Vec<String> {
+        self.files.keys().cloned().collect()
     }
 
-    /// Register a data file under its bundle path, as the deck's `data.*.source` names it.
-    pub fn add_data(&mut self, path: &str, bytes: Vec<u8>) {
-        self.data.insert(path, bytes);
+    /// The file at `path` in the bundle, as it was handed over.
+    pub fn file(&self, path: &str) -> Option<&[u8]> {
+        self.files.get(path).map(Vec::as_slice)
+    }
+
+    /// Build the engine from the fonts and images the deck names, if it is not built yet.
+    fn build(&mut self) -> Result<&mut Engine, Error> {
+        if self.engine.is_none() {
+            let files = &self.files;
+            let file = |path: &str| files.get(path).ok_or_else(|| Error::Missing(path.to_string()));
+            let (mut fonts, mut images, mut store) = (BundleFonts::new(), BundleImages::new(), Assets::new());
+            for font in &self.deck.fonts {
+                let bytes = file(&font.file)?;
+                fonts.register(&font.file, bytes.clone())?;
+                store.insert_font(&font.file, bytes.clone());
+            }
+            for path in self.deck.image_files() {
+                let bytes = file(&path)?;
+                let info = images.register(&path, bytes)?;
+                store.insert_image(&info.id, bytes)?;
+            }
+            fonts.check_theme(&self.theme)?;
+            self.engine = Some(Engine::new(fonts).with_images(images));
+            self.store = store;
+            self.transition = None;
+        }
+        Ok(self.engine.as_mut().expect("built above"))
     }
 
     pub fn states(&self) -> Vec<String> {
@@ -124,17 +250,10 @@ impl Session {
     /// The deck's states end to end, ms (SPEC §2.4): each state's start, its span (its
     /// transition and motions), and its hold. Builds the engine, as a frame does.
     pub fn timeline(&mut self) -> Result<Timeline, Error> {
+        self.build()?;
         let (deck, theme) = project(&self.deck, &self.theme, self.format.as_deref())?;
-        let (deck, theme, data) = (deck.as_ref(), theme.as_ref(), &self.data);
-        let engine = match self.engine.as_mut() {
-            Some(engine) => engine,
-            None => {
-                let (fonts, images) = self.pending.take().ok_or(Error::AfterFrame)?;
-                fonts.check_theme(theme)?;
-                self.engine.insert(Engine::new(fonts).with_images(images))
-            }
-        };
-        Ok(engine.timeline(deck, theme, data)?)
+        let engine = self.engine.as_mut().expect("built above");
+        Ok(engine.timeline(deck.as_ref(), theme.as_ref(), &self.data)?)
     }
 
     /// The span of `state`, ms: its transition and every motion of its cue. Past it, the
@@ -165,9 +284,30 @@ impl Session {
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
     }
 
-    /// The fonts and images, as painters read them.
+    /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
+    /// shows a screen reader, unseen, in a live region (PLAN 2.8), and what a single-file
+    /// export carries for each state it plays (PLAN 2.5).
+    pub fn reading(&mut self, state: &str) -> Result<String, Error> {
+        let list = self.frame(state, f64::INFINITY)?;
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let snap = (snapshots.iter().find(|s| s.state_id == state))
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        Ok(scaena_core::reading::html(&self.deck, snap, &list))
+    }
+
+    /// The fonts and images the engine was built from, as painters read them.
     pub fn assets(&self) -> &Assets {
         &self.store
+    }
+
+    /// `state` at `t_ms`, painted by the CPU painter `width` pixels wide; the height keeps
+    /// the canvas's aspect.
+    #[cfg(feature = "cpu")]
+    pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<scaena_paint::Raster, Error> {
+        use scaena_paint::Painter;
+        let dl = self.frame(state, t_ms)?;
+        let scale = width as f32 / dl.viewport[0];
+        Ok(scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?)
     }
 }
 
@@ -186,25 +326,28 @@ impl Player {
         Session::new(deck_json, theme_json).map(Player).map_err(js)
     }
 
-    #[wasm_bindgen(js_name = addFont)]
-    pub fn add_font(&mut self, id: &str, bytes: Vec<u8>) -> Result<(), JsError> {
-        self.0.add_font(id, bytes).map_err(js)
+    /// Hand over a file of the bundle by its path inside it: a font, an image, a data
+    /// file, or any other. At any time: one the deck draws with builds the engine again on
+    /// the next frame.
+    #[wasm_bindgen(js_name = addFile)]
+    pub fn add_file(&mut self, path: &str, bytes: Vec<u8>) {
+        self.0.add_file(path, bytes);
     }
 
-    #[wasm_bindgen(js_name = addData)]
-    pub fn add_data(&mut self, path: &str, bytes: Vec<u8>) {
-        self.0.add_data(path, bytes);
-    }
-
-    /// The image files the deck names, each to add with `addImage`.
+    /// The image files the deck names, each to hand over with `addFile`.
     #[wasm_bindgen(js_name = imageFiles)]
     pub fn image_files(&self) -> Vec<String> {
         self.0.image_files()
     }
 
-    #[wasm_bindgen(js_name = addImage)]
-    pub fn add_image(&mut self, path: &str, bytes: Vec<u8>) -> Result<(), JsError> {
-        self.0.add_image(path, bytes).map_err(js)
+    /// Every file of the bundle the session holds, by its path inside it, sorted.
+    pub fn files(&self) -> Vec<String> {
+        self.0.files()
+    }
+
+    /// The file at `path` in the bundle, as it was handed over.
+    pub fn file(&self, path: &str) -> Option<Vec<u8>> {
+        self.0.file(path).map(<[u8]>::to_vec)
     }
 
     pub fn states(&self) -> Vec<String> {
@@ -245,6 +388,256 @@ impl Player {
     /// The display list for `state` at `t_ms` (`Infinity`: at rest), postcard-encoded.
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<Vec<u8>, JsError> {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
+    }
+
+    /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
+    /// shows that is read, in paint order, an element that names it (`data-node`).
+    pub fn reading(&mut self, state: &str) -> Result<String, JsError> {
+        self.0.reading(state).map_err(js)
+    }
+
+    /// `state` at `t_ms` (`Infinity`: at rest), painted by `vello_cpu` `width` pixels wide,
+    /// the height keeping the canvas's aspect: straight-alpha sRGB, four bytes a pixel, row
+    /// by row, as `new ImageData(pixels, width)` takes them.
+    #[cfg(feature = "cpu")]
+    pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
+    }
+}
+
+/// The source editor (PLAN 2.3): every result as JSON, as `editor`'s types serialize.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck as canonical `.scn`: what the editor opens on.
+    pub fn source(&self) -> String {
+        self.0.source()
+    }
+
+    /// Compile `source`: `{ error?, findings, states, valid }`, each place in it in UTF-16
+    /// offsets. A deck that validates is what frames show from now on.
+    pub fn compile(&mut self, source: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.compile(source)).map_err(js)
+    }
+
+    /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
+    /// With `state`, the layout rules run on that state alone, the one being edited, and
+    /// the other states keep what they found when they last ran on every state.
+    pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
+    }
+
+    /// The source compiled last with `patch` (JSON: a finding's `fix`) applied.
+    pub fn fix(&self, patch: &str) -> Result<String, JsError> {
+        let patch: Vec<serde_json::Value> = serde_json::from_str(patch).map_err(js)?;
+        self.0.fix(&patch).map_err(js)
+    }
+
+    /// `state` inspected: its nodes resolved, each text node's look, what its overrides
+    /// set, and its cue.
+    pub fn inspect(&mut self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inspect(state).map_err(js)?).map_err(js)
+    }
+}
+
+/// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// A `.scaena` zip's bytes, opened.
+    #[wasm_bindgen(js_name = fromZip)]
+    pub fn from_zip(bytes: &[u8]) -> Result<Player, JsError> {
+        Session::from_zip(bytes).map(Player).map_err(js)
+    }
+
+    /// A new deck (PLAN 2.12), as `deck_create` makes one: the theme file named `file`
+    /// (`dusk.theme.json`), whose text is `theme`; the fonts its families name, each in `fonts`
+    /// by the path the theme gives it (`fonts/Inter-VF.ttf` to its bytes); and one state with
+    /// nothing on it, titled `title`. Kept nowhere until it is saved.
+    pub fn create(file: &str, theme: &str, title: &str, fonts: &js_sys::Map) -> Result<Player, JsError> {
+        let mut given = BTreeMap::new();
+        fonts.for_each(&mut |bytes, path| {
+            if let Some(path) = path.as_string() {
+                given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+            }
+        });
+        Session::create(file, theme, &given, title).map(Player).map_err(js)
+    }
+
+    /// What a save that subsets needs subset, as JSON: `{ chars, fonts }`, the characters
+    /// the deck can draw and each font file to keep them of. The page subsets each with the
+    /// subsetter's own module (`scaena-subset`) and hands it back with `addSubset`.
+    pub fn subsetting(&self) -> Result<String, JsError> {
+        let (chars, fonts) = self.0.subsetting().map_err(js)?;
+        Ok(serde_json::json!({ "chars": chars, "fonts": fonts }).to_string())
+    }
+
+    /// `font`, subset to `chars` (as `subsetting` gave them), for the next save that subsets.
+    #[wasm_bindgen(js_name = addSubset)]
+    pub fn add_subset(&mut self, font: &str, chars: &str, bytes: Vec<u8>) {
+        self.0.add_subset(font, chars, bytes);
+    }
+
+    /// The bundle with the deck shown, saved as `scaena save` saves one (SPEC §3.1), at
+    /// `now` (RFC 3339), with fonts subset to what the deck can draw if `subset`: each from
+    /// `addSubset`, for the characters the deck can draw now. A bundle that keeps a history
+    /// has the save recorded in it by `history`, the history's own module (`scaena-history`,
+    /// PLAN 2.9): the page's edits by the user, and each tool's by its caller. Without it,
+    /// the history is carried as it is.
+    pub fn save(&self, now: &str, subset: bool, history: Option<History>) -> Result<SavedBundle, JsError> {
+        let record =
+            history.as_ref().map(|h| move |held: &[u8], changes: &str| h.record(held, changes).map_err(|e| said(&e)));
+        let record = record.as_ref().map(|r| r as &store::Recorder);
+        self.0.save(now, subset, record).map(SavedBundle).map_err(js)
+    }
+
+    /// Go on from `saved`, once the page has written it where it keeps the bundle: its
+    /// files and its deck, which names them by their content. The source is the saved
+    /// deck's from then on.
+    pub fn adopt(&mut self, saved: &SavedBundle) -> Result<(), JsError> {
+        self.0.adopt(&saved.0).map_err(js)
+    }
+
+    /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a
+    /// data file under `data/`, by its name; anything else, an image above all, under
+    /// `assets/`, named by its SHA-256, as a save names it.
+    pub fn place(name: &str, bytes: &[u8]) -> String {
+        scaena_store::place(name, bytes)
+    }
+}
+
+/// The assistant's tools (PLAN 2.6, SPEC §11): MCP's operations on this bundle.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The tools the assistant has, by their MCP names.
+    #[wasm_bindgen(js_name = toolNames)]
+    pub fn tool_names() -> Vec<String> {
+        assistant::TOOLS.iter().map(|t| t.to_string()).collect()
+    }
+
+    /// Call the tool `name` with `args` (JSON), as its MCP tool takes them less `bundle`,
+    /// `out`, and `painter`. A tool that stops says why in the result, as an MCP tool's
+    /// error result does, rather than throwing: either way it is what the model is told.
+    /// `author` calls it (`agent:` and the model's name; `agent` without it) at `at` (RFC
+    /// 3339): an edit it makes is theirs when a save records it in the bundle's history.
+    pub fn tool(&mut self, name: &str, args: &str, author: Option<String>, at: Option<String>) -> ToolResult {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("agent"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let called = match serde_json::from_str(args) {
+            Ok(args) => self.0.tool(name, args, by),
+            Err(e) => Err(Error::Ops(format!("{name}: the arguments are not JSON: {e}"))),
+        };
+        match called {
+            Ok(c) => ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame },
+            Err(e) => {
+                let json = assistant::failure(&e).to_string();
+                ToolResult { json, error: true, edited: false, frame: None }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+extern "C" {
+    /// The module that keeps a bundle's history (`scaena-history`), as the page loaded it
+    /// (PLAN 2.9): it records changes in a history's bytes.
+    #[wasm_bindgen(typescript_type = "{ record(history: Uint8Array, changes: string): Uint8Array }")]
+    pub type History;
+    #[wasm_bindgen(method, catch)]
+    fn record(this: &History, history: &[u8], changes: &str) -> Result<Vec<u8>, JsValue>;
+
+    /// What a module throws: an `Error`, with its message.
+    type Thrown;
+    #[wasm_bindgen(method, getter)]
+    fn message(this: &Thrown) -> Option<String>;
+}
+
+/// What `thrown` says: its message, or itself as text.
+#[cfg(feature = "editor")]
+fn said(thrown: &JsValue) -> String {
+    let message = thrown.is_object().then(|| thrown.unchecked_ref::<Thrown>().message()).flatten();
+    thrown.as_string().or(message).unwrap_or_else(|| format!("{thrown:?}"))
+}
+
+/// What a tool returned (PLAN 2.6).
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct ToolResult {
+    json: String,
+    error: bool,
+    edited: bool,
+    frame: Option<scaena_paint::Raster>,
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl ToolResult {
+    /// What the tool returned, as JSON: its MCP tool's result, or why it stopped.
+    #[wasm_bindgen(getter)]
+    pub fn json(&self) -> String {
+        self.json.clone()
+    }
+
+    /// Whether it stopped: `json` then says why (`{ message, plan?, op? }`).
+    #[wasm_bindgen(getter)]
+    pub fn error(&self) -> bool {
+        self.error
+    }
+
+    /// Whether it changed the deck: the page takes the source again.
+    #[wasm_bindgen(getter)]
+    pub fn edited(&self) -> bool {
+        self.edited
+    }
+
+    /// `deck_render`'s frame, `[width, height]` pixels.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> Option<Vec<u32>> {
+        self.frame.as_ref().map(|r| vec![r.width, r.height])
+    }
+
+    /// `deck_render`'s frame as RGBA, for an `ImageData`; empty from any other tool.
+    pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.frame.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
+    }
+}
+
+/// A save, in memory: the files of the saved bundle, by their paths inside it.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct SavedBundle(scaena_store::Saving);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl SavedBundle {
+    /// Every file of the saved bundle, by its path inside it, sorted.
+    pub fn paths(&self) -> Vec<String> {
+        self.0.files.keys().cloned().collect()
+    }
+
+    pub fn file(&self, path: &str) -> Option<Vec<u8>> {
+        self.0.files.get(path).cloned()
+    }
+
+    /// The files of the bundle as it was that the save renamed or rewrote: where the save
+    /// replaces the bundle it came from, those `paths` does not hold go.
+    pub fn replaced(&self) -> Vec<String> {
+        self.0.replaced.iter().cloned().collect()
+    }
+
+    /// What the save did, as JSON: `{ renamed: [[from, to]], subset: [[font, before,
+    /// after]], manifest }`, sizes in bytes.
+    pub fn summary(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.saved).map_err(js)
+    }
+
+    /// The saved bundle as a `.scaena` zip's bytes, the same for the same bundle.
+    pub fn zip(&self) -> Result<Vec<u8>, JsError> {
+        scaena_store::zip(&self.0.files).map_err(js)
     }
 }
 
@@ -301,11 +694,44 @@ mod web {
         /// WebGPU on `canvas`, at its `width` × `height` attributes.
         pub async fn attach(canvas: web_sys::HtmlCanvasElement) -> Result<Canvas, JsError> {
             let size = (canvas.width(), canvas.height());
+            Canvas::on(wgpu::SurfaceTarget::Canvas(canvas), size).await
+        }
+
+        /// WebGPU on an `OffscreenCanvas`, at its `width` × `height`: in a worker, a page's
+        /// canvas handed over with `transferControlToOffscreen` (PLAN 2.1).
+        #[wasm_bindgen(js_name = attachOffscreen)]
+        pub async fn attach_offscreen(canvas: web_sys::OffscreenCanvas) -> Result<Canvas, JsError> {
+            let size = (canvas.width(), canvas.height());
+            Canvas::on(wgpu::SurfaceTarget::OffscreenCanvas(canvas), size).await
+        }
+
+        /// Paint at `width` × `height` pixels from now on, as the canvas element's
+        /// attributes have just been set: another format's canvas (SPEC §3.4).
+        pub fn resize(&mut self, width: u32, height: u32) {
+            if (width, height) == self.size {
+                return;
+            }
+            (self.config.width, self.config.height) = (width, height);
+            self.surface.configure(&self.device, &self.config);
+            self.target = target(&self.device, (width, height));
+            self.size = (width, height);
+        }
+
+        /// Which adapter paints: name, backend, device type.
+        #[wasm_bindgen(getter)]
+        pub fn adapter(&self) -> String {
+            self.adapter.clone()
+        }
+    }
+
+    impl Canvas {
+        /// WebGPU on `canvas`, `size` pixels.
+        async fn on(canvas: wgpu::SurfaceTarget<'static>, size: (u32, u32)) -> Result<Canvas, JsError> {
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::BROWSER_WEBGPU,
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let surface = instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas)).map_err(js)?;
+            let surface = instance.create_surface(canvas).map_err(js)?;
             let options = wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
@@ -358,24 +784,6 @@ mod web {
             };
             let shaders = scaena_paint::gpu::Shaders::new();
             Ok(Canvas { device, queue, surface, renderer, target, blitter, size, config, adapter, shaders })
-        }
-
-        /// Paint at `width` × `height` pixels from now on, as the canvas element's
-        /// attributes have just been set: another format's canvas (SPEC §3.4).
-        pub fn resize(&mut self, width: u32, height: u32) {
-            if (width, height) == self.size {
-                return;
-            }
-            (self.config.width, self.config.height) = (width, height);
-            self.surface.configure(&self.device, &self.config);
-            self.target = target(&self.device, (width, height));
-            self.size = (width, height);
-        }
-
-        /// Which adapter paints: name, backend, device type.
-        #[wasm_bindgen(getter)]
-        pub fn adapter(&self) -> String {
-            self.adapter.clone()
         }
     }
 
@@ -434,15 +842,30 @@ mod tests {
             "NotoColorEmoji-COLRv1.ttf",
         ] {
             let id = format!("fonts/{f}");
-            s.add_font(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap()).unwrap();
+            s.add_file(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap());
         }
         for path in ["data/bars.csv", "data/bars-next.csv"] {
-            s.add_data(path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
+            s.add_file(path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
         }
         for path in s.image_files() {
-            s.add_image(&path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap()).unwrap();
+            s.add_file(&path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
         }
         s
+    }
+
+    /// Set `s` up for the golden frame `name`, and say which state it is and when: `state`
+    /// at rest, or `state@fraction` of the transition into it, each in the deck's own canvas
+    /// or, after `~`, in a format (`9x16` for `9:16`).
+    fn golden(s: &mut Session, name: &str) -> (String, f64) {
+        let (frame, format) = match name.split_once('~') {
+            Some((frame, format)) => (frame, Some(format.replace('x', ":"))),
+            None => (name, None),
+        };
+        s.set_format(format.as_deref()).unwrap();
+        match frame.split_once('@') {
+            Some((state, at)) => (state.to_string(), at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
+            None => (frame.to_string(), f64::INFINITY),
+        }
     }
 
     /// The session is the engine the native tests drive: its frames hash to the
@@ -454,29 +877,90 @@ mod tests {
         let expected = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();
         for line in expected.lines() {
             let (name, digest) = line.split_once(' ').unwrap();
-            // `state` at rest, or `state@fraction` of the transition into it, each in the
-            // deck's own canvas or, after `~`, in a format (`9x16` for `9:16`).
-            let (frame, format) = match name.split_once('~') {
-                Some((frame, format)) => (frame, Some(format.replace('x', ":"))),
-                None => (name, None),
-            };
-            s.set_format(format.as_deref()).unwrap();
-            let (state, t) = match frame.split_once('@') {
-                Some((state, at)) => (state, at.parse::<f64>().unwrap() * s.duration(state).unwrap()),
-                None => (frame, f64::INFINITY),
-            };
-            assert_eq!(s.frame(state, t).unwrap().digest().unwrap(), digest, "{name}");
+            let (state, t) = golden(&mut s, name);
+            assert_eq!(s.frame(&state, t).unwrap().digest().unwrap(), digest, "{name}");
         }
     }
 
+    /// The CPU painter paints a session's frames as the golden rasters hold them (SPEC
+    /// §13.5), from the files a page hands over: images, color glyphs, shaders, a frame of a
+    /// transition, and another format's canvas.
+    #[cfg(feature = "cpu")]
     #[test]
-    fn fonts_and_images_come_before_the_first_frame() {
+    fn pixels_match_the_golden_rasters() {
+        use scaena_paint::{Raster, diff};
         let mut s = torture();
-        s.frame("axes", f64::INFINITY).unwrap();
-        let err = s.add_font("fonts/late.ttf", vec![]).unwrap_err();
-        assert!(matches!(err, Error::AfterFrame), "{err}");
-        let err = s.add_image("assets/late.png", vec![]).unwrap_err();
-        assert!(matches!(err, Error::AfterFrame), "{err}");
+        for name in ["images", "emoji", "shaders", "morph@0.5", "formats~9x16"] {
+            let png = std::fs::read(format!("../../tests/golden/torture/{name}.png")).unwrap();
+            let expected = Raster::from_png(&png).unwrap();
+            let (state, t) = golden(&mut s, name);
+            let got = s.pixels(&state, t, expected.width).unwrap();
+            assert_eq!((got.width, got.height), (expected.width, expected.height), "{name}");
+            let d = diff::compare(&expected, &got).unwrap();
+            assert!(d.passes(), "{name}: {d}");
+        }
+    }
+
+    /// The revenue example, its files handed over as a page hands them.
+    fn revenue() -> Session {
+        let dir = "../../docs/examples";
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(&read("revenue.deck.json"), &read("themes/dusk.theme.json")).unwrap();
+        for path in ["fonts/Fraunces-VF.ttf", "fonts/Inter-VF.ttf", "fonts/JetBrainsMono-VF.ttf", "data/q3-revenue.csv"]
+        {
+            s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        s
+    }
+
+    /// A state reads as a single-file export reads it (PLAN 2.5, 2.8): these are what `scaena
+    /// export --format html` writes for the revenue example's states. In another format the
+    /// same nodes read, in that format's paint order.
+    #[test]
+    fn each_state_reads_as_a_single_file_reads_it() {
+        let mut s = revenue();
+        let chart = r#"<div role="img" data-node="rev" aria-label="Quarterly revenue by product, Q4 2025 through Q3 2026."></div>"#;
+        let note = r#"<p data-node="note">Revenue in $M. Enterprise recognized on delivery.</p>"#;
+        let read = [
+            (
+                "intro",
+                r#"<h1 data-node="title">Q3 Review</h1><h2 data-node="subtitle">This quarter changed the shape of the business.</h2>"#.to_string(),
+            ),
+            ("revenue", format!(r#"<h1 data-node="title">Revenue doubled</h1>{chart}{note}"#)),
+            ("mix", format!(r#"<h1 data-node="title">…and the mix shifted</h1>{chart}{note}"#)),
+            ("close", r#"<h1 data-node="title">Thank you</h1>"#.to_string()),
+        ];
+        for (state, expected) in &read {
+            assert_eq!(&s.reading(state).unwrap(), expected, "{state}");
+        }
+        s.set_format(Some("9:16")).unwrap();
+        let tall = s.reading("revenue").unwrap();
+        for node in ["title", "rev", "note"] {
+            assert!(tall.contains(&format!(r#"data-node="{node}""#)), "{node} reads in 9:16: {tall}");
+        }
+        assert!(matches!(s.reading("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    #[test]
+    fn a_deck_that_draws_with_other_files_builds_the_engine_again() {
+        let mut s = torture();
+        let drawn = s.frame("images", f64::INFINITY).unwrap().digest().unwrap();
+        // A file the deck does not name waits: the engine stands.
+        let card = std::fs::read(format!("{BUNDLE}/assets/test-card.png")).unwrap();
+        s.add_file("assets/copy.png", card);
+        assert!(s.engine.is_some());
+        // A deck that shows it builds the engine again, and draws it: the same picture.
+        let rename = |deck: &Deck, from: &str, to: &str| {
+            let json = deck.to_json().unwrap().replace(from, to);
+            Deck::from_json(&json).unwrap()
+        };
+        s.set_deck(rename(&s.deck, "assets/test-card.png", "assets/copy.png"));
+        assert!(s.engine.is_none());
+        assert_eq!(s.frame("images", f64::INFINITY).unwrap().digest().unwrap(), drawn);
+        // One it names that was never handed over is named in the error.
+        s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
+        let err = s.frame("images", f64::INFINITY).unwrap_err();
+        assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
         assert_eq!(s.states().len(), 47);
     }
 }

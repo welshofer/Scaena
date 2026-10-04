@@ -44,6 +44,8 @@ const UNRESOLVED: &str = "\0?";
 const RUN: &str = "run";
 /// Who made a change that came from a file edited outside Scaena.
 pub const FS: &str = "fs";
+/// What such a change says.
+pub const OUTSIDE: &str = "deck.json changed outside Scaena";
 
 #[derive(Debug, Error)]
 pub enum CrdtError {
@@ -95,6 +97,25 @@ impl<'a> Edit<'a> {
     pub fn by(author: &'a str) -> Self {
         Edit { author, ..Edit::default() }
     }
+}
+
+/// A change for a history to record, as one module hands it to another (PLAN 2.9): the
+/// deck it leaves, as deck.json's text, and the [`Edit`] that made it. A page's engine keeps
+/// no CRDT, so it hands its changes, as JSON, to the module that does (`scaena-history`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Recorded {
+    pub deck: String,
+    pub author: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// When, in seconds since 1970; now without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renamed_nodes: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renamed_states: Vec<(String, String)>,
 }
 
 /// The deck as a Loro document, with its history.
@@ -176,6 +197,23 @@ impl DeckDoc {
     /// only what differs. Whether anything did.
     pub fn apply(&self, deck: &Deck, edit: &Edit) -> Result<bool> {
         self.write(deck, edit, false)
+    }
+
+    /// [`DeckDoc::apply`]s each of `changes` in order: one that leaves the deck as it was is
+    /// no change. How many were.
+    pub fn record(&self, changes: &[Recorded]) -> Result<usize> {
+        let mut recorded = 0;
+        for change in changes {
+            let edit = Edit {
+                author: &change.author,
+                message: change.message.as_deref(),
+                timestamp: change.timestamp,
+                renamed_nodes: &change.renamed_nodes,
+                renamed_states: &change.renamed_states,
+            };
+            recorded += usize::from(self.apply(&Deck::from_json(&change.deck)?, &edit)?);
+        }
+        Ok(recorded)
     }
 
     /// Every change, oldest first.
