@@ -225,6 +225,45 @@ fn inspect_data_shows_the_rows_each_chart_and_table_reads() {
     assert!(text.contains("2026-Q3  Enterprise  14.3     88"), "{text}");
 }
 
+/// What stands where (ADR-0013): each node's box at rest, and what draws at a point,
+/// topmost first, in the deck's own canvas or one of its formats.
+#[test]
+fn inspect_says_what_stands_where() {
+    let (code, states) = json(&["inspect", TORTURE, "--state", "containers", "--boxes"]);
+    assert_eq!(code, 0, "{states:#}");
+    let boxes = &states[0]["boxes"];
+    let label = &boxes["card-tag-label"];
+    assert_eq!(label["parent"], "card");
+    assert_eq!(label["draws"], true);
+    assert_eq!(boxes["marks"]["draws"], false);
+    let rect: Vec<f64> = label["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let at = format!("{},{}", rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0);
+    let (code, states) = json(&["inspect", TORTURE, "--state", "containers", "--at", &at]);
+    assert_eq!(code, 0, "{states:#}");
+    let hits = states[0]["hits"].as_array().unwrap();
+    assert_eq!(hits[0]["node"], "card-tag-label");
+    assert_eq!(hits[0]["containers"], serde_json::json!(["card"]));
+    assert!(states[0].get("boxes").is_none());
+
+    // In a format, the boxes are that format's layout's.
+    let (code, tall) = json(&["inspect", TORTURE, "--state", "formats", "--boxes", "--format", "9:16"]);
+    assert_eq!(code, 0, "{tall:#}");
+    for (node, b) in tall[0]["boxes"].as_object().unwrap() {
+        let r: Vec<f64> = b["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        assert!(r[0] + r[2] <= 1080.01, "{node}: {r:?} past the 9:16 canvas");
+    }
+    // A point that is no point, and a format the deck does not list, are errors that say so.
+    assert_eq!(scaena(&["inspect", TORTURE, "--at", "middle"]).status.code(), Some(2));
+    let (code, err) = json(&["inspect", TORTURE, "--state", "formats", "--boxes", "--format", "4:3"]);
+    assert_ne!(code, 0);
+    assert!(err["error"]["message"].as_str().is_some_and(|m| m.contains("4:3")), "{err:#}");
+
+    // For a person: a line per box, and the hits, topmost first.
+    let out = scaena(&["inspect", TORTURE, "--state", "containers", "--at", &at]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains(", topmost first:") && text.contains("    card-tag-label (in card)"), "{text}");
+}
+
 #[test]
 fn inspect_keeps_its_snapshot_without_the_views() {
     // The views add keys; the snapshot is the same either way.

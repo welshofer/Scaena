@@ -833,7 +833,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data]   # absolute snapshot, resolved styles, cue, rows
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--format F]   # snapshot, styles, cue, rows, where nodes stand
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -853,7 +853,7 @@ A command that writes a bundle that keeps history (`patch`, `theme --apply`, `li
 | Command | `--json` |
 |---|---|
 | `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
-| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, and `--data` adds `data` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, and `--at` adds `hits` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
 | `decompile` | `{ out, scn? }` |
@@ -885,6 +885,12 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 
 `inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
 
+`inspect --boxes` and `--at` say what stands where in each state at rest (ADR-0013), from the layout its frames at rest draw, so they read the bundle's fonts. They answer what a pointer needs to select a node and move it:
+- **`boxes`:** each visible node by id, with its `rect` (`[x, y, width, height]`, canvas units) and the container or group it sits in (`parent`). The rect is its grid cell or slot, the box its container gave it, or a group's box around its members. Those that draw come first, in paint order; then the containers and groups that only hold others (`draws: false`).
+- **`hits`:** the nodes that draw at `--at X,Y`, topmost first. Each has its `rect` and the containers and groups it sits in, innermost first (`containers`). A point hits a node inside its box, or within 6 canvas units of a box too thin to point at, as a hairline rule is. A node faded out entirely is not there to point at.
+
+`--format` inspects the deck in one of its formats, laid out again with its template set (§3.4), for every view.
+
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
 
 `new` (PLAN 2.13) makes a bundle in a directory not there yet or empty, as `deck_create` makes one (§7.2): the theme, the fonts it names, and one state with nothing on it, titled `--title` (`Untitled` by default), on a 1920 × 1080 canvas. The theme is one that ships, by its name, in any case (`dusk` by default), or a theme file, whose fonts are beside it or above it. The CLI and the MCP server carry the themes that ship and their fonts, so a deck starts where no file of the repository's is at hand. The fonts cover Latin (U+0020–017F, the punctuation of U+2010–203A, and €), and each carries its copyright and license (OFL) in its name table. A directory that is not empty, or a theme that is neither a file nor one that ships, exits 2; a bundle that would not validate is not made, and exits 1.
@@ -903,7 +909,7 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, and `data`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |

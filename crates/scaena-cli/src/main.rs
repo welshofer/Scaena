@@ -71,6 +71,17 @@ enum Cmd {
         /// The rows each chart and table reads, after its `dataTransform`.
         #[arg(long)]
         data: bool,
+        /// Each visible node's box at rest, canvas units: what a pointer selects and moves
+        /// (ADR-0013). Reads the bundle's fonts, as `render` does.
+        #[arg(long)]
+        boxes: bool,
+        /// The nodes that draw at `X,Y` (canvas units) at rest, topmost first, each with the
+        /// containers it sits in.
+        #[arg(long, value_name = "X,Y", value_parser = point)]
+        at: Option<[f32; 2]>,
+        /// One of the deck's formats (`9:16`) to inspect it in, laid out with its template set.
+        #[arg(long)]
+        format: Option<String>,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -347,8 +358,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state, resolved, timeline, data } => {
-            inspect(&open(&bundle)?, state.as_deref(), Views { resolved, timeline, data }, cli.json)
+        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format } => {
+            let views = Views { resolved, timeline, data, boxes, at, format };
+            inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
             use scaena_ops::inspect::Change;
@@ -713,10 +725,22 @@ fn lint_fix(b: &Bundle, json: bool) -> Result<ExitCode> {
     Ok(if errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
+/// A point on the canvas, `X,Y` in canvas units.
+fn point(s: &str) -> Result<[f32; 2], String> {
+    let parsed =
+        s.split_once(',').and_then(|(x, y)| Some([x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?]));
+    match parsed {
+        Some(p) if p.iter().all(|v| v.is_finite()) => Ok(p),
+        _ => Err(format!("`{s}`: expected X,Y in canvas units, as `960,540`")),
+    }
+}
+
 /// `scaena inspect`: each state's snapshot, tracking applied (SPEC §2.2). `--resolved`
 /// takes it through the theme cascade (PLAN 1.6); `--timeline` adds its cue and `--data`
-/// the rows its charts and tables read (PLAN 1.14).
+/// the rows its charts and tables read (PLAN 1.14); `--boxes` each node's box at rest, and
+/// `--at` what draws at a point (ADR-0013).
 fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<ExitCode> {
+    let at = views.at;
     let out = scaena_ops::inspect::inspect(b, state, views)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&out)?);
@@ -754,6 +778,31 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         }
         if !s.exited.is_empty() {
             println!("  - exited: {}", s.exited.join(", "));
+        }
+        if let Some(boxes) = &i.boxes {
+            println!("  boxes at rest, canvas units:");
+            for (id, b) in boxes {
+                let [x, y, w, h] = b.rect.map(|v| num(f64::from(v)));
+                let parent = b.parent.as_ref().map(|p| format!(" in {p}")).unwrap_or_default();
+                let holds = if b.draws { "" } else { ", holds others" };
+                println!("    {id:<16} x {x}, y {y}, {w} × {h}{parent}{holds}");
+            }
+        }
+        if let (Some(hits), Some([x, y])) = (&i.hits, at) {
+            let [x, y] = [x, y].map(|v| num(f64::from(v)));
+            match hits.is_empty() {
+                true => println!("  at {x},{y}: nothing draws there"),
+                false => {
+                    println!("  at {x},{y}, topmost first:");
+                    for h in hits {
+                        let within = match h.containers.is_empty() {
+                            true => String::new(),
+                            false => format!(" (in {})", h.containers.join(" in ")),
+                        };
+                        println!("    {}{within}", h.node);
+                    }
+                }
+            }
         }
     }
     Ok(ExitCode::SUCCESS)

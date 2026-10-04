@@ -233,6 +233,17 @@ impl Engine {
         Ok(timeline)
     }
 
+    /// `req.state` at rest, laid out in `req.format` (`req.t_ms` aside): the scene its frames
+    /// at rest draw, which says what stands where for a client that edits by pointing
+    /// ([`crate::geometry`], ADR-0013).
+    pub fn at_rest(&mut self, req: &FrameRequest) -> Result<Scene, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        self.scene(deck, theme, req.data, snap)
+    }
+
     /// One snapshot, laid out: every visible node in paint order.
     pub fn scene(
         &mut self,
