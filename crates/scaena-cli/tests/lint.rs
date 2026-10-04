@@ -182,6 +182,47 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
 }
 
 #[test]
+fn chart_text_cut_off_at_the_charts_side_is_e100() {
+    // A callout wider than its narrow chart's plot runs past the plot's side, where the
+    // chart cuts it off.
+    let chart = serde_json::json!({ "c": {
+        "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },
+        "annotations": [{ "kind": "callout", "at": { "x": "Q3" }, "text": "The best quarter any product line has had" }],
+        "alt": "Sales by quarter, the third its best.", "at": { "rect": [200, 200, 480, 600] }
+    }});
+    let (_, found) = lint(&bundle("chart-cut", &deck(sales(), chart), |_| {}));
+    let cut: Vec<&Value> = found.iter().filter(|f| f["code"] == "E100").collect();
+    assert_eq!(cut.len(), 1, "{found:#?}");
+    assert_eq!((cut[0]["path"].as_str(), cut[0]["measure"]["part"].as_str()), (Some("/nodes/c"), Some("annotation")));
+    assert!(cut[0]["measure"]["over"].as_f64().is_some_and(|over| over > 0.5), "{:#?}", cut[0]);
+}
+
+#[test]
+fn a_lines_names_stand_inside_its_chart() {
+    // Names at a line's end stand `lead` past its last point, as the room beside the plot
+    // is measured: on a time axis the last point is the plot's side, so a name drawn past
+    // its dot instead ran the dot's radius past the chart.
+    let rows: Vec<Value> = ["2026-01-01", "2026-06-01", "2026-12-01"]
+        .iter()
+        .enumerate()
+        .flat_map(|(i, m)| {
+            let i = i as f64;
+            [("Riverside", 10.0 + i), ("Old Town", 8.0 + 2.0 * i)]
+                .map(|(s, v)| serde_json::json!({ "m": m, "s": s, "v": v }))
+        })
+        .collect();
+    let data =
+        serde_json::json!({ "trips": { "source": { "inline": rows }, "schema": { "m": "date", "v": "number" } } });
+    let chart = serde_json::json!({ "c": {
+        "type": "chart", "kind": "line", "data": "@trips", "x": { "field": "m", "type": "temporal", "format": "%b" },
+        "y": { "field": "v" }, "series": { "field": "s" }, "labels": { "show": "ends" },
+        "alt": "Trips by neighborhood.", "at": { "rect": [100, 100, 1200, 600] }
+    }});
+    let (_, found) = lint(&bundle("line-names", &deck(data, chart), |t| t["charts"]["pointRadius"] = 10.into()));
+    assert!(found.iter().all(|f| f["code"] != "E100"), "{found:#?}");
+}
+
+#[test]
 fn chart_text_is_judged_at_the_opacity_a_highlight_dims_it_to() {
     let chart = serde_json::json!({ "c": {
         "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },

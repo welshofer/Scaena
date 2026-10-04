@@ -1210,9 +1210,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     if direct {
         let mut names: Vec<(String, Color)> = Vec::new();
         let mut placed: Vec<Label> = Vec::new();
-        // In a column `lead` past the farthest end of any series.
+        // In a column `lead` past the farthest end of any series: a line's last point,
+        // where its end value begins, or a stack's side. The room beside the plot is
+        // measured so (`legend_width`), and `lead` already clears a point's dot.
         let reach = |shape: &Shape| match *shape {
-            Shape::Dot { x, r, .. } => x + r,
             Shape::Bar(b) => b.x + b.w,
             other => other.center_x(),
         };

@@ -3,7 +3,7 @@
 //! chart's value labels (W310) and the size of its text (W312).
 
 use super::{Cx, Laid, Rule};
-use crate::charts::ChartText;
+use crate::charts::{ChartLayout, ChartText};
 use crate::layout::Grid;
 use crate::sample::Content;
 use crate::text::{TextAlign, TextLayout};
@@ -86,6 +86,9 @@ impl Rule for E100Overflow {
                 );
             }
             for node in &state.scene.nodes {
+                if let Content::Chart { cell, chart } = &node.content {
+                    out.extend(cut(cx, state, &node.id, cell, chart));
+                }
                 if let Content::Table { table, .. } = &node.content
                     && let Some(why) = &table.overflow
                 {
@@ -104,6 +107,40 @@ impl Rule for E100Overflow {
         }
         out
     }
+}
+
+/// E100 for a chart: text it sets past its sides, where it is cut off. A chart draws
+/// within its width; its ticks, value labels, and annotations within the plot and the
+/// room beside it, when it clips them there. Reported once, by the text cut furthest.
+fn cut(cx: &Cx, state: &Laid, id: &str, cell: &[f32; 4], chart: &ChartLayout) -> Option<Finding> {
+    let within = |part: ChartText| match (part, chart.clip) {
+        (ChartText::Tick | ChartText::Value | ChartText::Note, Some([a, b])) => [a.max(0.0), b.min(cell[2])],
+        _ => [0.0, cell[2]],
+    };
+    let cut: Vec<(ChartText, &str, f32)> = (chart.texts())
+        .filter_map(|(part, l)| {
+            let [from, to] = within(part);
+            let over = (from - l.origin[0]).max(l.origin[0] + l.text.width - to);
+            (over > 0.5).then_some((part, l.text.text.as_str(), over))
+        })
+        .collect();
+    let &(part, text, over) = cut.iter().max_by(|a, b| a.2.total_cmp(&b.2))?;
+    let more = match cut.len() {
+        1 => String::new(),
+        n => format!(", and {} more", n - 1),
+    };
+    Some(
+        cx.finding(
+            "E100",
+            Severity::Error,
+            state,
+            format!("chart `{id}` cuts off its {} `{text}`, {over:.0} cu past its side{more}", part.name()),
+        )
+        .at(cx.node_path(id))
+        .node(id)
+        .measure(json!({ "part": part.name(), "label": text, "over": over, "cut": cut.len() }))
+        .hint("Give the chart more width, shorten the text, or place its legend `top`."),
+    )
 }
 
 /// W203: text under `fit: shrink` that does not fit at its smallest size.
