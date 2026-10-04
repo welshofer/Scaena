@@ -64,9 +64,9 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 32] = [
+const RULES: [(&str, &[&str]); 34] = [
     ("E100", &["/nodes/t"]),
-    ("E101", &["/nodes/b", "/nodes/note"]),
+    ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
     ("E111", &["/nodes/t"]),
     ("E120", &["/nodes/t"]),
@@ -83,6 +83,7 @@ const RULES: [(&str, &[&str]); 32] = [
     ("W310", &["/nodes/c/labels", "/nodes/c/labels", "/nodes/c/labels"]),
     ("W311", &["/nodes/bg"]),
     ("W312", &["/nodes/c"]),
+    ("W313", &["/nodes/c"]),
     ("W320", &["/states/0"]),
     ("W321", &["/states/0/choreography"]),
     ("W322", &["/states/1/choreography/0"]),
@@ -94,6 +95,7 @@ const RULES: [(&str, &[&str]); 32] = [
     ("W423", &["/spine/sections/0/beats/0/evidence/0"]),
     ("W424", &["/states/0"]),
     ("W425", &["/spine/sections/0/beats/1/claim"]),
+    ("W426", &["/spine/sections/0/beats/1"]),
     ("I400", &["/states/1"]),
     ("I401", &["/nodes/ghost"]),
     ("I402", &["/overrides/t"]),
@@ -270,12 +272,27 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
 }
 
 #[test]
+fn a_placement_past_the_grid_is_a_finding_not_a_stop() {
+    // The lint theme's grid has 6 rows. A node in row 7 cannot be laid out, and lint says
+    // so, with the rest of what validation finds, instead of stopping.
+    let late =
+        serde_json::json!({ "type": "text", "role": "body", "text": "Late", "at": { "col": [1, 12], "row": 7 } });
+    let dir = bundle("past-grid", &deck(serde_json::json!({}), serde_json::json!({ "t": late })), |_| {});
+    let (exit, found) = lint(&dir);
+    assert_eq!(exit, 1, "{found:#?}");
+    let past: Vec<&str> =
+        found.iter().filter(|f| f["code"] == "E102").map(|f| f["message"].as_str().unwrap()).collect();
+    assert_eq!(past, ["`t` is placed in row 7, past the theme's grid, which has 6 rows"], "{found:#?}");
+}
+
+#[test]
 fn the_example_decks_and_b1_lint_clean() {
     for bundle in [
         "docs/examples/revenue.deck.json",
         "docs/examples/charts.deck.json",
         "docs/examples/trails.deck.json",
         "docs/examples/higher-ed.deck.json",
+        "docs/examples/ridgeline.deck.json",
         "tests/bench/b1.scaena",
     ] {
         let (exit, found) = lint(&Path::new(ROOT).join(bundle));

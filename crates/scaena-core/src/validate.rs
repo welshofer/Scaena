@@ -9,9 +9,10 @@ use crate::document::{Deck, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
-use crate::model::Theme;
 use crate::model::check::{Checker, Kind, Violation};
-use crate::model::values::{Annotation, Duration, Easing};
+use crate::model::theme::Grid;
+use crate::model::values::{Annotation, Duration, Easing, Range};
+use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -238,6 +239,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
             out.extend(shader_presets(&deck, snapshots.as_deref().unwrap_or_default(), theme));
         }
+        out.extend(grid_cells(&deck, snapshots.as_deref().unwrap_or_default(), theme.as_ref()));
     }
     // Each finding once, and an id problem once per place: the schema and the semantic
     // checks can both see an invalid id, in their own words.
@@ -1122,6 +1124,134 @@ fn keys_repeat(keys: &[String]) -> String {
         [_] => format!("key {} repeats", named[0]),
         _ => format!("keys {}{} repeat", named.join(", "), if keys.len() > 8 { ", …" } else { "" }),
     }
+}
+
+/// E102: a placement past the theme's grid, which layout cannot make. A node placed by
+/// `at.col` or `at.row` beyond the grid's columns or rows, or in a slot that runs past them,
+/// in the deck's own format or one it lists, where the grid and the slots can differ (SPEC
+/// §3.4). Each finding names the grid's size: a node's at its `at`, a slot's in the theme. A
+/// node's range that runs backward is E106. A child of a stack, grid, or frame takes its
+/// container's lines, and is not judged here. Without a theme, only the E106 is.
+fn grid_cells(deck: &Deck, snapshots: &[Snapshot], theme: Option<&LoadedTheme>) -> Vec<Finding> {
+    // The grids the deck is laid out on: its own, then each listed format's whose canvas is
+    // not the deck's (a format of the deck's own shape lays out the same).
+    let own = [deck.canvas.width, deck.canvas.height];
+    let mut grids: Vec<(Option<Format>, &Grid)> = Vec::new();
+    if let Some(t) = theme.map(|t| &t.theme) {
+        grids.push((None, &t.grid));
+        for format in deck.formats.iter().filter_map(|f| Format::parse(f)).filter(|f| f.canvas(own) != own) {
+            let there = t.formats.as_ref().and_then(|f| f.get(&format)).and_then(|f| f.grid.as_ref());
+            grids.push((Some(format), there.unwrap_or(&t.grid)));
+        }
+    }
+    let past = |format: Option<Format>, axis: &str, n: u64| {
+        let there = format.map(|f| format!(" in `{}`", f.name())).unwrap_or_default();
+        format!("past the theme's grid{there}, which has {n} {}", if axis == "col" { "columns" } else { "rows" })
+    };
+    let mut out = Vec::new();
+    let mut met = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            let Some(at) = props.get("at") else { continue };
+            // `rect`, else `in`, else `col` and `row` (SPEC §3.4); a child of a stack, grid, or
+            // frame takes its container's lines.
+            if at.get("rect").is_some() {
+                continue;
+            }
+            let parent = at.get("parent").and_then(Value::as_str);
+            if parent.is_some_and(|p| deck.nodes.get(p).is_none_or(|p| p.node_type != NodeType::Group)) {
+                continue;
+            }
+            let located = |f: Finding| f.state(state.id.clone()).node(id.clone());
+            if let Some(slot) = at.get("in").and_then(Value::as_str) {
+                // A slot of the state's layout, as each format has it. A missing layout or
+                // slot is reported above.
+                let Some(theme) = theme else { continue };
+                let layout = snapshot.layout.as_deref().and_then(|l| theme.theme.layouts.get_key_value(l));
+                let Some((name, layout)) = layout else { continue };
+                for &(format, grid) in &grids {
+                    let moved = format.and_then(|f| layout.formats.as_ref()?.get(&f)?.slots.get(slot));
+                    let (def, at) = match (moved, layout.slots.get(slot)) {
+                        (Some(def), _) => {
+                            let f = format.expect("only a format moves a slot").name();
+                            (def, format!("/layouts/{}/formats/{}/slots/{}", esc(name), esc(f), esc(slot)))
+                        }
+                        (None, Some(def)) => (def, format!("/layouts/{}/slots/{}", esc(name), esc(slot))),
+                        (None, None) => continue,
+                    };
+                    for (axis, range) in [("col", def.col), ("row", def.row)] {
+                        let Some(range) = range else { continue };
+                        let (a, b) = match range {
+                            Range::Index(n) => (u64::from(n), u64::from(n)),
+                            Range::Span([a, b]) => (u64::from(a), u64::from(b)),
+                        };
+                        let n = tracks(grid, axis);
+                        let path = format!("{at}/{axis}");
+                        if b > n && met.insert((path.clone(), n)) {
+                            let message = format!(
+                                "slot `{slot}` of layout `{name}` is in {}, {}",
+                                cells(axis, a, b),
+                                past(format, axis, n)
+                            );
+                            out.push(located(theme.finding("E102", message, &path)));
+                        }
+                    }
+                }
+                continue;
+            }
+            for axis in ["col", "row"] {
+                let Some((a, b)) = at.get(axis).and_then(bounds) else { continue };
+                let sets =
+                    |props: Option<&Props>| props.and_then(|p| p.get("at")).and_then(|at| at.get(axis)).is_some();
+                let path = if sets(state.props.get(id)) {
+                    format!("/states/{i}/props/{}/at/{axis}", esc(id))
+                } else if sets(Some(&deck.nodes[id].props)) {
+                    format!("/nodes/{}/at/{axis}", esc(id))
+                } else {
+                    format!("/states/{i}/props/{}", esc(id))
+                };
+                if b < a {
+                    if met.insert((path.clone(), 0)) {
+                        let message =
+                            format!("`{id}` is placed in {}, which run backward: write [{b}, {a}]", cells(axis, a, b));
+                        out.push(located(Finding::new("E106", Severity::Error, message).at(path)));
+                    }
+                    continue;
+                }
+                for &(format, grid) in &grids {
+                    let n = tracks(grid, axis);
+                    if b > n && met.insert((path.clone(), n)) {
+                        let message = format!("`{id}` is placed in {}, {}", cells(axis, a, b), past(format, axis, n));
+                        out.push(located(Finding::new("E102", Severity::Error, message).at(path.clone()).hint(
+                            "Place it within the grid, or in a slot of the state's layout: a slot moves with the \
+                             theme and the format, and cells do not.",
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A grid's columns or rows (`axis`: `col` or `row`); rows default to 6.
+fn tracks(grid: &Grid, axis: &str) -> u64 {
+    u64::from(if axis == "col" { grid.columns } else { grid.rows.unwrap_or(6) })
+}
+
+/// A grid range's first and last track, as a deck writes it: `n` or `[a, b]`.
+fn bounds(range: &Value) -> Option<(u64, u64)> {
+    match range {
+        Value::Number(n) => n.as_u64().map(|n| (n, n)),
+        Value::Array(v) if v.len() == 2 => Some((v[0].as_u64()?, v[1].as_u64()?)),
+        _ => None,
+    }
+}
+
+/// Grid tracks as they read: `row 8`, `columns 1–8`.
+fn cells(axis: &str, a: u64, b: u64) -> String {
+    let what = if axis == "col" { "column" } else { "row" };
+    if a == b { format!("{what} {a}") } else { format!("{what}s {a}–{b}") }
 }
 
 /// E102: theme names the deck uses that its theme does not define: text roles, layouts and

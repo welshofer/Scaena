@@ -35,6 +35,7 @@ Cut until each slide says its one thing.
      - **W420, W421:** a beat or a slide with no claim.
      - **W424:** two claims at once.
      - **W425:** two beats in a row with the same claim.
+     - **W426:** a beat out of the order its states play in. Move the beat, or its states.
 3. **Headlines are sentences that claim.**
    - "Revenue doubled", not "Revenue".
    - Active verbs, concrete nouns, no hedges.

@@ -195,11 +195,11 @@ Placement is declared with `at`, resolved against the state's **layout template*
 "at": { "parent": "stats", "index": 2 }            // child of a container node
 ```
 
-One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans the grid). A node with no `at` fills the grid's margin box. Besides its template's slots, every state has two: `canvas`, the whole canvas, and `grid`, the margin box.
+One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans the grid). A node with no `at` fills the grid's margin box. A cell past the theme's grid, a node's or a slot's, in the deck's format or one it lists, is lint **E102**, which names the grid's size: a deck placed on 12 rows does not move onto a theme of 6 until it is placed again. Besides its template's slots, every state has two: `canvas`, the whole canvas, and `grid`, the margin box.
 
 **Containers** follow CSS flex and grid as `taffy` implements them: `stack` is flex along one axis, `grid` is CSS grid, and `frame` places its children absolutely (ADR-0008).
 - **Membership.** A node is in a container when its `at.parent` names one; nothing else declares it. A container's children flow in `at.index` order (default 0), ties in `nodes` order, as CSS `order` does. A container must be in every state its children are in (E102), a node's `at.parent` must be a container (E106), and containers do not nest in a loop (E106). Inside a container, `at.offset` moves a node, and what is in it, after layout, and `at.inset` shrinks the node's own box, as they do on the slide.
-- **Roots.** A node with no container, or in a group, is a root: `at` places it on the theme grid as above. A root container lays its subtree out inside that box. Any root but text fills its box unless it has a `size`; then it takes that size inside the box and aligns there by its `align`.
+- **Roots.** A node with no container, or in a group, is a root: `at` places it on the theme grid as above. A root container lays its subtree out inside that box. Any root but text fills its box unless it says otherwise, and then aligns in the box by its alignment. On an axis its `size` sets, it takes that size. On an axis its own `align` or `at.align` names, other than `stretch`, a container takes its content's size, and a sized image its picture's: `at: { col: [1, 12], row: [2, 5], align: { y: "center" } }` centers a grid of cards in those rows instead of stretching the cards to fill them. A slot's `align` is for text, and shrinks no container.
 - **`stack`.** `axis: y` (the default) runs top to bottom, `x` left to right; `gap` sits between children, `padding` inside the edge, and `distribute` (`start` by default, `center`, `end`, `between`, `around`, `evenly`) places leftover room along the axis. Text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders, which have no size of their own, share what is left. Every child stretches across the stack unless its `size` or `align` says otherwise. An image keeps its picture's proportions as it stretches. Text in a row stays in a box the row's height, so `align: { y: "baseline" }` puts the last baselines of a row's texts on one line, and `cap` puts their cap tops on one line.
 - **`grid`.** `cols` and `rows` are a count of equal tracks or each track's size; without them, as many equal tracks as `areas` has. `areas` names cells CSS-style (`["head head", "left right"]`, `.` for none), and each name must be a rectangle. A child takes `at.area`, or `at.col`/`at.row` lines of this grid (1-based, inclusive, like the theme grid's), or the next free cell. It fills its cell unless its `size` or `align` says otherwise, and never widens its track unless its `minW` or `minH` asks (CSS's `min-width: 0`): an image whose row sets its height does not ask for the width its picture's shape would take.
 - **`frame`.** A child's `at.rect` is `[x, y, w, h]` from the frame's padding edge. A child with no `rect` fills the padding box.
@@ -275,8 +275,8 @@ See `docs/schema/theme.schema.json`. Shape:
   "grid":   { "columns": 12, "gutter": 24, "margin": 96, "baseline": 8 },
   "layouts": {
     "title":  { "slots": { "title": {...}, "subtitle": {...} } },
-    "split":  { "slots": { "left": { "col": [1, 6] }, "right": { "col": [7, 12] } },
-                "formats": { "9:16": { "slots": { "left": { "col": [1, 12], "row": [1, 3] }, "right": { "col": [1, 12], "row": [4, 6] } } } } },
+    "split":  { "slots": { "body": { "col": [1, 6] }, "main": { "col": [7, 12] } },
+                "formats": { "9:16": { "slots": { "body": { "col": [1, 12], "row": [1, 3] }, "main": { "col": [1, 12], "row": [4, 6] } } } } },
     "full":   { "slots": { "main": { "col": [1, 12], "row": [1, 6] } } }
   },
   "formats": { "9:16": { "grid": { "columns": 12, "rows": 8, "gutter": 24, "margin": [96, 64] } } },
@@ -286,7 +286,7 @@ See `docs/schema/theme.schema.json`. Shape:
     "springs":   { "snappy": { "stiffness": 420, "damping": 34, "mass": 1 }, "gentle": { "stiffness": 170, "damping": 26, "mass": 1 } },
     "presets":   { "rise": { "from": { "opacity": 0, "transform": { "translate": [0, 24] } }, "ease": "out", "duration": "standard" }, "grow": {...}, "fade": {...} }
   },
-  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "mesh-soft": { "kind": "mesh", "params": {...} } } },
+  "shaders": { "palettes": { "ambient": ["#...", "#...", "#...", "#..."] }, "presets": { "backdrop": { "kind": "mesh", "params": {...} } } },
   "charts": { "axis": { "role": "label" }, "label": { "role": "numeral", "show": "auto" }, "legend": { "role": "label", "place": "direct" },
               "strokeWidth": "thin", "cornerRadius": 0, "barGap": 0.5, "groupGap": 0.1, "pointRadius": 0, "dotRadius": 6, "donutHole": 0.72, "tickCount": 5,
               "maxTicks": 5, "signal": "accent",
@@ -303,6 +303,13 @@ See `docs/schema/theme.schema.json`. Shape:
 - **`overrides`** holds a delta per node, checked against the node's type like a state's (E106; E104 for `type`; E102 for a node that is not there). It merges into the node after tracking, in every state, the same way a delta does: it wins over the theme, the defaults, and every state, and `null` deletes. Each key it sets is one override, and an object counts by its keys, so `style: { size, color }` is two. `scaena inspect --resolved` shows each node's overrides and each text node's look, and lint I402 names them.
 - **Colors** are a token or color role the theme names (role → token → literal), or a literal written out: `#rrggbb[aa]`, `oklch(L C H [/ A])`, or `oklab(L a b [/ A])`, read as CSS Color 4 reads them. Oklab converts to sRGB through `libm` (§13), and a color outside sRGB is clipped.
 - **Names are the swap contract.** Two themes swap cleanly when they define the same names (roles, layouts and slots, presets, palettes), so name them for their job: a background palette is `ambient`, not `dusk`. `scaena theme --apply` reports what a swap breaks (§7.1).
+- **The shipped themes share one vocabulary** (PLAN 1.34). Dusk, Daybreak, and Ember define the same names for the same jobs, on grids of 12 columns and 12 rows, so a deck moves between them by swapping the file: no name is missing, and a cell is a cell in each. What changes is the look. Each theme puts its slots where its design wants them, and lint says what the new type and colors break.
+  - **Layouts and their slots:** `title` (kicker, title, subtitle, art); `statement` (kicker, statement, support); `poster` (kicker, statement, support, note, art); `full`, `figure`, and `narrow-figure` (kicker, header, main, note); `stat` (kicker, number, claim, detail, under); `split` (body, main); `art-left` and `art-right` (kicker, header, art, body); `quote` (quote, who).
+  - **A slot is named for what goes in it.** `main` is the one thing a slide shows, `note` what is said of it (its source, or the facts beside it), `header` the slide's claim, and `kicker` the line that names its section. `claim` and `detail` are what a stat's number means and what stands behind it.
+  - **Roles:** display, headline, title, lede, body, caption, kicker, label, axis, value, numeral, figure (a number among facts), quote, and code.
+  - **Colors:** ink, paper, paper-2, accent, accent-2, muted, and line, with the same color roles and data palettes.
+  - **Shaders:** the presets `backdrop` (a mesh behind a title) and `texture` (a slow noise field), and the palettes `ambient` and `texture`.
+  - **Motion:** the same durations, easings, springs, and presets.
 
 ### 3.7 Charts
 
@@ -336,7 +343,7 @@ Rules:
 - **Kinds are normative here.** v1 ships exactly `bar`, `stackedBar`, `line`, `area`, `scatter`, `dot`, `donut` (PLAN 1.9); the schema enum matches. `slope`, `waffle`, `range`, `heatmap` are deferred and unscheduled; adding one is a schema change plus a PLAN task.
 - All color, type, stroke, and radius come from the theme (`charts` section + tokens). Charts have no style literals.
 - **Defaults** (PLAN 1.9; deck format 0.9, theme format 0.6). Unset, a chart draws as Tufte would: ink for data and little else. No frames, panels, or gradients; narrow bars with square corners; values printed on the marks rather than an axis to read them off; series named where they end rather than in a legend; quiet axes with at most five reference lines; and one signal color, spent by a highlight on what the slide is about, while the rest of the data stays in the theme's palette. Each is a theme token or a chart prop, so a theme can draw any other way, and the defaults below are what a theme leaves unset.
-  - A theme carries the rest of the look. Dusk, the example theme, holds to a presentation chart style: data in graphite and quiet grays (`tokens.data.categorical`), each of which reads as text on the surface (4.5:1), since a direct legend names a series in its color, with the accent as the signal; a one-hue sequential scale; chart text set as written, in sentence case rather than capitals, axis labels at 12 pt and value labels and series names at 13 pt (24 and 26 units on a 1920-unit canvas, 2 units to the point); and lines 1.5 pt wide (`regular`, 3 units). Chart text under 12 pt at presentation size is lint **W312** (PLAN 1.27).
+  - A theme carries the rest of the look. Dusk, the example theme, holds to a presentation chart style: data in graphite and quiet grays (`tokens.data.categorical`), each of which reads as text on the surface (4.5:1), since a direct legend names a series in its color, with the accent as the signal; a one-hue sequential scale; chart text set as written, in sentence case rather than capitals, axis labels at 12 pt and value labels and series names at 13 pt (24 and 26 units on a 1920-unit canvas, 2 units to the point); and lines 1.5 pt wide (`regular`, 3 units). Chart text under 12 pt at presentation size is lint **W312** (PLAN 1.27). A plot squashed under 120 units across or down, as a short slot or a few rows of a grid can leave it, is **W313** (PLAN 1.36).
 - Marks are matched by `key` across states. A data update interpolates each matched mark, so axis rescaling animates; added and removed keys enter and exit with the chart's presets. Value labels ride their marks and count from the old value to the new.
 - A change of `kind` morphs only between kinds that draw the same marks: bars that regroup (`bar` ↔ `stackedBar`). Any other change of kind (a bar chart to a line) cross-fades the chart.
 - Value labels that overlap are lint **W310**, unless `labels.collide` resolves them (`"hide"` or `"nudge"`; Labels below).
@@ -422,9 +429,9 @@ Requirements:
 
 ```jsonc
 // theme
-"shaders": { "presets": { "noise-fine": { "kind": "noise", "palette": "ember", "params": { "octaves": 4, "scale": 0.0015 } } } }
+"shaders": { "presets": { "texture": { "kind": "noise", "palette": "texture", "params": { "octaves": 4, "scale": 0.0015 } } } }
 // deck
-"bg": { "type": "shader", "kind": "noise", "preset": "noise-fine", "seed": 3, "params": { "contrast": 0.6 } }
+"bg": { "type": "shader", "kind": "noise", "preset": "texture", "seed": 3, "params": { "contrast": 0.6 } }
 ```
 
 **Params** are numbers, or a name a kind lists (a gradient's `shape`). The schema types them by kind, as the tables below do; the engine types them again when it resolves the node, and an unknown or out-of-range one is an error naming the node. A shader op carries numbers only: a name is its place in the kind's list (§6).
@@ -566,7 +573,7 @@ Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before
 ```
 
 - Every state SHOULD belong to exactly one beat; orphan states are lint **W401**.
-- The spine order defines reading order for accessibility and the export order for every projection (§10).
+- The spine order defines reading order for accessibility and the export order for every projection (§10). It SHOULD be the order the states play in: a beat that comes after another in the spine while its states play first is lint **W426**, since the PDF would tell the story in one order and the video in another.
 
 ### 3.12 Accessibility
 
@@ -644,7 +651,7 @@ state revenue layout:figure transition:{duration: standard, ease: standard} hold
     labels:{show: ends} legend:top alt:"Quarterly revenue by product, Q4 2025 through Q3 2026."
     semantic:evidence at:in(main)
   note text role:caption "Revenue in $M. Enterprise recognized on delivery." semantic:source
-    at:in(footer)
+    at:in(note)
   choreo rev enter:{preset: grow, stagger: 40ms, spring: snappy} timing:after
   choreo note enter:fade delay:600ms
 
@@ -856,7 +863,9 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 
 `validate` reads the bundle as it is on disk (PLAN 1.2). It checks the deck against `docs/schema/deck.schema.json` and the theme against `theme.schema.json`. It also checks what a schema cannot say: references (E102), what charts read from their data (E103), types (E104), ids (E105), and each state, resolved, against its nodes' types (E106). Findings are errors, so any finding exits 1. Input that is not a bundle, or a `deck.json` that is not JSON, exits 2. A schema violation comes first: a deck that does not parse gets no semantic findings until it does.
 
-`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
+`theme --apply` points the deck at another theme and copies it into the bundle (to `themes/`, unless it is already inside), into a directory or a zip. A family whose file the bundle does not hold is set in the bundle font of that family, if it has one: a saved bundle names fonts by their content. The deck's `fonts` lists each of the theme's families the bundle holds, as rendering needs it to (`listed`). The deck is not otherwise touched, and it is written canonically. It reports the delta in what `validate` and `lint` find, before and after: what the new theme breaks, and what it fixes. Errors after the swap exit 1. `--dry-run` reports without writing.
+
+A theme that would leave the deck invalid is refused, as `patch` refuses a patch that makes the deck invalid, and exits 1 (PLAN 1.35). Most often it lacks a name the deck uses (E102), and an invalid deck is not laid out, so lint could not say what else the theme breaks. The deck keeps its theme, and the new one is copied in all the same. Then one `patch` with the `retheme` op and the fixes swaps it with the deck valid throughout. `--force` applies the theme anyway.
 
 `inspect --resolved` runs each state through the theme cascade (§3.6): the deck's overrides merged in, each text node's look (role, family, size, leading, weight, tracking, color), and what each node's overrides set.
 
@@ -878,7 +887,7 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, and `audio`. All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
-| `theme_apply` | `scaena theme --apply`. | `{ theme, was, applied, mapped, added, removed, errors }` |
+| `theme_apply` | `scaena theme --apply`, `force` its `--force`. | `{ theme, was, applied, refused, mapped, listed, added, removed, errors }` |
 | `data_attach` | Copies a CSV or JSON file into `data/` and declares it as data source `id`. Each column is typed by `schema`, or inferred: as narrowly as all its values allow (`number`, `boolean`, `date` in ISO 8601, else `string`). Written only if the deck validates no worse. | `{ attached, id, source, schema, rows, added, removed, errors }` |
 | `spine_read` | The spine projection (§10), without the times and renders `export --format spine` adds: it runs no layout. | the projection |
 | `spine_update` | Replaces the spine, as a patch. | as `deck_patch` |
@@ -898,11 +907,18 @@ A curve is `{ "ease": [x1, y1, x2, y2] }` or `{ "spring": { stiffness, damping, 
   - The server checks every op as `patch` does, and names the one that fails.
 
 **Resources** let an agent learn the format without the docs:
-- `scaena://schema/deck`, `scaena://schema/theme`, `scaena://schema/patch`, and `scaena://schema/spine`, the spine projection;
+- `scaena://schema/deck`, `scaena://schema/theme`, `scaena://schema/patch`, and `scaena://schema/spine`, the spine projection. The deck's and the theme's schemas are served in parts:
+  - the deck's definitions are in `scaena://schema/deck/nodes`, `scaena://schema/deck/deltas` (what a state sets), and `scaena://schema/deck/values` (what both use);
+  - the theme's are in `scaena://schema/theme/charts`, `scaena://schema/theme/shaders`, and `scaena://schema/theme/motion`.
+
+  Each schema and each part is a JSON Schema whose `$id` is its uri, and a `$ref` names the part that holds its definition. The patch schema refers to the deck's parts for the definitions they share. Together, the parts are the files in `docs/schema/`.
 - `scaena://lint/catalog` (§7.5);
-- `scaena://spec`: this document;
+- `scaena://spec`: this document's index. Each section is a resource of its own, and so is each numbered subsection: `scaena://spec/7` is §7, and `scaena://spec/3.7` is §3.7. A section too large to arrive whole, as §3 is, holds its text up to its first subsection and the uris of its subsections.
+- `scaena://spec/format` and `scaena://spec/expr`: the number and date formats, and the data expressions (`docs/spec/`);
 - `scaena://skills/<name>`: the five skills (§7.6);
-- `scaena://examples/*`: the example deck as JSON and `.scn`, its patch, and its theme; and `trails.deck.json`, fifteen slides that use most of what a deck can hold.
+- `scaena://examples/*`: the example deck as JSON and `.scn`, and its patch; `trails.deck.json`, fifteen slides that use most of what a deck can hold; `charts.deck.json`, every kind of chart and a table with no style set; and three themes, `dusk.theme.json`, `daybreak.theme.json`, and `ember.theme.json`.
+
+Each resource arrives whole (PLAN 1.33). Claude Code keeps an MCP result over 25,000 tokens in a file, which an agent with no tools for files cannot open. So no resource weighs over 40 KB as `resources/read` returns it, and a test holds every one under that. A JSON resource comes without the whitespace its file has: the same document, in fewer tokens.
 
 They are compiled into the binary, so they describe the format it reads, the same for everyone. From 2026-07-28 a client rejects a list or read result that does not say how long it may keep it (SEP-2549), so `resources/list` and `resources/read` say `ttlMs` 3,600,000 (an hour) and `cacheScope` `public`. A client on an earlier protocol gets results without them.
 
@@ -971,12 +987,12 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | Code | Sev | Rule |
 |---|---|---|
 | E100 | error | text that does not fit its box, under `wrap`, `clip`, `grow`, or `error`; a table whose rows do not fit its cell. Fix: `fit: shrink`, where it works |
-| E101 | error | two nodes that draw content (text, a chart, a table, an image) overlap in the same container at the same `z`, by more than 2 cu each way. Text counts by its lines as set, not its cell. What is meant to lie on top says so with a higher `z`; `semantic: decoration` is exempt |
-| E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color), saying the names of that kind the theme has; or a theme family the deck's `fonts` does not list |
+| E101 | error | two nodes that draw content (text, a chart, a table, an image) overlap on one level, by more than 2 cu each way. Two nodes are on one level when, where their containers part, the two that stack there (the nodes themselves in one container, else the containers they are in, or a container and a node) have the same `z`: a card in a stack is judged against a note beside the stack. Text counts by its lines as set, not its cell. What is meant to lie on top says so with a higher `z`, its own or its container's; `semantic: decoration` is exempt |
+| E102 | error | reference to something that is not there: a node, state, or data source; a file (font, data, image, theme); a theme name (text role, layout, slot, motion preset, duration, easing, spring, shader or data palette, color), saying the names of that kind the theme has; a theme family the deck's `fonts` does not list; or a grid cell past the theme's grid, in the deck's format or one it lists: a node's `at.col` or `at.row`, or a slot a node stands in, beyond the grid's columns or rows. That finding names the grid's size, at the node's `at` or the slot in the theme |
 | E103 | error | what a chart or a table reads from its data: a field the data does not have, or has in a type the channel cannot read (`quantitative` reads numbers, `temporal` dates, a `format` numbers or dates), before or after its `dataTransform`; a transform step that reads a column that is not there, or uses one as the wrong type; a value that does not fit its column's schema type or `parse` format; an annotation's category, series, or x value the data does not have; a chart's or a table's key that repeats, in any state that shows it (§3.3, §3.7) |
 | E104 | error | node type changed across states (a state's delta, or a node's overrides, sets `type`) |
 | E105 | error | duplicate or invalid id: an id twice in its collection, a key written twice, an id listed twice, an id that is not a slug |
-| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot; a choreography item that names no motion or more than one, or splits a target into what its type does not have |
+| E106 | error | the deck or its theme does not match its schema, or a resolved state, or a node with its overrides, does not match the node's type (another type's property, a value this type does not take); a format, a `dataTransform` step, or an expression that does not parse; a chart annotation that stands where its kind cannot; a choreography item that names no motion or more than one, or splits a target into what its type does not have; an `at.col` or `at.row` range that runs backward |
 | E110 | error | body text whose contrast with what lies behind it is below 4.5:1 |
 | E111 | error | display text whose contrast with what lies behind it is below 3:1 |
 | E120 | error | characters a node sets (text, a table's cells, a chart's labels) that its family and its fallbacks have no glyph for |
@@ -993,6 +1009,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W310 | warn | chart value labels within a quarter space unit of each other, unless `labels.collide` resolves them; category labels within a quarter space unit of each other on an axis of text, which keeps every one (an axis of dates or numbers keeps fewer, §3.7) |
 | W311 | warn | a shader painted behind a chart or a table, where they overlap: data reads against a plain surface (§3.8). One finding per shader and chart or table, at the shader, with every state it happens in |
 | W312 | warn | chart text under 12 pt at presentation size: 24 cu where the canvas's shorter side is 1080 cu, in proportion on others (§3.7). One finding per chart, at the chart, naming each kind of its text that is too small (category and value labels, axis labels, titles, series names, annotations) at its smallest |
+| W313 | warn | a chart squashed below a legible plot: the room its marks have, once its axes, labels, titles, and legend have theirs, under 120 cu across or down where the canvas's shorter side is 1080 cu, in proportion on others, as a short slot or a few rows of a theme's grid can leave it. One finding per chart, at the chart, with its plot at its smallest and every state it is squashed in |
 | W320 | warn | more nodes moving at once than the theme's `motion.maxConcurrent` (12) |
 | W321 | warn | a state's motions run past the theme's `motion.maxBuild` (2500 ms) |
 | W322 | warn | a motion that moves nothing, yet takes its time: an entrance on a node that does not enter, an exit on one that does not leave (under `match: none`, every node does both), an emphasis or `anim` on a node not on screen, a draw-on (a look whose only change is `progress`) on a node that strokes no outline |
@@ -1004,6 +1021,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W423 | warn | a beat citing a data source or an asset that none of its states shows (a chart or table reading the source, an image of the asset, or for a source any node marked `evidence`). URLs are not checked |
 | W424 | warn | more than one `claim` on screen at once |
 | W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
+| W426 | warn | a beat that comes after another in the spine while its states play before that one's: the PDF reads a deck in spine order and the video in state order, so the two would tell the story in different orders (§3.11). A beat stands where its first state plays; one with no states the deck has is not judged |
 | I400 | info | state identical to previous (no-op cue) |
 | I401 | info | node never visible |
 | I402 | info | override makes node theme-unsafe (count) |
@@ -1175,7 +1193,7 @@ Budgets are per stage, on named benchmark decks, on a reference machine (M-serie
 
 **Benchmark decks** (`tests/bench/`): **B1** text-heavy, 40 states, 4 fonts, no charts; **B2** chart-heavy, 12 states, 6 charts with key morphs; **B3** shader-heavy, 8 states, full-bleed mesh + grain on every state; **B4** the torture deck from PLAN 0.2. `scripts/build_bench_decks.py` writes B2 and B3 on B1's theme and fonts.
 
-**How they are measured** (PLAN 1.24). `crates/scaena-cli/benches/stages.rs` times every stage in the table on B1–B4 (`just bench`). A bench is named `stage/deck`. A stage that goes over a deck's states, cues, or frames counts them, so its time is also given per state, cue, or frame. A `_one` stage times the deck's slowest state. CI's `bench` workflow runs the benches on each runner: macOS on Apple Silicon, which also paints on Metal, and Linux. It runs on every push to `main` and every pull request that could change a number. A pull request is timed beside its base, and `scripts/bench_gate.py` judges it bench by bench:
+**How they are measured** (PLAN 1.24). `crates/scaena-cli/benches/stages.rs` times every stage in the table on B1–B4 (`just bench`). A bench is named `stage/deck`. A stage that goes over a deck's states, cues, or frames counts them, so its time is also given per state, cue, or frame. A `_one` stage times the deck's slowest state. CI's `bench` workflow runs the benches on Linux on every push to `main` that could change a number, and on every push to such a pull request once it is ready for review; a draft is not timed. On macOS on Apple Silicon, which also paints on Metal, it times `main` once a week and on a manual run, into that runner's history, and judges no pull request: a macOS minute bills as ten Linux ones, and that runner's noise hides any regression under about 30%. A pull request is timed beside its base on Linux, and `scripts/bench_gate.py` judges it bench by bench:
 
 - the workflow builds the base too, the commit the pull request merges onto, and times both on the same machine in the same job;
 - it builds both before it times either, then times them a group of benches at a time, the base first, so a spell of load on the machine falls on both;

@@ -148,6 +148,7 @@ fn e102_unknown_references() {
             "/nodes/cell/at/area",
             "/nodes/chart/labels/role",
             "/nodes/figure/at/parent",
+            "/nodes/late/at/row",
             "/nodes/note/at/parent",
             "/nodes/photo/src",
             "/nodes/title/enter",
@@ -216,6 +217,7 @@ fn e106_schema_and_resolved_types() {
         &[
             "/nodes/badge/at/parent",
             "/nodes/headline/fit",
+            "/nodes/late/at/row",
             "/nodes/left/at/parent",
             "/nodes/logo/src",
             "/nodes/logo/style",
@@ -243,6 +245,65 @@ fn e106_schema_and_resolved_types() {
     assert!(say("/states/1/choreography/0").contains("enter and exit"));
     assert!(say("/states/1/choreography/1/split").contains("`photo`, an image node, into words"));
     assert!(say("/states/1/choreography/2/enter/split").contains("only a stack, grid, frame, or group"));
+    assert_eq!(say("/nodes/late/at/row"), "`late` is placed in rows 4–3, which run backward: write [3, 4]");
+}
+
+#[test]
+fn a_placement_past_the_grid_names_the_grid() {
+    let found = validate_bundle(fixture!("E102", "trigger"), &Fixtures).unwrap();
+    let late = found.iter().find(|f| f.path.as_deref() == Some("/nodes/late/at/row")).unwrap();
+    assert_eq!(late.message, "`late` is placed in rows 6–7, past the theme's grid, which has 6 rows");
+    assert_eq!((late.state.as_deref(), late.node.as_deref()), (Some("photo"), Some("late")));
+}
+
+#[test]
+fn a_slot_past_the_grid_is_e102_in_the_theme_file() {
+    let files = EditedTheme(|t| {
+        t.replace(r#""subtitle": { "col": [1, 8], "row": 2 }"#, r#""subtitle": { "col": [1, 8], "row": [2, 7] }"#)
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    // The clean deck shows nothing in `subtitle`: a slot no node is placed in places nothing.
+    assert!(found.is_empty(), "{found:#?}");
+    let deck = fixture!("E102", "clean")
+        .replace(r#""at": { "in": "title" }, "fill""#, r#""at": { "in": "subtitle" }, "fill""#);
+    let placed: Vec<_> =
+        validate_bundle(&deck, &files).unwrap().into_iter().map(|f| (f.code, f.file, f.path, f.message)).collect();
+    let message =
+        "slot `subtitle` of layout `title` is in rows 2–7, past the theme's grid, which has 6 rows".to_string();
+    assert_eq!(
+        placed,
+        [(
+            "E102".to_string(),
+            Some("theme.json".to_string()),
+            Some("/layouts/title/slots/subtitle/row".to_string()),
+            message
+        )]
+    );
+}
+
+#[test]
+fn a_format_with_a_smaller_grid_is_judged_on_its_own() {
+    // A tall format whose grid has 4 rows and 6 columns: `late` (columns 1–12, rows 5–6) is
+    // past it, and so are the slots nodes stand in, `title` (columns 1–8) and `main` (1–12).
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""grid": { "columns": 12, "gutter": 24, "margin": 96 },"#,
+            r#""grid": { "columns": 12, "gutter": 24, "margin": 96 }, "formats": { "9:16": { "grid": { "columns": 6, "rows": 4, "gutter": 24, "margin": 64 } } },"#,
+        )
+    });
+    let deck = fixture!("E102", "clean").replace(r#""canvas":"#, r#""formats": ["9:16"], "canvas":"#);
+    let mut found: Vec<_> =
+        validate_bundle(&deck, &files).unwrap().into_iter().map(|f| (f.path.unwrap_or_default(), f.message)).collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            ("/layouts/full/slots/main/col".to_string(), "slot `main` of layout `full` is in columns 1–12, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/layouts/title/slots/title/col".to_string(), "slot `title` of layout `title` is in columns 1–8, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/nodes/late/at/col".to_string(), "`late` is placed in columns 1–12, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/nodes/late/at/row".to_string(), "`late` is placed in rows 5–6, past the theme's grid in `9:16`, which has 4 rows".to_string()),
+        ]
+    );
 }
 
 /// The fixtures' bundle with its theme edited by `edit`.
