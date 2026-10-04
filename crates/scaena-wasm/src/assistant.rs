@@ -139,6 +139,12 @@ struct DeckInspect {
     timeline: bool,
     #[serde(default)]
     data: bool,
+    #[serde(default)]
+    boxes: bool,
+    #[serde(default)]
+    at: Option<[f32; 2]>,
+    #[serde(default)]
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -242,7 +248,14 @@ impl Session {
             }
             "deck_inspect" => {
                 let a: DeckInspect = args(name, a)?;
-                let views = Views { resolved: a.resolved, timeline: a.timeline, data: a.data };
+                let views = Views {
+                    resolved: a.resolved,
+                    timeline: a.timeline,
+                    data: a.data,
+                    boxes: a.boxes,
+                    at: a.at,
+                    format: a.format,
+                };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
             "deck_diff" => {

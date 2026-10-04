@@ -1,6 +1,7 @@
 //! Inspect a deck (SPEC §7.1): each state's snapshot, tracking applied (SPEC §2.2); through
 //! the theme cascade (PLAN 1.6); its cue on the timeline (PLAN 1.14); the rows its charts and
-//! tables read. And what changes between two states.
+//! tables read; and what stands where at rest, for a client that edits by pointing (ADR-0013).
+//! And what changes between two states.
 
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
@@ -9,17 +10,17 @@ use scaena_core::document::{NodeType, Props};
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{self, CubicBezier, Look};
 use scaena_core::{Deck, Snapshot};
-use scaena_engine::Engine;
 use scaena_engine::cascade;
 use scaena_engine::data::{self, DataFiles, Datum};
 use scaena_engine::layout::Grid;
 use scaena_engine::theme::Theme;
+use scaena_engine::{Engine, FrameRequest, project};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// What `inspect` shows of each state besides its snapshot.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// What `inspect` shows of each state besides its snapshot, and in which format.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Views {
     /// Through the theme cascade: each node with the deck's overrides merged in, each text
     /// node's look, and what each node's overrides set.
@@ -32,6 +33,25 @@ pub struct Views {
     /// The rows each chart and table reads, after its `dataTransform`.
     #[serde(default)]
     pub data: bool,
+    /// Each visible node's box at rest, canvas units: what a pointer selects and moves
+    /// (ADR-0013).
+    #[serde(default)]
+    pub boxes: bool,
+    /// The nodes that draw at this point at rest, `[x, y]` in canvas units, topmost first,
+    /// each with the containers it sits in (ADR-0013).
+    #[serde(default)]
+    pub at: Option<[f32; 2]>,
+    /// One of the deck's `formats` (`9:16`) to inspect it in, laid out again with its
+    /// template set; the deck's own canvas without it.
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+impl Views {
+    /// Whether a view needs the state laid out, as a frame lays it out.
+    fn laid(&self) -> bool {
+        self.boxes || self.at.is_some()
+    }
 }
 
 /// One state, inspected.
@@ -51,6 +71,36 @@ pub struct Inspected {
     /// The rows each chart and table reads, by node (`data`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<IndexMap<String, Rows>>,
+    /// Each visible node's box at rest (`boxes`): those that draw, in paint order, then the
+    /// containers and groups that only hold others.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boxes: Option<IndexMap<String, NodeBox>>,
+    /// The nodes that draw at the point asked about (`at`), topmost first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hits: Option<Vec<Hit>>,
+}
+
+/// A visible node's box at rest, canvas units (ADR-0013).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct NodeBox {
+    /// `[x, y, width, height]`: its grid cell or slot, the box its container gave it, or a
+    /// group's box around its members.
+    pub rect: [f32; 4],
+    /// The container or group it sits in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Whether it draws anything: a container with no panel, and a group, only hold others.
+    pub draws: bool,
+}
+
+/// A node that draws at the point asked about.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Hit {
+    pub node: String,
+    /// Its box: `[x, y, width, height]`.
+    pub rect: [f32; 4],
+    /// The containers and groups it sits in, innermost first.
+    pub containers: Vec<String>,
 }
 
 /// A text node's look as the cascade resolved it (SPEC §3.6).
@@ -212,54 +262,74 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     if !snaps.iter().any(|s| state.is_none_or(|id| s.state_id == id)) {
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
-    let theme = match views.resolved || views.timeline {
+    let theme = match views.resolved || views.timeline || views.laid() || views.format.is_some() {
         true => Some(crate::theme(b)?),
         false => None,
     };
-    let files = if views.timeline || views.data { data_files(b)? } else { DataFiles::new() };
-    // A cue on lines, words, or a chart's marks counts them after layout, so the timeline
-    // needs the engine, with the bundle's fonts and images, as `render` does.
-    let mut engine = match (&theme, views.timeline) {
+    let files = if views.timeline || views.data || views.laid() { data_files(b)? } else { DataFiles::new() };
+    // A cue on lines, words, or a chart's marks counts them after layout, and boxes are
+    // layout's, so both need the engine, with the bundle's fonts and images, as `render` does.
+    let mut engine = match (&theme, views.timeline || views.laid()) {
         (Some(theme), true) => Some(engine_with(b, theme, None)?),
         _ => None,
     };
-    inspect_deck(&b.deck, theme.as_ref(), &files, engine.as_mut(), state, views)
+    inspect_deck(&b.deck, theme.as_ref(), &files, engine.as_mut(), state, &views)
 }
 
 /// Each state of `deck`, or the one named, inspected with the theme, data files, and engine
-/// the caller holds: `resolved` needs the theme, and `timeline` the theme and an engine with
-/// the deck's fonts and images. A client that keeps them between edits (the web editor,
-/// PLAN 2.3) passes its own; [`inspect`] builds them.
+/// the caller holds: `resolved` and a format need the theme, and `timeline`, `boxes`, and
+/// `at` the theme and an engine with the deck's fonts and images. A client that keeps them
+/// between edits (the web editor, PLAN 2.3) passes its own; [`inspect`] builds them.
 pub fn inspect_deck(
     deck: &Deck,
     theme: Option<&Theme>,
     files: &DataFiles,
     engine: Option<&mut Engine>,
     state: Option<&str>,
-    views: Views,
+    views: &Views,
 ) -> Result<Vec<Inspected>, OpsError> {
+    let projected = match (views.format.as_deref(), theme) {
+        (Some(format), Some(theme)) => Some(project(deck, theme, Some(format))?),
+        (Some(_), None) => return Err(OpsError::new("inspecting in a format needs the deck's theme")),
+        (None, _) => None,
+    };
+    let (deck, theme) = match &projected {
+        Some((deck, theme)) => (deck.as_ref(), Some(theme.as_ref())),
+        None => (deck, theme),
+    };
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let selected: Vec<&Snapshot> = snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
     if selected.is_empty() {
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
-    let theme = match (views.resolved || views.timeline, theme) {
-        (true, None) => return Err(needs(if views.resolved { "resolved values" } else { "the timeline" })),
+    let theme = match (views.resolved || views.timeline || views.laid(), theme) {
+        (true, None) => {
+            let what = match (views.resolved, views.timeline) {
+                (true, _) => "resolved values",
+                (_, true) => "the timeline",
+                _ => "where nodes stand",
+            };
+            return Err(needs(what));
+        }
         (_, theme) => theme,
     };
-    let mut cues = match (theme, views.timeline, engine) {
-        (Some(theme), true, Some(engine)) => {
-            let timeline = engine.timeline(deck, theme, files)?;
-            Some((engine, timeline))
+    let mut engine = match (views.timeline || views.laid(), engine) {
+        (true, None) => {
+            let what = if views.timeline { "the timeline" } else { "where nodes stand" };
+            return Err(OpsError::new(format!("inspecting {what} needs an engine with the deck's fonts")));
         }
-        (_, true, None) => return Err(OpsError::new("inspecting the timeline needs an engine with the deck's fonts")),
+        (_, engine) => engine,
+    };
+    let timeline = match (theme, views.timeline, engine.as_deref_mut()) {
+        (Some(theme), true, Some(engine)) => Some(engine.timeline(deck, theme, files)?),
         _ => None,
     };
     let mut out = Vec::new();
     for s in selected {
         let snapshot = if views.resolved { cascade::with_overrides(deck, s) } else { s.clone() };
-        let mut inspected = Inspected { snapshot, looks: None, overrides: None, timeline: None, data: None };
+        let mut inspected =
+            Inspected { snapshot, looks: None, overrides: None, timeline: None, data: None, boxes: None, hits: None };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
             for (id, props) in &inspected.snapshot.nodes {
@@ -275,13 +345,31 @@ pub fn inspect_deck(
             }
             (inspected.looks, inspected.overrides) = (Some(looks), Some(overrides));
         }
-        if let (Some((engine, timeline)), Some(theme)) = (&mut cues, theme) {
+        if let (Some(timeline), Some(theme), Some(engine)) = (&timeline, theme, engine.as_deref_mut()) {
             let slot = timeline.slot(&s.state_id).context("a state missing from the timeline")?;
             let cue = engine.transition(deck, theme, files, &s.state_id)?;
             inspected.timeline = Some(cue_of(slot, &cue));
         }
         if views.data {
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
+        }
+        if let (true, Some(theme), Some(engine)) = (views.laid(), theme, engine.as_deref_mut()) {
+            // The deck is in its format already: lay it out as it stands.
+            let state = &s.state_id;
+            let req = FrameRequest { deck, theme, data: files, state, t_ms: f64::INFINITY, format: None };
+            let scene = engine.at_rest(&req)?;
+            if views.boxes {
+                let boxes = scene
+                    .boxes()
+                    .into_iter()
+                    .map(|b| (b.node, NodeBox { rect: b.rect, parent: b.parent, draws: b.draws }));
+                inspected.boxes = Some(boxes.collect());
+            }
+            if let Some(point) = views.at {
+                let hits = scene.hit(point).into_iter();
+                inspected.hits =
+                    Some(hits.map(|h| Hit { node: h.node, rect: h.rect, containers: h.containers }).collect());
+            }
         }
         out.push(inspected);
     }

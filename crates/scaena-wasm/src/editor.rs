@@ -183,8 +183,9 @@ impl Session {
         self.build()?;
         let (deck, theme) = scaena_engine::project(&self.deck, &self.theme, self.format.as_deref())?;
         let engine = self.engine.as_mut().expect("built above");
-        let views = Views { resolved: true, timeline: true, data: false };
-        let mut found = inspect_deck(&deck, Some(&theme), &self.data, Some(engine), Some(state), views)
+        // The deck is in the format shown already.
+        let views = Views { resolved: true, timeline: true, ..Views::default() };
+        let mut found = inspect_deck(&deck, Some(&theme), &self.data, Some(engine), Some(state), &views)
             .map_err(|e| Error::Ops(e.message))?;
         Ok(found.remove(0))
     }

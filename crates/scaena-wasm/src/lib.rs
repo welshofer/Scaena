@@ -85,6 +85,9 @@ pub struct Session {
     engine: Option<Engine>,
     /// The transition last sampled, so the frames of one transition lay out once.
     transition: Option<(String, Transition)>,
+    /// The state last asked what stands where, laid out at rest, so a pointer's every move
+    /// lays out nothing (ADR-0013).
+    rest: Option<(String, scaena_engine::sample::Scene)>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// The fonts and images the engine was built from, as painters read them.
@@ -155,6 +158,7 @@ impl Session {
             data: DataFiles::new(),
             engine: None,
             transition: None,
+            rest: None,
             format: None,
             store: Assets::new(),
             #[cfg(feature = "cpu")]
@@ -191,7 +195,7 @@ impl Session {
             }
         }
         self.deck = deck;
-        self.transition = None;
+        self.forget();
     }
 
     /// Hand over a file of the bundle by its path inside it (for a font, the deck's
@@ -205,7 +209,7 @@ impl Session {
         }
         if read_from(&self.deck).contains(&path) {
             self.data.insert(path, bytes.clone());
-            self.transition = None;
+            self.forget();
         }
         self.files.insert(path.to_string(), bytes);
     }
@@ -223,6 +227,12 @@ impl Session {
     /// The file at `path` in the bundle, as it was handed over.
     pub fn file(&self, path: &str) -> Option<&[u8]> {
         self.files.get(path).map(Vec::as_slice)
+    }
+
+    /// Let go of what was laid out: the deck, its files, or its format changed.
+    fn forget(&mut self) {
+        self.transition = None;
+        self.rest = None;
     }
 
     /// Build the engine from the fonts and images the deck names, if it is not built yet.
@@ -244,7 +254,7 @@ impl Session {
             fonts.check_theme(&self.theme)?;
             self.engine = Some(Engine::new(fonts).with_images(images));
             self.store = store;
-            self.transition = None;
+            self.forget();
         }
         Ok(self.engine.as_mut().expect("built above"))
     }
@@ -264,7 +274,7 @@ impl Session {
         project(&self.deck, &self.theme, format)?;
         if self.format.as_deref() != format {
             self.format = format.map(str::to_string);
-            self.transition = None;
+            self.forget();
         }
         Ok(())
     }
@@ -311,6 +321,39 @@ impl Session {
             self.transition = Some((state.to_string(), transition));
         }
         Ok(self.transition.as_ref().expect("set above").1.frame(t_ms))
+    }
+
+    /// `state` at rest in the format shown, laid out once and kept until the deck, its
+    /// files, or the format change.
+    fn at_rest(&mut self, state: &str) -> Result<&scaena_engine::sample::Scene, Error> {
+        if self.rest.as_ref().is_none_or(|(s, _)| s != state) {
+            // The engine is built by now: the span took it.
+            self.duration(state)?;
+            let engine = self.engine.as_mut().expect("built for the span");
+            let format = self.format.as_deref();
+            let req = FrameRequest {
+                deck: &self.deck,
+                theme: &self.theme,
+                data: &self.data,
+                state,
+                t_ms: f64::INFINITY,
+                format,
+            };
+            self.rest = Some((state.to_string(), engine.at_rest(&req)?));
+        }
+        Ok(&self.rest.as_ref().expect("laid out above").1)
+    }
+
+    /// Each visible node's box in `state` at rest, in the format shown (ADR-0013): those that
+    /// draw, in paint order, then the containers and groups that only hold others.
+    pub fn boxes(&mut self, state: &str) -> Result<Vec<scaena_engine::geometry::NodeBox>, Error> {
+        Ok(self.at_rest(state)?.boxes())
+    }
+
+    /// The nodes that draw at `point` (canvas units) in `state` at rest, in the format shown,
+    /// topmost first, each with the containers it sits in (ADR-0013).
+    pub fn hit(&mut self, state: &str, point: [f32; 2]) -> Result<Vec<scaena_engine::geometry::Hit>, Error> {
+        Ok(self.at_rest(state)?.hit(point))
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
@@ -514,6 +557,26 @@ impl Player {
     /// shows that is read, in paint order, an element that names it (`data-node`).
     pub fn reading(&mut self, state: &str) -> Result<String, JsError> {
         self.0.reading(state).map_err(js)
+    }
+
+    /// Each visible node's box in `state` at rest, in the format shown, as JSON (ADR-0013):
+    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws" }]`, canvas units, those that draw
+    /// in paint order, then the containers and groups that only hold others.
+    pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
+        let boxes: Vec<serde_json::Value> = (self.0.boxes(state).map_err(js)?.into_iter())
+            .map(|b| serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws }))
+            .collect();
+        serde_json::to_string(&boxes).map_err(js)
+    }
+
+    /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
+    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers" }]`, each node's
+    /// containers innermost first.
+    pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
+            .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
+            .collect();
+        serde_json::to_string(&hits).map_err(js)
     }
 
     /// `state` at `t_ms` (`Infinity`: at rest), painted by `vello_cpu` `width` pixels wide,
@@ -1141,6 +1204,28 @@ mod tests {
         let spec = s.shader_spec(0).unwrap();
         assert!(matches!(shader_rows(&spec, first + rows, 1), Err(Error::Shading(_))));
         assert!(matches!(shader_rows(&spec[..spec.len() / 2], 0, 1), Err(Error::Paint(PaintError::Shader(_)))));
+    }
+
+    /// What stands where comes from the state at rest in the format shown, laid out once and
+    /// kept until the deck or the format changes (ADR-0013).
+    #[test]
+    fn a_state_at_rest_says_what_stands_where() {
+        let mut s = torture();
+        let boxes = s.boxes("containers").unwrap();
+        let label = boxes.iter().find(|b| b.node == "card-tag-label").unwrap();
+        let [x, y, w, h] = label.rect;
+        let hits = s.hit("containers", [x + w / 2.0, y + h / 2.0]).unwrap();
+        assert_eq!(hits[0].node, "card-tag-label");
+        assert_eq!(hits[0].containers, ["card"]);
+        // Kept: asking again lays out nothing, and answers the same.
+        assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "containers"));
+        assert_eq!(s.boxes("containers").unwrap(), boxes);
+        // Another format lays the deck out again, and the boxes are that layout's.
+        s.set_format(Some("9:16")).unwrap();
+        assert!(s.rest.is_none());
+        let tall = s.boxes("formats").unwrap();
+        assert!(tall.iter().all(|b| b.rect[0] + b.rect[2] <= 1080.01), "{tall:?}");
+        assert!(matches!(s.boxes("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
     }
 
     /// The revenue example, its files handed over as a page hands them.

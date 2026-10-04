@@ -23,6 +23,24 @@
         "description": "The rows each chart and table reads, after its `dataTransform`.",
         "type": "boolean",
         "default": false
+      },
+      "boxes": {
+        "description": "Each visible node's box at rest, canvas units: what a pointer selects and moves\n(ADR-0013).",
+        "type": "boolean",
+        "default": false
+      },
+      "at": {
+        "description": "The nodes that draw at this point at rest, `[x, y]` in canvas units, topmost first,\neach with the containers it sits in (ADR-0013).",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": null
+      },
+      "format": {
+        "description": "One of the deck's `formats` (`9:16`) to inspect it in, laid out again with its\ntemplate set; the deck's own canvas without it.",
+        "type": ["string", "null"],
+        "default": null
       }
     }
   },
@@ -66,6 +84,16 @@
             "description": "The rows each chart and table reads, by node (`data`).",
             "type": ["object", "null"],
             "additionalProperties": { "$ref": "#/$defs/Rows" }
+          },
+          "boxes": {
+            "description": "Each visible node's box at rest (`boxes`): those that draw, in paint order, then the\ncontainers and groups that only hold others.",
+            "type": ["object", "null"],
+            "additionalProperties": { "$ref": "#/$defs/NodeBox" }
+          },
+          "hits": {
+            "description": "The nodes that draw at the point asked about (`at`), topmost first.",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Hit" }
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -225,6 +253,45 @@
           "rows": { "type": "array", "items": { "type": "array", "items": true } }
         },
         "required": ["source", "columns", "types", "rows"]
+      },
+      "NodeBox": {
+        "description": "A visible node's box at rest, canvas units (ADR-0013).",
+        "type": "object",
+        "properties": {
+          "rect": {
+            "description": "`[x, y, width, height]`: its grid cell or slot, the box its container gave it, or a\ngroup's box around its members.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "parent": { "description": "The container or group it sits in.", "type": ["string", "null"] },
+          "draws": {
+            "description": "Whether it draws anything: a container with no panel, and a group, only hold others.",
+            "type": "boolean"
+          }
+        },
+        "required": ["rect", "draws"]
+      },
+      "Hit": {
+        "description": "A node that draws at the point asked about.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "rect": {
+            "description": "Its box: `[x, y, width, height]`.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "containers": {
+            "description": "The containers and groups it sits in, innermost first.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["node", "rect", "containers"]
       }
     },
     "type": "object",
