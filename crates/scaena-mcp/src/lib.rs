@@ -35,8 +35,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
-mod resources;
-pub use resources::{LIMIT, resource};
+use scaena_resources as resources;
+pub use scaena_resources::{LIMIT, resource};
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
@@ -105,7 +105,7 @@ impl Export {
 /// What a call to `deck_export` asks: its arguments, and the deck and theme it reads.
 fn asked(a: &DeckExport, b: &scaena_ops::Bundle) -> u64 {
     let mut hasher = DefaultHasher::new();
-    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio).hash(&mut hasher);
+    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio, &a.painter).hash(&mut hasher);
     serde_json::to_string(&b.deck).unwrap_or_default().hash(&mut hasher);
     b.theme_json.hash(&mut hasher);
     hasher.finish()
@@ -267,8 +267,9 @@ pub struct BundleArg {
 pub struct DeckCreate {
     /// Where the bundle goes: a directory that is not there yet, or is empty.
     pub bundle: String,
-    /// The theme file to start from, copied in with the fonts its families name (from
-    /// beside it, or above it): `docs/examples/themes/dusk.theme.json` is one.
+    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, or `ember`),
+    /// which comes with its fonts; or a theme file, copied in with the fonts its families
+    /// name (from beside it, or above it).
     pub theme: String,
     /// The deck, as `deck.json` holds it (`scaena://schema/deck`). Its `theme` and `fonts`
     /// are set to the bundle's. Without it and `scn`, one state with nothing on screen.
@@ -373,16 +374,16 @@ pub struct DeckRender {
 pub struct DeckExport {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task
-    /// that builds it.
+    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, `prores`, or `html`.
     pub format: String,
     /// The states a frame export draws, in this order: an image each (png, svg), a page
-    /// each (pdf), or each one's part of the timeline (video). Without it: every state; a
-    /// PDF's slides, each at its last state, in spine order; a video's whole timeline.
+    /// each (pdf), each one's part of the timeline (video), or the states it plays (html).
+    /// Without it: every state; a PDF's slides, each at its last state, in spine order; a
+    /// video's whole timeline.
     #[serde(default)]
     pub states: Option<Vec<String>>,
-    /// Where to write it: a file (pdf, video, spine), or a directory that gets an image per
-    /// state (png, svg). Only the spine needs none.
+    /// Where to write it: a file (pdf, video, html, spine), or a directory that gets an
+    /// image per state (png, svg). Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
@@ -396,6 +397,10 @@ pub struct DeckExport {
     /// video ends, or carried on in silence until it does.
     #[serde(default)]
     pub audio: Option<String>,
+    /// What paints a video's frames: `gpu` is vello on the GPU, in a server built with the
+    /// `gpu` feature. Every other export paints with the CPU painter.
+    #[serde(default)]
+    pub painter: scaena_ops::render::Painter,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -491,7 +496,8 @@ pub struct Rendered {
 #[tool_router]
 impl Scaena {
     #[tool(description = "Make a bundle: a theme and its fonts, data files, and a deck pointed at them \
-        (or one state with nothing on screen). Checked as `deck_lint` checks a bundle, and written only if it validates.")]
+        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember), or a \
+        theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.")]
     async fn deck_create(
         &self,
         Parameters(a): Parameters<DeckCreate>,
@@ -605,8 +611,9 @@ impl Scaena {
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
-        each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
-        the PLAN task that builds it. An export that takes longer than 40 s keeps going: the call returns \
+        each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
+        browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
+        that takes longer than 40 s keeps going: the call returns \
         `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
         let req = scaena_ops::export::Request {
@@ -616,6 +623,7 @@ impl Scaena {
             size: a.size.clone(),
             fps: a.fps,
             audio: a.audio.clone().map(Into::into),
+            painter: a.painter,
         };
         let bundle = a.bundle.clone();
         let b = blocking(move || open(&bundle)).await?;
@@ -745,7 +753,7 @@ impl ServerHandler for Scaena {
         ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
-             with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
+             with deck_create (a theme that ships, dusk, daybreak, or ember, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
              deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
              its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
         )

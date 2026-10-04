@@ -36,15 +36,53 @@ const SPARE: f64 = 0.02;
 /// Pixels on the canvas's shorter side when painting what text sits on.
 const SIDE: f32 = 540.0;
 
-/// WCAG relative luminance of an sRGB color.
+/// An sRGB channel, 0 to 1, in linear light, as WCAG defines it.
+fn lin(c: f64) -> f64 {
+    if c <= 0.04045 { c / 12.92 } else { libm::pow((c + 0.055) / 1.055, 2.4) }
+}
+
+/// WCAG relative luminance of an sRGB color: what [`Ratios`] reads from its tables.
+#[cfg(test)]
 fn luminance([r, g, b]: [f64; 3]) -> f64 {
-    let lin = |c: f64| if c <= 0.04045 { c / 12.92 } else { libm::pow((c + 0.055) / 1.055, 2.4) };
     0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
+/// WCAG contrast ratio of two sRGB colors: what [`Ratios::over`] gives.
+#[cfg(test)]
 fn ratio(a: [f64; 3], b: [f64; 3]) -> f64 {
-    let (la, lb) = (luminance(a), luminance(b));
+    contrast(luminance(a), luminance(b))
+}
+
+fn contrast(la: f64, lb: f64) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// The contrast of text in `color` at `alpha` over each pixel it sits on: the WCAG ratio
+/// of the text blended over the pixel and the pixel, from tables. A pixel's channels are
+/// bytes, so each channel's linear light, the background's and the blended text's alike,
+/// takes one of 256 values, each worked out once by the arithmetic a pixel would take: the
+/// same numbers, without two `pow`s for each channel of each pixel.
+struct Ratios {
+    /// Per channel, the text's linear light over a background byte.
+    fg: [[f64; 256]; 3],
+    /// A background byte's linear light.
+    bg: [f64; 256],
+}
+
+impl Ratios {
+    fn new(color: [f64; 3], alpha: f64) -> Self {
+        let byte = |c: usize| f64::from(c as u8) / 255.0;
+        let fg = [0, 1, 2].map(|i| std::array::from_fn(|c| lin(color[i] * alpha + byte(c) * (1.0 - alpha))));
+        Ratios { fg, bg: std::array::from_fn(|c| lin(byte(c))) }
+    }
+
+    /// The contrast over the pixel `[r, g, b]`.
+    fn over(&self, [r, g, b]: [u8; 3]) -> f64 {
+        let [r, g, b] = [r, g, b].map(usize::from);
+        let fg = 0.2126 * self.fg[0][r] + 0.7152 * self.fg[1][g] + 0.0722 * self.fg[2][b];
+        let bg = 0.2126 * self.bg[r] + 0.7152 * self.bg[g] + 0.0722 * self.bg[b];
+        contrast(fg, bg)
+    }
 }
 
 /// What a finding is about: a node, and in a chart, the kind of text.
@@ -206,11 +244,10 @@ fn glyphs(op: &Op) -> Option<Op> {
 /// How a run reads over `px`: its contrast at the `SPARE` quantile of the pixels under
 /// its glyphs, each counted by how much of it `ink` covers (all of each without it),
 /// and the background there.
-fn judge(run: &Run, px: &Pixels, ink: Option<&Pixels>, scale: f32) -> Option<(f64, [u8; 3])> {
+fn judge(run: &Run, ratios: &Ratios, px: &Pixels, ink: Option<&Pixels>, scale: f32) -> Option<(f64, [u8; 3])> {
     let [x, y, w, h] = run.rect.map(|v| v * scale);
     let (x0, y0) = (x.floor().max(0.0) as u32, y.floor().max(0.0) as u32);
     let (x1, y1) = (((x + w).ceil() as u32).min(px.width), ((y + h).ceil() as u32).min(px.height));
-    let a = run.alpha.clamp(0.0, 1.0);
     let mut seen: Vec<(f64, f64, [u8; 3])> = Vec::new();
     for py in y0..y1 {
         for pxl in x0..x1 {
@@ -219,9 +256,7 @@ fn judge(run: &Run, px: &Pixels, ink: Option<&Pixels>, scale: f32) -> Option<(f6
                 continue;
             }
             let [r, g, b, _] = px.pixel(pxl, py);
-            let bg = [r, g, b].map(|c| f64::from(c) / 255.0);
-            let fg = [0, 1, 2].map(|i| run.color[i] * a + bg[i] * (1.0 - a));
-            seen.push((ratio(fg, bg), cover, [r, g, b]));
+            seen.push((ratios.over([r, g, b]), cover, [r, g, b]));
         }
     }
     let total: f64 = seen.iter().map(|s| s.1).sum();
@@ -259,6 +294,8 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
     // Each node (each kind of a chart's text) once per format: its worst state, and
     // every state it fails in.
     let mut worst: BTreeMap<Subject, Worst> = BTreeMap::new();
+    // A deck's text comes in few colors: each color and alpha's tables, made once.
+    let mut tables: BTreeMap<[u64; 4], Ratios> = BTreeMap::new();
     for state in cx.states {
         let (runs, ids, charts) = texts(cx, state);
         if runs.is_empty() {
@@ -283,7 +320,14 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
             // Nothing but the surface behind the text: its color is the background, every
             // pixel alike, and there is nothing to paint.
             let (px, ink) = if dl.ops.len() == 1 {
-                let [w, h] = dl.viewport.map(|v| (v * scale).round().max(1.0) as u32);
+                // Sized as a painter sizes it, which refuses what it cannot hold.
+                let [w, h] = dl.viewport.map(|v| (v * scale).round());
+                if ![w, h].iter().all(|v| (1.0..=f32::from(u16::MAX)).contains(v)) {
+                    return Err(EngineError::Layout(format!(
+                        "painting for contrast: {w}×{h} px is not a raster this painter can make"
+                    )));
+                }
+                let [w, h] = [w, h].map(|v| v as u32);
                 let [r, g, b, _] = state.scene.surface.0;
                 (Pixels { width: w, height: h, rgba: [r, g, b, 255].repeat((w * h) as usize) }, None)
             } else {
@@ -293,7 +337,10 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
                 (paint(backdrop, &dl)?, ink.as_ref())
             };
             for run in runs.iter().filter(|r| r.alpha > 0.0) {
-                let Some((r, bg)) = judge(run, &px, ink, scale) else { continue };
+                let alpha = run.alpha.clamp(0.0, 1.0);
+                let key = [run.color[0], run.color[1], run.color[2], alpha].map(f64::to_bits);
+                let ratios = tables.entry(key).or_insert_with(|| Ratios::new(run.color, alpha));
+                let Some((r, bg)) = judge(run, ratios, &px, ink, scale) else { continue };
                 let needs = if run.display { 3.0 } else { 4.5 };
                 if r >= needs {
                     continue;
@@ -333,11 +380,11 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
             let finding = match part {
-                None => cx.finding(code, Severity::Error, &cx.states[index], format!("text `{node}` has {reads}")),
+                None => cx.finding(code, Severity::Error, cx.laid(index), format!("text `{node}` has {reads}")),
                 Some(part) => cx.finding(
                     code,
                     Severity::Error,
-                    &cx.states[index],
+                    cx.laid(index),
                     format!("chart `{node}`: its {} `{}` has {reads}", part.name(), said.as_deref().unwrap_or_default()),
                 ),
             };
@@ -356,4 +403,32 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
             finding.at(cx.node_path(&node)).node(node).measure(measure).hint(hint)
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Ratios` gives what `judge` worked out for each pixel before it, [`ratio`] of the text
+    /// blended over the pixel and the pixel, bit for bit: every byte of each channel, beside
+    /// several of the others, for text opaque, clear, and between.
+    #[test]
+    fn ratios_by_table_are_ratio() {
+        let texts =
+            [([0.1, 0.5, 0.9], 1.0), ([1.0, 1.0, 1.0], 0.62), ([0.0, 0.0, 0.0], 0.0), ([0.93, 0.27, 0.04], 0.35)];
+        let others = [0_u8, 1, 10, 77, 128, 200, 254, 255];
+        for (color, alpha) in texts {
+            let ratios = Ratios::new(color, alpha);
+            for c in 0..=255_u8 {
+                for (o, p) in others.iter().flat_map(|&o| others.iter().map(move |&p| (o, p))) {
+                    for px in [[c, o, p], [o, c, p], [o, p, c]] {
+                        let bg = px.map(|c| f64::from(c) / 255.0);
+                        let fg = [0, 1, 2].map(|i| color[i] * alpha + bg[i] * (1.0 - alpha));
+                        let want = ratio(fg, bg);
+                        assert_eq!(ratios.over(px).to_bits(), want.to_bits(), "{px:?} under {color:?} at {alpha}");
+                    }
+                }
+            }
+        }
+    }
 }

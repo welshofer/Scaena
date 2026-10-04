@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.9.json",
+  "$id": "https://scaena.dev/schema/patch-0.10.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -543,6 +543,10 @@
         "series": { "$ref": "#/$defs/Encoding" },
         "color": { "$ref": "#/$defs/Encoding" },
         "sizeEncoding": { "$ref": "#/$defs/Encoding" },
+        "projected": {
+          "description": "Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).",
+          "$ref": "#/$defs/Projected"
+        },
         "key": { "description": "The field that identifies a mark across states.", "type": "string" },
         "axes": { "$ref": "#/$defs/ChartAxes" },
         "labels": { "$ref": "#/$defs/ChartLabels" },
@@ -1031,6 +1035,23 @@
       "anyOf": [{ "$ref": "#/$defs/SortDirection" }, { "type": "string" }]
     },
     "SortDirection": { "type": "string", "enum": ["ascending", "descending"] },
+    "Projected": {
+      "description": "Which of a line's or an area's rows are projected: a forecast, or an estimate (SPEC §3.7). The rows whose `field` holds `value`, or a true one when no value is given. The line runs dashed from the last actual point through them, the area under them is lighter, and their value labels say they are estimates.",
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": "string" },
+        "value": {
+          "description": "What `field` holds in a projected row; `true` when unset.",
+          "type": ["string", "number", "boolean"]
+        },
+        "note": {
+          "description": "What a projected value's label says after the value; the theme's `charts.projected.note` when unset.",
+          "type": "string"
+        }
+      }
+    },
     "ChartAxes": {
       "description": "The chart's axes (PLAN 1.9 draws them).",
       "type": "object",
@@ -1319,6 +1340,7 @@
         "series": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "color": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "sizeEncoding": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "projected": { "anyOf": [{ "$ref": "#/$defs/ProjectedDelta" }, { "type": "null" }] },
         "key": { "type": ["string", "null"] },
         "labels": { "anyOf": [{ "$ref": "#/$defs/ChartLabelsDelta" }, { "type": "null" }] },
         "legend": { "anyOf": [{ "$ref": "#/$defs/LegendDelta" }, { "type": "null" }] },
@@ -1517,6 +1539,16 @@
         "scale": { "type": ["string", "null"] },
         "sort": { "anyOf": [{ "$ref": "#/$defs/Sort" }, { "type": "null" }] },
         "title": { "type": ["string", "null"] }
+      }
+    },
+    "ProjectedDelta": {
+      "description": "`Projected` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": ["string", "null"] },
+        "value": { "anyOf": [{ "type": ["string", "number", "boolean"] }, { "type": "null" }] },
+        "note": { "type": ["string", "null"] }
       }
     },
     "ChartAxesDelta": {

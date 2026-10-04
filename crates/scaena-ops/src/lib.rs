@@ -1,8 +1,8 @@
 //! # scaena-ops
 //!
 //! The operations every client exposes (SPEC §7; ADR-0003, ADR-0009). Each works over a
-//! bundle: create it and attach data to it; read, validate, lint, patch, re-theme, inspect,
-//! diff, render, and export it. Each returns a typed result. Serialized, a result is what
+//! bundle: create it and attach data to it; compile its source; read, validate, lint, patch,
+//! re-theme, inspect, diff, render, and export it. Each returns a typed result. Serialized, a result is what
 //! `scaena --json` prints and what an MCP tool returns (named, where the CLI prints a list
 //! or a map, since a tool's result is an object), and its type generates the tool's output
 //! schema (`docs/schema/mcp/`).
@@ -11,6 +11,7 @@
 //! print or return what comes back. Wall-clock timings are taken here, outside the render
 //! path, which never reads a clock (SPEC §13).
 
+pub mod compile;
 pub mod create;
 pub mod export;
 pub mod inspect;
@@ -18,6 +19,8 @@ pub mod lint;
 pub mod patch;
 pub mod read;
 pub mod render;
+#[cfg(feature = "shipped")]
+pub mod shipped;
 pub mod theme;
 
 pub use scaena_store::Bundle;

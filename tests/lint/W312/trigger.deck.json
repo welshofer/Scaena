@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.10",
   "_comment": "W312 trigger: the chart's value labels set in the caption role, 20 cu: under 12 pt at presentation size.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

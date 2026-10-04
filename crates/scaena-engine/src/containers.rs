@@ -22,7 +22,7 @@ use crate::layout::{AlignX, AlignY, Grid};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
 use scaena_core::displaylist::Rect;
-use scaena_core::document::{Deck, NodeType, Props};
+use scaena_core::document::{Deck, MAX_NESTING, NodeType, Props};
 use scaena_core::model::values::{Size as SizeSpec, SizeValue};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -113,6 +113,10 @@ pub fn place(
             (at, steps) = (parent.as_str(), steps + 1);
             if steps > placement.parents.len() {
                 return Err(in_node(id, "containers nest in a loop".into()));
+            }
+            // Each level lays out by recursion, on a stack a browser keeps small.
+            if steps > MAX_NESTING {
+                return Err(in_node(id, format!("containers nest more than {MAX_NESTING} deep")));
             }
         }
     }

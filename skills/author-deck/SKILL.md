@@ -20,7 +20,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 
 | To | CLI | MCP |
 |---|---|---|
-| start a bundle from a theme | write `deck.json`, with the theme's fonts in the bundle | `deck_create`: copies the theme, its fonts, and data files in, and writes only if the deck validates |
+| start a bundle from a theme | `scaena new <bundle> --theme dusk --title "…"`: a theme that ships (`dusk`, `daybreak`, `ember`) or a theme file, with its fonts | `deck_create`: the same, by name or file, with data files too; writes only if the deck validates |
 | add a data file | copy it to `data/` and declare it under `data`: a JSON Patch `add` at `/data/<id>`, or `bind_data` with a `source` | `data_attach`: types its columns by inference |
 | turn `.scn` into a deck | `scaena compile deck.scn -o <bundle>/deck.json` | `deck_create` with `scn` |
 | check | `scaena validate <bundle>`, then `scaena lint <bundle> --json` | `deck_lint`, which validates first |

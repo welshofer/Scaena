@@ -42,6 +42,21 @@ pub struct Theme {
     pub density: Option<Density>,
 }
 
+impl Theme {
+    /// A theme from its JSON. Every crate parses a theme here, so the model's parser is
+    /// compiled once: a WASM module carries one copy of it rather than one per crate that
+    /// asks (SPEC §15).
+    pub fn from_json(text: &str) -> Result<Theme, serde_json::Error> {
+        serde_json::from_str(text)
+    }
+
+    /// A theme from a JSON value, through its text, as [`Theme::from_json`]; an error
+    /// says what is wrong without a place in that text, which no file holds.
+    pub fn from_value(value: &serde_json::Value) -> Result<Theme, String> {
+        Theme::from_json(&value.to_string()).map_err(crate::document::unplaced)
+    }
+}
+
 /// `#rrggbb[aa]`, `oklch(...)`, or `oklab(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
@@ -425,6 +440,27 @@ pub struct Charts {
     /// Annotations: rules, bands, callouts, and highlights.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotation: Option<ChartAnnotation>,
+    /// Forecasts and estimates (PLAN 1.28): how a line dashes through what is projected,
+    /// how much lighter an area is under it, and what its value labels add.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projected: Option<ChartProjected>,
+}
+
+/// How a chart shows the rows its `projected` marks (SPEC §3.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartProjected {
+    /// A line's dash and the gap after it, in widths of the line; [3, 2] when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("items" = {"type": "number", "exclusiveMinimum": 0}))]
+    pub dash: Option<[f64; 2]>,
+    /// An area's fill under projected rows, a fraction of its own; 0.5 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: Option<f64>,
+    /// What a projected value's label says after the value; `est.` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.

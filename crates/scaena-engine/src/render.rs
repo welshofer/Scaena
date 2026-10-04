@@ -117,6 +117,11 @@ impl Engine {
         self
     }
 
+    /// The bundle's fonts, as registered.
+    pub fn fonts(&self) -> &BundleFonts {
+        &self.fonts
+    }
+
     /// Render one frame. Deterministic: same inputs → identical display list (SPEC §13).
     /// At rest it lays out the state alone; inside its cue it lays out the state and the
     /// one before it, then samples. To draw many frames of one cue, build it once with

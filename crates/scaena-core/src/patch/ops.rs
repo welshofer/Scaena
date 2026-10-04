@@ -230,7 +230,7 @@ impl<'a> Doc<'a> {
 
     /// Every state resolved (SPEC §2.2).
     fn snapshots(&self) -> Result<(Deck, Vec<Snapshot>), String> {
-        let deck: Deck = serde_json::from_value(self.0.clone())
+        let deck = Deck::from_value(self.0)
             .map_err(|e| format!("the deck must parse for its states to resolve, and it does not: {e}"))?;
         let snapshots = resolve_states(&deck).map_err(|e| e.to_string())?;
         Ok((deck, snapshots))
@@ -296,10 +296,10 @@ impl<'a> Doc<'a> {
         match self.0.get("theme") {
             Some(Value::String(path)) => {
                 let text = files.read_text(path).ok_or_else(|| format!("the theme `{path}` is not in the bundle"))?;
-                serde_json::from_str(&text).map_err(|e| format!("the theme `{path}` does not parse: {e}"))
+                Theme::from_json(&text).map_err(|e| format!("the theme `{path}` does not parse: {e}"))
             }
             Some(inline @ Value::Object(_)) => {
-                serde_json::from_value(inline.clone()).map_err(|e| format!("the inline theme does not parse: {e}"))
+                Theme::from_value(inline).map_err(|e| format!("the inline theme does not parse: {e}"))
             }
             _ => Err("the deck has no theme".into()),
         }

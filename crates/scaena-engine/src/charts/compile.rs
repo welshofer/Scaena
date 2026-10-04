@@ -4,8 +4,8 @@
 //! the kind; lines and areas are paths through their series' marks.
 
 use super::{
-    AxisTick, CategoryFormat, ChartLayout, Ctx, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath,
-    Shape, Stack, ValueLabel, typeset_minus,
+    AxisTick, CategoryFormat, ChartLayout, Ctx, Gap, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule,
+    SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
 use crate::data::{self, ColumnType, Datum};
@@ -63,12 +63,27 @@ struct Row {
     shade: Option<f64>,
     size: Option<f64>,
     key: String,
+    /// A forecast or an estimate (PLAN 1.28): a line's or an area's row its `projected`
+    /// marks.
+    projected: bool,
 }
 
 type Encoding<'a> = Option<&'a Map<String, Value>>;
 
 fn field<'a>(e: Encoding<'a>) -> Option<&'a str> {
     e.and_then(|e| e.get("field")).and_then(Value::as_str)
+}
+
+/// Whether a row's datum marks it projected: it is `value`, or, with no value, true.
+fn marks_projected(d: &Datum, value: Option<&Value>) -> bool {
+    match (d, value) {
+        (Datum::Bool(b), None) => *b,
+        (_, None) | (Datum::Null, _) => false,
+        (Datum::Bool(b), Some(v)) => v.as_bool() == Some(*b),
+        (Datum::Number(n), Some(v)) => v.as_f64() == Some(*n),
+        (Datum::Text(t), Some(v)) => v.as_str() == Some(t.as_str()),
+        (Datum::Date(_), Some(v)) => v.as_str() == Some(d.label().as_str()),
+    }
 }
 
 /// The calendar unit a column of dates steps by, read off what all its dates share: a
@@ -262,6 +277,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let color_col = field(color_enc).map(col).transpose()?;
     let size_col = field(size_enc).map(col).transpose()?;
     let key_col = props.get("key").and_then(Value::as_str).map(col).transpose()?;
+    // A line's or an area's rows that are a forecast or an estimate.
+    let projected = encoding("projected").filter(|_| matches!(kind, Kind::Line | Kind::Area));
+    let projected_col = field(projected).map(col).transpose()?;
+    let projected_value = projected.and_then(|p| p.get("value"));
     let shaded = color_col.is_some_and(|c| table.types[c] == ColumnType::Number);
     // Without a series, a categorical color field groups like one.
     let group_col = series_col.or(color_col.filter(|_| !shaded));
@@ -304,6 +323,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             shade,
             size,
             key,
+            projected: projected_col.is_some_and(|c| marks_projected(&row[c], projected_value)),
         });
     }
     if rows.is_empty() {
@@ -342,6 +362,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let dot_radius = charts.and_then(|c| c.dot_radius).unwrap_or(6.0) as f32;
     let hole = charts.and_then(|c| c.donut_hole).unwrap_or(0.72).clamp(0.0, 0.99) as f32;
     let line_width = theme.stroke(charts.and_then(|c| c.stroke_width.as_deref()).unwrap_or("thin"))?;
+    // What is projected: a line dashes, in widths of the line; an area is lighter; and a
+    // value says it is an estimate.
+    let estimate = charts.and_then(|c| c.projected.as_ref());
+    let [dash, dash_gap] = estimate.and_then(|p| p.dash).unwrap_or([3.0, 2.0]);
+    let dash = [dash as f32 * line_width, dash_gap as f32 * line_width];
+    let fade = estimate.and_then(|p| p.opacity).unwrap_or(0.5).clamp(0.0, 1.0) as f32;
+    let note = (projected.and_then(|p| p.get("note")).and_then(Value::as_str))
+        .or_else(|| estimate.and_then(|p| p.note.as_deref()))
+        .unwrap_or("est.");
     let palette: Vec<Color> = (theme.tokens.data.categorical.iter())
         .map(|c| scaena_core::color::parse(&c.0).map_err(EngineError::Theme))
         .collect::<Result<_, _>>()?;
@@ -412,16 +441,18 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
     // The legend: one entry per series, or per slice of a donut, when there are two
     // or more and the chart does not say `none`. A chart that does not say places it as
-    // the theme does, else at the series' ends (`direct`), where it has ends: a line,
-    // an area, or a stacked bar. Any other chart places it on top.
+    // the theme does, else names each series where it ends (`direct`): beside its last
+    // point, dot, or stack, or, on a donut, each slice beside its value. Bars grouped
+    // side by side have no end to stand a name by, so their key stands over the plot.
+    let grouped = kind == Kind::Bar && series.len() > 1;
     let auto = match charts.and_then(|c| c.legend.as_ref()).and_then(|l| l.place) {
         Some(LegendPlace::Top) => "top",
         Some(LegendPlace::Bottom) => "bottom",
         Some(LegendPlace::Right) => "right",
         Some(LegendPlace::None) => "none",
+        Some(LegendPlace::Direct | LegendPlace::Auto) | None if grouped => "top",
         Some(LegendPlace::Direct | LegendPlace::Auto) | None => "direct",
     };
-    let has_ends = matches!(kind, Kind::Line | Kind::Area | Kind::StackedBar);
     let place = |place: &str| -> Result<&'static str, EngineError> {
         let place = match place {
             "auto" => auto,
@@ -436,7 +467,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 )));
             }
         };
-        Ok(if place == "direct" && !has_ends { "top" } else { place })
+        Ok(place)
     };
     let (legend_place, legend_title) = match props.get("legend") {
         None => (place("auto")?, None),
@@ -464,6 +495,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         ));
     }
     let direct = legend_place == "direct";
+    // Names in a column past the series' ends, or a donut's beside its slices.
+    let at_ends = direct && !donut;
     let entries: Vec<(String, Color)> = if donut {
         categories.iter().map(|(k, l)| (l.clone(), color_of(rows.iter().find(|r| r.category == *k).unwrap()))).collect()
     } else {
@@ -566,7 +599,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             Kind::StackedBar => totals.iter().find(|(k, _)| *k == r.category).map_or(r.y, |t| t.1),
             _ => r.y,
         };
-        let text = typeset_minus(value_format.format(v, locale), minus);
+        let mut text = typeset_minus(value_format.format(v, locale), minus);
+        if r.projected {
+            text = format!("{text}\u{a0}{note}");
+        }
         values.push(if shown { Some(set(text, &label_role)?) } else { None });
     }
     let numerals = match labelled_any {
@@ -703,14 +739,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         (Some(t), false) => Some(set(t.to_string(), &title_role)?),
         _ => None,
     };
-    // Its entries in the legend's role; at the series' ends, each in its series' color.
+    // Its entries in the legend's role and its color: a name says which series a mark
+    // is by where it stands, not by its color, which may be a grey only a swatch shows.
     let legend_texts: Vec<(String, Color, TextLayout)> = entries
         .iter()
         .map(|(t, c)| {
-            let mut role = theme.text_role(&legend_role)?;
-            if direct {
-                role.color = Some(c.to_hex());
-            }
+            let role = theme.text_role(&legend_role)?;
             let spec = TextSpec { numeric: Some(Numeric::TabularLining), ..TextSpec::plain(role, t.clone()) };
             Ok((t.clone(), *c, cx.text.layout(cx.fonts, theme, &spec, f32::INFINITY)?))
         })
@@ -795,8 +829,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             .fold(0.0_f32, f32::max)
     };
     // First values stand two spaces from the value axis's labels, so the two read apart.
-    let first = pad(true, size[0] - gutter);
-    let left = gutter + first + if gutter > 0.0 && first > 0.0 { gap } else { 0.0 };
+    let left_of = |first: f32| gutter + first + if gutter > 0.0 && first > 0.0 { gap } else { 0.0 };
     // A legend at the right takes its widest entry, or its title, and two spaces from the
     // plot.
     let widest = legend_texts.iter().map(|(.., t)| t.width).fold(0.0_f32, f32::max);
@@ -806,32 +839,65 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Kind::Line => values.iter().flatten().map(|t| t.width + gap).fold(gap, f32::max),
         _ => gap,
     };
-    let legend_width = match (beside, direct, legend_texts.is_empty()) {
-        (_, _, true) | (false, false, _) => 0.0,
-        (true, ..) => (swatch + 0.5 * gap + widest).max(legend_title.as_ref().map_or(0.0, |t| t.width)) + 2.0 * gap,
-        // Names `lead` past the series' ends. The farthest end stands `f` of the plot's
-        // width in from its side: on a category axis a line's half a band, or a stacked
-        // bar's half its gap; on a continuous one, what the axis widened past the data.
-        // So the names need only what that leaves them short of: the room `g` with
-        // `lead + widest <= g + f × (the plot that g leaves)`.
-        (false, true, _) => {
-            let f = match x_extent {
-                Some((a, b)) => {
-                    let last = rows.iter().filter_map(|r| r.x).fold(f64::NEG_INFINITY, f64::max);
-                    if b > a && last.is_finite() { ((b - last) / (b - a)) as f32 } else { 0.0 }
-                }
-                None => {
-                    let k = if kind == Kind::StackedBar { 0.5 * bar_gap } else { 0.5 };
-                    k / categories.len().max(1) as f32
-                }
-            };
-            let f = f.clamp(0.0, 0.9);
-            ((lead + widest - f * (size[0] - left)) / (1.0 - f)).max(0.0)
-        }
-    };
     // Names at the ends stand past the value there, so their gutter has its room.
-    let named = direct && !legend_texts.is_empty();
-    let pad_right = if named { 0.0 } else { pad(false, size[0] - legend_width - left) };
+    let named = at_ends && !legend_texts.is_empty();
+    // The legend's width, and the room past the plot's right side for last values, with
+    // the plot's left side at `left`.
+    let right_side = |left: f32| -> (f32, f32) {
+        let legend_width = match (beside, at_ends, legend_texts.is_empty()) {
+            (_, _, true) | (false, false, _) => 0.0,
+            (true, ..) => (swatch + 0.5 * gap + widest).max(legend_title.as_ref().map_or(0.0, |t| t.width)) + 2.0 * gap,
+            // Names `lead` past the series' ends. The farthest end stands `f` of the plot's
+            // width in from its side: on a category axis a line's or a dot's half a band,
+            // or a bar's half its gap; on a continuous one, what the axis widened past the
+            // data. A dot's name starts past the dot's edge. So the names need only what
+            // that leaves them short of: the room `g` with `edge + lead + widest <= g + f ×
+            // (the plot that g leaves)`.
+            (false, true, _) => {
+                let f = match x_extent {
+                    Some((a, b)) => {
+                        let last = rows.iter().filter_map(|r| r.x).fold(f64::NEG_INFINITY, f64::max);
+                        if b > a && last.is_finite() { ((b - last) / (b - a)) as f32 } else { 0.0 }
+                    }
+                    None => {
+                        let k = if matches!(kind, Kind::Bar | Kind::StackedBar) { 0.5 * bar_gap } else { 0.5 };
+                        k / categories.len().max(1) as f32
+                    }
+                };
+                let f = f.clamp(0.0, 0.9);
+                let edge = match kind {
+                    Kind::Dot => dot_radius,
+                    Kind::Scatter if rows.iter().any(|r| r.size.is_some()) => 2.5 * dot_radius,
+                    Kind::Scatter => dot_radius,
+                    _ => 0.0,
+                };
+                ((edge + lead + widest - f * (size[0] - left)) / (1.0 - f)).max(0.0)
+            }
+        };
+        let pad_right = if named { 0.0 } else { pad(false, size[0] - legend_width - left) };
+        (legend_width, pad_right)
+    };
+    // The first values' room comes out of the plot the right side leaves, and the right
+    // side's names need more the less plot there is. So the room is taken from the whole
+    // width, then again from the plot each pass leaves, until it holds: it only grows, by
+    // less each time. Taken from the whole width alone, a narrow plot left a first value
+    // short of room, pushed in over its own line (PLAN 1.32). A pass that would leave no
+    // plot is not taken.
+    let mut first = pad(true, size[0] - gutter);
+    let (mut legend_width, mut pad_right) = right_side(left_of(first));
+    for _ in 0..8 {
+        let next = pad(true, size[0] - legend_width - pad_right - left_of(first) + first);
+        let (w, p) = right_side(left_of(next));
+        if size[0] - w - p - left_of(next) <= 0.0 {
+            break;
+        }
+        let settled = next - first < 0.01;
+        (first, legend_width, pad_right) = (next, w, p);
+        if settled {
+            break;
+        }
+    }
+    let left = left_of(first);
     let right = size[0] - legend_width - pad_right;
     // How far the ends' values stand past the plot's sides, within the room beside it.
     let reach = |first: bool| {
@@ -911,6 +977,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         x_grid: Vec::new(),
         collisions: Vec::new(),
         crowded: Vec::new(),
+        covers: Vec::new(),
         notes: Vec::new(),
     };
     for (v, key, label) in tick_labels {
@@ -1102,8 +1169,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         Shape::Span { x, top: to_y(to), base: to_y(from) }
                     }
                     Kind::Scatter => {
+                        // By area, the largest two and a half dots across, and none
+                        // smaller than a dot: a speck does not read.
                         let r_ = match (r.size, size_max > 0.0) {
-                            (Some(s), true) => dot_radius * (s.max(0.0) / size_max).sqrt() as f32,
+                            (Some(s), true) => {
+                                (2.5 * dot_radius * (s.max(0.0) / size_max).sqrt() as f32).max(dot_radius)
+                            }
                             _ => dot_radius,
                         };
                         Shape::Dot { x, y: to_y(r.y), r: r_ }
@@ -1119,6 +1190,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     None => 0.5,
                 };
                 label_at(&mut out, value, &r.key, &shape, x, r.y, false, side);
+                if r.projected
+                    && let Some(label) = out.labels.last_mut().filter(|l| l.key == r.key)
+                {
+                    label.noted = true;
+                }
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
             if matches!(kind, Kind::Line | Kind::Area) {
@@ -1132,6 +1208,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         color: color_of(first),
                         stroke: (kind == Kind::Line).then_some(line_width),
                         marks: members.iter().map(|r| r.key.clone()).collect(),
+                        projected: members.iter().filter(|r| r.projected).map(|r| r.key.clone()).collect(),
+                        dash,
+                        fade,
                     });
                 }
             }
@@ -1152,24 +1231,49 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             // start there on the right, its end on the left, its middle at the top and
             // foot, the middle of its cap height level with the point. The point is `gap`
             // past the ring, and half the cap height more toward the top and the foot, so
-            // the value clears the ring all round.
+            // the value clears the ring all round. A slice's name (`direct`) stands with
+            // it, on its far side from the ring: over it on the ring's upper half, under it
+            // on the lower; or alone, where its value would.
             let side = |sin: f32| match sin {
                 s if s > 0.05 => 0.0,
                 s if s < -0.05 => 1.0,
                 _ => 0.5,
             };
             let offset = |cos: f32, text: &TextLayout| gap + cos.abs() * 0.5 * cap(text);
-            // The ring is as large as the plot, less the room its values need: the
-            // largest radius at which each stays inside the plot, on every side.
+            let mut names: Vec<Option<(Color, TextLayout)>> = (rows.iter())
+                .map(|r| {
+                    let slot = legend_texts.iter_mut().find(|e| e.as_ref().is_some_and(|(k, ..)| *k == r.label))?;
+                    slot.take().map(|(_, color, text)| (color, text))
+                })
+                .collect();
+            // Each slice's words about its point: how wide, and how far they rise over it
+            // and fall under it.
+            let block = |value: Option<&TextLayout>, name: Option<&TextLayout>, cos: f32| {
+                let lead = value.or(name).expect("a value or a name");
+                let up = lead.lines[0].baseline - 0.5 * cap(lead);
+                let (mut up, mut down) = (up, lead.height - up);
+                if let (Some(_), Some(name)) = (value, name) {
+                    if cos >= 0.0 {
+                        up += name.height;
+                    } else {
+                        down += name.height;
+                    }
+                }
+                let w = value.map_or(0.0, |t| t.width).max(name.map_or(0.0, |t| t.width));
+                (w, up, down)
+            };
+            // The ring is as large as the plot, less the room its words need: the
+            // largest radius at which each slice's stay inside the plot, on every side.
             let mut outer = 0.5 * (right - left).min(bottom - top);
-            for (&(start, end), text) in turns.iter().zip(&values) {
-                let Some(text) = text else { continue };
+            for ((&(start, end), text), name) in turns.iter().zip(&values).zip(&names) {
+                let name = name.as_ref().map(|(_, t)| t);
+                if text.is_none() && name.is_none() {
+                    continue;
+                }
                 let mid = 0.5 * (start + end) * core::f32::consts::TAU;
                 let (sin, cos) = (libm::sinf(mid), libm::cosf(mid));
-                let (align, w) = (side(sin), text.width);
-                // From the point to the text's top, and to its foot.
-                let up = text.lines[0].baseline - 0.5 * cap(text);
-                let down = text.height - up;
+                let align = side(sin);
+                let (w, up, down) = block(text.as_ref(), name, cos);
                 let mut reach = f32::INFINITY;
                 if sin > 0.0 {
                     reach = reach.min((right - cx - (1.0 - align) * w) / sin);
@@ -1183,37 +1287,69 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 if cos < 0.0 {
                     reach = reach.min((bottom - cy - down) / -cos);
                 }
-                outer = outer.min(reach - offset(cos, text));
+                let lead = text.as_ref().or(name).expect("a value or a name");
+                outer = outer.min(reach - offset(cos, lead));
             }
             let outer = outer.max(1.0);
-            for ((r, value), &(start, end)) in rows.iter().zip(values).zip(&turns) {
+            for (((r, value), &(start, end)), name) in rows.iter().zip(values).zip(&turns).zip(&mut names) {
                 let shape = Shape::Arc { cx, cy, inner: outer * hole, outer, start, end };
+                let mid = 0.5 * (start + end) * core::f32::consts::TAU;
+                let (align, cos) = (side(libm::sinf(mid)), libm::cosf(mid));
+                // Where a value's line box stands, and so where its name goes.
+                let mut stands: Option<(f32, f32)> = None;
                 if let Some(text) = value {
-                    let mid = 0.5 * (start + end) * core::f32::consts::TAU;
-                    let align = side(libm::sinf(mid));
-                    let offset = offset(libm::cosf(mid), &text);
-                    let value = ValueLabel { value: r.y, below: false, offset, align, drop: 0.5 * cap(&text) };
+                    let value = ValueLabel {
+                        value: r.y,
+                        below: false,
+                        offset: offset(cos, &text),
+                        align,
+                        drop: 0.5 * cap(&text),
+                    };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
+                    stands = Some((origin[1], origin[1] + text.height));
                     out.labels.push(Label::new(r.key.clone(), origin, text, Some(value)));
+                }
+                if let Some((color, text)) = name.take() {
+                    let at = ValueLabel {
+                        value: r.y,
+                        below: false,
+                        offset: offset(cos, &text),
+                        align,
+                        drop: 0.5 * cap(&text),
+                    };
+                    let [ax, baseline] = at.anchor(&shape);
+                    let y = match stands {
+                        Some((top, _)) if cos >= 0.0 => top - text.height,
+                        Some((_, foot)) => foot,
+                        None => baseline - text.lines[0].baseline,
+                    };
+                    let origin = [ax - align * text.width, y];
+                    let baseline = y + text.lines[0].baseline;
+                    let swatch =
+                        RoundRect { x: origin[0], y: baseline, w: 0.0, h: 0.0, top_radius: 0.0, bottom_radius: 0.0 };
+                    let label = Label::new(r.label.clone(), origin, text, None);
+                    out.legend.push(LegendEntry { key: r.label.clone(), swatch, color, label });
                 }
                 let place = Stack { key: String::new(), from: start, to: end };
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: Some(place) });
             }
         }
     }
-    // Names at the series' ends (`direct`): each beside the plot, in its series' color,
-    // the middle of its cap height level with where its series ends across (a line's
-    // last point, the middle of a stack's last span or segment), nudged apart as value
-    // labels are and kept inside the chart. Each is a legend entry with no swatch, so it
+    // Names at the series' ends (`direct`): each beside the plot (a scatter's beside its
+    // series' last point), the middle of its cap height level with where its series ends
+    // across (a line's last point, its last dot or bar, the middle of a stack's last span
+    // or segment), nudged apart as value labels are and kept inside the chart. Each is a legend entry with no swatch, so it
     // moves, recolors, and fades as entries do.
-    if direct {
+    if at_ends {
         let mut names: Vec<(String, Color)> = Vec::new();
         let mut placed: Vec<Label> = Vec::new();
-        // In a column `lead` past the farthest end of any series: a line's last point,
-        // where its end value begins, or a stack's side. The room beside the plot is
-        // measured so (`legend_width`), and `lead` already clears a point's dot.
+        // In a column `lead` past the farthest end of any series, as the room beside the
+        // plot is measured (`legend_width`): a dot plot's or a scatter's dot's edge, a
+        // stack's side, or a line's or an area's last point, where its end value begins,
+        // and which `lead` already clears.
         let reach = |shape: &Shape| match *shape {
+            Shape::Dot { x, r, .. } if matches!(kind, Kind::Dot | Kind::Scatter) => x + r,
             Shape::Bar(b) => b.x + b.w,
             other => other.center_x(),
         };
@@ -1231,7 +1367,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 Shape::Bar(r) => 0.5 * (r.top() + r.bottom()),
                 Shape::Arc { cy, .. } => cy,
             };
-            let origin = [column, y + 0.5 * cap(&text) - text.lines[0].baseline];
+            // A scatter's series end where their points do, apart from one another: each
+            // name stands beside its own last point.
+            let x = if kind == Kind::Scatter { reach(&end) + lead } else { column };
+            let origin = [x, y + 0.5 * cap(&text) - text.lines[0].baseline];
             names.push((key.clone(), color));
             placed.push(Label::new(key, origin, text, None));
         }
@@ -1317,41 +1456,70 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let origin = [at(i, &text), y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
         out.ticks.push(Label::new(key, origin, text, None));
     }
-    // Value labels that overlap: hidden or nudged apart as `labels.collide` says, else
-    // reported (W310); values the chart did not ask for hide.
+    // A value label does not cover another mark. A dot's that would goes under its dot;
+    // a bar's wider than its bar leans off the mark, starting or ending at the bar's
+    // edge; one that still would hides, unless the chart asked for its values, which
+    // reports it (W310).
     let apart = 0.25 * gap;
-    // A grouped bar's value label wider than its bar, centered on it, can lie over a
-    // taller bar beside it: it moves to start where its bar starts, or to end where its
-    // bar ends, whichever clears every other bar inside the plot, and stays centered if
-    // neither does.
-    if kind == Kind::Bar && series.len() > 1 {
-        let bars: Vec<(&str, [f32; 4])> = (out.marks.iter())
-            .filter_map(|m| match m.shape {
-                Shape::Bar(r) => Some((m.key.as_str(), [r.x, r.top(), r.x + r.w, r.bottom()])),
-                _ => None,
-            })
-            .collect();
-        for label in &mut out.labels {
-            let Some(&(_, own)) = bars.iter().find(|(k, _)| *k == label.key) else { continue };
-            let at = |x0: f32| {
-                let [a, top, b, bottom] = ink(label);
-                [x0, top, x0 + b - a, bottom]
-            };
-            let hits = |x0: f32| bars.iter().any(|&(k, b)| k != label.key && near(at(x0), b, apart));
-            if !hits(label.origin[0]) {
+    let collide = labels.and_then(|l| l.get("collide")).and_then(Value::as_str);
+    let boxes: Vec<(String, Shape, [f32; 4])> = (out.marks.iter())
+        .filter_map(|m| match m.shape {
+            Shape::Dot { x, y, r } if r > 0.0 => Some((m.key.clone(), m.shape, [x - r, y - r, x + r, y + r])),
+            Shape::Bar(b) if b.h > 0.0 => Some((m.key.clone(), m.shape, [b.x, b.top(), b.x + b.w, b.bottom()])),
+            _ => None,
+        })
+        .collect();
+    let covered = |l: &Label| -> Option<String> {
+        (boxes.iter()).find(|(k, _, b)| *k != l.key && near(ink(l), *b, apart)).map(|(k, ..)| k.clone())
+    };
+    let mut covering: Vec<(String, String)> = Vec::new();
+    for l in &mut out.labels {
+        let Some(mark) = covered(l) else { continue };
+        let own = boxes.iter().find(|(k, ..)| *k == l.key).map(|(_, s, _)| *s);
+        if let (Some(Shape::Dot { y, r, .. }), Some(v)) = (own, l.value)
+            && !v.below
+        {
+            let mut under = l.clone();
+            let first = &under.text.lines[0];
+            let offset = gap + first.cap_height.unwrap_or(first.ascent);
+            under.origin[1] = y + r + offset - first.baseline;
+            under.value = Some(ValueLabel { below: true, offset, drop: 0.0, ..v });
+            if covered(&under).is_none() {
+                *l = under;
                 continue;
             }
-            let width = label.text.width;
-            let clear = [own[0], own[2] - width].into_iter().find(|&x0| x0 >= left && x0 + width <= right && !hits(x0));
-            if let Some(x0) = clear {
-                label.origin[0] = x0;
-                if let Some(value) = &mut label.value {
-                    value.align = (0.5 * (own[0] + own[2]) - x0) / width.max(f32::EPSILON);
-                }
+        }
+        if let (Some(Shape::Bar(b)), Some(v)) = (own, l.value)
+            && l.text.width > b.w
+        {
+            // Away from the mark it covers first: starting at the bar's left edge, or
+            // ending at its right.
+            let width = l.text.width;
+            let starts = (0.5 * b.w / width, b.x);
+            let ends = (1.0 - 0.5 * b.w / width, b.x + b.w - width);
+            let before =
+                boxes.iter().find(|(k, ..)| *k == mark).is_some_and(|(.., m)| m[0] + m[2] < 2.0 * b.center_x());
+            let leaned = (if before { [starts, ends] } else { [ends, starts] }).into_iter().find_map(|(align, x)| {
+                let mut leaned = l.clone();
+                leaned.origin[0] = x;
+                leaned.value = Some(ValueLabel { align, ..v });
+                (x >= left && x + width <= right && covered(&leaned).is_none()).then_some(leaned)
+            });
+            if let Some(leaned) = leaned {
+                *l = leaned;
+                continue;
             }
         }
+        covering.push((l.key.clone(), mark));
     }
-    match labels.and_then(|l| l.get("collide")).and_then(Value::as_str) {
+    if !chosen || collide == Some("hide") {
+        out.labels.retain(|l| !covering.iter().any(|(k, _)| *k == l.key));
+    } else {
+        out.covers = covering;
+    }
+    // Value labels that overlap one another: hidden or nudged apart as `labels.collide`
+    // says, else reported (W310); values the chart did not ask for hide.
+    match collide {
         None if !chosen => hide(&mut out.labels, apart),
         None => out.collisions = collisions(&out.labels, apart),
         Some("hide") => hide(&mut out.labels, apart),
@@ -1411,6 +1579,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             }
         }
     }
+    // Where each rule across the plot stands: a callout's text rises past one it would
+    // cross.
+    let levels: Vec<f32> = (notes.iter())
+        .filter(|n| n.kind == AnnotationKind::Rule)
+        .filter_map(|n| n.at.y.as_ref())
+        .map(|p| to_y(p.values()[0].position(false).expect("checked: y is a number")))
+        .collect();
     let mut seen: Vec<(AnnotationKind, &str)> = Vec::new();
     for (note, text) in notes.iter().zip(note_texts) {
         if note.kind == AnnotationKind::Highlight {
@@ -1425,7 +1600,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             AnnotationKind::Band => "band",
             _ => "callout",
         };
-        let mut out_note = Note { key: format!("{name}\u{1f}{axis}\u{1f}{n}"), band: None, rule: None, label: None };
+        let mut out_note =
+            Note { key: format!("{name}\u{1f}{axis}\u{1f}{n}"), band: None, rule: None, gaps: Vec::new(), label: None };
         let first_y = |p: &Place| p.values()[0].position(false).expect("checked: y is a number");
         // Where its text goes: its top-left corner.
         let origin: Option<[f32; 2]> = match note.kind {
@@ -1470,7 +1646,18 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     (None, None) => unreachable!("checked: a band spans x or y"),
                 };
                 out_note.band = Some((rect, band_color));
-                text.as_ref().map(|t| [rect[0] + 0.5 * gap, rect[1] + 0.5 * gap - (t.lines[0].baseline - cap(t))])
+                // Its text never sits on a rule either: it moves down past one.
+                text.as_ref().map(|t| {
+                    let (c, descent) = (cap(t), t.lines[0].descent);
+                    let mut top = rect[1] + 0.5 * gap;
+                    for _ in 0..levels.len() {
+                        match levels.iter().find(|&&y| y > top - gap && y < top + c + descent + gap) {
+                            Some(&y) => top = y + gap,
+                            None => break,
+                        }
+                    }
+                    [rect[0] + 0.5 * gap, top - (t.lines[0].baseline - c)]
+                })
             }
             // A leader up from its point, or from its mark's value end and clear of the
             // mark's value label (down from a bar below the baseline), to its text,
@@ -1509,8 +1696,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 let x1 = x0 + text.as_ref().map_or(0.0, |t| t.width);
                 let under = |a: f32, b: f32| b >= x0 && a <= x1;
                 // Over a bar below the baseline, nothing stands under it; over the rest,
-                // the highest mark, line, or value label its text would cross.
-                let clear = match below {
+                // the highest mark, line, value label, or annotation's text before it
+                // that its text would cross.
+                let mut clear = match below {
                     true => ay,
                     false => (out.marks.iter())
                         .filter_map(|m| match m.shape {
@@ -1520,6 +1708,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                             Shape::Arc { .. } => None,
                         })
                         .chain(out.labels.iter().map(ink).filter(|b| under(b[0], b[2])).map(|b| b[1]))
+                        .chain(
+                            (out.notes.iter().filter_map(|n| n.label.as_ref()).map(ink))
+                                .filter(|b| under(b[0], b[2]))
+                                .map(|b| b[1]),
+                        )
                         .chain(out.paths.iter().flat_map(|p| {
                             // A line or an area's top: its vertices under the text, and
                             // where it crosses the text's ends.
@@ -1539,6 +1732,22 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         }))
                         .fold(ay, f32::min),
                 };
+                // Its text never sits on a rule: it moves on past one it would cross,
+                // its leader crossing the rule instead.
+                if let Some(t) = text.as_ref() {
+                    let (c, descent) = (cap(t), t.lines[0].descent);
+                    let span = |clear: f32| match below {
+                        true => [clear + 3.0 * gap, clear + 3.0 * gap + c + descent],
+                        false => [clear - 3.0 * gap - c, clear - 3.0 * gap + descent],
+                    };
+                    for _ in 0..levels.len() {
+                        let [a, b] = span(clear);
+                        match levels.iter().find(|&&y| y > a - gap && y < b + gap) {
+                            Some(&y) => clear = y,
+                            None => break,
+                        }
+                    }
+                }
                 let dir = if below { 1.0 } else { -1.0 };
                 let (from, to) = ([ax, ay + dir * 0.5 * gap], [ax, clear + dir * 2.5 * gap]);
                 out_note.rule = Some(Rule { from, to, width: note_width, color: rule_color });
@@ -1554,6 +1763,19 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         };
         out_note.label = origin.zip(text).map(|(at, t)| Label::new(out_note.key.clone(), at, t, None));
         out.notes.push(out_note);
+    }
+    // A rule or a leader breaks where it would cross text, value labels, names, and the
+    // other annotations' words alike, half a space unit clear of it either side.
+    let texts: Vec<(String, [f32; 4])> = (out.labels.iter())
+        .chain(out.notes.iter().filter_map(|n| n.label.as_ref()))
+        .map(|l| (l.key.clone(), text_box(l)))
+        .chain(out.legend.iter().map(|e| (format!("legend\u{1f}{}", e.key), text_box(&e.label))))
+        .collect();
+    for note in &mut out.notes {
+        let Some(rule) = &note.rule else { continue };
+        let own = |k: &str| note.label.as_ref().is_some_and(|l| l.key == k);
+        note.gaps =
+            (texts.iter()).filter(|(k, _)| !own(k)).filter_map(|(k, b)| crossing(rule, k, *b, 0.5 * gap)).collect();
     }
     // A highlight colors what it picks out in the signal color: its marks, and a line,
     // an area, or a legend entry all of whose marks it picks (a direct name with it). It
@@ -1589,9 +1811,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 e.color = dim(e.color);
                 e.label.opacity = words;
             } else if picked == all {
-                // A direct name is set in its series' color; it takes the signal with it.
+                // A direct name takes the signal with its series.
                 if direct {
-                    for run in e.label.text.runs.iter_mut().filter(|run| run.color == e.color) {
+                    for run in &mut e.label.text.runs {
                         run.color = signal;
                     }
                 }
@@ -1600,6 +1822,31 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
     }
     Ok(out)
+}
+
+/// The gap `rule` leaves where it crosses text `key` (its box), `pad` clear of the text
+/// along it; `None` where it passes by.
+fn crossing(rule: &Rule, key: &str, text: [f32; 4], pad: f32) -> Option<Gap> {
+    let level = (rule.to[0] - rule.from[0]).abs() >= (rule.to[1] - rule.from[1]).abs();
+    // Along the rule, and across it.
+    let (along, across) = if level { (0, 1) } else { (1, 0) };
+    let reach = 0.5 * rule.width + 0.5 * pad;
+    let gap = Gap {
+        key: key.to_string(),
+        along: [text[along] - pad, text[along + 2] + pad],
+        across: [text[across] - reach, text[across + 2] + reach],
+    };
+    let (lo, hi) = (rule.from[along].min(rule.to[along]), rule.from[along].max(rule.to[along]));
+    let at = rule.from[across];
+    (at > gap.across[0] && at < gap.across[1] && gap.along[0] < hi && gap.along[1] > lo).then_some(gap)
+}
+
+/// A label's box as drawn: its advance across, from its cap height to its last line's
+/// descent.
+fn text_box(l: &Label) -> [f32; 4] {
+    let (first, last) = (&l.text.lines[0], &l.text.lines[l.text.lines.len() - 1]);
+    let top = l.origin[1] + first.baseline - first.cap_height.unwrap_or(first.ascent);
+    [l.origin[0], top, l.origin[0] + l.text.width, l.origin[1] + last.baseline + last.descent]
 }
 
 /// A label's box: its advance across, and its cap height down to its baseline.

@@ -417,6 +417,20 @@ impl Rule for W310LabelCollision {
         for state in cx.states {
             for node in &state.scene.nodes {
                 let Content::Chart { chart, .. } = &node.content else { continue };
+                for (a, b) in &chart.covers {
+                    out.push(
+                        cx.finding(
+                            self.code(),
+                            self.severity(),
+                            state,
+                            format!("chart `{}`: the value label of `{a}` covers the mark of `{b}`", node.id),
+                        )
+                        .at(format!("{}/labels", cx.node_path(&node.id)))
+                        .node(node.id.clone())
+                        .measure(json!({ "marks": [a, b] }))
+                        .hint("Set `labels.collide` to `hide`, show fewer labels (`labels.show`), or give the chart more room."),
+                    );
+                }
                 for (a, b) in &chart.collisions {
                     out.push(
                         cx.finding(
@@ -529,7 +543,7 @@ impl Rule for W312ChartTextSize {
                 cx.finding(
                     self.code(),
                     self.severity(),
-                    &cx.states[first],
+                    cx.laid(first),
                     format!(
                         "chart `{chart}` sets text under 12 pt at presentation size ({} cu on this canvas): {}",
                         cu(floor),

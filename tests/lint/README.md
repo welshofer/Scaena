@@ -20,6 +20,6 @@ Each deck's `_comment` says what it shows.
 
 Its charts set their text in the `chart` role, 24 cu: the smallest W312 lets pass.
 
-`bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name.
+`bundle/data/sales.csv` and `bundle/assets/photo.png` are what the decks that need data or an image name. `bundle/fonts/ScaenaRestricted.ttf` is W230's: a font of plain boxes whose license bits say restricted and not to be subset. `scripts/build_lint_fonts.py` makes it from nothing, so no one's font is bent to say that, and `just schema` checks it is what the script writes.
 
 The torture deck's findings are its cases', pinned in `tests/golden/lint/torture.txt`.
