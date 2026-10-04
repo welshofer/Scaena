@@ -244,11 +244,10 @@ fn glyphs(op: &Op) -> Option<Op> {
 /// How a run reads over `px`: its contrast at the `SPARE` quantile of the pixels under
 /// its glyphs, each counted by how much of it `ink` covers (all of each without it),
 /// and the background there.
-fn judge(run: &Run, px: &Pixels, ink: Option<&Pixels>, scale: f32) -> Option<(f64, [u8; 3])> {
+fn judge(run: &Run, ratios: &Ratios, px: &Pixels, ink: Option<&Pixels>, scale: f32) -> Option<(f64, [u8; 3])> {
     let [x, y, w, h] = run.rect.map(|v| v * scale);
     let (x0, y0) = (x.floor().max(0.0) as u32, y.floor().max(0.0) as u32);
     let (x1, y1) = (((x + w).ceil() as u32).min(px.width), ((y + h).ceil() as u32).min(px.height));
-    let ratios = Ratios::new(run.color, run.alpha.clamp(0.0, 1.0));
     let mut seen: Vec<(f64, f64, [u8; 3])> = Vec::new();
     for py in y0..y1 {
         for pxl in x0..x1 {
@@ -295,6 +294,8 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
     // Each node (each kind of a chart's text) once per format: its worst state, and
     // every state it fails in.
     let mut worst: BTreeMap<Subject, Worst> = BTreeMap::new();
+    // A deck's text comes in few colors: each color and alpha's tables, made once.
+    let mut tables: BTreeMap<[u64; 4], Ratios> = BTreeMap::new();
     for state in cx.states {
         let (runs, ids, charts) = texts(cx, state);
         if runs.is_empty() {
@@ -329,7 +330,10 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
                 (paint(backdrop, &dl)?, ink.as_ref())
             };
             for run in runs.iter().filter(|r| r.alpha > 0.0) {
-                let Some((r, bg)) = judge(run, &px, ink, scale) else { continue };
+                let alpha = run.alpha.clamp(0.0, 1.0);
+                let key = [run.color[0], run.color[1], run.color[2], alpha].map(f64::to_bits);
+                let ratios = tables.entry(key).or_insert_with(|| Ratios::new(run.color, alpha));
+                let Some((r, bg)) = judge(run, ratios, &px, ink, scale) else { continue };
                 let needs = if run.display { 3.0 } else { 4.5 };
                 if r >= needs {
                     continue;
