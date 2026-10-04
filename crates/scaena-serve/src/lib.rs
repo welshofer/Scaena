@@ -191,7 +191,10 @@ impl Shared {
                     let by = request.headers().get("x-scaena-client").and_then(|v| v.to_str().ok()).map(str::to_string);
                     if method == Method::DELETE {
                         let shared = self.clone();
-                        return done(tokio::task::spawn_blocking(move || shared.remove(&rel, by)).await);
+                        return match tokio::task::spawn_blocking(move || shared.remove(&rel, by)).await {
+                            Ok(Ok(false)) => said(StatusCode::NOT_FOUND, "no such file in the bundle"),
+                            removed => done(removed.map(|r| r.map(drop))),
+                        };
                     }
                     let bytes = match Limited::new(request.into_body(), MAX_FILE).collect().await {
                         Ok(collected) => collected.to_bytes(),

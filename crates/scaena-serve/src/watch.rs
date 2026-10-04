@@ -162,13 +162,22 @@ impl Shared {
     }
 
     /// A page's removal of the file at `rel`, by `by`: the name in the folder, so a link goes and
-    /// what it leads to stays.
-    pub fn remove(&self, rel: &str, by: Option<String>) -> Result<(), String> {
+    /// what it leads to stays. `false` when there is no such file, which changes nothing.
+    pub fn remove(&self, rel: &str, by: Option<String>) -> Result<bool, String> {
         let mut state = self.state();
+        let refused = || format!("{rel}: not a file in the bundle");
         let path = self.root.join(rel);
-        let inside = path.parent().is_some_and(|dir| self.inside(dir));
-        if !inside || !path.symlink_metadata().is_ok_and(|m| !m.is_dir()) {
-            return Err(format!("{rel}: no such file in the bundle"));
+        let dir = path.parent().ok_or_else(refused)?;
+        match dir.canonicalize() {
+            Err(_) => return Ok(false),
+            Ok(dir) if !dir.starts_with(&self.root) => return Err(refused()),
+            Ok(_) => {}
+        }
+        match path.symlink_metadata() {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(format!("{rel}: {e}")),
+            Ok(meta) if meta.is_dir() => return Err(refused()),
+            Ok(_) => {}
         }
         std::fs::remove_file(&path).map_err(|e| format!("{rel}: {e}"))?;
         state.known.remove(rel);
@@ -176,7 +185,7 @@ impl Shared {
             state.source = None;
         }
         self.touched(&mut state, rel, by);
-        Ok(())
+        Ok(true)
     }
 
     /// The file at `rel` inside the folder, which must be there and be the folder's own: no

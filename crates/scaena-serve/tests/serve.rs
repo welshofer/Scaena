@@ -223,7 +223,10 @@ fn a_page_writes_inside_the_folder_and_is_heard_once() {
     assert!(!dir.join("assets/new one.png").exists());
     let changed = events.next("changed");
     assert_eq!((changed["by"].as_str(), changed["version"].as_u64()), (Some("page-1"), Some(2)));
-    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours).status, 400);
+    // A file that is not there is not found, which a page's save takes as removed.
+    assert_eq!(write(addr, "DELETE", "/bundle/assets/new%20one.png", b"", &ours).status, 404);
+    assert_eq!(write(addr, "DELETE", "/bundle/nowhere/x.png", b"", &ours).status, 404);
+    assert_eq!(write(addr, "DELETE", "/bundle/fonts", b"", &ours).status, 400, "not a folder");
 
     #[cfg(unix)]
     {

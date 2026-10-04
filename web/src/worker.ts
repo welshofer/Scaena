@@ -224,6 +224,8 @@ function served(deck: string, id: string, folder: string): Home {
     const url = new URL(path.split("/").map(encodeURIComponent).join("/"), deck);
     const body = bytes as Uint8Array<ArrayBuffer> | undefined;
     const response = await fetch(url, { method, body, headers: { "X-Scaena-Client": id } });
+    // A file not there to remove is removed, as in a folder.
+    if (method === "DELETE" && response.status === 404) return;
     if (!response.ok) throw new Error(`${path}: ${(await response.text()).trim() || response.status}`);
   };
   return { where: { kind: "serve", name: folder }, write: (path, bytes) => sent("PUT", path, bytes), remove: (path) => sent("DELETE", path) };
