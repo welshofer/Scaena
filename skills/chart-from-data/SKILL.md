@@ -49,10 +49,10 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Format every number the audience reads: `$,.1f`, `,d`, `.0%`, or `$.2~k` (compact).
    - A line's or a dot plot's value axis spans its data. When the point is the distance from zero, start it there with `y: { "domain": [0, null] }`; bars and areas always do.
    - Set `key` only when x and series do not tell the rows apart. A key that repeats is E103.
-6. **Place it** in a `figure` layout's `main` slot, or the theme's equivalent.
+6. **Place it** in a `figure` layout's `main` slot (`narrow-figure` for two or three bars), or the theme's equivalent.
    - A chart is a slide of its own: `add_state` with `"layout": "figure"`, then `add_node` with that `state` (ops: SPEC §7.3, `docs/schema/patch.schema.json`).
    - A new state tracks the one before it, so the last slide's nodes stay on screen. List them in the state's `remove`, or give the state `"mode": "absolute"`.
-   - Put the headline in `header` and the source in `footer`, as `semantic: source`.
+   - Put the headline in `header` and the source in `note`, as `semantic: source`.
    - Give the chart `alt`: what a listener needs to hear, with the numbers that matter.
 7. **Point at the answer with `annotations`**, only when the headline needs help:
    - `rule` at a `y` (a target, a plan) or an `x`.
@@ -65,6 +65,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Lint for E103 (fields, types, keys), W310 (labels that collide, when you set `labels.show`), and E100 and E101 (the chart's cell).
    - Chart text is judged like any text. E110 and E111 read each label against the marks, rules, and bands under it, at the opacity a highlight dims it to; a finding names the label (`measure.part`, `measure.label`). A label over a mark usually means the chart is too tight for its values: give it a larger cell, or show fewer values.
    - W312 flags chart text under 12 pt at presentation size (24 cu on a 1920 × 1080 canvas). The size is the theme's: its `charts` roles, or the chart's own `labels.role` for its values.
+   - W313 flags a chart squashed below a legible plot: under 120 cu across or down for its marks once its labels, axes, and legend have their room, as a one-row slot leaves it. Give it more rows of the grid, or put less beside it.
    - Render, and read it as the audience will: is the point visible in two seconds?
 9. **Move the data, not the chart.**
    - For "next quarter" or "after the change", add a state that changes the chart's `data` or `dataTransform` (a new `filter`), not a new chart.

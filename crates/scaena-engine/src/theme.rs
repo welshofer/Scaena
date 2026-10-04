@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(t.duration(&Value::String("standard".into())), Some(420.0));
         assert_eq!(t.spring("snappy").unwrap().stiffness, 420.0);
         assert_eq!(t.easing("standard").unwrap().0, 0.2);
-        assert!(t.slots("split").unwrap().contains_key("right"));
+        assert!(t.slots("split").unwrap().contains_key("main"));
     }
 
     #[test]

@@ -8,6 +8,7 @@
       "paper": "#0E0E12",
       "paper-2": "#1A1A1F",
       "accent": "#FF4100",
+      "accent-2": "#FFB27A",
       "muted": "#BEBDC3",
       "line": "#3A3A40"
     },
@@ -115,6 +116,16 @@
         "features": {
           "cv11": true,
           "ss01": false
+        }
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "file": "fonts/JetBrainsMono-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            800
+          ]
         }
       }
     },
@@ -290,6 +301,16 @@
         "box": "cap",
         "numeric": "tabular-lining",
         "color": "onSurface"
+      },
+      "code": {
+        "family": "mono",
+        "size": 24,
+        "weight": 400,
+        "leading": 1.4,
+        "tracking": 0,
+        "wrap": "greedy",
+        "box": "line",
+        "measure": 72
       }
     }
   },
@@ -417,7 +438,7 @@
           ],
           "role": "lede"
         },
-        "footer": {
+        "note": {
           "col": [
             1,
             7
@@ -468,11 +489,19 @@
             4,
             12
           ]
+        },
+        "note": {
+          "col": [
+            1,
+            12
+          ],
+          "row": 12,
+          "role": "caption"
         }
       }
     },
-    "chart": {
-      "description": "A claim, its chart, and the facts beside it.",
+    "figure": {
+      "description": "A claim, its figure, and a note on it beside it: the facts behind it, or its source.",
       "slots": {
         "kicker": {
           "col": [
@@ -493,7 +522,7 @@
           ],
           "role": "headline"
         },
-        "chart": {
+        "main": {
           "col": [
             1,
             7
@@ -503,7 +532,7 @@
             12
           ]
         },
-        "side": {
+        "note": {
           "col": [
             9,
             12
@@ -515,8 +544,8 @@
         }
       }
     },
-    "narrow-chart": {
-      "description": "As `chart`, for a chart of two or three bars.",
+    "narrow-figure": {
+      "description": "As `figure`, for a figure of two or three bars.",
       "slots": {
         "kicker": {
           "col": [
@@ -537,7 +566,7 @@
           ],
           "role": "headline"
         },
-        "chart": {
+        "main": {
           "col": [
             1,
             5
@@ -547,7 +576,7 @@
             12
           ]
         },
-        "side": {
+        "note": {
           "col": [
             7,
             11
@@ -701,6 +730,62 @@
           ]
         }
       }
+    },
+    "split": {
+      "description": "Text, and the figure beside it. A chart or table here reads on the plain surface.",
+      "slots": {
+        "body": {
+          "col": [
+            1,
+            5
+          ],
+          "row": [
+            1,
+            12
+          ]
+        },
+        "main": {
+          "col": [
+            7,
+            12
+          ],
+          "row": [
+            1,
+            12
+          ]
+        }
+      }
+    },
+    "quote": {
+      "description": "A quotation with attribution.",
+      "slots": {
+        "quote": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            3,
+            8
+          ],
+          "role": "quote",
+          "align": {
+            "x": "start",
+            "y": "cap"
+          }
+        },
+        "who": {
+          "col": [
+            2,
+            11
+          ],
+          "row": [
+            10,
+            11
+          ],
+          "role": "caption"
+        }
+      }
     }
   },
   "motion": {
@@ -745,6 +830,11 @@
         "stiffness": 170,
         "damping": 26,
         "mass": 1
+      },
+      "heavy": {
+        "stiffness": 120,
+        "damping": 30,
+        "mass": 1.6
       }
     },
     "presets": {
@@ -826,6 +916,44 @@
     },
     "maxConcurrent": 12,
     "maxBuild": 2500
+  },
+  "shaders": {
+    "palettes": {
+      "ambient": [
+        "#0E0E12",
+        "#2A1610",
+        "#7A2A0E",
+        "#FF4100"
+      ],
+      "texture": [
+        "#0E0E12",
+        "#1A1A1F",
+        "#3A3A40",
+        "#BEBDC3"
+      ]
+    },
+    "presets": {
+      "backdrop": {
+        "kind": "mesh",
+        "palette": "ambient",
+        "params": {
+          "points": 5,
+          "drift": 0.12,
+          "softness": 0.85,
+          "grain": 0.035
+        }
+      },
+      "texture": {
+        "kind": "noise",
+        "palette": "texture",
+        "params": {
+          "octaves": 4,
+          "scale": 0.0015,
+          "speed": 0.05,
+          "contrast": 0.6
+        }
+      }
+    }
   },
   "charts": {
     "signal": "accent",
