@@ -30,9 +30,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      # Saved from `main` only, as CI's are (ci.yml).
       - uses: Swatinem/rust-cache@v2
-      # The CLI must match the wasm-bindgen version in Cargo.lock.
-      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The CLI must match the wasm-bindgen version in Cargo.lock: built once, then restored.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.129-${{ runner.os }}-${{ runner.arch }}
+      - run: wasm-bindgen --version 2>/dev/null | grep -q ' 0.2.129' || cargo install wasm-bindgen-cli --version 0.2.129 --locked --force
       - uses: actions/setup-node@v4
         with:
           node-version: 22
