@@ -147,6 +147,18 @@
           }
         },
         {
+          "description": "A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`, and the rest of them go. They are written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own `at`. Without `state`, in the node's own unless the overrides set it. The node stays in its container (`at.parent`), which says what places it: the theme's grid places a root or a group's member by cells, slot, or `rect`; a grid container by cells or `area`; a stack by `index`; a frame by `rect`.",
+          "type": "object",
+          "required": ["op", "node", "at"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "at": { "$ref": "#/$defs/Spot" },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "place" }
+          }
+        },
+        {
           "description": "A text node's `text`, in a state or in its defaults. `runs` there go, so the text is what shows.",
           "type": "object",
           "required": ["op", "node", "text"],
@@ -235,6 +247,22 @@
           "properties": { "theme": { "$ref": "#/$defs/ThemeRef" }, "op": { "type": "string", "const": "retheme" } }
         }
       ]
+    },
+    "Spot": {
+      "description": "Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col` and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "col": { "$ref": "#/$defs/Range" },
+        "row": { "$ref": "#/$defs/Range" },
+        "in": { "description": "A slot of the state's layout template, or `canvas` or `grid`.", "type": "string" },
+        "rect": {
+          "description": "`[x, y, w, h]`, canvas units: on the canvas, an override (W301), or from a frame's padding edge.",
+          "$ref": "#/$defs/Rect"
+        },
+        "area": { "type": "string" },
+        "index": { "type": "integer", "minimum": 0 }
+      }
     },
     "Motion": {
       "description": "The motion a motion preset is for.",

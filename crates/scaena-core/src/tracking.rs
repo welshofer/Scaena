@@ -73,6 +73,42 @@ pub fn tracks_from(deck: &Deck, i: usize) -> Option<usize> {
     }
 }
 
+/// Where a state gets one of a node's properties from (ADR-0013: an edit changes a value
+/// where it lives).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lives {
+    /// The delta of the state at this index.
+    State(usize),
+    /// The node's own properties, which every state shows that sets nothing over them.
+    Node,
+}
+
+/// Where `deck.states[i]` gets `node`'s property `prop` from: the latest delta that sets it,
+/// from state `i` back along what it tracks, else the node's own properties. With `keys`, an
+/// object property is set by a delta that sets any of those keys of it, or sets it whole. A
+/// node that leaves comes back with its own properties, and an absolute state starts from
+/// them. The deck's `overrides`, which win over every state, are not asked.
+pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Lives {
+    let mut at = Some(i);
+    while let Some(j) = at {
+        let state = &deck.states[j];
+        if let Some(value) = state.props.get(node).and_then(|delta| delta.get(prop)) {
+            let sets = match value {
+                Value::Object(set) if !keys.is_empty() => keys.iter().any(|k| set.contains_key(*k)),
+                _ => true,
+            };
+            if sets {
+                return Lives::State(j);
+            }
+        }
+        if state.remove.iter().any(|id| id == node) {
+            return Lives::Node;
+        }
+        at = tracks_from(deck, j);
+    }
+    Lives::Node
+}
+
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
     nodes
         .iter()
@@ -297,6 +333,33 @@ mod tests {
         // What enters and exits is against what was on screen: `b`.
         assert_eq!(snaps[2].entered, ["t"]);
         assert_eq!(snaps[2].exited, ["u"]);
+    }
+
+    #[test]
+    fn a_value_lives_in_the_latest_delta_a_state_tracks_or_in_the_node() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "at": { "in": "title" } } }),
+            json!([
+                { "id": "a", "props": { "t": { "text": "a", "at": { "align": "center" } } } },
+                { "id": "b", "props": { "t": { "at": { "in": "header" } } } },
+                { "id": "c" },
+                { "id": "d", "from": "a" },
+                { "id": "e", "remove": ["t"] },
+                { "id": "f", "props": { "t": {} } },
+                { "id": "g", "mode": "absolute", "props": { "t": { "at": { "col": 2 } } } }
+            ]),
+        );
+        let place = |i: usize| lives(&d, i, "t", "at", &["in", "col"]);
+        // `a` sets `at`, but none of its keys that place: the node's own do.
+        assert_eq!(
+            [place(0), place(1), place(2), place(3)],
+            [Lives::Node, Lives::State(1), Lives::State(1), Lives::Node]
+        );
+        // Back after leaving, from its own; in an absolute state, from that state.
+        assert_eq!([place(5), place(6)], [Lives::Node, Lives::State(6)]);
+        // Without keys, a delta that sets the property at all.
+        assert_eq!(lives(&d, 3, "t", "at", &[]), Lives::State(0));
+        assert_eq!(lives(&d, 2, "t", "text", &[]), Lives::State(0));
     }
 
     #[test]

@@ -145,6 +145,12 @@ struct DeckInspect {
     at: Option<[f32; 2]>,
     #[serde(default)]
     format: Option<String>,
+    #[serde(default)]
+    targets: Option<String>,
+    #[serde(default)]
+    snap: Option<scaena_ops::inspect::SnapMode>,
+    #[serde(default)]
+    to: Option<[f32; 4]>,
 }
 
 #[derive(Deserialize)]
@@ -255,6 +261,9 @@ impl Session {
                     boxes: a.boxes,
                     at: a.at,
                     format: a.format,
+                    targets: a.targets,
+                    snap: a.snap,
+                    to: a.to,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }

@@ -1,13 +1,16 @@
-//! What stands where (ADR-0013), on the torture deck: the `containers` case's nested stacks,
-//! grid, frame, and group, and the `formats` case laid out again in 9:16. A point hits what
-//! draws there, topmost first, with the containers it sits in; each box is where the frame at
-//! rest draws its node.
+//! What stands where, and where a node may go (ADR-0013), on the torture deck: the
+//! `containers` case's nested stacks, grid, frame, and group, and the `formats` case laid out
+//! again in 9:16. A point hits what draws there, topmost first, with the containers it sits
+//! in; each box is where the frame at rest draws its node; and a box dropped on a node's
+//! targets snaps to a place its patch puts it.
 
 use scaena_core::Deck;
 use scaena_core::displaylist::{Op, Rect};
+use scaena_core::patch::Op as PatchOp;
+use scaena_core::validate::BundleFiles;
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
-use scaena_engine::geometry::NodeBox;
+use scaena_engine::geometry::{By, NodeBox, Snap, Targets};
 use scaena_engine::images::BundleImages;
 use scaena_engine::sample::Scene;
 use scaena_engine::theme::Theme;
@@ -162,4 +165,163 @@ fn boxes_follow_the_format() {
     for b in &tall {
         assert!(b.rect[0] + b.rect[2] <= 1080.0 + 0.01 && b.rect[1] + b.rect[3] <= 1920.0 + 0.01, "{:?}", b);
     }
+}
+
+fn targets(deck: &Deck, state: &str, node: &str, format: Option<&str>) -> Targets {
+    let (_, theme, mut engine) = torture();
+    let data = DataFiles::new();
+    let req = FrameRequest { deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY, format };
+    engine.targets(&req, node).unwrap()
+}
+
+/// The torture bundle, as the patch compiler reads it.
+struct Bundle;
+
+impl BundleFiles for Bundle {
+    fn exists(&self, path: &str) -> bool {
+        std::path::Path::new(BUNDLE).join(path).is_file()
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(format!("{BUNDLE}/{path}")).ok()
+    }
+}
+
+/// `deck` with `target`'s patch, made in `state`, applied: every op where it lives.
+fn placed(deck: &Deck, state: &str, target: &scaena_engine::geometry::Target) -> Deck {
+    let ops: Vec<serde_json::Value> = target
+        .ops(Some(state))
+        .into_iter()
+        .map(|op| serde_json::to_value(PatchOp::Semantic(Box::new(op))).unwrap())
+        .collect();
+    let doc = serde_json::to_value(deck).unwrap();
+    let compiled = scaena_core::patch::compile(&doc, &ops, &Bundle).unwrap();
+    serde_json::from_value(compiled.doc).unwrap()
+}
+
+fn close(a: Rect, b: Rect) -> bool {
+    a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.01)
+}
+
+#[test]
+fn what_holds_a_node_says_where_it_may_go() {
+    let (deck, ..) = torture();
+    let boxes = at_rest("containers", None).boxes();
+    // A root in a slot of the state's template: the theme's grid, its tracks, the slots.
+    let case = targets(&deck, "containers", "case", None);
+    assert_eq!(case.by, By::Grid);
+    assert_eq!((case.columns.len(), case.rows.len()), (12, 8));
+    let names: Vec<&str> = case.slots.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["case", "main", "left", "right", "canvas", "grid"]);
+    assert_eq!(case.cell, case.slots[0].1);
+    assert_eq!(case.cell, [96.0, 96.0, 1728.0, case.rows[0][1] - 96.0]);
+    // By cells: the cells it names.
+    let tally = targets(&deck, "containers", "tally", None);
+    assert_eq!(
+        tally.cell,
+        [tally.columns[0][0], tally.rows[4][0], tally.columns[10][1] - 96.0, tally.rows[4][1] - tally.rows[4][0]]
+    );
+    // In a stack: its order, along x.
+    let stat = targets(&deck, "containers", "stat-b", None);
+    assert_eq!(stat.by, By::Stack { parent: "stats".into(), across: true });
+    let flow: Vec<&str> = stat.flow.iter().map(|(n, ..)| n.as_str()).collect();
+    assert_eq!(flow, ["stat-a", "stat-b", "stat-c"]);
+    assert_eq!(stat.within, find(&boxes, "stats").rect);
+    // In a grid container: its own tracks, and its areas as slots.
+    let dot = targets(&deck, "containers", "board-dot", None);
+    assert_eq!(dot.by, By::Cells { parent: "board".into() });
+    assert_eq!((dot.columns.len(), dot.rows.len()), (2, 2));
+    let areas: Vec<&str> = dot.slots.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(areas, ["mark", "note", "photo"]);
+    // Its area is its cell, which its own size centers it in.
+    assert_eq!(dot.cell, dot.slots[0].1);
+    assert!(inside(dot.cell, find(&boxes, "board-dot").rect) && dot.cell != find(&boxes, "board-dot").rect);
+    assert!(inside(find(&boxes, "board").rect, dot.slots[2].1));
+    // In a frame: a rect from its padding edge.
+    let tag = targets(&deck, "containers", "card-tag", None);
+    assert_eq!(tag.by, By::Frame { parent: "card".into() });
+    assert!(close(tag.cell, find(&boxes, "card-tag").rect));
+    assert!(close([tag.within[0] + 24.0, tag.within[1] + 24.0, 132.0, 44.0], tag.cell));
+    // A group's member stands on the theme's grid.
+    assert_eq!(targets(&deck, "containers", "marks-dot", None).by, By::Grid);
+}
+
+#[test]
+fn a_dropped_box_snaps_and_its_patch_puts_the_node_there() {
+    let (deck, ..) = torture();
+    let state = "containers";
+    let pitch = |t: &Targets| t.columns[1][0] - t.columns[0][0];
+    let check = |node: &str, how: Snap, drop: &dyn Fn(&Targets) -> Rect| {
+        let before = targets(&deck, state, node, None);
+        let target = before.snap(how, drop(&before)).unwrap_or_else(|| panic!("{node} {how:?}: no target"));
+        let after = targets(&placed(&deck, state, &target), state, node, None);
+        (target, after)
+    };
+    // Moved a column right and a little down: the same span, one track on.
+    let (target, after) =
+        check("tally", Snap::Move, &|t| [t.cell[0] + pitch(t) * 1.2, t.cell[1] + 20.0, t.cell[2], t.cell[3]]);
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "col": [2, 12], "row": 5 }));
+    assert!(close(after.cell, target.cell), "{:?} {:?}", after.cell, target.cell);
+    // Pushed past the grid's edge, it stops at the edge.
+    let (target, _) = check("stats", Snap::Move, &|t| [t.cell[0] + 900.0, t.cell[1], t.cell[2], t.cell[3]]);
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "col": [1, 12], "row": [2, 4] }));
+    // Its right edge dragged in: each edge to the nearest track's.
+    let (target, after) =
+        check("board", Snap::Resize, &|t| [t.cell[0], t.cell[1], t.cell[2] - pitch(t) * 2.4, t.cell[3]]);
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "col": [1, 6], "row": [6, 8] }));
+    assert!(close(after.cell, target.cell));
+    // Into the slot it covers most.
+    let (target, after) = check("case", Snap::Slot, &|t| {
+        let right = t.slots.iter().find(|(n, _)| n == "right").unwrap().1;
+        [right[0] + 40.0, right[1] + 30.0, right[2] * 0.8, right[3] * 0.7]
+    });
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "in": "right" }));
+    assert_eq!(after.cell, target.cell);
+    // A grid container's child into another of its cells, and into an area.
+    let (target, after) =
+        check("board-dot", Snap::Move, &|t| [t.columns[0][0] + 10.0, t.rows[0][0] + 5.0, t.cell[2], t.cell[3]]);
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "col": 1, "row": 1 }));
+    assert!(close(after.cell, target.cell));
+    let (target, after) = check("board-dot", Snap::Slot, &|t| t.slots.iter().find(|(n, _)| n == "note").unwrap().1);
+    assert_eq!(serde_json::to_value(&target.spots[0].1).unwrap(), serde_json::json!({ "area": "note" }));
+    assert!(close(after.cell, target.cell));
+    // In a frame, where it was dropped, in whole canvas units from its padding edge.
+    let (target, after) = check("card-tag", Snap::Free, &|t| [t.cell[0] + 10.4, t.cell[1] + 7.6, t.cell[2], t.cell[3]]);
+    assert_eq!(
+        serde_json::to_value(&target.spots[0].1).unwrap(),
+        serde_json::json!({ "rect": [34.0, 32.0, 132.0, 44.0] })
+    );
+    assert!(close(after.cell, target.cell));
+    // Off the theme's grid: a rect on the canvas.
+    let (target, after) = check("marks-dot", Snap::Free, &|t| [t.cell[0] - 300.0, t.cell[1], t.cell[2], t.cell[3]]);
+    assert!(target.spots[0].1.rect.is_some());
+    assert!(close(after.cell, target.cell));
+    // In a stack, past its last child: the others keep their order, and only the indexes
+    // that change are written.
+    let (target, after) = check("stat-a", Snap::Order, &|t| {
+        let last = t.flow[2].1;
+        [last[0] + last[2] * 0.75, last[1], t.cell[2], t.cell[3]]
+    });
+    let flow: Vec<&str> = after.flow.iter().map(|(n, ..)| n.as_str()).collect();
+    assert_eq!(flow, ["stat-b", "stat-c", "stat-a"]);
+    assert_eq!(target.spots.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["stat-c", "stat-a"]);
+    assert_eq!(target.cell[2], 0.0, "a guide across the row: {:?}", target.cell);
+    // Dropped where it is, nothing changes.
+    let (target, _) = check("stat-b", Snap::Order, &|t| t.cell);
+    assert!(target.spots.is_empty());
+    // A way that does not place this node is no target.
+    let stat = targets(&deck, state, "stat-a", None);
+    assert!(stat.snap(Snap::Move, stat.cell).is_none() && stat.snap(Snap::Free, stat.cell).is_none());
+}
+
+/// In another format, a node's targets are that format's grid and slots.
+#[test]
+fn targets_follow_the_format() {
+    let (deck, ..) = torture();
+    let wide = targets(&deck, "formats", "case", None);
+    let tall = targets(&deck, "formats", "case", Some("9:16"));
+    assert!(tall.within[2] == 1080.0 && tall.within[3] == 1920.0, "{:?}", tall.within);
+    assert_ne!(wide.columns, tall.columns);
+    assert!(tall.slots.iter().all(|(_, r)| r[0] + r[2] <= 1080.0 + 0.01));
+    assert!(tall.slots.iter().zip(&wide.slots).any(|(t, w)| t.0 == w.0 && t.1 != w.1));
 }

@@ -3,8 +3,35 @@
   "description": "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's clock, `data` the rows each chart and table reads.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "SnapMode": {
+        "description": "How a box dropped on a node's targets snaps (ADR-0013).",
+        "oneOf": [
+          {
+            "description": "As many cells as the node spans, from the track nearest the box's corner.",
+            "type": "string",
+            "const": "move"
+          },
+          { "description": "Each edge to the nearest track's.", "type": "string", "const": "resize" },
+          {
+            "description": "Into the slot, or the grid container's area, the box covers most.",
+            "type": "string",
+            "const": "slot"
+          },
+          {
+            "description": "Where it was dropped, in whole canvas units: a `rect`. On the theme's grid, an\noverride (W301); in a frame, its own way of placing.",
+            "type": "string",
+            "const": "free"
+          },
+          {
+            "description": "Among a stack's children, where the box's middle falls.",
+            "type": "string",
+            "const": "order"
+          }
+        ]
+      }
+    },
     "required": ["bundle"],
-    "additionalProperties": false,
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
@@ -41,8 +68,27 @@
         "description": "One of the deck's `formats` (`9:16`) to inspect it in, laid out again with its\ntemplate set; the deck's own canvas without it.",
         "type": ["string", "null"],
         "default": null
+      },
+      "targets": {
+        "description": "A node shown in the state inspected: where it may go, as a drag snaps it (ADR-0013).\nWhat holds it, its cell, and the tracks, slots, or order it takes.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "snap": {
+        "description": "With `targets` and `to`: how the dropped box snaps, and the patch that puts the node\nthere.",
+        "anyOf": [{ "$ref": "#/$defs/SnapMode" }, { "type": "null" }],
+        "default": null
+      },
+      "to": {
+        "description": "With `snap`: the box a drag left, `[x, y, width, height]` in canvas units: the node's\ncell, moved or resized.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 4,
+        "maxItems": 4,
+        "default": null
       }
-    }
+    },
+    "additionalProperties": false
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -94,6 +140,14 @@
             "description": "The nodes that draw at the point asked about (`at`), topmost first.",
             "type": ["array", "null"],
             "items": { "$ref": "#/$defs/Hit" }
+          },
+          "targets": {
+            "description": "Where the node asked about may go (`targets`).",
+            "anyOf": [{ "$ref": "#/$defs/Targets" }, { "type": "null" }]
+          },
+          "snapped": {
+            "description": "Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.",
+            "anyOf": [{ "$ref": "#/$defs/Snapped" }, { "type": "null" }]
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -292,6 +346,102 @@
           }
         },
         "required": ["node", "rect", "containers"]
+      },
+      "Targets": {
+        "description": "Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.",
+        "type": "object",
+        "properties": {
+          "by": {
+            "description": "What holds it, and so how it is placed: `grid`, the theme's (by cells, a slot, or a\n`rect`); `stack` (by order); `cells`, a grid container's (by its cells or areas); or\n`frame` (by a `rect` from its padding edge).",
+            "type": "string"
+          },
+          "parent": { "description": "The container that holds it.", "type": ["string", "null"] },
+          "cell": {
+            "description": "The box its placement names now, before its inset, offset, alignment, and size: what\na drag moves.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "columns": {
+            "description": "The tracks a placement by cells takes, each `[start, end]`: columns left to right.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          },
+          "rows": {
+            "description": "Rows, top to bottom.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          },
+          "slots": {
+            "description": "The boxes a placement by name takes: the template's slots, then `canvas` and `grid`;\nor a grid container's areas.",
+            "type": "object",
+            "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+          },
+          "flow": {
+            "description": "A stack's children in their order, this node among them.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "within": {
+            "description": "What a `rect` is measured in: the canvas, or a frame's padding box; else the box of\nthe container that holds it.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "snaps": {
+            "description": "How a box dropped here snaps (`snap`).",
+            "type": "array",
+            "items": { "$ref": "#/$defs/SnapMode" }
+          }
+        },
+        "required": ["by", "cell", "columns", "rows", "slots", "flow", "within", "snaps"]
+      },
+      "SnapMode": {
+        "description": "How a box dropped on a node's targets snaps (ADR-0013).",
+        "oneOf": [
+          {
+            "description": "As many cells as the node spans, from the track nearest the box's corner.",
+            "type": "string",
+            "const": "move"
+          },
+          { "description": "Each edge to the nearest track's.", "type": "string", "const": "resize" },
+          {
+            "description": "Into the slot, or the grid container's area, the box covers most.",
+            "type": "string",
+            "const": "slot"
+          },
+          {
+            "description": "Where it was dropped, in whole canvas units: a `rect`. On the theme's grid, an\noverride (W301); in a frame, its own way of placing.",
+            "type": "string",
+            "const": "free"
+          },
+          {
+            "description": "Among a stack's children, where the box's middle falls.",
+            "type": "string",
+            "const": "order"
+          }
+        ]
+      },
+      "Snapped": {
+        "description": "Where a dropped box lands.",
+        "type": "object",
+        "properties": {
+          "cell": {
+            "description": "The box a guide shows there: a cell, a slot, a `rect`, or, in a stack, a line across\nit where the node goes.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "patch": {
+            "description": "The patch that puts the node there, made in the state inspected: `place` ops (SPEC\n§7.3), each written where that placement lives. What `scaena patch` and `deck_patch`\ntake; empty when the node is there already.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["cell", "patch"]
       }
     },
     "type": "object",

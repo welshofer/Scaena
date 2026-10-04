@@ -833,7 +833,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--format F]   # snapshot, styles, cue, rows, where nodes stand
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H]] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -853,7 +853,7 @@ A command that writes a bundle that keeps history (`patch`, `theme --apply`, `li
 | Command | `--json` |
 |---|---|
 | `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
-| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, and `--at` adds `hits` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, and `--snap` adds `snapped` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
 | `decompile` | `{ out, scn? }` |
@@ -889,6 +889,21 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 - **`boxes`:** each visible node by id, with its `rect` (`[x, y, width, height]`, canvas units) and the container or group it sits in (`parent`). The rect is its grid cell or slot, the box its container gave it, or a group's box around its members. Those that draw come first, in paint order; then the containers and groups that only hold others (`draws: false`).
 - **`hits`:** the nodes that draw at `--at X,Y`, topmost first. Each has its `rect` and the containers and groups it sits in, innermost first (`containers`). A point hits a node inside its box, or within 6 canvas units of a box too thin to point at, as a hairline rule is. A node faded out entirely is not there to point at.
 
+`inspect --state S --targets NODE` says where the node may go in that state (ADR-0013), as a drag snaps it. What holds it says how it is placed (`by`):
+- **`grid`**, the theme's, holds a root or a group's member: by cells, a slot of the state's layout template, or a `rect` on the canvas, an override (W301). `columns` and `rows` are the grid's tracks (`[start, end]` each), and `slots` the template's, then `canvas` and `grid`, each with its box.
+- **`cells`**, a grid container (`parent`), holds its child by its cells or an area: `columns` and `rows` are its tracks as laid out, and `slots` its areas.
+- **`stack`** holds its child by order: `flow` is its children in order.
+- **`frame`** holds its child by a `rect` from its padding edge, `within`.
+
+`cell` is the box the node's placement names now, before its inset, offset, alignment, and size: what a drag moves. `snaps` lists how a dropped box snaps here. With `--snap HOW --to X,Y,W,H`, the cell as a drag left it lands, and `snapped` says where (`cell`) and gives the patch that puts the node there (`patch`): `place` ops (§7.3), made in the state inspected, for `patch` or `deck_patch` to apply.
+- **`move`** keeps the cells it spans, from the track nearest the box's corner, inside the grid.
+- **`resize`** takes each edge to the nearest track's.
+- **`slot`** goes into the slot, or area, the box covers most.
+- **`free`** places it where it was dropped, in whole canvas units.
+- **`order`** puts it among a stack's children where the box's middle falls, and writes the `index` of each child whose place changes.
+
+A way that does not place the node is an error that names those that do.
+
 `--format` inspects the deck in one of its formats, laid out again with its template set (§3.4), for every view.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
@@ -909,7 +924,7 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -939,7 +954,7 @@ A theme that would leave the deck invalid is refused, as `patch` refuses a patch
 
   Each schema and each part is a JSON Schema whose `$id` is its uri, and a `$ref` names the part that holds its definition. The patch schema refers to the deck's parts for the definitions they share. Together, the parts are the files in `docs/schema/`.
 - `scaena://lint/catalog` (§7.5);
-- `scaena://spec`: this document's index. Each section is a resource of its own, and so is each numbered subsection: `scaena://spec/7` is §7, and `scaena://spec/3.7` is §3.7. A section too large to arrive whole, as §3 is, holds its text up to its first subsection and the uris of its subsections.
+- `scaena://spec`: this document's index. Each section is a resource of its own, and so is each numbered subsection: `scaena://spec/7` is §7, and `scaena://spec/3.7` is §3.7. A section too large to arrive whole, as §3 and §7 are, holds its text up to its first subsection and the uris of its subsections.
 - `scaena://spec/format` and `scaena://spec/expr`: the number and date formats, and the data expressions (`docs/spec/`);
 - `scaena://skills/<name>`: the five skills (§7.6);
 - `scaena://examples/*`: the example deck as JSON and `.scn`, and its patch; `trails.deck.json`, fifteen slides that use most of what a deck can hold; `charts.deck.json`, every kind of chart and a table with no style set; and three themes, `dusk.theme.json`, `daybreak.theme.json`, and `ember.theme.json`.
@@ -969,6 +984,7 @@ A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patc
 | `show_node` | `node`, `state`, `props?` | The node enters in the state; one that leaves there stays instead |
 | `hide_node` | `node`, `state` | The node leaves in the state; one that would enter there does not |
 | `set_prop` | `node`, `prop`, `value`, `state?` | Sets a property (`kind`) or one key of one (`at/in`); a delta merges objects one level deep (§2.2). `null` takes it away. Refused for `type` (E104), and for a node not on screen in `state`, which a delta would make enter (`show_node` does that) |
+| `place` | `node`, `at`, `state?` | Moves or resizes a node, as a drag does (ADR-0013). `at` is one placement: cells (`col`, `row`), a slot (`in`), a `rect`, a grid container's `area`, or a stack's `index`. The placement keys of the node's `at` become `at`'s, and the others go. It is written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks (§2.2); else in the node's own `at`. Refused for a placement the node's container does not take: the theme's grid takes cells, a slot, or a `rect`; a grid container its cells, an area, or an `index`; a stack an `index`; a frame a `rect` |
 | `set_text` | `node`, `text`, `state?` | Sets a text node's `text`; its `runs` there go |
 | `bind_data` | `node`, `data`, `source?`, `state?` | A chart or table reads `@data`; `source` declares or replaces the data source. In a state, it is a data update (§3.7) |
 | `apply_preset` | `node`, `preset`, `motion?`, `state?` | With `motion` (`enter`, `exit`, `emphasis`), a theme motion preset as that motion. Without, a shader takes a theme shader preset whole: the preset's kind, and none of its own `palette` or `params` |

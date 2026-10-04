@@ -244,6 +244,18 @@ impl Engine {
         self.scene(deck, theme, req.data, snap)
     }
 
+    /// Where `node` may go in `req.state` at rest, laid out in `req.format` (`req.t_ms`
+    /// aside): the theme's grid and slots there, or its container's cells, order, or box
+    /// ([`crate::geometry::Targets`], ADR-0013).
+    pub fn targets(&mut self, req: &FrameRequest, node: &str) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node)
+    }
+
     /// One snapshot, laid out: every visible node in paint order.
     pub fn scene(
         &mut self,
@@ -323,7 +335,8 @@ impl Engine {
                 content,
             });
         }
-        Ok(Scene { state: snap.state_id.clone(), canvas, surface: theme_color(theme, "surface")?, nodes, tree })
+        let surface = theme_color(theme, "surface")?;
+        Ok(Scene { state: snap.state_id.clone(), canvas, surface, nodes, tree, tracks: placement.tracks })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what

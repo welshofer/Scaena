@@ -48,6 +48,16 @@ pub struct Placement {
     /// node from its root down to it. Keys sort in paint order: siblings by `z`, then
     /// `nodes` order, and a container under its children.
     pub order: Vec<(String, Vec<(i64, usize)>)>,
+    /// Each grid container's tracks as laid out: where its cells are (ADR-0013).
+    pub tracks: HashMap<String, Tracks>,
+}
+
+/// A grid's tracks, each `[start, end]` in canvas units: columns left to right, rows top to
+/// bottom. A placement by cells takes a range of them, 1-based.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Tracks {
+    pub columns: Vec<[f32; 2]>,
+    pub rows: Vec<[f32; 2]>,
 }
 
 impl Placement {
@@ -228,7 +238,7 @@ pub fn place(
         if let Some(e) = failed {
             return Err(e);
         }
-        flow.read(node, [cell[0], cell[1]], &mut placement.boxes)?;
+        flow.read(node, [cell[0], cell[1]], &mut placement.boxes, &mut placement.tracks)?;
     }
     Ok(placement)
 }
@@ -375,7 +385,13 @@ impl Flow<'_> {
     /// Each laid-out node's box, from `node` down, canvas units; `origin` is the top-left
     /// corner of `node`'s parent. As on the slide, `at.offset` moves a node (and what is in
     /// it) after layout, and `at.inset` shrinks a node's own box on every side.
-    fn read(&self, node: NodeId, origin: [f32; 2], boxes: &mut HashMap<String, Rect>) -> Result<(), EngineError> {
+    fn read(
+        &self,
+        node: NodeId,
+        origin: [f32; 2],
+        boxes: &mut HashMap<String, Rect>,
+        tracks: &mut HashMap<String, Tracks>,
+    ) -> Result<(), EngineError> {
         let layout = self.tree.layout(node).map_err(taffy_error)?;
         let id = &self.ids[&node];
         let at = self.snap.nodes[id].get("at");
@@ -387,8 +403,14 @@ impl Flow<'_> {
         let (x, y) = (origin[0] + layout.location.x + dx, origin[1] + layout.location.y + dy);
         let (w, h) = (layout.size.width, layout.size.height);
         boxes.insert(id.clone(), [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset]);
+        // A grid's tracks stand from its box's corner, as its children do.
+        if let taffy::DetailedLayoutInfo::Grid(grid) = self.tree.detailed_layout_info(node) {
+            let along = |lines: &[Line<f32>], from: f32| lines.iter().map(|l| [from + l.start, from + l.end]).collect();
+            let found = Tracks { columns: along(&grid.columns.positions, x), rows: along(&grid.rows.positions, y) };
+            tracks.insert(id.clone(), found);
+        }
         for child in self.tree.children(node).map_err(taffy_error)? {
-            self.read(child, [x, y], boxes)?;
+            self.read(child, [x, y], boxes, tracks)?;
         }
         Ok(())
     }
@@ -635,7 +657,7 @@ fn dimension(theme: &Theme, v: &Value) -> Result<Extent, String> {
 }
 
 /// `padding` as `[top, right, bottom, left]`, CSS shorthand.
-fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
+pub(crate) fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
     let Some(v) = props.get("padding") else { return Ok([0.0; 4]) };
     let one = |v: &Value| theme.length(v, 0.0).map_err(|e| e.to_string());
     let sides: Vec<f32> = match v {
@@ -682,7 +704,7 @@ fn tracks(theme: &Theme, v: Option<&Value>, from_areas: u16) -> Result<Vec<GridT
 
 /// A grid container's named areas: each name's `[first col, last col, first row, last row]`,
 /// 1-based, from rows of names as CSS `grid-template-areas` writes them.
-fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
+pub(crate) fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
     let Some(v) = props.get("areas") else { return Ok(BTreeMap::new()) };
     let rows: Vec<String> = serde_json::from_value(v.clone()).map_err(|_| format!("`areas` {v}: rows of names"))?;
     let cells: Vec<Vec<&str>> = rows.iter().map(|r| r.split_whitespace().collect()).collect();
