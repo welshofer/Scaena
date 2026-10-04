@@ -1000,6 +1000,12 @@ impl Transition {
     }
 }
 
+/// The most cells the table that pairs two texts' words may hold, about one for each pair
+/// of their words: two texts of 2000 words, far past a slide's, in 16 MB. A morph between
+/// longer ones, a chapter pasted and edited, pairs what they share at their ends
+/// (`WordPlan::by_ends`).
+const MAX_CELLS: usize = 4_000_000;
+
 /// How a text node's words get from one layout to the next (SPEC §2.3). Words match in
 /// order by their text (a longest common subsequence, spaces and soft hyphens aside, and
 /// the punctuation around a word a word of its own). A shared word that draws the same
@@ -1064,13 +1070,26 @@ impl WordPlan {
             }
             out
         };
-        let (wa, wb) = (words(a), words(b));
-        // The longest common subsequence of the two word lists, by their text.
+        WordPlan::of(words(a), words(b))
+    }
+
+    /// The plan for two lists of words, each by its text.
+    fn of(wa: Vec<(String, Word)>, wb: Vec<(String, Word)>) -> WordPlan {
         let (n, m) = (wa.len(), wb.len());
-        let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+        let w = m + 1;
+        if (n + 1).saturating_mul(w) > MAX_CELLS {
+            return WordPlan::by_ends(&wa, &wb);
+        }
+        // The longest common subsequence of the two word lists, by their text: at
+        // `i * w + j`, its length from word `i` of one and word `j` of the other on.
+        let mut lcs = vec![0u32; (n + 1) * w];
         for i in (0..n).rev() {
             for j in (0..m).rev() {
-                lcs[i][j] = if wa[i].0 == wb[j].0 { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+                lcs[i * w + j] = if wa[i].0 == wb[j].0 {
+                    lcs[(i + 1) * w + j + 1] + 1
+                } else {
+                    lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                };
             }
         }
         let (mut plan, mut i, mut j) = (WordPlan { pairs: Vec::new(), gone: Vec::new(), came: Vec::new() }, 0, 0);
@@ -1079,7 +1098,7 @@ impl WordPlan {
                 let (a, b) = (wa[i].1.clone(), wb[j].1.clone());
                 plan.pairs.push(WordPair { same: same_glyphs(&a, &b), a, b });
                 (i, j) = (i + 1, j + 1);
-            } else if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            } else if j < m && (i == n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j]) {
                 plan.came.push(wb[j].1.clone());
                 j += 1;
             } else {
@@ -1088,6 +1107,29 @@ impl WordPlan {
             }
         }
         plan
+    }
+
+    /// The plan for two texts too long to pair word by word: a table for every pair of
+    /// their words would hold more than `MAX_CELLS`. The words they share at their start
+    /// and at their end pair, as an edit inside a long text leaves them; the rest leave and
+    /// arrive.
+    fn by_ends(wa: &[(String, Word)], wb: &[(String, Word)]) -> WordPlan {
+        let head = wa.iter().zip(wb).take_while(|(x, y)| x.0 == y.0).count();
+        let tail = (wa[head..].iter().rev()).zip(wb[head..].iter().rev()).take_while(|(x, y)| x.0 == y.0).count();
+        let pair = |(x, y): (&(String, Word), &(String, Word))| WordPair {
+            same: same_glyphs(&x.1, &y.1),
+            a: x.1.clone(),
+            b: y.1.clone(),
+        };
+        let (n, m) = (wa.len(), wb.len());
+        WordPlan {
+            pairs: (wa[..head].iter().zip(&wb[..head]))
+                .chain(wa[n - tail..].iter().zip(&wb[m - tail..]))
+                .map(pair)
+                .collect(),
+            gone: wa[head..n - tail].iter().map(|w| w.1.clone()).collect(),
+            came: wb[head..m - tail].iter().map(|w| w.1.clone()).collect(),
+        }
     }
 
     /// The words `p` of the way across (`geo` for where they stand, which a spring may
@@ -2367,6 +2409,31 @@ mod tests {
         assert_eq!(mix(black, white, 0.5).0, [99, 99, 99, 255]);
         assert_eq!(mix(black, white, 0.0), black);
         assert_eq!(mix(black, white, 1.0), white);
+    }
+
+    /// A chapter pasted into a text and edited in its middle: 50,000 words a side, whose
+    /// table would hold 2.5 billion cells, more than a browser's memory. The words the two
+    /// share at their ends pair, the changed one leaves and its new one arrives, and nothing
+    /// else.
+    #[test]
+    fn a_long_text_morphs_by_the_words_it_shares_at_its_ends() {
+        let word = |text: String, x: f32| (text, Word { runs: Vec::new(), said: Vec::new(), rect: [x, 0.0, 1.0, 1.0] });
+        let page = |changed: &str| -> Vec<(String, Word)> {
+            (0..50_000)
+                .map(|k| word(if k == 25_000 { changed.to_string() } else { format!("w{k}") }, k as f32))
+                .collect()
+        };
+        let plan = WordPlan::of(page("before"), page("after"));
+        assert_eq!(plan.pairs.len(), 49_999);
+        assert!(plan.pairs.iter().all(|p| p.a.rect == p.b.rect && p.same));
+        let [gone, came] = [&plan.gone, &plan.came].map(|w| w.iter().map(|w| w.rect[0]).collect::<Vec<_>>());
+        assert_eq!((gone, came), (vec![25_000.0], vec![25_000.0]));
+        // Short texts keep their longest common subsequence, words moved included.
+        let short = |words: &[&str]| -> Vec<(String, Word)> {
+            words.iter().enumerate().map(|(k, w)| word(w.to_string(), k as f32)).collect()
+        };
+        let plan = WordPlan::of(short(&["a", "b", "c"]), short(&["c", "a", "b"]));
+        assert_eq!((plan.pairs.len(), plan.gone.len(), plan.came.len()), (2, 1, 1));
     }
 
     #[test]

@@ -42,6 +42,21 @@ pub struct Theme {
     pub density: Option<Density>,
 }
 
+impl Theme {
+    /// A theme from its JSON. Every crate parses a theme here, so the model's parser is
+    /// compiled once: a WASM module carries one copy of it rather than one per crate that
+    /// asks (SPEC §15).
+    pub fn from_json(text: &str) -> Result<Theme, serde_json::Error> {
+        serde_json::from_str(text)
+    }
+
+    /// A theme from a JSON value, through its text, as [`Theme::from_json`]; an error
+    /// says what is wrong without a place in that text, which no file holds.
+    pub fn from_value(value: &serde_json::Value) -> Result<Theme, String> {
+        Theme::from_json(&value.to_string()).map_err(crate::document::unplaced)
+    }
+}
+
 /// `#rrggbb[aa]`, `oklch(...)`, or `oklab(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]

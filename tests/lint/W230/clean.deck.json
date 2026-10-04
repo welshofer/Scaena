@@ -1,0 +1,13 @@
+{
+  "scaena": "0.10",
+  "_comment": "W230 clean: the theme's two fonts alone, whose licenses (the SIL Open Font License) allow embedding them as installable.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Licensed to show", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

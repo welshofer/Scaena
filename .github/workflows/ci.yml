@@ -103,12 +103,19 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5).
+      - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
-    # PLAN 0.9: then the parity harness compares all three painters (vello_cpu goldens, vello on
-    # lavapipe, vello on WebGPU in the browser) on every state.
+    # PLAN 2.1–2.2: the web player shows every torture frame, painted in its worker by WebGPU
+    # and by the CPU painter, and its controls and presenter view work. PLAN 2.5: a single-file
+    # export plays from its address on disk with the network off. PLAN 0.9: then the parity
+    # harness compares the painters on every state: the vello_cpu goldens, vello on lavapipe,
+    # vello on WebGPU in the browser, the player's two, and the single file's. PLAN 2.3–2.4:
+    # the editor edits, opens, saves, downloads, and takes dropped files. PLAN 2.7: the static
+    # site plays, edits, and asks from a path under its host. PLAN 2.8: what a reader needs.
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -125,23 +132,62 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
-      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped.
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
+      # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
+      # The player's engine alone, which a single-file export carries (PLAN 2.5).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
+      # subsetter, which a page loads only to download a bundle, is recorded beside it.
       - name: WASM size
         run: |
           wasm=crates/scaena-wasm/www/pkg/scaena_wasm_bg.wasm
           gz=$(gzip -9 -c "$wasm" | wc -c)
           echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          subset=crates/scaena-subset/pkg/scaena_subset_bg.wasm
+          echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
+          history=crates/scaena-history/pkg/scaena_history_bg.wasm
+          echo "History (the CRDT): $(wc -c < "$history") bytes, $(gzip -9 -c "$history" | wc -c) gzipped, loaded to save a bundle that keeps one" | tee -a "$GITHUB_STEP_SUMMARY"
+          player=crates/scaena-wasm/player/scaena_wasm_bg.wasm
+          echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
+          read=crates/scaena-resources/pkg/scaena_resources_bg.wasm
+          echo "What the assistant reads: $(wc -c < "$read") bytes, $(gzip -9 -c "$read" | wc -c) gzipped, loaded to ask" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
       - run: node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena 5 | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cd web && npm ci && npm run build
+      - run: node web/smoke.mjs
+      # Exports with a `scaena` built after the web build, which carries its single-file page.
+      - run: node web/standalone.mjs
+      - run: node web/player.mjs
+      - run: node web/editor.mjs
+      - run: node web/storage.mjs
+      # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
+      - run: node web/assistant.mjs
+      # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
+      - run: node web/history.mjs
+      # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
+      - run: node web/live.mjs
+      # The editor starts a deck from a theme that ships, and saves it somewhere new (PLAN 2.12).
+      - run: node web/new.mjs
+      # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
+      - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
+      - run: node web/site.mjs
+      # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
+      # as the single file does, less motion cuts, and the keys (PLAN 2.8).
+      - run: node web/a11y.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
-          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke
+          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke:${{ github.workspace }}/target/web-smoke/player-webgpu:${{ github.workspace }}/target/web-smoke/player-cpu:${{ github.workspace }}/target/web-smoke/standalone-cpu
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -149,6 +195,7 @@ jobs:
           path: |
             tests/golden/torture/actual/
             target/wasm-smoke/
+            target/web-smoke/
           if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest
@@ -164,6 +211,8 @@ jobs:
       - run: python3 scripts/build_torture_fonts.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # The lint fixtures' font is what its generator writes, its license bits and all (W230).
+      - run: python3 scripts/build_lint_fonts.py --check
       # B2 and B3 are what their generator writes (PLAN 1.24).
       - run: python3 scripts/build_bench_decks.py --check
       # The bench gate judges a pull request beside its base (PLAN 1.24).

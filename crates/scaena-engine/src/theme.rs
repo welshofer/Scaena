@@ -182,7 +182,7 @@ impl Numeric {
 
 impl Theme {
     pub fn from_json(s: &str) -> Result<Theme, EngineError> {
-        serde_json::from_str(s).map(Theme).map_err(|e| EngineError::Theme(e.to_string()))
+        scaena_core::model::theme::Theme::from_json(s).map(Theme).map_err(|e| EngineError::Theme(e.to_string()))
     }
 
     /// The color a token or color role names, following role → token: as written, and

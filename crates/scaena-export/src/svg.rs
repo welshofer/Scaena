@@ -433,7 +433,7 @@ impl Cx<'_> {
     fn shader(&mut self, job: &Job, rect: [f32; 4], xf: Affine) -> Result<(), ExportError> {
         let [x, y, w, h] = job.bbox();
         let Some(place) = placed(xf, f64::from(x), f64::from(y)) else { return Ok(()) };
-        let png = png(w, h, &job.render())?;
+        let png = png(w, h, &job.render_on(scaena_core::shader::cores()))?;
         let clip = self.clip(&Path::rect(rect));
         let _ = writeln!(
             self.body,

@@ -249,20 +249,26 @@ impl Raster {
         Ok(out)
     }
 
-    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes).
+    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes), or an 8-bit RGB one as
+    /// opaque (what a browser's screenshot is).
     pub fn from_png(bytes: &[u8]) -> Result<Raster, PaintError> {
         let png_error = |e: png::DecodingError| PaintError::Png(e.to_string());
         let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(png_error)?;
         let info = reader.info();
-        if (info.color_type, info.bit_depth) != (png::ColorType::Rgba, png::BitDepth::Eight) {
-            return Err(PaintError::Png(format!(
-                "expected 8-bit RGBA, got {:?} {:?}",
-                info.color_type, info.bit_depth
-            )));
-        }
+        let opaque = match (info.color_type, info.bit_depth) {
+            (png::ColorType::Rgba, png::BitDepth::Eight) => false,
+            (png::ColorType::Rgb, png::BitDepth::Eight) => true,
+            (color, depth) => {
+                return Err(PaintError::Png(format!("expected 8-bit RGBA or RGB, got {color:?} {depth:?}")));
+            }
+        };
         let (width, height) = (info.width, info.height);
-        let mut rgba = vec![0; reader.output_buffer_size().unwrap_or(0)];
-        reader.next_frame(&mut rgba).map_err(png_error)?;
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap_or(0)];
+        reader.next_frame(&mut pixels).map_err(png_error)?;
+        let rgba = match opaque {
+            true => pixels.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
+            false => pixels,
+        };
         Ok(Raster { width, height, rgba })
     }
 }
@@ -287,6 +293,12 @@ impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
     }
 }
 
+/// The most pixels a raster holds: 2^25, an 8K frame (7680 × 4320) and a little more. A
+/// painter keeps its raster in memory, and beside it an image of each shader the frame
+/// shows, as large as the frame for a background; in the browser an allocation that fails
+/// stops the worker. A larger raster is an error (SPEC §7.1).
+pub const MAX_PIXELS: u64 = 1 << 25;
+
 /// Output size in whole pixels for `dl` at `scale`.
 fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
     let (w, h) = ((dl.viewport[0] * scale).round(), (dl.viewport[1] * scale).round());
@@ -294,6 +306,16 @@ fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
         return Err(PaintError::Size(w, h));
     }
     Ok((w as u16, h as u16))
+}
+
+/// [`raster_size`] for a painter that keeps the raster: at most [`MAX_PIXELS`]. The PDF
+/// painter sizes its shaders' images by the raster it would make, and keeps none.
+fn raster(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
+    let (w, h) = raster_size(dl, scale)?;
+    match u64::from(w) * u64::from(h) <= MAX_PIXELS {
+        true => Ok((w, h)),
+        false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+    }
 }
 
 fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
@@ -493,11 +515,15 @@ pub mod cpu {
         /// (ADR-0004 finding 2). vello_cpu honours `OptimizeQuality` only when built with
         /// its `f32_pipeline` feature; without it, it paints u8 whatever this says.
         pub mode: RenderMode,
+        /// The threads a shader's rows are worked out on ([`Job::render_on`]); the bytes do
+        /// not depend on it. [`scaena_core::shader::cores`] by default; 1 where frames are
+        /// already painted on every core, as video's are.
+        pub threads: usize,
     }
 
     impl Default for CpuPainter {
         fn default() -> Self {
-            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed }
+            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed, threads: scaena_core::shader::cores() }
         }
     }
 
@@ -508,12 +534,13 @@ pub mod cpu {
 
         fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
-            let (width, height) = raster_size(dl, scale)?;
+            let (width, height) = raster(dl, scale)?;
             let jobs = shader_jobs(dl, scale)?.into_iter();
             let mut ctx =
                 RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
             let mut resources = Resources::new();
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs };
+            let threads = self.threads;
+            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs, threads };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             let mut pixmap = Pixmap::new(width, height);
@@ -522,9 +549,26 @@ pub mod cpu {
                 &mut resources,
                 RasterizerSettings { render_mode: self.mode, ..Default::default() },
             );
-            let rgba = pixmap.take_unpremultiplied().into_iter().flat_map(|p| [p.r, p.g, p.b, p.a]).collect();
-            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
+            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba: unpremultiplied(pixmap) })
         }
+    }
+
+    /// The pixmap's pixels as straight RGBA, as a PNG or an `ImageData` takes them, in the
+    /// pixmap's own buffer: exactly what `Pixmap::take_unpremultiplied` computes, without its
+    /// division for each opaque pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates
+    /// to `c`). A slide is opaque nearly everywhere, and in the browser that division was most
+    /// of a frame's paint.
+    fn unpremultiplied(pixmap: Pixmap) -> Vec<u8> {
+        let mut rgba: Vec<u8> = bytemuck::allocation::cast_vec(pixmap.take());
+        for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
+            if *a != 255 && *a != 0 {
+                let alpha = 255.0 / f32::from(*a);
+                for c in [r, g, b] {
+                    *c = (f32::from(*c) * alpha + 0.5) as u8;
+                }
+            }
+        }
+        rgba
     }
 
     struct Cx<'a> {
@@ -534,6 +578,8 @@ pub mod cpu {
         fonts: &'a [FontRef],
         /// One per shader op, in the order the walk meets them.
         jobs: std::vec::IntoIter<Option<Job>>,
+        /// [`CpuPainter::threads`].
+        threads: usize,
     }
 
     impl Cx<'_> {
@@ -615,14 +661,13 @@ pub mod cpu {
         fn shader(&mut self, job: &Job, rect: scaena_core::displaylist::Rect, xf: Affine) {
             let [x, y, w, h] = job.bbox();
             let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-            let pixels = job.render();
-            let pixels = pixels.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| PremulRgba8 {
-                r: premultiplied(r, a),
-                g: premultiplied(g, a),
-                b: premultiplied(b, a),
-                a,
-            });
-            let pixmap = Pixmap::from_parts(pixels.collect(), w as u16, h as u16);
+            // The render's buffer becomes the pixmap's: RGBA8 is four bytes, as a pixel is.
+            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(job.render_on(self.threads))
+                .unwrap_or_else(|(_, bytes)| bytemuck::cast_slice(&bytes).to_vec());
+            for p in &mut pixels {
+                (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
+            }
+            let pixmap = Pixmap::from_parts(pixels, w as u16, h as u16);
             self.ctx.set_transform(xf);
             self.ctx.set_paint(Image {
                 image: ImageSource::Pixmap(Arc::new(pixmap)),
@@ -655,8 +700,7 @@ pub mod cpu {
                     rule: FillRule::NonZero,
                     paint: Paint::Solid(Color(ACCENT)),
                 });
-                let raster =
-                    CpuPainter { level, mode: RenderMode::OptimizeSpeed }.paint(&dl, &Assets::new(), 1.0).unwrap();
+                let raster = CpuPainter { level, ..CpuPainter::default() }.paint(&dl, &Assets::new(), 1.0).unwrap();
                 for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     assert_eq!(raster.pixel(x, y), ACCENT, "inside ({x},{y}) at {level:?}");
                 }
@@ -664,6 +708,24 @@ pub mod cpu {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
                 }
             }
+        }
+
+        /// The painter's unpremultiply is vello's own, byte for byte: every alpha against
+        /// every channel value, the impossible ones over alpha included.
+        #[test]
+        fn unpremultiplied_is_vellos_take_unpremultiplied_for_every_pixel() {
+            let pixels = || {
+                (0..=255u8)
+                    .flat_map(|a| (0..=255u8).map(move |c| PremulRgba8 { r: c, g: c / 2, b: 255 - c, a }))
+                    .collect::<Vec<_>>()
+            };
+            let ours = unpremultiplied(Pixmap::from_parts(pixels(), 256, 256));
+            let vellos: Vec<u8> = Pixmap::from_parts(pixels(), 256, 256)
+                .take_unpremultiplied()
+                .into_iter()
+                .flat_map(|p| [p.r, p.g, p.b, p.a])
+                .collect();
+            assert_eq!(ours, vellos);
         }
 
         #[test]
@@ -691,6 +753,23 @@ pub mod cpu {
             assert_eq!(raster.pixel(6, 6)[3], 0);
         }
 
+        /// A raster past [`MAX_PIXELS`] is an error before the painter asks for its memory: a
+        /// size at the canvas's ratio up to 65,535 pixels a side asked for gigabytes, and in the
+        /// browser an allocation that fails stops the worker (PLAN 2.26).
+        #[test]
+        fn a_raster_past_max_pixels_is_an_error() {
+            let dl = DisplayList::new([1920.0, 1080.0]);
+            // 7724 × 4345, the first frame at its ratio past 2^25; 65280 × 36720, each side a
+            // `u16`, 9.6 GB.
+            for scale in [7724.0 / 1920.0, 17.0, 34.0f32] {
+                let want = ((1920.0 * scale).round(), (1080.0 * scale).round());
+                match CpuPainter::default().paint(&dl, &Assets::new(), scale) {
+                    Err(PaintError::Size(w, h)) => assert_eq!((w, h), want),
+                    other => panic!("{want:?}: {:?}", other.map(|r| (r.width, r.height))),
+                }
+            }
+        }
+
         /// A three-color mesh op over `rect`.
         pub(crate) fn mesh_op(rect: [f32; 4]) -> Op {
             Op::Shader {
@@ -700,6 +779,21 @@ pub mod cpu {
                 rect,
                 palette: vec![Color([15, 118, 110, 255]), Color([194, 65, 12, 255]), Color([245, 196, 81, 255])],
                 params: BTreeMap::new(),
+            }
+        }
+
+        /// A shader's rows worked out on many threads paint what they paint on one.
+        #[test]
+        fn shader_threads_change_no_pixel() {
+            let mut dl = DisplayList::new([200.0, 300.0]);
+            dl.ops.push(mesh_op([0.0, 0.0, 200.0, 300.0]));
+            let paint = |threads| {
+                let mut painter = CpuPainter { threads, ..CpuPainter::default() };
+                painter.paint(&dl, &Assets::new(), 1.0).unwrap().rgba
+            };
+            let one = paint(1);
+            for threads in [2, 3, 8] {
+                assert!(paint(threads) == one, "{threads} threads");
             }
         }
 
@@ -739,6 +833,15 @@ pub mod cpu {
             }
             assert_eq!(raster.to_png().unwrap(), raster.to_png().unwrap(), "same pixels, same bytes");
             assert_eq!(raster.to_png_fast().unwrap(), raster.to_png_fast().unwrap(), "same pixels, same bytes");
+            // A browser's screenshot has no alpha: it reads as opaque.
+            let mut rgb = Vec::new();
+            let mut encoder = png::Encoder::new(&mut rgb, 2, 1);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[255, 0, 0, 0, 128, 255]).unwrap();
+            writer.finish().unwrap();
+            assert_eq!(Raster::from_png(&rgb).unwrap().rgba, [255, 0, 0, 255, 0, 128, 255, 255]);
         }
 
         #[test]
@@ -1081,12 +1184,40 @@ pub mod gpu {
         /// Headless `vello` (PLAN 0.7): renders into an `Rgba8Unorm` texture and reads it
         /// back. vello writes straight alpha (it unpremultiplies before storing), which
         /// is what [`Raster`] holds.
+        ///
+        /// [`GpuPainter::paint`] waits for its frame. A run of frames, a video's (PLAN
+        /// 2.22), goes through [`GpuPainter::send`] and [`GpuPainter::receive`] instead,
+        /// so a frame is painted while the ones before it are read back.
         pub struct GpuPainter {
             device: wgpu::Device,
             queue: wgpu::Queue,
             renderer: vello::Renderer,
             adapter: wgpu::AdapterInfo,
             shaders: Shaders,
+            /// What frames are painted into, kept while they keep its size.
+            target: Option<Target>,
+            /// Frames sent and not yet received, oldest first.
+            flying: std::collections::VecDeque<Flight>,
+            /// Readback buffers no frame is using.
+            spare: Vec<wgpu::Buffer>,
+        }
+
+        struct Target {
+            size: wgpu::Extent3d,
+            texture: wgpu::Texture,
+            view: wgpu::TextureView,
+        }
+
+        /// A frame painted and on its way back: copied into `buffer`, which is mapped
+        /// once the GPU has done `submitted`.
+        struct Flight {
+            buffer: wgpu::Buffer,
+            width: u32,
+            height: u32,
+            /// Bytes from one row to the next in `buffer`.
+            padded: u32,
+            submitted: wgpu::SubmissionIndex,
+            mapped: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
         }
 
         impl GpuPainter {
@@ -1102,7 +1233,17 @@ pub mod gpu {
                 };
                 let adapter = ready(instance.request_adapter(&options))?
                     .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
-                let descriptor = wgpu::DeviceDescriptor { label: Some("scaena"), ..Default::default() };
+                // The largest textures and buffers the adapter holds, not wgpu's defaults (8192
+                // pixels a side, 128 MiB a shader's pixels): a raster the CPU painter makes, this
+                // one makes too, where the GPU can.
+                let most = adapter.limits();
+                let required_limits = wgpu::Limits {
+                    max_buffer_size: most.max_buffer_size,
+                    max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
+                    ..wgpu::Limits::default().using_resolution(most)
+                };
+                let descriptor =
+                    wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() };
                 let (device, queue) = ready(adapter.request_device(&descriptor))?.map_err(gpu)?;
                 Self::with_device(device, queue, adapter.get_info())
             }
@@ -1121,7 +1262,16 @@ pub mod gpu {
                     pipeline_cache: None,
                 };
                 let renderer = vello::Renderer::new(&device, options).map_err(gpu)?;
-                Ok(Self { device, queue, renderer, adapter, shaders: Shaders::new() })
+                Ok(Self {
+                    device,
+                    queue,
+                    renderer,
+                    adapter,
+                    shaders: Shaders::new(),
+                    target: None,
+                    flying: std::collections::VecDeque::new(),
+                    spare: Vec::new(),
+                })
             }
 
             /// Which adapter paints: name, backend, and device type (a CPU adapter such
@@ -1141,6 +1291,24 @@ pub mod gpu {
                 encoder.copy_buffer_to_buffer(&pixels, 0, &buffer, 0, size);
                 self.queue.submit([encoder.finish()]);
                 self.read(&buffer, w * 4, stride)
+            }
+
+            /// Paint `dl` and start reading it back, without waiting for either: the next
+            /// frame can be painted while this one comes back. Frames come back from
+            /// [`GpuPainter::receive`] in the order they were sent.
+            pub fn send(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<(), PaintError> {
+                let flight = self.start(dl, fonts, scale)?;
+                self.flying.push_back(flight);
+                Ok(())
+            }
+
+            /// The oldest frame [`GpuPainter::send`] painted that has not been received,
+            /// once it is back, or `None` when every frame sent has been.
+            pub fn receive(&mut self) -> Result<Option<Raster>, PaintError> {
+                match self.flying.pop_front() {
+                    Some(flight) => self.finish(flight).map(Some),
+                    None => Ok(None),
+                }
             }
 
             fn readback(&self, size: u64) -> wgpu::Buffer {
@@ -1179,52 +1347,94 @@ pub mod gpu {
             }
 
             fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
-                let jobs = shader_jobs(dl, scale)?;
-                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
-                let raster = self.render(dl, fonts, scale, &images);
-                Shaders::release(&mut self.renderer, images);
-                raster
+                let flight = self.start(dl, fonts, scale)?;
+                self.finish(flight)
             }
         }
 
         impl GpuPainter {
+            /// Run `dl`'s shaders, paint it, and queue its copy into a readback buffer:
+            /// a frame on its way back.
+            fn start(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Flight, PaintError> {
+                let jobs = shader_jobs(dl, scale)?;
+                self.holds(dl, scale, &jobs)?;
+                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
+                let flight = self.render(dl, fonts, scale, &images);
+                Shaders::release(&mut self.renderer, images);
+                flight
+            }
+
+            /// Whether this GPU holds what painting `dl` at `scale` makes: its target and the
+            /// buffer it is read back through, and each shader's pixels, a storage buffer of
+            /// four bytes a pixel, and texture. A frame past one is an error here, as one past
+            /// [`MAX_PIXELS`] is: wgpu's default error handler panics on a texture or buffer
+            /// the device does not hold.
+            fn holds(&self, dl: &DisplayList, scale: f32, jobs: &[Option<Job>]) -> Result<(), PaintError> {
+                let limits = self.device.limits();
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+                let fits = |w: u32, h: u32, most: u64| {
+                    let bytes = u64::from((w * 4).div_ceil(align) * align) * u64::from(h);
+                    w <= limits.max_texture_dimension_2d && h <= limits.max_texture_dimension_2d && bytes <= most
+                };
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let (w, h) = raster(dl, scale)?;
+                let shaders_fit = jobs.iter().flatten().all(|job| {
+                    let [_, _, w, h] = job.bbox();
+                    fits(w, h, storage)
+                });
+                match fits(u32::from(w), u32::from(h), limits.max_buffer_size) && shaders_fit {
+                    true => Ok(()),
+                    false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+                }
+            }
+
             fn render(
                 &mut self,
                 dl: &DisplayList,
                 fonts: &Assets,
                 scale: f32,
                 images: &[Option<ShaderImage>],
-            ) -> Result<Raster, PaintError> {
+            ) -> Result<Flight, PaintError> {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-                let target = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("scaena target"),
-                    size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                });
+                if self.target.as_ref().is_none_or(|t| t.size != size) {
+                    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("scaena target"),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    self.target = Some(Target { size, texture, view });
+                }
+                let target = self.target.as_ref().expect("made above");
                 let params = vello::RenderParams {
                     base_color: peniko::Color::TRANSPARENT,
                     width,
                     height,
                     antialiasing_method: vello::AaConfig::Area,
                 };
-                let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-                self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &params).map_err(gpu)?;
+                self.renderer
+                    .render_to_texture(&self.device, &self.queue, &scene, &target.view, &params)
+                    .map_err(gpu)?;
 
-                // A texture-to-buffer copy pads each row to 256 bytes.
-                let row = width * 4;
+                // A texture-to-buffer copy pads each row to 256 bytes. The queue runs in
+                // order, so the next frame paints the target only once this copy is done.
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let padded = row.div_ceil(align) * align;
-                let buffer = self.readback(u64::from(padded) * u64::from(height));
+                let padded = (width * 4).div_ceil(align) * align;
+                let bytes = u64::from(padded) * u64::from(height);
+                let buffer = match self.spare.iter().position(|b| b.size() == bytes) {
+                    Some(i) => self.spare.swap_remove(i),
+                    None => self.readback(bytes),
+                };
                 let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                 encoder.copy_texture_to_buffer(
-                    target.as_image_copy(),
+                    target.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
                         buffer: &buffer,
                         layout: wgpu::TexelCopyBufferLayout {
@@ -1235,8 +1445,33 @@ pub mod gpu {
                     },
                     size,
                 );
-                self.queue.submit([encoder.finish()]);
-                let mut rgba = self.read(&buffer, row, padded)?;
+                let submitted = self.queue.submit([encoder.finish()]);
+                let (tx, mapped) = std::sync::mpsc::channel();
+                buffer.map_async(wgpu::MapMode::Read, .., move |done| {
+                    let _ = tx.send(done);
+                });
+                Ok(Flight { buffer, width, height, padded, submitted, mapped })
+            }
+
+            /// Wait for `flight` to be back, then its pixels.
+            fn finish(&mut self, flight: Flight) -> Result<Raster, PaintError> {
+                let Flight { buffer, width, height, padded, submitted, mapped } = flight;
+                // Bounded: a GPU that never finishes is an error to report, not a hang.
+                let wait = wgpu::PollType::Wait { submission_index: Some(submitted), timeout: Some(GPU_TIMEOUT) };
+                self.device.poll(wait).map_err(gpu)?;
+                mapped
+                    .recv_timeout(GPU_TIMEOUT)
+                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
+                    .map_err(gpu)?;
+                let row = width as usize * 4;
+                let mut rgba = Vec::with_capacity(row * height as usize);
+                for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
+                    rgba.extend_from_slice(&line[..row]);
+                }
+                buffer.unmap();
+                // Kept for the frames after it, which are the same size, or dropped.
+                self.spare.retain(|b| b.size() == buffer.size());
+                self.spare.push(buffer);
                 // vello unpremultiplies as rgb / max(a, 1e-6), so a sliver of coverage below
                 // 1/255 reads back as alpha 0 with leftover colour (Metal leaves [2, 1, 1, 0]
                 // beside pixel-aligned edges). Fully transparent is fully transparent.
@@ -1308,6 +1543,36 @@ pub mod gpu {
             }
 
             #[test]
+            fn frames_sent_come_back_in_order_as_paint_paints_them() {
+                let Some(mut gpu) = painter() else { return };
+                let fill = |c: [u8; 4], w: f32| {
+                    let mut dl = DisplayList::new([w, 3.0]);
+                    dl.ops.push(Op::Fill {
+                        path: Path::rect([0.0, 0.0, w, 3.0]),
+                        rule: FillRule::NonZero,
+                        paint: Paint::Solid(Color(c)),
+                    });
+                    dl
+                };
+                // The last is wider: its rows are padded otherwise, and it needs a new target.
+                let frames = [fill([255, 0, 0, 255], 5.0), fill([0, 0, 255, 128], 5.0), fill([0, 200, 0, 255], 70.0)];
+                let painted: Vec<Raster> = frames.iter().map(|f| gpu.paint(f, &Assets::new(), 2.0).unwrap()).collect();
+                assert!(gpu.receive().unwrap().is_none(), "nothing was sent");
+                for f in &frames {
+                    gpu.send(f, &Assets::new(), 2.0).unwrap();
+                }
+                // A frame painted meanwhile is its own, and leaves the ones sent waiting.
+                let between = gpu.paint(&frames[1], &Assets::new(), 2.0).unwrap();
+                assert_eq!(between.rgba, painted[1].rgba);
+                for want in &painted {
+                    let got = gpu.receive().unwrap().expect("a frame sent and not received");
+                    assert_eq!((got.width, got.height), (want.width, want.height));
+                    assert!(got.rgba == want.rgba, "a frame differs from paint's on {:?}", gpu.adapter());
+                }
+                assert!(gpu.receive().unwrap().is_none(), "every frame sent came back once");
+            }
+
+            #[test]
             fn a_shader_op_paints_where_the_cpu_painter_paints_it() {
                 let Some(mut gpu) = painter() else { return };
                 let mut dl = DisplayList::new([50.0, 30.0]);
@@ -1327,6 +1592,45 @@ pub mod gpu {
                 let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
                 assert!(worst <= 1, "max channel step {worst} on {:?}", gpu.adapter());
                 assert_eq!(raster.pixel(19, 10), [0; 4], "nothing left of the box");
+            }
+
+            /// A frame past what this GPU holds is an error, as one past [`MAX_PIXELS`] is: a
+            /// target wider than its textures, or a shader whose pixels outgrow a storage
+            /// buffer. wgpu's default error handler panics on either, which stopped `render
+            /// --painter gpu` past 8192 pixels a side (PLAN 2.26).
+            #[test]
+            fn a_frame_past_what_the_gpu_holds_is_an_error() {
+                let Some(mut gpu) = painter() else { return };
+                let limits = gpu.device.limits();
+                let side = limits.max_texture_dimension_2d as f32;
+                // A strip wider than a texture, with few pixels in all.
+                let strip = DisplayList::new([side + 64.0, 8.0]);
+                match gpu.paint(&strip, &Assets::new(), 1.0) {
+                    Err(PaintError::Size(w, _)) => assert_eq!(w, side + 64.0),
+                    other => panic!("a target {} pixels wide: {:?}", side + 64.0, other.map(|r| r.width)),
+                }
+                // A square of shader that a raster holds, whose pixels in rows of 256 bytes
+                // outgrow a storage buffer of wgpu's default size, 128 MiB: on a GPU whose
+                // buffers hold it, it paints.
+                let n = 5792u32;
+                let mut shaded = DisplayList::new([n as f32; 2]);
+                shaded.ops.push(crate::cpu::tests::mesh_op([0.0, 0.0, n as f32, n as f32]));
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let row = u64::from(
+                    (n * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT,
+                );
+                assert!(u64::from(n) * u64::from(n) <= MAX_PIXELS && row * u64::from(n) > 128 << 20);
+                let fits = row * u64::from(n) <= storage && n <= limits.max_texture_dimension_2d;
+                match (gpu.paint(&shaded, &Assets::new(), 1.0), fits) {
+                    (Ok(raster), true) => assert_eq!((raster.width, raster.height), (n, n)),
+                    (Err(PaintError::Size(..)), false) => {}
+                    (other, _) => {
+                        panic!("{n}² pixels of shader, {storage} bytes a buffer: {:?}", other.map(|r| r.width))
+                    }
+                }
+                // The painter paints on.
+                let small = gpu.paint(&DisplayList::new([4.0, 4.0]), &Assets::new(), 1.0).unwrap();
+                assert_eq!((small.width, small.height), (4, 4));
             }
 
             #[test]

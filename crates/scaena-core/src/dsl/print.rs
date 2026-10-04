@@ -519,8 +519,10 @@ fn whole(v: &Value) -> Value {
     }
 }
 
+/// A size as `canvas:` writes it: a whole number as an integer, anything else as JSON writes
+/// it, which reads back the same (Rust's `{}` writes 1e300 out in 301 digits, which do not).
 fn dim(n: f64) -> String {
-    if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") }
+    if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { Value::from(n).to_string() }
 }
 
 /// Whether a spine is written as `section` lines: a spine of sections, each a map with an

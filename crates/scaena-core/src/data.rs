@@ -166,21 +166,20 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
         }
         other => return Err(at(format!("unsupported source {other}"))),
     };
-    let columns = records.first().map(|(c, _)| c.clone()).unwrap_or_else(|| schema.keys().cloned().collect());
+    let columns = if records.is_empty() { schema.keys().cloned().collect() } else { columns_of(&records) };
     let types = columns
         .iter()
         .map(|c| ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}"))))
         .collect::<Result<Vec<_>, _>>()?;
     let mut rows = Vec::with_capacity(records.len());
     for (header, values) in records {
-        let row = header
-            .iter()
-            .zip(values)
-            .map(|(c, v)| {
-                let kind = ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}")))?;
-                typed(c, kind, v)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        // A JSON row may name its columns in another order, or leave one out, which is null.
+        let mut row = vec![Datum::Null; columns.len()];
+        for (i, (c, v)) in header.iter().zip(values).enumerate() {
+            let k = if header == columns { i } else { columns.iter().position(|x| x == c).expect("a column") };
+            let kind = ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}")))?;
+            row[k] = typed(c, kind, v)?;
+        }
         rows.push(row);
     }
     Ok(Table { columns, types, rows })
@@ -211,7 +210,7 @@ pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
     }
     .map_err(|e| DataError::Bad(format!("`{path}`: {e}")))?;
     let columns: Vec<String> = match records.first() {
-        Some((header, _)) => header.clone(),
+        Some(_) => columns_of(&records),
         // A CSV with a header and no rows still names its columns.
         None if path.ends_with(".csv") => csv_rows(text).map(|(header, _)| header).unwrap_or_default(),
         None => Vec::new(),
@@ -249,6 +248,20 @@ pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
 
 /// Rows as (column names, values), each in source order.
 type Records = Vec<(Vec<String>, Vec<Value>)>;
+
+/// The columns `records` name: the first row's, then any a later row names first, in the
+/// order they come. A CSV's rows all have its header's.
+fn columns_of(records: &Records) -> Vec<String> {
+    let mut columns: Vec<String> = records.first().map(|(header, _)| header.clone()).unwrap_or_default();
+    for (header, _) in records {
+        for c in header {
+            if !columns.contains(c) {
+                columns.push(c.clone());
+            }
+        }
+    }
+    columns
+}
 
 /// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote.
 fn csv(text: &str) -> Result<Records, String> {
@@ -347,6 +360,30 @@ mod tests {
         assert!(err.contains("`seven` is not a number"), "{err}");
         let missing = load(&deck2, &BTreeMap::new(), "q").unwrap_err();
         assert!(matches!(missing, DataError::Missing { .. }), "{missing}");
+    }
+
+    /// JSON objects name their keys in any order and may leave one out: each row lines up
+    /// with the columns by name, a missing value null, and a key only a later row has is a
+    /// column too.
+    #[test]
+    fn json_rows_line_up_with_the_columns_by_name() {
+        let rows = r#"[{"k": "a", "v": 2}, {"v": 3, "k": "b"}, {"k": "c"}, {"k": "d", "v": 4, "note": "x"}]"#;
+        let d = deck(&format!(r#"{{"q": {{"source": {{"inline": {rows}}}, "schema": {{"v": "number"}}}}}}"#));
+        let t = load(&d, &BTreeMap::new(), "q").unwrap();
+        assert_eq!(t.columns, ["k", "v", "note"]);
+        let (text, n) = (|s: &str| Datum::Text(s.into()), Datum::Number);
+        assert_eq!(
+            t.rows,
+            [
+                vec![text("a"), n(2.0), Datum::Null],
+                vec![text("b"), n(3.0), Datum::Null],
+                vec![text("c"), Datum::Null, Datum::Null],
+                vec![text("d"), n(4.0), text("x")],
+            ]
+        );
+        let inferred = infer("data/q.json", rows.as_bytes()).unwrap();
+        assert_eq!(inferred.columns, t.columns);
+        assert_eq!(inferred.types, [ColumnType::String, ColumnType::Number, ColumnType::String]);
     }
 
     #[test]

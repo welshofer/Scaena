@@ -38,7 +38,7 @@ fn exported(format: &str, states: Option<&[&str]>, size: &str, fps: u32, out: &P
         out: Some(out.to_path_buf()),
         size: Some(size.into()),
         fps: Some(fps),
-        audio: None,
+        ..Request::default()
     };
     export(&scaena_ops::open(Path::new(REVENUE)).unwrap(), &req).unwrap()
 }
@@ -164,6 +164,7 @@ fn a_sound_track_plays_under_the_frames_until_they_end() {
         size: Some("320x180".into()),
         fps: Some(10),
         audio: Some(tone),
+        ..Request::default()
     };
     let video = export(&scaena_ops::open(Path::new(REVENUE)).unwrap(), &req).unwrap();
     assert_eq!(video.frames, Some(30));

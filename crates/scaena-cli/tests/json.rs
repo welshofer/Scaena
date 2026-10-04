@@ -117,8 +117,17 @@ fn a_command_that_stops_prints_an_error_object() {
         (vec!["export", EXAMPLE, "--format", "pdf"], 2, None),
         // A video is a file: it needs `--out`.
         (vec!["export", EXAMPLE, "--format", "mp4", "--states", "intro,revenue"], 2, None),
-        (vec!["export", EXAMPLE, "--format", "html"], 3, Some("2.5")),
-        (vec!["serve", TORTURE], 3, Some("2.x")),
+        // So is a single-file page; a scaena built without the web player stops with 3
+        // (scaena-ops' tests/html.rs).
+        (vec!["export", EXAMPLE, "--format", "html"], 2, None),
+        // The GPU paints only a video's frames,
+        (vec!["export", EXAMPLE, "--format", "png", "--painter", "gpu"], 2, None),
+        // and only in a scaena built with it; one that has it stops at the missing `--out`.
+        (
+            vec!["export", EXAMPLE, "--format", "mp4", "--painter", "gpu"],
+            if cfg!(feature = "gpu") { 2 } else { 3 },
+            if cfg!(feature = "gpu") { None } else { Some("2.22") },
+        ),
     ] {
         let (got, v) = json(&args);
         assert_eq!(got, exit, "{args:?}: {v:#}");

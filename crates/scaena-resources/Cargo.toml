@@ -1,0 +1,16 @@
+[package]
+name = "scaena-resources"
+description = "What an agent reads to learn the format (SPEC §7.2): the MCP server serves it, and a page's assistant loads it as a WASM module of its own (PLAN 2.6)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json.workspace = true
+wasm-bindgen.workspace = true

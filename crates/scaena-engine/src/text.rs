@@ -480,6 +480,11 @@ impl TextEngine {
             }
         }
         let text: String = cased.iter().map(|t| t.as_ref()).collect();
+        // An empty paragraph is one empty line in the node's look, as an editor shows it.
+        // parley lays out a space in its place, and its ranges count the space's byte, past
+        // the end of the text: the space is laid out here instead, and its glyph dropped.
+        let empty = text.is_empty();
+        let text = if empty { " ".to_string() } else { text };
         let max_width = match spec.measure {
             Some(chars) => width.min(chars * self.ch(fonts, theme, spec)?),
             None => width,
@@ -525,6 +530,12 @@ impl TextEngine {
             _ => None,
         };
         let wrap = match (requested, fallback) {
+            // Nothing to break, at any width: at none, parley would end the space's line
+            // and start an empty one after it.
+            _ if empty => {
+                layout.break_all_lines(None);
+                requested
+            }
             (_, Some(_)) | (Wrap::Greedy, _) => {
                 fallback = fallback.or(greedy(&mut layout, breaking, max_width));
                 Wrap::Greedy
@@ -562,7 +573,15 @@ impl TextEngine {
             line_grid: spec.line_grid,
             weight: spec.role.weight,
         };
-        read_layout(&layout, text, fonts, &hyphens, paragraph)
+        let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
+        if empty {
+            read.text.clear();
+            read.runs.clear();
+            for line in &mut read.lines {
+                line.text = 0..0;
+            }
+        }
+        Ok(read)
     }
 
     /// The hyphen text in `style` draws at a line it breaks inside a word: `-` shaped in
@@ -648,6 +667,16 @@ fn style_props(
     role: &TextRole,
     spec: &TextSpec,
 ) -> Result<Vec<StyleProperty<'static, Ink>>, EngineError> {
+    // A size or line height past f32's range sets glyphs or lines an infinite length apart,
+    // which parley breaks into lines forever, and letter spacing past it sets glyphs
+    // nowhere: an error here, as a painter refuses a raster it cannot make.
+    let (size, line, spacing) = (role.size, role.size * role.leading, role.size * role.tracking);
+    if !(size.is_finite() && line.is_finite() && spacing.is_finite()) {
+        return Err(EngineError::Layout(format!(
+            "text at size {}, leading {}, tracking {} is too large to lay out",
+            role.size, role.leading, role.tracking
+        )));
+    }
     let stack = theme.family_stack(&role.family)?;
     let family =
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
@@ -1310,7 +1339,7 @@ fn on_grid(gap: f32, pitch: f32) -> f32 {
 fn read_layout(
     layout: &Layout<Ink>,
     text: String,
-    fonts: &BundleFonts,
+    fonts: &mut BundleFonts,
     hyphens: &[Hyphen],
     p: Paragraph,
 ) -> Result<TextLayout, EngineError> {
@@ -1397,6 +1426,7 @@ fn read_layout(
                 .take(glyphs.len())
                 .collect();
             taken.1 += glyphs.len();
+            fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
             runs.push(GlyphRun {
                 font: fonts.font_ref(run.font())?,
                 size: run.font_size(),

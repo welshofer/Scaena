@@ -506,7 +506,46 @@ fn errors_say_where_and_what() {
     assert!(error(&format!("{head}node t text size:12px\n")).2.contains("unit"));
     assert!(error(&format!("{head}node t text x:1-7\n")).2.contains("`at:` calls only"));
     assert!(error("  node t text\n").2.contains("indented"));
+    // A line short of the closing quotes' indentation, a letter of any width in its way.
+    for c in ['x', 'é', '🇺'] {
+        let notes = format!("{head}state a\n  notes \"\"\"\n    one\n   {c}two\n    \"\"\"\n");
+        assert!(error(&notes).2.contains("indented less than the closing"), "{c}");
+    }
     assert!(error(&format!("{head}deck \"again\"\n")).2.contains("one `deck` header"));
+}
+
+/// A canvas of any size the deck holds decompiles to a size that compiles back to it, and a
+/// size no number holds, typed into a source, is an error where it is typed.
+#[test]
+fn canvas_sizes_round_trip_at_the_ends_of_f64() {
+    let base = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/revenue.deck.json"));
+    let mut doc: serde_json::Value = serde_json::from_str(&base.unwrap()).unwrap();
+    for (w, h) in [(f64::MAX, 1e-9), (1e20, 0.5), (1920.5, 1e15)] {
+        doc["canvas"] = serde_json::json!({ "width": w, "height": h });
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let source = decompile(&deck);
+        let back = compile(&source).unwrap_or_else(|e| panic!("{w}x{h}: {e}"));
+        assert_eq!((back.canvas.width, back.canvas.height), (w, h));
+    }
+    for typed in ["canvas:1920x1e999", "canvas:1e999x1080"] {
+        let e = compile(&format!("deck \"T\" {typed}\n")).unwrap_err();
+        assert!(e.message.contains("is not a number"), "{typed}: {e}");
+    }
+    let e = compile("deck \"T\" canvas:16x9\nnode t text at:col(1-1e999)\n").unwrap_err();
+    assert!(e.message.contains("is not a number"), "{e}");
+}
+
+/// An error about a character spans all of its bytes, so an editor can slice the source at
+/// either end: a letter typed where none goes, in any script.
+#[test]
+fn an_error_about_a_character_spans_all_of_it() {
+    let head = "deck \"T\" canvas:1920x1080\n";
+    for c in ['é', '漢', '🇺', '\u{301}'] {
+        let source = format!("{head}state a transition:{c}standard\n");
+        let e = compile(&source).unwrap_err();
+        assert_eq!(&source[e.offset..e.offset + e.len], c.to_string(), "{e:?}");
+        assert_eq!((e.line, e.col), (2, 20), "{e:?}");
+    }
 }
 
 #[test]

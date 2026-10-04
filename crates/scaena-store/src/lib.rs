@@ -13,12 +13,17 @@
 //! A bundle that keeps `history/deck.loro` keeps its history: whatever writes its deck
 //! records the change there too ([`Bundle::record`]), by the bundle's `author`, after taking
 //! in, as a change by `fs`, any edit made to `deck.json` outside Scaena since.
+//!
+//! A bundle can also live in memory, as a page holds one (PLAN 2.4): opened from its files
+//! ([`Bundle::in_memory`]) or a `.scaena` zip's bytes ([`Bundle::from_zip`]), and saved to
+//! a set of files ([`Bundle::saving`]) the caller writes where it keeps them, or zips
+//! ([`zip`]).
 
 pub mod crdt;
 mod save;
 pub mod subset;
 
-pub use save::{SaveOptions, Saved};
+pub use save::{SaveOptions, Saved, Saving, place, zip};
 
 use crdt::{CrdtError, DeckDoc, Edit};
 use scaena_core::Deck;
@@ -53,12 +58,17 @@ pub enum StoreError {
     NotImplemented(&'static str),
     #[error("{HISTORY}: {0}")]
     Crdt(#[from] CrdtError),
+    /// What keeps the history elsewhere, as a page's module does (PLAN 2.9), could not
+    /// record in it.
+    #[error("{HISTORY}: {0}")]
+    History(String),
 }
 
 /// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
 pub const HISTORY: &str = "history/deck.loro";
 
-/// Where a bundle's files are: a directory on disk, or the entries of a zip, read once.
+/// Where a bundle's files are: a directory on disk, or in memory, by their paths inside
+/// the bundle: the entries of a zip, read once, or the files a page holds.
 #[derive(Debug, Clone)]
 pub enum Files {
     Dir(PathBuf),
@@ -143,6 +153,24 @@ impl Bundle {
         Ok(Bundle { root, deck_file, deck, theme_json, files, author: "user".into() })
     }
 
+    /// A bundle held in memory: `files`, by their paths inside it, with its deck at
+    /// `deck.json` (PLAN 2.4). A path outside the bundle is refused.
+    pub fn in_memory(files: BTreeMap<String, Vec<u8>>) -> Result<Bundle, StoreError> {
+        let files: BTreeMap<String, Vec<u8>> =
+            files.into_iter().map(|(rel, bytes)| Ok((normal(&rel)?, bytes))).collect::<Result<_, StoreError>>()?;
+        let files = Files::Zip(Arc::new(files));
+        let deck_file = "deck.json".to_string();
+        let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
+        let deck = Deck::from_json(&text)?;
+        let theme_json = theme_of(&deck, &files)?;
+        Ok(Bundle { root: PathBuf::from("deck.scaena"), deck_file, deck, theme_json, files, author: "user".into() })
+    }
+
+    /// A `.scaena` zip's bytes, opened in memory.
+    pub fn from_zip(bytes: &[u8]) -> Result<Bundle, StoreError> {
+        Bundle::in_memory(unzip_from(std::io::Cursor::new(bytes), Path::new("deck.scaena"))?)
+    }
+
     /// A path the deck names (theme, fonts, data), resolved inside a directory bundle.
     /// Bundles are self-contained (SPEC §3.1): absolute paths and `..` are refused.
     pub fn path(&self, rel: &str) -> Result<PathBuf, StoreError> {
@@ -163,7 +191,7 @@ impl Bundle {
         }
         let doc = DeckDoc::load(&self.read(HISTORY)?)?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
-        let outside = Edit { message: Some("deck.json changed outside Scaena"), ..Edit::by(crdt::FS) };
+        let outside = Edit { message: Some(crdt::OUTSIDE), ..Edit::by(crdt::FS) };
         doc.apply(&disk, &outside)?;
         Ok(Some(doc))
     }
@@ -226,9 +254,15 @@ fn locate(path: &Path) -> Result<(PathBuf, String, Files), StoreError> {
 
 /// Every file in a zip bundle, by its path inside it.
 fn unzip(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
-    let zip_error = |source| StoreError::Zip { path: path.to_path_buf(), source };
     let file = std::fs::File::open(path).map_err(|source| StoreError::Read { path: path.into(), source })?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error)?;
+    unzip_from(file, path)
+}
+
+/// Every file in the zip `reader` holds, by its path inside the bundle; `path` names it in
+/// an error.
+fn unzip_from(reader: impl Read + std::io::Seek, path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
+    let zip_error = |source| StoreError::Zip { path: path.to_path_buf(), source };
+    let mut archive = zip::ZipArchive::new(reader).map_err(zip_error)?;
     let mut out = BTreeMap::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(zip_error)?;

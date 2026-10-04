@@ -9,7 +9,11 @@ members = [
   "crates/scaena-ops",
   "crates/scaena-cli",
   "crates/scaena-mcp",
+  "crates/scaena-serve",
   "crates/scaena-wasm",
+  "crates/scaena-subset",
+  "crates/scaena-history",
+  "crates/scaena-resources",
   "crates/scaena-ffi",
 ]
 default-members = [
@@ -39,6 +43,9 @@ scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
+scaena-serve  = { path = "crates/scaena-serve" }
+scaena-resources = { path = "crates/scaena-resources" }
+scaena-history = { path = "crates/scaena-history" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }
@@ -76,6 +83,9 @@ libm     = "0.2.16"
 # painters
 vello     = "0.10.0"
 vello_cpu = "0.2.0"
+# A shader's bytes and a frame's pixels as vello_cpu's pixels and back, in the same buffer. Already in
+# the graph through peniko.
+bytemuck  = { version = "1.25", features = ["extern_crate_alloc"] }
 # wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
 
 # bundle I/O (PLAN 1.4): `.scaena` zips with pure-Rust deflate; fontations' subsetter (hb-subset's
@@ -103,6 +113,13 @@ loro = "1.16"
 rmcp   = { version = "3.5", default-features = false, features = ["server", "macros", "schemars", "transport-io"] }
 tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sync", "time"] }
 base64 = "0.23"
+# Gzip for a single-file HTML export's files (PLAN 2.5), on the backend zip already builds.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+# `scaena serve` (PLAN 2.11, ADR-0012): HTTP/1.1 on the tokio the MCP server already runs on.
+hyper          = { version = "1.11", default-features = false, features = ["server", "http1"] }
+hyper-util     = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
+bytes          = "1.12"
 
 # benchmarks (SPEC §15, PLAN 1.24): no plots, no rayon; `cargo bench` runs them
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
@@ -111,6 +128,7 @@ criterion = { version = "0.8.2", default-features = false, features = ["cargo_be
 wasm-bindgen = "0.2.129"
 wasm-bindgen-futures = "0.4.79"
 web-sys = "0.3.106"
+js-sys = "0.3.106"
 
 [profile.release]
 lto = "fat"
@@ -118,5 +136,18 @@ codegen-units = 1
 opt-level = 3
 strip = true
 
+# The font subsetter, which a page loads only to download a bundle (PLAN 2.4), built for size:
+# its module is 244 KB gzipped, against 296 KB at opt-level 3.
+[profile.release.package.skera]
+opt-level = "s"
+[profile.release.package.write-fonts]
+opt-level = "s"
+
 [profile.dev.package."*"]
 opt-level = 1
+
+# The raster diff (SPEC §13.5) walks every pixel of every golden frame, in the painter tests
+# and the parity harness: unoptimized, the harness holds two of the browser's painters to the
+# goldens in 88 s; at 2, in 11.
+[profile.dev.package.scaena-paint]
+opt-level = 2

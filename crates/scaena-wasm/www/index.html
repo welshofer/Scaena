@@ -25,10 +25,9 @@
     const deckJson = await (await get("deck.json")).text();
     const deck = JSON.parse(deckJson);
     const player = new Player(deckJson, await (await get(deck.theme)).text());
-    for (const font of deck.fonts) player.addFont(font.file, new Uint8Array(await (await get(font.file)).arrayBuffer()));
-    for (const { source } of Object.values(deck.data ?? {}))
-      if (typeof source === "string") player.addData(source, new Uint8Array(await (await get(source)).arrayBuffer()));
-    for (const path of player.imageFiles()) player.addImage(path, new Uint8Array(await (await get(path)).arrayBuffer()));
+    const sources = Object.values(deck.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
+    for (const path of [...deck.fonts.map((f) => f.file), ...sources, ...player.imageFiles()])
+      player.addFile(path, new Uint8Array(await (await get(path)).arrayBuffer()));
     const stage = document.getElementById("stage");
     [stage.width, stage.height] = [deck.canvas.width, deck.canvas.height];
     const canvas = await Canvas.attach(stage);

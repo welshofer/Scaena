@@ -1,0 +1,24 @@
+{
+  "name": "scaena-web",
+  "private": true,
+  "type": "module",
+  "description": "The web player and editor (PLAN 2.1–2.4, SPEC §9.2): the WASM engine in a worker, painting an OffscreenCanvas; and the page a single-file export fills in (PLAN 2.5).",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json",
+    "build": "npm run typecheck && vite build && vite build --config vite.standalone.config.ts && node pages.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.13.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.2"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@lezer/highlight": "1.2.5"
+  }
+}

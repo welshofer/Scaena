@@ -1,0 +1,26 @@
+[package]
+name = "scaena-serve"
+description = "`scaena serve`: the web player and editor on a bundle's folder, on this machine only. PLAN 2.11."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+scaena-core.workspace = true
+scaena-ops.workspace = true
+scaena-store.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+tokio = { workspace = true, features = ["net"] }
+flate2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+flate2.workspace = true
