@@ -631,6 +631,17 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *Native tests (`scaena-wasm`'s `store`, `scaena-history`, `scaena-store`'s `crdt`) check what a save records and by whom. A rename stays the node it was (one operation, its id). The history holds the deck as saved, so the next command that records takes in nothing by `fs`. A deck edited outside goes in first by `fs`, a download records too, and a bundle without a history records nothing. The history module's record matches `Bundle::record`'s for the same edit.*
     - *`web/history.mjs` drives the editor on the revenue example saved by `scaena save --history`: the user types, a scripted assistant renames the title, and the user types again. The save loads the module, which nothing before it did, and records the edit, the patch by `agent:scripted`, and the save. Copied to disk, `scaena save` takes in nothing by `fs`, and a download's history is the one kept plus the save that subset its fonts. A bundle that keeps no history saves without the module. `just web-smoke` and CI's wasm job run it.)*
 
+- [x] 2.10 A guide for people who write decks, `docs/authoring.md`: how to edit, save, and see a deck, in the editor and on the command line; what checks one (the grammar, the schemas, lint); the language, in one deck; the theme's names; recipes. *(Jay, 2026-10-04: "Is there a verifiable grammar? A DTD? Lint? How do I edit, save, and see changes?")*
+  *(Done:*
+    - *`crates/scaena-cli/tests/skills.rs` holds the guide to what exists, as it holds the skills: each command and flag it shows, inline or on a command line, each lint code, file, and SPEC section.*
+    - *In a bundle of `docs/examples/`'s files, its deck compiles and lints with no findings. Each recipe compiles on top of it, with no finding but W401, a state no beat names.*
+    - *The two errors it shows are what `compile` prints, line for line, with their exit codes. Its tables of names are the three shipped themes'.*
+    - *Ten planted defects each failed it: a flag in the prose, a flag and a path on a command line, a lint code, a SPEC section, a deck that does not compile, a recipe that lints with an error, an error's words, a slot, and a spring.*
+    - *`web/serve.py` serves a site on this machine only, and `just site` copies it in beside the pages.*
+    - *What the guide found missing is 2.11 and 2.12.)*
+- [ ] 2.11 `scaena serve <bundle>` (SPEC §7.1): the player and the editor on a bundle on disk, on this machine. The bundle is watched: a `deck.scn` saved in any text editor compiles, and the pages show the new deck, so a deck written by hand plays as it is saved. *(Found by 2.10: today a deck written on the command line is seen by `render` one state at a time, or by exporting one file.)*
+- [ ] 2.12 The editor starts a deck: **New**, a bundle from a theme and its fonts (as `deck_create` makes one), and **Save as**, to a folder on disk or under another name in the browser. *(Found by 2.10: today a deck starts as a copy of another bundle.)*
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and acceptably on the CPU fallback in Firefox.

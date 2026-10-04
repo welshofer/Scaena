@@ -156,7 +156,7 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Dev server with live preview (PLAN 2.x).
+    /// Dev server with live preview (PLAN 2.11).
     Serve {
         bundle: PathBuf,
         #[arg(long, default_value_t = 4848)]
@@ -391,7 +391,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
-        Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.x")),
+        Cmd::Serve { .. } => Ok(not_yet(cli.json, "serve", "2.11")),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)

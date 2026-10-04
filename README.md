@@ -9,6 +9,7 @@
 | [`docs/MANIFESTO.md`](docs/MANIFESTO.md) | why — the goal and the ten beliefs |
 | [`docs/SPEC.md`](docs/SPEC.md) | what — document model, engine, agent surface, clients, exports |
 | [`docs/PLAN.md`](docs/PLAN.md) | when — phases, tasks, exit criteria, gate log |
+| [`docs/authoring.md`](docs/authoring.md) | how to write a deck — edit, check, see, save, present |
 | [`docs/adr/`](docs/adr/) | why *this way* — six decisions and their trade-offs |
 | [`CLAUDE.md`](CLAUDE.md) | how to work in this repo (humans and agents) |
 

@@ -49,7 +49,7 @@ The presenter view follows the player frame by frame. It shows the state's notes
 
 ## Edit with it
 
-`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default (on the site, its demo deck); `painter` works as in the player. Play opens the player on the bundle as last saved, in a new tab.
+`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default (on the site, its demo deck); `painter` works as in the player. Play opens the player on the bundle as last saved, in a new tab. `docs/authoring.md` is the guide to writing a deck in it.
 
 - **Each edit** compiles in the worker as you type. A source that does not compile says where, and the preview keeps the deck it had.
 - **The preview** shows the state the cursor is in, at rest. The state picker moves the cursor to a state's line.
@@ -105,7 +105,7 @@ just site                        # the pages into target/site, with the trails e
 just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a deck file
 ```
 
-`target/site` is a static site (PLAN 2.7, SPEC §9.2). Copy it to any static host, at its root or under any path: its paths are relative. `index.html` is the player and `editor.html` the editor, and both open the demo deck in `decks/NAME/` when the address names no bundle. The deck is saved as `scaena save` saves it, with its fonts whole, so the editor sets any character they carry. Its files are named by their content, but for `deck.json` and `manifest.json`. `?bundle=` opens any other bundle the browser can fetch: one on the same host, or one whose host lets the site's origin read it (CORS).
+`target/site` is a static site (PLAN 2.7, SPEC §9.2). Copy it to any static host, at its root or under any path: its paths are relative. Its `serve.py` serves it on this machine only: `python3 target/site/serve.py`, then `http://localhost:8080/`. `index.html` is the player and `editor.html` the editor, and both open the demo deck in `decks/NAME/` when the address names no bundle. The deck is saved as `scaena save` saves it, with its fonts whole, so the editor sets any character they carry. Its files are named by their content, but for `deck.json` and `manifest.json`. `?bundle=` opens any other bundle the browser can fetch: one on the same host, or one whose host lets the site's origin read it (CORS).
 
 - **What a host must do.**
   - Serve the files over HTTPS. WebGPU, the browser's storage, the folder picker, and the assistant's kept keys need a secure context (`localhost` is one).

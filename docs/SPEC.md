@@ -589,7 +589,7 @@ Expressions are `docs/spec/expr.md`'s. Each step reads the table the step before
 
 ## 4. DSL (`.scn`)
 
-The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`. `scaena compile` turns source into `deck.json`, and `scaena decompile` turns any deck into canonical source (§7.1). The compiler lives in `scaena-core::dsl`.
+The DSL is an authoring projection of the logical document. It is line-oriented and indentation-scoped, and agents may edit either it or `deck.json`. `scaena compile` turns source into `deck.json`, and `scaena decompile` turns any deck into canonical source (§7.1). The compiler lives in `scaena-core::dsl`. `docs/authoring.md` is the guide for people: how to write, check, see, and save a deck.
 
 **The round trip is semantic and exact, not textual.** The promise is
 
@@ -826,7 +826,7 @@ scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) 
 scaena diff      <bundle> --from ID --to ID           # what changes between two states (resolved)
 scaena save      <bundle> [--to DIR|FILE.scaena] [--keep-fonts] [--history]   # write the bundle as §3.1 lays it out
 scaena theme     <bundle> --apply theme.json [--dry-run]   # re-theme; prints lint delta
-scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API
+scaena serve     <bundle> [--port N]                  # dev server: live preview + watch + HTTP API (PLAN 2.11)
 scaena mcp                                            # stdio MCP server exposing the same operations
 ```
 

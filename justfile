@@ -121,9 +121,11 @@ web: wasm
 # static host serves from its root or from any path under it, with a demo deck the pages open:
 # the trails example by default, or the bundle or deck file given. The deck is saved as
 # `scaena save` saves it, its fonts whole, so the editor sets any character they carry.
+# `python3 target/site/serve.py` serves it on this machine only.
 site deck="docs/examples/trails.deck.json": web
     cd web && VITE_BUNDLE=decks/{{file_stem(file_stem(deck))}}/ npx vite build --outDir ../target/site --emptyOutDir
     SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save {{deck}} --to target/site/decks/{{file_stem(file_stem(deck))}} --keep-fonts
+    cp web/serve.py target/site/serve.py
 
 # The web player on Vite's dev server, with the repository's bundles at their paths in it
 # (/?bundle=/docs/examples/ridgeline.deck.json), on the WASM engine `just wasm` last built.

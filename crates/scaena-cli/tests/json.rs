@@ -120,7 +120,7 @@ fn a_command_that_stops_prints_an_error_object() {
         // So is a single-file page; a scaena built without the web player stops with 3
         // (scaena-ops' tests/html.rs).
         (vec!["export", EXAMPLE, "--format", "html"], 2, None),
-        (vec!["serve", TORTURE], 3, Some("2.x")),
+        (vec!["serve", TORTURE], 3, Some("2.11")),
     ] {
         let (got, v) = json(&args);
         assert_eq!(got, exit, "{args:?}: {v:#}");
