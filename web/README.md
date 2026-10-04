@@ -19,6 +19,7 @@ The page reads these parameters:
 |---|---|
 | `bundle` | a bundle's directory or its deck file, by URL: `/tests/fixtures/torture.scaena` (the default, but on the site, whose default is its demo deck) or `/docs/examples/revenue.deck.json`. Its files are where the deck names them, from the deck's directory, and a saved bundle's manifest lists the rest. `opfs:NAME` is a bundle the browser keeps; in the editor, `folder:NAME` is a folder opened before. |
 | `painter` | `gpu` or `cpu`. By default, WebGPU where the browser has an adapter, and the CPU painter elsewhere. |
+| `helpers` | the most workers the CPU painter shares a shader's rows with (PLAN 2.28), `0` for none. By default, one fewer than the browser's cores, at most 7. |
 | `state` | the state to open on; the first by default. |
 | `view` | `presenter` for the presenter view. The player opens it with P. |
 | `motion` | `reduce` for cuts in place of cues, `full` for the cues whatever the system asks. By default, the system's `prefers-reduced-motion`. |
@@ -43,6 +44,8 @@ For a screen reader (PLAN 2.8), the canvas is hidden, and the page keeps how the
 With less motion asked for (`prefers-reduced-motion`, or `?motion=reduce`), each cue is a cut to its state at rest, and the deck keeps its pace: a state that holds goes on when its cue and hold are over.
 
 A focused button or link keeps Enter and Space, and the scrubber and the pickers keep every key; the deck's keys work everywhere else, so → goes on after a click on ▶. The scrubber says which state it is at.
+
+The CPU painter works a shader out on every core (PLAN 2.28). The engine's module has no threads, so the first time a frame draws a shader 128 rows tall or more, the worker asks the page for helpers. The page starts each as it started the worker, with the engine's module and no deck, and connects the two by a `MessagePort`. Each frame, the worker splits each shader's rows into bands, works one out itself, and sends each helper the shader's spec and a band; the bytes are the ones it would have worked out alone. A helper that fails, or has not answered in 10 s, is let go, and the worker works its band out itself.
 
 `?fps` shows a frame meter beside the status, for gate 2's first criterion: while the deck plays, its frames a second over the run so far, its worst frame, how many frames came more than 25 ms after the one before (late for a 60 Hz display), and the mean paint. The worker times each frame of a run by the display's clock. `docs/gate-2.md` says how to read it on a real machine, and `just fps chrome` (`fps.mjs`) plays a deck state by state in a browser with a window and prints the meter's reading for each.
 

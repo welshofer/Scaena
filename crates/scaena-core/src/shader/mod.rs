@@ -6,7 +6,8 @@
 //!
 //! A [`Job`] is one shader op made ready to draw over a box of device pixels: the
 //! CPU painter calls [`Job::render`]; a GPU painter dispatches [`Job::wgsl`] over the
-//! same box with [`Job::uniforms`] and copies the bytes it writes into a texture.
+//! same box with [`Job::uniforms`] and copies the bytes it writes into a texture. A
+//! [`Spec`] is what a job is made from, as bytes another worker makes it again from.
 //!
 //! Every v1 kind is here (PLAN 0.11, 1.10): `mesh`, `gradient`, `noise`, `grain`, and
 //! `particles`.
@@ -18,6 +19,7 @@ pub mod noise;
 pub mod particles;
 
 use crate::displaylist::{Color, Op, ShaderKind};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -32,6 +34,8 @@ pub enum ShaderError {
     Palette { kind: &'static str, max: usize, len: usize },
     #[error("shader rect {0:?}: expected a finite width and height above 0")]
     Rect([f32; 4]),
+    #[error("shader spec: {0}")]
+    Spec(String),
 }
 
 /// One shader op over a box of device pixels.
@@ -93,21 +97,24 @@ impl Job {
         self.render_on(1)
     }
 
-    /// [`Job::render`], its rows in bands on up to `threads` threads. No row reads another,
-    /// so the bytes do not depend on how many: `render_on(n) == render()` for every `n`.
-    /// A band is at least [`BAND`] rows, and WebAssembly, which has no threads, takes one.
+    /// [`Job::render`], its rows in [`bands`] on up to `threads` threads. No row reads
+    /// another, so the bytes do not depend on how many: `render_on(n) == render()` for every
+    /// `n`. WebAssembly, which has no threads, takes one; the browser spreads the bands over
+    /// workers of its own instead, each making the job again from its [`Spec`].
     pub fn render_on(&self, threads: usize) -> Vec<u8> {
         let [_, _, w, h] = self.bbox();
         let row = w as usize * 4;
         let mut out = vec![0; row * h as usize];
-        let bands = if cfg!(target_arch = "wasm32") { 1 } else { threads.min(h as usize / BAND).max(1) };
-        if bands == 1 || row == 0 {
+        let bands = bands(h, if cfg!(target_arch = "wasm32") { 1 } else { threads });
+        if bands.len() <= 1 || row == 0 {
             self.render_rows(0, &mut out);
         } else {
-            let rows = (h as usize).div_ceil(bands);
             std::thread::scope(|s| {
-                for (i, band) in out.chunks_mut(rows * row).enumerate() {
-                    s.spawn(move || self.render_rows((i * rows) as u32, band));
+                let mut rest = out.as_mut_slice();
+                for [first, rows] in bands {
+                    let (band, after) = rest.split_at_mut(rows as usize * row);
+                    rest = after;
+                    s.spawn(move || self.render_rows(first, band));
                 }
             });
         }
@@ -236,6 +243,43 @@ pub fn default(kind: ShaderKind, param: &str) -> Option<f32> {
 /// The fewest rows [`Job::render_on`] gives a thread: below it, a thread costs about as
 /// much to start as its band takes to work out.
 pub const BAND: usize = 64;
+
+/// How a box `height` rows tall is split among up to `threads` threads: each band's first
+/// row and its rows, in order, every row in one. A band is at least [`BAND`] rows, so a
+/// box under twice that is one band; a box with no rows has none.
+pub fn bands(height: u32, threads: usize) -> Vec<[u32; 2]> {
+    let n = threads.min(height as usize / BAND).max(1);
+    let rows = height.div_ceil(n as u32).max(1);
+    (0..height).step_by(rows as usize).map(|first| [first, rows.min(height - first)]).collect()
+}
+
+/// What a [`Job`] is made from, [`Job::new`]'s arguments: a shader op, the transform from
+/// canvas units to device pixels it is drawn through, and the size of the raster. As bytes
+/// it crosses to another worker, which makes the same job again: the browser, whose
+/// WebAssembly has no threads, works a shader's [`bands`] out on workers of its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Spec {
+    pub op: Op,
+    pub device: [f64; 6],
+    pub size: [u32; 2],
+}
+
+impl Spec {
+    /// The job: [`Job::new`] on the spec's arguments.
+    pub fn job(&self) -> Result<Option<Job>, ShaderError> {
+        Job::new(&self.op, self.device, self.size)
+    }
+
+    /// The spec as postcard bytes, each number as its bits: the job made from them is
+    /// this spec's, bit for bit.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ShaderError> {
+        postcard::to_allocvec(self).map_err(|e| ShaderError::Spec(e.to_string()))
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Spec, ShaderError> {
+        postcard::from_bytes(bytes).map_err(|e| ShaderError::Spec(e.to_string()))
+    }
+}
 
 /// The threads a shader's rows are best spread over here: the host's cores, up to the 8
 /// SPEC §15's budgets allow, and 1 in WebAssembly, which has no threads.
@@ -664,7 +708,66 @@ mod tests {
                 job.render_rows(first as u32, &mut out);
                 assert!(out == whole[first * row..(first + n) * row], "{kind:?}, rows {first} to {}", first + n);
             }
+            // Made again from its spec's bytes, the job is the same job, and its bands, each
+            // worked out apart, are the render.
+            let spec = Spec { op: op.clone(), device: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], size: [w as u32, h as u32] };
+            let again = Spec::from_bytes(&spec.to_bytes().unwrap()).unwrap().job().unwrap().unwrap();
+            assert_eq!(again, job, "{kind:?}");
+            let mut banded = Vec::new();
+            for [first, rows] in bands(h as u32, 4) {
+                let mut out = vec![0; rows as usize * row];
+                again.render_rows(first, &mut out);
+                banded.extend(out);
+            }
+            assert!(banded == whole, "{kind:?} in bands");
         }
+    }
+
+    /// Bands cover every row once, in order, each at least `BAND` rows but the last, on no
+    /// more threads than asked.
+    #[test]
+    fn bands_split_every_row_once() {
+        assert_eq!(bands(0, 4), Vec::<[u32; 2]>::new());
+        assert_eq!(bands(1, 4), vec![[0, 1]]);
+        assert_eq!(bands(127, 8), vec![[0, 127]]);
+        assert_eq!(bands(128, 8), vec![[0, 64], [64, 64]]);
+        assert_eq!(bands(1080, 4), vec![[0, 270], [270, 270], [540, 270], [810, 270]]);
+        assert_eq!(
+            bands(515, 9),
+            vec![[0, 65], [65, 65], [130, 65], [195, 65], [260, 65], [325, 65], [390, 65], [455, 60]]
+        );
+        for height in [0, 1, 63, 64, 65, 200, 1079, 1080, 2160] {
+            for threads in [0, 1, 2, 3, 7, 8, 16] {
+                let b = bands(height, threads);
+                assert!(b.len() <= threads.max(1), "{height} rows on {threads}");
+                let mut next = 0;
+                for [first, rows] in &b {
+                    assert_eq!(*first, next);
+                    assert!(*rows >= 1);
+                    next += rows;
+                }
+                assert_eq!(next, height);
+                assert!(b.iter().rev().skip(1).all(|[_, rows]| *rows as usize >= BAND) || b.len() == 1);
+            }
+        }
+    }
+
+    /// Bytes that are not a spec are an error that says so, never a panic.
+    #[test]
+    fn a_damaged_spec_is_an_error() {
+        let op = Op::Shader {
+            kind: ShaderKind::Noise,
+            seed: u64::MAX,
+            t: 3.5,
+            rect: [0.0, 0.0, 64.0, 64.0],
+            palette: vec![Color([1, 2, 3, 255])],
+            params: BTreeMap::from([("octaves".to_string(), 3.0)]),
+        };
+        let bytes = Spec { op, device: [0.5, 0.0, 0.0, 0.5, 0.25, 0.0], size: [32, 32] }.to_bytes().unwrap();
+        for cut in 0..bytes.len() {
+            assert!(matches!(Spec::from_bytes(&bytes[..cut]), Err(ShaderError::Spec(_))), "cut at {cut}");
+        }
+        assert!(matches!(Spec::from_bytes(&[0xff; 9]), Err(ShaderError::Spec(_))));
     }
 
     #[test]

@@ -23,7 +23,7 @@ pub mod diff;
 
 use peniko::{Blob, FontData};
 use scaena_core::displaylist::{DL_VERSION, DisplayList, FontRef};
-use scaena_core::shader::{Job, ShaderError};
+use scaena_core::shader::{Job, ShaderError, Spec};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -50,6 +50,9 @@ pub enum PaintError {
     Gpu(String),
     #[error("shader: {0}")]
     Shader(ShaderError),
+    /// Pixels handed to a painter for a frame's shaders that are not theirs.
+    #[error("shader pixels: {0}")]
+    Shaded(String),
 }
 
 impl From<ShaderError> for PaintError {
@@ -138,7 +141,8 @@ impl Picture {
         })
     }
 
-    /// Premultiplied, for `vello_cpu`.
+    /// Premultiplied, for `vello_cpu`, which knows whether it is opaque: an opaque image is
+    /// drawn without blending, and hides what is under it (the same pixels, sooner).
     #[cfg(feature = "cpu")]
     fn pixmap(&self) -> Arc<vello_cpu::Pixmap> {
         self.pixmap
@@ -152,7 +156,9 @@ impl Picture {
                         a,
                     }
                 });
-                Arc::new(vello_cpu::Pixmap::from_parts(pixels.collect(), self.width as u16, self.height as u16))
+                let opaque = self.rgba.data().as_chunks::<4>().0.iter().all(|[.., a]| *a == 255);
+                let (w, h) = (self.width as u16, self.height as u16);
+                Arc::new(vello_cpu::Pixmap::from_parts_with_opacity(pixels.collect(), w, h, !opaque))
             })
             .clone()
     }
@@ -328,20 +334,39 @@ fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
 /// [`Job::bbox`] says.
 #[cfg(any(feature = "cpu", feature = "gpu"))]
 pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, PaintError> {
+    shader_ops(dl, scale)?.into_iter().map(|(op, device, size)| Ok(Job::new(op, device, size)?)).collect()
+}
+
+/// [`shader_jobs`]' jobs as what each is made from: its op, the transform to device pixels,
+/// and the raster's size, in the same order. Another worker makes the same job from one
+/// ([`Spec::job`]): the browser's helpers do (PLAN 2.28).
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+pub fn shader_specs(dl: &DisplayList, scale: f32) -> Result<Vec<Spec>, PaintError> {
+    let specs = shader_ops(dl, scale)?.into_iter();
+    Ok(specs.map(|(op, device, size)| Spec { op: op.clone(), device, size }).collect())
+}
+
+/// Every shader op in `dl` at `scale`, as [`shader_jobs`] meets them, with the transform from
+/// canvas units to device pixels it is drawn through and the raster's size.
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+#[allow(clippy::type_complexity)]
+fn shader_ops(
+    dl: &DisplayList,
+    scale: f32,
+) -> Result<Vec<(&scaena_core::displaylist::Op, [f64; 6], [u32; 2])>, PaintError> {
     use scaena_core::displaylist::Op;
-    fn walk(ops: &[Op], xf: kurbo::Affine, size: [u32; 2], out: &mut Vec<Option<Job>>) -> Result<(), PaintError> {
+    fn walk<'a>(ops: &'a [Op], xf: kurbo::Affine, size: [u32; 2], out: &mut Vec<(&'a Op, [f64; 6], [u32; 2])>) {
         for op in ops {
             match op {
-                Op::Layer { transform, ops, .. } => walk(ops, xf * convert::affine(transform), size, out)?,
-                Op::Shader { .. } => out.push(Job::new(op, xf.as_coeffs(), size)?),
+                Op::Layer { transform, ops, .. } => walk(ops, xf * convert::affine(transform), size, out),
+                Op::Shader { .. } => out.push((op, xf.as_coeffs(), size)),
                 _ => {}
             }
         }
-        Ok(())
     }
     let (w, h) = raster_size(dl, scale)?;
     let mut out = Vec::new();
-    walk(&dl.ops, kurbo::Affine::scale(f64::from(scale)), [u32::from(w), u32::from(h)], &mut out)?;
+    walk(&dl.ops, kurbo::Affine::scale(f64::from(scale)), [u32::from(w), u32::from(h)], &mut out);
     Ok(out)
 }
 
@@ -534,13 +559,63 @@ pub mod cpu {
 
         fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
+            raster(dl, scale)?;
+            let jobs = shader_jobs(dl, scale)?;
+            let pixels = jobs.iter().flatten().map(|job| job.render_on(self.threads)).collect();
+            self.draw(dl, fonts, scale, jobs, pixels)
+        }
+    }
+
+    impl CpuPainter {
+        /// [`Painter::paint`], with the pixels of the frame's shaders worked out already,
+        /// elsewhere: `pixels` holds [`Job::render`]'s bytes for each of [`shader_jobs`]' jobs
+        /// that covers a pixel, in their order. The browser works them out on workers of its
+        /// own, each a band of rows (PLAN 2.28). Pixels that are not the jobs' size are an
+        /// error.
+        pub fn paint_shaded(
+            &mut self,
+            dl: &DisplayList,
+            fonts: &Assets,
+            scale: f32,
+            pixels: Vec<Vec<u8>>,
+        ) -> Result<Raster, PaintError> {
+            check_version(dl)?;
+            raster(dl, scale)?;
+            let jobs = shader_jobs(dl, scale)?;
+            let wanted = jobs.iter().flatten().count();
+            if pixels.len() != wanted {
+                let given = pixels.len();
+                return Err(PaintError::Shaded(format!("the frame draws {wanted} shaders; {given} were given")));
+            }
+            for (i, (job, given)) in jobs.iter().flatten().zip(&pixels).enumerate() {
+                let [_, _, w, h] = job.bbox();
+                if given.len() != w as usize * h as usize * 4 {
+                    let (bytes, given) = (w as usize * h as usize * 4, given.len());
+                    let why = format!("shader {i} draws {w} × {h} pixels, {bytes} bytes; {given} were given");
+                    return Err(PaintError::Shaded(why));
+                }
+            }
+            self.draw(dl, fonts, scale, jobs, pixels)
+        }
+
+        /// `dl` at `scale`, each shader job with its pixels, `pixels` one for each job that
+        /// covers a pixel.
+        fn draw(
+            &mut self,
+            dl: &DisplayList,
+            fonts: &Assets,
+            scale: f32,
+            jobs: Vec<Option<Job>>,
+            pixels: Vec<Vec<u8>>,
+        ) -> Result<Raster, PaintError> {
             let (width, height) = raster(dl, scale)?;
-            let jobs = shader_jobs(dl, scale)?.into_iter();
+            let mut pixels = pixels.into_iter();
+            let shaded: Vec<_> = jobs.into_iter().map(|job| Some((job?.bbox(), pixels.next()?))).collect();
             let mut ctx =
                 RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
             let mut resources = Resources::new();
-            let threads = self.threads;
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs, threads };
+            let shaded = shaded.into_iter();
+            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
             let mut pixmap = Pixmap::new(width, height);
@@ -576,10 +651,9 @@ pub mod cpu {
         resources: &'a mut Resources,
         store: &'a Assets,
         fonts: &'a [FontRef],
-        /// One per shader op, in the order the walk meets them.
-        jobs: std::vec::IntoIter<Option<Job>>,
-        /// [`CpuPainter::threads`].
-        threads: usize,
+        /// One per shader op, in the order the walk meets them: where its job's pixels go,
+        /// and the pixels; `None` for one that covers no pixel.
+        shaded: std::vec::IntoIter<Option<([u32; 4], Vec<u8>)>>,
     }
 
     impl Cx<'_> {
@@ -647,9 +721,9 @@ pub mod cpu {
                         self.ctx.reset_paint_transform();
                     }
                     Op::Shader { rect, .. } => {
-                        let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
-                        if let Some(job) = job {
-                            self.shader(&job, *rect, xf);
+                        let shaded = self.shaded.next().expect("shader_jobs makes one job per shader op");
+                        if let Some((bbox, pixels)) = shaded {
+                            self.shader(bbox, pixels, *rect, xf);
                         }
                     }
                 }
@@ -657,17 +731,26 @@ pub mod cpu {
             Ok(())
         }
 
-        /// The CPU reference's pixels for `job`, filling `rect` texel for device pixel.
-        fn shader(&mut self, job: &Job, rect: scaena_core::displaylist::Rect, xf: Affine) {
-            let [x, y, w, h] = job.bbox();
+        /// A shader job's pixels, the CPU reference's for the box `bbox`, filling `rect`
+        /// texel for device pixel.
+        fn shader(&mut self, bbox: [u32; 4], pixels: Vec<u8>, rect: scaena_core::displaylist::Rect, xf: Affine) {
+            let [x, y, w, h] = bbox;
             let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
             // The render's buffer becomes the pixmap's: RGBA8 is four bytes, as a pixel is.
-            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(job.render_on(self.threads))
+            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(pixels)
                 .unwrap_or_else(|(_, bytes)| bytemuck::cast_slice(&bytes).to_vec());
+            // An opaque pixel is its own premultiple, and a backdrop is opaque throughout: it
+            // takes no division.
+            let mut opaque = true;
             for p in &mut pixels {
-                (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
+                if p.a != 255 {
+                    (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
+                    opaque = false;
+                }
             }
-            let pixmap = Pixmap::from_parts(pixels, w as u16, h as u16);
+            // An opaque shader, as a backdrop is, is drawn without blending, and hides what is
+            // under it: the same pixels, sooner.
+            let pixmap = Pixmap::from_parts_with_opacity(pixels, w as u16, h as u16, !opaque);
             self.ctx.set_transform(xf);
             self.ctx.set_paint(Image {
                 image: ImageSource::Pixmap(Arc::new(pixmap)),
@@ -795,6 +878,50 @@ pub mod cpu {
             for threads in [2, 3, 8] {
                 assert!(paint(threads) == one, "{threads} threads");
             }
+        }
+
+        /// A frame's shader pixels worked out elsewhere, in bands from the jobs' specs, paint
+        /// what the painter paints working them out itself (PLAN 2.28); pixels that are not
+        /// the jobs' are an error, not a panic.
+        #[test]
+        fn shader_pixels_from_elsewhere_paint_the_same() {
+            let mut dl = DisplayList::new([200.0, 300.0]);
+            dl.ops.push(mesh_op([0.0, 0.0, 200.0, 300.0]));
+            dl.ops.push(Op::Layer {
+                node: None,
+                cell: None,
+                transform: [1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
+                opacity: 0.5,
+                blend: Blend::Normal,
+                clip: None,
+                ops: vec![mesh_op([0.0, 0.0, 50.0, 40.0]), mesh_op([400.0, 0.0, 10.0, 10.0])],
+            });
+            let scale = 1.5;
+            let want = CpuPainter::default().paint(&dl, &Assets::new(), scale).unwrap();
+            let specs = shader_specs(&dl, scale).unwrap();
+            assert_eq!(specs.len(), 3);
+            let mut pixels = Vec::new();
+            for spec in &specs {
+                let bytes = spec.to_bytes().unwrap();
+                let Some(job) = Spec::from_bytes(&bytes).unwrap().job().unwrap() else { continue };
+                let [_, _, w, h] = job.bbox();
+                let mut out = Vec::new();
+                for [first, rows] in scaena_core::shader::bands(h, 3) {
+                    let mut band = vec![0; rows as usize * w as usize * 4];
+                    job.render_rows(first, &mut band);
+                    out.extend(band);
+                }
+                pixels.push(out);
+            }
+            // The third op is past the raster: no job, no pixels.
+            assert_eq!(pixels.len(), 2);
+            let mut painter = CpuPainter::default();
+            assert!(painter.paint_shaded(&dl, &Assets::new(), scale, pixels.clone()).unwrap() == want);
+            let short = pixels[..1].to_vec();
+            assert!(matches!(painter.paint_shaded(&dl, &Assets::new(), scale, short), Err(PaintError::Shaded(_))));
+            let mut cut = pixels;
+            cut[1].pop();
+            assert!(matches!(painter.paint_shaded(&dl, &Assets::new(), scale, cut), Err(PaintError::Shaded(_))));
         }
 
         #[test]

@@ -9,19 +9,25 @@
 // A single-file export (PLAN 2.5) builds it as a classic script, against the player's module
 // alone, which its page hands over compiled with the bundle's files: its page is a file, and
 // a browser starts no module worker from a file's page.
-import init, { Canvas, Player } from "@scaena/wasm";
+//
+// The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
+// holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
+// is one.
+import init, { Canvas, Player, engineModule, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
   Asking,
   AssistantEvent,
   Edited,
   Finding,
+  FromHelper,
   FromWorker,
   Opened,
   Painter,
   Section,
   Slot,
   Source,
+  ToHelper,
   ToWorker,
   Where,
 } from "./protocol";
@@ -61,6 +67,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         latest++;
         const was = player;
         player = await fetched(from.url);
+        // A frame in flight finishes on the engine it began with.
+        await painting;
         was.free();
         format = undefined;
         slots = timeline();
@@ -156,6 +164,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
       }
+      case "helpers":
+        await Promise.all(data.ports.map(join));
+        return;
+      case "help":
+        return help(data.port);
     }
   } catch (e) {
     post({ type: "error", id, message: said(e) });
@@ -542,6 +555,10 @@ async function edit(source: string, index: number, at: string | undefined): Prom
   };
 }
 
+/** The CPU painter's frame in flight: the next waits for it, since the module holds one frame
+ * for its shaders at a time, and a reload waits for it before it lets the engine go. */
+let painting: Promise<void> = Promise.resolve();
+
 /** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
  * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
 async function paint(state: string, t: number) {
@@ -551,10 +568,143 @@ async function paint(state: string, t: number) {
     gpu?.resize(width, height);
   }
   if (gpu) return player.paint(gpu, state, t);
-  // A copy out of the module's memory, on an ArrayBuffer of its own, then one onto the canvas:
-  // a tenth of the time an ImageBitmap took to make and hand over (ADR-0004 finding 15).
-  const frame = new ImageData(player.pixels(state, t, width) as Uint8ClampedArray<ArrayBuffer>, width);
-  raster!.putImageData(frame, 0, 0);
+  const before = painting;
+  let done = () => {};
+  painting = new Promise((resolve) => (done = resolve));
+  try {
+    await before;
+    await painted(player, state, t, width);
+  } finally {
+    done();
+  }
+}
+
+/** The workers a shader's rows are spread over, this one among them (PLAN 2.28): the cores the
+ * browser says it has, up to the 8 SPEC §15's budgets allow, as `scaena_core::shader::cores`
+ * counts them natively. */
+const cores = Math.min(8, Math.max(1, self.navigator?.hardwareConcurrency ?? 1));
+/** The helpers that work out shaders' rows beside this worker, once they are ready. */
+let helpers: Helper[] = [];
+/** Whether the page was asked for them: once, the first time a frame drew a shader worth
+ * splitting. */
+let askedForHelpers = false;
+/** How long a band may take on a helper before this worker works it out itself, and lets the
+ * helper go: a helper that stopped would otherwise stop the deck. */
+const BAND_MS = 10_000;
+
+/** `state` `t` ms into its cue, painted by `engine`'s CPU painter `width` pixels wide and put on
+ * the canvas, its shaders' rows in bands (PLAN 2.28): the first worked out here, the others on
+ * the helpers, each from the shader's spec, which make the same job and so the same bytes. The
+ * engine's module has no threads, and a full-canvas shader is most of a frame. The frame goes
+ * onto the canvas from the module's memory, copied once, by the canvas (ADR-0004 finding 15). */
+async function painted(engine: Player, state: string, t: number, width: number) {
+  const count = engine.shading(state, t, width);
+  const sharing = helpers.slice();
+  // Each band settles, worked out on its helper or here, before the frame is painted or fails:
+  // a band that came in late would land in the next frame held.
+  const theirs: Promise<void>[] = [];
+  let failed: unknown;
+  for (let i = 0; i < count; i++) {
+    if (!askedForHelpers && cores > 1 && engine.shaderBands(i, cores).length > 2) {
+      askedForHelpers = true;
+      post({ type: "helpers", count: cores - 1 });
+    }
+    // Each band's first row, then its rows.
+    const bands = engine.shaderBands(i, sharing.length + 1);
+    const spec = bands.length > 2 ? engine.shaderSpec(i) : undefined;
+    for (let n = 2; n < bands.length; n += 2) {
+      const [first, rows, helper] = [bands[n], bands[n + 1], sharing[n / 2 - 1]];
+      const own = (e: unknown) => {
+        console.warn(`a shader helper failed, and its rows are worked out here: ${said(e)}`);
+        helpers = helpers.filter((h) => h !== helper);
+        helper.close();
+        engine.shade(i, first, rows);
+      };
+      const taken = (bytes: ArrayBuffer) => engine.takeRows(i, first, new Uint8Array(bytes));
+      theirs.push(helper.rows(spec!, first, rows, BAND_MS).then(taken, own).catch((e) => void (failed ??= e)));
+    }
+    engine.shade(i, bands[0], bands[1]);
+  }
+  await Promise.all(theirs);
+  if (failed !== undefined) throw failed;
+  engine.putShaded(raster!);
+}
+
+/** A worker that works out shaders' rows for this one, over the port to it (PLAN 2.28). */
+class Helper {
+  private waiting = new Map<number, { resolve: (bytes: ArrayBuffer) => void; reject: (error: Error) => void }>();
+  private asked = 0;
+
+  constructor(private port: MessagePort) {
+    port.onmessage = ({ data }: MessageEvent<FromHelper>) => {
+      if (data.type === "ready" || data.id === undefined) return;
+      const waiting = this.waiting.get(data.id);
+      this.waiting.delete(data.id);
+      if (data.type === "rows") waiting?.resolve(data.bytes);
+      else waiting?.reject(new Error(data.message));
+    };
+  }
+
+  /** Rows `first` to `first + rows` of the shader whose spec is `spec`, or an error once `ms`
+   * have gone by without them. */
+  rows(spec: Uint8Array, first: number, rows: number, ms: number): Promise<ArrayBuffer> {
+    const id = ++this.asked;
+    return new Promise((resolve, reject) => {
+      const late = setTimeout(() => {
+        this.waiting.delete(id);
+        reject(new Error(`no rows after ${ms} ms`));
+      }, ms);
+      const settled = <T>(then: (value: T) => void) => (value: T) => (clearTimeout(late), then(value));
+      this.waiting.set(id, { resolve: settled(resolve), reject: settled(reject) });
+      this.port.postMessage({ type: "rows", id, spec, first, rows } satisfies ToHelper);
+    });
+  }
+
+  close() {
+    this.port.close();
+    for (const { reject } of this.waiting.values()) reject(new Error("the helper was let go"));
+    this.waiting.clear();
+  }
+}
+
+/** Take on the helper at the other end of `port` once it holds the engine's module: this
+ * worker's own, compiled, or, where a module cannot cross to it, one it loads itself. One that
+ * cannot start is left out, and this worker works its rows out itself. */
+async function join(port: MessagePort) {
+  const ready = new Promise<void>((resolve, reject) => {
+    port.onmessage = ({ data }: MessageEvent<FromHelper>) =>
+      data.type === "ready" ? resolve() : data.type === "error" ? reject(new Error(data.message)) : undefined;
+  });
+  try {
+    port.postMessage({ type: "module", module: engineModule() as WebAssembly.Module } satisfies ToHelper);
+  } catch {
+    port.postMessage({ type: "module" } satisfies ToHelper);
+  }
+  try {
+    await ready;
+    helpers.push(new Helper(port));
+  } catch (e) {
+    console.warn(`a shader helper could not start: ${said(e)}`);
+    port.close();
+  }
+}
+
+/** Be a helper (PLAN 2.28): work out shaders' rows for the engine's worker at the other end of
+ * `port`, which first hands over the engine's module. A helper holds no deck. */
+function help(port: MessagePort) {
+  const answer = (message: FromHelper, transfer: Transferable[] = []) => port.postMessage(message, transfer);
+  port.onmessage = async ({ data }: MessageEvent<ToHelper>) => {
+    try {
+      if (data.type === "module") {
+        await init(data.module && { module_or_path: data.module });
+        return answer({ type: "ready" });
+      }
+      const bytes = shaderRows(data.spec, data.first, data.rows);
+      answer({ type: "rows", id: data.id, bytes: bytes.buffer as ArrayBuffer }, [bytes.buffer as ArrayBuffer]);
+    } catch (e) {
+      answer({ type: "error", id: data.type === "rows" ? data.id : undefined, message: said(e) });
+    }
+  };
 }
 
 /** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state

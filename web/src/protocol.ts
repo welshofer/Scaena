@@ -110,7 +110,27 @@ export type ToWorker =
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
   /** The models `key` can use at `provider`. */
-  | { type: "models"; id: number; provider: ProviderId; key: string; base?: string };
+  | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
+  /** The workers `helpers` asked for: a port to each (PLAN 2.28). */
+  | { type: "helpers"; ports: MessagePort[] }
+  /** Be a helper: work out shaders' rows for the engine's worker at the other end of `port`,
+   * which hands over the engine's module first (PLAN 2.28). A helper holds no deck. */
+  | { type: "help"; port: MessagePort };
+
+/** The engine's worker to a helper, over the port between them (PLAN 2.28). */
+export type ToHelper =
+  /** The engine's module, compiled: the first message. Without it, the helper loads its own. */
+  | { type: "module"; module?: WebAssembly.Module }
+  /** Rows `first` to `first + rows` of the shader whose spec is `spec` (`Player.shaderSpec`). */
+  | { type: "rows"; id: number; spec: Uint8Array; first: number; rows: number };
+
+/** A helper to the engine's worker. */
+export type FromHelper =
+  | { type: "ready" }
+  /** The rows request `id` asked for: straight-alpha RGBA, four bytes a pixel, row by row. */
+  | { type: "rows"; id: number; bytes: ArrayBuffer }
+  /** Request `id` failed, or, without one, the helper could not start. */
+  | { type: "error"; id?: number; message: string };
 
 /** Who answers the assistant's questions: Anthropic, OpenAI (or a server that speaks its Chat
  * Completions), or Gemini, with the user's own key (SPEC §11). */
@@ -295,6 +315,9 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
+   * page starts each as it started this one, and hands this one a port to each (`helpers`). */
+  | { type: "helpers"; count: number }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean };
