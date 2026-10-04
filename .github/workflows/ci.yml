@@ -104,8 +104,10 @@ jobs:
       matrix:
         os: ${{ fromJSON(needs.changes.outputs.os) }}
     runs-on: ${{ matrix.os }}
-    # A stalled GPU readback or test must fail the job, not hold a runner for six hours.
-    timeout-minutes: 45
+    # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
+    # with nothing in its cache, as the first after the cache's key changes, builds everything:
+    # #103's took 39 minutes on Linux and 27 on macOS.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux
@@ -169,7 +171,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # With nothing in its cache, #103's run passed every step, then ran out of 45 minutes while
+    # saving the cache: its runner took twice as long over the browser tests as #88's. With its
+    # cache, #88's took 29.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
