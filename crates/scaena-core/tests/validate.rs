@@ -170,6 +170,24 @@ fn e102_unknown_references() {
     );
 }
 
+/// A name the theme lacks comes with the names of that kind it has, so whoever uses
+/// the deck, an agent re-theming it above all, need not guess them.
+#[test]
+fn e102_says_what_the_theme_has() {
+    let found = validate_bundle(fixture!("E102", "trigger"), &Fixtures).unwrap();
+    let says = |path: &str| {
+        let finding = found.iter().find(|f| f.path.as_deref() == Some(path));
+        finding.map_or_else(|| panic!("no finding at {path}: {found:#?}"), |f| f.message.clone())
+    };
+    assert_eq!(says("/states/0/layout"), "layout `titel` is not in the theme, which has title, full");
+    assert_eq!(
+        says("/nodes/title/role"),
+        "text role `headlin` is not in the theme, which has display, headline, body, caption, label, numeral"
+    );
+    assert_eq!(says("/nodes/title/enter"), "motion preset `slide` is not in the theme, which has fade, rise, grow");
+    assert_eq!(says("/nodes/bg/palette"), "shader palette `sunset` is not in the theme, which has ambient");
+}
+
 #[test]
 fn e104_a_state_cannot_change_a_type() {
     triggers("E104", fixture!("E104", "trigger"), &["/overrides/figure/type", "/states/1/props/figure/type"]);
