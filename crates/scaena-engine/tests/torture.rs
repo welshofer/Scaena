@@ -31,7 +31,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
 /// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
 /// build member on member, a ring that sweeps open, and lines that rise series by series.
-const MORPH: [(&str, f64); 17] = [
+/// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
+/// there from halfway.
+const MORPH: [(&str, f64); 18] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -49,6 +51,7 @@ const MORPH: [(&str, f64); 17] = [
     ("morph", 0.75),
     ("stagger", 0.3),
     ("stagger", 0.6),
+    ("forecast-next", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
@@ -847,13 +850,13 @@ fn counting_figures_spell_numbers_as_shaping_does() {
     let mut fonts = bundle_fonts(&fx.deck, false);
     let mut engine = TextEngine::new();
     // The chart has no `format`, so labels count in the default form: no grouping, and a
-    // hyphen-minus, since these fonts have no U+2212. They are set in the theme's `chart`
-    // role, as its `charts.label` says.
+    // hyphen-minus, since these fonts have no U+2212. They are set in the theme's chart
+    // label role, `value`.
     let samples = ["-7", "0.5", "12.25", "1024", "-0.75", "100.5", "-1000.25", "38.0"];
     for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
         let spec = TextSpec {
             numeric: Some(scaena_engine::theme::Numeric::TabularLining),
-            ..TextSpec::plain(fx.theme.text_role("chart").unwrap(), text.clone())
+            ..TextSpec::plain(fx.theme.text_role("value").unwrap(), text.clone())
         };
         let shaped = engine.layout(&mut fonts, &fx.theme, &spec, f32::INFINITY).unwrap();
         let (runs, width) = numerals.compose(&text).unwrap();

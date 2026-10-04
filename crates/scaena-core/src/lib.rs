@@ -49,7 +49,7 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.9";
+pub const FORMAT_VERSION: &str = "0.10";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.7";
+pub const THEME_FORMAT_VERSION: &str = "0.8";

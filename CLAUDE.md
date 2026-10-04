@@ -91,7 +91,7 @@ Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per e
 - **A narrative repair.** A fresh agent repaired a narrative lint finding on the authorability deck.
 - **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
 
-Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.33–1.36, and 1.9 and 1.28–1.32 as Jay reviews and schedules them.
+Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.29–1.31, as Jay schedules them. 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates, and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
 
 ## Phase 2
 

@@ -230,6 +230,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(resolved_types(&deck, snapshots));
             out.extend(containers(&deck, snapshots));
             out.extend(annotations(&deck, snapshots));
+            out.extend(projections(&deck, snapshots));
             out.extend(encodings(&deck, snapshots, files));
         }
         out.extend(override_types(&deck));
@@ -727,6 +728,35 @@ fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
     out
 }
 
+/// E106: `projected` marks the rows of a line or an area (SPEC §3.7); a chart of another
+/// kind draws nothing projected. Each finding points at what set it in the state.
+fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Chart) || props.get("projected").is_none() {
+                continue;
+            }
+            let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
+            if matches!(kind, "line" | "area") {
+                continue;
+            }
+            let path = match state.props.get(id).and_then(|d| d.get("projected")) {
+                Some(_) => format!("/states/{i}/props/{}/projected", esc(id)),
+                None => format!("/nodes/{}/projected", esc(id)),
+            };
+            let message = format!("`projected` marks the rows of a line or an area; a `{kind}` chart draws none");
+            if seen.insert(path.clone()) {
+                out.push(
+                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Each state's containers (SPEC §3.4, ADR-0008): a node's `at.parent` is a container the
 /// state shows (E102) and of a container type (E106), containers do not nest in a loop
 /// (E106), and an `at.area` is one of its grid's areas (E102). Each finding points at
@@ -885,7 +915,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             // What reads a field: a chart's channels, or a table's columns, each with the
             // key its path starts at, the rest of the path, and its name in a message.
             let readers: Vec<(&str, String, String, &Map<String, Value>)> = match node.node_type {
-                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding"]
+                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding", "projected"]
                     .into_iter()
                     .filter_map(|c| {
                         props.get(c).and_then(Value::as_object).map(|e| (c, String::new(), c.to_string(), e))
@@ -937,6 +967,47 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     if let Err(e) = parsed {
                         found("E106", here("/format"), e.to_string());
                     }
+                }
+            }
+            // What marks a row projected: a value its column can hold, or, with none, a
+            // true one in a boolean column. A column that is not there was reported above.
+            if let Some(projected) = props.get("projected").and_then(Value::as_object)
+                && let Some(field) = projected.get("field").and_then(Value::as_str)
+                && let Some(kind) = column(field)
+            {
+                let message = match (projected.get("value"), kind) {
+                    (None, ColumnType::Boolean) => None,
+                    (None, _) => Some((
+                        "/field",
+                        format!(
+                            "`projected` marks a row whose `{field}` is true, but {read} types it {}; say which `value` marks one, or declare it `boolean` in the source's schema",
+                            article(kind.name())
+                        ),
+                    )),
+                    (Some(v), _) => {
+                        let fits = match kind {
+                            ColumnType::Boolean => v.is_boolean(),
+                            ColumnType::Number => v.is_number(),
+                            ColumnType::String | ColumnType::Date => v.is_string(),
+                        };
+                        (!fits).then(|| {
+                            let what = match v {
+                                Value::Bool(_) => "a boolean",
+                                Value::Number(_) => "a number",
+                                _ => "text",
+                            };
+                            (
+                                "/value",
+                                format!(
+                                    "`projected.value` is {what}, but {read} types `{field}` {}",
+                                    article(kind.name())
+                                ),
+                            )
+                        })
+                    }
+                };
+                if let Some((rest, message)) = message {
+                    found("E103", here("projected", rest), message);
                 }
             }
             // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A

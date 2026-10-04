@@ -493,6 +493,24 @@ pub struct Encoding {
     pub title: Option<String>,
 }
 
+/// Which of a line's or an area's rows are projected: a forecast, or an estimate (SPEC
+/// §3.7). The rows whose `field` holds `value`, or a true one when no value is given. The
+/// line runs dashed from the last actual point through them, the area under them is lighter,
+/// and their value labels say they are estimates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Projected {
+    pub field: String,
+    /// What `field` holds in a projected row; `true` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("type" = ["string", "number", "boolean"]))]
+    pub value: Option<Value>,
+    /// What a projected value's label says after the value; the theme's
+    /// `charts.projected.note` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FieldKind {

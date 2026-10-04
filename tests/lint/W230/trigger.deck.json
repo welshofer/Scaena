@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.10",
   "_comment": "W230 trigger: a third font, Scaena Restricted, whose license allows embedding only with its owner's permission and forbids subsetting it (OS/2 fsType 0x0102).",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

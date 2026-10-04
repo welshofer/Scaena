@@ -437,8 +437,10 @@ impl NumberFormat {
     /// This format for the ticks of an axis whose ticks are `step` apart and reach
     /// `max` in size, as d3's `tickFormat` makes it. A format with no precision takes
     /// the precision the step needs: decimals for `f` and `%`, significant digits for
-    /// the others. `s` and `k` write every tick in the tier of `max` (`0k`, `20k`, `40k`).
-    /// With no format at all ([`NumberFormat::ticks`]), ticks group thousands.
+    /// the others. An `f` or `%` format's own precision is the most its ticks take, so
+    /// ticks a whole step apart drop the decimals the values keep (`$10`, not `$10.0`).
+    /// `s` and `k` write every tick in the tier of `max` (`0k`, `20k`, `40k`). With no
+    /// format at all ([`NumberFormat::ticks`]), ticks group thousands.
     pub fn for_ticks(&self, step: f64, max: f64) -> NumberFormat {
         let mut f = self.clone();
         let step_exp = exponent_of(step);
@@ -454,9 +456,10 @@ impl NumberFormat {
                     f.precision = Some((3 * tier - step_exp).max(0) as usize);
                 }
             }
-            Kind::Fixed | Kind::Percent if f.precision.is_none() => {
+            Kind::Fixed | Kind::Percent => {
                 let shift = if f.kind == Kind::Percent { 2 } else { 0 };
-                f.precision = Some((-step_exp - shift).max(0) as usize);
+                let needs = (-step_exp - shift).max(0) as usize;
+                f.precision = Some(f.precision.map_or(needs, |p| p.min(needs)));
             }
             Kind::None | Kind::Exponent | Kind::General | Kind::Rounded if f.precision.is_none() => {
                 let round = (exponent_of(max) - step_exp).max(0) as usize + 1;
@@ -1166,9 +1169,13 @@ mod tests {
         assert_eq!(ticks(&si, &[0.0, 20_000.0, 100_000.0]), ["0k", "20k", "100k"]);
         let compact = NumberFormat::parse("$k").unwrap().for_ticks(500_000_000.0, 2_500_000_000.0);
         assert_eq!(ticks(&compact, &[0.0, 500_000_000.0, 2_500_000_000.0]), ["$0.0B", "$0.5B", "$2.5B"]);
-        // An explicit precision stays.
+        // An explicit precision is the most ticks take: a whole step apart, none.
         let fixed = NumberFormat::parse(".2f").unwrap().for_ticks(10.0, 50.0);
-        assert_eq!(ticks(&fixed, &[10.0]), ["10.00"]);
+        assert_eq!(ticks(&fixed, &[10.0]), ["10"]);
+        let tenths = NumberFormat::parse("$,.2f").unwrap().for_ticks(0.1, 0.5);
+        assert_eq!(ticks(&tenths, &[0.0, 0.1]), ["$0.0", "$0.1"]);
+        let capped = NumberFormat::parse(".1%").unwrap().for_ticks(0.0005, 0.002);
+        assert_eq!(ticks(&capped, &[0.0005]), ["0.1%"]);
         let plain = NumberFormat::plain().for_ticks(0.1, 0.3);
         assert_eq!(ticks(&plain, &[0.1 + 0.2]), ["0.3"]);
     }
