@@ -93,7 +93,7 @@ impl Job {
         match self {
             Job::Mesh(f) => f.render(),
             Job::Gradient(f) => render(f.bbox, |x, y| f.pixel(x, y)),
-            Job::Noise(f) => render(f.bbox, |x, y| f.pixel(x, y)),
+            Job::Noise(f) => f.render(),
             Job::Grain(f) => f.render(),
             Job::Particles(f) => render(f.bbox, |x, y| f.pixel(x, y)),
         }
@@ -275,6 +275,14 @@ fn sample(stops: &[[f32; 4]], u: f32, cyclic: bool) -> [f32; 4] {
 /// An Oklab color and its alpha, 0 to 1, as sRGB RGBA8 with straight alpha: the same
 /// conversion `mesh.wgsl` makes, and every ramp kind's WGSL after it.
 fn oklab_rgba8(l: f32, ca: f32, cb: f32, alpha: f32) -> [u8; 4] {
+    let [r, g, b] = oklab_linear(l, ca, cb);
+    let a8 = alpha.clamp(0.0, 1.0) * 255.0 + 0.5;
+    [encode(r) as u8, encode(g) as u8, encode(b) as u8, a8 as u8]
+}
+
+/// An Oklab color in linear sRGB, as [`oklab_rgba8`] works it out.
+#[inline(always)]
+fn oklab_linear(l: f32, ca: f32, cb: f32) -> [f32; 3] {
     let lm = l + 0.396_337_78 * ca + 0.215_803_76 * cb;
     let mm = l - 0.105_561_346 * ca - 0.063_854_17 * cb;
     let sm = l - 0.089_484_18 * ca - 1.291_485_5 * cb;
@@ -284,8 +292,7 @@ fn oklab_rgba8(l: f32, ca: f32, cb: f32, alpha: f32) -> [u8; 4] {
     let r = 4.076_741_7 * lc - 3.307_711_6 * mc + 0.230_969_94 * sc;
     let g = -1.268_438 * lc + 2.609_757_4 * mc - 0.341_319_38 * sc;
     let b = -0.004_196_086_4 * lc - 0.703_418_6 * mc + 1.707_614_7 * sc;
-    let a8 = alpha.clamp(0.0, 1.0) * 255.0 + 0.5;
-    [encode(r) as u8, encode(g) as u8, encode(b) as u8, a8 as u8]
+    [r, g, b]
 }
 
 /// Seeded noise for pixel `(gx, gy)` of a box, uniform in `[-0.5, 0.5)`: the grain

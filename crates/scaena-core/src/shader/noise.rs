@@ -12,8 +12,8 @@
 //! `floor`, comparisons, and integer hashing, here and in `noise.wgsl` alike.
 
 use super::{
-    MAX_STOPS, ShaderError, SplitMix64, Words, frame_box, grain_noise, local_map, lowbias32, oklab_rgba8, ramp, sample,
-    seed_key, thresholds, whole, within,
+    BLOCK, Encoder, MAX_STOPS, ShaderError, SplitMix64, Words, frame_box, grain_noise, local_map, lowbias32,
+    oklab_linear, oklab_rgba8, ramp, sample, seed_key, thresholds, whole, within,
 };
 use crate::displaylist::Color;
 use std::collections::BTreeMap;
@@ -142,6 +142,124 @@ impl Frame {
         oklab_rgba8(l, ca, cb, alpha)
     }
 
+    /// The whole box, row-major: [`Frame::pixel`]'s bytes, worked out a [`BLOCK`] of a
+    /// row at a time. Each octave goes across the block in three passes: each pixel's
+    /// cell and corners, as SIMD, its simplex picked by masks rather than branches; the
+    /// corners' lattice hashes, worked out once for each cell ([`Lattice`]); and the
+    /// corners' shares, as SIMD. Then the ramp's colors, Oklab to linear light as SIMD, and the
+    /// bytes. Each pixel does `pixel`'s arithmetic in its order, so the bytes are
+    /// `pixel`'s (`render_is_pixel_for_pixel`).
+    pub fn render(&self) -> Vec<u8> {
+        // 1/3 and 1/6, as `simplex` writes them.
+        const F3: f32 = 0.333_333_34;
+        const G3: f32 = 0.166_666_67;
+        let [left, top, width, height] = self.bbox;
+        let mut out = vec![0; width as usize * height as usize * 4];
+        if width == 0 {
+            return out;
+        }
+        let enc = Encoder::new();
+        let [a, b, c, d, e, f] = self.map;
+        // Each octave's weight, frequency, and lattice, and their weights' sum, as `pixel`
+        // steps them.
+        let (mut norm, mut amp, mut freq) = (0.0_f32, 1.0_f32, 1.0_f32);
+        let mut octaves = Vec::with_capacity(self.octaves as usize);
+        for o in 0..self.octaves {
+            octaves.push((amp, freq, Lattice::new(lowbias32(self.key.wrapping_add(o)))));
+            norm += amp;
+            amp *= 0.5;
+            freq *= 2.0;
+        }
+        let spread = 0.5 * self.contrast;
+        let (mut px, mut py, mut sum) = ([0.0_f32; BLOCK], [0.0_f32; BLOCK], [0.0_f32; BLOCK]);
+        // Per pixel: its cell, its two middle corners as offsets in the cube, each corner's
+        // place from the pixel, and each corner's hash.
+        let mut cell = [[0_u32; BLOCK]; 3];
+        let mut steps = [[0_u32; BLOCK]; 2];
+        let mut at = [[[0.0_f32; BLOCK]; 3]; 4];
+        let mut hashes = [[0_u32; BLOCK]; 4];
+        // Per pixel: its color in Oklab and alpha, then in linear light, and its alpha's byte.
+        let mut lab = [[0.0_f32; BLOCK]; 4];
+        let mut rgb = [[0.0_f32; BLOCK]; 3];
+        let mut a8 = [0_u8; BLOCK];
+        for (gy, row) in (0..height).zip(out.chunks_exact_mut(width as usize * 4)) {
+            let fy = (top + gy) as f32 + 0.5;
+            let (cfy, dfy) = (c * fy, d * fy);
+            let hy = lowbias32(gy);
+            for (gx, pixels) in (0..).step_by(BLOCK).zip(row.chunks_mut(BLOCK * 4)) {
+                let n = pixels.len() / 4;
+                let (px, py, sum) = (&mut px[..n], &mut py[..n], &mut sum[..n]);
+                for i in 0..n {
+                    let fx = (left + gx + i as u32) as f32 + 0.5;
+                    px[i] = a * fx + cfy + e;
+                    py[i] = b * fx + dfy + f;
+                }
+                sum.fill(0.0);
+                for (amp, freq, lattice) in &mut octaves {
+                    let z = self.z * *freq;
+                    let [[x0, y0, z0], [x1, y1, z1], [x2, y2, z2], [x3, y3, z3]] =
+                        at.each_mut().map(|corner| corner.each_mut().map(|axis| &mut axis[..n]));
+                    let [ci_, cj_, ck_] = cell.each_mut().map(|axis| &mut axis[..n]);
+                    let [s1, s2] = steps.each_mut().map(|o| &mut o[..n]);
+                    for i in 0..n {
+                        let (x, y) = (px[i] * *freq, py[i] * *freq);
+                        let s = (x + y + z) * F3;
+                        let ((i_, ci), (j, cj), (k, ck)) = (floor(x + s), floor(y + s), floor(z + s));
+                        let t = (i_ + j + k) * G3;
+                        let (cx, cy, cz) = (x - (i_ - t), y - (j - t), z - (k - t));
+                        // `simplex`'s six cases, each its own mask, and its two middle corners.
+                        let (xy, yz, xz) = (cx >= cy, cy >= cz, cx >= cz);
+                        let (yz_, xz_) = (cy < cz, cx < cz);
+                        let m =
+                            [xy & yz, xy & !yz & xz, xy & !yz & !xz, !xy & yz_, !xy & !yz_ & xz_, !xy & !yz_ & !xz_];
+                        let o1 = [m[0] | m[1], m[4] | m[5], m[2] | m[3]];
+                        let o2 = [m[0] | m[1] | m[2] | m[5], m[0] | m[3] | m[4] | m[5], m[1] | m[2] | m[3] | m[4]];
+                        let one = |b: bool| if b { 1.0 } else { 0.0 };
+                        (x0[i], y0[i], z0[i]) = (cx, cy, cz);
+                        (x1[i], y1[i], z1[i]) = (cx - one(o1[0]) + G3, cy - one(o1[1]) + G3, cz - one(o1[2]) + G3);
+                        (x2[i], y2[i], z2[i]) = (cx - one(o2[0]) + F3, cy - one(o2[1]) + F3, cz - one(o2[2]) + F3);
+                        (x3[i], y3[i], z3[i]) = (cx - 0.5, cy - 0.5, cz - 0.5);
+                        (ci_[i], cj_[i], ck_[i]) = (ci as u32, cj as u32, ck as u32);
+                        let code = |o: [bool; 3]| u32::from(o[0]) | u32::from(o[1]) << 1 | u32::from(o[2]) << 2;
+                        (s1[i], s2[i]) = (code(o1), code(o2));
+                    }
+                    let [h0, h1, h2, h3] = hashes.each_mut().map(|h| &mut h[..n]);
+                    for i in 0..n {
+                        let corners = lattice.at([ci_[i], cj_[i], ck_[i]]);
+                        let (o1, o2) = ((s1[i] & 7) as usize, (s2[i] & 7) as usize);
+                        (h0[i], h1[i], h2[i], h3[i]) = (corners[0], corners[o1], corners[o2], corners[7]);
+                    }
+                    for i in 0..n {
+                        let n0 = share(h0[i], x0[i], y0[i], z0[i]);
+                        let n1 = share(h1[i], x1[i], y1[i], z1[i]);
+                        let n2 = share(h2[i], x2[i], y2[i], z2[i]);
+                        let n3 = share(h3[i], x3[i], y3[i], z3[i]);
+                        sum[i] += *amp * (32.0 * (n0 + n1 + n2 + n3));
+                    }
+                }
+                let [l, ca, cb, alpha] = &mut lab;
+                for i in 0..n {
+                    let u = (0.5 + spread * (sum[i] / norm)).clamp(0.0, 1.0);
+                    let [sl, sa, sb, salpha] = sample(&self.colors, u, false);
+                    let hash = lowbias32(self.key ^ lowbias32((gx + i as u32) ^ hy));
+                    let grain = (hash >> 8) as f32 * (1.0 / 16_777_216.0) - 0.5;
+                    (l[i], ca[i], cb[i], alpha[i]) = (sl + self.grain * grain, sa, sb, salpha);
+                }
+                let [r, g, bl] = &mut rgb;
+                for i in 0..n {
+                    [r[i], g[i], bl[i]] = oklab_linear(l[i], ca[i], cb[i]);
+                    // `pixel` casts this to a byte. Clamped, it is NaN or from 0.5 to 255.5,
+                    // which a cast through `i32` takes where `as u8` does, and as SIMD.
+                    a8[i] = (alpha[i].clamp(0.0, 1.0) * 255.0 + 0.5) as i32 as u8;
+                }
+                for (i, px) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                    *px = [enc.byte(r[i]), enc.byte(g[i]), enc.byte(bl[i]), a8[i]];
+                }
+            }
+        }
+        out
+    }
+
     /// The uniform buffer `noise.wgsl` declares as `Noise`, for output rows `stride`
     /// words apart.
     pub fn uniforms(&self, stride: u32) -> Vec<u8> {
@@ -170,6 +288,71 @@ fn grad(hash: u32, x: f32, y: f32, z: f32) -> f32 {
         z
     };
     (if h & 1 == 0 { u } else { -u }) + (if h & 2 == 0 { v } else { -v })
+}
+
+/// [`corner`] with its hash in hand, and nothing branching on the point: every lane of a
+/// SIMD pass works out the share, and takes it or 0 as `corner` does.
+#[inline(always)]
+fn share(hash: u32, x: f32, y: f32, z: f32) -> f32 {
+    let t = 0.6 - x * x - y * y - z * z;
+    let t2 = t * t;
+    let g = grad(hash, x, y, z);
+    if t < 0.0 { 0.0 } else { t2 * t2 * g }
+}
+
+/// `x.floor()`, and that floor `as i32`, from one conversion, written so the compiler can
+/// run it as SIMD on every target: below 2²³ a float's whole part fits an `i32`, and from
+/// 2²³ up every float is whole. A whole float, either zero, an infinity, or NaN is its own
+/// floor (`floor_is_floor_for_every_float`).
+#[inline(always)]
+fn floor(x: f32) -> (f32, i32) {
+    let whole = x as i32;
+    let t = whole as f32;
+    let (below, small) = (t > x, x.abs() < 8_388_608.0);
+    let f = if below { t - 1.0 } else { t };
+    (if small && f != x { f } else { x }, whole - i32::from(below & small))
+}
+
+/// One octave's lattice hashes at the last cell it was asked about: the eight corners of
+/// the cube from it, each hashed as [`corner`] hashes it. Neighboring pixels mostly fall
+/// in one cell, so a frame hashes each cell's corners once rather than each pixel's four.
+struct Lattice {
+    key: u32,
+    at: [u32; 3],
+    corners: [u32; 8],
+}
+
+impl Lattice {
+    /// The lattice `key` picks the gradients of, at the cell at the origin.
+    fn new(key: u32) -> Self {
+        let mut lattice = Lattice { key, at: [0; 3], corners: [0; 8] };
+        lattice.hash();
+        lattice
+    }
+
+    /// The hashes of the corners of the cell at `at`, numbered by the axes each steps
+    /// along from it: bit 0 for x, 1 for y, 2 for z.
+    fn at(&mut self, at: [u32; 3]) -> &[u32; 8] {
+        if (at[0] ^ self.at[0]) | (at[1] ^ self.at[1]) | (at[2] ^ self.at[2]) != 0 {
+            self.at = at;
+            self.hash();
+        }
+        &self.corners
+    }
+
+    fn hash(&mut self) {
+        let [x, y, z] = self.at;
+        for dz in 0..2 {
+            let hz = lowbias32(z.wrapping_add(dz));
+            for dy in 0..2 {
+                let hy = lowbias32(y.wrapping_add(dy) ^ hz);
+                for dx in 0..2 {
+                    let o = (dx | dy << 1 | dz << 2) as usize;
+                    self.corners[o] = lowbias32(self.key ^ lowbias32(x.wrapping_add(dx) ^ hy));
+                }
+            }
+        }
+    }
 }
 
 /// One corner's share of the noise: its gradient, fading to nothing 0.6 away.
@@ -281,5 +464,61 @@ mod tests {
         let flat = render(frame(3, 1.0, Params { contrast: 0.0, ..p }));
         assert!(flat.chunks(4).all(|px| px == &flat[..4]));
         assert_eq!(frame(3, 0.0, p).uniforms(160).len(), 1360, "the WGSL `Noise` struct's size");
+    }
+
+    /// `render` is `pixel` at every pixel, bit for bit: at each count of octaves, with
+    /// cells far wider than a pixel and far narrower, in a box turned and offset whose rows
+    /// are not whole blocks, with grain and without, colors opaque and not, and a field
+    /// moved to where its cells are negative.
+    #[test]
+    fn render_is_pixel_for_pixel() {
+        let clear = [Color([14, 12, 20, 255]), Color([90, 40, 200, 128]), Color([255, 200, 87, 0])];
+        let turned = [0.8, 0.6, -0.6, 0.8, 37.0, 11.0];
+        let render = |f: &Frame| super::super::render(f.bbox, |x, y| f.pixel(x, y));
+        for octaves in 1..=8 {
+            // `scale` is at most 0.1 in a deck; 3 puts a cell edge between most pixels.
+            for (scale, grain, contrast) in [(0.0015, 0.0, 0.6), (0.02, 0.1, 1.0), (3.0, 0.25, 4.0)] {
+                let params = Params { scale, octaves, speed: 0.4, contrast, grain };
+                let palette: &[Color] = if octaves % 2 == 0 { &PALETTE } else { &clear };
+                let rect = [3.5, 1.0, 297.0, 61.0];
+                let f =
+                    Frame::new(u64::from(octaves), 2.75, palette, &params, rect, turned, [320, 120]).unwrap().unwrap();
+                assert!(f.bbox[2] > 2 * BLOCK as u32 && !f.bbox[2].is_multiple_of(BLOCK as u32), "{:?}", f.bbox);
+                assert!(f.render() == render(&f), "{octaves} octaves at scale {scale}");
+                let below = Frame { map: [0.37, -0.11, 0.13, 0.41, -50.3, -20.7], z: -3.9, ..f };
+                assert!(below.render() == render(&below), "{octaves} octaves at scale {scale}, below zero");
+            }
+        }
+    }
+
+    /// [`floor`] is `f32::floor`, bit for bit, on a sweep of floats and on each side of
+    /// every edge it has: whole numbers near zero, 2²³ and 2²⁴, `i32`'s ends, and the
+    /// largest float.
+    #[test]
+    fn floor_is_floor() {
+        let edges = [0.5_f32, 1.0, 2.0, 3.0, 8_388_608.0, 16_777_216.0, 2_147_483_648.0, f32::MAX];
+        let near = edges.into_iter().flat_map(|v| [v, -v]).flat_map(|v| {
+            let bits = v.to_bits();
+            (-3..=3).map(move |k| f32::from_bits(bits.wrapping_add_signed(k)))
+        });
+        let sweep = (0..=u32::MAX).step_by(4099).map(f32::from_bits);
+        for v in near.chain(sweep).chain([0.0, -0.0, f32::INFINITY, f32::NEG_INFINITY, f32::NAN]) {
+            let ((got, whole), want) = (floor(v), v.floor());
+            assert!(got.to_bits() == want.to_bits() || got.is_nan() && want.is_nan(), "{v:?} ({:#010x})", v.to_bits());
+            assert_eq!(whole, want as i32, "{v:?} ({:#010x})", v.to_bits());
+        }
+    }
+
+    /// Every one of the 2³² floats. Slow unoptimized: `cargo test --release -p scaena-core
+    /// every_float -- --ignored`.
+    #[test]
+    #[ignore]
+    fn floor_is_floor_for_every_float() {
+        for bits in 0..=u32::MAX {
+            let v = f32::from_bits(bits);
+            let ((got, whole), want) = (floor(v), v.floor());
+            assert!(got.to_bits() == want.to_bits() || got.is_nan() && want.is_nan(), "{v:?} ({bits:#010x})");
+            assert_eq!(whole, want as i32, "{v:?} ({bits:#010x})");
+        }
     }
 }
