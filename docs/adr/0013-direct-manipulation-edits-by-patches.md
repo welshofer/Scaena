@@ -35,6 +35,8 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Resize within the grid | `place`: spans |
    | Several moved together, by a drag or the arrow keys | `place` for each: the first as it would snap alone, the rest as far as it went, each its own way; all stopped where the grid's edge stops one (PLAN 2.42) |
    | Several aligned or spread | `place` for each that moves: each box to the edge all of them reach farthest, or the middle of them all; or, the first and the last staying, equal gaps between them; snapped as a move snaps |
+   | A motion's bar dragged, or its end; the transition's end (PLAN 2.44) | `time_motion`: the motion's `delay` or `duration`, written where the motion is: its choreography item, else the node's own preset or `anim` where it lives; `set_state` of `transition/duration` |
+   | A motion added from the cue | `apply_preset` with `motion`: as the node enters or for emphasis in the state shown, or as it leaves, in the state before |
    | Group, ungroup (⌘G, ⌘⇧G) | `group`: a new group holding the nodes selected where they stand, shown wherever one of them is in it; `ungroup`: its children out to its container and the group gone, the deck as it was before `group` (PLAN 2.43) |
    | Forward, backward, to the front, to the back (⌘], ⌘[, with Shift) | `choose` of `z`: in front of the next it overlaps, or behind the one before; or past all its container holds; the one `z` that does it where there is one, else the fewest |
    | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |

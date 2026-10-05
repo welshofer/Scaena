@@ -14,8 +14,10 @@
 
 mod ops;
 
+pub use ops::{Written, written};
+
 use crate::document::{DataSource, Node, Props, State};
-use crate::model::values::{Range, Rect};
+use crate::model::values::{Duration, NonNegative, Range, Rect};
 use crate::model::{Id, StateDeltaRef, ThemeRef};
 use crate::validate::BundleFiles;
 use schemars::JsonSchema;
@@ -338,6 +340,21 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
     },
+    /// When a motion of `node`'s in `state` starts and how long it runs (PLAN 2.44): its
+    /// `delay`, ms, and its `duration`, ms or a theme duration, each per unit, written where the
+    /// motion is written. That is the state's choreography item that moves the node so, else
+    /// the node's own preset or `anim` where it lives.
+    TimeMotion {
+        #[schemars(with = "Id")]
+        node: String,
+        motion: Timed,
+        #[schemars(with = "Id")]
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delay: Option<NonNegative>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration: Option<Duration>,
+    },
     /// A state, `after` or `before` another, else last. With `beat`, it joins that beat's
     /// states.
     AddState {
@@ -425,6 +442,7 @@ impl SemanticOp {
             SemanticOp::Choose { .. } => "choose",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
+            SemanticOp::TimeMotion { .. } => "time_motion",
             SemanticOp::AddState { .. } => "add_state",
             SemanticOp::MoveState { .. } => "move_state",
             SemanticOp::RemoveState { .. } => "remove_state",
@@ -479,6 +497,28 @@ impl Motion {
             Motion::Enter => "enter",
             Motion::Exit => "exit",
             Motion::Emphasis => "emphasis",
+        }
+    }
+}
+
+/// A motion `time_motion` times: a preset's, or `anim` tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Timed {
+    Enter,
+    Exit,
+    Emphasis,
+    Anim,
+}
+
+impl Timed {
+    /// The node property, and the choreography item's key, it is.
+    pub fn key(self) -> &'static str {
+        match self {
+            Timed::Enter => "enter",
+            Timed::Exit => "exit",
+            Timed::Emphasis => "emphasis",
+            Timed::Anim => "anim",
         }
     }
 }

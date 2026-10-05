@@ -12,7 +12,7 @@ use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::inserts::{Insert, Start, inserts};
 use scaena_core::model::values::SplitUnit;
-use scaena_core::patch::SemanticOp;
+use scaena_core::patch::{SemanticOp, Timed};
 use scaena_core::timeline::{self, CubicBezier, Look};
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Snapshot};
@@ -364,6 +364,18 @@ pub struct Motion {
     /// Each unit's.
     pub duration: f64,
     pub end: f64,
+    /// When its first unit starts to change and its last comes to rest: an `anim`'s from when
+    /// its first key falls.
+    pub moving: [f64; 2],
+    /// Its `delay` as written, what `time_motion` reads and sets (PLAN 2.44): a choreography
+    /// item's own, else its preset call's, and a node's own preset call's. A node's own `anim`
+    /// has none: it is when its first key falls.
+    pub delay: f64,
+    /// Where it is written, a JSON pointer into the deck: the choreography item
+    /// (`/states/2/choreography/0`), or the node's own property where it lives
+    /// (`/states/1/props/title/enter`, `/nodes/title/exit`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub written: Option<String>,
     pub curve: Curve,
     /// An entrance's look before it: what it changes from rest.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -489,6 +501,11 @@ pub fn inspect_deck(
     state: Option<&str>,
     views: &Views,
 ) -> Result<Vec<Inspected>, OpsError> {
+    // Where each motion is written is the deck's as written, in whatever format it is inspected.
+    let doc = match views.timeline {
+        true => deck.to_value().context("the deck as JSON")?,
+        false => Value::Null,
+    };
     let projected = match (views.format.as_deref(), theme) {
         (Some(format), Some(theme)) => Some(project(deck, theme, Some(format))?),
         (Some(_), None) => return Err(OpsError::new("inspecting in a format needs the deck's theme")),
@@ -606,7 +623,7 @@ pub fn inspect_deck(
         if let (Some(timeline), Some(theme), Some(engine)) = (&timeline, theme, engine.as_deref_mut()) {
             let slot = timeline.slot(&s.state_id).context("a state missing from the timeline")?;
             let cue = engine.transition(deck, theme, files, &s.state_id)?;
-            inspected.timeline = Some(cue_of(slot, &cue));
+            inspected.timeline = Some(cue_of(slot, &cue, &doc, &s.state_id));
         }
         if views.data {
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
@@ -919,7 +936,8 @@ pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
     ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
 }
 
-fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition) -> Cue {
+/// State `state`'s cue, each motion with where `doc`, the deck as written, writes it.
+fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition, doc: &Value, state: &str) -> Cue {
     let timing = cue.timing();
     Cue {
         start: ms(slot.start),
@@ -930,11 +948,11 @@ fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition) -> Cue
             curve: curve(&timing.curve),
             matched: if timing.matched { "id" } else { "none" }.to_string(),
         },
-        motions: cue.schedule().cues.iter().map(motion).collect(),
+        motions: cue.schedule().cues.iter().map(|p| motion(p, doc, state)).collect(),
     }
 }
 
-fn motion(p: &timeline::Placed) -> Motion {
+fn motion(p: &timeline::Placed, doc: &Value, state: &str) -> Motion {
     let mut m = Motion {
         node: p.node.clone(),
         motion: String::new(),
@@ -944,17 +962,43 @@ fn motion(p: &timeline::Placed) -> Motion {
         stagger: ms(p.stagger),
         duration: ms(p.duration),
         end: ms(p.end()),
+        moving: [ms(p.start), ms(p.end())],
+        delay: 0.0,
+        written: None,
         curve: curve(&p.curve),
         from: None,
         to: None,
         peak: None,
         tracks: None,
     };
-    match &p.motion {
-        timeline::Motion::Enter(l) => (m.motion, m.from) = ("enter".into(), Some(change(l))),
-        timeline::Motion::Exit(l) => (m.motion, m.to) = ("exit".into(), Some(change(l))),
-        timeline::Motion::Emphasis(l) => (m.motion, m.peak) = ("emphasis".into(), Some(change(l))),
-        timeline::Motion::Keys(k) => (m.motion, m.tracks) = ("anim".into(), Some(tracks(k))),
+    let timed = match &p.motion {
+        timeline::Motion::Enter(l) => {
+            (m.motion, m.from) = ("enter".into(), Some(change(l)));
+            Timed::Enter
+        }
+        timeline::Motion::Exit(l) => {
+            (m.motion, m.to) = ("exit".into(), Some(change(l)));
+            Timed::Exit
+        }
+        timeline::Motion::Emphasis(l) => {
+            (m.motion, m.peak) = ("emphasis".into(), Some(change(l)));
+            Timed::Emphasis
+        }
+        timeline::Motion::Keys(k) => {
+            (m.motion, m.tracks) = ("anim".into(), Some(tracks(k)));
+            let first = [k.opacity.first().map(|k| k.t), k.translate.first().map(|k| k.t)]
+                .into_iter()
+                .chain([k.scale.first().map(|k| k.t), k.rotate.first().map(|k| k.t), k.progress.first().map(|k| k.t)])
+                .flatten()
+                .fold(f64::INFINITY, f64::min);
+            if first.is_finite() {
+                m.moving[0] = ms(p.start + first);
+            }
+            Timed::Anim
+        }
+    };
+    if let Ok(written) = scaena_core::patch::written(doc, state, &p.node, timed) {
+        (m.delay, m.written) = (ms(written.delay), Some(written.pointer));
     }
     m
 }

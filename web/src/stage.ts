@@ -167,9 +167,10 @@ export class Stage {
   }
 
   /** Play from slot `index`, `t` ms into its cue, until a state that waits comes to rest:
-   * `still`, each cue a cut to its state at rest, at the deck's pace (PLAN 2.8). */
-  run(index: number, t = 0, format?: string, still?: boolean) {
-    this.send({ type: "run", index, t, format, still });
+   * `still`, each cue a cut to its state at rest, at the deck's pace (PLAN 2.8); `alone`, that
+   * slot's cue alone, coming to rest at its end (PLAN 2.44). */
+  run(index: number, t = 0, format?: string, still?: boolean, alone?: boolean) {
+    this.send({ type: "run", index, t, format, still, alone });
   }
 
   /** Show slot `index` `t` ms into its cue (at rest without `t`), still. Resolves once it is

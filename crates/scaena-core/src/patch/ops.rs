@@ -3,12 +3,13 @@
 //! says, with what to do instead: an op on a node that is not there, or a change in a state
 //! to a node not on screen there, which would make it enter.
 
-use super::{JsonOp, Renamed, SemanticOp, Spot, esc};
+use super::{JsonOp, Renamed, SemanticOp, Spot, Timed, esc};
 use crate::data;
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
+use crate::model::values::Duration;
 use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -154,6 +155,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
                     set(&d, node, entries, at.map(|(i, _)| i))?
                 }
             }
+        }
+        SemanticOp::TimeMotion { node, motion, state, delay, duration } => {
+            time_motion(&d, files, node, *motion, state, delay.as_ref().map(|d| d.0), duration.as_ref())?
         }
         SemanticOp::AddState { state, after, before, beat } => {
             d.free("state", &state.id, d.state(&state.id).is_ok())?;
@@ -1540,6 +1544,338 @@ fn transition_with(old: Option<&Value>, key: &str, value: &Value) -> Option<Valu
         _ => drop(spec.insert(key.into(), value.clone())),
     }
     (!spec.is_empty()).then_some(Value::Object(spec))
+}
+
+/// `time_motion` (PLAN 2.44): `node`'s `motion` in state `state`'s cue, its `delay` and its
+/// `duration` per unit, written where the engine reads them (SPEC §3.9). That is the first
+/// item of the state's choreography that moves the node so, depth first. Else it is the node's
+/// own: its `enter`, `emphasis`, or `anim` as the state reads it, and its `exit` as the state
+/// before it in the cue list reads it, since that is what the node leaves from.
+/// - A preset by name becomes a call to take a setting, and a call goes back to its name once it
+///   sets nothing else. An item's own setting wins over its call's, so a setting goes where the
+///   motion's is now: the item's, else the call's, else the item's.
+/// - `anim` tracks keep their keys spaced as they were. A node's own `delay` is when its first
+///   key falls, and an item's is the item's `delay`; `duration` is the time from the first key
+///   to the last.
+/// - A motion on a spring lasts as long as it takes to settle, so a `duration` there is refused.
+fn time_motion(
+    d: &Doc,
+    files: &dyn BundleFiles,
+    node: &str,
+    motion: Timed,
+    state: &str,
+    delay: Option<f64>,
+    duration: Option<&Duration>,
+) -> Result<Vec<JsonOp>, String> {
+    d.node(node)?;
+    let i = d.state(state)?;
+    let key = motion.key();
+    if delay.is_none() && duration.is_none() {
+        return Err("name the `delay` or the `duration` to set".into());
+    }
+    if let Some(ms) = delay.or(match duration {
+        Some(Duration::Ms(ms)) => Some(*ms),
+        _ => None,
+    }) && !(ms.is_finite() && ms >= 0.0)
+    {
+        return Err(format!("{ms} is not a time: a `delay` or a `duration` is 0 ms or more"));
+    }
+    let theme = d.theme(files).ok();
+    if let (Some(Duration::Named(name)), Some(theme)) = (duration, &theme)
+        && !theme.motion.durations.contains_key(name)
+    {
+        let names = list(theme.motion.durations.keys());
+        return Err(format!("the theme has no duration `{name}`; it has {names}"));
+    }
+    let what = format!("`{node}`'s `{key}` in `{state}`");
+    let duration_value = duration.map(|d| match d {
+        Duration::Ms(ms) => number(*ms),
+        Duration::Named(name) => Value::String(name.clone()),
+    });
+    let (path, old, mut written) = match locate(d, i, node, motion, &what)? {
+        Located::Item(path, item) => {
+            let mut new = item.clone();
+            if motion == Timed::Anim {
+                if let Some(delay) = delay {
+                    set_or_drop(&mut new, "delay", (delay > 0.0).then(|| number(delay)));
+                }
+                if let Some(duration) = duration {
+                    let span = millis(duration, theme.as_ref())?;
+                    let tracks = stretched(item.get("anim").unwrap_or(&Value::Null), span, &what)?;
+                    new.insert("anim".into(), tracks);
+                }
+            } else {
+                let call = item.get(key).cloned().unwrap_or(Value::Null);
+                if duration.is_some() {
+                    sprung(theme.as_ref(), &[Some(item), call.as_object()], &call, &what)?;
+                }
+                for (field, value) in [("delay", delay.map(number)), ("duration", duration_value)] {
+                    let Some(value) = value else { continue };
+                    let call = new.get(key).cloned().unwrap_or(Value::Null);
+                    let in_call = call.get(field).is_some();
+                    if new.contains_key(field) || !in_call {
+                        // Nothing under the item's own takes over where a delay of 0 goes.
+                        let zero = field == "delay" && value.as_f64() == Some(0.0) && !in_call;
+                        set_or_drop(&mut new, field, (!zero).then_some(value));
+                    } else {
+                        let zero = field == "delay" && value.as_f64() == Some(0.0);
+                        new.insert(key.into(), call_with(&call, field, (!zero).then_some(value)));
+                    }
+                }
+            }
+            return Ok(diff(&path, item, &new));
+        }
+        Located::Own(path, old, written) => (path, old, written),
+    };
+    if motion == Timed::Anim {
+        if let Some(duration) = duration {
+            written = stretched(&written, millis(duration, theme.as_ref())?, &what)?;
+        }
+        if let Some(delay) = delay {
+            written = shifted(&written, delay, &what)?;
+        }
+    } else {
+        if duration.is_some() {
+            sprung(theme.as_ref(), &[written.as_object()], &written, &what)?;
+        }
+        if let Some(delay) = delay {
+            written = call_with(&written, "delay", (delay > 0.0).then(|| number(delay)));
+        }
+        if let Some(value) = duration_value {
+            written = call_with(&written, "duration", Some(value));
+        }
+    }
+    let mut new = old.clone();
+    new.insert(key.into(), written);
+    Ok(diff(&path, old, &new))
+}
+
+/// Where a motion is written (PLAN 2.44).
+enum Located<'a> {
+    /// An item of the state's choreography: its pointer, and the item.
+    Item(String, &'a Map<String, Value>),
+    /// The node's own: the pointer to what holds the property where it lives, what holds it,
+    /// and the property as the state reads it.
+    Own(String, &'a Map<String, Value>, Value),
+}
+
+/// Where `node`'s `motion` in state `i`'s cue is written: the first item of the state's
+/// choreography that moves the node so, depth first, else the node's own. The own is its
+/// `enter`, `emphasis`, or `anim` as the state reads it, and its `exit` as the state before
+/// it in the cue list reads it (SPEC §3.9). `what` names the motion in an error.
+fn locate<'a>(d: &Doc<'a>, i: usize, node: &str, motion: Timed, what: &str) -> Result<Located<'a>, String> {
+    let key = motion.key();
+    let items = d.states()[i].get("choreography").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    if let Some((path, item)) = choreographed(items, &format!("/states/{i}/choreography"), node, key) {
+        return Ok(Located::Item(path, item));
+    }
+    let (deck, snapshots) = d.snapshots()?;
+    let reads = match motion {
+        Timed::Exit => i.checked_sub(1),
+        _ => Some(i),
+    };
+    let own = reads.and_then(|j| snapshots[j].nodes.get(node)).and_then(|p| p.get(key)).filter(|v| !v.is_null());
+    let (Some(j), Some(own)) = (reads, own) else {
+        let how = match motion {
+            Timed::Anim => "",
+            _ => ": `apply_preset` gives it one, or the state's `choreography`",
+        };
+        return Err(format!("{what} is not there to time{how}"));
+    };
+    let lives = match motion {
+        Timed::Enter | Timed::Exit => lives(&deck, j, node, key, &[]),
+        // What never tracks is the state's own, or the node's as it enters.
+        Timed::Emphasis | Timed::Anim => {
+            let delta = deck.states[j].props.get(node).and_then(|p| p.get(key));
+            if delta.is_some() { Lives::State(j) } else { Lives::Node }
+        }
+    };
+    let (path, old) = match lives {
+        Lives::State(k) => {
+            let old = d.states()[k].get("props").and_then(|p| p.get(node)).and_then(Value::as_object);
+            (format!("/states/{k}/props/{}", esc(node)), old.ok_or_else(|| format!("{what} is not where it lives"))?)
+        }
+        Lives::Node => (format!("/nodes/{}", esc(node)), d.node(node)?),
+    };
+    let written = old.get(key).cloned().unwrap_or_else(|| own.clone());
+    Ok(Located::Own(path, old, written))
+}
+
+/// Where a motion is written, as `time_motion` writes it (PLAN 2.44).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Written {
+    /// A JSON pointer into the deck: the choreography item (`/states/2/choreography/0`), or
+    /// the node's own property where it lives (`/states/1/props/title/enter`,
+    /// `/nodes/title/exit`).
+    pub pointer: String,
+    /// Its `delay` as written, ms: an item's own, else its preset call's, and a node's own
+    /// preset call's. A node's own `anim` has none: it is when its first key falls.
+    pub delay: f64,
+}
+
+/// Where `node`'s `motion` in state `state`'s cue is written, and its delay there: what
+/// `time_motion` reads and sets (PLAN 2.44).
+pub fn written(doc: &Value, state: &str, node: &str, motion: Timed) -> Result<Written, String> {
+    let d = Doc(doc);
+    d.node(node)?;
+    let i = d.state(state)?;
+    let what = format!("`{node}`'s `{}` in `{state}`", motion.key());
+    let delay = |v: Option<&Value>| v.and_then(|d| d.get("delay")).and_then(Value::as_f64);
+    Ok(match locate(&d, i, node, motion, &what)? {
+        Located::Item(pointer, item) => {
+            let call = (motion != Timed::Anim).then(|| item.get(motion.key())).flatten();
+            Written { delay: item.get("delay").and_then(Value::as_f64).or(delay(call)).unwrap_or(0.0), pointer }
+        }
+        Located::Own(base, _, value) => Written {
+            pointer: format!("{base}/{}", motion.key()),
+            delay: match motion {
+                Timed::Anim => keys(&value, &what)?.iter().map(|k| k.2).fold(f64::INFINITY, f64::min),
+                _ => delay(Some(&value)).unwrap_or(0.0),
+            },
+        },
+    })
+}
+
+/// The first item of `items`, a state's choreography at `base`, that moves `node` by `key`,
+/// depth first: its pointer and the item.
+fn choreographed<'a>(
+    items: &'a [Value],
+    base: &str,
+    node: &str,
+    key: &str,
+) -> Option<(String, &'a Map<String, Value>)> {
+    for (k, item) in items.iter().enumerate() {
+        let (path, Some(map)) = (format!("{base}/{k}"), item.as_object()) else { continue };
+        for group in ["sequence", "parallel"] {
+            let inner = map.get(group).and_then(Value::as_array);
+            if let Some(found) = inner.and_then(|inner| choreographed(inner, &format!("{path}/{group}"), node, key)) {
+                return Some(found);
+            }
+        }
+        let names = match map.get("target") {
+            Some(Value::String(one)) => one == node,
+            Some(Value::Array(many)) => many.iter().any(|t| t.as_str() == Some(node)),
+            _ => false,
+        };
+        if names && map.contains_key(key) {
+            return Some((path, map));
+        }
+    }
+    None
+}
+
+/// Refuses a `duration` for a motion on a spring: the first of `places` (the item, then the
+/// call) to name an easing or a spring, else the theme's preset `call` calls.
+fn sprung(
+    theme: Option<&Theme>,
+    places: &[Option<&Map<String, Value>>],
+    call: &Value,
+    what: &str,
+) -> Result<(), String> {
+    let named = call.as_str().or_else(|| call.get("preset").and_then(Value::as_str));
+    let preset = theme.zip(named).and_then(|(theme, name)| theme.motion.presets.get(name));
+    let mut springs = places.iter().flatten().map(|place| (place.contains_key("ease"), place.get("spring").cloned()));
+    // At one place, a spring wins over an easing.
+    let spring = match springs.find(|(ease, spring)| *ease || spring.is_some()) {
+        Some((_, spring)) => spring,
+        None => preset.and_then(|p| p.spring.clone().map(Value::String)),
+    };
+    match spring {
+        Some(spring) => {
+            let name = spring.as_str().map(|s| format!(" `{s}`")).unwrap_or_default();
+            Err(format!(
+                "{what} runs on the spring{name}, which lasts as long as it takes to settle: give it an `ease` to time it"
+            ))
+        }
+        None => Ok(()),
+    }
+}
+
+/// A motion preset, by name or a call with settings, with `field` set to `value` or taken away
+/// with `None`. A call that sets nothing but its preset is its name.
+fn call_with(call: &Value, field: &str, value: Option<Value>) -> Value {
+    let mut map = match call {
+        Value::String(name) => Map::from_iter([("preset".to_string(), Value::String(name.clone()))]),
+        Value::Object(map) => map.clone(),
+        other => return other.clone(),
+    };
+    set_or_drop(&mut map, field, value);
+    match map.get("preset") {
+        Some(Value::String(name)) if map.len() == 1 => Value::String(name.clone()),
+        _ => Value::Object(map),
+    }
+}
+
+fn set_or_drop(map: &mut Map<String, Value>, field: &str, value: Option<Value>) {
+    match value {
+        Some(value) => drop(map.insert(field.into(), value)),
+        None => drop(map.shift_remove(field)),
+    }
+}
+
+/// A time as the deck writes it, ms: whole where it is whole.
+fn number(ms: f64) -> Value {
+    if ms.fract() == 0.0 && ms.abs() < 1e15 { Value::from(ms as i64) } else { Value::from(ms) }
+}
+
+/// A duration in ms, a theme duration read from the theme.
+fn millis(duration: &Duration, theme: Option<&Theme>) -> Result<f64, String> {
+    match duration {
+        Duration::Ms(ms) => Ok(*ms),
+        Duration::Named(name) => theme
+            .and_then(|t| t.motion.durations.get(name))
+            .map(|d| d.0)
+            .ok_or_else(|| format!("`{name}` is a theme duration the deck's theme does not give")),
+    }
+}
+
+/// Each key of `anim` tracks: its track's name, its place there, and its `t`.
+fn keys(tracks: &Value, what: &str) -> Result<Vec<(String, usize, f64)>, String> {
+    let tracks = tracks.as_object().ok_or_else(|| format!("{what} is not tracks"))?;
+    let mut out = Vec::new();
+    for (name, keys) in tracks {
+        for (k, key) in keys.as_array().into_iter().flatten().enumerate() {
+            let t = key.get("t").and_then(Value::as_f64).ok_or_else(|| format!("{what}: a `{name}` key has no `t`"))?;
+            out.push((name.clone(), k, t));
+        }
+    }
+    if out.is_empty() {
+        return Err(format!("{what} has no keys"));
+    }
+    Ok(out)
+}
+
+/// `tracks` with each key's `t` made `to(t)`, and the earliest key's `t`.
+fn retimed(tracks: &Value, what: &str, to: impl Fn(f64, f64, f64) -> f64) -> Result<Value, String> {
+    let keys = keys(tracks, what)?;
+    let first = keys.iter().map(|k| k.2).fold(f64::INFINITY, f64::min);
+    let last = keys.iter().map(|k| k.2).fold(f64::NEG_INFINITY, f64::max);
+    let mut out = tracks.clone();
+    for (name, k, t) in keys {
+        if let Some(key) = out.get_mut(&name).and_then(|track| track.get_mut(k)).and_then(Value::as_object_mut) {
+            key.insert("t".into(), number((to(t, first, last) * 1000.0).round() / 1000.0));
+        }
+    }
+    Ok(out)
+}
+
+/// `anim` tracks whose first key falls at `delay`, the rest as far after it as they were.
+fn shifted(tracks: &Value, delay: f64, what: &str) -> Result<Value, String> {
+    retimed(tracks, what, |t, first, _| t - first + delay)
+}
+
+/// `anim` tracks whose last key falls `span` after their first, the keys between spaced as
+/// they were.
+fn stretched(tracks: &Value, span: f64, what: &str) -> Result<Value, String> {
+    let keys = keys(tracks, what)?;
+    let first = keys.iter().map(|k| k.2).fold(f64::INFINITY, f64::min);
+    let last = keys.iter().map(|k| k.2).fold(f64::NEG_INFINITY, f64::max);
+    if last - first <= 0.0 {
+        return Err(format!(
+            "{what} has its keys at {first} ms, all of them: there is no time between them to stretch"
+        ));
+    }
+    retimed(tracks, what, |t, first, last| first + (t - first) * span / (last - first))
 }
 
 fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {

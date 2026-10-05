@@ -242,6 +242,7 @@ jobs:
       - run: node web/several.mjs
       # Group and ungroup: a group where the nodes stand, and taken apart to the deck as it was (PLAN 2.43).
       - run: node web/group.mjs
+      - run: node web/cue.mjs
       # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
       - run: node web/runs.mjs
       # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).

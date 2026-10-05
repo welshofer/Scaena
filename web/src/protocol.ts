@@ -258,7 +258,7 @@ export type ToWorker =
    * not hold, and the last, comes to rest and waits there. `still`, for a reader who asks for
    * less motion (PLAN 2.8): each cue is a cut to its state at rest, and the deck keeps its
    * pace, a state that holds going on when its cue and hold are over. */
-  | { type: "run"; index: number; t: number; format?: string; still?: boolean }
+  | { type: "run"; index: number; t: number; format?: string; still?: boolean; alone?: boolean }
   /** Slot `index`, `t` ms into its cue (at rest without `t`), still. */
   | { type: "seek"; id: number; index: number; t?: number; format?: string }
   /** Stop where the deck is. */
@@ -578,13 +578,46 @@ export interface Inspected {
   nodes: Record<string, Record<string, unknown>>;
   looks?: Record<string, { role: string; family: string; size: number; weight: number; leading: number; tracking: number; color: string; hex: string }>;
   overrides?: Record<string, string[]>;
-  timeline?: {
-    start: number;
-    span: number;
-    hold: number;
-    transition: { duration: number; match: string };
-    motions: { node: string; motion: string; units: number; start: number; end: number }[];
-  };
+  /** The nodes that come on screen in this state, and those that leave it (SPEC §2.2). */
+  entered?: string[];
+  exited?: string[];
+  timeline?: Cue;
+}
+
+/** A state's cue, as `scaena inspect --timeline` places it (SPEC §2.4, §3.9), ms: where it falls
+ * on the deck's timeline, its transition, and each motion on the state's clock. */
+export interface Cue {
+  start: number;
+  span: number;
+  hold: number;
+  transition: { duration: number; match: string; curve: Curve };
+  motions: Motion[];
+}
+
+/** An easing as its cubic Bézier, or a spring as its constants. */
+export type Curve = { ease: [number, number, number, number] } | { spring: { stiffness: number; damping: number; mass: number } };
+
+/** One motion on one node, placed on its state's clock (PLAN 2.44). */
+export interface Motion {
+  node: string;
+  motion: "enter" | "exit" | "emphasis" | "anim";
+  /** What it moves one at a time: lines, words, glyphs, children, or marks. */
+  split?: string | null;
+  units: number;
+  start: number;
+  /** From one unit's start to the next's. */
+  stagger: number;
+  /** Each unit's. */
+  duration: number;
+  end: number;
+  /** When its first unit starts to change and its last comes to rest: an `anim`'s from its
+   * first key. */
+  moving: [number, number];
+  /** Its `delay` as written: what `time_motion` reads and sets. */
+  delay: number;
+  /** Where it is written: a JSON pointer into the deck. */
+  written?: string;
+  curve: Curve;
 }
 
 /** The worker to the page. */
