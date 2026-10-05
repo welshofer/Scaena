@@ -27,6 +27,9 @@ fn bundle(test: &str) -> PathBuf {
         ("fonts/Fraunces-VF.ttf", "fonts/Fraunces-VF.ttf"),
         ("fonts/Inter-VF.ttf", "fonts/Inter-VF.ttf"),
         ("fonts/JetBrainsMono-VF.ttf", "fonts/JetBrainsMono-VF.ttf"),
+        ("fonts/Fraunces-Italic-VF.ttf", "fonts/Fraunces-Italic-VF.ttf"),
+        ("fonts/Inter-Italic-VF.ttf", "fonts/Inter-Italic-VF.ttf"),
+        ("fonts/JetBrainsMono-Italic-VF.ttf", "fonts/JetBrainsMono-Italic-VF.ttf"),
         ("data/q3-revenue.csv", "data/q3-revenue.csv"),
     ];
     for (from, to) in files {

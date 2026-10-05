@@ -49,6 +49,7 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
             "role",
             "style/family",
             "style/weight",
+            "style/italic",
             "style/size",
             "style/color",
             "style/case",
@@ -230,7 +231,8 @@ fn characters_offer_a_runs_look_and_show_the_first_ones() {
     let doc = compile(&example(), ops.as_array().unwrap(), &Examples).unwrap().doc;
     let c = characters(&deck(&doc), &theme, "revenue", "title", (9, 12)).unwrap();
     let props: Vec<&str> = c.fields.iter().map(|f| f.prop.as_str()).collect();
-    assert_eq!(props, ["role", "emphasis", "style/family", "style/weight", "style/color"]);
+    assert_eq!(props, ["role", "emphasis", "style/family", "style/weight", "style/italic", "style/color"]);
+    assert!(matches!(field(&c, "style/italic").takes, Takes::Flag), "italic, or not");
     let at = |prop: &str| (field(&c, prop).value.clone(), field(&c, prop).lives.clone());
     assert_eq!(at("style/weight"), (Some(json!(700)), Some(Where::State("revenue".into()))));
     assert_eq!(at("style/color"), (Some(json!("accent")), Some(Where::State("revenue".into()))));

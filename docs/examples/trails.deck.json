@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "meta": {
     "title": "High Country Trails: the 2026 season",
     "lang": "en-US",
@@ -43,6 +43,47 @@
     {
       "family": "JetBrains Mono",
       "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
       "axes": {
         "wght": [
           100,

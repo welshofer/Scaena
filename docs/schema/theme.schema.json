@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.8.json",
+  "$id": "https://scaena.dev/schema/theme-0.9.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.8(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.9(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -226,12 +226,29 @@
           "type": "object",
           "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         },
+        "italic": {
+          "description": "Its italic face (SPEC §3.5), which text set `italic` takes. A family without one sets such text upright: no italic is synthesized (lint W231).",
+          "$ref": "#/$defs/Face"
+        },
         "fallback": {
           "description": "Other families in this theme, in order. Bundle-only; system fonts are never consulted.",
           "type": "array",
           "items": { "type": "string" }
         },
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } }
+      }
+    },
+    "Face": {
+      "description": "Another face of a family, in a file of its own: its italic (PLAN 2.40). Its file names the family's name, as the family's own file does.",
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "pattern": "^fonts/" },
+        "axes": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        }
       }
     },
     "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
@@ -252,6 +269,10 @@
         "family": { "description": "Key in `type.families`.", "type": "string" },
         "size": { "type": "number", "exclusiveMinimum": 0 },
         "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "italic": {
+          "description": "Set in its family's italic face (SPEC §3.5); upright when unset.",
+          "type": "boolean"
+        },
         "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
         "tracking": { "description": "Em units; negative tightens.", "type": "number" },
         "opsz": { "type": "number" },

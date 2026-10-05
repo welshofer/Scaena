@@ -625,21 +625,30 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
     }
     if let Some(theme) = theme {
         for (key, family) in &theme.theme.typography.families {
-            if !files.exists(&family.file) {
-                let message = format!("font file `{}` is not in the bundle", family.file);
-                out.push(theme.finding("E102", message, &format!("/type/families/{}/file", esc(key))));
-            }
-            // Rendering registers the fonts the deck lists, and needs every family's.
-            if !deck.fonts.iter().any(|f| f.file == family.file) {
-                let message =
-                    format!("theme family `{key}` is set in `{}`, which the deck's `fonts` does not list", family.file);
-                let font = json!({ "family": family.family, "file": family.file });
-                out.push(
-                    Finding::new("E102", Severity::Error, message)
-                        .at("/fonts")
-                        .hint("Rendering registers only the fonts the deck lists.")
-                        .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
-                );
+            // The family's own file, and its italic face's (PLAN 2.40).
+            let italic = family.italic.as_ref().map(|face| (face.file.as_str(), "/italic/file", Some("italic")));
+            for (file, at, style) in std::iter::once((family.file.as_str(), "/file", None)).chain(italic) {
+                if !files.exists(file) {
+                    let message = format!("font file `{file}` is not in the bundle");
+                    out.push(theme.finding("E102", message, &format!("/type/families/{}{at}", esc(key))));
+                }
+                // Rendering registers the fonts the deck lists, and needs every family's.
+                if !deck.fonts.iter().any(|f| f.file == file) {
+                    let face = if style.is_some() { "'s italic" } else { "" };
+                    let message = format!(
+                        "theme family `{key}`{face} is set in `{file}`, which the deck's `fonts` does not list"
+                    );
+                    let mut font = json!({ "family": family.family, "file": file });
+                    if let Some(style) = style {
+                        font["style"] = json!(style);
+                    }
+                    out.push(
+                        Finding::new("E102", Severity::Error, message)
+                            .at("/fonts")
+                            .hint("Rendering registers only the fonts the deck lists.")
+                            .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
+                    );
+                }
             }
         }
     }

@@ -65,7 +65,7 @@ fn a_bare_deck_saves_with_what_it_references_and_no_more() {
         "{after:#?}"
     );
     assert!(!after.iter().any(|f| f.starts_with("authorability/")), "another bundle's files stay where they are");
-    assert_eq!(saved.subset.len(), 3);
+    assert_eq!(saved.subset.len(), 6, "each family's face and its italic");
     let (deck, files) = scaena_store::open_unparsed(&dir).unwrap();
     assert_eq!(validate_bundle(&deck, &files).unwrap(), []);
 }

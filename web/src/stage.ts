@@ -60,6 +60,7 @@ type Reply = Extract<
       | "carets"
       | "characterChoices"
       | "bolding"
+      | "italicizing"
       | "themes"
       | "rethemed"
       | "reached"
@@ -286,6 +287,13 @@ export class Stage {
     return this.request<"bolding">(asked).then(({ look }) => look);
   }
 
+  /** What ⌘I gives the characters `from` to `to` of `node`'s text (PLAN 2.40): `style_text`'s
+   * `look`, from whether each of them asks for italic. */
+  italicizing(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
+    const asked = { type: "italicizing" as const, id: ++this.asked, source, state, node, from, to, format };
+    return this.request<"italicizing">(asked).then(({ look }) => look);
+  }
+
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   themes(): Promise<Themes> {
     return this.request<"themes">({ type: "themes", id: ++this.asked }).then(({ themes }) => themes);
@@ -509,6 +517,7 @@ export class Stage {
       case "carets":
       case "characterChoices":
       case "bolding":
+      case "italicizing":
       case "themes":
       case "rethemed":
       case "reached":

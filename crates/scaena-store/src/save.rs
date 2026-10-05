@@ -89,7 +89,7 @@ impl Bundle {
             Some(Value::String(path)) => Some(serde_json::from_slice(&self.read(path)?)?),
             other => other.clone(),
         };
-        let fonts = font_files(&self.deck, theme.as_ref()).into_iter().map(|(file, _)| file).collect();
+        let fonts = font_files(&self.deck, theme.as_ref()).into_iter().map(|(file, _, _)| file).collect();
         Ok((self.drawable_chars()?, fonts))
     }
 
@@ -135,7 +135,7 @@ impl Bundle {
         // Fonts: the deck's, then any other its theme's families name.
         let fonts = font_files(&deck, theme.as_ref().map(|(_, v)| v).or(deck.theme.as_ref()));
         let mut names: BTreeMap<String, String> = BTreeMap::new();
-        for (old, family) in fonts {
+        for (old, family, italic) in fonts {
             let bytes = self.read(&old)?;
             let bytes_out = if opts.subset_fonts {
                 let smaller = subset(&old, &bytes, &chars)?;
@@ -144,8 +144,10 @@ impl Bundle {
             } else {
                 bytes
             };
-            let new =
-                format!("fonts/{}-{}.{}", slug(&family), &sha256(&bytes_out)[..16], extension(&old).unwrap_or("ttf"));
+            // `Inter-…` for the family's own face, `Inter-Italic-…` for its italic (PLAN 2.40).
+            let face = if italic { "-Italic" } else { "" };
+            let hash = &sha256(&bytes_out)[..16];
+            let new = format!("fonts/{}{face}-{hash}.{}", slug(&family), extension(&old).unwrap_or("ttf"));
             replaced.insert(old.clone());
             out.insert(new.clone(), bytes_out);
             names.insert(old, new);
@@ -330,38 +332,51 @@ pub fn zip(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, StoreError> {
     Ok(zip.finish().map_err(zip_error)?.into_inner())
 }
 
-/// The font files a save writes, as (file, family name): the deck's, then any other its
-/// theme's families name.
-fn font_files(deck: &Deck, theme: Option<&Value>) -> Vec<(String, String)> {
-    let mut fonts: Vec<(String, String)> = deck.fonts.iter().map(|f| (f.file.clone(), f.family.clone())).collect();
-    for (file, family) in theme_families(theme) {
-        if !fonts.iter().any(|(f, _)| *f == file) {
-            fonts.push((file, family));
+/// The font files a save writes, as (file, family name, whether it is the family's italic):
+/// the deck's, then any other its theme's families name.
+fn font_files(deck: &Deck, theme: Option<&Value>) -> Vec<(String, String, bool)> {
+    let mut fonts: Vec<(String, String, bool)> =
+        (deck.fonts.iter()).map(|f| (f.file.clone(), f.family.clone(), f.style.as_deref() == Some("italic"))).collect();
+    for (file, family, italic) in theme_families(theme) {
+        if !fonts.iter().any(|(f, _, _)| *f == file) {
+            fonts.push((file, family, italic));
         }
     }
     fonts
 }
 
-/// The (file, family name) of each family in a theme, in theme order.
-fn theme_families(theme: Option<&Value>) -> Vec<(String, String)> {
+/// The (file, family name, whether it is the italic) of each family in a theme, and of its
+/// italic face (PLAN 2.40), in theme order.
+fn theme_families(theme: Option<&Value>) -> Vec<(String, String, bool)> {
     let families = theme.and_then(|t| t.get("type")).and_then(|t| t.get("families")).and_then(Value::as_object);
-    families
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, f)| Some((f.get("file")?.as_str()?.to_string(), f.get("family")?.as_str()?.to_string())))
-        .collect()
+    let mut out = Vec::new();
+    for family in families.into_iter().flat_map(|f| f.values()) {
+        let Some(name) = family.get("family").and_then(Value::as_str) else { continue };
+        for (face, italic) in [(Some(family), false), (family.get("italic"), true)] {
+            if let Some(file) = face.and_then(|f| f.get("file")).and_then(Value::as_str) {
+                out.push((file.to_string(), name.to_string(), italic));
+            }
+        }
+    }
+    out
 }
 
-/// A theme's family files, renamed by `names`.
+/// A theme's family files, and its families' italic faces', renamed by `names`.
 fn rename_theme_fonts(theme: Option<&mut Value>, names: &BTreeMap<String, String>) {
-    let families =
-        theme.and_then(|t| t.get_mut("type")).and_then(|t| t.get_mut("families")).and_then(Value::as_object_mut);
-    for family in families.into_iter().flat_map(|f| f.values_mut()) {
-        if let Some(Value::String(file)) = family.get_mut("file")
+    let rename = |face: &mut Value| {
+        if let Some(Value::String(file)) = face.get_mut("file")
             && let Some(new) = names.get(file.as_str())
         {
             *file = new.clone();
         }
+    };
+    let families =
+        theme.and_then(|t| t.get_mut("type")).and_then(|t| t.get_mut("families")).and_then(Value::as_object_mut);
+    for family in families.into_iter().flat_map(|f| f.values_mut()) {
+        if let Some(italic) = family.get_mut("italic") {
+            rename(italic);
+        }
+        rename(family);
     }
 }
 

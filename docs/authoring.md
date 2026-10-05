@@ -65,7 +65,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.
   - Each burst of typing is one ⌘Z. The text reflows as you type, and lint says at once if it no longer fits. Escape, or a click outside the text, stops typing.
-  - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not. With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
+  - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not. ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
 - **Choose a look.** With an object selected, the inspector shows what your theme offers for it: a text's role, family, weight, color, and fit, a shape's fill and stroke, a chart's kind, an entrance and an exit, and more.
   - Each choice is one ⌘Z, and goes where the value is set: in the state that sets it, or in the object itself. The status says in how many states it shows. Tick "only in" to keep it to the state shown.
   - A color or a length you write out yourself, and any text size, is an override: it goes in the deck's `overrides`, holds in every state, and a new theme does not change it. The inspector marks it so. The × beside a value takes it away where it is set, so what is under it shows.
@@ -193,12 +193,12 @@ Source that does not parse exits 2, at the line and column:
 E106
 
   × unknown property `sise`; did you mean `size`?
-    ╭─[deck.scn:23:46]
- 22 │   -claim
- 23 │   title "Pro drove the growth" role:headline sise:12 semantic:claim at:in(header)
+    ╭─[deck.scn:26:46]
+ 25 │   -claim
+ 26 │   title "Pro drove the growth" role:headline sise:12 semantic:claim at:in(header)
     ·                                              ───┬───
     ·                                                 ╰── /states/1/props/title/sise
- 24 │   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
+ 27 │   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     ╰────
 ```
 
@@ -219,7 +219,7 @@ A valid deck can still be shown badly. `scaena lint` lays out every state, in ev
 | Codes | Family | For example |
 |---|---|---|
 | E100–E120 | mechanical: it cannot be shown | text that does not fit its box (E100), objects that collide (E101), text that does not contrast with what is painted behind it (E110, E111), characters the font has no glyph for (E120) |
-| W200–W230 | typography and fonts | a widow (W200), too many words on screen (W210), a font whose license forbids what a bundle does with it (W230) |
+| W200–W231 | typography and fonts | a widow (W200), too many words on screen (W210), a font whose license forbids what a bundle does with it (W230), italic asked of a family with no italic face (W231) |
 | W300–W322 | the theme, charts, motion | a literal where a theme name goes (W300), chart text too small to read (W312), too much moving at once (W320) |
 | W401–W426 | the argument | a state no beat names (W401), a slide with evidence and no claim (W421), two claims on screen (W424) |
 | I400–I402 | information | a state that changes nothing (I400) |
@@ -238,6 +238,9 @@ deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 lang:en-US
 font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
 font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
 font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
+font Fraunces "fonts/Fraunces-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-Italic-VF.ttf" style:italic axes:{wght: [100, 800]}
 
 data q3 "data/q3-revenue.csv"
   schema:{quarter: string, product: string, revenue: number, customers: number}
@@ -268,7 +271,7 @@ state mix slide:revenue
 
 Line by line:
 - **The header.** `deck "Q3 Review" theme:… canvas:1920x1080` names the theme and the canvas in canvas units, which the painters scale to any size. Add `formats:[9:16, 1:1]` to lay the deck out again in other shapes.
-- **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
+- **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
 - **`state cover layout:title`** is the first click, on the theme's `title` layout.
   - `title text role:display "Q3 Review" … at:in(title)` declares an object where it first appears: its id, its type, its text, its role, and its slot.

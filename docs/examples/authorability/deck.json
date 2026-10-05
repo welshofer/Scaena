@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "meta": {
     "title": "Q4 2026 Board Update",
     "lang": "en-US",
@@ -33,6 +33,34 @@
     {
       "family": "JetBrains Mono",
       "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [100, 800]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [9, 144],
+        "SOFT": [0, 100],
+        "WONK": [0, 1]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [14, 32]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
       "axes": {
         "wght": [100, 800]
       }

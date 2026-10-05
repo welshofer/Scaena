@@ -49,9 +49,13 @@ fn an_html_export_carries_its_bundle_its_states_and_how_each_reads() {
     for path in ["deck.json", "themes/dusk.theme.json", "data/q3-revenue.csv", "fonts/OFL-Inter.txt"] {
         assert!(paths.contains(&path), "{path} in {paths:?}");
     }
+    // Each family's font and its italic's (PLAN 2.40).
     let fonts: Vec<&&str> = paths.iter().filter(|p| p.ends_with(".ttf")).collect();
-    assert_eq!(fonts.len(), 3, "{paths:?}");
-    assert!(fonts.iter().all(|p| p.len() == "fonts/".len() + p[6..].find('-').unwrap() + 1 + 16 + 4), "{fonts:?}");
+    assert_eq!(fonts.len(), 6, "{paths:?}");
+    // Named by their content: `fonts/Inter-<hash>.ttf`, and `fonts/Inter-Italic-<hash>.ttf`.
+    let hashed = |p: &str| p.rsplit_once('-').is_some_and(|(_, tail)| tail.len() == 16 + 4 && tail.ends_with(".ttf"));
+    assert!(fonts.iter().all(|p| hashed(p)), "{fonts:?}");
+    assert_eq!(fonts.iter().filter(|p| p.contains("-Italic-")).count(), 3, "{fonts:?}");
     assert!(!paths.iter().any(|p| *p == "manifest.json" || p.starts_with("history/")), "{paths:?}");
     // How each state reads, in the order it plays.
     let revenue = html.find(r#"<template data-state="revenue">"#).expect("revenue reads");

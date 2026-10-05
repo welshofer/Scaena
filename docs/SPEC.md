@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -226,7 +226,9 @@ One placement wins: `rect`, else `in`, else `col`/`row` (either omitted spans th
 
 ### 3.5 Typography
 
-Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, variable axes (`wght`, `opsz`, `wdth`), and what of it sits on the baseline grid (`snap`, §3.4). `measure` counts characters in `ch`, the advance of `0` in the text's look (CSS `ch`). `case` is `upper`, `lower`, `title` (each word's first letter capitalized), or `smallcaps`. Small capitals are the font's `smcp`, and none are synthesized: a family without them shows the letters as written. The case mappings are Unicode's defaults, the same in every language. A text node's `style` refines its role's look (§3.6). Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
+Text nodes carry a `role` from the theme (`display`, `headline`, `title`, `body`, `caption`, `label`, `numeral`, `code`, …). The role supplies family, size, weight, leading, tracking, measure (max line length), case, numeric features, variable axes (`wght`, `opsz`, `wdth`), and what of it sits on the baseline grid (`snap`, §3.4). `measure` counts characters in `ch`, the advance of `0` in the text's look (CSS `ch`). `case` is `upper`, `lower`, `title` (each word's first letter capitalized), or `smallcaps`. Small capitals are the font's `smcp`, and none are synthesized: a family without them shows the letters as written. The case mappings are Unicode's defaults, the same in every language. A text node's `style` refines its role's look (§3.6).
+
+Italic is a family's own italic face (PLAN 2.40). A role, or a text's `style` (a node's or a run's), sets `italic: true` to ask for it, and `false` to set the text upright where its role is italic. The theme's family names the face, a file of its own (`italic: { "file", "axes"? }`, §3.6), and it is set as the family is: the same weights, axes, and features. None is synthesized: a family without an italic face sets the text upright, and lint says so (**W231**), as does text that falls back to a family without one. The themes that ship, Dusk, Daybreak, and Ember, name an italic for each of their families. Rich text is `runs: [{ "text", "role"?, "emphasis"?: "high"|"low", "style"?: {...} }]`.
 
 The engine MUST implement:
 - Shaping via `harfrust` (the HarfBuzz port) through `parley` (ligatures, kerning, contextual alternates, OpenType features, variable axes), with per-run `features` and `axes` overrides. Font tables and metrics are read with `skrifa` (ADR-0004).
@@ -257,7 +259,7 @@ See `docs/schema/theme.schema.json`. Shape:
 
 ```jsonc
 {
-  "scaena-theme": "0.8",
+  "scaena-theme": "0.9",
   "name": "Dusk",
   "tokens": {
     "color":  { "ink": "#...", "paper": "#...", "accent": "#...", "muted": "...", "...": "..." },
@@ -268,7 +270,7 @@ See `docs/schema/theme.schema.json`. Shape:
     "stroke": { "hairline": 1, "thin": 2, "thick": 4 }
   },
   "type": {
-    "families": { "display": { "family": "...", "file": "fonts/...", "axes": {...} }, "body": {...}, "mono": {...} },
+    "families": { "display": { "family": "...", "file": "fonts/...", "axes": {...}, "italic": { "file": "fonts/...", "axes": {...} } }, "body": {...}, "mono": {...} },
     "scale":    { "ratio": 1.25, "base": 32 },
     "roles": {
       "display":  { "family": "display", "size": 128, "weight": 650, "leading": 0.95, "tracking": -0.02, "opsz": 96, "wrap": "balance", "box": "cap", "snap": "cap", "minSize": 72, "measure": 18 },
@@ -627,6 +629,9 @@ deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 formats:[16:9, 
 font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
 font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
 font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
+font Fraunces "fonts/Fraunces-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-Italic-VF.ttf" style:italic axes:{wght: [100, 800]}
 
 data q3 "data/q3-revenue.csv"
   schema:{quarter: string, product: string, revenue: number, customers: number}
@@ -1019,7 +1024,7 @@ A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patc
 | `set_text` | `node`, `text`, `state?` | Sets a text node's `text`; its `runs` there go |
 | `choose` | `node`, `prop`, `value`, `state?`, `fork?` | One property as an inspector chooses it (ADR-0013, PLAN 2.33): `prop` is a property or one key of one (`style/color`), and `value` is written where it lives, as `place` writes a placement: in the latest delta that sets it, from `state` back along what it tracks, else in the node's own. A value written out where the theme has names (W300's: a color, a text size, a length in canvas units) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. `null` takes it away where it lives, so what is under it shows: out of the overrides (which go once empty), out of the delta, or off the node. With `fork`, in `state`'s own props; refused for a value that goes in the overrides |
 | `replace_text` | `node`, `from`, `to`, `text`, `state?`, `fork?` | Text typed where it stands (ADR-0013): the characters from `from` to `to` of the node's text as `state` shows it (its `text`, or its runs' texts end to end, the deck's `overrides` over them) become `text`. Offsets count characters (Unicode scalar values). Runs keep their looks: what is typed takes the look of the run it is typed into, the one before where two meet, and a run the edit leaves with no text goes. It is written where the text lives, as `place` writes a placement: in the overrides if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own. With `fork`, in `state`'s own props; refused where the overrides set the text |
-| `style_text` | `node`, `from`, `to`, `look`, `state?`, `fork?` | The look of characters (ADR-0013, PLAN 2.38): the characters from `from` to `to` of the node's text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its `style` (`style/weight`, `style/color`, …). A key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing; with `fork`, in `state`'s own props. Refused: no characters, a `look` of nothing, a size (a size comes with a role), and a color written out (a run takes the theme's names) |
+| `style_text` | `node`, `from`, `to`, `look`, `state?`, `fork?` | The look of characters (ADR-0013, PLAN 2.38): the characters from `from` to `to` of the node's text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its `style` (`style/weight`, `style/italic`, `style/color`, …). A key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing; with `fork`, in `state`'s own props. Refused: no characters, a `look` of nothing, a size (a size comes with a role), and a color written out (a run takes the theme's names) |
 | `bind_data` | `node`, `data`, `source?`, `state?` | A chart or table reads `@data`; `source` declares or replaces the data source. In a state, it is a data update (§3.7) |
 | `apply_preset` | `node`, `preset`, `motion?`, `state?` | With `motion` (`enter`, `exit`, `emphasis`), a theme motion preset as that motion. Without, a shader takes a theme shader preset whole: the preset's kind, and none of its own `palette` or `params` |
 | `add_state` | `state`, `after?` or `before?`, `beat?` | Adds a state there (else last); with `beat`, one of that beat's states |
@@ -1082,6 +1087,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W220 | warn | paragraphs (text of two lines or more) aligned more than one way in a state |
 | W221 | warn | a role that snaps its baselines to the baseline grid (`snap: "baseline"`) with a leading (`size × leading`) that is not a whole number of grid lines, so its lines sit farther apart than it says; or a grid the deck is laid out on with no baseline for it to snap to. It points into the theme (§3.4) |
 | W230 | warn | a font the deck lists whose license, in its OS/2 embedding bits (`fsType`), does not allow what Scaena does with a font: embedding only with its owner's permission (a bundle carries its fonts, as a PDF and a single-file export do), embedding only in documents opened read-only (a bundle is edited), no subsetting (Scaena subsets the fonts it saves and exports; `scaena save --keep-fonts` keeps a bundle's whole), or embedding only its bitmaps (exports embed outlines). Where more than one usage bit is set, the least restrictive holds, as OpenType says. One finding per font, at its entry in `fonts`, with its `fsType`. It warns and refuses nothing (§16 Q3) |
+| W231 | warn | text that asks for italic (`italic` in its role or its `style`, a node's or a run's) set in a family with no italic face, the theme's family or a fallback the text takes: it is set upright, since no italic is synthesized (§3.5). One finding per text and state, naming each family, by its key and name, or each fallback's font, by its file |
 | W300 | warn | style literal outside `overrides`: a color written out where a theme color goes, a text `size`, a length in canvas units where a theme token goes (`radius`, `gap`, `padding`, `inset`, a stroke's `width`, a child's `size`) |
 | W301 | warn | a node placed on the canvas by `rect` in a state with a `layout`. A container's child placed by `rect` is placed in its container |
 | W302 | warn | a deck with `formats` that places a node on the canvas by `rect` or by grid cells (`col`/`row`): it does not move with the formats' slots |
@@ -1202,7 +1208,7 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
     - **Each change** to the text is one `replace_text`, validated as a patch is but not linted: the state shown is linted after, as after a keystroke in the source, so a text that overflows says so as it is typed. One change is made at a time; what is typed meanwhile goes in the next.
     - **A burst of typing** is one step to undo, from the canvas (⌘Z) or the source, and one change in the bundle's history (`type`). An undo waits for what was typed to be made. The text is then read again where the deck now reads it, as it is whenever the source changes under it, and the caret goes where it changed. A key typed meanwhile goes there too, as a step of its own.
     - **Leaving.** Escape, a click outside the text, or focus elsewhere leaves it, the node still selected. Focus in the inspector keeps it.
-    - **A look for characters** (PLAN 2.38). With characters selected, ⌘B (Ctrl+B) makes them bold, or, all bold already, not, by the weight the engine sets each in (`Player.bolding`); and the inspector offers their look instead of the node's (`Player.characterChoices`): a run's role, emphasis, family, weight, and color, each the first character's. Each is one `style_text` patch (§7.3), by `user`, written where the text lives, one step to undo and one change in the bundle's history; × takes the characters' own away. `web/runs.mjs` checks it in headless Chromium on the revenue example.
+    - **A look for characters** (PLAN 2.38). With characters selected, ⌘B (Ctrl+B) makes them bold, or, all bold already, not, by the weight the engine sets each in (`Player.bolding`); and the inspector offers their look instead of the node's (`Player.characterChoices`): a run's role, emphasis, family, weight, italic, and color, each the first character's. ⌘I (Ctrl+I) sets them in italic, or, all italic already, not (`Player.italicizing`, PLAN 2.40), by whether each asks for italic: a family without an italic face sets them upright all the same (W231). Each is one `style_text` patch (§7.3), by `user`, written where the text lives, one step to undo and one change in the bundle's history; × takes the characters' own away. `web/runs.mjs` checks it in headless Chromium on the revenue example.
     - `web/typing.mjs` checks it in headless Chromium on the revenue example and the torture deck's paragraph and runs. On the revenue example, a key takes a median of 83 ms from the key to the source that holds it, the state shown painted and linted, on the CPU.
   - **The inspector's edits** (PLAN 2.33, ADR-0013). The node selected shows above the state's nodes with what the theme offers for it (`Player.choices`, as `inspect --choices`): each property, the value the state shows, and where that value lives.
     - **Choosing.** A role, a family, a color, a preset, a word, or a number chosen there is one `choose` patch (§7.3), by `user`, written where the value lives. It comes into the source as one change, one step to undo, and the status says which states it changes. "Only in" keeps it to the state shown (`fork`).

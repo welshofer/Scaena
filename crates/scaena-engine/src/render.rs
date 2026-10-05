@@ -453,8 +453,8 @@ impl Engine {
         };
         if text.synthesized {
             return Err(EngineError::Font(format!(
-                "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
-                 use a weight or style the family provides"
+                "node `{id}`: a run needs faux bold, which the display list cannot express; \
+                 use a weight the family provides"
             )));
         }
         let overflow = !fits_box(&text);
@@ -705,17 +705,19 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             .iter()
             .map(|run| {
                 let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-                let base_weight = match run.get("role").and_then(Value::as_str) {
-                    Some(name) => theme.text_role(name)?.weight,
-                    None => role.weight,
+                // What the run is set in without its own style: its role's, or the node's look.
+                let (base_weight, base_italic) = match run.get("role").and_then(Value::as_str) {
+                    Some(name) => theme.text_role(name).map(|r| (r.weight, r.italic))?,
+                    None => (role.weight, role.italic),
                 };
-                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight })
+                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight, base_italic })
             })
             .collect::<Result<_, EngineError>>()?,
         None => vec![Span {
             text: str_prop("text").unwrap_or_default().to_string(),
             style: role.clone(),
             base_weight: role.weight,
+            base_italic: role.italic,
         }],
     };
     let features = props

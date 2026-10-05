@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "meta": {
     "title": "Ridgeline bike-share: expand in 2027"
   },
@@ -49,6 +49,55 @@
     {
       "family": "JetBrains Mono",
       "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
       "axes": {
         "wght": [
           100.0,
