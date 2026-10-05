@@ -561,3 +561,135 @@ fn place_says_what_places_a_node() {
         assert!(err.message.contains(says), "{op}: {err}");
     }
 }
+
+#[test]
+fn replace_text_writes_typing_where_the_text_lives() {
+    let text = |doc: &Value, i: usize, node: &str| {
+        let snaps = scaena_core::resolve_states(&deck(doc)).unwrap();
+        snaps[i].nodes.get(node).map(|p| p["text"].clone())
+    };
+    // `revenue` sets the title's text: "doubled" (characters 8 to 15) becomes "tripled" there.
+    let c = patch(
+        &example(),
+        json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "text": "tripled" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/props/title/text", "value": "Revenue tripled" }]));
+    assert_eq!(text(&c.doc, 2, "title"), Some(json!("…and the mix shifted")), "`mix` sets its own");
+    assert_eq!(c.doc["nodes"]["title"], example()["nodes"]["title"]);
+
+    // In `intro` the title reads its own text: the node's changes, and the states that set
+    // theirs keep them.
+    let c = patch(
+        &example(),
+        json!([{ "op": "replace_text", "node": "title", "state": "intro", "from": 0, "to": 2, "text": "Third-quarter" }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["title"]["text"], "Third-quarter Review");
+    for i in 1..4 {
+        assert_eq!(text(&c.doc, i, "title"), text(&example(), i, "title"), "state {i}");
+    }
+
+    // `note` reads its own text in `revenue` and in `mix`, which tracks it: the node's
+    // changes, so both read it; forked, `revenue`'s delta does, and `mix` takes it from there.
+    let c = patch(
+        &example(),
+        json!([{ "op": "replace_text", "node": "note", "state": "revenue", "from": 0, "to": 7, "text": "Sales" }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["note"]["text"], "Sales in $M. Enterprise recognized on delivery.");
+    let c = patch(
+        &example(),
+        json!([{ "op": "replace_text", "node": "note", "state": "revenue", "from": 0, "to": 7, "text": "Sales", "fork": true }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["note"], example()["nodes"]["note"]);
+    assert_eq!(c.doc["states"][1]["props"]["note"]["text"], "Sales in $M. Enterprise recognized on delivery.");
+    assert_eq!(text(&c.doc, 2, "note"), Some(json!("Sales in $M. Enterprise recognized on delivery.")));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // Offsets count characters, not bytes: "…" is one.
+    let c = patch(
+        &example(),
+        json!([{ "op": "replace_text", "node": "title", "state": "mix", "from": 1, "to": 4, "text": "so" }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["states"][2]["props"]["title"]["text"], "…so the mix shifted");
+
+    // Without a state, the node's own text; past its end, or on what is not a text, refused.
+    let c =
+        patch(&example(), json!([{ "op": "replace_text", "node": "title", "from": 9, "to": 9, "text": "!" }])).unwrap();
+    assert_eq!(c.doc["nodes"]["title"]["text"], "Q3 Review!");
+    for (op, says) in [
+        (
+            json!({ "op": "replace_text", "node": "title", "state": "intro", "from": 3, "to": 10, "text": "" }),
+            "9 characters",
+        ),
+        (
+            json!({ "op": "replace_text", "node": "title", "state": "intro", "from": 4, "to": 3, "text": "" }),
+            "`from` first",
+        ),
+        (json!({ "op": "replace_text", "node": "rev", "from": 0, "to": 0, "text": "x" }), "edits a text node's text"),
+        (json!({ "op": "replace_text", "node": "title", "from": 0, "to": 0, "text": "x", "fork": true }), "`fork`"),
+    ] {
+        let e = patch(&example(), json!([op])).unwrap_err();
+        assert!(e.to_string().contains(says), "{e}");
+    }
+}
+
+#[test]
+fn replace_text_keeps_runs_and_their_looks() {
+    let doc = json!({
+        "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "at": { "in": "title" },
+                   "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
+            "u": { "type": "text", "text": "Yo", "at": { "in": "body" } },
+        },
+        "overrides": { "u": { "text": "Hey" } },
+        "states": [{ "id": "a", "props": { "t": {}, "u": {} } }, { "id": "b", "props": { "t": { "runs": [{ "text": "Bye" }] } } }],
+    });
+    let runs = |c: &Compiled, at: &str| c.doc.pointer(at).unwrap().clone();
+    // Typed where two runs meet: into the one before.
+    let c =
+        patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "a", "from": 6, "to": 6, "text": "big " }]))
+            .unwrap();
+    assert_eq!(
+        runs(&c, "/nodes/t/runs"),
+        json!([{ "text": "Hello big " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }])
+    );
+    // Across runs: each keeps what is left of it, typed into the first; "ö" is one character.
+    let c = patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "a", "from": 4, "to": 9, "text": "p" }]))
+        .unwrap();
+    assert_eq!(
+        runs(&c, "/nodes/t/runs"),
+        json!([{ "text": "Hellp" }, { "text": "ld", "emphasis": "strong" }, { "text": "!" }])
+    );
+    // A run the edit empties goes; at the start, the first run takes it.
+    let c = patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "a", "from": 6, "to": 11, "text": "" }]))
+        .unwrap();
+    assert_eq!(runs(&c, "/nodes/t/runs"), json!([{ "text": "Hello " }, { "text": "!" }]));
+    let c =
+        patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "a", "from": 0, "to": 0, "text": "Oh, " }]))
+            .unwrap();
+    assert_eq!(runs(&c, "/nodes/t/runs")[0], json!({ "text": "Oh, Hello " }));
+    // Everything deleted leaves the run typed into, empty.
+    let c = patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "a", "from": 0, "to": 12, "text": "" }]))
+        .unwrap();
+    assert_eq!(runs(&c, "/nodes/t/runs"), json!([{ "text": "" }]));
+    // `b` sets its own runs: edited there.
+    let c = patch(&doc, json!([{ "op": "replace_text", "node": "t", "state": "b", "from": 3, "to": 3, "text": "!" }]))
+        .unwrap();
+    assert_eq!(runs(&c, "/states/1/props/t/runs"), json!([{ "text": "Bye!" }]));
+    assert_eq!(c.doc["nodes"]["t"], doc["nodes"]["t"]);
+    // The deck's overrides set `u`'s text in every state: edited there, and never forked.
+    let c = patch(&doc, json!([{ "op": "replace_text", "node": "u", "state": "a", "from": 3, "to": 3, "text": "!" }]))
+        .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/overrides/u/text", "value": "Hey!" }]));
+    let e = patch(
+        &doc,
+        json!([{ "op": "replace_text", "node": "u", "state": "a", "from": 0, "to": 0, "text": "!", "fork": true }]),
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("overrides"), "{e}");
+}

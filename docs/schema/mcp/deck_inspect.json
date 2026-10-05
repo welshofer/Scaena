@@ -348,6 +348,11 @@
             "description": "The containers and groups it sits in, innermost first.",
             "type": "array",
             "items": { "type": "string" }
+          },
+          "offset": {
+            "description": "For a text, where a caret put at the point stands: how many characters of its text\n(Unicode scalar values) come before it, as `replace_text` counts them (ADR-0013).",
+            "type": ["integer", "null"],
+            "minimum": 0
           }
         },
         "required": ["node", "rect", "containers"]

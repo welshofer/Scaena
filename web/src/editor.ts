@@ -31,7 +31,7 @@
 // changes, the editor offers to take it.
 import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
-import { type Diagnostic, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
+import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
 import {
   drawSelection,
@@ -335,8 +335,24 @@ async function edit(source: Source) {
       const changes = change(view.state.doc.toString(), source);
       view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
     },
-    undo: () => undo(view),
-    redo: () => redo(view),
+    typed: (source, edited, joins) => {
+      taken = { source, edited };
+      const changes = change(view.state.doc.toString(), source);
+      // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
+      // before it when both are `input.type.compose`; the burst's first starts a step of its own.
+      view.dispatch(
+        joins
+          ? { changes, userEvent: "input.type.compose" }
+          : { changes, userEvent: "input.type", annotations: isolateHistory.of("before") },
+      );
+    },
+    // The canvas shows what an undo made at once, not once the editor would lint.
+    undo: () => {
+      if (undo(view)) forceLinting(view);
+    },
+    redo: () => {
+      if (redo(view)) forceLinting(view);
+    },
     say: (text) => (status.textContent = text),
     selected: (node) => {
       chosen = node;

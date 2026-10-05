@@ -56,6 +56,18 @@ pub(crate) fn patch_as(b: &Bundle, ops: &Value, dry_run: bool, what: Option<&str
 /// (the web page's assistant, PLAN 2.6). `what` names the change in the bundle's history;
 /// without it, its ops' names do.
 pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
+    made(b, ops, what, true)
+}
+
+/// [`patching`] for an edit made as it is typed, a keystroke at a time (ADR-0013, PLAN
+/// 2.32): validated, and refused as a patch is, but not linted, so `added` and `removed`
+/// say only what validation finds. The editor lints the state it shows once the deck is
+/// written, as it does after a keystroke in the source.
+pub fn typing(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched, Option<Write>), OpsError> {
+    made(b, ops, what, false)
+}
+
+fn made(b: &Bundle, ops: &Value, what: Option<&str>, linted: bool) -> Result<(Patched, Option<Write>), OpsError> {
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
@@ -81,8 +93,10 @@ pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched,
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
         states = changed(&b.deck, &next)?;
-        let before = lint(b)?.findings;
-        let after = lint_in(&next, &View::of(b))?.findings;
+        let (before, after) = match linted {
+            true => (lint(b)?.findings, lint_in(&next, &View::of(b))?.findings),
+            false => (invalid, invalid_after),
+        };
         if compiled.doc != doc {
             let mut names: Vec<&str> = list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)).collect();
             names.dedup();

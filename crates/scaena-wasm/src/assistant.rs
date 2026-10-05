@@ -306,7 +306,7 @@ impl Session {
     /// Write what an operation `by` called computed into the session: its files, then its
     /// deck, which frames show from now on, kept for the next save to record. Whether there
     /// was anything to write.
-    fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
+    pub(crate) fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
         let Some(w) = w else { return Ok(false) };
         self.keep(&w.deck, &w.why, by)?;
         for (path, bytes) in w.files {

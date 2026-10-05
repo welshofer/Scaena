@@ -1,0 +1,539 @@
+// Text in place (PLAN 2.32, ADR-0013): a double click on a text puts a caret in it where the
+// engine says the character is, and typing there makes `replace_text` patches, by the user,
+// written where the text lives. The page lays nothing out: the caret, the selection, and where a
+// caret goes up or down a line come from the engine's carets, read from the glyphs it set.
+//
+// - A textarea no one sees holds the text as written and takes the keys, the clipboard, and an
+//   input method's composition; its selection is the caret's. Left and right, by a character or
+//   a word, and deleting are the textarea's own, in the text's order; up, down, home, and end go
+//   by the engine's lines.
+// - Each change to it is one `replace_text`: the characters it replaced, from what the deck reads
+//   to what the textarea holds. One is made at a time, and what is typed meanwhile goes in the
+//   next. A burst of typing is one step to undo, and a run of it one change in the bundle's
+//   history.
+// - Escape, a click outside the text, or focus elsewhere leaves it, the node still selected.
+import type { CaretLine, Carets, Edited, Rect } from "./protocol";
+import type { Stage } from "./stage";
+
+/** What typing asks of the canvas and the editor around it. */
+export interface Around {
+  /** The state shown, by its id and its slot's index. */
+  shown(): { state: string; index: number } | undefined;
+  format(): string | undefined;
+  source(): string;
+  /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
+   * the first of a burst of typing. */
+  typed(source: string, edited: Edited, joins: boolean): void;
+  undo(): void;
+  redo(): void;
+  say(text: string): void;
+  /** Draw the canvas again: the caret moved, or the text changed. */
+  draw(): void;
+  /** Canvas units to a CSS pixel. */
+  unit(): number;
+  /** Where `node` stands in the state shown: its box. */
+  box(node: string): Rect | undefined;
+}
+
+/** A change to a text: the UTF-16 range of what it read that `text` takes the place of. */
+interface Change {
+  from: number;
+  to: number;
+  text: string;
+}
+
+const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** How long a pause between two keys ends a burst of typing, ms: one step to undo each. */
+const BURST = 1000;
+
+/** Whether a caret at `offset` can stand on `line`: not past the line break it ends with. */
+const holds = (line: CaretLine, offset: number) =>
+  line.start <= offset && (offset < line.end || (offset === line.end && !line.broken));
+
+/** The line a caret at `offset` stands on: `on`, if it can stand there, else the last line that
+ * holds it, so a caret where a line wraps starts the next one. */
+export function lineOf(c: Carets, offset: number, on?: number): number {
+  if (on !== undefined && c.lines[on] && holds(c.lines[on], offset)) return on;
+  for (let l = c.lines.length - 1; l >= 0; l--) if (holds(c.lines[l], offset)) return l;
+  return offset === 0 ? 0 : c.lines.length - 1;
+}
+
+/** Where a caret at `offset` stands: its line, and its x. Inside a character, before it. */
+export function caretAt(c: Carets, offset: number, on?: number): { line: number; x: number } {
+  const l = lineOf(c, offset, on);
+  const line = c.lines[l];
+  const chars = line.chars;
+  let i = 0;
+  while (i < chars.length && chars[i][0] <= offset) i++;
+  if (i === 0) return { line: l, x: chars.length ? chars[0][1] : line.x };
+  const [at, lead, trail] = chars[i - 1];
+  return { line: l, x: at < offset && i === chars.length && offset >= line.end ? trail : lead };
+}
+
+/** The offset on line `l` whose caret stands nearest canvas `x`: before one of its characters, or
+ * after the last, the first in the text's order where two are as near. */
+export function onLine(c: Carets, l: number, x: number): number {
+  const line = c.lines[l];
+  if (!line) return c.text.length;
+  let best: [number, number] = [Infinity, line.start];
+  for (const [at, lead] of line.chars) if (Math.abs(lead - x) < best[0]) best = [Math.abs(lead - x), at];
+  const last = line.chars.at(-1);
+  if (last && holds(line, line.end) && Math.abs(last[2] - x) < best[0]) best = [Math.abs(last[2] - x), line.end];
+  return best[1];
+}
+
+/** The caret nearest `point`: its offset, and the line it stands on. */
+export function caretNear(c: Carets, [x, y]: [number, number]): [number, number] {
+  let l = c.lines.findIndex((line) => y < line.bottom);
+  if (l < 0) l = c.lines.length - 1;
+  return [onLine(c, l, x), l];
+}
+
+/** What a selection from `from` to `to` covers: a rectangle per stretch of adjacent characters on
+ * a line. */
+export function covered(c: Carets, from: number, to: number): Rect[] {
+  const out: Rect[] = [];
+  for (const line of c.lines) {
+    const spans = line.chars
+      .filter(([at, lead, trail]) => from <= at && at < to && lead !== trail)
+      .map(([, lead, trail]): [number, number] => [Math.min(lead, trail), Math.max(lead, trail)])
+      .sort((a, b) => a[0] - b[0]);
+    const merged: [number, number][] = [];
+    for (const [l, r] of spans) {
+      const last = merged.at(-1);
+      if (last && l <= last[1] + 0.5) last[1] = Math.max(last[1], r);
+      else merged.push([l, r]);
+    }
+    for (const [l, r] of merged) out.push([l, line.top, r - l, line.bottom - line.top]);
+  }
+  return out;
+}
+
+/** Where line `l` ends for a caret: before the line break it ends with, if it does. */
+const lastOf = (line: CaretLine) => (line.broken && line.chars.length ? line.chars.at(-1)![0] : line.end);
+
+/** What changed from `was` to `now`, UTF-16: what they share at either end stays. What was
+ * replaced starts no later than the caret now (`caret`), nor than where the selection started
+ * before any key since (`bounds`), and ends no earlier than where it ended, counted from the end. A
+ * surrogate pair stays whole. */
+export function changed(was: string, now: string, caret: number, bounds?: { start: number; fromEnd: number }): Change | undefined {
+  if (was === now) return undefined;
+  const max = Math.min(was.length, now.length);
+  let start = 0;
+  while (start < max && was.charCodeAt(start) === now.charCodeAt(start)) start++;
+  start = Math.min(start, caret, bounds?.start ?? Infinity);
+  let end = 0;
+  while (end < max - start && was.charCodeAt(was.length - 1 - end) === now.charCodeAt(now.length - 1 - end)) end++;
+  end = Math.min(end, bounds?.fromEnd ?? Infinity);
+  const low = (s: string, i: number) => i < s.length && s.charCodeAt(i) >= 0xdc00 && s.charCodeAt(i) <= 0xdfff;
+  if (start > 0 && low(was, start)) start--;
+  if (end > 0 && low(was, was.length - end)) end--;
+  return { from: start, to: was.length - end, text: now.slice(start, now.length - end) };
+}
+
+/** UTF-16 `units` of `text` as characters (Unicode scalar values), as `replace_text` counts. */
+const points = (text: string, units: number) => [...text.slice(0, units)].length;
+
+/** The text reads `now` where it read `was`, and `value` is what was typed into `was` since, with
+ * `caret` and `bounds` as `changed` takes them: what the textarea holds now, and where its caret
+ * goes. What was typed goes in where the change left it standing, unless the change is where it
+ * was typed; the caret goes after it, or where the text changed. */
+export function follow(
+  was: string,
+  now: string,
+  value: string,
+  caret: number,
+  bounds?: { start: number; fromEnd: number },
+): { value: string; at: number; bounds?: { start: number; fromEnd: number }; lost: boolean } {
+  const change = changed(was, now, Infinity)!;
+  const typed = changed(was, value, caret, bounds);
+  // How far what was typed moves: past the change by what the change added, before it not at all.
+  const by = !typed
+    ? undefined
+    : typed.from >= change.to
+      ? change.text.length - (change.to - change.from)
+      : typed.to <= change.from
+        ? 0
+        : undefined;
+  if (!typed || by === undefined) return { value: now, at: change.from + change.text.length, lost: typed !== undefined };
+  const [from, to] = [typed.from + by, typed.to + by];
+  return {
+    value: now.slice(0, from) + typed.text + now.slice(to),
+    at: from + typed.text.length,
+    bounds: { start: from, fromEnd: now.length - to },
+    lost: false,
+  };
+}
+
+/** Typing in place over `overlay`, the canvas's, on `stage`'s state shown. */
+export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
+  const area = document.createElement("textarea");
+  area.className = "typing";
+  area.setAttribute("autocomplete", "off");
+  area.setAttribute("autocorrect", "off");
+  area.setAttribute("autocapitalize", "off");
+  area.spellcheck = false;
+  area.hidden = true;
+  overlay.append(area);
+
+  /** The text typed in: its node, the state it is typed in, and kept to that state (`fork`). */
+  let open: { node: string; state: string; index: number; fork: boolean } | undefined;
+  /** Where a caret stands in it, as the engine last laid it out. */
+  let carets: Carets | undefined;
+  /** The source `carets` were read from: a change is made on it. Where the source changed under
+   * the text (an undo, an edit in the source, a change on disk), the text is read again first. */
+  let read: string | undefined;
+  /** The line a caret was put on, where it could stand on two: a line's end or the next's start. */
+  let on: number | undefined;
+  /** Where up and down aim, canvas x: the caret's x when they began. */
+  let goal: number | undefined;
+  /** Where a pointer dragging a selection began, as an offset. */
+  let anchor: number | undefined;
+  /** Where the keys since the last change was made began to edit. */
+  let bounds: { start: number; fromEnd: number } | undefined;
+  /** A change is with the worker, or the text is being read again; another waits for it. */
+  let sending = false;
+  /** The text was asked to be read again while one was: it is, once none is. */
+  let behind = false;
+  /** What waits for every change typed so far to be made: an undo, so that none is made after
+   * it. */
+  let waiting: (() => void)[] = [];
+  const settled = () => !sending && (!open || !carets || area.value === carets.text);
+  const idle = () => new Promise<void>((done) => (settled() ? done() : waiting.push(done)));
+  const wake = () => {
+    if (settled()) for (const done of waiting.splice(0)) done();
+  };
+  /** When the keys of the next change were typed: the first since a change was made, and the
+   * last. */
+  let keys: { first: number; last: number } | undefined;
+  /** When the last key of the change made before it was typed, in this text. */
+  let made: number | undefined;
+
+  /** Show the caret at `from`–`to` in the textarea, on line `line` where it could stand on two. */
+  function put(from: number, to = from, line?: number, backward = false) {
+    area.setSelectionRange(from, to, backward ? "backward" : "forward");
+    on = line;
+    around.draw();
+  }
+
+  /** The caret's place in the textarea, clamped to the text the engine last laid out. */
+  function caret(): { from: number; to: number; head: number } {
+    const n = carets?.text.length ?? 0;
+    const [from, to] = [Math.min(area.selectionStart, n), Math.min(area.selectionEnd, n)];
+    return { from, to, head: area.selectionDirection === "backward" ? from : to };
+  }
+
+  /** Begin typing in `node`, in the state shown, at the caret nearest `point` (the end without
+   * one); `fork` keeps what is typed to that state. False for a node that is no text. */
+  async function enter(node: string, point: [number, number] | undefined, fork: boolean): Promise<boolean> {
+    const shown = around.shown();
+    if (!shown) return false;
+    const source = around.source();
+    const found = await stage.carets(source, shown.state, node, around.format());
+    if (!found) return false;
+    leave();
+    open = { node, state: shown.state, index: shown.index, fork };
+    carets = found;
+    read = source;
+    keys = made = undefined;
+    area.hidden = false;
+    area.value = found.text;
+    area.setAttribute("aria-label", `The text of ${node}, typed where it stands`);
+    area.focus({ preventScroll: true });
+    if (point) {
+      const [at, line] = caretNear(found, point);
+      put(at, at, line);
+    } else put(found.text.length);
+    void tellWhere();
+    return true;
+  }
+
+  /** Say what typing changes: the states it reaches. */
+  async function tellWhere() {
+    const now = open;
+    if (!now) return;
+    const op = { op: "replace_text", node: now.node, state: now.state, from: 0, to: 0, text: "·", ...(now.fork ? { fork: true } : {}) };
+    const states = await stage.reach([op]).catch(() => undefined);
+    if (open !== now || !states) return;
+    const n = states.length;
+    const where = now.fork ? `kept to ${now.state}` : n === 1 && states[0] === now.state ? "in this state" : `in ${n} states`;
+    around.say(`typing in ${now.node} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : `; Alt and a double click keep it to ${now.state}`}`);
+  }
+
+  /** Stop typing: the node stays selected. */
+  function leave() {
+    if (!open) return;
+    open = carets = read = undefined;
+    on = goal = anchor = bounds = undefined;
+    behind = false;
+    area.hidden = true;
+    area.blur();
+    wake();
+    around.draw();
+  }
+
+  /** Make what was typed since the last change one more, on the source as it stands: one at a
+   * time, and what is typed meanwhile in the next. */
+  async function send() {
+    if (sending || !open || !carets) return;
+    const source = around.source();
+    if (source !== read) return sync();
+    const was = carets.text;
+    const change = changed(was, area.value, area.selectionEnd, bounds);
+    if (!change) return;
+    bounds = undefined;
+    // A burst of typing is one step to undo, however long each change takes to make: its keys
+    // follow one another by less than a pause.
+    const batch = keys;
+    keys = undefined;
+    const joins = made !== undefined && batch !== undefined && batch.first - made < BURST;
+    if (batch) made = batch.last;
+    const now = open;
+    const op = {
+      op: "replace_text",
+      node: now.node,
+      state: now.state,
+      from: points(was, change.from),
+      to: points(was, change.to),
+      text: change.text,
+      ...(now.fork ? { fork: true } : {}),
+    };
+    sending = true;
+    try {
+      const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
+      around.typed(typed.source, typed.edited, joins);
+      if (open !== now) return;
+      if (!typed.carets) return leave();
+      carets = typed.carets;
+      read = typed.source;
+    } catch (e) {
+      around.say(`not typed: ${said(e)}`);
+      // What the deck reads stands: the textarea goes back to it.
+      if (open === now && carets) {
+        const at = Math.min(area.selectionStart, carets.text.length);
+        area.value = carets.text;
+        area.setSelectionRange(at, at);
+      }
+    } finally {
+      sending = false;
+      around.draw();
+      settle();
+    }
+  }
+
+  /** Read the text again from the source as it stands: an undo, the source edited, or the deck
+   * shown again. The textarea takes what the deck reads, with what was typed since it was last
+   * read where that still fits (`follow`). */
+  async function sync() {
+    const now = open;
+    if (!now || !carets) return;
+    if (sending) {
+      behind = true;
+      return;
+    }
+    const shown = around.shown();
+    if (!shown || shown.state !== now.state) return leave();
+    const source = around.source();
+    sending = true;
+    const found = await stage.carets(source, now.state, now.node, around.format()).catch(() => null);
+    sending = false;
+    if (open !== now) return settle();
+    if (!found) return leave();
+    const was = carets.text;
+    // Something else changed the source: what is typed next is a step to undo of its own.
+    if (source !== read) made = undefined;
+    carets = found;
+    read = source;
+    if (found.text !== was) {
+      const next = follow(was, found.text, area.value, area.selectionEnd, bounds);
+      if (next.lost) around.say("not typed: the text changed where it was typed");
+      area.value = next.value;
+      area.setSelectionRange(next.at, next.at);
+      bounds = next.bounds;
+      on = goal = undefined;
+    }
+    around.draw();
+    settle();
+  }
+
+  /** A change made, or the text read: what was typed meanwhile goes in, the text is read again
+   * if it was asked to be, and what waits for typing to settle goes on. */
+  function settle() {
+    if (open && carets && area.value !== carets.text) void send();
+    else if (behind) {
+      behind = false;
+      void sync();
+    }
+    wake();
+  }
+
+  /** Undo, or redo, once what was typed is made, so that none is made after it; then the text
+   * is read where the deck now reads it, the caret where it changed. */
+  function history(redo: boolean) {
+    void idle().then(() => {
+      if (redo) around.redo();
+      else around.undo();
+      made = undefined;
+      return sync();
+    });
+  }
+
+  /** Up or down a line (`by`), or to its start or end (`to`), by the engine's lines; with `extend`,
+   * the selection's head moves and its anchor stays. */
+  function move(e: KeyboardEvent, by: -1 | 1 | 0, to?: "start" | "end") {
+    if (!carets) return;
+    e.preventDefault();
+    const { from, to: end, head } = caret();
+    const tail = head === from ? end : from;
+    const here = caretAt(carets, head, on);
+    let next: number;
+    let line = here.line;
+    if (to) {
+      next = to === "start" ? carets.lines[line].start : lastOf(carets.lines[line]);
+      goal = undefined;
+    } else {
+      goal ??= here.x;
+      line += by;
+      if (line < 0) [next, line] = [0, 0];
+      else if (line >= carets.lines.length) [next, line] = [carets.text.length, carets.lines.length - 1];
+      else next = onLine(carets, line, goal);
+    }
+    if (e.shiftKey) put(Math.min(tail, next), Math.max(tail, next), line, next < tail);
+    else put(next, next, line);
+  }
+
+  area.addEventListener("beforeinput", (e) => {
+    // The browser's own undo (its Edit menu) is the deck's.
+    if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
+      e.preventDefault();
+      return history(e.inputType === "historyRedo");
+    }
+    const [start, end] = [area.selectionStart, area.selectionEnd];
+    const fromEnd = area.value.length - end;
+    bounds = bounds ? { start: Math.min(bounds.start, start), fromEnd: Math.min(bounds.fromEnd, fromEnd) } : { start, fromEnd };
+  });
+  area.addEventListener("input", (e) => {
+    keys = keys ? { ...keys, last: e.timeStamp } : { first: e.timeStamp, last: e.timeStamp };
+    on = goal = undefined;
+    around.draw();
+    void send();
+  });
+  area.addEventListener("keydown", (e) => {
+    // The canvas's keys are not the text's.
+    e.stopPropagation();
+    const mod = e.metaKey || e.ctrlKey;
+    const key = e.key.toLowerCase();
+    if (mod && (key === "z" || key === "y")) {
+      e.preventDefault();
+      return history(key === "y" || e.shiftKey);
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      leave();
+      return around.say("typing done");
+    }
+    if (e.isComposing) return;
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    if (e.key === "ArrowUp" && !mod && !e.altKey) return move(e, -1);
+    if (e.key === "ArrowDown" && !mod && !e.altKey) return move(e, 1);
+    if ((e.key === "Home" && !mod) || (mac && e.metaKey && e.key === "ArrowLeft")) return move(e, 0, "start");
+    if ((e.key === "End" && !mod) || (mac && e.metaKey && e.key === "ArrowRight")) return move(e, 0, "end");
+    if (e.key.startsWith("Arrow") || e.key === "PageUp" || e.key === "PageDown") goal = on = undefined;
+  });
+  area.addEventListener("keyup", () => around.draw());
+  area.addEventListener("blur", () => {
+    // Focus gone elsewhere (the source, another control) ends typing. On the canvas itself, its
+    // pointer says: in the text, typing goes on; outside it, it ends.
+    setTimeout(() => {
+      if (open && document.activeElement !== area && document.activeElement !== overlay) leave();
+    });
+  });
+  const selecting = () => {
+    if (open && document.activeElement === area) around.draw();
+  };
+  document.addEventListener("selectionchange", selecting);
+
+  return {
+    enter,
+    leave,
+    sync,
+    /** Whether a text is typed in, and which. */
+    node: () => open?.node,
+    /** What is typed, for a test: the text, the caret, the lines the engine set it in, and
+     * whether a change is with the worker. */
+    now: () =>
+      open && {
+        node: open.node,
+        value: area.value,
+        from: area.selectionStart,
+        to: area.selectionEnd,
+        lines: carets?.lines.length ?? 0,
+        line: carets ? caretAt(carets, caret().head, on).line : 0,
+        sending,
+      },
+    /** A press at `point`, in the text typed in: the caret goes there, or with `extend` the
+     * selection reaches it, and a drag from there selects. False outside the text. */
+    down(point: [number, number], extend: boolean, clicks: number): boolean {
+      const box = open && around.box(open.node);
+      if (!open || !carets || !box) return false;
+      const [x, y, w, h] = box;
+      const slop = 4 * around.unit();
+      if (point[0] < x - slop || point[0] > x + w + slop || point[1] < y - slop || point[1] > y + h + slop) return false;
+      const [at, line] = caretNear(carets, point);
+      goal = anchor = undefined;
+      if (clicks >= 3) {
+        const l = carets.lines[line];
+        put(l.start, lastOf(l), line);
+      } else if (clicks === 2) {
+        // A double click selects the word there.
+        const words = new Intl.Segmenter(undefined, { granularity: "word" }).segment(carets.text);
+        const word = words.containing(Math.min(at, Math.max(0, carets.text.length - 1)));
+        if (word) put(word.index, word.index + word.segment.length, line);
+      } else {
+        // A drag from here selects from where the selection holds still: the press, or with
+        // `extend`, the end of the selection the head is not at.
+        const { from, to, head } = caret();
+        anchor = extend ? (head === from ? to : from) : at;
+        put(Math.min(anchor, at), Math.max(anchor, at), line, at < anchor);
+      }
+      area.focus({ preventScroll: true });
+      return true;
+    },
+    /** The pointer moved with a press held: the selection reaches it. False unless selecting. */
+    drag(point: [number, number]): boolean {
+      if (!carets || anchor === undefined) return false;
+      const [at, line] = caretNear(carets, point);
+      put(Math.min(anchor, at), Math.max(anchor, at), line, at < anchor);
+      return true;
+    },
+    /** The press is let go. False unless selecting. */
+    up(): boolean {
+      if (anchor === undefined) return false;
+      anchor = undefined;
+      return true;
+    },
+    /** The caret, or the selection, as SVG in canvas units, `u` of them to a CSS pixel; and the
+     * textarea moved under the caret, where an input method shows what it composes. */
+    parts(u: number): string[] {
+      if (!open || !carets) return [];
+      const { from, to, head } = caret();
+      const here = caretAt(carets, head, on);
+      const line = carets.lines[here.line];
+      const r = overlay.getBoundingClientRect();
+      area.style.left = `${Math.max(0, Math.min(r.width - 1, here.x / u))}px`;
+      area.style.top = `${Math.max(0, Math.min(r.height - 1, line.bottom / u))}px`;
+      if (from !== to) {
+        return covered(carets, from, to).map(([x, y, w, h]) => `<rect class="text-selection" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+      }
+      const width = 2 * u;
+      return [`<rect class="caret" x="${here.x - width / 2}" y="${line.top}" width="${width}" height="${line.bottom - line.top}"/>`];
+    },
+    /** Let the textarea go: the canvas is closed. */
+    close() {
+      leave();
+      document.removeEventListener("selectionchange", selecting);
+      area.remove();
+    },
+  };
+}

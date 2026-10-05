@@ -822,7 +822,8 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
                             true => String::new(),
                             false => format!(" (in {})", h.containers.join(" in ")),
                         };
-                        println!("    {}{within}", h.node);
+                        let caret = h.offset.map(|o| format!(", a caret after {o} characters")).unwrap_or_default();
+                        println!("    {}{within}{caret}", h.node);
                     }
                 }
             }

@@ -216,6 +216,30 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
     },
+    /// Text typed into a text node where it stands (ADR-0013): the characters from `from` to
+    /// `to` of its text as `state` shows it (its `text`, or its runs' texts end to end, as the
+    /// deck's `overrides` leave them) become `text`. Offsets count characters (Unicode scalar
+    /// values). Runs keep their looks: what is typed takes the look of the run it is typed
+    /// into, the one before where two meet, and a run the edit leaves with no text goes. It is
+    /// written where the
+    /// text lives: in the deck's `overrides` if they set it; else in the latest delta that
+    /// sets it, from `state` back along what it tracks; else in the node's own. Without
+    /// `state`, in the node's own unless the overrides set it.
+    ReplaceText {
+        #[schemars(with = "Id")]
+        node: String,
+        from: u32,
+        to: u32,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever the text lives now: it reads so there,
+        /// and in the states that track it as they take the rest of its props, and as it did
+        /// in the others. Refused where the deck's `overrides` set the text, in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data
     /// update, morphed by key) or in its defaults. `source` declares it, or replaces it if
     /// the deck has it.
@@ -304,6 +328,7 @@ impl SemanticOp {
             SemanticOp::SetProp { .. } => "set_prop",
             SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
+            SemanticOp::ReplaceText { .. } => "replace_text",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
             SemanticOp::AddState { .. } => "add_state",

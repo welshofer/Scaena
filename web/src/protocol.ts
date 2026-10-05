@@ -69,6 +69,31 @@ export interface Hit {
   containers: string[];
 }
 
+/** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
+ * reader counts it, on its line, from the glyphs the engine set. Offsets are UTF-16 code units of
+ * `text`, as the page counts a string; x and y are canvas units. */
+export interface Carets {
+  /** The text as written: the node's `text`, or its runs' texts end to end. */
+  text: string;
+  lines: CaretLine[];
+}
+
+export interface CaretLine {
+  /** Its line box's top and bottom. */
+  top: number;
+  bottom: number;
+  /** Where a caret on it stands when it holds no character. */
+  x: number;
+  /** Where it starts in the text, and where the next line starts. */
+  start: number;
+  end: number;
+  /** It ends at a line break the text sets: a caret after it stands on the next line. */
+  broken: boolean;
+  /** Its characters in the text's order: `[offset, lead, trail]`, where a caret before it stands
+   * and one after it, the right edge first in right-to-left text. */
+  chars: [number, number, number][];
+}
+
 /** How a box dropped by a drag snaps (`scaena inspect --snap`): moved as many cells as it spans,
  * resized to the nearest tracks, into the slot or area it covers most, where it was dropped as a
  * `rect`, or among a stack's children. */
@@ -167,6 +192,16 @@ export type ToWorker =
    * `source` compiles to (ADR-0013); then the deck's source, compiled, shown at slot `index`, and
    * linted, as an edit of it is. */
   | { type: "place"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
+   * editor's `source` compiles to: compiled first, if the deck shown is not. */
+  | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
+  /** The states `ops` (a patch) would change, with nothing made (ADR-0013). */
+  | { type: "reach"; id: number; ops: unknown[] }
+  /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
+   * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
+   * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
+   * `state` now. */
+  | { type: "type"; id: number; source: string; ops: unknown[]; index: number; state: string; node: string; format?: string }
   /** Save the bundle with the deck `source` compiles to as `scaena save` does (SPEC §3.1),
    * fonts kept whole, where it is kept; one kept nowhere goes into the browser's storage under
    * its name (`name-2`, … where that is taken). A source that does not compile, or a deck
@@ -392,6 +427,10 @@ export type FromWorker =
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
   /** The patch is made: the deck's source now, and what the edit came to. */
   | { type: "placed"; id: number; source: string; edited: Edited }
+  | { type: "carets"; id: number; carets: Carets | null }
+  | { type: "reached"; id: number; states: string[] }
+  /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
+  | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
   | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }

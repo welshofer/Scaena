@@ -626,6 +626,7 @@ impl Numerals {
                     clusters: vec![at],
                     advances: vec![f.advance],
                     line: 0,
+                    rtl: false,
                     hyphen: false,
                 }),
             }

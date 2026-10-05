@@ -11,11 +11,15 @@
 //! group's member, by cells, a slot, or a `rect`; a grid container by its cells or areas; a
 //! stack by order; a frame by a `rect` from its padding edge. A box dropped there snaps to a
 //! [`Target`]: the box a guide shows, and the `place` ops that put the node there.
+//!
+//! In a text, a point hits a character: where a caret put there stands ([`Scene::carets`],
+//! [`crate::carets`]).
 
 use crate::EngineError;
+use crate::carets::Carets;
 use crate::containers::{self, Tracks};
 use crate::layout::Grid;
-use crate::sample::Scene;
+use crate::sample::{Content, Scene};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
 use scaena_core::displaylist::{DisplayList, Op, Rect};
@@ -46,6 +50,9 @@ pub struct Hit {
     pub node: String,
     pub rect: Rect,
     pub containers: Vec<String>,
+    /// For a text, where a caret put at the point stands: an offset in its text as written,
+    /// at the edge of a character nearest the point ([`Carets::at`]).
+    pub offset: Option<usize>,
 }
 
 impl Scene {
@@ -73,9 +80,22 @@ impl Scene {
             if node.opacity <= 0.0 || !reaches(place.rect, point) {
                 continue;
             }
-            out.push(Hit { node: node.id.clone(), rect: place.rect, containers: self.containers(&node.id) });
+            let offset = match &node.content {
+                Content::Text(placed) => Some(placed.text.carets(placed.origin).at(point).0),
+                _ => None,
+            };
+            out.push(Hit { node: node.id.clone(), rect: place.rect, containers: self.containers(&node.id), offset });
         }
         out
+    }
+
+    /// Where a caret stands in `node`'s text, if it is a text this state draws: each
+    /// character as written, on its line, between the edges of its glyphs.
+    pub fn carets(&self, node: &str) -> Option<Carets> {
+        self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
+            Content::Text(placed) => Some(placed.text.carets(placed.origin)),
+            _ => None,
+        })
     }
 
     /// The state at rest, its shaders `time` seconds into the global timeline, with `node`

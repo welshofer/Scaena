@@ -19,9 +19,11 @@
 //! [`cascade`]): its role, its `style`, the state, then the deck's `overrides`. Shapes,
 //! in colors or gradients, and PNG images draw in their boxes, and `stack`, `grid`, and
 //! `frame` containers lay their children out with `taffy` (1.7, [`containers`]). A state at
-//! rest says what stands where, for a client that edits by pointing ([`geometry`], ADR-0013).
+//! rest says what stands where, for a client that edits by pointing ([`geometry`], ADR-0013),
+//! and where a caret stands in each of its texts ([`carets`]).
 //! Nothing here may read a clock, system fonts, or the filesystem (SPEC §13).
 
+pub mod carets;
 pub mod cascade;
 pub mod charts;
 pub mod containers;

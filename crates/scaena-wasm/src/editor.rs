@@ -22,6 +22,8 @@ pub(crate) struct Edit {
     source: String,
     compiled: Compiled,
     findings: Vec<Finding>,
+    /// Whether the deck it says validated: the one shown.
+    shown: bool,
 }
 
 /// The files a page handed the session, by their paths in the bundle, as validation reads
@@ -98,6 +100,12 @@ impl Session {
         scaena_core::dsl::decompile(&self.deck)
     }
 
+    /// Whether the deck shown is the one compiled from `source`, nothing written over it since:
+    /// what a page asks before it reads a state of the deck its source says.
+    pub fn compiled_from(&self, source: &str) -> bool {
+        self.edit.as_ref().is_some_and(|edit| edit.shown && edit.source == source)
+    }
+
     /// Compile `source` and validate it against the files handed over. A deck that
     /// validates becomes the session's: timelines and frames show it from now on.
     pub fn compile(&mut self, source: &str) -> Compiling {
@@ -124,7 +132,7 @@ impl Session {
             self.set_deck(deck);
         }
         let found = compiled.findings.clone();
-        self.edit = Some(Edit { source: source.to_string(), compiled, findings: found });
+        self.edit = Some(Edit { source: source.to_string(), compiled, findings: found, shown: valid });
         Compiling { error: None, findings, states, valid }
     }
 
