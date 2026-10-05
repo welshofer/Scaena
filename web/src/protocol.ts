@@ -289,6 +289,12 @@ export type ToWorker =
   /** What ⌘B gives those characters, from the weight the engine sets each in, in the deck the
    * editor's `source` compiles to, laid out in `format` (PLAN 2.38): `style_text`'s `look`. */
   | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
+  /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
+  | { type: "themes"; id: number }
+  /** The deck the editor's `source` compiles to, in another theme (PLAN 2.39): one that ships, by
+   * its name, or one the bundle holds, by its path. Then, unless it is refused, the deck's source,
+   * compiled, shown at slot `index`, and linted, as an edit of it is. */
+  | { type: "retheme"; id: number; source: string; theme: { ships: string } | { path: string }; index: number; format?: string }
   /** The states `ops` (a patch) would change, with nothing made (ADR-0013). */
   | { type: "reach"; id: number; ops: unknown[] }
   /** What may be inserted in the deck (PLAN 2.34). */
@@ -417,6 +423,30 @@ export interface Opened {
   painter: "webgpu" | "cpu";
   /** The adapter WebGPU paints with, as far as the browser tells. */
   adapter: string;
+}
+
+/** The theme the deck names (a path in the bundle, `(inline)`, or `null`), and the theme files
+ * the bundle holds (PLAN 2.39). */
+export interface Themes {
+  current: string | null;
+  files: string[];
+}
+
+/** What a re-theme did, as `scaena theme --apply` says it (PLAN 1.6, 2.39). */
+export interface Themed {
+  /** The theme's path in the bundle. */
+  theme: string;
+  was?: string | null;
+  /** The deck names it now; a refused theme leaves the deck in its own. */
+  applied: boolean;
+  refused: boolean;
+  mapped: string[];
+  listed: string[];
+  /** What validation and lint find in the theme that they did not before, and what they no
+   * longer find. */
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
 }
 
 /** A section of the spine, as a reader goes through it (PLAN 2.8). */
@@ -549,6 +579,10 @@ export type FromWorker =
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }
+  | { type: "themes"; id: number; themes: Themes }
+  /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
+   * deck's source now and what the edit came to. */
+  | { type: "rethemed"; id: number; themed: Themed; source?: string; edited?: Edited }
   | { type: "reached"; id: number; states: string[] }
   | { type: "inserts"; id: number; inserts: Insert[] }
   /** The patch that adds a node: an insert, or a copy. */

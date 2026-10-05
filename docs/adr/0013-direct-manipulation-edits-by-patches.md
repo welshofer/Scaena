@@ -45,6 +45,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Paste | The sources a clip brings, `add_node` for each node it holds under an id new to the deck, entering in the state shown, their overrides, then `place` as Insert places a node; what the theme lacks taken out of the copy, as findings, a text's role given way to its stand-in |
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
+   | Choosing a theme | `retheme`, as `scaena theme --apply` re-themes a bundle: a theme that ships written into the bundle with the fonts it names that the bundle lacks, or the bundle's own; refused, with why, where the deck would not validate in it |
    | Choosing a state's look, with no node selected | `set_state`: its layout, from the theme's layouts with a slot for each node placed in one, written where it lives; its transition's keys, its hold, and its notes, its own (`inspect --state-choices`) |
 
    A drag off the grid or out of the template places the node by `rect`, in canvas units: an override in SPEC §3.4's sense, allowed, and flagged by lint (W301) and in the inspector. That is what PLAN 3.7 means by visibly flagged. Every patch is validated and linted as an agent's is, and the editor shows the lint delta.

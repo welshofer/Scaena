@@ -238,6 +238,8 @@ jobs:
       - run: node web/clipboard.mjs
       # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
       - run: node web/runs.mjs
+      # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).
+      - run: node web/theme.mjs
       # The state strip: thumbnails, and states added, moved, renamed, and removed (PLAN 2.35).
       - run: node web/strip.mjs
       - run: node web/storage.mjs

@@ -429,6 +429,59 @@ async function edit(source: Source) {
     void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
     $("#overlay").focus();
   };
+  /** The deck's theme (PLAN 2.39): the theme files the bundle holds, the one it names chosen, and
+   * the themes that ship. One chosen re-themes the deck, as `scaena theme --apply` does: refused,
+   * with why, where the deck would not validate in it; else one change, one step to undo, and
+   * the status says what lint finds in it that it did not before. */
+  const themePicker = $<HTMLSelectElement>("#theme");
+  let themesOffered = "";
+  async function offerThemes() {
+    const held = await stage.themes().catch(() => undefined);
+    if (!held) return;
+    const key = JSON.stringify([held, Object.keys(themes)]);
+    if (key === themesOffered) return;
+    themesOffered = key;
+    const named = (path: string) => path.replace(/^.*\//, "").replace(/\.theme\.json$|\.json$/, "");
+    const inBundle = Object.assign(document.createElement("optgroup"), { label: "In the bundle" });
+    for (const file of held.files) inBundle.append(new Option(named(file), `path:${file}`, file === held.current, file === held.current));
+    if (held.current === "(inline)") inBundle.append(new Option("(inline)", "", true, true));
+    const ships = Object.assign(document.createElement("optgroup"), { label: "Ships" });
+    for (const name of Object.keys(themes)) ships.append(new Option(name, `ships:${name}`));
+    themePicker.replaceChildren(...[inBundle, ships].filter((g) => g.children.length > 0));
+  }
+  themePicker.onchange = async () => {
+    const chosen = themePicker.value;
+    // The theme the deck names: the picker goes back to it at once where the choice is not made.
+    const named = [...themePicker.options].find((o) => o.defaultSelected)?.value ?? "";
+    const now = showing();
+    const [kind, name] = [chosen.slice(0, chosen.indexOf(":")), chosen.slice(chosen.indexOf(":") + 1)];
+    if (!now || !name) {
+      themePicker.value = named;
+      return say("not re-themed while the source does not compile or the assistant works");
+    }
+    const label = kind === "ships" ? name : name.replace(/^.*\//, "");
+    say(`re-theming in ${label}…`);
+    try {
+      const theme = kind === "ships" ? { ships: name } : { path: name };
+      const { themed, source, edited } = await stage.retheme(view.state.doc.toString(), theme, now.index, format());
+      if (themed.refused) {
+        themePicker.value = named;
+        const errors = themed.added.filter((f) => f.severity === "error");
+        const more = errors.length > 1 ? ` (and ${errors.length - 1} more)` : "";
+        say(`${label} refused: the deck would not validate in it: ${errors[0]?.message ?? ""}${more}`);
+      } else if (source && edited) {
+        made(source, edited);
+        const [worse, better] = [themed.added.length, themed.removed.length];
+        say(`theme ${label} · lint finds ${worse} new, ${better} gone`);
+      }
+    } catch (e) {
+      themePicker.value = named;
+      say(`not re-themed: ${said(e)}`);
+    } finally {
+      themesOffered = "";
+      void offerThemes();
+    }
+  };
   // A node's row in the inspector selects it on the canvas.
   inspector.onclick = (e) => {
     const row = (e.target as Element).closest("tr[data-node]");
@@ -459,6 +512,7 @@ async function edit(source: Source) {
       void inspect();
       void board.refresh().catch(failed);
       void offer();
+      void offerThemes();
     }
     const findings = edited.error ? [edited.error] : edited.findings;
     report(findings, edited);

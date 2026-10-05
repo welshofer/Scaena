@@ -35,6 +35,8 @@ import type {
   Snapped,
   Source,
   StateChoices,
+  Themed,
+  Themes,
   ToHelper,
   ToWorker,
   Where,
@@ -196,6 +198,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format, behind);
         return post({ type: "carets", id: data.id, carets: JSON.parse(player.carets(data.state, data.node)) as Carets | null });
       }
+      case "themes":
+        return post({ type: "themes", id: data.id, themes: JSON.parse(player.themes()) as Themes });
+      case "retheme":
+        return post({ type: "rethemed", id: data.id, ...(await retheme(data.source, data.theme, data.index, data.format)) });
       case "characterChoices": {
         const choices = JSON.parse(player.characterChoices(data.state, data.node, data.from, data.to)) as Choices;
         return post({ type: "characterChoices", id: data.id, choices });
@@ -413,10 +419,9 @@ async function fetched(deck: string): Promise<Player> {
   return fetchedPlayer;
 }
 
-/** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
- * `theme` and the fonts it names, which the page carries (`themes.ts`) and fetches now, and one
- * state with nothing on it. */
-async function made(theme: string, title: string): Promise<Player> {
+/** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
+ * name, its text, and the fonts it names, by the paths its families give them. */
+async function shipped(theme: string): Promise<{ file: string; text: string; fonts: Map<string, Uint8Array> }> {
   const { themes, fonts } = await import("@scaena/themes");
   const chosen = themes[theme];
   if (!chosen) throw new Error(`no theme ships as ${theme}: ${Object.keys(themes).join(", ") || "none here"}`);
@@ -433,7 +438,40 @@ async function made(theme: string, title: string): Promise<Player> {
     if (!fonts[file]) throw new Error(`${theme} names a font the page does not carry: ${file}`);
     given.set(file, new Uint8Array(await (await fetched(fonts[file])).arrayBuffer()));
   }
-  return Player.create(chosen.file, text, title, given);
+  return { file: chosen.file, text, fonts: given };
+}
+
+/** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
+ * `theme` and the fonts it names, and one state with nothing on it. */
+async function made(theme: string, title: string): Promise<Player> {
+  const { file, text, fonts } = await shipped(theme);
+  return Player.create(file, text, title, fonts);
+}
+
+/** The deck `source` compiles to, in another theme, by the user (PLAN 2.39), as `theme --apply`
+ * re-themes it: one that ships, fetched with its fonts, or one the bundle holds. Refused, it says
+ * why and changes nothing; else the deck's source after is compiled, shown at slot `index`, and
+ * linted, as an edit of it is. */
+async function retheme(
+  source: string,
+  theme: { ships: string } | { path: string },
+  index: number,
+  at: string | undefined,
+): Promise<{ themed: Themed; source?: string; edited?: Edited }> {
+  saveable(source);
+  player.setMoving(undefined, 0, 0);
+  player.preview(undefined);
+  const when = new Date().toISOString();
+  let themed: Themed;
+  if ("ships" in theme) {
+    const { file, text, fonts } = await shipped(theme.ships);
+    themed = JSON.parse(player.retheme(`themes/${file}`, text, fonts, when)) as Themed;
+  } else themed = JSON.parse(player.retheme(theme.path, undefined, new Map(), when)) as Themed;
+  if (themed.refused) return { themed };
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { themed, source: next, edited: await edit(next, index, at) };
 }
 
 /** A bundle's name for a deck titled `title`: lowercase, its words joined by `-`. */
