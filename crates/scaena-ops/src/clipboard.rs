@@ -1,14 +1,14 @@
 //! The clipboard (PLAN 2.37, ADR-0013): what a copy holds of a deck, and the patch a paste
 //! makes of it.
 //!
-//! - **A copy** ([`copying`]) is a node and each node it holds, as one state shows them, with
-//!   the deck's overrides for them, the data sources they read, and the files those and their
-//!   images read. It is plain JSON (`application/x-scaena+json`, and as text), so it goes into
-//!   this deck, another, or a text editor.
+//! - **A copy** ([`copying`]) is a node, or several (PLAN 2.42), and each node they hold, as one
+//!   state shows them, with the deck's overrides for them, the data sources they read, and the
+//!   files those and their images read. It is plain JSON (`application/x-scaena+json`, and as
+//!   text), so it goes into this deck, another, or a text editor.
 //! - **A paste** ([`pasting`]) adds each under an id new to the deck, held by the copy of what
 //!   held it, the copy of the node copied where the pointer last pressed, as Insert places a
-//!   node: one patch. A file or a data source the deck holds otherwise comes in under a name
-//!   of its own.
+//!   node, and the copies of the others copied with it where they stood about it: one patch. A
+//!   file or a data source the deck holds otherwise comes in under a name of its own.
 //! - **What it names that the deck's theme lacks** (a color, a preset, a motion) is taken out
 //!   of the copy, and the finding that says so comes back with the patch: a paste is not
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
@@ -23,15 +23,16 @@ use scaena_core::Deck;
 use scaena_core::lint::{Finding, Severity};
 use scaena_core::model::theme::Theme;
 use scaena_core::validate::{BundleFiles, validate_bundle};
-use scaena_engine::geometry::{Snap, Targets};
+use scaena_engine::geometry::{Snap, Target, Targets};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 /// What a copy holds, and what a paste looks for in what it is handed.
 pub const KIND: &str = "scaena/clip";
-/// The version of the clip's shape that a paste reads.
-pub const VERSION: u32 = 1;
+/// The newest version of the clip's shape that a paste reads: 2 is a clip of several nodes
+/// (PLAN 2.42). A clip of one node is written as version 1, which a Scaena before 2 pastes.
+pub const VERSION: u32 = 2;
 /// The media type a clip goes on the clipboard as, beside its text.
 pub const MEDIA_TYPE: &str = "application/x-scaena+json";
 
@@ -50,7 +51,11 @@ pub struct Clip {
     /// Its box in the state it was copied from, `[x, y, width, height]`, each a share of the
     /// canvas's width or height: a paste sizes it so on any canvas.
     pub share: [f32; 4],
-    /// The node copied, then each node it holds, before what each holds in turn: its type
+    /// The other nodes copied with it (PLAN 2.42), each with its box as `share` is: a paste
+    /// places them where they stood about it. Only in a clip of version 2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more: Vec<Also>,
+    /// Each node copied, then each node it holds, before what each holds in turn: its type
     /// and its props as the state shows them.
     pub nodes: IndexMap<String, Value>,
     /// The deck's overrides for each, which win in every state.
@@ -69,30 +74,55 @@ pub struct Clip {
     pub files: IndexMap<String, String>,
 }
 
-/// What a copy of `node`, as `state` shows it, holds (PLAN 2.37): it and each node it holds
-/// there, the deck's overrides for them, the data sources they read, and the files those and
-/// their images read, from `read`. `rect` is its box at rest in `state`, on a canvas `canvas`
-/// wide and high. A shader set by a preset of `theme`'s names the preset's kind too, so that
-/// it draws in a theme without the preset.
+/// A node copied with the first (PLAN 2.42).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Also {
+    /// The node.
+    pub node: String,
+    /// Its box in the state it was copied from, as [`Clip::share`] is.
+    pub share: [f32; 4],
+}
+
+/// What a copy of `copied`, as `state` shows them, holds (PLAN 2.37, 2.42): each node and each
+/// node it holds there, the deck's overrides for them, the data sources they read, and the
+/// files those and their images read, from `read`. Each comes with its box at rest in
+/// `state`, on a canvas `canvas` wide and high; the first is the node copied, and one that
+/// another of them holds comes with that one. A shader set by a preset of `theme`'s names the
+/// preset's kind too, so that it draws in a theme without the preset.
 pub fn copying(
     deck: &Deck,
     theme: &Theme,
     state: &str,
-    node: &str,
-    rect: [f32; 4],
+    copied: &[(&str, [f32; 4])],
     canvas: [f32; 2],
     read: &dyn Fn(&str) -> Option<Vec<u8>>,
 ) -> Result<Clip, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let snap =
         snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
-    if !snap.nodes.contains_key(node) {
+    if copied.is_empty() {
+        return Err(OpsError::new("nothing is copied"));
+    }
+    if let Some((node, _)) = copied.iter().find(|(node, _)| !snap.nodes.contains_key(*node)) {
         return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
     }
     let doc = deck.to_value().context("the deck")?;
-    // The node first, then what it holds, each before what it holds in turn.
-    let mut ids = held(&[snap], node);
-    ids.reverse();
+    // Each node copied, then what it holds, each before what it holds in turn; one that another
+    // of them holds comes with that one.
+    let under: Vec<Vec<String>> = copied.iter().map(|(node, _)| held(&[snap], node)).collect();
+    let mut roots: Vec<(&str, [f32; 4])> = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for (i, &(node, rect)) in copied.iter().enumerate() {
+        let within = |j: usize| j != i && under[j].iter().any(|id| id == node) && copied[j].0 != node;
+        if roots.iter().any(|(r, _)| *r == node) || (0..copied.len()).any(within) {
+            continue;
+        }
+        roots.push((node, rect));
+        ids.extend(under[i].iter().rev().cloned());
+    }
+    if roots.is_empty() {
+        return Err(OpsError::new("each node copied holds another of them: what holds what goes round"));
+    }
     let (mut nodes, mut overrides, mut data, mut roles) =
         (IndexMap::new(), IndexMap::new(), IndexMap::new(), IndexMap::new());
     let mut paths: Vec<String> = Vec::new();
@@ -133,14 +163,17 @@ pub fn copying(
             files.insert(path, STANDARD.encode(bytes));
         }
     }
-    let share = [rect[0] / canvas[0], rect[1] / canvas[1], rect[2] / canvas[0], rect[3] / canvas[1]];
+    let share = |r: [f32; 4]| [r[0] / canvas[0], r[1] / canvas[1], r[2] / canvas[0], r[3] / canvas[1]];
+    let more: Vec<Also> =
+        roots[1..].iter().map(|&(node, rect)| Also { node: node.into(), share: share(rect) }).collect();
     let named = doc["theme"].as_str().map(String::from);
     Ok(Clip {
         kind: KIND.into(),
-        version: VERSION,
+        version: if more.is_empty() { 1 } else { VERSION },
         theme: named,
-        node: node.into(),
-        share,
+        node: roots[0].0.into(),
+        share: share(roots[0].1),
+        more,
         nodes,
         overrides,
         roles,
@@ -202,10 +235,11 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str) -> Result<Clip, OpsError>
     node["text"] = Value::String(text.to_string());
     Ok(Clip {
         kind: KIND.into(),
-        version: VERSION,
+        version: 1,
         theme: None,
         node: body.id.clone(),
         share: [0.0, 0.0, w, h],
+        more: Vec::new(),
         nodes: IndexMap::from([(body.id, node)]),
         overrides: IndexMap::new(),
         roles: IndexMap::new(),
@@ -233,6 +267,9 @@ pub struct Pasted {
     pub id: String,
     /// Its box once placed, `[x, y, width, height]` in canvas units.
     pub cell: [f32; 4],
+    /// The copies of the others copied with it (PLAN 2.42).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
     /// `add_node` for each copy, entering in the state; the overrides they carry; a
     /// `bind_data` for each source the deck lacks; then the `place` ops that put the copy of
     /// the node copied where the pointer pressed.
@@ -253,10 +290,12 @@ pub struct Pasted {
 /// there; the copy of the node copied placed as Insert places a node, a text or an image
 /// filling the template's slot under `at` where no node of the state's stands in it, and
 /// anything else taking the box it was copied with about `at`, snapped to the theme's grid as
-/// a drop snaps. `room` is the engine's for the copy in `deck`, its cell the clip's share of
-/// the canvas. `files` is the bundle, and `read` its bytes: a file the clip carries that the
-/// bundle holds with other bytes, and a data source the deck declares otherwise, come in under
-/// names of their own. What the theme lacks is taken out, and said in `findings`.
+/// a drop snaps. Nodes copied together (PLAN 2.42) keep where they stood about each other,
+/// their boxes all about `at` and on the grid where they fit, each snapped to it. `room` is the
+/// engine's for the copy in `deck`, its cell the clip's share of the canvas. `files` is the
+/// bundle, and `read` its bytes: a file the clip carries that the bundle holds with other
+/// bytes, and a data source the deck declares otherwise, come in under names of their own.
+/// What the theme lacks is taken out, and said in `findings`.
 pub fn pasting(
     deck: &Deck,
     files: &dyn BundleFiles,
@@ -270,6 +309,14 @@ pub fn pasting(
     let Some(first) = clip.nodes.get(&clip.node) else {
         return Err(OpsError::new(format!("the clip does not hold `{}`, the node it was copied from", clip.node)));
     };
+    // The nodes copied, each with its box.
+    let roots: Vec<(&str, [f32; 4])> = std::iter::once((clip.node.as_str(), clip.share))
+        .chain(clip.more.iter().map(|m| (m.node.as_str(), m.share)))
+        .collect();
+    if let Some((node, _)) = roots[1..].iter().find(|(node, _)| !clip.nodes.contains_key(*node)) {
+        return Err(OpsError::new(format!("the clip does not hold `{node}`, a node it was copied from")));
+    }
+    let root = |id: &str| roots.iter().any(|(r, _)| *r == id);
     // Ids: the copy of the node copied is the room's, and each other the first free.
     let mut taken: Vec<String> = deck.nodes.keys().cloned().chain([room.node.clone()]).collect();
     let mut ids: IndexMap<String, String> = IndexMap::new();
@@ -332,7 +379,7 @@ pub fn pasting(
     for (id, node) in &clip.nodes {
         let mut props =
             node.as_object().cloned().ok_or_else(|| OpsError::new(format!("the clip's `{id}` is not a node")))?;
-        if *id == clip.node {
+        if root(id) {
             // Placed below, where the pointer pressed.
             props.remove("at");
         } else if let Some(Value::Object(at)) = props.get_mut("at")
@@ -353,19 +400,29 @@ pub fn pasting(
     let mut overrides: IndexMap<String, Value> =
         clip.overrides.iter().filter_map(|(id, o)| Some((ids.get(id)?.clone(), o.clone()))).collect();
 
-    // Where the copy of the node copied goes: as Insert places a node.
-    let content = matches!(first["type"].as_str(), Some("text" | "image"));
-    let slot = if content { empty_slot(deck, room, state, at)? } else { None };
-    let target = match slot {
-        Some(rect) => room.snap(Snap::Slot, rect),
-        None => {
-            let [_, _, w, h] = room.cell;
-            room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h])
-        }
+    // Where the copy of the node copied goes: as Insert places a node; and several, about `at`.
+    let targets = if roots.len() == 1 {
+        let content = matches!(first["type"].as_str(), Some("text" | "image"));
+        let slot = if content { empty_slot(deck, room, state, at)? } else { None };
+        let target = match slot {
+            Some(rect) => room.snap(Snap::Slot, rect),
+            None => {
+                let [_, _, w, h] = room.cell;
+                room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h])
+            }
+        };
+        vec![target]
+    } else {
+        together(room, &roots, &ids, at)
     };
-    let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
-    let place: Vec<Value> =
-        target.ops(Some(state), false).iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    let targets: Vec<Target> = targets
+        .into_iter()
+        .collect::<Option<_>>()
+        .ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
+    let cell = targets[0].cell;
+    let placing = targets.iter().flat_map(|t| t.ops(Some(state), false));
+    let place: Vec<Value> = placing.map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    let also: Vec<String> = roots[1..].iter().map(|(node, _)| ids[*node].clone()).collect();
 
     // What the theme lacks is taken out, one round of findings at a time, until none is left
     // that taking out mends.
@@ -403,10 +460,50 @@ pub fn pasting(
             }
         }
         if !took {
-            return Ok(Pasted { id: room.node.clone(), cell: target.cell, patch, files: paths, findings, bytes });
+            return Ok(Pasted { id: room.node.clone(), cell, also, patch, files: paths, findings, bytes });
         }
     }
     Err(OpsError::new("the clip names more that this deck's theme lacks than a paste takes out"))
+}
+
+/// Where nodes copied together go (PLAN 2.42): their boxes, each `roots`' share of the canvas
+/// `room` is on, stand as they stood about each other, all about `at`, and moved onto the grid
+/// where they fit on it, so that its edge stops none of them alone; then each is snapped to the
+/// grid as a drop snaps, its copy named as `ids` says.
+fn together(
+    room: &Targets,
+    roots: &[(&str, [f32; 4])],
+    ids: &IndexMap<String, String>,
+    at: [f32; 2],
+) -> Vec<Option<Target>> {
+    let [x, y, w, h] = room.within;
+    let boxes: Vec<[f32; 4]> = roots.iter().map(|(_, s)| [s[0] * w, s[1] * h, s[2] * w, s[3] * h]).collect();
+    let low = |i: usize| boxes.iter().map(|b| b[i]).fold(f32::INFINITY, f32::min);
+    let high = |i: usize| boxes.iter().map(|b| b[i] + b[i + 2]).fold(f32::NEG_INFINITY, f32::max);
+    // The grid's extent, its first track's start to its last's end; the canvas without one.
+    let extent = |tracks: &[[f32; 2]], whole: [f32; 2]| match (tracks.first(), tracks.last()) {
+        (Some(first), Some(last)) => [first[0], last[1]],
+        _ => whole,
+    };
+    let across = extent(&room.columns, [x, x + w]);
+    let down = extent(&room.rows, [y, y + h]);
+    // About `at`, and on the grid where all of them fit on it.
+    let onto = |from: f32, to: f32, middle: f32, [lo, hi]: [f32; 2]| {
+        let span = to - from;
+        let start = middle - span / 2.0;
+        (if span <= hi - lo { start.clamp(lo, hi - span) } else { start }) - from
+    };
+    let by = [onto(low(0), high(0), at[0], across), onto(low(1), high(1), at[1], down)];
+    roots
+        .iter()
+        .zip(&boxes)
+        .map(|((node, _), b)| {
+            let mut targets = room.clone();
+            targets.node = ids[*node].clone();
+            targets.cell = [room.cell[0], room.cell[1], b[2], b[3]];
+            targets.snap(Snap::Move, [b[0] + by[0], b[1] + by[1], b[2], b[3]])
+        })
+        .collect()
 }
 
 /// The paste's patch: each data source declared, each copy added, entering in `state`, their

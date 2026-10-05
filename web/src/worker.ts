@@ -33,6 +33,8 @@ import type {
   Section,
   Slot,
   Snapped,
+  Arrange,
+  Arranged,
   Source,
   StateChoices,
   Themed,
@@ -144,10 +146,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "drag":
         layOut(data.format);
         return post({ type: "dragged", id: data.id, ...(await drag(data)) });
+      case "arrange":
+        layOut(data.format);
+        return post({ type: "arranged", id: data.id, arranged: arranging(data.state, data.nodes, data.how, data.fork) });
       case "rest": {
         latest++;
         layOut(data.format);
-        player.setMoving(undefined, 0, 0);
+        player.setMoving([], 0, 0);
         player.preview(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
@@ -174,7 +179,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "copying":
         current(data.source);
         layOut(data.format);
-        return post({ type: "copied", id: data.id, clip: player.copying(data.state, data.node) });
+        return post({ type: "copied", id: data.id, clip: player.copying(data.state, data.nodes) });
       case "pasting":
         current(data.source);
         layOut(data.format);
@@ -468,7 +473,7 @@ async function retheme(
   at: string | undefined,
 ): Promise<{ themed: Themed; source?: string; edited?: Edited }> {
   saveable(source);
-  player.setMoving(undefined, 0, 0);
+  player.setMoving([], 0, 0);
   player.preview(undefined);
   const when = new Date().toISOString();
   let themed: Themed;
@@ -742,9 +747,17 @@ let reached: { patch: string; states: string[] } | undefined;
 async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?: Snapped | null; states?: string[] }> {
   let snapped: Snapped | null | undefined;
   let states: string[] | undefined;
-  if (d.snap) {
+  const nodes = [d.node, ...(d.with ?? [])];
+  if (d.together) {
+    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does.
+    const { by, free, fork } = d.together;
+    const arranged = arranging(d.state, nodes, { by, free }, fork);
+    snapped = arranged && { cell: arranged.landed[0]?.cell ?? [0, 0, 0, 0], patch: arranged.patch, landed: arranged.landed };
+  } else if (d.snap) {
     const [x, y, w, h] = d.snap.to;
     snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork)) as Snapped | null;
+  }
+  if (d.together || d.snap) {
     states = [];
     if (snapped?.patch.length) {
       const patch = JSON.stringify(snapped.patch);
@@ -755,11 +768,16 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
   if (d.by || d.preview) {
     latest++;
     const [dx, dy] = d.by ?? [0, 0];
-    player.setMoving(d.by ? d.node : undefined, dx, dy);
+    player.setMoving(d.by ? nodes : [], dx, dy);
     player.preview(d.preview && snapped?.patch.length ? JSON.stringify(snapped.patch) : undefined);
     await paint(d.state, Infinity);
   }
   return { snapped, states };
+}
+
+/** `nodes` arranged `how` in `state` at rest (PLAN 2.42): where each lands and the patch. */
+function arranging(state: string, nodes: string[], how: Arrange, fork: boolean): Arranged | null {
+  return JSON.parse(player.arranging(state, nodes, JSON.stringify(how), fork)) as Arranged | null;
 }
 
 /** Make `ops`, the patch a gesture on the editor's canvas or a choice in its inspector ended in,
@@ -768,7 +786,7 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
  * deck refuses, or one that changes nothing, is an error that says why. */
 async function make(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
   saveable(source);
-  player.setMoving(undefined, 0, 0);
+  player.setMoving([], 0, 0);
   player.preview(undefined);
   const made = player.tool("deck_patch", JSON.stringify({ ops }), "user", new Date().toISOString());
   const [json, failed, changed] = [made.json, made.error, made.edited];
@@ -789,7 +807,7 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
  * after is compiled, shown at slot `index`, and linted, as an edit of it is. */
 async function type(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
   saveable(source);
-  player.setMoving(undefined, 0, 0);
+  player.setMoving([], 0, 0);
   player.preview(undefined);
   if (!player.typed(JSON.stringify(ops), new Date().toISOString())) throw new Error("it reads so already");
   latest++;

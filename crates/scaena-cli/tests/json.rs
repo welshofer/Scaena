@@ -483,6 +483,76 @@ fn inspect_says_where_a_node_may_go() {
     );
 }
 
+/// `inspect --arrange` puts several of one container's children in place at once (PLAN 2.42):
+/// aligned, spread, moved together, or ordered, each one patch that `scaena patch` applies.
+#[test]
+fn inspect_arranges_several_nodes_at_once() {
+    let arranged = |args: &[&str]| {
+        let mut all = vec!["inspect", TORTURE, "--state", "containers", "--arrange"];
+        all.extend_from_slice(args);
+        let (code, states) = json(&all);
+        assert_eq!(code, 0, "{args:?}: {states:#}");
+        states[0]["arranged"].clone()
+    };
+    let place = |node: &str, at: serde_json::Value| serde_json::json!({ "op": "place", "node": node, "at": at, "state": "containers" });
+    // The card takes the tally's left edge, a column of the grid; the tally, there already,
+    // keeps its placement as it is.
+    let left = arranged(&["tally,card", "--align", "left"]);
+    assert_eq!(left["patch"], serde_json::json!([place("card", serde_json::json!({ "col": [1, 4], "row": [6, 8] }))]));
+    assert_eq!(left["landed"].as_array().map(Vec::len), Some(2));
+    // Up a row together.
+    let up = arranged(&["tally,card", "--by", "0,-114"]);
+    assert_eq!(
+        up["patch"],
+        serde_json::json!([
+            place("tally", serde_json::json!({ "col": [1, 11], "row": 4 })),
+            place("card", serde_json::json!({ "col": [9, 12], "row": [5, 7] })),
+        ])
+    );
+    // The tally stands at the grid's left edge, so the two go no farther left at all.
+    assert_eq!(arranged(&["card,tally", "--by=-150,0"])["patch"], serde_json::json!([]));
+    // In front of what it overlaps in the card, and the card behind the rest: by `z`.
+    let z = |node: &str, z: i64| serde_json::json!({ "op": "choose", "node": node, "prop": "z", "value": z, "state": "containers", "fork": false });
+    assert_eq!(arranged(&["card-photo", "--order", "front"])["patch"], serde_json::json!([z("card-photo", 2)]));
+    assert_eq!(arranged(&["card", "--order", "back"])["patch"], serde_json::json!([z("card", -1)]));
+
+    // Applied, a patch moves what it says: the card now stands over the board, which lint
+    // says, and nothing else.
+    let bundle = scratch("arrange").join("torture.scaena");
+    copy_dir(Path::new(TORTURE), &bundle);
+    let b = bundle.to_str().unwrap();
+    let ops = bundle.parent().unwrap().join("ops.json");
+    std::fs::write(&ops, left["patch"].to_string()).unwrap();
+    let (_, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(patched["applied"], true, "{patched:#}");
+    let added: Vec<&str> = patched["added"].as_array().unwrap().iter().filter_map(|f| f["code"].as_str()).collect();
+    assert!(!added.is_empty() && added.iter().all(|c| *c == "E101"), "{patched:#}");
+    let (_, boxes) = json(&["inspect", b, "--state", "containers", "--boxes"]);
+    assert_eq!(boxes[0]["boxes"]["card"]["rect"][0], 96.0);
+
+    // Children of two containers, a stack's children, and two ways at once are errors that
+    // say why.
+    let refused = |args: &[&str], says: &str| {
+        let mut all = vec!["inspect", TORTURE, "--state", "containers", "--arrange"];
+        all.extend_from_slice(args);
+        let (code, err) = json(&all);
+        assert_ne!(code, 0, "{args:?}");
+        let message = err["error"]["message"].as_str().unwrap_or_default().to_string();
+        assert!(message.contains(says), "{args:?}: {message}");
+    };
+    refused(&["tally,card-photo", "--align", "left"], "`card-photo` by `card`: arrange what one container holds");
+    refused(&["stat-a,stat-b", "--align", "top"], "the stack `stats` places what it holds in its order");
+    refused(&["tally,card", "--align", "left", "--order", "front"], "one way");
+    refused(&["case,stats", "--spread", "down"], "three nodes or more");
+    refused(&["tally,nobody", "--align", "left"], "`nobody`");
+    assert_eq!(scaena(&["inspect", TORTURE, "--arrange", "tally,card", "--align", "left"]).status.code(), Some(2));
+
+    // For a person: where each lands, and the patch.
+    let out = scaena(&["inspect", TORTURE, "--state", "containers", "--arrange", "tally,card", "--align", "left"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("arranged:") && text.contains("card lands at x 96") && text.contains("patch: [{"), "{text}");
+}
+
 #[test]
 fn inspect_keeps_its_snapshot_without_the_views() {
     // The views add keys; the snapshot is the same either way.

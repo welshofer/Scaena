@@ -92,10 +92,10 @@ pub struct Session {
     rest: Option<(String, scaena_engine::sample::Scene)>,
     /// Where the node last asked about may go, by its state and its id: a drag asks again
     /// with every move, and lays nothing out (ADR-0013).
-    targets: Option<(String, String, scaena_engine::geometry::Targets)>,
+    targets: Vec<(String, String, scaena_engine::geometry::Targets)>,
     /// The node a drag moves, and how far, canvas units: frames at rest draw it there, from
     /// the state as laid out at rest, laying nothing out (ADR-0013).
-    moving: Option<(String, [f32; 2])>,
+    moving: Option<(Vec<String>, [f32; 2])>,
     /// The deck a patch would make, shown before it is made: frames at rest draw it, laid out
     /// once a frame, as a resize does when it pauses (ADR-0013).
     #[cfg(feature = "editor")]
@@ -174,7 +174,7 @@ impl Session {
             engine: None,
             transition: None,
             rest: None,
-            targets: None,
+            targets: Vec::new(),
             moving: None,
             #[cfg(feature = "editor")]
             previewing: None,
@@ -279,7 +279,7 @@ impl Session {
     fn forget(&mut self) {
         self.transition = None;
         self.rest = None;
-        self.targets = None;
+        self.targets.clear();
         self.moving = None;
         #[cfg(feature = "editor")]
         {
@@ -377,7 +377,7 @@ impl Session {
             let moving = self.moving.clone();
             let scene = self.at_rest(state)?;
             return Ok(match moving {
-                Some((node, by)) => scene.moved(time, &node, by),
+                Some((nodes, by)) => scene.moved(time, &nodes.iter().map(String::as_str).collect::<Vec<_>>(), by),
                 None => scene.draw_at(time),
             });
         }
@@ -427,7 +427,9 @@ impl Session {
     /// Where `node` may go in `state` at rest, in the format shown (ADR-0013): what holds
     /// it, its cell, and the tracks, slots, or order a drag snaps it to.
     pub fn targets(&mut self, state: &str, node: &str) -> Result<&scaena_engine::geometry::Targets, Error> {
-        if self.targets.as_ref().is_none_or(|(s, n, _)| s != state || n != node) {
+        // Kept for the nodes a gesture moves, until the deck, its files, or the format change.
+        let kept = self.targets.iter().position(|(s, n, _)| s == state && n == node);
+        if kept.is_none() {
             self.duration(state)?;
             let engine = self.engine.as_mut().expect("built for the span");
             let format = self.format.as_deref();
@@ -440,9 +442,13 @@ impl Session {
                 format,
             };
             let found = engine.targets(&req, node)?;
-            self.targets = Some((state.to_string(), node.to_string(), found));
+            if self.targets.len() >= 64 {
+                self.targets.remove(0);
+            }
+            self.targets.push((state.to_string(), node.to_string(), found));
         }
-        Ok(&self.targets.as_ref().expect("found above").2)
+        let at = kept.unwrap_or(self.targets.len() - 1);
+        Ok(&self.targets[at].2)
     }
 
     /// Where the box `to` (`node`'s cell as a drag left it) lands in `state` when it snaps
@@ -461,11 +467,32 @@ impl Session {
         scaena_ops::inspect::snap(&found, how, to, state, fork).map_err(|e| Error::Deck(e.to_string()))
     }
 
-    /// Draw a node, and what it holds, `by` canvas units from where it stands in the frames at
+    /// Draw nodes, and what they hold, `by` canvas units from where they stand in the frames at
     /// rest that follow, from the state as laid out at rest: what a drag shows as it moves,
-    /// laying nothing out (ADR-0013). `None` puts it back.
-    pub fn set_moving(&mut self, moving: Option<(String, [f32; 2])>) {
+    /// laying nothing out (ADR-0013). `None` puts them back.
+    pub fn set_moving(&mut self, moving: Option<(Vec<String>, [f32; 2])>) {
         self.moving = moving;
+    }
+
+    /// `nodes`, children of one container, arranged `how` in `state` at rest, in the format
+    /// shown (PLAN 2.42): where each lands and the patch that puts them there, made in `state`
+    /// or, to `fork` it, kept there; `None` where nothing moves them that way.
+    #[cfg(feature = "editor")]
+    pub fn arranging(
+        &mut self,
+        state: &str,
+        nodes: &[String],
+        how: scaena_ops::arrange::How,
+        fork: bool,
+    ) -> Result<Option<scaena_ops::arrange::Arranged>, Error> {
+        let found = nodes.iter().map(|n| self.targets(state, n).cloned()).collect::<Result<Vec<_>, _>>()?;
+        let boxes = self.boxes(state)?;
+        let (deck, _) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        let snaps = scaena_core::resolve_states(&deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let snap =
+            snaps.iter().find(|s| s.state_id == state).ok_or_else(|| Error::Ops(format!("no state `{state}`")))?;
+        let shown = scaena_engine::cascade::with_overrides(&deck, snap);
+        scaena_ops::arrange::arrange(&deck, &shown, &boxes, nodes, found, how, fork).map_err(|e| Error::Ops(e.message))
     }
 
     /// Show `ops` (a patch) as if it were made, without making it: frames at rest draw the
@@ -659,18 +686,23 @@ impl Session {
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
-    /// What a copy of `node`, as `state` shows it, holds (PLAN 2.37): it and what it holds
-    /// there, their overrides, the data sources they read, and the files those and their images
-    /// read, with its box as a share of the canvas in the format shown.
+    /// What a copy of `nodes`, as `state` shows them, holds (PLAN 2.37, 2.42): each and what
+    /// it holds there, their overrides, the data sources they read, and the files those and
+    /// their images read, with each one's box as a share of the canvas in the format shown.
     #[cfg(feature = "editor")]
-    pub fn copying(&mut self, state: &str, node: &str) -> Result<scaena_ops::clipboard::Clip, Error> {
+    pub fn copying(&mut self, state: &str, nodes: &[&str]) -> Result<scaena_ops::clipboard::Clip, Error> {
         let boxes = self.boxes(state)?;
-        let rect = boxes.iter().find(|b| b.node == node).map(|b| b.rect);
-        let rect = rect.ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?;
+        let rect = |node: &str| boxes.iter().find(|b| b.node == node).map(|b| b.rect);
+        let copied = nodes
+            .iter()
+            .map(|&node| {
+                Ok((node, rect(node).ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
         let [w, h] = self.canvas_size()?;
         let files = Arc::clone(&self.files);
         let read = |p: &str| files.get(p).cloned();
-        scaena_ops::clipboard::copying(&self.deck, &self.theme, state, node, rect, [w as f32, h as f32], &read)
+        scaena_ops::clipboard::copying(&self.deck, &self.theme, state, &copied, [w as f32, h as f32], &read)
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
@@ -1130,12 +1162,23 @@ impl Player {
         serde_json::to_string(&snapped).map_err(js)
     }
 
-    /// Draw `node`, and what it holds, `dx`, `dy` canvas units from where it stands in the
-    /// frames at rest that follow, laying nothing out: what a drag shows as it moves. Without
-    /// `node`, every node stands where it is.
+    /// `nodes`, children of one container, arranged in `state` at rest, in the format shown
+    /// (PLAN 2.42), `how` JSON: `{ "align": "left" }`, `{ "spread": "across" }`, `{ "order":
+    /// "front" }`, or `{ "by": [dx, dy], "free"? }`, moved together as a drag of the first
+    /// snaps it. As JSON: `{ "landed": [{ "node", "cell" }], "patch" }`, the patch made in
+    /// `state`, or kept there to `fork` it; `null` where nothing moves them that way.
+    pub fn arranging(&mut self, state: &str, nodes: Vec<String>, how: &str, fork: bool) -> Result<String, JsError> {
+        let asked: scaena_ops::arrange::Asked = serde_json::from_str(how).map_err(js)?;
+        let how = asked.how().map_err(|e| JsError::new(&e.message))?;
+        serde_json::to_string(&self.0.arranging(state, &nodes, how, fork).map_err(js)?).map_err(js)
+    }
+
+    /// Draw `nodes`, and what they hold, `dx`, `dy` canvas units from where they stand in the
+    /// frames at rest that follow, laying nothing out: what a drag shows as it moves. With
+    /// none, every node stands where it is.
     #[wasm_bindgen(js_name = setMoving)]
-    pub fn set_moving(&mut self, node: Option<String>, dx: f32, dy: f32) {
-        self.0.set_moving(node.map(|node| (node, [dx, dy])));
+    pub fn set_moving(&mut self, nodes: Vec<String>, dx: f32, dy: f32) {
+        self.0.set_moving((!nodes.is_empty()).then_some((nodes, [dx, dy])));
     }
 
     /// Frames at rest draw the deck `ops` (a patch, JSON) would make, laid out once a frame,
@@ -1231,15 +1274,18 @@ impl Player {
         serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
     }
 
-    /// What a copy of `node`, as `state` shows it, holds (PLAN 2.37), as JSON: what goes on
-    /// the clipboard, as `application/x-scaena+json` and as text.
-    pub fn copying(&mut self, state: &str, node: &str) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.copying(state, node).map_err(js)?).map_err(js)
+    /// What a copy of `nodes`, as `state` shows them, holds (PLAN 2.37, 2.42), as JSON: what
+    /// goes on the clipboard, as `application/x-scaena+json` and as text. The first is the node
+    /// copied; several are children of one container, as the canvas selects them.
+    pub fn copying(&mut self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {
+        let nodes: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        serde_json::to_string(&self.0.copying(state, &nodes).map_err(js)?).map_err(js)
     }
 
     /// The patch that pastes what the clipboard holds in `state` about `x`, `y` (PLAN 2.37), as
-    /// JSON: `{ id, cell, patch, files, findings }`. A clip as [`Player::copying`] gives it pastes
-    /// what it holds; other text, a text in the theme's body role.
+    /// JSON: `{ id, cell, also?, patch, files, findings }`, `also` the copies of the others
+    /// copied with the first (PLAN 2.42). A clip as [`Player::copying`] gives it pastes what it
+    /// holds; other text, a text in the theme's body role.
     pub fn pasting(&mut self, text: &str, state: &str, x: f32, y: f32) -> Result<String, JsError> {
         let clip = match scaena_ops::clipboard::read(text).map_err(js)? {
             Some(clip) => clip,
@@ -1841,11 +1887,8 @@ mod tests {
             snapped = s
                 .snap("containers", "tally", SnapMode::Move, [cell[0] + dx, cell[1], cell[2], cell[3]], false)
                 .unwrap();
-            assert!(
-                s.targets
-                    .as_ref()
-                    .is_some_and(|(state, node, t)| state == "containers" && node == "tally" && *t == found)
-            );
+            let kept = |(state, node, t): &(String, String, _)| state == "containers" && node == "tally" && *t == found;
+            assert!(s.targets.len() == 1 && s.targets.iter().all(kept), "kept, once");
         }
         let snapped = snapped.unwrap();
         assert_eq!(
@@ -1856,7 +1899,7 @@ mod tests {
         );
         let by = assistant::Caller { author: "user", at: None };
         s.tool("deck_patch", serde_json::json!({ "ops": snapped.patch }), by).unwrap();
-        assert!(s.targets.is_none(), "the deck changed, and with it where things stand");
+        assert!(s.targets.is_empty(), "the deck changed, and with it where things stand");
         assert_eq!(s.targets("containers", "tally").unwrap().cell, snapped.cell);
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
@@ -1876,7 +1919,7 @@ mod tests {
         assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "containers"), "laid out once, and kept");
         assert_eq!(s.boxes("containers").unwrap().len(), s.rest.as_ref().unwrap().1.boxes().len());
 
-        s.set_moving(Some(("tally".into(), [30.0, 0.0])));
+        s.set_moving(Some((vec!["tally".into()], [30.0, 0.0])));
         let moved = s.frame("containers", f64::INFINITY).unwrap();
         assert_ne!(moved, still);
         assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "containers"));
@@ -1912,10 +1955,58 @@ mod tests {
         s.preview(None).unwrap();
         assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), still);
         s.preview(Some(&resize.patch)).unwrap();
-        s.set_moving(Some(("tally".into(), [30.0, 0.0])));
+        s.set_moving(Some((vec!["tally".into()], [30.0, 0.0])));
         s.tool("deck_patch", serde_json::json!({ "ops": resize.patch }), by).unwrap();
         assert!(s.moving.is_none() && s.previewing.is_none(), "the deck changed: the drag is over");
         assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), previewed);
+    }
+
+    /// Several nodes at once (PLAN 2.42): a drag of two draws both moved, over the rest, and
+    /// `arranging` gives one patch that puts them in place, written where each placement
+    /// lives: moved together, aligned, or ordered by `z`. Children of two containers, or of a
+    /// stack, are an error that says why.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn several_nodes_move_align_and_order_at_once() {
+        use scaena_ops::arrange::{Align, How, Order};
+        let mut s = torture();
+        let still = s.frame("containers", f64::INFINITY).unwrap();
+        s.set_moving(Some((vec!["tally".into()], [0.0, -114.0])));
+        let one = s.frame("containers", f64::INFINITY).unwrap();
+        s.set_moving(Some((vec!["tally".into(), "card".into()], [0.0, -114.0])));
+        let two = s.frame("containers", f64::INFINITY).unwrap();
+        assert!(two != one && two != still, "both move, not one");
+        s.set_moving(None);
+
+        let nodes = ["tally".to_string(), "card".to_string()];
+        let up = s.arranging("containers", &nodes, How::Together { by: [0.0, -114.0], free: false }, false).unwrap();
+        let up = up.expect("the grid moves them");
+        assert_eq!(up.landed.iter().map(|l| l.node.as_str()).collect::<Vec<_>>(), ["tally", "card"]);
+        assert_eq!(up.patch.len(), 2, "{:?}", up.patch);
+        let left = s.arranging("containers", &nodes, How::Align(Align::Left), false).unwrap().unwrap();
+        assert_eq!(
+            left.patch,
+            [
+                serde_json::json!({ "op": "place", "node": "card", "at": { "col": [1, 4], "row": [6, 8] }, "state": "containers" })
+            ]
+        );
+        let front =
+            s.arranging("containers", &["card-photo".into()], How::Order(Order::Front), false).unwrap().unwrap();
+        assert_eq!(front.patch[0]["prop"], "z");
+
+        // Made, the card stands at the tally's left edge.
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": left.patch }), by).unwrap();
+        assert!(s.targets.is_empty(), "the deck changed, and with it where things stand");
+        let card = s.targets("containers", "card").unwrap().cell[0];
+        assert_eq!(card, s.targets("containers", "tally").unwrap().cell[0]);
+
+        let two_holders = ["tally".to_string(), "card-photo".to_string()];
+        let e = s.arranging("containers", &two_holders, How::Align(Align::Left), false).unwrap_err().to_string();
+        assert!(e.contains("arrange what one container holds"), "{e}");
+        let stacked = ["stat-a".to_string(), "stat-b".to_string()];
+        let e = s.arranging("containers", &stacked, How::Align(Align::Top), false).unwrap_err().to_string();
+        assert!(e.contains("the stack `stats`"), "{e}");
     }
 
     /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the
@@ -2231,7 +2322,7 @@ mod tests {
         let keys = |m: Vec<&String>| m.into_iter().cloned().collect::<Vec<String>>();
 
         // The chart, with its data source and the file it reads.
-        let clip = s.copying("revenue", "rev").unwrap();
+        let clip = s.copying("revenue", &["rev"]).unwrap();
         assert_eq!((clip.node.as_str(), keys(clip.nodes.keys().collect())), ("rev", vec!["rev".to_string()]));
         assert_eq!(clip.nodes["rev"]["type"], "chart");
         assert_eq!(clip.nodes["rev"]["data"], "@q3");
@@ -2262,7 +2353,7 @@ mod tests {
         let mut other = revenue();
         let csv = "quarter,product,revenue,customers\nQ3,Core,12,40\n";
         other.add_file("data/q3-revenue.csv", csv.as_bytes().to_vec());
-        let theirs = other.copying("revenue", "rev").unwrap();
+        let theirs = other.copying("revenue", &["rev"]).unwrap();
         let pasted = s.pasting(&theirs, "close", [1400.0, 600.0]).unwrap();
         assert_eq!(pasted.id, "rev-3");
         assert_eq!(pasted.files, ["data/q3-revenue-2.csv"]);
@@ -2280,7 +2371,11 @@ mod tests {
         assert_eq!(read("Q3 Review").unwrap(), None);
         assert_eq!(read(r#"{ "kind": "scaena/deck" }"#).unwrap(), None);
         let refused = |text: &str| read(text).unwrap_err().message;
-        let newer = serde_json::to_string(&scaena_ops::clipboard::Clip { version: 2, ..clip.clone() }).unwrap();
+        let newer = serde_json::to_string(&scaena_ops::clipboard::Clip {
+            version: scaena_ops::clipboard::VERSION + 1,
+            ..clip.clone()
+        })
+        .unwrap();
         assert!(refused(&newer).contains("newer"), "{}", refused(&newer));
         assert!(refused(r#"{ "kind": "scaena/clip", "version": 1 }"#).contains("damaged"));
         let text = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held.\n").unwrap();
@@ -2305,7 +2400,7 @@ mod tests {
         let mut t = torture();
 
         // Dusk's `title` role is not the torture theme's.
-        let clip = s.copying("intro", "subtitle").unwrap();
+        let clip = s.copying("intro", &["subtitle"]).unwrap();
         assert_eq!(clip.nodes["subtitle"]["role"], "title");
         let pasted = t.pasting(&clip, "shapes", [960.0, 900.0]).unwrap();
         assert_eq!(pasted.id, "subtitle");
@@ -2320,7 +2415,7 @@ mod tests {
         assert_eq!(t.deck.nodes["subtitle"].props.get("text"), s.deck.nodes["subtitle"].props.get("text"));
 
         // The chart brings its source and its file, which the torture bundle lacks.
-        let clip = s.copying("revenue", "rev").unwrap();
+        let clip = s.copying("revenue", &["rev"]).unwrap();
         let pasted = t.pasting(&clip, "shapes", [960.0, 500.0]).unwrap();
         assert_eq!(pasted.files, ["data/q3-revenue.csv"]);
         assert!(pasted.findings.is_empty(), "the torture theme has every name the chart takes: {:?}", pasted.findings);
@@ -2330,7 +2425,7 @@ mod tests {
         assert!(t.boxes("shapes").unwrap().iter().any(|b| b.node == pasted.id && b.draws));
 
         // The card holds a photo, a tag, and the tag's label.
-        let clip = t.copying("containers", "card").unwrap();
+        let clip = t.copying("containers", &["card"]).unwrap();
         let ids: Vec<&str> = clip.nodes.keys().map(String::as_str).collect();
         assert_eq!(ids[0], "card");
         assert!(ids.contains(&"card-photo") && ids.contains(&"card-tag-label"), "{ids:?}");
@@ -2346,6 +2441,56 @@ mod tests {
             assert_eq!(parent(held), Some("card-2"), "{held} is held by the copy of the card");
         }
         assert_eq!(parent("card-2"), None, "pasted at the root, where the pointer pressed");
+    }
+
+    /// Nodes copied together paste where they stood about each other, each under an id new to
+    /// the deck, in one patch; one that another of them holds comes with that one (PLAN 2.42).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn several_nodes_copied_together_paste_as_they_stood() {
+        let mut t = torture();
+        let before = t.boxes("containers").unwrap();
+        let clip = t.copying("containers", &["tally", "card", "card-photo"]).unwrap();
+        assert_eq!((clip.version, clip.node.as_str()), (2, "tally"), "a clip of several is version 2");
+        let more: Vec<&str> = clip.more.iter().map(|m| m.node.as_str()).collect();
+        assert_eq!(more, ["card"], "the photo comes with the card that holds it");
+        let ids: Vec<&str> = clip.nodes.keys().map(String::as_str).collect();
+        assert_eq!(ids.iter().filter(|id| **id == "card-photo").count(), 1, "once: {ids:?}");
+        let one = t.copying("containers", &["card"]).unwrap();
+        assert_eq!(
+            (one.version, one.more.len()),
+            (1, 0),
+            "a clip of one stays version 1, which Scaena before 2.42 reads"
+        );
+
+        let text = serde_json::to_string(&clip).unwrap();
+        let clip = scaena_ops::clipboard::read(&text).unwrap().expect("a clip");
+        let rect = |boxes: &[scaena_engine::geometry::NodeBox], node: &str| {
+            boxes.iter().find(|b| b.node == node).map(|b| b.rect).unwrap_or_else(|| panic!("{node} stands nowhere"))
+        };
+        let (tally, card) = (rect(&before, "tally"), rect(&before, "card"));
+        // In the middle, and pressed by the grid's bottom edge and its corner: the edge stops
+        // all of them, never one alone.
+        for (n, at) in [(2, [960.0, 540.0]), (3, [960.0, 1060.0]), (4, [1910.0, 1070.0]), (5, [10.0, 10.0])] {
+            let pasted = t.pasting(&clip, "containers", at).unwrap();
+            let (copy, beside) = (format!("tally-{n}"), format!("card-{n}"));
+            assert_eq!((&pasted.id, pasted.also.as_slice()), (&copy, [beside.clone()].as_slice()));
+            assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
+            let after = t.boxes("containers").unwrap();
+            let (tally2, card2) = (rect(&after, &copy), rect(&after, &beside));
+            for i in 0..2 {
+                let (was, is) = (card[i] - tally[i], card2[i] - tally2[i]);
+                assert!(
+                    (was - is).abs() < 0.5,
+                    "pasted about {at:?}, the card stands where it stood about the tally: {was} then, {is} now"
+                );
+            }
+            assert!(after.iter().any(|b| b.node == format!("card-photo-{n}")), "with what the card holds");
+        }
+        let newer =
+            serde_json::to_string(&scaena_ops::clipboard::Clip { version: scaena_ops::clipboard::VERSION + 1, ..clip })
+                .unwrap();
+        assert!(scaena_ops::clipboard::read(&newer).is_err(), "a clip newer than this Scaena reads is refused");
     }
 
     /// The state strip adds a step after the state shown, which shows what it shows, and a

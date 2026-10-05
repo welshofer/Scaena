@@ -33,18 +33,21 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    |---|---|
    | Move within the grid, into a slot, or among a container's children | `place`: cells, a slot (`in`), an `area`, or an `index` |
    | Resize within the grid | `place`: spans |
+   | Several moved together, by a drag or the arrow keys | `place` for each: the first as it would snap alone, the rest as far as it went, each its own way; all stopped where the grid's edge stops one (PLAN 2.42) |
+   | Several aligned or spread | `place` for each that moves: each box to the edge all of them reach farthest, or the middle of them all; or, the first and the last staying, equal gaps between them; snapped as a move snaps |
+   | Forward, backward, to the front, to the back (⌘], ⌘[, with Shift) | `choose` of `z`: in front of the next it overlaps, or behind the one before; or past all its container holds; the one `z` that does it where there is one, else the fewest |
    | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |
    | ⌘B, or a role or color chosen, with characters selected | `style_text`: those characters' look, as runs split at the selection's ends and joined where alike, where the text lives; ⌘B bold, or not, by the weight the engine sets each in |
    | ⌘I, with characters selected | `style_text` with `style/italic`: italic, or, all italic already, not, by what each asks; the family's italic face, never a slanted roman (PLAN 2.40) |
-   | Choosing a look | `choose`: a role, a key of a style, a preset, or a prop, from the theme's names for it (`inspect --choices`); a value written out goes in the deck's `overrides` |
+   | Choosing a look | `choose`: a role, a key of a style, a preset, or a prop, from the theme's names for it (`inspect --choices`); a value written out goes in the deck's `overrides`; with several selected, one for each, of what all of them have alike |
    | Choosing what a chart reads | `choose`: its source from the deck's, and a channel's field from the columns of its data that the channel can read; another source points again what it cannot serve, in the same patch (PLAN 2.41) |
    | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), a chart and a table of each data source among them, about the pointer, on the grid, or a text or an image in the empty slot under it |
    | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |
    | Delete | `hide_node` in the state shown, for the node and what it holds; `remove_node` for one no state shows after |
    | Delete from the deck | `remove_node`, for the node and what it holds |
-   | Copy | Nothing: a clip of the node and what it holds, as the state shows them, with their overrides, the data sources they read, and the files those read (`application/x-scaena+json`, and as text) |
+   | Copy | Nothing: a clip of the node and what it holds, as the state shows them, with their overrides, the data sources they read, and the files those read (`application/x-scaena+json`, and as text); of several, each with its box |
    | Cut | A copy, then Delete's patch |
-   | Paste | The sources a clip brings, `add_node` for each node it holds under an id new to the deck, entering in the state shown, their overrides, then `place` as Insert places a node; what the theme lacks taken out of the copy, as findings, a text's role given way to its stand-in |
+   | Paste | The sources a clip brings, `add_node` for each node it holds under an id new to the deck, entering in the state shown, their overrides, then `place` as Insert places a node, several where they stood about each other; what the theme lacks taken out of the copy, as findings, a text's role given way to its stand-in |
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
    | Choosing a theme | `retheme`, as `scaena theme --apply` re-themes a bundle: a theme that ships written into the bundle with the fonts it names that the bundle lacks, or the bundle's own; refused, with why, where the deck would not validate in it |

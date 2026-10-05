@@ -364,9 +364,9 @@ fn moved_by(still: &[Op], moved: &[Op], held: &[&str], by: [f32; 2]) {
     }
 }
 
-/// A drag moves its node's layers and those of everything it holds, and nothing else: a
+/// A drag moves its nodes' layers and those of everything they hold, and nothing else: a
 /// frame and what is in it, a group composited as one layer, a member inside that layer, a
-/// stack of stacks. Nothing is laid out again (ADR-0013).
+/// stack of stacks, several nodes at once. Nothing is laid out again (ADR-0013).
 #[test]
 fn a_drag_moves_a_node_and_what_it_holds_and_nothing_else() {
     let scene = at_rest("containers", None);
@@ -394,7 +394,7 @@ fn a_drag_moves_a_node_and_what_it_holds_and_nothing_else() {
             ][..],
         ),
     ] {
-        let moved = scene.moved(time, node, by);
+        let moved = scene.moved(time, &[node], by);
         assert_ne!(moved, still, "`{node}` moves");
         // Held above the rest, and where it is dragged.
         moved_by(&carried(&still.ops, held), &moved.ops, held, by);
@@ -408,6 +408,10 @@ fn a_drag_moves_a_node_and_what_it_holds_and_nothing_else() {
     // Composited, the group is one layer: its members move inside it, with it.
     let group = still.ops.iter().find(|op| matches!(op, Op::Layer { node: Some(id), .. } if id == "marks"));
     assert!(matches!(group, Some(Op::Layer { ops, .. }) if ops.len() == 2), "{group:?}");
+    // Several at once (PLAN 2.42): each with what it holds, over the rest, by the same distance.
+    let held = ["card", "card-photo", "card-tag", "card-tag-label", "tally-label"];
+    let moved = scene.moved(time, &["card", "tally-label"], by);
+    moved_by(&carried(&still.ops, &held), &moved.ops, &held, by);
     // Not there: the frame as it was.
-    assert_eq!(scene.moved(time, "nowhere", by), still);
+    assert_eq!(scene.moved(time, &["nowhere"], by), still);
 }

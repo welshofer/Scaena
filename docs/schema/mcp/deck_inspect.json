@@ -29,6 +29,21 @@
             "const": "order"
           }
         ]
+      },
+      "Align": {
+        "description": "The edge, or the middle, that nodes aligned share.",
+        "type": "string",
+        "enum": ["left", "center", "right", "top", "middle", "bottom"]
+      },
+      "Spread": { "description": "The way nodes spread run.", "type": "string", "enum": ["across", "down"] },
+      "Order": {
+        "description": "Where a node goes among what its container paints.",
+        "oneOf": [
+          { "description": "In front of the next it overlaps.", "type": "string", "const": "forward" },
+          { "description": "Behind the one before it that it overlaps.", "type": "string", "const": "backward" },
+          { "description": "In front of all of them.", "type": "string", "const": "front" },
+          { "description": "Behind all of them.", "type": "string", "const": "back" }
+        ]
       }
     },
     "required": ["bundle"],
@@ -88,7 +103,41 @@
         "default": null
       },
       "fork": {
-        "description": "With `snap`: the patch keeps the placement to the state inspected, written into its\nown props wherever it lives now (`place`'s `fork`).",
+        "description": "With `snap` or `arrange`: the patch keeps what it changes to the state inspected,\nwritten into its own props wherever it lives now (`place`'s and `choose`'s `fork`).",
+        "type": "boolean",
+        "default": false
+      },
+      "arrange": {
+        "description": "Several nodes shown in the state inspected, children of one container, arranged at\nonce (PLAN 2.42): with one of `align`, `spread`, `order`, or `by`, where each lands\nand the patch that puts them there.",
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "default": null
+      },
+      "align": {
+        "description": "With `arrange`: the edge, or the middle, they all take: the one all of them reach\nfarthest, or the middle of them all; on a grid, snapped to its tracks.",
+        "anyOf": [{ "$ref": "#/$defs/Align" }, { "type": "null" }],
+        "default": null
+      },
+      "spread": {
+        "description": "With `arrange`: the first and the last stay, and the ones between move so the gaps\nbetween them all are equal, `across` or `down`.",
+        "anyOf": [{ "$ref": "#/$defs/Spread" }, { "type": "null" }],
+        "default": null
+      },
+      "order": {
+        "description": "With `arrange`: each goes `forward` in front of the next of its container's children\nthat it overlaps, `backward` behind the one before, or to the `front` or the `back` of\nthem all, by its `z`.",
+        "anyOf": [{ "$ref": "#/$defs/Order" }, { "type": "null" }],
+        "default": null
+      },
+      "by": {
+        "description": "With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of\nit snaps, the rest as far as it went, each its own way.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": null
+      },
+      "free": {
+        "description": "With `by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.",
         "type": "boolean",
         "default": false
       },
@@ -103,7 +152,7 @@
         "default": false
       },
       "inserts": {
-        "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, and each shader preset,\neach as `add_node` adds it, with the box it takes at first.",
+        "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, a chart and a table of\neach data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with\nthe box it takes at first.",
         "type": "boolean",
         "default": false
       }
@@ -168,6 +217,10 @@
           "snapped": {
             "description": "Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.",
             "anyOf": [{ "$ref": "#/$defs/Snapped" }, { "type": "null" }]
+          },
+          "arranged": {
+            "description": "Where the nodes `arrange` names land, and the patch that puts them there.",
+            "anyOf": [{ "$ref": "#/$defs/Arranged" }, { "type": "null" }]
           },
           "choices": {
             "description": "What an inspector offers for the node asked about (`choices`).",
@@ -480,6 +533,34 @@
           }
         },
         "required": ["cell", "patch"]
+      },
+      "Arranged": {
+        "description": "Several nodes arranged: where each lands, and the patch that puts them all there.",
+        "type": "object",
+        "properties": {
+          "landed": { "type": "array", "items": { "$ref": "#/$defs/Landed" } },
+          "patch": {
+            "description": "`place` ops, or `choose` ops for `z`, each written where what it sets lives; empty when\neach is there already.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["landed", "patch"]
+      },
+      "Landed": {
+        "description": "Where a node arranged lands.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "cell": {
+            "description": "Its box there, `[x, y, width, height]` in canvas units.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "required": ["node", "cell"]
       },
       "Choices": {
         "description": "What an inspector offers for one node as one state shows it.",
