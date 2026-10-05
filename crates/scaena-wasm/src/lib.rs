@@ -107,6 +107,9 @@ pub struct Session {
     /// The frame held while its shaders' rows are worked out (PLAN 2.28).
     #[cfg(feature = "cpu")]
     shading: Option<Shading>,
+    /// The CPU painter, kept from frame to frame with its render context.
+    #[cfg(feature = "cpu")]
+    painter: scaena_paint::cpu::CpuPainter,
     /// The theme's JSON, as handed over: what lint and a save read (PLAN 2.3–2.4).
     #[cfg(feature = "editor")]
     theme_json: String,
@@ -179,6 +182,8 @@ impl Session {
             store: Assets::new(),
             #[cfg(feature = "cpu")]
             shading: None,
+            #[cfg(feature = "cpu")]
+            painter: scaena_paint::cpu::CpuPainter::default(),
             #[cfg(feature = "editor")]
             theme_json: theme_json.to_string(),
             #[cfg(feature = "editor")]
@@ -577,7 +582,7 @@ impl Session {
         use scaena_paint::Painter;
         let dl = self.frame(state, t_ms)?;
         let scale = width as f32 / dl.viewport[0];
-        Ok(scaena_paint::cpu::CpuPainter::default().paint(&dl, &self.store, scale)?)
+        Ok(self.painter.paint(&dl, &self.store, scale)?)
     }
 
     /// Hold [`Session::pixels`]' frame until its shaders' pixels are in, and say how many
@@ -651,7 +656,7 @@ impl Session {
         let Shading { dl, scale, shaders } =
             self.shading.take().ok_or_else(|| Error::Shading("no frame is held for its shaders".into()))?;
         let pixels = shaders.into_iter().map(|shader| shader.pixels).collect();
-        Ok(scaena_paint::cpu::CpuPainter::default().paint_shaded(&dl, &self.store, scale, pixels)?)
+        Ok(self.painter.paint_shaded(&dl, &self.store, scale, pixels)?)
     }
 }
 
