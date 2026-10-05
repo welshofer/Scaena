@@ -9,6 +9,8 @@
 // - A drag into another slot moves the node's layer as it goes and says which states the move
 //   changes before it is made. On drop, the source takes the patch as one change: the node stands
 //   in its new slot, one undo puts the source back as it was, and one redo makes it again.
+// - A drag pressed while the worker is busy still moves the node: the moves made before the
+//   engine says what was pressed start it.
 // - With Alt, the move is kept to the state shown, and the other states keep the node where it was.
 // - With Shift, the node goes off the grid, placed by a `rect`, and the inspector flags it.
 // On the torture deck's `containers` case:
@@ -166,6 +168,25 @@ try {
   n = await trips(page);
   await page.keyboard.press("Control+z");
   await settled(page, n);
+
+  // A drag pressed while the worker is busy, as it is while it paints a frame or lints the deck:
+  // the moves made before the engine says what was pressed still drag the node, and it drops.
+  await click(page, center(note));
+  n = await trips(page);
+  const early = await page.evaluate(() => window.scaena.canvas.early());
+  await page.evaluate(() => {
+    for (let i = 0; i < 3000; i++) void window.scaena.canvas.targets("note");
+  });
+  const late = await drag(page, center(note), to, [], { says: "slot kicker" });
+  check(late.includes("slot kicker"), `a drag pressed while the worker is busy moves the note: ${late}`);
+  check((await page.evaluate(() => window.scaena.canvas.early())) > early, "it began from the moves made before the engine answered");
+  await settled(page, n);
+  check((await placedAs(page, "note", "slot kicker")).includes("slot kicker"), "and it drops in the kicker slot");
+  n = await trips(page);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await settled(page, n);
+  check((await source(page)) === original, "one undo puts it back");
 
   // Alt keeps the move to the state shown: in `mix`, `revenue` keeps the note in its slot.
   await showState(page, "mix", 2);
