@@ -46,7 +46,7 @@
 //   offers each finding's fix (PLAN 2.49, `marks.ts`).
 import { marks } from "./marks";
 import { CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Finding, Insert, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Edited, Finding, Insert, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -62,6 +62,8 @@ export interface Editor {
   version(): number;
   /** How `node` is placed in the state shown, resolved: its `at`. */
   at(node: string): Placement | undefined;
+  /** `node`'s `transform` in the state shown, resolved (PLAN 2.51): what its rotate handle turns. */
+  transform(node: string): { rotate?: number; anchor?: [number, number] } | undefined;
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
@@ -118,6 +120,24 @@ interface Drag {
   asked?: string;
   /** A resize's preview, once the pointer pauses. */
   pause?: ReturnType<typeof setTimeout>;
+}
+
+/** A node turned by its rotate handle (PLAN 2.51): about `pivot`, where its anchor is drawn, from
+ * `start` degrees to `now`, as the pointer goes round from where it pressed. */
+interface Turn {
+  node: string;
+  pivot: Point;
+  /** The pointer's last angle about the pivot, radians, and how far it has gone round since the
+   * press, degrees: past a half turn it keeps going. */
+  last: number;
+  round: number;
+  start: number;
+  now: number;
+  /** -1 where what holds the node mirrors it, so that its own clockwise turn goes the other way
+   * on the canvas; else 1. */
+  way: number;
+  /** The source's version when it began. */
+  version: number;
 }
 
 /** The pointer down, not yet moved far enough to drag: on `node` (by a handle, `edge`), and what a
@@ -218,6 +238,50 @@ export function placed(at: Placement, by?: Targets["by"]): string {
 
 const moved = ([x, y, w, h]: Rect, [dx, dy]: [number, number]): Rect => [x + dx, y + dy, w, h];
 
+type Point = [number, number];
+
+/** `p` through the map `m` (PLAN 2.51). */
+const apply = (m: Map6, [x, y]: Point): Point => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** The map that undoes `m`, where one does: none for one that flattens the plane. */
+function invert(m: Map6): Map6 | undefined {
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return undefined;
+  const [a, b, c, d] = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det];
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
+}
+
+/** `by`, a move on the canvas, in the units `m` draws in: what moves a box it maps that far. */
+function across(m: Map6 | undefined, by: Point): Point {
+  const back = m && invert(m);
+  return back ? [back[0] * by[0] + back[2] * by[1], back[1] * by[0] + back[3] * by[1]] : by;
+}
+
+/** A box's corners, clockwise from its top left. */
+const corners = ([x, y, w, h]: Rect): Point[] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+
+/** Where `b` is drawn: its corners through its map. */
+const outline = (b: NodeBox): Point[] => corners(b.rect).map((p) => (b.transform ? apply(b.transform, p) : p));
+
+/** The box around `points`. */
+function around(points: Point[]): Rect {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const [x, y] = [Math.min(...xs), Math.min(...ys)];
+  return [x, y, Math.max(...xs) - x, Math.max(...ys) - y];
+}
+
+/** The box around where `b` is drawn: its own, where nothing moves it. */
+const drawnBox = (b: NodeBox): Rect => (b.transform ? around(outline(b)) : b.rect);
+
+/** `at`, a point on the canvas, read back into `b`'s box as laid out: none where its map
+ * flattens it. */
+function laidOut(b: NodeBox, at: Point): Point | undefined {
+  if (!b.transform) return at;
+  const back = invert(b.transform);
+  return back && apply(back, at);
+}
+
 function resized([x, y, w, h]: Rect, edge: Edge, [dx, dy]: [number, number]): Rect {
   if (edge.includes("e")) w += dx;
   if (edge.includes("w")) [x, w] = [x + Math.min(dx, w - 1), w - Math.min(dx, w - 1)];
@@ -266,6 +330,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
+  /** A turn by the rotate handle, under way (PLAN 2.51). */
+  let turning: Turn | undefined;
   /** What a drag on the canvas draws, armed by its key (PLAN 2.48): what the deck offers `n`th,
    * named `label`; and the drag drawing it. */
   let armed: { key: string; n: number; label: string; text: boolean; line: boolean } | undefined;
@@ -306,6 +372,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
+  /** Whether `at` is over `b` where it is drawn (PLAN 2.51). */
+  const over = (b: NodeBox, at: Point) => {
+    const p = laidOut(b, at);
+    return p !== undefined && inside(b.rect, p);
+  };
   /** Every node selected: the one selected, then those beside it. */
   const chosen = () => (selected === undefined ? [] : [selected, ...also]);
   /** What holds `node` in the state shown: `null` at the root. */
@@ -326,6 +397,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     unit,
     origin: () => [view[0], view[1]],
     box: (node) => box(node)?.rect,
+    map: (node) => box(node)?.transform,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
   });
@@ -452,7 +524,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [x, y] = [Math.min(m.from[0], m.at[0]), Math.min(m.from[1], m.at[1])];
     const area: Rect = [x, y, Math.abs(m.at[0] - m.from[0]), Math.abs(m.at[1] - m.from[1])];
     const within = (r: Rect) => r[0] >= area[0] && r[1] >= area[1] && r[0] + r[2] <= area[0] + area[2] && r[1] + r[3] <= area[1] + area[3];
-    const found = boxes.filter((b) => (b.parent ?? null) === null && within(b.rect)).map((b) => b.node);
+    const found = boxes.filter((b) => (b.parent ?? null) === null && within(drawnBox(b))).map((b) => b.node);
     const kept = m.adding && selected !== undefined && holder(selected) === null ? chosen() : [];
     return [...kept, ...found.filter((n) => !kept.includes(n))];
   }
@@ -521,29 +593,57 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const typed = text.node() !== undefined;
     const by: [number, number] = drag?.kind === "move" ? [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]] : [0, 0];
+    // A box drawn where its transform draws it (PLAN 2.51), moved `shift` on the canvas.
+    const shape = (b: NodeBox, shift: Point, cls: string, turn = 0) => {
+      if (!b.transform && turn === 0) return rect(moved(b.rect, shift), cls);
+      const [sin, cos] = [Math.sin((turn * Math.PI) / 180), Math.cos((turn * Math.PI) / 180)];
+      const [px, py] = turning?.pivot ?? [0, 0];
+      const points = outline(b).map(([x, y]) => {
+        const [dx, dy] = [x - px, y - py];
+        const [tx, ty] = turn === 0 ? [x, y] : [px + dx * cos - dy * sin, py + dx * sin + dy * cos];
+        return `${tx + shift[0]},${ty + shift[1]}`;
+      });
+      return `<polygon class="${cls}" points="${points.join(" ")}"/>`;
+    };
     for (const node of also) {
       const other = box(node);
-      if (other) parts.push(rect(moved(other.rect, by), "selected"));
+      if (other) parts.push(shape(other, by, "selected"));
     }
     const first = box(selected);
     if (first) {
-      const r = drag?.kind === "move" ? moved(first.rect, by) : first.rect;
-      parts.push(rect(r, typed ? "selected typed" : "selected"));
-      if (!drag && !typed && also.length === 0 && aim && snapOf(aim, editor.at(first.node), true, false)) {
+      const turn = turning?.node === first.node ? (turning.now - turning.start) * turning.way : 0;
+      parts.push(shape(first, by, typed ? "selected typed" : "selected", turn));
+      // A point of its box, as laid out, where it is drawn.
+      const place = (p: Point): Point => {
+        const [x, y] = first.transform ? apply(first.transform, p) : p;
+        return [x + by[0], y + by[1]];
+      };
+      const [x, y, w, h] = first.rect;
+      const still = !drag && !typed && !turning && also.length === 0;
+      if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
-        const [x, y, w, h] = r;
         const spot: Record<Edge, [number, number]> = {
           nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2],
           se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2],
         };
         for (const edge of EDGES) {
-          const [cx, cy] = spot[edge];
+          const [cx, cy] = place(spot[edge]);
           parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle", ` data-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
         }
       }
+      // The rotate handle, above the box's top edge as it is drawn: a drag turns it.
+      if (still && !marquee && !armed) {
+        const [tx, ty] = place([x + w / 2, y]);
+        const [cx, cy] = place([x + w / 2, y + h / 2]);
+        const length = Math.hypot(tx - cx, ty - cy);
+        const [ux, uy] = length > 1e-6 ? [(tx - cx) / length, (ty - cy) / length] : [0, -1];
+        const [hx, hy] = [tx + ux * 24 * u, ty + uy * 24 * u];
+        parts.push(line(tx, ty, hx, hy, "turn-arm"));
+        parts.push(`<circle class="handle turn" data-turn="1" cx="${hx}" cy="${hy}" r="${5 * u}"><title>Turn ${first.node}; Shift by 15°</title></circle>`);
+      }
     }
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed) parts.push(rect(over.rect, "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -579,13 +679,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(`${d.node} → ${placed(op.at ?? {}, d.targets.by)} · ${where}${keep}`);
   }
 
-  /** The box `d` leaves, and how it snaps, with the pointer where it is now. */
-  function aimed(d: Drag): { how?: SnapMode; to: Rect; by: [number, number] } {
+  /** The box `d` leaves, and how it snaps, with the pointer where it is now: `by` on the canvas,
+   * and `held` as what holds it lays it out, through whatever turns or scales that (PLAN 2.51). A
+   * resize goes by the node's own axes. */
+  function aimed(d: Drag): { how?: SnapMode; to: Rect; by: [number, number]; held: [number, number] } {
     const by: [number, number] = [d.at[0] - d.from[0], d.at[1] - d.from[1]];
+    const parent = holder(d.node);
+    const held = across(parent === null ? undefined : box(parent)?.transform, by);
     // Several move as the first does: on the grid, by its tracks, or with Shift off it.
     const how = d.with.length ? (d.shift ? "free" : "move") : snapOf(d.targets, editor.at(d.node), d.kind === "resize", d.shift);
-    const to = d.kind === "move" ? moved(d.targets.cell, by) : resized(d.targets.cell, d.edge!, by);
-    return { how, to, by };
+    const to = d.kind === "move" ? moved(d.targets.cell, held) : resized(d.targets.cell, d.edge!, across(box(d.node)?.transform, by));
+    return { how, to, by, held };
   }
 
   /** Ask where the drag lands now, and paint its node there: one request at a time, the latest
@@ -593,7 +697,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   async function pump(d: Drag) {
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
-    const { how, to, by } = aimed(d);
+    const { how, to, by, held } = aimed(d);
     const asked = JSON.stringify([by, how, d.alt]);
     if (asked === d.asked) return;
     d.asked = asked;
@@ -601,7 +705,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     busy = true;
     try {
       const move = d.with.length
-        ? { by, with: d.with, together: { by, free: d.shift, fork: d.alt } }
+        ? { by, with: d.with, together: { by: held, free: d.shift, fork: d.alt } }
         : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt } : undefined };
       const reply = await stage.drag(shown.state, d.node, move, editor.format());
       if (drag !== d) return;
@@ -643,10 +747,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     clearTimeout(d.pause);
     const shown = editor.shown();
     if (!shown || editor.version() !== d.version) return still("the source changed under the drag: nothing is placed");
-    const { how, to, by } = aimed(d);
+    const { how, to, held } = aimed(d);
     let snapped: Snapped | null | undefined;
     try {
-      const together = { with: d.with, together: { by, free: d.shift, fork: d.alt } };
+      const together = { with: d.with, together: { by: held, free: d.shift, fork: d.alt } };
       if (d.with.length) snapped = (await stage.drag(shown.state, d.node, together, editor.format())).snapped;
       else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt } }, editor.format())).snapped;
     } catch (e) {
@@ -654,6 +758,58 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (!snapped?.patch.length) return still(d.with.length ? `${d.with.length + 1} selected stay where they are` : `${d.node} stays where it is`);
     await commit(snapped.patch, d.with.length ? `${d.with.length + 1} selected moved together` : undefined);
+  }
+
+  /** A turn of `node` begun on its rotate handle at `from` (PLAN 2.51): it turns about where its
+   * anchor is drawn as the pointer goes round it, from the angle the state shows. */
+  function turn(node: string, from: Point) {
+    const b = box(node);
+    if (!b) return;
+    const t = editor.transform(node);
+    const [ax, ay] = t?.anchor ?? [0.5, 0.5];
+    const [x, y, w, h] = b.rect;
+    const anchor: Point = [x + ax * w, y + ay * h];
+    const pivot = b.transform ? apply(b.transform, anchor) : anchor;
+    const start = typeof t?.rotate === "number" ? t.rotate : 0;
+    const last = Math.atan2(from[1] - pivot[1], from[0] - pivot[0]);
+    // What holds it, mirrored, draws its own clockwise turn anticlockwise.
+    const parent = holder(node);
+    const m = parent === null ? undefined : box(parent)?.transform;
+    const way = m && m[0] * m[3] - m[1] * m[2] < 0 ? -1 : 1;
+    turning = { node, pivot, last, round: 0, start, now: start, way, version: editor.version() };
+    editor.say(`turning ${node} about its anchor · Shift by 15° · Escape leaves it as it is`);
+    draw();
+  }
+
+  /** The pointer at `at` in turn `t`: the node's angle follows it, in whole degrees, or with Shift
+   * in fifteens. */
+  function turned(t: Turn, at: Point, shift: boolean) {
+    const angle = Math.atan2(at[1] - t.pivot[1], at[0] - t.pivot[0]);
+    let step = angle - t.last;
+    if (step > Math.PI) step -= 2 * Math.PI;
+    if (step < -Math.PI) step += 2 * Math.PI;
+    t.last = angle;
+    t.round += (step * 180) / Math.PI;
+    const now = t.start + t.round * t.way;
+    t.now = shift ? Math.round(now / 15) * 15 : Math.round(now);
+    editor.say(`${t.node} turns to ${t.now}°`);
+    draw();
+  }
+
+  /** Turn `t` let go: one `choose` of its angle, written where it lives. */
+  async function turnTo(t: Turn) {
+    const shown = editor.shown();
+    if (!shown) return draw();
+    if (editor.version() !== t.version) {
+      draw();
+      return editor.say("the source changed under the turn: nothing is turned");
+    }
+    if (t.now === t.start) {
+      draw();
+      return editor.say(`${t.node} stays as it is`);
+    }
+    const op = { op: "choose", node: t.node, prop: "transform/rotate", value: t.now, state: shown.state };
+    await change([op], "turning…", `${t.node} turned to ${t.now}°`, t.node);
   }
 
   /** The state shown as it stands, after a drag that places nothing. */
@@ -1149,6 +1305,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       press = { node: selected, edge, from, client };
       return;
     }
+    // The rotate handle (PLAN 2.51). The turn draws the handle anew under the press, so the press
+    // does not move focus itself: the canvas keeps it, and Escape reaches it.
+    if ((e.target as Element).closest?.("[data-turn]") && selected !== undefined) {
+      e.preventDefault();
+      return turn(selected, from);
+    }
     const mine: Press = { from, client, asking: true, shift };
     press = mine;
     const hits = await stage.hit(shown.state, from, editor.format()).catch(() => []);
@@ -1168,7 +1330,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       mine.toggle = chain.find((n) => all.includes(n)) ?? chain.find((n) => holder(n) === holds) ?? top?.node;
     }
     // On nothing, or on what fills the canvas behind all, a drag draws a marquee.
-    if (!keeps && (!top || covers(box(top.node)?.rect))) mine.marquee = true;
+    const below = top && box(top.node);
+    if (!keeps && (!top || covers(below && drawnBox(below)))) mine.marquee = true;
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
@@ -1276,13 +1439,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       void pump(drag);
       return;
     }
+    if (turning) return turned(turning, at, e.shiftKey);
     if (marquee) {
       marquee.at = at;
       return draw();
     }
     if (!press) {
       // What a click would select, from the boxes the engine gave: nothing is asked.
-      const under = boxes.filter((b) => b.draws && inside(b.rect, at)).at(-1)?.node;
+      const under = boxes.filter((b) => b.draws && over(b, at)).at(-1)?.node;
       if (under !== hovered) {
         hovered = under;
         draw();
@@ -1328,6 +1492,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       [d.at, d.shift, d.alt] = [point(e), e.shiftKey, e.altKey];
       void inTurn(() => drop(d));
       return;
+    }
+    if (turning) {
+      const t = turning;
+      turned(t, point(e), e.shiftKey);
+      turning = undefined;
+      return void inTurn(() => turnTo(t));
     }
     if (marquee) {
       marquee.at = point(e);
@@ -1418,6 +1588,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     }
     if (e.key === "Escape") {
+      if (turning) {
+        e.preventDefault();
+        const t = turning;
+        turning = undefined;
+        draw();
+        return editor.say(`${t.node} stays as it is`);
+      }
       if (starting) {
         e.preventDefault();
         starting = undefined;

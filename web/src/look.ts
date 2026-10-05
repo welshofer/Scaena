@@ -95,8 +95,9 @@ export function where(lives: Lives | undefined): string {
   return `set in ${lives.state}`;
 }
 
-/** A value as the status says it: a hold in seconds. */
-const told = (prop: string, v: unknown) => (prop === "hold" && typeof v === "number" ? `${v / 1000} s` : spoken(v));
+/** A value as the status says it: a hold in seconds, a turn in degrees. */
+const told = (prop: string, v: unknown) =>
+  prop === "hold" && typeof v === "number" ? `${v / 1000} s` : prop === "transform/rotate" && typeof v === "number" ? `${v}°` : spoken(v);
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
@@ -194,6 +195,11 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         if (f.prop === "hold") {
           const shown = typeof value === "number" ? String(value / 1000) : "";
           return `<input id="${id}" type="number" ${prop} data-scale="1000" min="0" step="0.5" value="${shown}" placeholder="none" aria-label="hold, seconds"> <span class="lives">s</span>`;
+        }
+        // How far a node is turned (PLAN 2.51): degrees, clockwise; none is upright.
+        if (f.prop === "transform/rotate") {
+          const shown = typeof value === "number" ? String(value) : "";
+          return `<input id="${id}" type="number" ${prop} step="1" value="${shown}" placeholder="0" aria-label="turned, degrees clockwise"> <span class="lives">°</span>`;
         }
         const min = t.min ?? t.above;
         const bounds = `${min !== undefined ? ` min="${min}"` : ""}${t.max !== undefined ? ` max="${t.max}"` : ""}`;

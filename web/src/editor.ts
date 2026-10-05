@@ -377,6 +377,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     version: () => version,
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
+    transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     typed: (source, edited, joins) => {
       taken = { source, edited };

@@ -240,6 +240,8 @@ jobs:
       - run: node web/findings.mjs
       # The layers: listed topmost first, a node selected, shown or hidden, and renamed (PLAN 2.50).
       - run: node web/layers.mjs
+      # A node turned on the canvas: its outline and handles drawn through its transform, the rotate handle, the inspector's angle, and typing in a turned text (PLAN 2.51).
+      - run: node web/rotate.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
       # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).

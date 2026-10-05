@@ -60,7 +60,14 @@ export interface NodeBox {
   rect: Rect;
   parent: string | null;
   draws: boolean;
+  /** Where its `transform` and those of what holds it draw `rect` (SPEC §3.3, PLAN 2.51): the
+   * map `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`), where something turns, scales, leans, or
+   * moves it. */
+  transform?: Map6;
 }
+
+/** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
+export type Map6 = [number, number, number, number, number, number];
 
 /** What is sought across the deck's texts (PLAN 2.47). */
 export interface Query {
