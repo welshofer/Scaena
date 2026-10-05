@@ -40,18 +40,20 @@ export function where(lives: Lives | undefined): string {
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown. */
 export function looks(stage: Stage, into: HTMLElement, around: Around) {
-  /** The node shown, and what the deck offers for it in the state shown. */
-  let node: string | undefined;
+  /** What the deck offers for the node shown in the state shown. */
   let offered: Choices | undefined;
   /** Choices kept to the state shown (`choose`'s `fork`). */
   let keep = false;
   /** One choice at a time, each made on the source the one before it left. */
   let queue: Promise<unknown> = Promise.resolve();
   let asked = 0;
+  /** What the controls show: drawn again only when it changes, so that a control in use (a
+   * color picker open, a change on its way) is not swapped out from under it by an edit's
+   * inspection that offers the same. */
+  let drawn = "";
 
   /** Show what the deck offers for `next` in the state shown; nothing without one. */
   async function show(next: string | undefined) {
-    node = next;
     const now = around.shown();
     const ask = ++asked;
     let found: Choices | undefined;
@@ -115,13 +117,18 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     return `<span class="lives">${html(where(f.lives))}</span>${flag}${away}`;
   }
 
-  /** Draw what is offered, the control that had focus keeping it. */
-  function render() {
+  /** Draw what is offered, the control that had focus keeping it: when it changed, or, `again`,
+   * to put the controls back to what the deck says. */
+  function render(again = false) {
     const now = around.shown();
     if (!offered || !now) {
+      drawn = "";
       into.replaceChildren();
       return;
     }
+    const showing = JSON.stringify([now.state, keep, offered]);
+    if (showing === drawn && !again) return;
+    drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
@@ -142,6 +149,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
 
   async function make(prop: string, value: unknown) {
     const now = around.shown();
+    // The node the controls show, which another may be on its way to replace.
+    const node = offered?.node;
     if (!now || node === undefined) return;
     const op = { op: "choose", node, prop, value, state: now.state, ...(keep ? { fork: true } : {}) };
     around.say(`choosing ${node}'s ${prop}…`);
@@ -154,7 +163,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     } catch (e) {
       around.say(`not chosen: ${said(e)}`);
       // The controls go back to what the deck says.
-      render();
+      render(true);
     }
   }
 
