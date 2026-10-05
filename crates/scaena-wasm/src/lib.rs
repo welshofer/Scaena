@@ -2037,7 +2037,10 @@ mod tests {
         let text = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held.\n").unwrap();
         let pasted = s.pasting(&text, "close", [960.0, 900.0]).unwrap();
         assert_eq!(pasted.id, "body");
-        assert_eq!(pasted.patch[0]["node"], serde_json::json!({ "type": "text", "role": "body", "text": "Margins held." }));
+        assert_eq!(
+            pasted.patch[0]["node"],
+            serde_json::json!({ "type": "text", "role": "body", "text": "Margins held." })
+        );
         s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
         assert!(stands(&mut s, "close", "body").is_some());
         assert!(scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n").is_err(), "nothing to paste");
