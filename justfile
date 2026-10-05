@@ -56,8 +56,9 @@ scripts:
 # beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
 # run's noise if that is more (.github/workflows/bench.yml, scripts/bench_gate.py).
 # SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
+# Built as CI builds them, each function on a 64-byte line (ADR-0004 finding 18).
 bench *FILTER:
-    cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
+    RUSTFLAGS="-C llvm-args=-align-all-functions=6" cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
 
 # Per-state medians and worst cases on one bundle, in one process (PLAN 0.14's tables).
 stages BUNDLE="tests/bench/b1.scaena":
