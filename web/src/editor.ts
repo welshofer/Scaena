@@ -29,7 +29,7 @@
 // that is the source the editor shows and saves. A change on disk, from a text editor or
 // another page, comes into the editor when it has no changes of its own not saved; over such
 // changes, the editor offers to take it.
-import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
@@ -45,12 +45,13 @@ import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
+import { type Command, MOD, menu, palette, SHIFT } from "./commands";
 import { cue } from "./cue";
 import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
 import { looks } from "./look";
-import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
+import type { Arrange, Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
@@ -428,6 +429,10 @@ async function edit(source: Source) {
     // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
     fix: (f) => fix(f),
     go: (f) => go(f),
+    // A right click, or the menu key (PLAN 2.53): what is done to the nodes selected, or on the
+    // canvas where nothing is.
+    menu: (x, y, on) =>
+      void menu(x, y, on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true), $("#overlay")),
   }, $("#marks"), $("#marked"));
   /** The layers of the state shown (PLAN 2.50): a tab beside the inspector, each change a patch. */
   const layering = layers(stage, $("#layers"), {
@@ -491,11 +496,14 @@ async function edit(source: Source) {
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
   let offered = "";
+  /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
+  let insertable: string[] = [];
   async function offer() {
     const inserts = await stage.inserts().catch(() => undefined);
     const key = JSON.stringify(inserts?.map((i) => i.label));
     if (!inserts || key === offered) return;
     offered = key;
+    insertable = inserts.map((i) => i.label);
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const [n, insert] of inserts.entries()) {
       const [kind, name] = insert.label.includes(" · ") ? insert.label.split(" · ", 2) : [insert.node.type, insert.label];
@@ -906,6 +914,238 @@ async function edit(source: Source) {
     },
   });
 
+  /** Every command the editor has, by name (PLAN 2.53): what its key or its button does, nothing
+   * else, so each edit is the patch that gesture makes. ⌘K lists those that apply, narrowed by
+   * the words typed; a right click offers those for what is under the pointer. */
+  const overlay = $("#overlay");
+  /** Press `key` on the canvas, as the keyboard does there. */
+  const press = (key: string, keys: KeyboardEventInit = {}) => {
+    overlay.focus();
+    overlay.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...keys }));
+  };
+  const mod = (keys: KeyboardEventInit = {}): KeyboardEventInit => ({ ...keys, [MOD === "⌘" ? "metaKey" : "ctrlKey"]: true });
+  /** The browser's own copy or cut, which the canvas takes while it has the focus. */
+  const clip = (how: "copy" | "cut") => {
+    overlay.focus();
+    if (!document.execCommand(how)) say(`not ${how === "copy" ? "copied" : "cut"}: the browser keeps its clipboard from this page; ${MOD}${how === "copy" ? "C" : "X"} does it`);
+  };
+  /** The clipboard's text, pasted on the canvas as ⌘V pastes it. */
+  const pasted = async () => {
+    overlay.focus();
+    const text = await navigator.clipboard.readText().catch((e) => void say(`not pasted: ${said(e)}; ${MOD}V pastes`));
+    if (text === undefined) return;
+    if (!text) return say("the clipboard holds nothing to paste");
+    await board.paste(text);
+  };
+  /** Whether the canvas takes a gesture: the source compiles, the assistant is not at work, and no
+   * text is typed in. */
+  const ready = () => showing() !== undefined && board.typing() === undefined;
+  /** What the canvas has selected, where it takes a gesture. */
+  const picked = () => (ready() ? board.chosen() : []);
+  const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
+  /** Show the tab `id` under the preview, as a click on it does. */
+  const tab = (id: "inspector" | "layers" | "assistant") => {
+    const button = $<HTMLButtonElement>(`#tab-${id}`);
+    button.click();
+    return button;
+  };
+  /** Show the state at `index`, its declaration at the cursor, as the strip does. */
+  const goTo = (index: number) => {
+    const start = last?.states[index]?.[1];
+    if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+    void show(index);
+  };
+
+  /** What is done to the nodes selected: each its key on the canvas. */
+  function nodeCommands(): Command[] {
+    const any = () => picked().length > 0;
+    const one = () => picked().length === 1;
+    const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, applies = any): Command => ({
+      label,
+      keys,
+      where: ["node", "layer"],
+      applies,
+      run: () => press(key, init),
+    });
+    const arranging = (label: string, how: Arrange, least: number): Command => ({
+      label,
+      where: ["node"],
+      applies: () => picked().length >= least,
+      run: () => board.arrange(how),
+    });
+    return [
+      { label: "Type in it", keys: "Enter", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
+      pressing("Duplicate", `${MOD}D`, "d", mod()),
+      { label: "Copy", keys: `${MOD}C`, where: ["node", "layer"], applies: any, run: () => clip("copy") },
+      { label: "Cut", keys: `${MOD}X`, where: ["node", "layer"], applies: any, run: () => clip("cut") },
+      pressing("Group", `${MOD}G`, "g", mod()),
+      pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), () => one() && typeOf(picked()[0]) === "group"),
+      pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" })),
+      pressing("Send backward", `${MOD}[`, "[", mod({ code: "BracketLeft" })),
+      pressing("Bring to front", `${MOD}${SHIFT}]`, "}", mod({ code: "BracketRight", shiftKey: true })),
+      pressing("Send to back", `${MOD}${SHIFT}[`, "{", mod({ code: "BracketLeft", shiftKey: true })),
+      // Aligning takes two, spreading three, as in the inspector (PLAN 2.42).
+      arranging("Align left", { align: "left" }, 2),
+      arranging("Align center", { align: "center" }, 2),
+      arranging("Align right", { align: "right" }, 2),
+      arranging("Align top", { align: "top" }, 2),
+      arranging("Align middle", { align: "middle" }, 2),
+      arranging("Align bottom", { align: "bottom" }, 2),
+      arranging("Spread across", { spread: "across" }, 3),
+      arranging("Spread down", { spread: "down" }, 3),
+      {
+        label: "Select what holds it",
+        keys: "Escape",
+        where: ["node"],
+        applies: () => one() && board.boxes().some((b) => b.node === picked()[0] && b.parent !== null),
+        run: () => press("Escape"),
+      },
+      pressing("Delete", "Delete", "Delete", {}),
+      pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }),
+    ];
+  }
+
+  /** What is done to `node` in the layers: shown or hidden in the state shown, and renamed. */
+  function layerCommands(node: () => string | undefined, hidden: () => boolean): Command[] {
+    return [
+      {
+        label: hidden() ? "Show it in this state" : "Hide it in this state",
+        where: ["layer"],
+        applies: () => node() !== undefined && showing() !== undefined,
+        run: () => layering.toggle(node()!),
+      },
+      {
+        label: "Rename it",
+        keys: "F2",
+        where: ["layer"],
+        applies: () => node() !== undefined && showing() !== undefined,
+        run: () => {
+          tab("layers");
+          layering.rename(node()!);
+        },
+      },
+    ];
+  }
+
+  /** What is done on the canvas where nothing is: what goes there, and how close it is shown. In a
+   * menu, Insert opens the palette on what may be inserted; the palette lists each. */
+  function canvasCommands(inMenu: boolean): Command[] {
+    const draws: [string, string][] = [
+      ["t", "Draw a text"],
+      ["r", "Draw a rectangle"],
+      ["o", "Draw an ellipse"],
+      ["l", "Draw a line"],
+      ["a", "Draw an arrow"],
+    ];
+    const inserts: Command[] = inMenu
+      ? [{ label: "Insert…", where: ["canvas"], applies: () => ready() && insertable.length > 0, run: () => commanding.open("insert ") }]
+      : insertable.map((label, n) => ({ label: `Insert ${label}`, applies: ready, run: () => board.insert(n, label.split(" · ").at(-1)) }));
+    return [
+      { label: "Paste", keys: `${MOD}V`, where: ["canvas"], applies: ready, run: pasted },
+      ...inserts,
+      ...draws.map(([key, label]): Command => ({ label, keys: key.toUpperCase(), where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) })),
+      { label: "Zoom in", keys: `${MOD}+`, where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
+      { label: "Zoom out", keys: `${MOD}−`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
+      { label: "Zoom to fit", keys: `${MOD}0`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
+    ];
+  }
+
+  /** What is done to the state shown, as the strip does it, and which state is shown. */
+  function stateCommands(): Command[] {
+    const now = () => showing()?.state;
+    const count = () => last?.states.length ?? 0;
+    return [
+      { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
+      { label: "Add a slide", where: ["state"], applies: () => now() !== undefined, run: () => states.add("slide") },
+      { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
+      { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: "Show the next state", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
+      { label: "Show the state before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
+    ];
+  }
+
+  /** What is done to the deck and the bundle, and where the page looks. */
+  function deckCommands(): Command[] {
+    const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
+    return [
+      { label: "Undo", keys: `${MOD}Z`, applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
+      { label: "Redo", keys: `${MOD}${SHIFT}Z`, applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
+      { label: "Find in the deck's texts", keys: `${MOD}F`, run: () => finding?.open() },
+      ...rethemes.map(
+        (o): Command => ({
+          label: `Re-theme in ${o.textContent}`,
+          applies: () => showing() !== undefined,
+          run: () => {
+            themePicker.value = o.value;
+            themePicker.dispatchEvent(new Event("change"));
+          },
+        }),
+      ),
+      { label: "Save", keys: `${MOD}S`, run: () => save().catch(failed) },
+      { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
+      { label: "Download .scaena", run: () => download().catch(failed) },
+      { label: "Play", applies: () => !play.hidden, run: () => play.click() },
+      { label: "New deck…", run: () => $("#new-deck").click() },
+      { label: "Open a .scaena file…", run: () => $("#open-file").click() },
+      { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
+      { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Show the layers", run: () => tab("layers").focus() },
+      { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
+    ];
+  }
+
+  /** Words for the assistant, asked from the palette: the Assistant tab shows them asked, with what
+   * is selected (PLAN 2.52), or, where it has no key yet, in its question box, the key's field
+   * focused. */
+  function ask(words: string) {
+    tab("assistant");
+    const question = $<HTMLTextAreaElement>("#question");
+    question.value = words;
+    question.focus();
+    void assistant.ask(words).then((answer) => {
+      const key = $<HTMLInputElement>("#key");
+      if (answer.kind === "failed" && !key.value) key.focus();
+    });
+  }
+
+  const commanding = palette(
+    $<HTMLDialogElement>("#palette"),
+    () => {
+      const node = () => (picked().length === 1 ? picked()[0] : undefined);
+      return [...nodeCommands(), ...layerCommands(node, () => false), ...canvasCommands(false), ...stateCommands(), ...deckCommands()];
+    },
+    ask,
+  );
+  $("#commands-open").onclick = () => commanding.open();
+  /** Where a menu opens for `e`: at the pointer, or, from the keyboard, under `el`. */
+  const near = (e: MouseEvent, el: Element): [number, number] => {
+    const r = el.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    return inside ? [e.clientX, e.clientY] : [r.left, r.bottom];
+  };
+  // A right click on a state in the strip shows it, then offers what is done to it.
+  $("#strip ol").addEventListener("contextmenu", (e) => {
+    const li = (e.target as Element).closest<HTMLElement>("li[data-state]");
+    if (!li) return;
+    e.preventDefault();
+    const index = last?.states.findIndex(([id]) => id === li.dataset.state) ?? -1;
+    if (index >= 0 && index !== shown) goTo(index);
+    const [x, y] = near(e, li);
+    menu(x, y, stateCommands().filter((c) => c.where?.includes("state")), li);
+  });
+  // A right click on a layer selects its node where it is shown, then offers what is done to it.
+  $("#layers ul").addEventListener("contextmenu", (e) => {
+    const li = (e.target as Element).closest<HTMLElement>("li[data-layer]");
+    if (!li) return;
+    e.preventDefault();
+    const node = li.dataset.layer!;
+    const hidden = li.classList.contains("hidden");
+    if (!hidden && !board.chosen().includes(node)) board.select(node);
+    const items = [...layerCommands(() => node, () => hidden), ...(hidden ? [] : nodeCommands().filter((c) => c.where?.includes("layer")))];
+    const [x, y] = near(e, li.querySelector(".row") ?? li);
+    menu(x, y, items, li.querySelector<HTMLElement>("[data-pick]"));
+  });
+
   /** Served (PLAN 2.11): what changed on disk comes in, when nothing here is changed and not
    * saved; otherwise it is offered. */
   let hearing: EventSource | undefined;
@@ -964,6 +1204,12 @@ async function edit(source: Source) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       void save().catch(failed);
+    }
+    // ⌘K: every command, by name (PLAN 2.53); again, it closes.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k" && !e.defaultPrevented) {
+      e.preventDefault();
+      if ($<HTMLDialogElement>("#palette").open) commanding.close();
+      else commanding.open();
     }
     // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
@@ -1049,6 +1295,8 @@ async function edit(source: Source) {
       cue: cueing,
       /** Find and replace: what it finds, and the match shown. */
       find: finding,
+      /** Commands by name (PLAN 2.53): the palette, and what it lists. */
+      commands: commanding,
     },
   });
 }

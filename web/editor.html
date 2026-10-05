@@ -232,6 +232,17 @@
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
+      kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: nowrap; }
+      #palette { width: min(34em, 92vw); padding: 8px; margin-top: 12vh; }
+      #palette input { width: 100%; box-sizing: border-box; }
+      #palette ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 50vh; overflow: auto; }
+      #palette li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+      #palette li[aria-selected="true"], #palette li:hover { background: var(--line); }
+      #palette li[aria-selected="true"] kbd, #palette li:hover kbd { color: var(--ink); }
+      .context-menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 13em; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.45); }
+      .context-menu button { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border: none; background: none; text-align: left; padding: 4px 8px; }
+      .context-menu button:hover, .context-menu button:focus { background: var(--line); outline: none; }
+      .context-menu button:hover kbd, .context-menu button:focus kbd { color: var(--ink); }
     </style>
   </head>
   <body>
@@ -296,6 +307,7 @@
           <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
           <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
           <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
+          <button type="button" id="commands-open" title="Every command, by name (⌘K); words no command has are asked of the assistant">Commands…</button>
           <span id="zoom" role="group" aria-label="Zoom">
             <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (⌘−)">−</button>
             <output title="How close the preview is. Zoomed in, the wheel or a drag with Space moves what it shows">100%</output>
@@ -364,6 +376,20 @@
           <button value="opfs" id="saving-as-opfs">Keep in this browser</button>
         </menu>
       </form>
+    </dialog>
+    <dialog id="palette" aria-label="Commands">
+      <input
+        type="text"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="palette-list"
+        aria-autocomplete="list"
+        aria-label="A command, or words for the assistant"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="A command, or words for the assistant"
+      />
+      <ul id="palette-list" role="listbox" aria-label="Commands"></ul>
     </dialog>
     <div id="marked" popover role="dialog" aria-label="Findings"></div>
     <script type="module" src="/src/editor.ts"></script>

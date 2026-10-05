@@ -84,6 +84,9 @@ export interface Editor {
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
   go(f: Finding): void;
+  /** A right click, or the menu key (PLAN 2.53): offer, at `x`, `y` (client pixels), what can be
+   * done to what is selected, `on` a node, or to the canvas where nothing is. */
+  menu(x: number, y: number, on: "node" | "canvas"): void;
 }
 
 /** A node's `at`, resolved. */
@@ -355,7 +358,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The last press: when, and where (CSS pixels), and how many clicks it counted. A key between
    * two presses makes the next a first click. */
   let pressed: { at: number; client: [number, number]; clicks: number } | undefined;
-  const unpress = () => (pressed = undefined);
+  /** Whether the menu asked for next is a right click's, at the pointer, rather than the keyboard's,
+   * at what is selected (PLAN 2.53). */
+  let righted = false;
+  const unpress = () => {
+    pressed = undefined;
+    righted = false;
+  };
   document.addEventListener("keydown", unpress, true);
   const clicks = (e: PointerEvent) => {
     const again =
@@ -368,6 +377,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   const point = (e: MouseEvent): [number, number] => {
     const r = overlay.getBoundingClientRect();
     return [view[0] + ((e.clientX - r.left) / r.width) * view[2], view[1] + ((e.clientY - r.top) / r.height) * view[3]];
+  };
+  /** `p`, a point on the canvas, in client pixels. */
+  const onScreen = ([px, py]: Point): Point => {
+    const r = overlay.getBoundingClientRect();
+    return [r.left + ((px - view[0]) / view[2]) * r.width, r.top + ((py - view[1]) / view[3]) * r.height];
   };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
@@ -1263,6 +1277,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       overlay.classList.add("panning");
       return;
     }
+    righted = e.button === 2;
     if (e.button !== 0) return;
     // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
     if (armed) {
@@ -1414,6 +1429,37 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       if (top) await type(top.node, at, alt);
+    });
+  };
+
+  // A right click (PLAN 2.53): what is topmost there is selected, as a click selects it, unless it
+  // is in what is selected already; then the editor offers what can be done to it, or to the canvas
+  // where nothing is, and what is pasted or inserted from there lands there. From the keyboard (the
+  // menu key, Shift+F10), what is selected is offered, beside it.
+  overlay.oncontextmenu = (e) => {
+    e.preventDefault();
+    const pointer = righted;
+    righted = false;
+    if (drag || starting || sketch || turning || panning) return;
+    if (text.node() !== undefined) text.leave();
+    if (!pointer) {
+      const b = box(selected);
+      const r = overlay.getBoundingClientRect();
+      const [x, y, , h] = b ? drawnBox(b) : [0, 0, 0, 0];
+      const [cx, cy] = b ? onScreen([x, y + h]) : [r.left + r.width / 2, r.top + r.height / 2];
+      return editor.menu(cx, cy, selected === undefined ? "canvas" : "node");
+    }
+    const at = point(e);
+    const client: Point = [e.clientX, e.clientY];
+    pointed = at;
+    overlay.focus();
+    void inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const chain = top ? [top.node, ...top.containers] : [];
+      if (!chain.some((n) => chosen().includes(n))) select(top?.node);
+      editor.menu(client[0], client[1], selected === undefined ? "canvas" : "node");
     });
   };
 
