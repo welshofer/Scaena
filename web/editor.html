@@ -77,7 +77,40 @@
       aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
       /* What a press on the cue's ruler shows is the state in its cue, not at rest: the canvas's
          outlines, which are where things rest, step back. */
-      #preview.scrubbing #overlay svg { visibility: hidden; }
+      #preview.scrubbing #overlay svg, #preview.scrubbing #marks { visibility: hidden; }
+      /* Lint's findings on the canvas (PLAN 2.49): a mark at the top right corner of each box a
+         finding is about, in the color of its worst, and one for the state; opened, each finding
+         and its fix. */
+      #marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+      #marks .mark {
+        position: absolute; transform: translate(-50%, -50%); pointer-events: auto; box-sizing: border-box;
+        min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid rgb(0 0 0 / 0.45); border-radius: 10px;
+        font-size: 11px; font-weight: 600; line-height: 18px; color: #1d1c1a; box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+      }
+      #marks .mark.state { border-radius: 4px; }
+      #marks .error, #strip .found.error { background: var(--error); }
+      #marks .warning, #strip .found.warning { background: var(--warning); }
+      #marks .info, #strip .found.info { background: var(--info); }
+      #marks .mark:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+      #marked {
+        position: fixed; inset: auto; margin: 0; box-sizing: border-box; max-width: min(30em, calc(100vw - 16px)); max-height: 60vh;
+        overflow: auto; padding: 8px 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 6px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.5); font-size: 13px;
+      }
+      #marked h2 { display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px; font-size: 13px; }
+      #marked h2 span { color: var(--muted); font-weight: normal; }
+      #marked ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+      #marked li { padding-left: 8px; border-left: 3px solid var(--info); }
+      #marked li.error { border-color: var(--error); }
+      #marked li.warning { border-color: var(--warning); }
+      #marked p { margin: 0; }
+      #marked .code { margin-right: 0.5em; font-weight: 600; font-variant-numeric: tabular-nums; }
+      #marked .hint, #marked .where { color: var(--muted); }
+      #marked .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+      #marked .change { margin-right: 6px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      #marked .acts:empty { display: none; }
+      /* Read, not seen. */
+      .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
       /* The cue of the state shown (PLAN 2.44): its transition and each motion, a bar each, on the
          cue's clock. */
       #cue { padding: 0 12px; }
@@ -105,7 +138,12 @@
       /* The state strip (PLAN 2.35): each state at rest, small, with its cue's length. */
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
-      #strip li { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
+      #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
+      /* How many findings a state has in the format shown, in the color of the worst (PLAN 2.49). */
+      #strip .found {
+        position: absolute; top: 6px; right: 6px; box-sizing: border-box; min-width: 16px; height: 16px; padding: 0 4px;
+        border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; color: #1d1c1a;
+      }
       #strip li[aria-selected="true"] { border-color: var(--info); }
       #strip li:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
       #strip canvas { display: block; height: 54px; width: auto; background: #000; }
@@ -214,6 +252,7 @@
             role="application"
             aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
           ><svg aria-hidden="true"></svg></div>
+          <div id="marks"></div>
         </div>
         <section id="cue" aria-label="The cue of the state shown" hidden>
           <p class="cue-head">
@@ -301,6 +340,7 @@
         </menu>
       </form>
     </dialog>
+    <div id="marked" popover role="dialog" aria-label="Findings"></div>
     <script type="module" src="/src/editor.ts"></script>
   </body>
 </html>

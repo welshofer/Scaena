@@ -236,6 +236,8 @@ jobs:
       - run: node web/insert.mjs
       # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
       - run: node web/draw.mjs
+      # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
+      - run: node web/findings.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
       # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).

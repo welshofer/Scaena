@@ -11,7 +11,10 @@
 // - Each is one patch, by the user, one step to undo; what the deck refuses, the status says why.
 // - A thumbnail is painted again only when its state's drawing changed (the digest of its display
 //   list), once every state is laid out after an edit.
-import type { Edited, Slot, Thumb } from "./protocol";
+// - Each state with findings in the format shown says how many, in the color of the worst (PLAN
+//   2.49).
+import { counted, worst } from "./marks";
+import type { Edited, Finding, Slot, Thumb } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the strip asks of the editor around it. */
@@ -47,6 +50,16 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
   let making: Promise<unknown> = Promise.resolve();
   /** Thumbnails asked for: the last answer wins. */
   let painting = 0;
+  /** Each state's findings in the format shown, by id (PLAN 2.49). */
+  let findings = new Map<string, Finding[]>();
+
+  /** What a state's item says of its findings: how many, in the color of the worst. */
+  function tally(state: string) {
+    const all = findings.get(state) ?? [];
+    if (!all.length) return "";
+    const said = counted(all);
+    return `<span class="found ${worst(all)}" title="${html(said)}"><span aria-hidden="true">${all.length}</span><span class="sr">, ${html(said)}</span></span>`;
+  }
 
   /** The states as `edited` says the deck has them, `shown` the one shown. */
   function states(next: Slot[], shown: number) {
@@ -57,7 +70,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       .map((s, i) => {
         const on = i === shown;
         return `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(s.state)}: its cue ${seconds(s.span)}">
-          <canvas aria-hidden="true"></canvas><span class="id">${html(s.state)}</span><span class="cue">${seconds(s.span)}</span></li>`;
+          <canvas aria-hidden="true"></canvas><span class="id">${html(s.state)}</span><span class="cue">${seconds(s.span)}</span>${tally(s.state)}</li>`;
       })
       .join("");
     for (const s of next) draw(s.state);
@@ -104,6 +117,16 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
       if (!t.pixels || !t.width || !t.height) continue;
       thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
       draw(t.state);
+    }
+  }
+
+  /** What lint found now: each state's findings in the format shown, counted on its item. */
+  function found(all: Finding[]) {
+    findings = new Map();
+    for (const f of all) if (f.shown && f.state !== undefined) findings.set(f.state, [...(findings.get(f.state) ?? []), f]);
+    for (const li of list.querySelectorAll<HTMLElement>("li[data-state]")) {
+      li.querySelector(".found")?.remove();
+      li.insertAdjacentHTML("beforeend", tally(li.dataset.state!));
     }
   }
 
@@ -268,6 +291,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     select,
     paint,
     reformat,
+    found,
     add,
     move,
     remove,

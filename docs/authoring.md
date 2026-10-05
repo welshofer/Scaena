@@ -102,7 +102,8 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.
 - **Check.** Each edit lints the state shown, and every state once you stop typing.
   - Findings stand in the gutter at the line they are about, and in the list under the source. F8 goes to the next one.
-  - A finding that has a fix offers it as one click. Only the lines the fix changes change.
+  - On the preview, a mark at the corner of an object counts the findings about it, red for an error, yellow for a warning. A mark at the top left counts those about the state itself. The strip counts each state's. Click a mark to read its findings and take a fix; "In the source" goes to the line.
+  - A finding that has a fix offers it as one click, one ⌘Z. Only the lines the fix changes change.
   - The **Inspector** tab shows the state's timing, its objects, and each text's resolved look.
 - **Save.** Where the deck goes depends on where it came from:
 
