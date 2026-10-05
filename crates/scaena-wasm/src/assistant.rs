@@ -372,10 +372,17 @@ mod tests {
     fn dusk() -> Session {
         let dir = Path::new("../../docs/examples");
         let theme = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
-        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
-            .iter()
-            .map(|f| (format!("fonts/{f}"), std::fs::read(dir.join("fonts").join(f)).unwrap()))
-            .collect();
+        let fonts: BTreeMap<String, Vec<u8>> = [
+            "Fraunces-VF.ttf",
+            "Inter-VF.ttf",
+            "JetBrainsMono-VF.ttf",
+            "Fraunces-Italic-VF.ttf",
+            "Inter-Italic-VF.ttf",
+            "JetBrainsMono-Italic-VF.ttf",
+        ]
+        .iter()
+        .map(|f| (format!("fonts/{f}"), std::fs::read(dir.join("fonts").join(f)).unwrap()))
+        .collect();
         Session::create("dusk.theme.json", &theme, &fonts, "Agent loop").unwrap()
     }
 

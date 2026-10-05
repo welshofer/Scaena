@@ -14,8 +14,9 @@
 // - Escape, a click outside the text, or focus elsewhere leaves it, the node still selected;
 //   focus in the inspector keeps it, so a look chosen there goes to the characters selected.
 // - Characters selected take a look (PLAN 2.38): ⌘B makes them bold, or not, as the engine reads
-//   the weight each is set in, and a role or a color chosen in the inspector gives them that. Each
-//   is one `style_text`, written where the text lives, one step to undo.
+//   the weight each is set in; ⌘I sets them in italic, or not, as each asks for it (PLAN 2.40); and
+//   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
+//   where the text lives, one step to undo.
 import type { CaretLine, Carets, Edited, Rect } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -355,6 +356,27 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     return style(look, look["style/weight"] === 700 ? "bold" : "not bold");
   }
 
+  /** ⌘I: the characters selected in italic, or, all italic already, not (PLAN 2.40), as each
+   * asks for it: a family without an italic face sets them upright all the same (W231). */
+  async function italic(): Promise<boolean> {
+    await idle();
+    const now = open;
+    const chosen = selection();
+    if (!now || !chosen) {
+      around.say("select characters to set them in italic");
+      return false;
+    }
+    let look: Record<string, unknown>;
+    try {
+      look = await stage.italicizing(around.source(), now.state, now.node, chosen.from, chosen.to, around.format());
+    } catch (e) {
+      around.say(`not italic: ${said(e)}`);
+      return false;
+    }
+    if (open !== now) return false;
+    return style(look, look["style/italic"] === true ? "italic" : "upright");
+  }
+
   /** Stop typing: the node stays selected. */
   function leave() {
     if (!open) return;
@@ -532,6 +554,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       e.preventDefault();
       return void bold();
     }
+    if (mod && key === "i" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      return void italic();
+    }
     if (e.isComposing) return;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
     if (e.key === "ArrowUp" && !mod && !e.altKey) return move(e, -1);
@@ -568,6 +594,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     sync,
     style,
     bold,
+    italic,
     /** The characters selected in the text typed in, if any are. */
     selection,
     /** Whether a text is typed in, and which. */

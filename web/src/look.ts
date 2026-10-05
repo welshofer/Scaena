@@ -17,9 +17,9 @@
 // - The × beside a value takes it away where it lives, so what is under it shows.
 //
 // With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
-// a run's role, emphasis, family, weight, and color, each the first character's. Each choice is
-// one `style_text`, written where the text lives; × takes the run's own away, so the text's look
-// shows there. A run takes the theme's names only.
+// a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
+// character's. Each choice is one `style_text`, written where the text lives; × takes the run's
+// own away, so the text's look shows there. A run takes the theme's names only.
 import type { Choices, Edited, Field, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";

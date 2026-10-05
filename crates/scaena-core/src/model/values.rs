@@ -449,6 +449,10 @@ pub struct TextStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1, max = 1000))]
     pub weight: Option<u16>,
+    /// Set in the family's italic face (SPEC §3.5), or, `false`, upright. None is
+    /// synthesized: a family without one sets the text upright (lint W231).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
     /// Line height as a multiple of size.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]

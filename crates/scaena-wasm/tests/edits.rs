@@ -321,8 +321,8 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
 }
 
 /// What a look for characters names: a run's own keys, and keys it does not take.
-const LOOKS: [&str; 8] =
-    ["role", "emphasis", "lang", "style/weight", "style/color", "style/family", "style/size", "fit"];
+const LOOKS: [&str; 9] =
+    ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
 
 /// Values no tool takes where they are put.
 const JUNK: &[&str] = &["null", "[]", "{}", "-1", "1e308", "\"\"", "true", "18446744073709551615", "[[[[[[]]]]]]"];

@@ -597,7 +597,7 @@ fn style_text(
 
 /// The keys of a run's `style` that `style_text` sets: the theme's names, and numbers that
 /// are no literal (W300's).
-const STYLE_KEYS: [&str; 7] = ["family", "weight", "leading", "tracking", "opsz", "case", "color"];
+const STYLE_KEYS: [&str; 8] = ["family", "weight", "italic", "leading", "tracking", "opsz", "case", "color"];
 
 /// A text node's text as a state shows it, and where an edit of it is written.
 struct Shown {

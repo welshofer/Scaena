@@ -12,7 +12,7 @@
 
 use crate::EngineError;
 use crate::theme::Theme;
-use fontique::{Blob, Collection, CollectionOptions, SourceCache};
+use fontique::{Blob, Collection, CollectionOptions, FontStyle, SourceCache};
 use parley::{FontContext, FontData};
 use scaena_core::displaylist::FontRef;
 use skrifa::color::{Brush, ColorPainter, CompositeMode, Transform};
@@ -22,7 +22,7 @@ use skrifa::raw::TableProvider;
 use skrifa::raw::tables::glyf::Glyph;
 use skrifa::raw::types::BoundingBox;
 use skrifa::{GlyphId, MetadataProvider};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 /// A font context that can see only fonts registered from bundle bytes.
@@ -45,6 +45,9 @@ pub struct BundleFonts {
     by_blob: BTreeMap<u64, String>,
     /// Bundle font id → family names that file provides.
     families: BTreeMap<String, Vec<String>>,
+    /// Bundle font ids whose faces are italic or oblique: what a family's italic face must be
+    /// (PLAN 2.40).
+    slanted: BTreeSet<String>,
     /// Bundle font id → what its license lets a document do with it.
     embedding: BTreeMap<String, Embedding>,
     /// The glyphs [`BundleFonts::check_glyphs`] has found the painters can draw, by font
@@ -58,6 +61,7 @@ impl Default for BundleFonts {
             cx: bundle_font_context(),
             by_blob: BTreeMap::new(),
             families: BTreeMap::new(),
+            slanted: BTreeSet::new(),
             embedding: BTreeMap::new(),
             drawable: HashMap::new(),
         }
@@ -116,17 +120,22 @@ impl BundleFonts {
         let blob = Blob::new(Arc::new(bytes));
         let blob_id = blob.id();
         let mut names: Vec<String> = Vec::new();
-        for (family, _) in self.cx.collection.register_fonts(blob, None) {
+        let mut slanted = false;
+        for (family, faces) in self.cx.collection.register_fonts(blob, None) {
             let name = self.cx.collection.family_name(family).unwrap_or_default().to_string();
             if !names.contains(&name) {
                 names.push(name);
             }
+            slanted |= faces.iter().any(|f| f.style() != FontStyle::Normal);
         }
         if names.is_empty() {
             return Err(EngineError::Font(format!("{id}: not a font file")));
         }
         self.by_blob.insert(blob_id, id.to_string());
         self.families.insert(id.to_string(), names.clone());
+        if slanted {
+            self.slanted.insert(id.to_string());
+        }
         self.embedding.insert(id.to_string(), embedding);
         Ok(names)
     }
@@ -141,15 +150,22 @@ impl BundleFonts {
     /// through to the next font in the stack.
     pub fn check_theme(&self, theme: &Theme) -> Result<(), EngineError> {
         for (key, def) in theme.families() {
-            let provided = self
-                .families
-                .get(&def.file)
-                .ok_or_else(|| EngineError::Font(format!("family `{key}`: {} is not in the bundle", def.file)))?;
-            if !provided.contains(&def.family) {
-                return Err(EngineError::Font(format!(
-                    "family `{key}`: {} provides {provided:?}, not `{}`",
-                    def.file, def.family
-                )));
+            // The family's own face, and its italic (PLAN 2.40), which must be one.
+            let italic = def.italic.as_ref().map(|face| (face.file.as_str(), "'s italic"));
+            for (file, face) in std::iter::once((def.file.as_str(), "")).chain(italic) {
+                let provided = self
+                    .families
+                    .get(file)
+                    .ok_or_else(|| EngineError::Font(format!("family `{key}`{face}: {file} is not in the bundle")))?;
+                if !provided.contains(&def.family) {
+                    return Err(EngineError::Font(format!(
+                        "family `{key}`{face}: {file} provides {provided:?}, not `{}`",
+                        def.family
+                    )));
+                }
+                if !face.is_empty() && !self.slanted.contains(file) {
+                    return Err(EngineError::Font(format!("family `{key}`{face}: {file} is upright, not an italic")));
+                }
             }
         }
         Ok(())

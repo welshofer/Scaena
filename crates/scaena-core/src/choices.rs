@@ -134,6 +134,7 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("role", Names(V::TextRole, false)),
             ("style/family", Names(V::FontFamily, false)),
             ("style/weight", Schema(false)),
+            ("style/italic", Schema(false)),
             ("style/size", Schema(true)),
             ("style/color", Names(V::Color, true)),
             ("style/case", Schema(false)),
@@ -203,11 +204,12 @@ pub fn choices(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Ch
 
 /// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which
 /// `style_text` sets. A run takes the theme's names only, so a color has no override.
-const CHARACTERS: [(&str, Source); 5] = [
+const CHARACTERS: [(&str, Source); 6] = [
     ("role", Names(V::TextRole, false)),
     ("emphasis", Schema(false)),
     ("style/family", Names(V::FontFamily, false)),
     ("style/weight", Schema(false)),
+    ("style/italic", Schema(false)),
     ("style/color", Names(V::Color, false)),
 ];
 

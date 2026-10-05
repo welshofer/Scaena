@@ -289,6 +289,7 @@ export type ToWorker =
   /** What ⌘B gives those characters, from the weight the engine sets each in, in the deck the
    * editor's `source` compiles to, laid out in `format` (PLAN 2.38): `style_text`'s `look`. */
   | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
+  | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
   /** The deck the editor's `source` compiles to, in another theme (PLAN 2.39): one that ships, by
@@ -579,6 +580,7 @@ export type FromWorker =
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }
+  | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
    * deck's source now and what the edit came to. */

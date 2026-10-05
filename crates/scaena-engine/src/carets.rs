@@ -222,14 +222,7 @@ impl Carets {
     /// (`null`) where that leaves each of them below bold, and is 400 where their role is
     /// bold itself.
     pub fn bolding(&self, from: usize, to: usize) -> serde_json::Value {
-        let mut start = 0;
-        let mut covered = Vec::new();
-        for look in &self.looks {
-            if start < look.end && start < to && look.end > from {
-                covered.push(look);
-            }
-            start = look.end;
-        }
+        let covered = self.covered(from, to);
         let weight = if covered.is_empty() || covered.iter().any(|l| l.weight < BOLD) {
             serde_json::json!(700)
         } else if covered.iter().all(|l| l.base < BOLD) {
@@ -238,6 +231,36 @@ impl Carets {
             serde_json::json!(400)
         };
         serde_json::json!({ "style/weight": weight })
+    }
+
+    /// What ⌘I gives the characters from `from` to `to` (bytes of the text as written), as
+    /// `style_text`'s `look` (PLAN 2.40): italic, `style/italic` true, unless every one of
+    /// them asks for it already. Then their own italic is taken away (`null`) where that
+    /// leaves each of them upright, and is `false` where their role is italic itself. Italic
+    /// as asked, not as set: a family without an italic face sets it upright (lint W231).
+    pub fn italicizing(&self, from: usize, to: usize) -> serde_json::Value {
+        let covered = self.covered(from, to);
+        let italic = if covered.is_empty() || covered.iter().any(|l| !l.italic) {
+            serde_json::json!(true)
+        } else if covered.iter().all(|l| !l.base_italic) {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(false)
+        };
+        serde_json::json!({ "style/italic": italic })
+    }
+
+    /// The looks of the spans that hold any of the characters from `from` to `to`.
+    fn covered(&self, from: usize, to: usize) -> Vec<&SpanLook> {
+        let mut start = 0;
+        let mut covered = Vec::new();
+        for look in &self.looks {
+            if start < look.end && start < to && look.end > from {
+                covered.push(look);
+            }
+            start = look.end;
+        }
+        covered
     }
 
     /// The line a caret at `offset` stands on: `on`, if it can stand there; otherwise the

@@ -591,6 +591,16 @@ impl Session {
         Ok(carets.bolding(byte(from), byte(to)))
     }
 
+    /// What ⌘I gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
+    /// in `state` at rest, in the format shown (PLAN 2.40): `style_text`'s `look`, from
+    /// whether each of them asks for italic.
+    pub fn italicizing(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<serde_json::Value, Error> {
+        let carets =
+            self.carets(state, node)?.ok_or_else(|| Error::Ops(format!("`{node}` is no text in `{state}`")))?;
+        let byte = |chars: usize| carets.text.char_indices().nth(chars).map_or(carets.text.len(), |(i, _)| i);
+        Ok(carets.italicizing(byte(from), byte(to)))
+    }
+
     /// What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
     /// transition, its hold, and its notes, each with its value and where it lives, which is
     /// where a `set_state` patch writes.
@@ -1180,6 +1190,12 @@ impl Player {
     /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
     pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
         serde_json::to_string(&self.0.bolding(state, node, from, to).map_err(js)?).map_err(js)
+    }
+
+    /// What ⌘I gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
+    /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.40).
+    pub fn italicizing(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.italicizing(state, node, from, to).map_err(js)?).map_err(js)
     }
 
     /// The theme the deck names and the theme files the bundle holds, as JSON: `{ current,
@@ -2035,8 +2051,15 @@ mod tests {
         let dir = "../../docs/examples";
         let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
         let mut s = Session::new(&read("revenue.deck.json"), &read("themes/dusk.theme.json")).unwrap();
-        for path in ["fonts/Fraunces-VF.ttf", "fonts/Inter-VF.ttf", "fonts/JetBrainsMono-VF.ttf", "data/q3-revenue.csv"]
-        {
+        for path in [
+            "fonts/Fraunces-VF.ttf",
+            "fonts/Inter-VF.ttf",
+            "fonts/JetBrainsMono-VF.ttf",
+            "fonts/Fraunces-Italic-VF.ttf",
+            "fonts/Inter-Italic-VF.ttf",
+            "fonts/JetBrainsMono-Italic-VF.ttf",
+            "data/q3-revenue.csv",
+        ] {
             s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
         }
         s

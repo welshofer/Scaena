@@ -76,10 +76,11 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
 /// What a re-theme would do and what it writes, with nothing written: `theme_apply`'s twin,
 /// for a bundle held in memory (the web editor, PLAN 2.39). The theme is `text`, at `rel` in
 /// the bundle; with `copy`, it is written there. `fonts` are font files the caller can add,
-/// by the paths the theme gives them: a family whose file the bundle lacks, and of whose
-/// family it holds no font, is set in the one offered. What to write comes back beside what
-/// it does: the deck naming the theme, or, refused, the deck as it is, with the theme to
-/// copy in all the same. `applied` says whether the write names the theme.
+/// by the paths the theme gives them: a face (a family's own, or its italic) whose file the
+/// bundle lacks, and of whose family and style it holds no font, is set in the one offered.
+/// What to write comes back beside what it does: the deck naming the theme, or, refused, the
+/// deck as it is, with the theme to copy in all the same. `applied` says whether the write
+/// names the theme.
 pub fn theming(
     b: &Bundle,
     rel: &str,
@@ -92,15 +93,25 @@ pub fn theming(
     let mut mapped = Vec::new();
     let mut added = BTreeMap::new();
     for (key, family) in parsed.pointer_mut("/type/families").and_then(|f| f.as_object_mut()).into_iter().flatten() {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        if b.files.exists(file) {
-            continue;
-        }
-        if let Some(font) = b.deck.fonts.iter().find(|f| f.family == name && b.files.exists(&f.file)) {
-            mapped.push(format!("family `{key}`: {file} → {}", font.file));
-            family["file"] = serde_json::Value::String(font.file.clone());
-        } else if let Some(bytes) = fonts.get(file) {
-            added.insert(file.to_string(), bytes.clone());
+        let Some(name) = family["family"].as_str().map(String::from) else { continue };
+        // The family's own face, and its italic (PLAN 2.40).
+        for italic in [false, true] {
+            let face = if italic { family.get_mut("italic") } else { Some(&mut *family) };
+            let Some(face) = face else { continue };
+            let Some(file) = face.get("file").and_then(|f| f.as_str()).map(String::from) else { continue };
+            if b.files.exists(&file) {
+                continue;
+            }
+            let held = (b.deck.fonts.iter()).find(|f| {
+                f.family == name && (f.style.as_deref() == Some("italic")) == italic && b.files.exists(&f.file)
+            });
+            if let Some(font) = held {
+                let what = if italic { " italic" } else { "" };
+                mapped.push(format!("family `{key}`{what}: {file} → {}", font.file));
+                face["file"] = serde_json::Value::String(font.file.clone());
+            } else if let Some(bytes) = fonts.get(&file) {
+                added.insert(file, bytes.clone());
+            }
         }
     }
     let text = match mapped.is_empty() {
@@ -119,11 +130,16 @@ pub fn theming(
     deck.theme = Some(serde_json::Value::String(rel.to_string()));
     let mut listed = Vec::new();
     for (key, family) in parsed.pointer("/type/families").and_then(|f| f.as_object()).into_iter().flatten() {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        if held(file) && !deck.fonts.iter().any(|f| f.file == file) {
-            listed.push(format!("family `{key}`: {file}"));
-            let axes = serde_json::from_value(family["axes"].clone()).ok();
-            deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style: None, axes });
+        let Some(name) = family["family"].as_str() else { continue };
+        for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
+            let Some(file) = face["file"].as_str() else { continue };
+            if held(file) && !deck.fonts.iter().any(|f| f.file == file) {
+                let what = if style.is_some() { " italic" } else { "" };
+                listed.push(format!("family `{key}`{what}: {file}"));
+                let axes = serde_json::from_value(face["axes"].clone()).ok();
+                let style = style.map(String::from);
+                deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style, axes });
+            }
         }
     }
     let mut view = View::of(b).with(rel, text.clone().into_bytes());

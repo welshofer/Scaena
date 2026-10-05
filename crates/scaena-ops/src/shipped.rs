@@ -1,7 +1,7 @@
 //! The themes that ship (SPEC §3.6), with their fonts, carried in the binary: what a deck starts
 //! from where no theme file is at hand (PLAN 2.13). Dusk, Daybreak, and Ember share one
-//! vocabulary on one grid, and the same three fonts. Each font carries its copyright and its
-//! license (the SIL Open Font License) in its own name table.
+//! vocabulary on one grid, and the same three fonts, each with its italic. Each font carries
+//! its copyright and its license (the SIL Open Font License) in its own name table.
 
 /// A theme that ships.
 #[derive(Debug, Clone, Copy)]
@@ -32,11 +32,15 @@ pub const THEMES: [Shipped; 3] = [
     },
 ];
 
-/// The fonts the themes name, by the paths they give them.
-const FONTS: [(&str, &[u8]); 3] = [
+/// The fonts the themes name, by the paths they give them: each family's, and its italic's
+/// (PLAN 2.40).
+const FONTS: [(&str, &[u8]); 6] = [
     ("fonts/Fraunces-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-VF.ttf")),
     ("fonts/Inter-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-VF.ttf")),
     ("fonts/JetBrainsMono-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-VF.ttf")),
+    ("fonts/Fraunces-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Fraunces-Italic-VF.ttf")),
+    ("fonts/Inter-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/Inter-Italic-VF.ttf")),
+    ("fonts/JetBrainsMono-Italic-VF.ttf", include_bytes!("../../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf")),
 ];
 
 /// The theme that ships as `name`, in any case.
@@ -67,6 +71,8 @@ mod tests {
             for family in families.values() {
                 let file = family["file"].as_str().unwrap();
                 assert!(font(file).is_some(), "{}: {file}", theme.name);
+                let italic = family["italic"]["file"].as_str().expect("every family that ships has an italic");
+                assert!(font(italic).is_some(), "{}: {italic}", theme.name);
             }
         }
         assert_eq!(theme("Ember").map(|t| t.file), Some("ember.theme.json"));

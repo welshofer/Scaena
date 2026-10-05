@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.8",
+  "scaena-theme": "0.9",
   "name": "Daybreak",
   "description": "Warm paper surface, near-black ink, one deep teal accent. Same families, roles, layouts, and presets as Dusk: a deck moves between them by swapping the file.",
   "tokens": {
@@ -96,6 +96,27 @@
             1
           ]
         },
+        "italic": {
+          "file": "fonts/Fraunces-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              900
+            ],
+            "opsz": [
+              9,
+              144
+            ],
+            "SOFT": [
+              0,
+              100
+            ],
+            "WONK": [
+              0,
+              1
+            ]
+          }
+        },
         "fallback": [
           "body"
         ]
@@ -113,6 +134,19 @@
             32
           ]
         },
+        "italic": {
+          "file": "fonts/Inter-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              900
+            ],
+            "opsz": [
+              14,
+              32
+            ]
+          }
+        },
         "features": {
           "cv11": true,
           "ss01": false
@@ -126,6 +160,15 @@
             100,
             800
           ]
+        },
+        "italic": {
+          "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+          "axes": {
+            "wght": [
+              100,
+              800
+            ]
+          }
         }
       }
     },

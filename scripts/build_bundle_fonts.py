@@ -47,11 +47,34 @@ LICENSES = {
     "OFL-Inter.txt": ("ofl/inter/OFL.txt", "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"),
     "OFL-JetBrainsMono.txt": ("ofl/jetbrainsmono/OFL.txt", "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"),
 }
-# The example decks' themes (Dusk, Daybreak) set display, body, and mono in these three.
-EXAMPLE_FONTS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
-# The benchmark decks' theme adds Source Serif 4, for quotations.
+# Each family's italic face (PLAN 2.40), which the themes that ship name.
+FRAUNCES_ITALIC = (
+    "ofl/fraunces/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf",
+    "b24448c43702fac4ee856781d461a0dfba8d8e594b6e8e190234b75fed2c0e01",
+    "display, italic",
+)
+INTER_ITALIC = (
+    "ofl/inter/Inter-Italic[opsz,wght].ttf",
+    "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6",
+    "body, italic",
+)
+JETBRAINS_MONO_ITALIC = (
+    "ofl/jetbrainsmono/JetBrainsMono-Italic[wght].ttf",
+    "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558",
+    "mono, italic",
+)
+ROMANS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
+# The example decks' themes (Dusk, Daybreak, Ember) set display, body, and mono in these three,
+# each with its italic.
+EXAMPLE_FONTS = {
+    **ROMANS,
+    "Fraunces-Italic-VF.ttf": FRAUNCES_ITALIC,
+    "Inter-Italic-VF.ttf": INTER_ITALIC,
+    "JetBrainsMono-Italic-VF.ttf": JETBRAINS_MONO_ITALIC,
+}
+# The benchmark decks' theme sets the three romans, and adds Source Serif 4, for quotations.
 B1_FONTS = {  # bundle file -> (google/fonts path, upstream sha256, theme family)
-    **EXAMPLE_FONTS,
+    **ROMANS,
     "SourceSerif4-VF.ttf": (
         "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
         "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",

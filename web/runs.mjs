@@ -4,14 +4,18 @@
 //   node web/runs.mjs     (after `just web`; from the repository's root)
 //
 // On the revenue example, typing in the title in `revenue`, which sets its text:
-// - "doubled" selected, the inspector offers its look: role, emphasis, family, weight, color.
+// - "doubled" selected, the inspector offers its look: role, emphasis, family, weight, italic, color.
 // - ⌘B makes it bold: one `style_text`, the title's runs where `revenue` sets its text, and the
 //   selection drawn wider, as the engine sets bold wider. Typing stays where it was.
 // - A color chosen in the inspector is the selected characters', and the text stays typed in.
 // - ⌘B again, the characters bold by a weight of their own, takes that weight away; × takes the
 //   color away, and the runs, all reading as the title does, are its text again.
-// - Each is one step to undo. Escape stops typing, and the inspector shows the title again.
+// - Each is one step to undo.
+// - ⌘I sets them in Dusk's italic, Inter's own italic face (PLAN 2.40): a run with `italic`, the
+//   preview drawn otherwise, the inspector showing it. ⌘I again takes it away; each a step to
+//   undo. Escape stops typing, and the inspector shows the title again.
 // Exits 1 on any failure.
+import { createHash } from "node:crypto";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
@@ -79,8 +83,8 @@ try {
   check(await showing("characters 9–15"), `the inspector offers the characters selected: ${await heading()}`);
   const props = await page.evaluate(() => [...document.querySelectorAll("#look [data-prop]")].map((e) => e.dataset.prop));
   check(
-    ["role", "emphasis", "style/family", "style/weight", "style/color"].every((p) => props.includes(p)),
-    `a run's role, emphasis, family, weight, and color: ${props.join(", ")}`,
+    ["role", "emphasis", "style/family", "style/weight", "style/italic", "style/color"].every((p) => props.includes(p)),
+    `a run's role, emphasis, family, weight, italic, and color: ${props.join(", ")}`,
   );
   const plain = await drawn();
 
@@ -128,6 +132,40 @@ try {
     .then(() => true)
     .catch(() => false);
   check(undone, "four undos make the source what it was");
+
+  // ⌘I: the family's own italic, and back again (PLAN 2.40).
+  const painted = async () => {
+    await page.waitForFunction(() => !window.scaena.canvas.busy(), null, { timeout: 30000 });
+    await page.waitForTimeout(400);
+    return createHash("sha256").update(await page.locator("#stage").screenshot({ animations: "disabled" })).digest("hex");
+  };
+  await page.locator("textarea.typing").focus();
+  await page.keyboard.press("End");
+  for (let i = 0; i < 7; i++) await page.keyboard.press("Shift+ArrowLeft");
+  const upright = await painted();
+  await page.keyboard.press("Control+i");
+  await reads('runs:[{text: "Revenue "}, {text: doubled, style: {italic: true}}]', "⌘I sets the characters in italic");
+  check((await status()).includes("italic"), `the status says so: ${await status()}`);
+  check((await painted()) !== upright, "the preview draws them in the italic");
+  check((await typing()) === "title", "the title is still typed in");
+  await page.waitForFunction(() => document.querySelector("#look-style-italic")?.value === "yes", null, { timeout: 30000 }).catch(() => {});
+  check((await page.evaluate(() => document.querySelector("#look-style-italic")?.value)) === "yes", "the inspector shows them italic");
+  await page.locator("textarea.typing").focus();
+  await page.keyboard.press("Control+i");
+  const away = await page
+    .waitForFunction(() => !window.scaena.source().includes("runs:") && !window.scaena.canvas.typed()?.sending, null, { timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+  check(away && (await source()).includes('"Revenue doubled"'), "⌘I again takes it away, and the runs are the title's text again");
+  check((await painted()) === upright, "and the preview is upright as it was");
+  await page.keyboard.press("Control+z");
+  await reads("style: {italic: true}", "undo brings the italic back");
+  await page.keyboard.press("Control+z");
+  const before = await page
+    .waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+  check(before, "and once more, the source is what it was");
 
   // Escape: the title, not its characters.
   await page.keyboard.press("Escape");

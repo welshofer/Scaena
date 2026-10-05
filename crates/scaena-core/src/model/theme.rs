@@ -193,11 +193,26 @@ pub struct Family {
     pub file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axes: Option<IndexMap<String, [f64; 2]>>,
+    /// Its italic face (SPEC §3.5), which text set `italic` takes. A family without one sets
+    /// such text upright: no italic is synthesized (lint W231).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<Face>,
     /// Other families in this theme, in order. Bundle-only; system fonts are never consulted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub features: Option<Features>,
+}
+
+/// Another face of a family, in a file of its own: its italic (PLAN 2.40). Its file names
+/// the family's name, as the family's own file does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Face {
+    #[schemars(regex(pattern = r"^fonts/"))]
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axes: Option<IndexMap<String, [f64; 2]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -221,6 +236,9 @@ pub struct Role {
     pub size: f64,
     #[schemars(range(min = 1, max = 1000))]
     pub weight: u16,
+    /// Set in its family's italic face (SPEC §3.5); upright when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
     /// Line height as a multiple of size.
     #[schemars(extend("exclusiveMinimum" = 0))]
     pub leading: f64,

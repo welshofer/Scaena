@@ -213,6 +213,13 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const look = JSON.parse(player.bolding(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
         return post({ type: "bolding", id: data.id, look });
       }
+      case "italicizing": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        const look = JSON.parse(player.italicizing(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
+        return post({ type: "italicizing", id: data.id, look });
+      }
       case "type": {
         const typed = await type(data.source, data.ops, data.index, data.format);
         const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
@@ -431,9 +438,11 @@ async function shipped(theme: string): Promise<{ file: string; text: string; fon
     return response;
   };
   const text = await (await fetched(chosen.url)).text();
-  const families = (JSON.parse(text) as { type?: { families?: Record<string, { file?: string }> } }).type?.families;
+  type Face = { file?: string };
+  const families = (JSON.parse(text) as { type?: { families?: Record<string, Face & { italic?: Face }> } }).type?.families;
   const given = new Map<string, Uint8Array>();
-  for (const { file } of Object.values(families ?? {})) {
+  // Each family's font, and its italic's (PLAN 2.40).
+  for (const file of Object.values(families ?? {}).flatMap((f) => [f.file, f.italic?.file])) {
     if (!file || given.has(file)) continue;
     if (!fonts[file]) throw new Error(`${theme} names a font the page does not carry: ${file}`);
     given.set(file, new Uint8Array(await (await fetched(fonts[file])).arrayBuffer()));

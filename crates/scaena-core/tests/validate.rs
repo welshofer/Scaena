@@ -341,6 +341,39 @@ fn a_theme_name_the_theme_does_not_define_is_e102_in_the_theme_file() {
 }
 
 #[test]
+fn a_familys_italic_face_is_a_file_the_bundle_holds_and_the_deck_lists() {
+    // Body's italic, a file the bundle lacks and the deck does not list (PLAN 2.40).
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""file": "fonts/Body.ttf" }"#,
+            r#""file": "fonts/Body.ttf", "italic": { "file": "fonts/Body-Italic.ttf" } }"#,
+        )
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    let mut at: Vec<(&str, Option<&str>, &str)> =
+        found.iter().map(|f| (f.code.as_str(), f.file.as_deref(), f.path.as_deref().unwrap_or_default())).collect();
+    at.sort();
+    assert_eq!(
+        at,
+        [("E102", None, "/fonts"), ("E102", Some("theme.json"), "/type/families/body/italic/file")],
+        "{found:#?}"
+    );
+    let listed = found.iter().find(|f| f.path.as_deref() == Some("/fonts")).unwrap();
+    assert!(
+        listed.message.contains("theme family `body`'s italic is set in `fonts/Body-Italic.ttf`"),
+        "{}",
+        listed.message
+    );
+    // Its fix lists the face, as the italic it is.
+    let fix = serde_json::to_value(&listed.fix).unwrap();
+    assert_eq!(
+        fix[0]["value"],
+        serde_json::json!({ "family": "Body", "file": "fonts/Body-Italic.ttf", "style": "italic" }),
+        "{fix}"
+    );
+}
+
+#[test]
 fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
     assert!(validate_bundle("{ \"scaena\": ", &Fixtures).is_err());
 }
@@ -349,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.10",
+        "scaena": "0.11",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -393,7 +426,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.10",
+        "scaena": "0.11",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
