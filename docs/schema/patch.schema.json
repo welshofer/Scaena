@@ -166,7 +166,7 @@
           }
         },
         {
-          "description": "A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`, and the rest of them go. They are written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own `at`. Without `state`, in the node's own unless the overrides set it. The node stays in its container (`at.parent`), which says what places it: the theme's grid places a root or a group's member by cells, slot, or `rect`; a grid container by cells or `area`; a stack by `index`; a frame by `rect`.",
+          "description": "A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`, and the rest of them go. They are written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own `at`. Without `state`, in the node's own unless the overrides set it. Its container (`at.parent`) is part of its placement: the node stays in it unless `at` names another, or `null` for the canvas (PLAN 2.50). What holds it says what places it: the theme's grid places a root or a group's member by cells, slot, or `rect`; a grid container by cells, `area`, or `index`; a stack by `index`; a frame by `rect`.",
           "type": "object",
           "required": ["op", "node", "at"],
           "additionalProperties": false,
@@ -355,10 +355,14 @@
       ]
     },
     "Spot": {
-      "description": "Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col` and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`.",
+      "description": "Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col` and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`; in its container, or in another (`parent`).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "parent": {
+          "description": "The container the node goes into, or `null` for the canvas; unsaid, it stays in its own (PLAN 2.50).",
+          "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }]
+        },
         "col": { "$ref": "#/$defs/Range" },
         "row": { "$ref": "#/$defs/Range" },
         "in": { "description": "A slot of the state's layout template, or `canvas` or `grid`.", "type": "string" },

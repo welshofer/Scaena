@@ -1,5 +1,5 @@
 // PLAN 2.50 check: the layers panel, in headless Chromium (serve.mjs), the CPU painting, on the
-// revenue example, in `revenue`.
+// revenue example, in `revenue`, then on the torture deck's `containers` case.
 //
 //   node web/layers.mjs     (after `just web`; from the repository's root)
 //
@@ -13,8 +13,13 @@
 //   (`show_node`). The eye shows the background too; the subtitle, whose slot `figure` lacks, the
 //   deck refuses, and the status says why.
 // - A double click on a name renames the node everywhere (`rename_node`), and Escape leaves it.
-// - A node dragged before another of what holds it goes over it, by `z`, and Alt with an arrow key
-//   moves the node focused one place (PLAN 2.50): each one patch, one undo.
+// - A node dragged before another of what holds it goes over it, by `z`, and Alt with ↓ or ↑
+//   moves the node focused one place: each one patch, one undo.
+// - On the torture deck's `containers` case, a node dropped before a child of another stack goes
+//   into that stack there; one dropped before a root comes out onto the canvas, in the cells
+//   it stood in; one dropped on a frame's middle goes into it, first and inside its
+//   padding. Alt with ← takes a node out of its container, and Alt with → puts it into the one
+//   before it. A container into what it holds, or a node into a text, is refused.
 // - axe-core finds nothing against WCAG 2.1 AA in the panel.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -171,6 +176,95 @@ try {
   await row("note").locator("[data-pick]").focus();
   await page.keyboard.press("Alt+ArrowUp");
   check(await says("note is first among what holds it"), `the topmost goes no higher: ${await status()}`);
+
+  // Into other containers, on the torture deck's `containers` case: a stack's children, a
+  // frame's, a group's, and the canvas.
+  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/fixtures/torture.scaena/deck.json`);
+  await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+  const containers = await page.evaluate(() => window.scaena.opened.states.indexOf("containers"));
+  await page.evaluate(() => window.scaena.cursor(window.scaena.source().indexOf("state containers") + "state ".length));
+  await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.canvas.boxed() === "containers", containers, { timeout: 30000 });
+  await page.locator("#tab-layers").click();
+  const torture = await source();
+  /** Once the list, joined, has each of `want`. */
+  const has = async (...want) => {
+    const all = () => window.scaena.layers.listed().join(" | ");
+    await page.waitForFunction((w) => w.every((x) => window.scaena.layers.listed().join(" | ").includes(x)), want, { timeout: 30000, polling: 50 }).catch(() => {});
+    const now = await page.evaluate(all);
+    return want.every((w) => now.includes(w));
+  };
+  const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes()?.find((b) => b.node === n)?.rect, node);
+  /** Drop `node`'s row on `on`'s: `before` its top, `after` its bottom, or `into` its middle.
+   * The list drawn as the test found it first: an undo draws it again. */
+  const holding = ["stats [stat-a [stat-a-figure, stat-a-label], stat-b", "tally [tally-figure, tally-label]", "card [card-tag-label, card-tag, card-photo]"];
+  const drop = async (node, on, where) => {
+    await has(...holding);
+    await row(on).waitFor({ state: "visible" });
+    const { height } = await row(on).boundingBox();
+    const y = where === "before" ? 2 : where === "after" ? height - 2 : height / 2;
+    await row(node).dragTo(row(on), { targetPosition: { x: 40, y } });
+  };
+  check(await has(...holding), `each container holds its own: ${(await listed()).join(" | ")}`);
+
+  // Dropped before a child of another stack, the tally's label goes into that stack, before it.
+  await drop("tally-label", "stat-a-label", "before");
+  check(await has("stat-a [stat-a-figure, tally-label, stat-a-label]", "tally [tally-figure]"), `into another stack, at the drop: ${(await listed()).join(" | ")}`);
+  check(await says("tally-label moved into stat-a, before stat-a-label"), `the status says so: ${await status()}`);
+  await undo();
+  check(await back(torture), "one undo takes it back");
+
+  // Dropped before the card, its tag's label comes out onto the canvas, over the card, on the
+  // cells it stood in.
+  const tag = await box("card-tag-label");
+  await drop("card-tag-label", "card", "before");
+  check(await has("card-tag-label | card [card-tag, card-photo]"), `onto the canvas, over the card: ${(await listed()).join(" | ")}`);
+  check(await says("card-tag-label moved onto the canvas, before card"), `the status says so: ${await status()}`);
+  const out = await page.waitForFunction((t) => {
+    const b = window.scaena.canvas.boxes()?.find((x) => x.node === "card-tag-label")?.rect;
+    return b && b[0] <= t[0] + t[2] && t[0] <= b[0] + b[2] && b[1] <= t[1] + t[3] && t[1] <= b[1] + b[3] && b;
+  }, tag, { timeout: 10000 }).then((h) => h.jsonValue(), () => undefined);
+  check(out !== undefined, `where it stood: ${JSON.stringify(tag)} → ${JSON.stringify(out)}`);
+  await undo();
+  check(await back(torture), "one undo takes it back");
+
+  // Dropped on the card's middle, a mark goes into it, first among what it holds, inside its
+  // padding.
+  await drop("marks-dot", "card", "into");
+  check(await has("card [marks-dot, card-tag-label, card-tag, card-photo]", "marks [marks-ring]"), `into the frame, first: ${(await listed()).join(" | ")}`);
+  check(await says("marks-dot moved into card"), `the status says so: ${await status()}`);
+  const [dot, card] = [await box("marks-dot"), await box("card")];
+  check(
+    dot && card && dot[0] >= card[0] && dot[1] >= card[1] && dot[0] + dot[2] <= card[0] + card[2] + 0.5 && dot[1] + dot[3] <= card[1] + card[3] + 0.5,
+    `inside it: ${JSON.stringify(dot)} in ${JSON.stringify(card)}`,
+  );
+  await undo();
+  check(await back(torture), "one undo takes it back");
+
+  // Alt with ← takes a stat's label out of its stat, before it; Alt with → puts it into the stat
+  // listed before it, last.
+  await has(...holding);
+  await row("stat-b-label").locator("[data-pick]").focus();
+  await page.keyboard.press("Alt+ArrowLeft");
+  check(await has("stat-a [stat-a-figure, stat-a-label], stat-b-label, stat-b [stat-b-figure]"), `Alt+← takes it out: ${(await listed()).join(" | ")}`);
+  check(await says("stat-b-label moved into stats, before stat-b"), `the status says so: ${await status()}`);
+  await row("stat-b-label").locator("[data-pick]").focus();
+  await page.keyboard.press("Alt+ArrowRight");
+  check(await has("stat-a [stat-a-figure, stat-a-label, stat-b-label], stat-b [stat-b-figure]"), `Alt+→ puts it into the stat before it: ${(await listed()).join(" | ")}`);
+  check(await says("stat-b-label moved into stat-a, after stat-a-label"), `the status says so: ${await status()}`);
+  await undo();
+  await undo();
+  check(await back(torture), "two undos take both back");
+  await has(...holding);
+  await row("case").locator("[data-pick]").focus();
+  await page.keyboard.press("Alt+ArrowLeft");
+  check(await says("case is on the canvas already"), `a root goes no further out: ${await status()}`);
+
+  // What may not be: a container into what it holds, a node into what holds nothing.
+  await page.evaluate(() => window.scaena.layers.restack("stats", { into: "stat-a" }));
+  check(await says("a node goes into nothing it holds"), `a stack into its own child is refused: ${await status()}`);
+  await page.evaluate(() => window.scaena.layers.restack("tally", { into: "case" }));
+  check(await says("`case` holds nothing"), `into a text, refused: ${await status()}`);
+  check((await source()) === torture, "and nothing changes");
 
   // axe-core on the panel.
   await page.addScriptTag({ path: axe });

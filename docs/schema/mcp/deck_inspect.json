@@ -129,12 +129,17 @@
         "default": null
       },
       "before": {
-        "description": "With `arrange`, one node: listed just before this other child of its container, as\n`layers` lists them (PLAN 2.50): painted just over it, by the `z` that does it, or, in a\nstack, laid out just before it.",
+        "description": "With `arrange`, one node: listed just before this other node, as `layers` lists them\n(PLAN 2.50): painted just over it, by the `z` that does it, or, in a stack, laid out\njust before it. Held by another container, or by none, the node goes there with it,\nplaced as that container places what it holds.",
         "type": ["string", "null"],
         "default": null
       },
       "after": {
-        "description": "With `arrange`, one node: listed just after this other child of its container: painted\njust under it, or, in a stack, laid out just after it.",
+        "description": "With `arrange`, one node: listed just after this other node: painted just under it, or,\nin a stack, laid out just after it; into what holds it, as with `before`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "into": {
+        "description": "With `arrange`, one node: into this container, listed first among what it holds,\nplaced as it places what it holds (PLAN 2.50).",
         "type": ["string", "null"],
         "default": null
       },

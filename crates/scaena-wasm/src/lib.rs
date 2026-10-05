@@ -529,11 +529,34 @@ impl Session {
         let found = nodes.iter().map(|n| self.targets(state, n).cloned()).collect::<Result<Vec<_>, _>>()?;
         let boxes = self.boxes(state)?;
         let (deck, _) = project(&self.deck, &self.theme, self.format.as_deref())?;
+        let deck = deck.into_owned();
         let snaps = scaena_core::resolve_states(&deck).map_err(|e| Error::Deck(e.to_string()))?;
         let snap =
             snaps.iter().find(|s| s.state_id == state).ok_or_else(|| Error::Ops(format!("no state `{state}`")))?;
         let shown = scaena_engine::cascade::with_overrides(&deck, snap);
-        scaena_ops::arrange::arrange(&deck, &shown, &boxes, nodes, found, how, fork).map_err(|e| Error::Ops(e.message))
+        // Where a node moved in may go in another container, asked of the engine only then.
+        let mut into = |node: &str, holder: Option<&str>| {
+            self.targets_into(state, node, holder).map_err(|e| scaena_ops::OpsError::new(e.to_string()))
+        };
+        scaena_ops::arrange::arrange(&deck, &shown, &boxes, nodes, found, how, fork, &mut into)
+            .map_err(|e| Error::Ops(e.message))
+    }
+
+    /// Where `node` may go in `state` at rest, in the format shown, `into` another container,
+    /// or onto the canvas for `None` (PLAN 2.50).
+    #[cfg(feature = "editor")]
+    pub fn targets_into(
+        &mut self,
+        state: &str,
+        node: &str,
+        into: Option<&str>,
+    ) -> Result<scaena_engine::geometry::Targets, Error> {
+        self.duration(state)?;
+        let engine = self.engine.as_mut().expect("built for the span");
+        let format = self.format.as_deref();
+        let req =
+            FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
+        Ok(engine.targets_into(&req, node, into)?)
     }
 
     /// Each text of the deck that `query` matches, once for each place it is written, with
@@ -2287,9 +2310,10 @@ mod tests {
         assert!(e.contains("the stack `stats`"), "{e}");
     }
 
-    /// A node listed before or after another of its container's children (PLAN 2.50), as the
-    /// layers panel drops it: by `z` in a frame, by the order it lays them out in a stack. Each
-    /// patch made, the layers list it there.
+    /// A node listed before or after another (PLAN 2.50), as the layers panel drops it: by `z`
+    /// in a frame, by the order it lays them out in a stack; into another container, or onto
+    /// the canvas, placed as that one places what it holds. Each patch made, the layers list it
+    /// there.
     #[cfg(feature = "editor")]
     #[test]
     fn a_node_listed_before_another_goes_there_in_the_layers() {
@@ -2315,9 +2339,28 @@ mod tests {
         // Where it is already, nothing to make.
         let there = s.arranging("containers", &["stat-a".into()], next("stat-c", true), false).unwrap().unwrap();
         assert!(there.patch.is_empty(), "{:?}", there.patch);
-        // Into another container, refused with why: that is a move (`place` with `parent`).
-        let e = s.arranging("containers", &["stat-a".into()], next("card-tag", false), false).unwrap_err().to_string();
-        assert!(e.contains("is not held by what holds `stat-a`"), "{e}");
+        // Before a child of another container: into that one, placed as it places what it
+        // holds, just over it (`place` with `parent`).
+        let card =
+            s.arranging("containers", &["stat-a-label".into()], next("card-tag", false), false).unwrap().unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": card.patch }), by()).unwrap();
+        assert_eq!(held(&s, "card"), ["card-photo", "card-tag-label", "stat-a-label", "card-tag"]);
+        assert_eq!(held(&s, "stats"), ["stat-c", "stat-a", "stat-b"], "the stat keeps its figure");
+        // Into a group, first among what it holds; then out again onto the canvas, just over it.
+        let into = How::Into { holder: "marks".into() };
+        let group = s.arranging("containers", &["tally".into()], into, false).unwrap().unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": group.patch }), by()).unwrap();
+        assert_eq!(held(&s, "marks"), ["tally", "marks-dot", "marks-ring"]);
+        let out = s.arranging("containers", &["tally".into()], next("marks", false), false).unwrap().unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": out.patch }), by()).unwrap();
+        let roots: Vec<String> = s.layers("containers").unwrap().into_iter().map(|l| l.node).collect();
+        let at = |node: &str| roots.iter().position(|r| r == node).unwrap();
+        assert_eq!(at("tally") + 1, at("marks"), "{roots:?}");
+        assert_eq!(held(&s, "marks"), ["marks-dot", "marks-ring"]);
+        // Into what it holds, refused with why.
+        let e = s.arranging("containers", &["stats".into()], How::Into { holder: "stat-a".into() }, false);
+        let e = e.unwrap_err().to_string();
+        assert!(e.contains("a node goes into nothing it holds"), "{e}");
     }
 
     /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the

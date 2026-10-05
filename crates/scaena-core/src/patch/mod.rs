@@ -215,9 +215,11 @@ pub enum SemanticOp {
     /// and the rest of them go. They are written where the placement lives: in the deck's
     /// `overrides` if they set it; else in the latest delta that sets it, from `state` back
     /// along what it tracks; else in the node's own `at`. Without `state`, in the node's own
-    /// unless the overrides set it. The node stays in its container (`at.parent`), which says
-    /// what places it: the theme's grid places a root or a group's member by cells, slot, or
-    /// `rect`; a grid container by cells or `area`; a stack by `index`; a frame by `rect`.
+    /// unless the overrides set it. Its container (`at.parent`) is part of its placement: the
+    /// node stays in it unless `at` names another, or `null` for the canvas (PLAN 2.50). What
+    /// holds it says what places it: the theme's grid places a root or a group's member by
+    /// cells, slot, or `rect`; a grid container by cells, `area`, or `index`; a stack by
+    /// `index`; a frame by `rect`.
     Place {
         #[schemars(with = "Id")]
         node: String,
@@ -457,10 +459,16 @@ impl SemanticOp {
 
 /// Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col`
 /// and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the
-/// state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`.
+/// state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`;
+/// in its container, or in another (`parent`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Spot {
+    /// The container the node goes into, or `null` for the canvas; unsaid, it stays in its
+    /// own (PLAN 2.50).
+    #[serde(default, deserialize_with = "said", skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "container_or_canvas")]
+    pub parent: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col: Option<Range>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -479,8 +487,22 @@ pub struct Spot {
 }
 
 impl Spot {
-    /// The keys of `at` that say where a node goes: what `place` replaces.
+    /// The keys of `at` that say where a node goes in what holds it: what `place` replaces.
     pub const KEYS: [&'static str; 6] = ["col", "row", "in", "rect", "area", "index"];
+    /// The keys of `at` that make a node's placement: what holds it, and where it goes there.
+    pub const PLACED: [&'static str; 7] = ["parent", "col", "row", "in", "rect", "area", "index"];
+}
+
+/// A `Spot`'s `parent`: a container's id, or `null` for the canvas, a `null` that says
+/// something, which the schema keeps (`x-null`, `model::finish`).
+fn container_or_canvas(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let id = generator.subschema_for::<Id>();
+    schemars::json_schema!({ "anyOf": [id, { "type": "null" }], "x-null": true })
+}
+
+/// A value that may be `null`, said: `null` is not the same as unsaid.
+fn said<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 /// The motion a motion preset is for.

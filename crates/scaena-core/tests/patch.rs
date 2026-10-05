@@ -554,12 +554,111 @@ fn place_says_what_places_a_node() {
         (json!({ "op": "place", "node": "row", "at": { "area": "x" } }), "on the theme's grid"),
         (json!({ "op": "place", "node": "row", "at": {} }), "say where"),
         (json!({ "op": "place", "node": "row", "at": { "in": "grid", "col": 1 } }), "one placement"),
-        (json!({ "op": "place", "node": "row", "at": { "parent": "board" } }), "unknown field `parent`"),
+        (json!({ "op": "place", "node": "row", "at": { "parent": "board" } }), "say where"),
+        (json!({ "op": "place", "node": "row", "at": { "anywhere": 1 } }), "unknown field `anywhere`"),
         (json!({ "op": "place", "node": "nobody", "at": { "in": "grid" } }), "no node `nobody`"),
     ] {
         let err = patch(&doc, json!([op.clone()])).unwrap_err();
         assert!(err.message.contains(says), "{op}: {err}");
     }
+}
+
+/// `place` with `parent` moves a node into another container, placed as that one places what
+/// it holds, or onto the canvas with `null`; written where the node's placement lives, its
+/// container with the rest of it (PLAN 2.50).
+#[test]
+fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
+    let doc = json!({
+        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
+            "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
+            "board": { "type": "grid", "cols": 2, "rows": 2, "at": { "col": [7, 12], "row": [1, 3] } },
+            "card": { "type": "frame", "at": { "col": [1, 6], "row": [4, 6] } },
+            "tag": { "type": "text", "text": "T", "at": { "parent": "card", "rect": [8, 8, 120, 40] } },
+            "lone": { "type": "text", "text": "L", "at": { "col": [7, 9], "row": 5 } },
+        },
+        "states": [
+            { "id": "s", "props": { "row": {}, "a": {}, "board": {}, "card": {}, "tag": {}, "lone": {} } },
+            { "id": "t", "mode": "delta", "props": { "lone": { "at": { "col": [10, 12] } } } },
+        ],
+    });
+    let own = |c: &Compiled, node: &str| c.doc["nodes"][node]["at"].clone();
+    // Into a stack, by `index`; into a frame, by `rect`; onto the canvas, by cells, the
+    // container taken away. The node's own placement, which every state shows.
+    let c = patch(
+        &doc,
+        json!([
+            { "op": "place", "node": "tag", "state": "s", "at": { "parent": "row", "index": 1 } },
+            { "op": "place", "node": "a", "state": "s", "at": { "parent": "card", "rect": [0, 0, 200, 80] } },
+        ]),
+    )
+    .unwrap();
+    assert_eq!(own(&c, "tag"), json!({ "parent": "row", "index": 1 }));
+    assert_eq!(own(&c, "a"), json!({ "parent": "card", "rect": [0.0, 0.0, 200.0, 80.0] }));
+    let c = patch(
+        &doc,
+        json!([{ "op": "place", "node": "tag", "state": "s", "at": { "parent": null, "col": [2, 3], "row": 5 } }]),
+    )
+    .unwrap();
+    assert_eq!(own(&c, "tag"), json!({ "col": [2, 3], "row": 5 }));
+    // A grid container takes cells, an area, or its flow's `index`.
+    let c =
+        patch(&doc, json!([{ "op": "place", "node": "lone", "state": "s", "at": { "parent": "board", "index": 3 } }]))
+            .unwrap();
+    assert_eq!(own(&c, "lone"), json!({ "parent": "board", "index": 3 }));
+    // Where `t` places the node, there it goes into the container: the delta takes the cells
+    // it merges into away, and `s` keeps the node on the canvas.
+    let c = patch(
+        &doc,
+        json!([{ "op": "place", "node": "lone", "state": "t", "at": { "parent": "card", "rect": [0, 0, 90, 40] } }]),
+    )
+    .unwrap();
+    assert_eq!(
+        c.doc["states"][1]["props"]["lone"]["at"],
+        json!({ "parent": "card", "rect": [0.0, 0.0, 90.0, 40.0], "col": null, "row": null })
+    );
+    assert_eq!(own(&c, "lone"), doc["nodes"]["lone"]["at"]);
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    assert_eq!(snaps[1].nodes["lone"]["at"], json!({ "parent": "card", "rect": [0.0, 0.0, 90.0, 40.0] }));
+    assert_eq!(snaps[0].nodes["lone"]["at"], doc["nodes"]["lone"]["at"]);
+    // And out again from there: `null` takes the container the delta set away.
+    let back = patch(
+        &c.doc,
+        json!([{ "op": "place", "node": "lone", "state": "t", "at": { "parent": null, "col": [10, 12], "row": 5 } }]),
+    )
+    .unwrap();
+    assert_eq!(back.doc["states"][1]["props"]["lone"]["at"], json!({ "col": [10, 12], "row": 5 }));
+    // The new container says how the node is placed; what is not a container, the node
+    // itself, and what the node holds, it does not go into.
+    for (op, says) in [
+        (json!({ "op": "place", "node": "lone", "at": { "parent": "row", "col": 1 } }), "in stack `row`"),
+        (json!({ "op": "place", "node": "a", "at": { "parent": null, "index": 0 } }), "on the theme's grid"),
+        (
+            json!({ "op": "place", "node": "a", "at": { "parent": "lone", "col": 1 } }),
+            "`lone`, of type `text`, holds nothing",
+        ),
+        (
+            json!({ "op": "place", "node": "card", "at": { "parent": "card", "rect": [0, 0, 9, 9] } }),
+            "cannot hold itself",
+        ),
+        (json!({ "op": "place", "node": "a", "at": { "parent": "ghost", "col": 1 } }), "no node `ghost`"),
+    ] {
+        let err = patch(&doc, json!([op.clone()])).unwrap_err();
+        assert!(err.message.contains(says), "{op}: {err}");
+    }
+    // Into what it holds, containers nest in a loop: validation finds it, and a patch that
+    // makes it is refused (`scaena patch`, SPEC §7.3).
+    let nested =
+        patch(&doc, json!([{ "op": "place", "node": "card", "state": "s", "at": { "parent": "row", "index": 0 } }]))
+            .unwrap();
+    assert_eq!(errors(&nested.doc), Vec::<String>::new());
+    let looped = patch(
+        &nested.doc,
+        json!([{ "op": "place", "node": "row", "state": "s", "at": { "parent": "card", "rect": [0, 0, 9, 9] } }]),
+    )
+    .unwrap();
+    assert!(errors(&looped.doc).iter().any(|e| e.contains("containers nest in a loop")), "{:?}", errors(&looped.doc));
 }
 
 #[test]

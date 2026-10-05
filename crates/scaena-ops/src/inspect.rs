@@ -87,15 +87,20 @@ pub struct Views {
     /// them all, by its `z`.
     #[serde(default)]
     pub order: Option<Order>,
-    /// With `arrange`, one node: listed just before this other child of its container, as
-    /// `layers` lists them (PLAN 2.50): painted just over it, by the `z` that does it, or, in a
-    /// stack, laid out just before it.
+    /// With `arrange`, one node: listed just before this other node, as `layers` lists them
+    /// (PLAN 2.50): painted just over it, by the `z` that does it, or, in a stack, laid out
+    /// just before it. Held by another container, or by none, the node goes there with it,
+    /// placed as that container places what it holds.
     #[serde(default)]
     pub before: Option<String>,
-    /// With `arrange`, one node: listed just after this other child of its container: painted
-    /// just under it, or, in a stack, laid out just after it.
+    /// With `arrange`, one node: listed just after this other node: painted just under it, or,
+    /// in a stack, laid out just after it; into what holds it, as with `before`.
     #[serde(default)]
     pub after: Option<String>,
+    /// With `arrange`, one node: into this container, listed first among what it holds,
+    /// placed as it places what it holds (PLAN 2.50).
+    #[serde(default)]
+    pub into: Option<String>,
     /// With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of
     /// it snaps, the rest as far as it went, each its own way.
     #[serde(default)]
@@ -562,23 +567,24 @@ pub fn inspect_deck(
         views.order.is_some(),
         views.before.is_some(),
         views.after.is_some(),
+        views.into.is_some(),
         views.by.is_some(),
     ];
     match (&views.arrange, state, ways.iter().filter(|w| **w).count()) {
         (Some(_), None, _) => return Err(OpsError::new("`arrange` names nodes in a state: name the state")),
         (Some(_), _, 0) => {
             return Err(OpsError::new(
-                "`arrange` arranges nodes one way: give `align`, `spread`, `order`, `before`, `after`, or `by`",
+                "`arrange` arranges nodes one way: give `align`, `spread`, `order`, `before`, `after`, `into`, or `by`",
             ));
         }
         (Some(_), _, 2..) => {
             return Err(OpsError::new(
-                "`arrange` arranges nodes one way: give one of `align`, `spread`, `order`, `before`, `after`, and `by`",
+                "`arrange` arranges nodes one way: give one of `align`, `spread`, `order`, `before`, `after`, `into`, and `by`",
             ));
         }
         (None, _, 1..) => {
             return Err(OpsError::new(
-                "`align`, `spread`, `order`, `before`, `after`, and `by` arrange nodes: name them with `arrange`",
+                "`align`, `spread`, `order`, `before`, `after`, `into`, and `by` arrange nodes: name them with `arrange`",
             ));
         }
         _ if views.free && views.by.is_none() => {
@@ -712,12 +718,14 @@ pub fn inspect_deck(
                     order: views.order,
                     before: views.before.clone(),
                     after: views.after.clone(),
+                    into: views.into.clone(),
                     by: views.by,
                     free: views.free,
                 };
                 let how = asked.how()?;
                 let (shown, boxes) = (cascade::with_overrides(deck, s), scene.boxes());
-                inspected.arranged = arrange::arrange(deck, &shown, &boxes, nodes, found, how, views.fork)?;
+                let mut into = |node: &str, holder: Option<&str>| Ok(engine.targets_into(&req, node, holder)?);
+                inspected.arranged = arrange::arrange(deck, &shown, &boxes, nodes, found, how, views.fork, &mut into)?;
             }
         }
         out.push(inspected);

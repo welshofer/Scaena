@@ -414,12 +414,24 @@ fn spell(props: &mut Map<String, Value>, name: &str, key: Option<&str>, value: &
 /// `place` (ADR-0013): `spot` becomes `node`'s placement where its placement lives, the
 /// deck's `overrides`, a state's delta, or the node's own `at`; or, to `fork` it, in
 /// `state`'s own delta. Of `at`'s placement keys, those `spot` names are set there and the
-/// rest go: a delta or an override takes them away with `null` from what it merges into.
+/// rest go: a delta or an override takes them away with `null` from what it merges into. A
+/// `parent` it names is set there too, and `null` takes the node out onto the canvas.
 fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool) -> Result<Vec<JsonOp>, String> {
     if fork && state.is_none() {
         return Err("`fork` keeps a placement to a state: name it (`state`)".into());
     }
     let own = d.node(node)?;
+    if let Some(Some(into)) = &spot.parent {
+        let kind = d.kind(into)?;
+        if !matches!(kind, "stack" | "grid" | "frame" | "group") {
+            return Err(format!(
+                "`{into}`, of type `{kind}`, holds nothing: a node goes into a stack, a grid, a frame, or a group"
+            ));
+        }
+        if into == node {
+            return Err(format!("`{node}` cannot hold itself"));
+        }
+    }
     let spot = match serde_json::to_value(spot).map_err(|e| e.to_string())? {
         Value::Object(spot) => spot,
         _ => Map::new(),
@@ -438,7 +450,11 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
         Some((_, props)) => props.get("at").and_then(Value::as_object).cloned().unwrap_or_default(),
         None => at_of(own),
     };
-    let parent = now.get("parent").and_then(Value::as_str);
+    // What holds it there: the container `spot` names, or none for the canvas; else its own.
+    let parent = match spot.get("parent") {
+        Some(into) => into.as_str(),
+        None => now.get("parent").and_then(Value::as_str),
+    };
     let within = parent.map(|p| d.kind(p).unwrap_or("untyped")).filter(|kind| *kind != "group");
     let (fits, how): (&[&str], String) = match (within, parent) {
         (Some("stack"), Some(p)) => {
@@ -456,7 +472,8 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
         return Err(format!("`{node}` is placed {how}"));
     }
     // `at` with `spot`'s placement: the other placement keys go, and those `away` names are
-    // taken away with `null` from what a delta or an override merges into.
+    // taken away with `null` from what a delta or an override merges into. A container it
+    // names is set; the canvas takes the container away.
     let placed = |mut at: Map<String, Value>, away: &dyn Fn(&str) -> bool| {
         at.retain(|k, _| !Spot::KEYS.contains(&k.as_str()));
         for key in Spot::KEYS {
@@ -466,13 +483,18 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
                 None => {}
             }
         }
+        match spot.get("parent") {
+            Some(Value::Null) if !away("parent") => drop(at.shift_remove("parent")),
+            Some(into) => drop(at.insert("parent".into(), into.clone())),
+            None => {}
+        }
         Value::Object(at)
     };
     // The deck's overrides win in every state: a placement they set is changed there, and
     // takes away every other placement the node has, its own or a state's.
     let overridden = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object);
     if let Some(over) = overridden.filter(|o| match o.get("at") {
-        Some(Value::Object(at)) => Spot::KEYS.iter().any(|k| at.contains_key(*k)),
+        Some(Value::Object(at)) => Spot::PLACED.iter().any(|k| at.contains_key(*k)),
         Some(Value::Null) => true,
         _ => false,
     }) {
@@ -497,7 +519,7 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
     let lives = match shown {
         Some((i, _)) => {
             let (deck, snapshots) = d.snapshots()?;
-            match if fork { Lives::State(i) } else { lives(&deck, i, node, "at", &Spot::KEYS) } {
+            match if fork { Lives::State(i) } else { lives(&deck, i, node, "at", &Spot::PLACED) } {
                 Lives::State(j) => {
                     // What the delta merges into: the node as the state it tracks from shows
                     // it, or, where it enters there, its own.

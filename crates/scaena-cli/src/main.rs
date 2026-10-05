@@ -115,15 +115,20 @@ enum Cmd {
         /// forward or backward past the next each overlaps, or to the front or the back.
         #[arg(long, value_name = "HOW", requires = "arrange")]
         order: Option<Order>,
-        /// The node `--arrange` names, listed just before NODE, another child of its container,
-        /// as `--layers` lists them (PLAN 2.50): painted just over it, or, in a stack, laid out
-        /// just before it.
+        /// The node `--arrange` names, listed just before NODE, as `--layers` lists them (PLAN
+        /// 2.50): painted just over it, or, in a stack, laid out just before it. Held by
+        /// another container, or by none, the node goes there with it, placed as that one
+        /// places what it holds.
         #[arg(long, value_name = "NODE", requires = "arrange")]
         before: Option<String>,
         /// The node `--arrange` names, listed just after NODE: painted just under it, or, in a
-        /// stack, laid out just after it.
+        /// stack, laid out just after it; into what holds it, as with `--before`.
         #[arg(long, value_name = "NODE", requires = "arrange")]
         after: Option<String>,
+        /// The node `--arrange` names, into the container NODE, listed first among what it
+        /// holds, placed as it places what it holds (PLAN 2.50).
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        into: Option<String>,
         /// Move the nodes `--arrange` names together `DX,DY` canvas units: the first snapped
         /// as a drag of it snaps, the rest as far as it went.
         #[arg(long, value_name = "DX,DY", value_parser = point, requires = "arrange", allow_hyphen_values = true)]
@@ -468,6 +473,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             order,
             before,
             after,
+            into,
             by,
             free,
             choices,
@@ -492,6 +498,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 order,
                 before,
                 after,
+                into,
                 by,
                 free,
                 choices,

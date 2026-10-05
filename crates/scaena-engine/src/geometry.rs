@@ -284,6 +284,21 @@ impl Targets {
         }
     }
 
+    /// The cells `cell` stands in on the tracks this node takes (the theme grid's, or a grid
+    /// container's): on each axis the tracks it overlaps by half the shorter of the two or
+    /// more, else the one nearest its middle (PLAN 2.50). Where a node moved into a grid lands,
+    /// a box smaller than a track in the track it is in. `None` without tracks.
+    pub fn standing(&self, cell: Rect) -> Option<Target> {
+        let (cols, rows) = (&self.columns, &self.rows);
+        if !matches!(self.by, By::Grid | By::Cells { .. }) || cols.is_empty() || rows.is_empty() {
+            return None;
+        }
+        let (c, r) = (stands(cols, cell[0], cell[2]), stands(rows, cell[1], cell[3]));
+        let rect = [cols[c.0][0], rows[r.0][0], cols[c.1][1] - cols[c.0][0], rows[r.1][1] - rows[r.0][0]];
+        let spot = Spot { col: Some(range(c)), row: Some(range(r)), ..Spot::default() };
+        Some(Target { cell: rect, spots: vec![(self.node.clone(), spot)] })
+    }
+
     /// The node `k`th among the other children of its stack, in the order the stack lays
     /// them out (PLAN 2.50): each child whose `at.index` that changes, renumbered from 0, and
     /// the guide, a line across the stack where the node goes. `None` outside a stack.
@@ -316,17 +331,27 @@ impl Targets {
 }
 
 /// Where `node` may go in the state `snap` resolves (with its overrides), laid out as
-/// `scene` (ADR-0013).
+/// `scene` (ADR-0013): in what holds it; or, `into` another container (the canvas for
+/// `None`), there, its cell the box it stands in now (PLAN 2.50).
 pub(crate) fn targets(
     deck: &Deck,
     theme: &Theme,
     snap: &Snapshot,
     scene: &Scene,
     node: &str,
+    into: Option<Option<&str>>,
 ) -> Result<Targets, EngineError> {
-    let missing = || EngineError::Layout(format!("`{node}` is not on screen in state `{}`", scene.state));
-    let place = scene.tree.get(node).ok_or_else(missing)?;
-    let at = snap.nodes.get(node).ok_or_else(missing)?.get("at");
+    let missing = |id: &str| EngineError::Layout(format!("`{id}` is not on screen in state `{}`", scene.state));
+    let place = scene.tree.get(node).ok_or_else(|| missing(node))?;
+    let shown = snap.nodes.get(node).ok_or_else(|| missing(node))?;
+    // Into another container, the node's own placement places it no more.
+    let at = if into.is_some() { None } else { shown.get("at") };
+    if let Some(Some(holder)) = into {
+        scene.tree.get(holder).ok_or_else(|| missing(holder))?;
+        if !deck.nodes.get(holder).is_some_and(|h| h.node_type.is_container()) {
+            return Err(EngineError::Layout(format!("`{holder}` holds nothing: it is not a container")));
+        }
+    }
     let canvas = [0.0, 0.0, scene.canvas[0], scene.canvas[1]];
     let mut t = Targets {
         node: node.to_string(),
@@ -338,11 +363,12 @@ pub(crate) fn targets(
         flow: Vec::new(),
         within: canvas,
     };
-    let parent = place.parent.as_deref().filter(|p| deck.nodes[*p].node_type != NodeType::Group);
+    let held_by = into.unwrap_or(place.parent.as_deref());
+    let parent = held_by.filter(|p| deck.nodes[*p].node_type != NodeType::Group);
     let Some(parent) = parent else {
         let grid = Grid::from_theme(theme, scene.canvas)?;
         let template = snap.layout.as_deref();
-        t.cell = grid.cell(theme, template, at)?;
+        t.cell = if into.is_some() { place.rect } else { grid.cell(theme, template, at)? };
         (t.columns, t.rows) = (grid.columns(), grid.rows());
         t.slots = slots(theme, &grid, template)?;
         return Ok(t);
@@ -395,9 +421,10 @@ pub(crate) fn targets(
             t.within = [w[0] + pad[3], w[1] + pad[0], w[2] - pad[1] - pad[3], w[3] - pad[0] - pad[2]];
             let rect: Option<[f32; 4]> =
                 at.and_then(|a| a.get("rect")).and_then(|r| serde_json::from_value(r.clone()).ok());
-            t.cell = match rect {
-                Some([x, y, w, h]) => [t.within[0] + x, t.within[1] + y, w, h],
-                None => t.within,
+            t.cell = match (into, rect) {
+                (Some(_), _) => place.rect,
+                (None, Some([x, y, w, h])) => [t.within[0] + x, t.within[1] + y, w, h],
+                (None, None) => t.within,
             };
         }
         _ => {}
@@ -464,6 +491,22 @@ fn covered(tracks: &[[f32; 2]], at: f32, size: f32) -> (usize, usize) {
     (first, nearest(tracks, 1, at + size, first))
 }
 
+/// The tracks a box from `at`, `size` long, stands in: those it overlaps by half the shorter
+/// of the two or more, first to last; else the one nearest its middle.
+fn stands(tracks: &[[f32; 2]], at: f32, size: f32) -> (usize, usize) {
+    let end = at + size;
+    let on: Vec<usize> = (0..tracks.len())
+        .filter(|&i| tracks[i][1].min(end) - tracks[i][0].max(at) >= 0.5 * (tracks[i][1] - tracks[i][0]).min(size))
+        .collect();
+    if let (Some(&first), Some(&last)) = (on.first(), on.last()) {
+        return (first, last);
+    }
+    let middle = at + size / 2.0;
+    let off = |[a, b]: [f32; 2]| (a - middle).max(middle - b).max(0.0);
+    let near = (0..tracks.len()).min_by(|&i, &j| off(tracks[i]).total_cmp(&off(tracks[j]))).unwrap_or(0);
+    (near, near)
+}
+
 /// `count` tracks from the one whose start is nearest `at`, as many as there are.
 fn shift(tracks: &[[f32; 2]], count: usize, at: f32) -> (usize, usize) {
     let count = count.clamp(1, tracks.len());
@@ -521,5 +564,21 @@ mod tests {
         assert!(!reaches(rule, [400.0, 493.0]) && !reaches(rule, [400.0, 508.0]));
         // Along its length it ends where it ends.
         assert!(!reaches(rule, [99.0, 500.0]) && !reaches(rule, [901.0, 500.0]));
+    }
+
+    #[test]
+    fn a_box_stands_in_the_tracks_it_overlaps_most() {
+        // Three tracks 90 long, 24 apart.
+        let tracks = [[0.0, 90.0], [114.0, 204.0], [228.0, 318.0]];
+        // A box smaller than a track, in the first, near the second's start: the first.
+        assert_eq!(stands(&tracks, 59.0, 30.0), (0, 0));
+        // Across the gutter, mostly in the second: the second; across half of each, both.
+        assert_eq!(stands(&tracks, 80.0, 100.0), (1, 1));
+        assert_eq!(stands(&tracks, 40.0, 130.0), (0, 1));
+        // In a gutter, overlapping neither: the one its middle is nearest.
+        assert_eq!(stands(&tracks, 92.0, 10.0), (0, 0));
+        assert_eq!(stands(&tracks, 106.0, 6.0), (1, 1));
+        // Past the last: the last.
+        assert_eq!(stands(&tracks, 400.0, 50.0), (2, 2));
     }
 }

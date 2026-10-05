@@ -8,10 +8,16 @@
 //   `hide_node`): one patch, one step to undo.
 // - A double click on a name, or F2, renames the node everywhere (`rename_node`): Enter renames,
 //   Escape leaves it.
-// - A node shown, dragged to another place among what holds it, or moved with Alt and an arrow
-//   key, goes there: before or after the one it is dropped on, by which half of it the pointer
-//   is over. It goes over or under it by `z`, or, in a stack, before or after it in its order
-//   (`Player.arranging`): one patch.
+// - A node shown, dragged to another place in the list, or moved with Alt and an arrow key, goes
+//   there (`Player.arranging`), one patch:
+//   - Before or after the one it is dropped on, by which half of it the pointer is over: over or
+//     under it by `z`, or, in a stack, before or after it in its order. Held by another
+//     container, or on the canvas, it goes there with it, placed as that one places what it
+//     holds (`place` with `parent`).
+//   - Into a container dropped on its middle, first among what it holds.
+//   - Alt with ↑ or ↓ moves it past the one before or after it; Alt with ← takes it out of its
+//     container, listed just before it; Alt with → puts it into the container listed just
+//     before it, last among what that holds.
 import type { Arrange, Edited, Layer } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -29,6 +35,8 @@ export interface LayersEditor {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** The types of node that hold others. */
+const CONTAINERS = new Set(["stack", "grid", "frame", "group"]);
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 /** The panel in `into`, over `stage`. */
@@ -77,7 +85,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
       const on = chosen.includes(l.node);
       const eye = l.shown ? `Hide ${l.node} in ${shown!.state}` : `Show ${l.node} in ${shown!.state}`;
       const held = (l.children ?? []).map((c) => row(c, depth + 1)).join("");
-      return `<li data-layer="${html(l.node)}" class="${l.shown ? "shown" : "hidden"}"${on ? ' aria-current="true"' : ""}>
+      const holds = CONTAINERS.has(l.type) ? " data-container" : "";
+      return `<li data-layer="${html(l.node)}" class="${l.shown ? "shown" : "hidden"}"${holds}${on ? ' aria-current="true"' : ""}>
         <div class="row" style="padding-left:${depth * 14}px"${l.shown ? ' draggable="true"' : ""}>
           <button type="button" class="eye" data-eye aria-pressed="${l.shown}" aria-label="${html(eye)}" title="${html(eye)}">${l.shown ? "◉" : "○"}</button>
           <button type="button" class="name" data-pick title="${html(l.shown ? `Select ${l.node} (double click or F2 renames it)` : `${l.node} is not shown in ${shown!.state} (double click or F2 renames it)`)}">${html(l.node)}</button>
@@ -109,13 +118,32 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     return making;
   }
 
-  /** `node`, listed just before or after another child of what holds it: one patch. */
-  function restack(node: string, how: { before: string } | { after: string }) {
+  /** What holds `node` as listed: a container's id, or `""` for the canvas. */
+  function holderOf(node: string): string | undefined {
+    const look = (all: Layer[], holder: string): string | undefined => {
+      for (const l of all) {
+        if (l.node === node) return holder;
+        const found = look(l.children ?? [], l.node);
+        if (found !== undefined) return found;
+      }
+    };
+    return shown && look(shown.layers, "");
+  }
+
+  /** `node`, listed just before or after another node, or first in a container: one patch.
+   * Held by another container, it goes into that one. */
+  function restack(node: string, how: { before: string } | { after: string } | { into: string }) {
     const state = shown?.state;
     if (!state) return;
-    const [where, to] = "before" in how ? ["before", how.before] : ["after", how.after];
     const ask = async () => (await stage.arranging(state, [node], how as Arrange, false, editor.format()))?.patch ?? [];
-    return make(ask, `moving ${node}…`, `${node} moved ${where} ${to}`, `${node} is ${where} ${to} already`);
+    if ("into" in how) {
+      return make(ask, `moving ${node}…`, `${node} moved into ${how.into}`, `${node} is first in ${how.into} already`);
+    }
+    const [where, to] = "before" in how ? ["before", how.before] : ["after", how.after];
+    const from = holderOf(node);
+    const there = holderOf(to);
+    const moved = there === undefined || there === from ? "" : there ? ` into ${there},` : " onto the canvas,";
+    return make(ask, `moving ${node}…`, `${node} moved${moved} ${where} ${to}`, `${node} is ${where} ${to} already`);
   }
 
   /** The children shown of what holds `node`, as listed, and where `node` is among them. */
@@ -192,24 +220,40 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
       const to = all[up ? at - 1 : at + 1];
       if (to === undefined) return editor.say(`${node} is ${up ? "first" : "last"} among what holds it`);
       void restack(node, up ? { before: to } : { after: to });
+    } else if (e.altKey && e.key === "ArrowLeft") {
+      // Out of its container: listed just before it, among what holds that.
+      e.preventDefault();
+      const holder = holderOf(node);
+      if (!holder) return editor.say(`${node} is on the canvas already`);
+      void restack(node, { before: holder });
+    } else if (e.altKey && e.key === "ArrowRight") {
+      // Into the container listed just before it: last among what that holds.
+      e.preventDefault();
+      const { all, at } = siblings(node);
+      const above = at > 0 ? shown && find(shown.layers, all[at - 1]) : undefined;
+      if (!above || !CONTAINERS.has(above.type)) return editor.say(`${node} has no container just before it to go into`);
+      const last = (above.children ?? []).filter((c) => c.shown).at(-1);
+      void restack(node, last ? { after: last.node } : { into: above.node });
     }
   };
 
-  // A node shown dragged among the others its container holds: it drops before or after the one
-  // under the pointer, by which half the pointer is over.
+  // A node shown dragged through the list: it drops before or after the one under the pointer,
+  // by which half the pointer is over, or, on a container's middle half, into it.
   let dragging: string | undefined;
   const rowOf = (e: DragEvent) => (e.target as Element).closest<HTMLElement>("li[data-layer]");
-  const holderOf = (li: HTMLElement) => li.parentElement?.closest<HTMLElement>("li[data-layer]")?.dataset.layer ?? "";
-  const half = (e: DragEvent, li: HTMLElement) => {
+  const half = (e: DragEvent, li: HTMLElement): "before" | "after" | "into" => {
     const r = li.querySelector(".row")!.getBoundingClientRect();
-    return e.clientY < r.top + r.height / 2 ? "before" : "after";
+    const at = (e.clientY - r.top) / r.height;
+    if (li.dataset.container !== undefined && at >= 0.25 && at < 0.75) return "into";
+    return at < 0.5 ? "before" : "after";
   };
-  const unmark = () => list.querySelectorAll(".drop-before, .drop-after").forEach((li) => li.classList.remove("drop-before", "drop-after"));
-  /** The row the dragged node may drop beside: shown, another child of what holds it. */
+  const unmark = () =>
+    list.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((li) => li.classList.remove("drop-before", "drop-after", "drop-into"));
+  /** The row the dragged node may drop on: shown, and neither the node nor what it holds. */
   const target = (e: DragEvent) => {
     const li = rowOf(e);
     const from = dragging === undefined ? undefined : list.querySelector<HTMLElement>(`li[data-layer="${CSS.escape(dragging)}"]`);
-    if (!li || !from || li === from || !li.classList.contains("shown") || holderOf(li) !== holderOf(from)) return undefined;
+    if (!li || !from || from.contains(li) || !li.classList.contains("shown")) return undefined;
     return li;
   };
   list.ondragstart = (e) => {
@@ -235,7 +279,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (!li || node === undefined) return;
     e.preventDefault();
     const to = li.dataset.layer!;
-    void restack(node, half(e, li) === "before" ? { before: to } : { after: to });
+    const where = half(e, li);
+    void restack(node, where === "into" ? { into: to } : where === "before" ? { before: to } : { after: to });
   };
   list.ondragend = () => {
     dragging = undefined;
