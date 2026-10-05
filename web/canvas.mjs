@@ -91,7 +91,8 @@ try {
     await page.evaluate((offset) => window.scaena.cursor(offset), at);
     await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, index, { timeout: 30000 });
     await page.waitForFunction((s) => document.querySelector("#listing h2")?.textContent.startsWith(s), state, { timeout: 30000 });
-    await page.waitForFunction(() => window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+    // The canvas's boxes are the shown state's, not the one shown before it.
+    await page.waitForFunction((s) => window.scaena.canvas.boxed() === s && window.scaena.canvas.boxes().length > 0, state, { timeout: 30000 });
   };
   /** Press at `from`, move past the slop and on to `to` with `keys` held, and wait until the
    * status says where it lands; then let go, unless `hold`. The status as it was then. */

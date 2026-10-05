@@ -60,7 +60,7 @@ try {
   const at = (await source()).indexOf("state revenue") + "state ".length;
   await page.evaluate((offset) => window.scaena.cursor(offset), at);
   await page.waitForFunction(() => window.scaena.shown() === 1 && window.scaena.at().index === 1, null, { timeout: 30000 });
-  await page.waitForFunction(() => window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.scaena.canvas.boxed() === "revenue" && window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
   const original = await source();
 
   // Selecting the title shows what the theme offers for it, and where its role lives.
