@@ -8,6 +8,7 @@ import type {
   AssistantEvent,
   At,
   Edited,
+  Export,
   Found,
   FromWorker,
   Grouped,
@@ -53,6 +54,7 @@ type Reply = Extract<
       | "inspected"
       | "saved"
       | "zipped"
+      | "exported"
       | "dropped"
       | "models"
       | "reloaded"
@@ -487,6 +489,11 @@ export class Stage {
     return this.request<"zipped">({ type: "zip", id: ++this.asked, source });
   }
 
+  /** The deck `source` compiles to, exported `as` asks (PLAN 2.54): the file's bytes. */
+  export(source: string, as: Export): Promise<ArrayBuffer> {
+    return this.request<"exported">({ type: "export", id: ++this.asked, source, as }).then(({ bytes }) => bytes);
+  }
+
   /** Add a file dropped on the page to the bundle; resolves to its path there. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
@@ -578,6 +585,7 @@ export class Stage {
       case "inspected":
       case "saved":
       case "zipped":
+      case "exported":
       case "dropped":
       case "models":
       case "reloaded":

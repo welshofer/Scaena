@@ -95,6 +95,7 @@ The editor's bar starts, opens, and keeps bundles (PLAN 2.4, 2.12, SPEC §9.2):
 | Save, ⌘S | the bundle as `scaena save` writes it, fonts whole, where it is kept. A bundle from a URL goes into the browser's storage under its name, and the address says `?bundle=opfs:NAME` from then on. The source takes the save's renames, and nothing else in it changes. A source that does not compile is not saved. |
 | Save as… | the bundle saved as Save does, somewhere new, and kept there: under another name in the browser's storage (`name-2`, … where that is taken), or in a folder on disk where File System Access is, kept by name as an opened folder is. A served bundle saves to its folder alone. |
 | Download .scaena | the bundle as a zip, its fonts subset by the subsetter's own module, which loads the first time. |
+| Export… | the state shown as a PNG at a width asked, the deck as a PDF (drawn by the PDF writer's own module, which loads the first time), or the deck as one HTML file that plays offline: each what `scaena export` writes, made in the worker and downloaded (PLAN 2.54). |
 
 A file dropped on the source joins the bundle: an image under `assets/`, named by its SHA-256, a font under `fonts/`, a data file under `data/`. Its path, quoted, goes where it was dropped, as an image node's source: `photo image "assets/…png" at:in(figure)`. A `.scaena` file dropped opens instead. The page warns before it closes or opens over changes not saved.
 

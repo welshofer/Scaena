@@ -14,6 +14,7 @@ use crate::{Error, Session};
 use scaena_core::{Deck, Severity};
 use scaena_ops::OpsError;
 use scaena_ops::create::{Create, creating};
+use scaena_ops::export::Progress;
 use scaena_ops::lint::Why;
 use scaena_store::crdt::{FS, OUTSIDE, Recorded};
 use scaena_store::subset::SubsetError;
@@ -140,7 +141,13 @@ impl Session {
             }
             _ => Ok(None),
         };
-        let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| match self.subsets.get(font) {
+        let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| self.subset(font, chars);
+        self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// `font`'s subset for `chars`, as the page handed it over ([`Session::add_subset`]).
+    fn subset(&self, font: &str, chars: &BTreeSet<char>) -> Result<Vec<u8>, StoreError> {
+        match self.subsets.get(font) {
             Some((kept, bytes)) if kept.chars().eq(chars.iter().copied()) => Ok(bytes.clone()),
             kept => {
                 let why = if kept.is_some() {
@@ -150,8 +157,29 @@ impl Session {
                 };
                 Err(StoreError::Subset(font.to_string(), SubsetError::Subset(format!("{why}: subset it again"))))
             }
-        };
-        self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))
+        }
+    }
+
+    /// The deck's pages laid out for its PDF (PLAN 2.54): each at rest on the deck's canvas, as
+    /// `scaena export --format pdf` orders them, with the fonts and images the frames name, as
+    /// bytes the PDF's own module (`scaena-pdf`) draws. This module carries no PDF writer: only
+    /// an export draws one (SPEC §15).
+    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, Error> {
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&self.bundle(), None, &Progress::default())
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        laid.to_bytes().map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file player's
+    /// page, filled in with the bundle as `scaena export --format html` fills it, named `name`:
+    /// the bundle as a save that subsets writes it, its fonts the subsets handed over
+    /// ([`Session::subsetting`]).
+    pub fn standalone(&self, page: &str, name: &str) -> Result<String, Error> {
+        let saved = || self.save("", true, None).map(|saving| saving.files).map_err(|e| OpsError::new(e.to_string()));
+        let (html, _) =
+            scaena_ops::export::standalone_with(&self.bundle(), None, page, name, &Progress::default(), saved)
+                .map_err(|e| Error::Ops(e.to_string()))?;
+        Ok(html)
     }
 
     /// What a save of `saved`, the deck as saved, records in the bundle's history, at `at`
@@ -348,6 +376,48 @@ mod tests {
         s.set_deck(deck);
         let stale = s.save(NOW, true, None).unwrap_err().to_string();
         assert!(stale.contains("its subset keeps other characters"), "{stale}");
+    }
+
+    /// What the editor exports (PLAN 2.54) is what `scaena export` writes for the same bundle:
+    /// a state as a PNG at the size asked, the pages its PDF draws, and the single file, its
+    /// fonts subset by the page's subsetter.
+    #[test]
+    fn the_editor_exports_what_scaena_export_writes() {
+        let path = "../../tests/bench/b1.scaena";
+        let disk = Bundle::open(Path::new(path)).unwrap();
+        let mut s = Session::open(files(path)).unwrap();
+        let state = s.states()[1].clone();
+        let dir = std::env::temp_dir().join(format!("scaena-wasm-png-{}", std::process::id()));
+        let req = scaena_ops::export::Request {
+            format: "png".into(),
+            states: Some(vec![state.clone()]),
+            out: Some(dir.clone()),
+            size: Some("960x540".into()),
+            ..Default::default()
+        };
+        scaena_ops::export::export(&disk, &req).unwrap();
+        let cli = std::fs::read(dir.join(format!("{state}.png"))).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(s.png(&state, 960).unwrap() == cli, "{state}: the PNG differs from the CLI's");
+        assert!(s.png("nowhere", 960).is_err());
+
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&disk, None, &Progress::default()).unwrap();
+        assert!(s.pdf_laid_out().unwrap() == laid.to_bytes().unwrap(), "the PDF's pages differ from the CLI's");
+
+        let page = r#"<html lang="__SCAENA_LANG__"><title>__SCAENA_TITLE__</title><body><!--__SCAENA_DECK__--></body>"#;
+        let unsubset = s.standalone(page, "b1").unwrap_err().to_string();
+        assert!(unsubset.contains("no subset of it was handed over"), "{unsubset}");
+        subset_all(&mut s);
+        let saved = || {
+            let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
+            let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
+                scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
+            };
+            Ok(disk.saving_with(&opts, |_| Ok(None), subset)?.files)
+        };
+        let (cli, _) =
+            scaena_ops::export::standalone_with(&disk, None, page, "b1", &Progress::default(), saved).unwrap();
+        assert!(s.standalone(page, "b1").unwrap() == cli, "the single file differs from the CLI's");
     }
 
     #[test]

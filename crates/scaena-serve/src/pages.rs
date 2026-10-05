@@ -9,6 +9,10 @@ include!(concat!(env!("OUT_DIR"), "/pages.rs"));
 #[cfg(not(pages))]
 static PAGES: &[(&str, &[u8])] = &[];
 
+/// The page a single-file export fills in, beside the editor's (PLAN 2.54). The build leaves it out
+/// of the pages: it is the one `export --format html` fills in, which the binary carries already.
+pub const SINGLE_FILE: &str = "standalone.html";
+
 /// Whether this build carries the pages.
 pub fn built() -> bool {
     !PAGES.is_empty()

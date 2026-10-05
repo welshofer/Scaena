@@ -18,3 +18,4 @@ __pycache__/
 /crates/scaena-history/pkg/
 /node_modules/
 /crates/scaena-resources/pkg/
+/crates/scaena-pdf/pkg/

@@ -130,3 +130,63 @@ export async function shoot(page, frames, dir, label, failures) {
   }
   return ms;
 }
+
+/** SPEC §13.5, as scaena-paint's `diff::compare` holds two rasters to it: ΔE (Oklab × 100) of each
+ * pixel over white, the anti-aliased edges (a step over 8 between 4-neighbors, in either raster,
+ * grown by a pixel) left out, at most 1.0 on all but 0.1% of the rest; and no pixel anywhere a step
+ * of 128 or more in a channel. `a` and `b` as `decode` gives them: `{ passes, said }`. */
+export function compare(a, b) {
+  if (a.width !== b.width || a.height !== b.height) return { passes: false, said: `${a.width} × ${a.height} against ${b.width} × ${b.height}` };
+  const [w, h, n] = [a.width, a.height, a.width * a.height];
+  // A fully transparent pixel is one value, whatever its color channels hold.
+  const packed = (r) => Uint32Array.from({ length: n }, (_, i) => (r.rgba[i * 4 + 3] === 0 ? 0 : r.rgba.readUInt32LE(i * 4)));
+  const [pa, pb] = [packed(a), packed(b)];
+  const step = (p, q) => {
+    let most = 0;
+    for (let k = 0; p !== q && k < 32; k += 8) most = Math.max(most, Math.abs(((p >>> k) & 255) - ((q >>> k) & 255)));
+    return most;
+  };
+  const edges = new Uint8Array(n);
+  for (const px of [pa, pb]) {
+    for (let i = 0; i < n; i++) {
+      if ((i + 1) % w !== 0 && step(px[i], px[i + 1]) > 8) edges[i] = edges[i + 1] = 1;
+      if (i + w < n && step(px[i], px[i + w]) > 8) edges[i] = edges[i + w] = 1;
+    }
+  }
+  const mask = edges.slice();
+  for (let i = 0; i < n; i++) {
+    if (!edges[i]) continue;
+    const [x, y] = [i % w, Math.floor(i / w)];
+    for (let ny = Math.max(0, y - 1); ny < Math.min(h, y + 2); ny++) for (let nx = Math.max(0, x - 1); nx < Math.min(w, x + 2); nx++) mask[ny * w + nx] = 1;
+  }
+  const oklab = (p) => {
+    const alpha = (p >>> 24) / 255;
+    const linear = (c) => {
+      const v = (c / 255) * alpha + (1 - alpha);
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    const [r, g, b] = [linear(p & 255), linear((p >>> 8) & 255), linear((p >>> 16) & 255)];
+    const l = Math.cbrt(0.41222147 * r + 0.53633255 * g + 0.05144599 * b);
+    const m = Math.cbrt(0.2119035 * r + 0.6806995 * g + 0.10739696 * b);
+    const s = Math.cbrt(0.08830246 * r + 0.28171885 * g + 0.6299787 * b);
+    return [0.21045426 * l + 0.7936178 * m - 0.004072047 * s, 1.9779985 * l - 2.4285922 * m + 0.4505937 * s, 0.025904037 * l + 0.78277177 * m - 0.80867577 * s];
+  };
+  let [compared, over, maxDeltaE, maxChannel, differing] = [0, 0, 0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const s = step(pa[i], pb[i]);
+    maxChannel = Math.max(maxChannel, s);
+    differing += s > 0;
+    if (mask[i]) continue;
+    compared++;
+    if (s > 0) {
+      const [p, q] = [oklab(pa[i]), oklab(pb[i])];
+      const delta = 100 * Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      maxDeltaE = Math.max(maxDeltaE, delta);
+      over += delta > 1;
+    }
+  }
+  return {
+    passes: over <= 0.001 * compared && maxChannel < 128,
+    said: `${over} of ${compared} compared px over ΔE 1 (max ΔE ${maxDeltaE.toFixed(2)}); ${differing} px differ anywhere (max channel step ${maxChannel})`,
+  };
+}

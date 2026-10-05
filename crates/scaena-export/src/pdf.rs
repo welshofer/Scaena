@@ -47,6 +47,7 @@ use scaena_core::document::Section;
 use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU16;
@@ -78,6 +79,112 @@ impl Default for PdfSettings {
     fn default() -> Self {
         Self { shader_scale: 2.0, shader_quality: Some(90) }
     }
+}
+
+/// A deck's pages laid out for a PDF (PLAN 2.54): the deck, each page's state and frame, and the
+/// bytes of the fonts and images the frames name. Where no engine is, as in the PDF's own module
+/// in the browser, [`prepared`] draws it: the editor's module lays the pages out, and hands this
+/// over as bytes ([`Prepared::to_bytes`]).
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    pub deck: Deck,
+    pub pages: Vec<Page>,
+    /// Font files, by the id the frames name each by.
+    pub fonts: BTreeMap<String, Vec<u8>>,
+    /// PNG files, by their content id.
+    pub images: BTreeMap<String, Vec<u8>>,
+}
+
+/// What [`Prepared::to_bytes`] begins with.
+const PREPARED: &[u8; 4] = b"SPDF";
+
+/// [`Prepared`]'s header, as JSON: the deck, and each page's state, then each font's id and
+/// each image's, each with the length of its bytes.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Header {
+    deck: String,
+    pages: Vec<(String, usize)>,
+    fonts: Vec<(String, usize)>,
+    images: Vec<(String, usize)>,
+}
+
+impl Prepared {
+    /// As bytes: `SPDF`; the length of a JSON header, four bytes, little-endian; the header,
+    /// which holds the deck, and each page's state and each file's id, each with the length of
+    /// its bytes; then each page's frame (postcard, as the engine's module hands frames over),
+    /// each font's bytes, and each image's, in the header's order.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ExportError> {
+        let bad = |e: &dyn std::fmt::Display| ExportError::Pdf(e.to_string());
+        let deck = self.deck.to_json().map_err(|e| bad(&e))?;
+        let lists: Vec<Vec<u8>> =
+            (self.pages.iter()).map(|p| p.list.to_postcard()).collect::<Result<_, _>>().map_err(|e| bad(&e))?;
+        let pages = self.pages.iter().zip(&lists).map(|(p, list)| (p.state.clone(), list.len())).collect();
+        let sized = |files: &BTreeMap<String, Vec<u8>>| files.iter().map(|(id, b)| (id.clone(), b.len())).collect();
+        let header = Header { deck, pages, fonts: sized(&self.fonts), images: sized(&self.images) };
+        let header = serde_json::to_vec(&header).map_err(|e| bad(&e))?;
+        let length = u32::try_from(header.len()).map_err(|_| bad(&"the deck is over 4 GB as JSON"))?;
+        let blobs: Vec<&[u8]> = (lists.iter().map(Vec::as_slice))
+            .chain(self.fonts.values().map(Vec::as_slice))
+            .chain(self.images.values().map(Vec::as_slice))
+            .collect();
+        let mut out = Vec::with_capacity(8 + header.len() + blobs.iter().map(|b| b.len()).sum::<usize>());
+        out.extend_from_slice(PREPARED);
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&header);
+        for blob in blobs {
+            out.extend_from_slice(blob);
+        }
+        Ok(out)
+    }
+
+    /// From [`Prepared::to_bytes`]' bytes; any others are an error that says why.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Prepared, ExportError> {
+        let bad = |why: &str| ExportError::Pdf(format!("not a deck laid out for a PDF: {why}"));
+        let rest = bytes.strip_prefix(PREPARED).ok_or_else(|| bad("it does not begin `SPDF`"))?;
+        let (length, rest) = rest.split_first_chunk::<4>().ok_or_else(|| bad("it ends early"))?;
+        let length = u32::from_le_bytes(*length) as usize;
+        let (header, mut blobs) = rest.split_at_checked(length).ok_or_else(|| bad("its header ends early"))?;
+        let header: Header = serde_json::from_slice(header).map_err(|e| bad(&e.to_string()))?;
+        let deck = Deck::from_json(&header.deck).map_err(|e| bad(&e.to_string()))?;
+        let mut take = |what: &str, n: usize| -> Result<&[u8], ExportError> {
+            let (blob, next) = blobs.split_at_checked(n).ok_or_else(|| bad(&format!("{what} ends early")))?;
+            blobs = next;
+            Ok(blob)
+        };
+        let mut pages = Vec::with_capacity(header.pages.len());
+        for (state, n) in header.pages {
+            let list = DisplayList::from_postcard(take(&format!("`{state}`'s frame"), n)?)
+                .map_err(|e| bad(&format!("`{state}`'s frame: {e}")))?;
+            pages.push(Page { state, list });
+        }
+        let mut files = |sized: Vec<(String, usize)>| -> Result<BTreeMap<String, Vec<u8>>, ExportError> {
+            let mut taken = BTreeMap::new();
+            for (id, n) in sized {
+                let file = take(&format!("`{id}`"), n)?.to_vec();
+                taken.insert(id, file);
+            }
+            Ok(taken)
+        };
+        let fonts = files(header.fonts)?;
+        let images = files(header.images)?;
+        if !blobs.is_empty() {
+            return Err(bad(&format!("it goes on past its last file ({} B)", blobs.len())));
+        }
+        Ok(Prepared { deck, pages, fonts, images })
+    }
+}
+
+/// `prepared` as a tagged PDF: [`pdf`], drawing from the fonts and images it carries.
+pub fn prepared(prepared: &Prepared, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+    let mut assets = Assets::new();
+    for (id, bytes) in &prepared.fonts {
+        assets.insert_font(id, bytes.clone());
+    }
+    for (id, bytes) in &prepared.images {
+        assets.insert_image(id, bytes).map_err(|e| ExportError::Pdf(format!("{id}: {e}")))?;
+    }
+    pdf(&prepared.deck, &prepared.pages, &assets, settings)
 }
 
 /// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`. krilla reads each font

@@ -937,6 +937,22 @@ impl Session {
         Ok(self.painter.paint(&dl, &self.store, scale)?)
     }
 
+    /// `state` at rest in the format shown, as a PNG `width` pixels wide, painted by the CPU
+    /// painter, the height keeping the canvas's aspect (PLAN 2.54): what
+    /// `scaena export --format png --size` writes for it on the deck's canvas. Neither a drag
+    /// nor a preview shown draws in it.
+    #[cfg(feature = "editor")]
+    pub fn png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, Error> {
+        use scaena_paint::Painter;
+        let timeline = self.timeline()?;
+        let slot = timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        // Its shaders at the time it comes to rest, as `frame` draws them there.
+        let time = (slot.start + slot.span) / 1000.0;
+        let dl = self.at_rest(state)?.draw_at(time);
+        let scale = width as f32 / dl.viewport[0];
+        Ok(self.painter.paint(&dl, &self.store, scale)?.to_png()?)
+    }
+
     /// Hold [`Session::pixels`]' frame until its shaders' pixels are in, and say how many
     /// shaders it draws: each one's rows are worked out in bands, here ([`Session::shade`])
     /// or on another worker from its spec ([`Session::shader_spec`], [`shader_rows`]), then
@@ -1643,6 +1659,26 @@ impl Player {
     /// deck's from then on.
     pub fn adopt(&mut self, saved: &SavedBundle) -> Result<(), JsError> {
         self.0.adopt(&saved.0).map_err(js)
+    }
+
+    /// `state` at rest in the format shown, as a PNG `width` pixels wide, painted by the CPU
+    /// painter (PLAN 2.54): what `scaena export --format png --size` writes for it.
+    pub fn png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {
+        self.0.png(state, width).map_err(js)
+    }
+
+    /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
+    /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54).
+    #[wasm_bindgen(js_name = pdfLaidOut)]
+    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, JsError> {
+        self.0.pdf_laid_out().map_err(js)
+    }
+
+    /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file
+    /// player's page, filled in with the bundle as `scaena export --format html` fills it, and
+    /// named `name`. Its fonts are subset first, as for a save (`subsetting`, `addSubset`).
+    pub fn standalone(&self, page: &str, name: &str) -> Result<String, JsError> {
+        self.0.standalone(page, name).map_err(js)
     }
 
     /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a

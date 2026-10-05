@@ -13,7 +13,7 @@ use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use scaena_export::Format;
 use scaena_export::html::Standalone;
-use scaena_export::pdf::{Page, pdf};
+use scaena_export::pdf::{Page, Prepared, prepared};
 use scaena_export::svg::{SvgSettings, svg};
 use scaena_export::video::{Chapter, Codec, VideoSettings};
 use scaena_paint::cpu::CpuPainter;
@@ -166,6 +166,13 @@ pub fn unit(format: &str) -> &'static str {
     }
 }
 
+/// The page a single-file export fills in (PLAN 2.5), as this build carries it: none in one built
+/// before `just web`. `scaena serve` serves it beside the editor, which fills it in to export one
+/// (PLAN 2.54).
+pub fn single_file_page() -> Option<&'static str> {
+    scaena_export::html::player()
+}
+
 /// The bundle's deck exported as `req` asks, written to `req.out`.
 pub fn export(b: &Bundle, req: &Request) -> Result<Exported, OpsError> {
     export_watched(b, req, &Progress::default())
@@ -272,6 +279,28 @@ fn standalone(
     page: &str,
     progress: &Progress,
 ) -> Result<(String, Vec<String>), OpsError> {
+    let saved = || {
+        let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
+        let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
+            scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
+        };
+        Ok(b.saving_with(&opts, |_| Ok(None), subset)?.files)
+    };
+    standalone_with(b, states, page, &bundle_name(b), progress, saved)
+}
+
+/// The deck as one HTML file that plays offline, as [`standalone`] makes it, named `name`, the
+/// bundle in it what `saved` gives: what a save writes with fonts subset to what the deck draws,
+/// no history recorded, and no time (`SaveOptions { subset_fonts: true, .. }`). In the browser,
+/// that is the page's own save, its fonts subset by the subsetter's module (PLAN 2.54).
+pub fn standalone_with(
+    b: &Bundle,
+    states: Option<&[String]>,
+    page: &str,
+    name: &str,
+    progress: &Progress,
+    saved: impl FnOnce() -> Result<BTreeMap<String, Vec<u8>>, OpsError>,
+) -> Result<(String, Vec<String>), OpsError> {
     let pages = named(&b.deck, states)?;
     progress.start(pages.len());
     let theme = crate::theme(b)?;
@@ -285,16 +314,9 @@ fn standalone(
         read.push((state.clone(), scaena_core::reading::html(&b.deck, snap, &list)));
         progress.step();
     }
-    let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
-    let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
-        scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
-    };
-    let saved = b.saving_with(&opts, |_| Ok(None), subset)?;
-    let files: BTreeMap<String, Vec<u8>> = (saved.files.into_iter())
-        .filter(|(path, _)| path != "manifest.json" && !path.starts_with("history/"))
-        .collect();
-    let name = bundle_name(b);
-    let standalone = Standalone { deck: &b.deck, name: &name, files: &files, states: &read };
+    let files: BTreeMap<String, Vec<u8>> =
+        (saved()?.into_iter()).filter(|(path, _)| path != "manifest.json" && !path.starts_with("history/")).collect();
+    let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
     let html = scaena_export::html::html(page, &standalone).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((html, pages))
 }
@@ -423,19 +445,40 @@ pub fn pdf_pages(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<
 /// The bundle's engine, and the assets its display lists name: fonts by bundle id, images
 /// by content id.
 fn engine(b: &Bundle, theme: &Theme) -> Result<(Engine, Assets), OpsError> {
-    let mut fonts = BundleFonts::new();
+    let (engine, files) = engine_files(b, theme)?;
     let mut assets = Assets::new();
+    for (id, bytes) in files.fonts {
+        assets.insert_font(&id, bytes);
+    }
+    for (id, bytes) in &files.images {
+        assets.insert_image(id, bytes)?;
+    }
+    Ok((engine, assets))
+}
+
+/// The bytes of the files a bundle's display lists name: fonts by bundle id, images by content
+/// id.
+#[derive(Default)]
+struct Named {
+    fonts: BTreeMap<String, Vec<u8>>,
+    images: BTreeMap<String, Vec<u8>>,
+}
+
+/// The bundle's engine, and the bytes of the files its display lists name.
+fn engine_files(b: &Bundle, theme: &Theme) -> Result<(Engine, Named), OpsError> {
+    let mut fonts = BundleFonts::new();
+    let mut named = Named::default();
     for (id, bytes) in b.read_fonts()? {
-        assets.insert_font(&id, bytes.clone());
+        named.fonts.insert(id.clone(), bytes.clone());
         fonts.register(&id, bytes)?;
     }
     fonts.check_theme(theme)?;
     let mut images = BundleImages::new();
     for (path, bytes) in b.read_images()? {
         let info = images.register(&path, &bytes)?;
-        assets.insert_image(&info.id, &bytes)?;
+        named.images.insert(info.id, bytes);
     }
-    Ok((Engine::new(fonts).with_images(images), assets))
+    Ok((Engine::new(fonts).with_images(images), named))
 }
 
 /// A state at rest, laid out on the deck's canvas.
@@ -466,18 +509,32 @@ fn document(
     settings: &PdfSettings,
     progress: &Progress,
 ) -> Result<(Vec<u8>, Vec<String>), OpsError> {
+    let (laid, pages) = pdf_laid_out(b, states, progress)?;
+    let bytes = prepared(&laid, settings).map_err(|e| OpsError::new(e.to_string()))?;
+    Ok((bytes, pages))
+}
+
+/// The deck's PDF laid out, and the state each page draws (PLAN 2.54): its pages at rest, as
+/// [`pdf_pages`] orders them, and the bytes of the fonts and images they name. Drawn here, it is
+/// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
+/// module draws it ([`scaena_export::pdf::prepared`]), the same bytes.
+pub fn pdf_laid_out(
+    b: &Bundle,
+    states: Option<&[String]>,
+    progress: &Progress,
+) -> Result<(Prepared, Vec<String>), OpsError> {
     let pages = pdf_pages(&b.deck, states)?;
     progress.start(pages.len());
     let theme = crate::theme(b)?;
     let data = data_files(b)?;
-    let (mut engine, assets) = engine(b, &theme)?;
+    let (mut engine, named) = engine_files(b, &theme)?;
     let mut drawn = Vec::with_capacity(pages.len());
     for state in &pages {
         drawn.push(Page { state: state.clone(), list: at_rest(&mut engine, b, &theme, &data, state)? });
         progress.step();
     }
-    let bytes = pdf(&b.deck, &drawn, &assets, settings).map_err(|e| OpsError::new(e.to_string()))?;
-    Ok((bytes, pages))
+    let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
+    Ok((laid, pages))
 }
 
 /// An image of each state at rest, in `dir`: `<state>.png` by the CPU painter, or

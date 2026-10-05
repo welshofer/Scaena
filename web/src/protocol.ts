@@ -29,6 +29,18 @@ export type Source =
  * browser's storage under a name (`name-2`, … where that is taken). */
 export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
 
+/** What the editor exports (PLAN 2.54, SPEC §10), each as `scaena export` writes it:
+ * - `png`: `state` at rest in `format` (the deck's canvas without one), `width` pixels wide, the
+ *   height keeping the canvas's aspect, painted by the CPU painter;
+ * - `pdf`: the deck, each slide at its last state, drawn by the PDF's own module, which the
+ *   worker loads the first time a PDF is asked for;
+ * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
+ *   player's page, filled in with the bundle, its fonts subset. */
+export type Export =
+  | { kind: "png"; state: string; width: number; format?: string }
+  | { kind: "pdf" }
+  | { kind: "html"; page: string; name: string };
+
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
  * kept nowhere until it is saved. */
@@ -441,6 +453,10 @@ export type ToWorker =
   /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
    * what the deck draws. */
   | { type: "zip"; id: number; source: string }
+  /** Export the deck `source` compiles to (PLAN 2.54), made here for the page to download:
+   * nothing is sent anywhere. A source that does not compile, or a deck that does not validate,
+   * is not exported. */
+  | { type: "export"; id: number; source: string; as: Export }
   /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
    * is named by its SHA-256 (`Player.place`). */
   | { type: "drop"; id: number; name: string; bytes: ArrayBuffer }
@@ -770,6 +786,8 @@ export type FromWorker =
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
    * after, bytes. */
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
+  /** What `export` made: a PNG, a PDF, or an HTML file's bytes. */
+  | { type: "exported"; id: number; bytes: ArrayBuffer }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
   /** A step of the assistant's answer to `ask` request `id`. */

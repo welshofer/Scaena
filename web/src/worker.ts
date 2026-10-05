@@ -22,6 +22,7 @@ import type {
   Carets,
   Choices,
   Edited,
+  Export,
   Finding,
   FromHelper,
   FromWorker,
@@ -286,6 +287,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         } finally {
           saved.free();
         }
+      }
+      case "export": {
+        saveable(data.source);
+        const bytes = (await exporting(data.as)).slice().buffer as ArrayBuffer;
+        return post({ type: "exported", id: data.id, bytes }, [bytes]);
       }
       case "drop": {
         const bytes = new Uint8Array(data.bytes);
@@ -571,6 +577,32 @@ async function subsetFonts() {
       throw new Error(`${font} could not be subset (${said(e)}): the font file may be damaged`);
     }
     player.addSubset(font, chars, subset);
+  }
+}
+
+/** What `export` asks for (PLAN 2.54), each as `scaena export` writes it. The PDF's own
+ * module draws a PDF, loaded the first time one is asked for: the engine's module lays the
+ * pages out and leaves the PDF writer out (SPEC §15). A single file's fonts are subset first,
+ * as a download's are. */
+async function exporting(what: Export): Promise<Uint8Array> {
+  switch (what.kind) {
+    case "png":
+      layOut(what.format);
+      return player.png(what.state, what.width);
+    case "pdf": {
+      const laid = player.pdfLaidOut();
+      const module = await import("@scaena/pdf");
+      await module.default();
+      try {
+        return module.pdf(laid);
+      } catch (e) {
+        // A damaged font can stop krilla: a panic in the module is a trap here.
+        throw new Error(`the PDF could not be drawn (${said(e)}): a font file may be damaged`);
+      }
+    }
+    case "html":
+      await subsetFonts();
+      return new TextEncoder().encode(player.standalone(what.page, what.name));
   }
 }
 

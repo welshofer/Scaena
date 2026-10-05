@@ -232,6 +232,10 @@
       dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
+      #exporting fieldset { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; }
+      #exporting legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+      #exporting fieldset label { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
+      #exporting code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
       kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: nowrap; }
       #palette { width: min(34em, 92vw); padding: 8px; margin-top: 12vh; }
       #palette input { width: 100%; box-sizing: border-box; }
@@ -260,6 +264,7 @@
           <button id="save" title="Save where the bundle is kept (⌘S, Ctrl+S)">Save</button>
           <button id="save-as" title="Save the bundle somewhere new, and keep it there">Save as…</button>
           <button id="download" title="The bundle as a .scaena file, its fonts subset">Download .scaena</button>
+          <button id="export" title="The state shown as a PNG, or the deck as a PDF or one HTML file that plays offline">Export…</button>
           <a id="play" class="button" target="_blank" title="The player, on the bundle as last saved" hidden>Play</a>
           <button id="again" hidden></button>
           <span id="where"></span>
@@ -374,6 +379,24 @@
           <button value="cancel" formnovalidate>Cancel</button>
           <button type="button" id="saving-as-folder" hidden>A folder on disk…</button>
           <button value="opfs" id="saving-as-opfs">Keep in this browser</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="exporting" aria-labelledby="exporting-title">
+      <form method="dialog">
+        <h2 id="exporting-title">Export</h2>
+        <fieldset>
+          <legend>As</legend>
+          <label><input type="radio" name="as" value="png" checked /> The state shown, as a PNG</label>
+          <label><input type="radio" name="as" value="pdf" /> The deck, as a PDF</label>
+          <label><input type="radio" name="as" value="html" /> The deck, as one HTML file that plays offline</label>
+        </fieldset>
+        <label id="exporting-size">Width <input id="exporting-width" name="width" type="number" min="1" max="8192" step="1" required /> pixels</label>
+        <p class="note" id="exporting-note" aria-live="polite"></p>
+        <p class="note">Made here and downloaded, as <code>scaena export</code> writes it: nothing is sent anywhere.</p>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="export" id="exporting-go">Export</button>
         </menu>
       </form>
     </dialog>

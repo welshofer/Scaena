@@ -1,0 +1,20 @@
+[package]
+name = "scaena-pdf"
+description = "The PDF painter as its own WASM module, which the editor loads the first time it exports a PDF (PLAN 2.54)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+scaena-export.workspace = true
+wasm-bindgen.workspace = true
+
+[dev-dependencies]
+scaena-ops.workspace = true
+scaena-store.workspace = true

@@ -347,6 +347,26 @@ fn percent_decoded(s: &str) -> Option<String> {
 
 /// The page's file at `rel`, gzipped where the client takes gzip, as every browser does.
 fn page(rel: &str, headers: &HeaderMap, head: bool) -> Response<Body> {
+    // The page a single-file export fills in, which the editor fills in to export one (PLAN 2.54):
+    // the one `export --format html` fills in, which the binary carries already.
+    if rel == pages::SINGLE_FILE {
+        let Some(html) = scaena_ops::export::single_file_page() else {
+            return said(
+                StatusCode::NOT_FOUND,
+                "this scaena was built without the single-file page: build `just web`, then scaena",
+            );
+        };
+        let mut response = answer(
+            StatusCode::OK,
+            pages::media_type(rel),
+            if head { Bytes::new() } else { Bytes::from_static(html.as_bytes()) },
+            "no-cache",
+        );
+        if head {
+            response.headers_mut().insert(header::CONTENT_LENGTH, html.len().into());
+        }
+        return response;
+    }
     let Some(gzipped) = pages::gzipped(rel) else {
         return said(StatusCode::NOT_FOUND, "no such page");
     };

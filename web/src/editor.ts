@@ -51,7 +51,7 @@ import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
 import { looks } from "./look";
-import type { Arrange, Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
+import type { Arrange, Edited, Export, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
@@ -886,6 +886,51 @@ async function edit(source: Source) {
     return zipped;
   }
 
+  /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
+   * download it: `png`, the state shown at rest in the format shown, `width` pixels wide; `pdf`,
+   * each slide at its last state; `html`, the deck as one file that plays offline, the
+   * single-file player's page beside this one filled in. Each is made in the worker: nothing is
+   * sent anywhere. */
+  async function exportAs(as: "png" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+    let what: Export;
+    let file: string;
+    if (as === "png") {
+      const now = showing();
+      if (!now) {
+        say("not exported: no state is shown");
+        return;
+      }
+      const shownIn = format();
+      what = { kind: "png", state: now.state, width: width ?? board.size()[0], format: shownIn };
+      file = `${now.state}${shownIn ? `-${shownIn.replace(/[^\w.-]+/g, "x")}` : ""}.png`;
+    } else if (as === "pdf") {
+      what = { kind: "pdf" };
+      file = `${name}.pdf`;
+    } else {
+      const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
+      if (!page?.ok) {
+        say("not exported: this build of the editor carries no single-file page (build it with `just web`)");
+        return;
+      }
+      what = { kind: "html", page: await page.text(), name };
+      file = `${name}.html`;
+    }
+    say(`exporting ${file}…`);
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await stage.export(view.state.doc.toString(), what);
+    } catch (e) {
+      say(`not exported: ${said(e)}`);
+      return;
+    }
+    const type = { png: "image/png", pdf: "application/pdf", html: "text/html" }[as];
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    Object.assign(document.createElement("a"), { href: url, download: file }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    say(`downloaded ${file}, ${Math.max(1, Math.round(bytes.byteLength / 1024))} KB`);
+    return { file, bytes };
+  }
+
   /** Files dropped at `at` in the source: each joins the bundle, and its path, quoted, goes
    * there. A `.scaena` file opens instead. */
   async function drop(files: File[], at: number) {
@@ -1059,6 +1104,7 @@ async function edit(source: Source) {
       { label: "Add a slide", where: ["state"], applies: () => now() !== undefined, run: () => states.add("slide") },
       { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
       { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       { label: "Show the next state", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
       { label: "Show the state before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
     ];
@@ -1084,6 +1130,9 @@ async function edit(source: Source) {
       { label: "Save", keys: `${MOD}S`, run: () => save().catch(failed) },
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
       { label: "Download .scaena", run: () => download().catch(failed) },
+      { label: "Export the state shown as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
+      { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
+      { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
       { label: "Open a .scaena file…", run: () => $("#open-file").click() },
@@ -1200,6 +1249,43 @@ async function edit(source: Source) {
     await saveAs({ folder }).catch(failed);
   };
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
+  // Export…: the state shown as a PNG at a width asked, or the deck as a PDF or one HTML file.
+  const exporting = $<HTMLDialogElement>("#exporting");
+  const exportWidth = $<HTMLInputElement>("#exporting-width");
+  const exportNote = $("#exporting-note");
+  const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as "png" | "pdf" | "html";
+  /** What the export chosen makes, said under the choices. */
+  const noteExport = () => {
+    const as = chosenExport();
+    $("#exporting-size").hidden = as !== "png";
+    exportWidth.disabled = as !== "png";
+    const [w, h] = board.size();
+    const width = Number(exportWidth.value);
+    const now = showing()?.state;
+    exportNote.textContent = {
+      png: Number.isInteger(width) && width > 0
+        ? `${now ?? "The state shown"} at rest${format() ? ` in ${format()}` : ""}: ${width} × ${Math.round((h * width) / w)} pixels, painted by the CPU painter.`
+        : "A width in whole pixels: the height keeps the canvas's aspect.",
+      pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
+    }[as];
+  };
+  exporting.oninput = noteExport;
+  /** Open Export…, `as` chosen. */
+  const openExport = (as: "png" | "pdf" | "html" = "png") => {
+    exporting.querySelector<HTMLInputElement>(`input[name=as][value=${as}]`)!.checked = true;
+    exportWidth.value = String(Math.round(board.size()[0]));
+    noteExport();
+    exporting.returnValue = "";
+    exporting.showModal();
+    (as === "png" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
+  };
+  $<HTMLButtonElement>("#export").onclick = () => openExport();
+  exporting.onclose = () => {
+    if (exporting.returnValue !== "export") return;
+    const as = chosenExport();
+    void exportAs(as, as === "png" ? Number(exportWidth.value) : undefined).catch(failed);
+  };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
@@ -1257,6 +1343,9 @@ async function edit(source: Source) {
       /** Save as: `{ opfs: name }`, or `{ folder }` (any directory handle). */
       saveAs,
       download,
+      /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `pdf`, or `html`, as the
+       * Export dialog does; the file's name and bytes, also downloaded. */
+      exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),
       where: () => ({ name, where, dirty: dirty() }),

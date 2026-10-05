@@ -35,7 +35,7 @@ bless:
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
@@ -99,18 +99,20 @@ spike: wasm-smoke
 # subsetter, which a page loads to download a bundle, into crates/scaena-subset/pkg (PLAN 2.4),
 # the CRDT, which a page loads to save a bundle that keeps a history, into
 # crates/scaena-history/pkg (PLAN 2.9), what the assistant reads (the resources MCP serves)
-# into crates/scaena-resources/pkg (PLAN 2.6),
+# into crates/scaena-resources/pkg (PLAN 2.6), the PDF painter, which a page loads to export a
+# PDF, into crates/scaena-pdf/pkg (PLAN 2.54),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
 # what a single-file HTML export carries (PLAN 2.5). Cargo keeps each feature set's build, so
 # building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
 # release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
     wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
     wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
     wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
     cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
@@ -182,6 +184,7 @@ web-smoke: site
     node web/assistant.mjs
     node web/seeing.mjs
     node web/commands.mjs
+    node web/export.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs
