@@ -282,6 +282,13 @@ export type ToWorker =
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
+  /** What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+   * `node`'s text as `state` shows it (PLAN 2.38): the looks a run takes, which `style_text`
+   * sets, with the first character's. */
+  | { type: "characterChoices"; id: number; state: string; node: string; from: number; to: number }
+  /** What ⌘B gives those characters, from the weight the engine sets each in, in the deck the
+   * editor's `source` compiles to, laid out in `format` (PLAN 2.38): `style_text`'s `look`. */
+  | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The states `ops` (a patch) would change, with nothing made (ADR-0013). */
   | { type: "reach"; id: number; ops: unknown[] }
   /** What may be inserted in the deck (PLAN 2.34). */
@@ -540,6 +547,8 @@ export type FromWorker =
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
   | { type: "carets"; id: number; carets: Carets | null }
+  | { type: "characterChoices"; id: number; choices: Choices }
+  | { type: "bolding"; id: number; look: Record<string, unknown> }
   | { type: "reached"; id: number; states: string[] }
   | { type: "inserts"; id: number; inserts: Insert[] }
   /** The patch that adds a node: an insert, or a copy. */

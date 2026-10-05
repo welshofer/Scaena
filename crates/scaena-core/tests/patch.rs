@@ -638,6 +638,125 @@ fn replace_text_writes_typing_where_the_text_lives() {
 }
 
 #[test]
+fn style_text_gives_characters_a_look_where_the_text_lives() {
+    let shown = |doc: &Value, i: usize, node: &str| {
+        let snaps = scaena_core::resolve_states(&deck(doc)).unwrap();
+        snaps[i].nodes[node].clone()
+    };
+    let style = |doc: &Value, op: Value| patch(doc, json!([op])).unwrap().doc;
+    // `revenue` sets the title's text: "doubled" (characters 8 to 15) is bold there, as runs
+    // in its delta, and `mix`, which sets a text of its own, still reads it.
+    let bold = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "style/weight": 700 } });
+    let doc = style(&example(), bold.clone());
+    assert_eq!(
+        doc["states"][1]["props"]["title"],
+        json!({ "role": "headline", "semantic": "claim", "at": { "in": "header" },
+                "runs": [{ "text": "Revenue " }, { "text": "doubled", "style": { "weight": 700 } }] })
+    );
+    assert_eq!(doc["nodes"]["title"], example()["nodes"]["title"]);
+    assert_eq!(shown(&doc, 2, "title")["text"], "…and the mix shifted");
+    assert_eq!(shown(&doc, 2, "title").get("runs"), None);
+    assert_eq!(errors(&doc), Vec::<String>::new());
+
+    // Its neighbor made bold too joins it; both made plain again, the delta holds text again.
+    let both = style(
+        &doc,
+        json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 8, "look": { "style/weight": 700 } }),
+    );
+    assert_eq!(
+        both["states"][1]["props"]["title"]["runs"],
+        json!([{ "text": "Revenue doubled", "style": { "weight": 700 } }])
+    );
+    let plain = style(
+        &both,
+        json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 15, "look": { "style/weight": null } }),
+    );
+    assert_eq!(plain, example());
+
+    // A role, a color the theme names, and emphasis; characters, not bytes, counted.
+    let doc = json!({
+        "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "role": "body", "at": { "in": "title" },
+                   "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
+            "u": { "type": "text", "role": "body", "text": "Yo", "at": { "in": "body" } },
+        },
+        "overrides": { "u": { "text": "Hey" } },
+        "states": [{ "id": "a", "props": { "t": {}, "u": {} } }, { "id": "b", "props": { "t": { "runs": [{ "text": "Bye" }] } } }],
+    });
+    let look = json!({ "role": "caption", "style/color": "accent" });
+    let c = style(&doc, json!({ "op": "style_text", "node": "t", "state": "a", "from": 3, "to": 8, "look": look }));
+    assert_eq!(
+        c["nodes"]["t"]["runs"],
+        json!([
+            { "text": "Hel" },
+            { "text": "lo ", "role": "caption", "style": { "color": "accent" } },
+            { "text": "wö", "emphasis": "high", "role": "caption", "style": { "color": "accent" } },
+            { "text": "rld", "emphasis": "high" },
+            { "text": "!" },
+        ])
+    );
+    assert_eq!(c["states"][1], doc["states"][1], "`b` sets runs of its own");
+    let back = json!({ "role": null, "style/color": null });
+    let c = style(&c, json!({ "op": "style_text", "node": "t", "state": "a", "from": 3, "to": 8, "look": back }));
+    assert_eq!(c, doc);
+
+    // Text the deck's overrides set is styled there, and they hold runs in its place.
+    let c = style(
+        &doc,
+        json!({ "op": "style_text", "node": "u", "state": "a", "from": 0, "to": 3, "look": { "emphasis": "low" } }),
+    );
+    assert_eq!(c["overrides"]["u"], json!({ "runs": [{ "text": "Hey", "emphasis": "low" }] }));
+    assert_eq!(c["nodes"]["u"], doc["nodes"]["u"]);
+
+    // Forked, into the state's own delta.
+    let c = style(
+        &example(),
+        json!({ "op": "style_text", "node": "note", "state": "revenue", "from": 0, "to": 7, "look": { "style/weight": 600 }, "fork": true }),
+    );
+    assert_eq!(c["nodes"]["note"], example()["nodes"]["note"]);
+    assert_eq!(
+        c["states"][1]["props"]["note"]["runs"],
+        json!([{ "text": "Revenue", "style": { "weight": 600 } }, { "text": " in $M. Enterprise recognized on delivery." }])
+    );
+
+    for (op, says) in [
+        (
+            json!({ "op": "style_text", "node": "title", "from": 0, "to": 2, "look": { "style/size": 90 } }),
+            "comes with a role",
+        ),
+        (
+            json!({ "op": "style_text", "node": "title", "from": 0, "to": 2, "look": { "style/color": "#ff0000" } }),
+            "written out",
+        ),
+        (
+            json!({ "op": "style_text", "node": "title", "from": 0, "to": 2, "look": { "fit": "shrink" } }),
+            "a run's look is",
+        ),
+        (
+            json!({ "op": "style_text", "node": "title", "from": 0, "to": 2, "look": { "style/kerning": 1 } }),
+            "a run's look is",
+        ),
+        (
+            json!({ "op": "style_text", "node": "title", "from": 2, "to": 2, "look": { "emphasis": "high" } }),
+            "select no characters",
+        ),
+        (
+            json!({ "op": "style_text", "node": "title", "from": 0, "to": 10, "look": { "emphasis": "high" } }),
+            "9 characters",
+        ),
+        (
+            json!({ "op": "style_text", "node": "rev", "from": 0, "to": 1, "look": { "emphasis": "high" } }),
+            "a text node's characters",
+        ),
+        (json!({ "op": "style_text", "node": "title", "from": 0, "to": 1, "look": {} }), "look"),
+    ] {
+        let e = patch(&example(), json!([op])).unwrap_err();
+        assert!(e.to_string().contains(says), "{e}");
+    }
+}
+
+#[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
         "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },

@@ -196,6 +196,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format, behind);
         return post({ type: "carets", id: data.id, carets: JSON.parse(player.carets(data.state, data.node)) as Carets | null });
       }
+      case "characterChoices": {
+        const choices = JSON.parse(player.characterChoices(data.state, data.node, data.from, data.to)) as Choices;
+        return post({ type: "characterChoices", id: data.id, choices });
+      }
+      case "bolding": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        const look = JSON.parse(player.bolding(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
+        return post({ type: "bolding", id: data.id, look });
+      }
       case "type": {
         const typed = await type(data.source, data.ops, data.index, data.format);
         const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;

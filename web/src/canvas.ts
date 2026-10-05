@@ -16,7 +16,9 @@
 // - Before a patch is made, the status says which states it changes ("in 3 states"). It changes
 //   the placement where it lives; Alt keeps it to the state shown (`fork`).
 // - A double click on a text, or Enter on one selected, types in it where it stands (PLAN 2.32,
-//   `typing.ts`): with Alt, what is typed is kept to the state shown.
+//   `typing.ts`): with Alt, what is typed is kept to the state shown. There, ⌘B makes the
+//   characters selected bold, or not, and a role or a color chosen in the inspector is theirs
+//   (PLAN 2.38).
 // - Insert puts what the theme or the bundle offers where the pointer last pressed, or in the
 //   middle, snapped to the grid as a drop snaps, or a text or an image into the empty slot there;
 //   it enters in the state shown, selected (PLAN 2.34). Delete (or Backspace) takes the node
@@ -32,7 +34,7 @@
 import { CLIP } from "./protocol";
 import type { Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
-import { typing } from "./typing";
+import { type Selected, typing } from "./typing";
 
 /** What the canvas asks of the editor around it. */
 export interface Editor {
@@ -56,6 +58,10 @@ export interface Editor {
   say(text: string): void;
   /** The node selected is now `node`. */
   selected(node: string | undefined): void;
+  /** The characters selected in a text typed in are now `selected`, or none are (PLAN 2.38). */
+  chose(selected: Selected | undefined): void;
+  /** Whether focus gone to `to` keeps typing on: the inspector. */
+  keeps(to: EventTarget | null): boolean;
 }
 
 /** A node's `at`, resolved. */
@@ -232,6 +238,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     draw: () => draw(),
     unit,
     box: (node) => box(node)?.rect,
+    chose: (selected) => editor.chose(selected),
+    keeps: (to) => editor.keeps(to),
   });
 
   /** Type in `node` (a text), at the caret nearest `at`, or at its end; `fork` keeps it to the
@@ -883,6 +891,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     remove,
     /** Paste `clip`, the clipboard's text, as ⌘V does. */
     paste,
+    /** Give the characters selected in the text typed in `look`, as the inspector does (PLAN 2.38). */
+    style: (look: Record<string, unknown>) => text.style(look),
+    /** Make the characters selected bold, or not, as ⌘B does. */
+    bold: () => text.bold(),
     /** What the clipboard would hold of the node selected, once it is at hand: what a test
      * waits for before ⌘C. */
     held: () => held?.clip,

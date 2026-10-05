@@ -13,7 +13,7 @@
 //! before it. Text the engine sets in another case, or hyphenates, maps back to the
 //! characters as written ([`TextLayout::offsets`]).
 
-use crate::text::{TextAlign, TextLayout, sets_ink};
+use crate::text::{SpanLook, TextAlign, TextLayout, sets_ink};
 use icu_segmenter::GraphemeClusterSegmenter;
 use scaena_core::displaylist::Rect;
 use std::collections::BTreeMap;
@@ -26,7 +26,13 @@ pub struct Carets {
     pub text: String,
     /// Its lines, top to bottom.
     pub lines: Vec<CaretLine>,
+    /// Its spans as written, in order, and the weight each is set in (PLAN 2.38).
+    pub looks: Vec<SpanLook>,
 }
+
+/// The weight from which a text reads as bold: CSS's `bold` is 700, and 600 is the first
+/// weight a reader takes for bold.
+pub const BOLD: f32 = 600.0;
 
 /// One line of a text, as a caret sees it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -171,7 +177,7 @@ impl TextLayout {
         if let Some(last) = lines.last_mut() {
             last.end = self.written.len();
         }
-        Carets { text: self.written.clone(), lines }
+        Carets { text: self.written.clone(), lines, looks: self.looks.clone() }
     }
 
     /// Where line `index` is anchored, from the text's left edge: its start edge, its middle,
@@ -210,6 +216,30 @@ impl CaretLine {
 }
 
 impl Carets {
+    /// What ⌘B gives the characters from `from` to `to` (bytes of the text as written),
+    /// as `style_text`'s `look` (ADR-0013, PLAN 2.38): bold, `style/weight` 700, unless
+    /// every one of them is bold already ([`BOLD`]). Then their weight is taken away
+    /// (`null`) where that leaves each of them below bold, and is 400 where their role is
+    /// bold itself.
+    pub fn bolding(&self, from: usize, to: usize) -> serde_json::Value {
+        let mut start = 0;
+        let mut covered = Vec::new();
+        for look in &self.looks {
+            if start < look.end && start < to && look.end > from {
+                covered.push(look);
+            }
+            start = look.end;
+        }
+        let weight = if covered.is_empty() || covered.iter().any(|l| l.weight < BOLD) {
+            serde_json::json!(700)
+        } else if covered.iter().all(|l| l.base < BOLD) {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(400)
+        };
+        serde_json::json!({ "style/weight": weight })
+    }
+
     /// The line a caret at `offset` stands on: `on`, if it can stand there; otherwise the
     /// last line that holds it, so a caret where a line wraps starts the next one.
     pub fn line_of(&self, offset: usize, on: Option<usize>) -> usize {

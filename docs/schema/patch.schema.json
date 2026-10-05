@@ -193,6 +193,24 @@
           }
         },
         {
+          "description": "The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing. A size, and a color written out, are refused: a size comes with a role, and a run takes the theme's names.",
+          "type": "object",
+          "required": ["op", "node", "from", "to", "look"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "from": { "type": "integer", "minimum": 0 },
+            "to": { "type": "integer", "minimum": 0 },
+            "look": { "type": "object", "minProperties": 1, "additionalProperties": true },
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever the text lives now, as `replace_text`'s `fork` does.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "style_text" }
+          }
+        },
+        {
           "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. `null` takes it away where it lives, so what is under it shows.",
           "type": "object",
           "required": ["op", "node", "prop", "value"],

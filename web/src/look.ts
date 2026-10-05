@@ -15,8 +15,14 @@
 //   units) goes in the deck's `overrides`, the only place it is legal, and shows as an override,
 //   in every state.
 // - The × beside a value takes it away where it lives, so what is under it shows.
+//
+// With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
+// a run's role, emphasis, family, weight, and color, each the first character's. Each choice is
+// one `style_text`, written where the text lives; × takes the run's own away, so the text's look
+// shows there. A run takes the theme's names only.
 import type { Choices, Edited, Field, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
+import type { Selected } from "./typing";
 
 /** What the inspector's edits ask of the editor around them. */
 export interface Around {
@@ -27,6 +33,8 @@ export interface Around {
   /** Take `source`, the patch made: one step to undo. */
   apply(source: string, edited: Edited): void;
   say(text: string): void;
+  /** Give the characters selected in the text typed in `look` (`style_text`): whether it was. */
+  style(look: Record<string, unknown>): Promise<boolean>;
 }
 
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -49,8 +57,13 @@ const told = (prop: string, v: unknown) => (prop === "hold" && typeof v === "num
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
 export function looks(stage: Stage, into: HTMLElement, around: Around) {
-  /** What the deck offers for the node shown in the state shown, or, with none, for the state. */
+  /** What the deck offers for the node shown in the state shown, or, with none, for the state;
+   * or for the characters selected in a text typed in (`chars`). */
   let offered: Choices | StateChoices | undefined;
+  /** The characters selected in a text typed in, whose look is offered. */
+  let chars: Selected | undefined;
+  /** The node shown when no characters are. */
+  let node: string | undefined;
   /** Choices kept to the state shown (`choose`'s `fork`). */
   let keep = false;
   /** One choice at a time, each made on the source the one before it left. */
@@ -63,6 +76,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
 
   /** Show what the deck offers for node `next` in the state shown, or for the state with none. */
   async function show(next: string | undefined) {
+    node = next;
+    if (chars) return;
     const now = around.shown();
     const ask = ++asked;
     // A node the state does not show offers nothing: the state shows instead.
@@ -74,6 +89,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     // Notes being written are kept: the change they make draws the inspector again.
     const at = document.activeElement;
     if (at instanceof HTMLTextAreaElement && into.contains(at) && at.value !== at.defaultValue) return;
+    render();
+  }
+
+  /** Show what the deck offers for the characters `selected`, or, with none, for the node. */
+  async function characters(selected: Selected | undefined) {
+    chars = selected;
+    if (!selected) return show(node);
+    const ask = ++asked;
+    const found = await stage.characterChoices(selected.state, selected.node, selected.from, selected.to).catch(() => undefined);
+    if (ask !== asked || chars !== selected) return;
+    offered = found;
     render();
   }
 
@@ -139,8 +165,18 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
           : "";
     const away =
       f.lives === undefined ? "" : ` <button type="button" class="away" data-away="${html(f.prop)}" aria-label="Take ${html(f.prop)} away, ${html(where(f.lives))}" title="Take it away where it lives">×</button>`;
-    // A state's own property set nowhere: a cut, or none.
-    const lives = f.lives !== undefined || "node" in (offered ?? {}) ? where(f.lives) : f.prop.startsWith("transition/") ? (cuts() ? "cuts in" : "the theme's") : "none";
+    // A state's own property set nowhere: a cut, or none. Characters with no look of their own
+    // show the text's.
+    const lives =
+      chars && f.lives === undefined
+        ? "the text's"
+        : f.lives !== undefined || "node" in (offered ?? {})
+          ? where(f.lives)
+          : f.prop.startsWith("transition/")
+            ? cuts()
+              ? "cuts in"
+              : "the theme's"
+            : "none";
     return `<span class="lives">${html(lives)}</span>${flag}${away}`;
   }
 
@@ -153,7 +189,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       into.replaceChildren();
       return;
     }
-    const showing = JSON.stringify([now.state, keep, offered]);
+    const showing = JSON.stringify([now.state, keep, offered, chars]);
     if (showing === drawn && !again) return;
     drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
@@ -161,11 +197,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
       return `<label for="${id}">${html(f.prop)}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
     });
-    const title = "node" in offered ? `${html(offered.node)} · ${html(offered.type)}` : `${html(offered.state)} · state`;
+    const title = chars
+      ? `${html(chars.node)} · characters ${chars.from + 1}–${chars.to}`
+      : "node" in offered
+        ? `${html(offered.node)} · ${html(offered.type)}`
+        : `${html(offered.state)} · state`;
     const kept = "node" in offered ? `only in ${html(now.state)}` : `layout only in ${html(now.state)}`;
+    // Characters are kept to the state as their text is typed in: with Alt, or not.
+    const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     into.innerHTML = `
       <h2>${title}</h2>
-      <p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>
+      ${keeping}
       <div class="fields">${rows.join("")}</div>`;
     if (focused) into.querySelector<HTMLElement>(`#${CSS.escape(focused)}`)?.focus();
   }
@@ -180,6 +222,13 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   async function make(prop: string, value: unknown) {
     const now = around.shown();
     if (!now || !offered) return;
+    if (chars) {
+      const selected = chars;
+      // The text says what it gave them; the look is read again once it is.
+      if (!(await around.style({ [prop]: value }))) render(true);
+      else if (chars === selected) await characters(selected);
+      return;
+    }
     const on = "node" in offered ? offered.node : undefined;
     const op =
       on !== undefined
@@ -220,6 +269,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
 
   return {
     show,
+    characters,
     choose,
     /** What is offered for the node shown, or for the state, for a test. */
     offered: () => offered,

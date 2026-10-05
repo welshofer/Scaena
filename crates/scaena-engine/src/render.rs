@@ -705,10 +705,18 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             .iter()
             .map(|run| {
                 let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-                Ok(Span { text, style: cascade::run_role(theme, &role, run)? })
+                let base_weight = match run.get("role").and_then(Value::as_str) {
+                    Some(name) => theme.text_role(name)?.weight,
+                    None => role.weight,
+                };
+                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight })
             })
             .collect::<Result<_, EngineError>>()?,
-        None => vec![Span { text: str_prop("text").unwrap_or_default().to_string(), style: role.clone() }],
+        None => vec![Span {
+            text: str_prop("text").unwrap_or_default().to_string(),
+            style: role.clone(),
+            base_weight: role.weight,
+        }],
     };
     let features = props
         .get("features")

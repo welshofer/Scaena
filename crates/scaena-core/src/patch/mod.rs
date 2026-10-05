@@ -240,6 +240,30 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
     },
+    /// The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters
+    /// `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them,
+    /// take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its
+    /// `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the
+    /// node's own look shows there. The text becomes runs split at `from` and `to`; neighbors
+    /// left alike are joined, and runs that all read as the node does are its `text` again.
+    /// It is written where the text lives, as `replace_text` writes typing. A size, and a
+    /// color written out, are refused: a size comes with a role, and a run takes the theme's
+    /// names.
+    StyleText {
+        #[schemars(with = "Id")]
+        node: String,
+        from: u32,
+        to: u32,
+        #[schemars(extend("minProperties" = 1))]
+        look: Props,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever the text lives now, as `replace_text`'s
+        /// `fork` does.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// One property of a node (`prop`: a property, or one key of an object property,
     /// `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the
     /// property lives. A value written out where the theme has names (a color, a text size, a
@@ -373,6 +397,7 @@ impl SemanticOp {
             SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
             SemanticOp::ReplaceText { .. } => "replace_text",
+            SemanticOp::StyleText { .. } => "style_text",
             SemanticOp::Choose { .. } => "choose",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
