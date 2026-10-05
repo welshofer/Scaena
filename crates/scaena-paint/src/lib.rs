@@ -525,7 +525,9 @@ pub mod cpu {
     use vello_cpu::kurbo::{Affine, Rect};
     use vello_cpu::peniko::color::PremulRgba8;
     use vello_cpu::peniko::{Fill, ImageQuality, ImageSampler};
-    use vello_cpu::{Image, ImageSource, Pixmap, RasterizerSettings, RenderContext, RenderSettings, Resources};
+    use vello_cpu::{
+        Image, ImageSource, Pixmap, PixmapMut, RasterizerSettings, RenderContext, RenderSettings, Resources,
+    };
     pub use vello_cpu::{Level, RenderMode};
 
     /// `vello_cpu`-backed painter (PLAN 0.6).
@@ -544,11 +546,45 @@ pub mod cpu {
         /// not depend on it. [`scaena_core::shader::cores`] by default; 1 where frames are
         /// already painted on every core, as video's are.
         pub threads: usize,
+        /// What a frame leaves for the next ([`Kept`]).
+        pub kept: Kept,
     }
 
     impl Default for CpuPainter {
         fn default() -> Self {
-            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed, threads: scaena_core::shader::cores() }
+            Self {
+                level: Level::new(),
+                mode: RenderMode::OptimizeSpeed,
+                threads: scaena_core::shader::cores(),
+                kept: Kept::default(),
+            }
+        }
+    }
+
+    /// What one frame of a [`CpuPainter`] leaves for the next: its render context, reset and
+    /// drawn into again while frames keep their size and SIMD level. A frame then allocates
+    /// little besides its pixels, where a new context allocated its tiles, strips, and
+    /// coverage each time, and grew them again as the frame filled them. A context reset
+    /// paints the same bytes as a new one.
+    #[derive(Default)]
+    pub struct Kept {
+        ctx: Option<RenderContext>,
+    }
+
+    impl Kept {
+        /// A context `width` × `height` at `level`, reset: the one kept, where it is that.
+        fn context(&mut self, width: u16, height: u16, level: Level) -> &mut RenderContext {
+            let fits = self.ctx.as_ref().is_some_and(|ctx| {
+                let same = std::mem::discriminant(&ctx.render_settings().level) == std::mem::discriminant(&level);
+                ctx.width() == width && ctx.height() == height && same
+            });
+            if !fits {
+                self.ctx = None;
+            }
+            let settings = RenderSettings { level, ..Default::default() };
+            let ctx = self.ctx.get_or_insert_with(|| RenderContext::new_with(width, height, settings));
+            ctx.reset();
+            ctx
         }
     }
 
@@ -611,30 +647,32 @@ pub mod cpu {
             let (width, height) = raster(dl, scale)?;
             let mut pixels = pixels.into_iter();
             let shaded: Vec<_> = jobs.into_iter().map(|job| Some((job?.bbox(), pixels.next()?))).collect();
-            let mut ctx =
-                RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
+            let ctx = self.kept.context(width, height, self.level);
             let mut resources = Resources::new();
             let shaded = shaded.into_iter();
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
+            let mut cx = Cx { ctx: &mut *ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
-            let mut pixmap = Pixmap::new(width, height);
+            // The frame's pixels, zeroed as `Pixmap::new` zeroes them, but by the allocator:
+            // the frame covers the buffer, so packing draws every pixel over it.
+            let mut rgba = vec![0u8; usize::from(width) * usize::from(height) * 4];
+            let target = PixmapMut::new(width, height, &mut rgba).expect("a buffer of the frame's size");
             ctx.render_with(
-                &mut pixmap,
+                target,
                 &mut resources,
                 RasterizerSettings { render_mode: self.mode, ..Default::default() },
             );
-            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba: unpremultiplied(pixmap) })
+            unpremultiply(&mut rgba);
+            Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
         }
     }
 
-    /// The pixmap's pixels as straight RGBA, as a PNG or an `ImageData` takes them, in the
-    /// pixmap's own buffer: exactly what `Pixmap::take_unpremultiplied` computes, without its
-    /// division for each opaque pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates
-    /// to `c`). A slide is opaque nearly everywhere, and in the browser that division was most
-    /// of a frame's paint.
-    fn unpremultiplied(pixmap: Pixmap) -> Vec<u8> {
-        let mut rgba: Vec<u8> = bytemuck::allocation::cast_vec(pixmap.take());
+    /// Premultiplied RGBA made straight, as a PNG or an `ImageData` takes it, in place:
+    /// exactly what `Pixmap::take_unpremultiplied` computes, without its division for each
+    /// opaque pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates to `c`). A slide
+    /// is opaque nearly everywhere, and in the browser that division was most of a frame's
+    /// paint.
+    fn unpremultiply(rgba: &mut [u8]) {
         for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
             if *a != 255 && *a != 0 {
                 let alpha = 255.0 / f32::from(*a);
@@ -643,7 +681,6 @@ pub mod cpu {
                 }
             }
         }
-        rgba
     }
 
     struct Cx<'a> {
@@ -802,7 +839,8 @@ pub mod cpu {
                     .flat_map(|a| (0..=255u8).map(move |c| PremulRgba8 { r: c, g: c / 2, b: 255 - c, a }))
                     .collect::<Vec<_>>()
             };
-            let ours = unpremultiplied(Pixmap::from_parts(pixels(), 256, 256));
+            let mut ours: Vec<u8> = bytemuck::allocation::cast_vec(pixels());
+            unpremultiply(&mut ours);
             let vellos: Vec<u8> = Pixmap::from_parts(pixels(), 256, 256)
                 .take_unpremultiplied()
                 .into_iter()
