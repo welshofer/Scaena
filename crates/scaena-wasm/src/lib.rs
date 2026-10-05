@@ -1261,21 +1261,36 @@ impl Player {
 #[wasm_bindgen]
 impl Player {
     /// Each visible node's box in `state` at rest, in the format shown, as JSON (ADR-0013):
-    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws" }]`, canvas units, those that draw
-    /// in paint order, then the containers and groups that only hold others.
+    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws", "transform"? }]`, canvas units,
+    /// those that draw in paint order, then the containers and groups that only hold others.
+    /// `transform` is where its own and its containers' draw it from `rect` (SPEC §3.3), `[a,
+    /// b, c, d, e, f]`, where something moves it.
     pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
         let boxes: Vec<serde_json::Value> = (self.0.boxes(state).map_err(js)?.into_iter())
-            .map(|b| serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws }))
+            .map(|b| {
+                let mut out =
+                    serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
+                if let Some(map) = b.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                out
+            })
             .collect();
         serde_json::to_string(&boxes).map_err(js)
     }
 
     /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
-    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers" }]`, each node's
-    /// containers innermost first.
+    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers", "transform"? }]`,
+    /// each node's containers innermost first, read through its transform as a box's is.
     pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
         let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
-            .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
+            .map(|h| {
+                let mut out = serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers });
+                if let Some(map) = h.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                out
+            })
             .collect();
         serde_json::to_string(&hits).map_err(js)
     }
@@ -3212,6 +3227,6 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 49);
+        assert_eq!(s.states().len(), 51);
     }
 }

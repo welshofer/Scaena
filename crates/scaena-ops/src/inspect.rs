@@ -294,6 +294,11 @@ pub struct NodeBox {
     pub parent: Option<String>,
     /// Whether it draws anything: a container with no panel, and a group, only hold others.
     pub draws: bool,
+    /// Where its `transform`, and those of what holds it, draw it (SPEC §3.3): the map of
+    /// canvas points `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`) from `rect` to where it is
+    /// drawn. Left out where nothing turns, scales, leans, or moves it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
 }
 
 /// A node that draws at the point asked about.
@@ -302,6 +307,9 @@ pub struct Hit {
     pub node: String,
     /// Its box: `[x, y, width, height]`.
     pub rect: [f32; 4],
+    /// As a box's `transform`: where it is drawn from `rect`, where something moves it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
     /// The containers and groups it sits in, innermost first.
     pub containers: Vec<String>,
     /// For a text, where a caret put at the point stands: how many characters of its text
@@ -680,10 +688,9 @@ pub fn inspect_deck(
             let req = FrameRequest { deck, theme, data: files, state, t_ms: f64::INFINITY, format: None };
             let scene = engine.at_rest(&req)?;
             if views.boxes {
-                let boxes = scene
-                    .boxes()
-                    .into_iter()
-                    .map(|b| (b.node, NodeBox { rect: b.rect, parent: b.parent, draws: b.draws }));
+                let boxes = scene.boxes().into_iter().map(|b| {
+                    (b.node, NodeBox { rect: b.rect, parent: b.parent, draws: b.draws, transform: b.transform })
+                });
                 inspected.boxes = Some(boxes.collect());
             }
             if let Some(point) = views.at {
@@ -691,7 +698,7 @@ pub fn inspect_deck(
                     // The engine counts bytes; an agent counts characters.
                     let chars = |at: usize| scene.carets(&h.node).map_or(at, |c| c.text[..at].chars().count());
                     let offset = h.offset.map(chars);
-                    Hit { node: h.node, rect: h.rect, containers: h.containers, offset }
+                    Hit { node: h.node, rect: h.rect, transform: h.transform, containers: h.containers, offset }
                 });
                 inspected.hits = Some(hits.collect());
             }

@@ -44,6 +44,7 @@ use crate::text::{GlyphRun, TextLayout};
 use crate::theme::Theme;
 use scaena_core::displaylist::{Blend, Cap, Color, DisplayList, FillRule, Join, Op, Paint, Path, PathEl, Point, Rect};
 use scaena_core::model::values::{SplitUnit, TextSplit};
+use scaena_core::pose::Pose;
 use scaena_core::timeline::{Clock, CubicBezier, Curve, Item, Look, Motion, Placed, Schedule, schedule};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -76,6 +77,9 @@ pub struct Place {
     /// A group's opacity: it composites what is in it as one layer at this opacity, and
     /// its own looks move that layer (SPEC §3.4). `None` for any other node.
     pub composite: Option<f32>,
+    /// Its `transform` (SPEC §3.3), where it has one that moves it: drawn about its box, and
+    /// carrying what it holds.
+    pub pose: Option<Pose>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,15 +133,40 @@ impl Scene {
         let mut dl = self.ground();
         for node in &self.nodes {
             let op = node.draw(&mut dl, node.opacity, time);
-            dl.ops.push(op);
+            dl.ops.push(looked(op, self.rest(&node.id)));
         }
         let ops = std::mem::take(&mut dl.ops).into_iter().map(|op| (false, op)).collect();
         dl.ops = grouped(
             ops,
             |id, _| self.groups(id).into_iter().map(|g| (g, false)).collect(),
-            |(g, _)| self.tree[g].composite.map(|opacity| (opacity, Seen::REST)),
+            |(g, _)| self.tree[g].composite.map(|opacity| (opacity, self.rest(g))),
         );
         dl
+    }
+
+    /// What the transforms of `id` and of what holds it make of it at rest, up to the group
+    /// whose layer it is drawn in: that layer takes the group's.
+    fn rest(&self, id: &str) -> Seen {
+        Seen { map: self.posed(id, false), ..Seen::REST }
+    }
+
+    /// The map of canvas points the transforms of `id` and of what holds it make at rest
+    /// (SPEC §3.3), each about its own box, the innermost first: up to the group whose layer
+    /// it is drawn in, which takes the group's own, or with `all` every one, as it is drawn.
+    pub fn posed(&self, id: &str, all: bool) -> [f64; 6] {
+        let mut map = Seen::REST.map;
+        let mut at = Some(id);
+        while let Some(n) = at {
+            let Some(place) = self.tree.get(n) else { break };
+            if n != id && place.composite.is_some() && !all {
+                break;
+            }
+            if let Some(pose) = place.pose {
+                map = compose(pose.affine(place.rect), map);
+            }
+            at = place.parent.as_deref();
+        }
+        map
     }
 
     /// The groups `id` sits in, outermost first.
@@ -436,12 +465,16 @@ fn compose(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
 }
 
 /// A node's layer, through what its cues make of it. How much of a shape's outline is
-/// drawn is the shape's to draw (`progress`); the rest is here.
+/// drawn is the shape's to draw (`progress`); the rest is here. A map that flattens the
+/// node to a line or a point (a scale of 0) draws nothing of it.
 fn looked(op: Op, seen: Seen) -> Op {
     if seen.leaves_layer() {
         return op;
     }
     let Op::Layer { node, cell, transform, opacity, blend, clip, mut ops } = op else { return op };
+    if scaena_core::pose::invert(&seen.map).is_none() {
+        ops.clear();
+    }
     if let Some((color, q)) = seen.tint {
         ops.iter_mut().for_each(|op| tint(op, color, q as f32));
     }
@@ -681,7 +714,12 @@ impl Transition {
     /// (`source`); every other cue, what is. A text node's units and a chart's marks are
     /// drawn by the node itself. The flag: whether a cue brings the node on or takes it
     /// off, so the transition's own fade does not.
-    fn seen(&self, id: &str, source: bool, t: f64) -> (Option<Seen>, bool) {
+    ///
+    /// Each node's transform is drawn about its box, and its looks move it inside it, as if
+    /// it were not turned (SPEC §3.3): a cue moves a node in its own frame, and what holds
+    /// it carries both. With `morph`, a node in both states turns from one transform to the
+    /// other as the transition runs; one that cross-fades or cuts keeps its own.
+    fn seen(&self, id: &str, source: bool, morph: bool, t: f64) -> (Option<Seen>, bool) {
         let scene = if source { self.from.as_ref() } else { Some(&self.to) };
         let Some(scene) = scene else { return (Some(Seen::REST), false) };
         // Up to the group it sits in, if any: the group's layer takes the group's own
@@ -699,7 +737,20 @@ impl Transition {
         let in_group = chain.len() > 1 && group(chain[0]);
         let edge = if source { Motion::Exit(Look::REST) } else { Motion::Enter(Look::REST) };
         let (mut seen, mut governed) = (Seen::REST, in_group && self.applies(&edge, chain[0]));
+        // A cue on a container's children: each child moves in its own frame, as its own
+        // cues move it.
+        let mut held: Vec<(Look, Rect)> = Vec::new();
         for (depth, &node) in chain.iter().enumerate() {
+            // A group's own transform is its layer's.
+            if !(depth == 0 && in_group) {
+                let own = depth + 1 == chain.len();
+                if let Some(map) = self.pose(scene, node, source, morph || !own, t) {
+                    seen.map = compose(seen.map, map);
+                }
+            }
+            for (look, rect) in held.drain(..) {
+                seen = seen.within(&look, rect);
+            }
             for cue in self.schedule.of(node) {
                 if matches!(cue.motion, Motion::Exit(_)) != source {
                     continue;
@@ -722,12 +773,30 @@ impl Transition {
                 governed |= comes_or_goes;
                 match cue.motion.look(&cue.clock(k), t) {
                     Some(look) if depth == 0 && in_group && cue.split.is_none() => seen.progress *= look.progress,
+                    Some(look) if cue.split.is_some() => held.push((look, rect)),
                     Some(look) => seen = seen.within(&look, rect),
                     None => return (None, true),
                 }
             }
         }
         (Some(seen), governed)
+    }
+
+    /// Node `n`'s transform `t` ms in, as a map of canvas points, in `scene`, the state it is
+    /// drawn from. With `morph`, a node in both states turns from the one to the other while
+    /// the transition runs, each part on its own, about its box as that moves (SPEC §3.3).
+    fn pose(&self, scene: &Scene, n: &str, source: bool, morph: bool, t: f64) -> Option<[f64; 6]> {
+        let place = scene.tree.get(n)?;
+        let moving = morph && !source && self.timing.matched && t < self.timing.duration_ms;
+        let before = self.from.as_ref().filter(|_| moving).and_then(|from| from.tree.get(n));
+        match before {
+            Some(a) if a.pose.is_some() || place.pose.is_some() => {
+                let geo = self.timing.progress(t);
+                let pose = Pose::between(a.pose, place.pose, geo);
+                Some(pose.affine(lerp4(a.rect, place.rect, geo as f32)))
+            }
+            _ => place.pose.map(|pose| pose.affine(place.rect)),
+        }
     }
 
     /// Whether `motion` moves `unit` (a node): an entrance what enters in this state, an
@@ -805,7 +874,7 @@ impl Transition {
             match track {
                 Track::Exit(i) => {
                     let node = &from[*i];
-                    let (Some(seen), governed) = self.seen(&node.id, true, t_ms) else { continue };
+                    let (Some(seen), governed) = self.seen(&node.id, true, false, t_ms) else { continue };
                     if governed {
                         self.put(&mut dl, node, seen, node.opacity, true, t_ms);
                     } else if moving {
@@ -814,26 +883,27 @@ impl Transition {
                 }
                 Track::Enter(j) => {
                     let node = &to[*j];
-                    let (Some(seen), governed) = self.seen(&node.id, false, t_ms) else { continue };
+                    let (Some(seen), governed) = self.seen(&node.id, false, false, t_ms) else { continue };
                     let fade = if governed || !moving { 1.0 } else { p };
                     self.put(&mut dl, node, seen, node.opacity * fade, false, t_ms);
                 }
                 Track::Cut(j) => {
                     let node = &to[*j];
-                    let (Some(seen), _) = self.seen(&node.id, false, t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(&node.id, false, false, t_ms) else { continue };
                     self.put(&mut dl, node, seen, node.opacity, false, t_ms);
                 }
                 Track::Crossfade { from: i, to: j } => {
-                    let (Some(seen), _) = self.seen(&to[*j].id, false, t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(&to[*j].id, false, false, t_ms) else { continue };
                     if moving {
-                        push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time);
+                        let rest = self.from.as_ref().map_or(Seen::REST, |s| s.rest(&from[*i].id));
+                        push(&mut dl, &from[*i], from[*i].opacity * (1.0 - p), time, rest);
                         self.put(&mut dl, &to[*j], seen, to[*j].opacity * p, false, t_ms);
                     } else {
                         self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
                     }
                 }
                 Track::Move { from: i, to: j } => {
-                    let (Some(seen), _) = self.seen(&to[*j].id, false, t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(&to[*j].id, false, true, t_ms) else { continue };
                     if !moving {
                         self.put(&mut dl, &to[*j], seen, to[*j].opacity, false, t_ms);
                         continue;
@@ -871,7 +941,7 @@ impl Transition {
                     };
                     let (enter, exit) = (cue(|m| matches!(m, Motion::Enter(_))), cue(|m| matches!(m, Motion::Exit(_))));
                     let running = [enter, exit].into_iter().flatten().any(|c| t_ms < c.end());
-                    let (Some(seen), _) = self.seen(id, b.is_none(), t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(id, b.is_none(), true, t_ms) else { continue };
                     if !moving && !running {
                         // At rest, or gone.
                         if let Some(j) = j {
@@ -906,7 +976,7 @@ impl Transition {
                 }
                 Track::Table { from: i, to: j, plan } => {
                     let (x, y) = (&from[*i], &to[*j]);
-                    let (Some(seen), _) = self.seen(&y.id, false, t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(&y.id, false, true, t_ms) else { continue };
                     if !moving {
                         self.put(&mut dl, y, seen, y.opacity, false, t_ms);
                         continue;
@@ -922,7 +992,7 @@ impl Transition {
                 }
                 Track::Words { from: i, to: j, plan } => {
                     let (x, y) = (&from[*i], &to[*j]);
-                    let (Some(seen), _) = self.seen(&y.id, false, t_ms) else { continue };
+                    let (Some(seen), _) = self.seen(&y.id, false, true, t_ms) else { continue };
                     if !moving {
                         self.put(&mut dl, y, seen, y.opacity, false, t_ms);
                         continue;
@@ -980,7 +1050,7 @@ impl Transition {
     fn group_layer(&self, (g, left): &GroupKey, t: f64, moving: bool, p: f32) -> Option<(f32, Seen)> {
         let composite = |s: Option<&Scene>| s.and_then(|s| s.tree.get(g.as_str())).and_then(|place| place.composite);
         let (before, now) = (composite(self.from.as_ref()), composite(Some(&self.to)));
-        let (seen, governed) = self.seen(g, *left, t);
+        let (seen, governed) = self.seen(g, *left, true, t);
         let seen = seen?;
         let opacity = if *left {
             let a = before?;
@@ -1342,9 +1412,9 @@ fn table_ops(dl: &mut DisplayList, table: &TableLayout) -> Vec<Op> {
     ops
 }
 
-fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64) {
+fn push(dl: &mut DisplayList, node: &SceneNode, opacity: f32, time: f64, rest: Seen) {
     let op = node.draw(dl, opacity, time);
-    dl.ops.push(op);
+    dl.ops.push(looked(op, rest));
 }
 
 /// What a mark cue does to one mark (SPEC §3.7): where an entering mark starts and a
@@ -2127,6 +2197,10 @@ fn boundary(order: &[String], side: &[&Mark], key: &str, start: f32) -> f32 {
 
 fn lerp2(a: Point, b: Point, p: f32) -> Point {
     [lerp(a[0], b[0], p), lerp(a[1], b[1], p)]
+}
+
+fn lerp4(a: Rect, b: Rect, p: f32) -> Rect {
+    [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p), lerp(a[3], b[3], p)]
 }
 
 /// A chart's layer at `origin`, `width` across. It clips at the cell's sides, so

@@ -449,6 +449,13 @@
           "draws": {
             "description": "Whether it draws anything: a container with no panel, and a group, only hold others.",
             "type": "boolean"
+          },
+          "transform": {
+            "description": "Where its `transform`, and those of what holds it, draw it (SPEC §3.3): the map of\ncanvas points `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`) from `rect` to where it is\ndrawn. Left out where nothing turns, scales, leans, or moves it.",
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 6,
+            "maxItems": 6
           }
         },
         "required": ["rect", "draws"]
@@ -464,6 +471,13 @@
             "items": { "type": "number" },
             "minItems": 4,
             "maxItems": 4
+          },
+          "transform": {
+            "description": "As a box's `transform`: where it is drawn from `rect`, where something moves it.",
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 6,
+            "maxItems": 6
           },
           "containers": {
             "description": "The containers and groups it sits in, innermost first.",

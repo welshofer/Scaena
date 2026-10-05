@@ -361,6 +361,16 @@ state faster slide:revenue
   title "Pro grew three times faster"
 ```
 
+**A tilt, and a turn on the next click.** `transform` draws an object turned (`rotate`, degrees clockwise), scaled, leaning (`skew`), or moved (`translate`), about its middle or its `anchor`, without laying it out again. Between two states it turns from one to the other.
+
+```scn
+state tilted slide:revenue
+  title transform:{rotate: -4}
+
+state level slide:revenue
+  title transform:{rotate: 0}
+```
+
 **A line too long for its slot.** Lint says E100, with how much it overflows. Shorten it first. Otherwise, let it shrink to the role's smallest size; its fix offers this:
 
 ```scn

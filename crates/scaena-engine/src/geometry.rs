@@ -4,8 +4,10 @@
 //! the Mac app) asks here: it lays nothing out, and it never reads pixels back.
 //!
 //! A node's box is the place layout gave it: its grid cell or slot, the box a container
-//! gave it, or a group's box around its members (SPEC §3.4). A point hits a node inside that
-//! box, or within [`SLOP`] of a box too thin to point at, as a rule's line is.
+//! gave it, or a group's box around its members (SPEC §3.4). Where its `transform`, or what
+//! holds it, turns, scales, leans, or moves it (SPEC §3.3), the box is drawn through that
+//! map, and a point is read back through it. A point hits a node inside its box, or within
+//! [`SLOP`] of a box too thin to point at, as a rule's line is.
 //!
 //! What holds a node says where it may go ([`Targets`]): the theme's grid holds a root, or a
 //! group's member, by cells, a slot, or a `rect`; a grid container by its cells or areas; a
@@ -42,6 +44,10 @@ pub struct NodeBox {
     pub parent: Option<String>,
     /// Whether it draws anything: a container with no panel, and a group, only hold others.
     pub draws: bool,
+    /// Where its `transform` and those of what holds it draw it (SPEC §3.3): the map of
+    /// canvas points `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`) from its box as laid out to
+    /// where it is drawn. `None` where nothing moves it.
+    pub transform: Option<[f32; 6]>,
 }
 
 /// A node that draws at a point, with the containers and groups it sits in, innermost first.
@@ -49,6 +55,8 @@ pub struct NodeBox {
 pub struct Hit {
     pub node: String,
     pub rect: Rect,
+    /// As [`NodeBox::transform`].
+    pub transform: Option<[f32; 6]>,
     pub containers: Vec<String>,
     /// For a text, where a caret put at the point stands: an offset in its text as written,
     /// at the edge of a character nearest the point ([`Carets::at`]).
@@ -61,7 +69,8 @@ impl Scene {
     pub fn boxes(&self) -> Vec<NodeBox> {
         let place = |node: &str, draws: bool| {
             let at = &self.tree[node];
-            NodeBox { node: node.to_string(), rect: at.rect, parent: at.parent.clone(), draws }
+            let transform = self.drawn(node);
+            NodeBox { node: node.to_string(), rect: at.rect, parent: at.parent.clone(), draws, transform }
         };
         let drawn: Vec<&str> =
             self.nodes.iter().filter(|n| self.tree.contains_key(&n.id)).map(|n| n.id.as_str()).collect();
@@ -71,36 +80,60 @@ impl Scene {
     }
 
     /// The nodes that draw at `point` (canvas units), topmost first: the last painted first,
-    /// each inside its box, or within [`SLOP`] of one too thin to point at. A node faded out
-    /// entirely is not there to point at.
+    /// each inside its box, or within [`SLOP`] of one too thin to point at, read through its
+    /// transform. A node faded out entirely, or flattened to nothing, is not there to point at.
     pub fn hit(&self, point: [f32; 2]) -> Vec<Hit> {
         let mut out = Vec::new();
         for node in self.nodes.iter().rev() {
             let Some(place) = self.tree.get(&node.id) else { continue };
-            if node.opacity <= 0.0 || !reaches(place.rect, point) {
+            let Some(at) = self.laid_out(&node.id, point) else { continue };
+            if node.opacity <= 0.0 || !reaches(place.rect, at) {
                 continue;
             }
             let offset = match &node.content {
-                Content::Text(placed) => Some(placed.text.carets(placed.origin).at(point).0),
+                Content::Text(placed) => Some(placed.text.carets(placed.origin).at(at).0),
                 _ => None,
             };
-            out.push(Hit { node: node.id.clone(), rect: place.rect, containers: self.containers(&node.id), offset });
+            let (containers, transform) = (self.containers(&node.id), self.drawn(&node.id));
+            out.push(Hit { node: node.id.clone(), rect: place.rect, transform, containers, offset });
         }
         out
+    }
+
+    /// The map [`NodeBox::transform`] gives `node`: `None` where nothing moves it.
+    pub fn drawn(&self, node: &str) -> Option<[f32; 6]> {
+        let map = self.posed(node, true);
+        (map != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).then(|| map.map(|v| v as f32))
+    }
+
+    /// Where `point` (canvas units), drawn through `node`'s transform and those of what
+    /// holds it, stands as `node` is laid out: what its box, its carets, and its image are
+    /// measured in. `None` where a transform flattens it to nothing.
+    pub fn laid_out(&self, node: &str, point: [f32; 2]) -> Option<[f32; 2]> {
+        let map = self.posed(node, true);
+        if map == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+            return Some(point);
+        }
+        let back = scaena_core::pose::invert(&map)?;
+        let [x, y] = scaena_core::pose::apply(&back, point.map(f64::from));
+        Some([x as f32, y as f32])
     }
 
     /// The point of image `node` drawn under `point`, in fractions of the part its crop keeps:
     /// what its `focal` names (PLAN 2.45). `None` where it is no image this state draws, or the
     /// point is off the image.
     pub fn image_point(&self, node: &str, point: [f32; 2]) -> Option<[f32; 2]> {
+        let at = self.laid_out(node, point)?;
         self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
-            Content::Image(image) => image.point(point),
+            Content::Image(image) => image.point(at),
             _ => None,
         })
     }
 
     /// Where a caret stands in `node`'s text, if it is a text this state draws: each
-    /// character as written, on its line, between the edges of its glyphs.
+    /// character as written, on its line, between the edges of its glyphs, as it is laid
+    /// out. Where it is drawn turned, scaled, or moved, its box's [`NodeBox::transform`] draws
+    /// them there, and [`Scene::laid_out`] reads a point back.
     pub fn carets(&self, node: &str) -> Option<Carets> {
         self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
             Content::Text(placed) => Some(placed.text.carets(placed.origin)),
