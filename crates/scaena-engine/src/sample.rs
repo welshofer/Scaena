@@ -61,6 +61,8 @@ pub struct Scene {
     /// Every visible node's place, containers and groups included: what cues on a
     /// container, or on its children one by one, move.
     pub tree: HashMap<String, Place>,
+    /// Each grid container's tracks, by its id: where its cells are (ADR-0013).
+    pub tracks: HashMap<String, crate::containers::Tracks>,
 }
 
 /// A visible node's place in its scene.

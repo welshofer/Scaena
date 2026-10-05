@@ -3,11 +3,11 @@
 //! says, with what to do instead: an op on a node that is not there, or a change in a state
 //! to a node not on screen there, which would make it enter.
 
-use super::{JsonOp, Renamed, SemanticOp, esc};
+use super::{JsonOp, Renamed, SemanticOp, Spot, esc};
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::model::theme::Theme;
-use crate::tracking::{Snapshot, resolve_states, tracks_from};
+use crate::tracking::{Lives, Snapshot, lives, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
 
@@ -49,6 +49,7 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             let at = d.showing(node, state.as_deref())?;
             set(&d, node, vec![(name, key, value.clone())], at.map(|(i, _)| i))?
         }
+        SemanticOp::Place { node, at, state } => place_node(&d, node, at, state.as_deref())?,
         SemanticOp::SetText { node, text, state } => {
             let kind = d.kind(node)?;
             if kind != "text" {
@@ -370,6 +371,115 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
         (Some(_), None) => vec![JsonOp::Add { path: base, value: Value::Object(new) }],
         (Some(_), Some(old)) => diff(&base, old, &new),
     })
+}
+
+/// `place` (ADR-0013): `spot` becomes `node`'s placement where its placement lives, the
+/// deck's `overrides`, a state's delta, or the node's own `at`. Of `at`'s placement keys,
+/// those `spot` names are set there and the rest go: a delta or an override takes them away
+/// with `null` from what it merges into.
+fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>) -> Result<Vec<JsonOp>, String> {
+    let own = d.node(node)?;
+    let spot = match serde_json::to_value(spot).map_err(|e| e.to_string())? {
+        Value::Object(spot) => spot,
+        _ => Map::new(),
+    };
+    let ways: [&[&str]; 5] = [&["col", "row"], &["in"], &["rect"], &["area"], &["index"]];
+    let named: Vec<&[&str]> = ways.into_iter().filter(|keys| keys.iter().any(|k| spot.contains_key(*k))).collect();
+    let way = match named[..] {
+        [way] => way[0],
+        [] => return Err("say where: `at` takes cells (`col`, `row`), `in`, `rect`, `area`, or `index`".into()),
+        _ => return Err("`at` is one placement: cells (`col`, `row`), `in`, `rect`, `area`, or `index`".into()),
+    };
+    // What holds the node where it is shown says how it is placed.
+    let shown = d.showing(node, state)?;
+    let at_of = |props: &Map<String, Value>| props.get("at").and_then(Value::as_object).cloned().unwrap_or_default();
+    let now = match &shown {
+        Some((_, props)) => props.get("at").and_then(Value::as_object).cloned().unwrap_or_default(),
+        None => at_of(own),
+    };
+    let parent = now.get("parent").and_then(Value::as_str);
+    let within = parent.map(|p| d.kind(p).unwrap_or("untyped")).filter(|kind| *kind != "group");
+    let (fits, how): (&[&str], String) = match (within, parent) {
+        (Some("stack"), Some(p)) => {
+            (&["index"], format!("in stack `{p}`, which places its children in order: by `index`"))
+        }
+        (Some("grid"), Some(p)) => {
+            (&["col", "area", "index"], format!("in grid `{p}`: by its cells (`col`, `row`), an `area`, or `index`"))
+        }
+        (Some("frame"), Some(p)) => (&["rect"], format!("in frame `{p}`: by a `rect` from its padding edge")),
+        _ => {
+            (&["col", "in", "rect"], "on the theme's grid: by cells (`col`, `row`), a slot (`in`), or a `rect`".into())
+        }
+    };
+    if !fits.contains(&way) {
+        return Err(format!("`{node}` is placed {how}"));
+    }
+    // `at` with `spot`'s placement: the other placement keys go, and those `away` names are
+    // taken away with `null` from what a delta or an override merges into.
+    let placed = |mut at: Map<String, Value>, away: &dyn Fn(&str) -> bool| {
+        at.retain(|k, _| !Spot::KEYS.contains(&k.as_str()));
+        for key in Spot::KEYS {
+            match spot.get(key) {
+                Some(value) => drop(at.insert(key.to_string(), value.clone())),
+                None if away(key) => drop(at.insert(key.to_string(), Value::Null)),
+                None => {}
+            }
+        }
+        Value::Object(at)
+    };
+    // The deck's overrides win in every state: a placement they set is changed there, and
+    // takes away every other placement the node has, its own or a state's.
+    let overridden = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object);
+    if let Some(over) = overridden.filter(|o| match o.get("at") {
+        Some(Value::Object(at)) => Spot::KEYS.iter().any(|k| at.contains_key(*k)),
+        Some(Value::Null) => true,
+        _ => false,
+    }) {
+        let deltas = d.states().iter().filter_map(|s| s.get("props").and_then(|p| p.get(node)));
+        let mut ats: Vec<&Value> = deltas.filter_map(|p| p.get("at")).collect();
+        ats.extend(own.get("at"));
+        let anywhere = |key: &str| ats.iter().any(|at| at.get(key).is_some());
+        let mut new = over.clone();
+        let old = match over.get("at") {
+            Some(Value::Object(at)) => at.clone(),
+            // Overrides that took `at` away keep the rest of it away.
+            _ => now.keys().map(|k| (k.clone(), Value::Null)).collect(),
+        };
+        new.insert("at".into(), placed(old, &anywhere));
+        return Ok(diff(&format!("/overrides/{}", esc(node)), over, &new));
+    }
+    let lives = match shown {
+        Some((i, _)) => {
+            let (deck, snapshots) = d.snapshots()?;
+            match lives(&deck, i, node, "at", &Spot::KEYS) {
+                Lives::State(j) => {
+                    // What the delta merges into: the node as the state it tracks from shows
+                    // it, or, where it enters there, its own.
+                    let removed = deck.states[j].remove.iter().any(|id| id == node);
+                    let tracked = tracks_from(&deck, j).and_then(|f| snapshots[f].nodes.get(node)).filter(|_| !removed);
+                    let under = match tracked {
+                        Some(props) => props.get("at").and_then(Value::as_object).cloned().unwrap_or_default(),
+                        None => at_of(own),
+                    };
+                    Some((j, under))
+                }
+                Lives::Node => None,
+            }
+        }
+        None => None,
+    };
+    let Some((j, under)) = lives else {
+        let at = placed(at_of(own), &|_| false);
+        return set(d, node, vec![("at".into(), None, at)], None);
+    };
+    let delta = d.states()[j].get("props").and_then(|p| p.get(node)).and_then(|p| p.get("at"));
+    let at = match delta {
+        Some(Value::Object(at)) => at.clone(),
+        // A delta that took `at` away keeps the rest of it away.
+        _ => under.keys().map(|k| (k.clone(), Value::Null)).collect(),
+    };
+    let at = placed(at, &|key| under.contains_key(key));
+    set(d, node, vec![("at".into(), None, at)], Some(j))
 }
 
 /// Ops that turn `old`, the object at `base`, into `new`: member by member, and one level

@@ -77,13 +77,38 @@ impl Grid {
         })
     }
 
+    /// The grid's columns, each `[start, end]`, left to right.
+    pub fn columns(&self) -> Vec<[f32; 2]> {
+        self.cols.iter().map(|&(a, b)| [a, b]).collect()
+    }
+
+    /// The grid's rows, each `[start, end]`, top to bottom.
+    pub fn rows(&self) -> Vec<[f32; 2]> {
+        self.rows.iter().map(|&(a, b)| [a, b]).collect()
+    }
+
     /// The box `at` names, in a state whose layout template is `template`.
     pub fn place(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
+        let mut rect = self.cell(theme, template, at)?;
+        let Some(at) = at else { return Ok(rect) };
+        if let Some(inset) = at.get("inset").and_then(Value::as_f64) {
+            let inset = inset as f32;
+            rect = [rect[0] + inset, rect[1] + inset, rect[2] - 2.0 * inset, rect[3] - 2.0 * inset];
+        }
+        if let Some([dx, dy]) = at.get("offset").and_then(|o| serde_json::from_value::<[f32; 2]>(o.clone()).ok()) {
+            rect = [rect[0] + dx, rect[1] + dy, rect[2], rect[3]];
+        }
+        Ok(rect)
+    }
+
+    /// The box `at` places a node in, before its `inset` and `offset`: its cells, its slot,
+    /// or its `rect`.
+    pub fn cell(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
         let Some(at) = at else { return Ok(self.margin_box()) };
         if at.get("area").is_some() {
             return Err(EngineError::Layout("`at.area` names an area of a grid container".into()));
         }
-        let mut rect = if let Some(rect) = at.get("rect") {
+        let rect = if let Some(rect) = at.get("rect") {
             let v: Vec<f32> =
                 rect.as_array().into_iter().flatten().filter_map(Value::as_f64).map(|v| v as f32).collect();
             <[f32; 4]>::try_from(v)
@@ -110,13 +135,6 @@ impl Grid {
         } else {
             self.cells(at.get("col"), at.get("row"))?
         };
-        if let Some(inset) = at.get("inset").and_then(Value::as_f64) {
-            let inset = inset as f32;
-            rect = [rect[0] + inset, rect[1] + inset, rect[2] - 2.0 * inset, rect[3] - 2.0 * inset];
-        }
-        if let Some([dx, dy]) = at.get("offset").and_then(|o| serde_json::from_value::<[f32; 2]>(o.clone()).ok()) {
-            rect = [rect[0] + dx, rect[1] + dy, rect[2], rect[3]];
-        }
         Ok(rect)
     }
 

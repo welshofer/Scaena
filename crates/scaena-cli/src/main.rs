@@ -7,7 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
 use scaena_engine::EngineError;
 use scaena_ops::OpsError;
-use scaena_ops::inspect::Views;
+use scaena_ops::inspect::{SnapMode, Views};
 use scaena_ops::lint::Linted;
 use scaena_ops::render::Painter;
 use scaena_paint::PaintError;
@@ -82,6 +82,17 @@ enum Cmd {
         /// One of the deck's formats (`9:16`) to inspect it in, laid out with its template set.
         #[arg(long)]
         format: Option<String>,
+        /// Where NODE may go in the state (ADR-0013): what holds it, its cell, and the
+        /// tracks, slots, or order a drag snaps it to. Needs `--state`.
+        #[arg(long, value_name = "NODE", requires = "state")]
+        targets: Option<String>,
+        /// How the box `--to` snaps on NODE's targets (move, resize, slot, free, order), and
+        /// the patch that puts NODE there.
+        #[arg(long, value_name = "HOW", requires_all = ["targets", "to"])]
+        snap: Option<SnapMode>,
+        /// The box a drag left, `X,Y,W,H` in canvas units: NODE's cell, moved or resized.
+        #[arg(long, value_name = "X,Y,W,H", value_parser = rect, requires = "snap")]
+        to: Option<[f32; 4]>,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -358,8 +369,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format } => {
-            let views = Views { resolved, timeline, data, boxes, at, format };
+        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format, targets, snap, to } => {
+            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
@@ -726,6 +737,14 @@ fn lint_fix(b: &Bundle, json: bool) -> Result<ExitCode> {
 }
 
 /// A point on the canvas, `X,Y` in canvas units.
+fn rect(s: &str) -> Result<[f32; 4], String> {
+    let parts: Vec<Option<f32>> = s.split(',').map(|v| v.trim().parse::<f32>().ok()).collect();
+    match parts[..] {
+        [Some(x), Some(y), Some(w), Some(h)] if [x, y, w, h].iter().all(|v| v.is_finite()) => Ok([x, y, w, h]),
+        _ => Err(format!("`{s}`: expected X,Y,W,H in canvas units, as `96,96,600,200`")),
+    }
+}
+
 fn point(s: &str) -> Result<[f32; 2], String> {
     let parsed =
         s.split_once(',').and_then(|(x, y)| Some([x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?]));
@@ -804,8 +823,54 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
                 }
             }
         }
+        if let Some(t) = &i.targets {
+            print_targets(t);
+        }
+        if let Some(snapped) = &i.snapped {
+            let [x, y, w, h] = snapped.cell.map(|v| num(f64::from(v)));
+            println!("  lands at x {x}, y {y}, {w} × {h}");
+            match snapped.patch.is_empty() {
+                true => println!("    where it is: nothing to patch"),
+                false => println!("    patch: {}", serde_json::to_string(&snapped.patch)?),
+            }
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `inspect --targets`, for a person: what holds the node, its cell, and what a drag snaps
+/// it to.
+fn print_targets(t: &scaena_ops::inspect::Targets) {
+    let rect = |r: [f32; 4]| {
+        let [x, y, w, h] = r.map(|v| num(f64::from(v)));
+        format!("x {x}, y {y}, {w} × {h}")
+    };
+    let held = match (t.by.as_str(), &t.parent) {
+        ("stack", Some(p)) => format!("in stack {p}, by order"),
+        ("cells", Some(p)) => format!("in grid {p}, by its cells or areas"),
+        ("frame", Some(p)) => format!("in frame {p}, by a rect from its padding edge"),
+        _ => "on the theme's grid, by cells, a slot, or a rect".to_string(),
+    };
+    println!("  targets: {held}");
+    println!("    cell: {}", rect(t.cell));
+    if !t.columns.is_empty() {
+        let first = |tracks: &[[f32; 2]]| tracks.first().map(|r| num(f64::from(r[1] - r[0]))).unwrap_or_default();
+        println!(
+            "    {} columns ({} wide first), {} rows ({} tall first)",
+            t.columns.len(),
+            first(&t.columns),
+            t.rows.len(),
+            first(&t.rows)
+        );
+    }
+    for (name, r) in &t.slots {
+        println!("    {name:<14} {}", rect(*r));
+    }
+    if !t.flow.is_empty() {
+        println!("    order: {}", t.flow.join(", "));
+    }
+    let ways: Vec<&str> = t.snaps.iter().map(|m| m.name()).collect();
+    println!("    snaps by: {}", ways.join(", "));
 }
 
 /// `inspect --timeline`, for a person: the state's place on the timeline, its
