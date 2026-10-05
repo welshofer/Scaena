@@ -56,6 +56,8 @@ type Reply = Extract<
       | "choices"
       | "stateChoices"
       | "carets"
+      | "characterChoices"
+      | "bolding"
       | "reached"
       | "typed"
       | "inserts"
@@ -265,6 +267,21 @@ export class Stage {
     return this.request<"choices">({ type: "choices", id: ++this.asked, state, node }).then(({ choices }) => choices);
   }
 
+  /** What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+   * `node`'s text as `state` shows it (PLAN 2.38): the looks a run takes, with the first
+   * character's, which `style_text` sets. */
+  characterChoices(state: string, node: string, from: number, to: number): Promise<Choices> {
+    const asked = { type: "characterChoices" as const, id: ++this.asked, state, node, from, to };
+    return this.request<"characterChoices">(asked).then(({ choices }) => choices);
+  }
+
+  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
+   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
+    const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
+    return this.request<"bolding">(asked).then(({ look }) => look);
+  }
+
   /** What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
    * transition, its hold, and its notes, each with its value and where it lives. */
   stateChoices(state: string): Promise<StateChoices> {
@@ -462,6 +479,8 @@ export class Stage {
       case "choices":
       case "stateChoices":
       case "carets":
+      case "characterChoices":
+      case "bolding":
       case "reached":
       case "typed":
       case "inserts":

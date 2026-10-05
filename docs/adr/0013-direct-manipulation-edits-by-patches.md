@@ -34,6 +34,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Move within the grid, into a slot, or among a container's children | `place`: cells, a slot (`in`), an `area`, or an `index` |
    | Resize within the grid | `place`: spans |
    | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |
+   | ⌘B, or a role or color chosen, with characters selected | `style_text`: those characters' look, as runs split at the selection's ends and joined where alike, where the text lives; ⌘B bold, or not, by the weight the engine sets each in |
    | Choosing a look | `choose`: a role, a key of a style, a preset, or a prop, from the theme's names for it (`inspect --choices`); a value written out goes in the deck's `overrides` |
    | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), about the pointer, on the grid, or a text or an image in the empty slot under it |
    | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |

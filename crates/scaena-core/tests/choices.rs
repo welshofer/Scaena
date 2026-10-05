@@ -3,7 +3,7 @@
 //! shows, and where that value lives.
 
 use scaena_core::Deck;
-use scaena_core::choices::{Choices, Field, StateChoices, Takes, Where, choices, state_choices};
+use scaena_core::choices::{Choices, Field, StateChoices, Takes, Where, characters, choices, state_choices};
 use scaena_core::model::Theme;
 use scaena_core::model::theme::Vocabulary;
 use scaena_core::patch::compile;
@@ -218,4 +218,37 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     assert_eq!(names.len(), 11, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
+}
+
+#[test]
+fn characters_offer_a_runs_look_and_show_the_first_ones() {
+    let deck = |doc: &Value| -> Deck { serde_json::from_value(doc.clone()).unwrap() };
+    let theme = Theme::from_json(DUSK).unwrap();
+    // "doubled" made bold in `revenue`, where the title's text lives.
+    let ops = json!([{ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15,
+                       "look": { "style/weight": 700, "style/color": "accent" } }]);
+    let doc = compile(&example(), ops.as_array().unwrap(), &Examples).unwrap().doc;
+    let c = characters(&deck(&doc), &theme, "revenue", "title", (9, 12)).unwrap();
+    let props: Vec<&str> = c.fields.iter().map(|f| f.prop.as_str()).collect();
+    assert_eq!(props, ["role", "emphasis", "style/family", "style/weight", "style/color"]);
+    let at = |prop: &str| (field(&c, prop).value.clone(), field(&c, prop).lives.clone());
+    assert_eq!(at("style/weight"), (Some(json!(700)), Some(Where::State("revenue".into()))));
+    assert_eq!(at("style/color"), (Some(json!("accent")), Some(Where::State("revenue".into()))));
+    assert_eq!(at("role"), (None, None), "the run takes the node's role");
+    assert!(
+        matches!(&field(&c, "role").takes, Takes::Name { of: Vocabulary::TextRole, names, overrides: false } if names.contains(&"caption".to_string()))
+    );
+    assert!(
+        matches!(&field(&c, "style/color").takes, Takes::Name { overrides: false, .. }),
+        "a run takes no color written out"
+    );
+    assert!(matches!(&field(&c, "emphasis").takes, Takes::Word { words } if words == &["high", "low"]));
+    // Its first characters read as the node does: nothing of their own.
+    let c = characters(&deck(&doc), &theme, "revenue", "title", (0, 12)).unwrap();
+    assert!(c.fields.iter().all(|f| f.value.is_none()), "{:?}", c.fields);
+    // No characters, past the end, or no text: refused.
+    let e = characters(&deck(&doc), &theme, "revenue", "title", (3, 3)).unwrap_err();
+    assert!(e.contains("15 characters"), "{e}");
+    assert!(characters(&deck(&doc), &theme, "revenue", "title", (3, 16)).is_err());
+    assert!(characters(&deck(&doc), &theme, "revenue", "rev", (0, 1)).unwrap_err().contains("no text"));
 }

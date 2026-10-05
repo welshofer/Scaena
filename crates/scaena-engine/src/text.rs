@@ -87,6 +87,20 @@ const HYPHEN_PENALTY: f32 = 5.0;
 pub struct Span {
     pub text: String,
     pub style: TextRole,
+    /// The weight it is set in without its own `style.weight`: its own role's, or the
+    /// node's look's. What taking that weight away leaves (ADR-0013, ⌘B).
+    pub base_weight: f32,
+}
+
+/// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct SpanLook {
+    /// Where it ends in the text as written, bytes; it starts where the one before ends.
+    pub end: usize,
+    /// The weight it is set in.
+    pub weight: f32,
+    /// The weight it is set in without its own `style.weight` ([`Span::base_weight`]).
+    pub base: f32,
 }
 
 /// A text node after the cascade, ready to lay out.
@@ -283,6 +297,9 @@ pub struct TextLayout {
     /// The weight its look sets it in, before any span's own: what makes it bold text
     /// for contrast (lint E110, E111).
     pub weight: f32,
+    /// Its spans as written, in order, and the weight each is set in: what ⌘B reads
+    /// (ADR-0013, PLAN 2.38).
+    pub looks: Vec<SpanLook>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -447,7 +464,7 @@ impl TextSpec {
     /// `text` in one look, with no node-level settings.
     pub fn plain(role: TextRole, text: impl Into<String>) -> TextSpec {
         TextSpec {
-            spans: vec![Span { text: text.into(), style: role.clone() }],
+            spans: vec![Span { text: text.into(), base_weight: role.weight, style: role.clone() }],
             role,
             features: BTreeMap::new(),
             axes: BTreeMap::new(),
@@ -594,6 +611,13 @@ impl TextEngine {
         }
         read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
         read.offsets = offsets(&spec.spans, &cased);
+        let mut end = 0;
+        read.looks = (spec.spans.iter())
+            .map(|s| {
+                end += s.text.len();
+                SpanLook { end, weight: s.style.weight, base: s.base_weight }
+            })
+            .collect();
         Ok(read)
     }
 
@@ -1556,5 +1580,6 @@ fn read_layout(
         align: p.align,
         measure: p.measure,
         weight: p.weight,
+        looks: Vec::new(),
     })
 }

@@ -348,6 +348,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     apply: made,
     say,
+    style: (given) => board.style(given),
   });
 
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
@@ -384,6 +385,10 @@ async function edit(source: Source) {
       for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(row.getAttribute("data-node") === node));
       void look.show(node);
     },
+    // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
+    // focus there keeps the text typed in.
+    chose: (selected) => void look.characters(selected),
+    keeps: (to) => to instanceof Node && $("#look").contains(to),
   });
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
    * move, rename, and remove them. */

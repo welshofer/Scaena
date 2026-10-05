@@ -483,6 +483,29 @@ impl Session {
         scaena_core::choices::choices(&self.deck, &self.theme, state, node).map_err(Error::Ops)
     }
 
+    /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+    /// `node`'s text as `state` shows it (PLAN 2.38): each look a run of its own takes, with
+    /// the first character's, which a `style_text` patch sets.
+    pub fn character_choices(
+        &self,
+        state: &str,
+        node: &str,
+        from: usize,
+        to: usize,
+    ) -> Result<scaena_core::choices::Choices, Error> {
+        scaena_core::choices::characters(&self.deck, &self.theme, state, node, (from, to)).map_err(Error::Ops)
+    }
+
+    /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
+    /// in `state` at rest, in the format shown (PLAN 2.38): `style_text`'s `look`, from the
+    /// weight the engine sets each of them in.
+    pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<serde_json::Value, Error> {
+        let carets =
+            self.carets(state, node)?.ok_or_else(|| Error::Ops(format!("`{node}` is no text in `{state}`")))?;
+        let byte = |chars: usize| carets.text.char_indices().nth(chars).map_or(carets.text.len(), |(i, _)| i);
+        Ok(carets.bolding(byte(from), byte(to)))
+    }
+
     /// What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
     /// transition, its hold, and its notes, each with its value and where it lives, which is
     /// where a `set_state` patch writes.
@@ -595,14 +618,16 @@ impl Session {
         scaena_ops::states::adding(&self.deck, state, what).map_err(|e| Error::Ops(e.to_string()))
     }
 
-    /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`) made by
-    /// `user` at `at` (seconds since the epoch), validated and refused as a patch is but not
+    /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`, or the
+    /// `style_text` that gives characters selected there a look, PLAN 2.38) made by `user`
+    /// at `at` (seconds since the epoch), validated and refused as a patch is but not
     /// linted: the page lints the state it shows after, as it does after a keystroke in the
-    /// source. A bundle's history records a run of it as one change, `type`. Whether it
-    /// changed the deck.
+    /// source. A bundle's history records a run of typing as one change, `type`, and a look
+    /// given as a change of its own. Whether it changed the deck.
     #[cfg(feature = "editor")]
     pub fn typed(&mut self, ops: &serde_json::Value, at: Option<i64>) -> Result<bool, Error> {
-        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, Some(store::TYPED))?;
+        let typing = ops.as_array().is_some_and(|ops| ops.iter().all(|op| op["op"] == "replace_text"));
+        let (patched, write) = scaena_ops::patch::typing(&self.bundle(), ops, typing.then_some(store::TYPED))?;
         if patched.refused {
             let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
             return Err(Error::Ops(format!("the deck refuses it: {}", why.map_or("", |f| f.message.as_str()))));
@@ -1058,6 +1083,20 @@ impl Player {
         serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
     }
 
+    /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+    /// `node`'s text in `state`, as JSON (PLAN 2.38): `{ node, type, state, fields }`, each
+    /// field a look a run takes, which `style_text` sets.
+    #[wasm_bindgen(js_name = characterChoices)]
+    pub fn character_choices(&self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.character_choices(state, node, from, to).map_err(js)?).map_err(js)
+    }
+
+    /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
+    /// in `state`, as JSON: `style_text`'s `look` (PLAN 2.38).
+    pub fn bolding(&mut self, state: &str, node: &str, from: usize, to: usize) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.bolding(state, node, from, to).map_err(js)?).map_err(js)
+    }
+
     /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
     /// as `scaena inspect --state-choices` says it.
     #[wasm_bindgen(js_name = stateChoices)]
@@ -1115,9 +1154,9 @@ impl Player {
         serde_json::to_string(&self.0.adding_state(state, what).map_err(js)?).map_err(js)
     }
 
-    /// Make `ops` (JSON: a `replace_text`, typed on the canvas) as `user` at `at` (RFC 3339),
-    /// validated and refused as a patch is, but not linted (ADR-0013, PLAN 2.32). Whether it
-    /// changed the deck.
+    /// Make `ops` (JSON: a `replace_text` typed on the canvas, or a `style_text` given to the
+    /// characters selected there) as `user` at `at` (RFC 3339), validated and refused as a
+    /// patch is, but not linted (ADR-0013, PLAN 2.32, 2.38). Whether it changed the deck.
     pub fn typed(&mut self, ops: &str, at: Option<String>) -> Result<bool, JsError> {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
@@ -1776,6 +1815,34 @@ mod tests {
         let past = serde_json::json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": 99, "to": 99, "text": "!" }]);
         let e = s.typed(&past, None).unwrap_err();
         assert!(e.to_string().contains("15 characters"), "{e}");
+    }
+
+    /// Characters selected on the canvas take a look (PLAN 2.38): ⌘B's from the weight the
+    /// engine sets them in, and the inspector's from the run of the first of them.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn characters_selected_take_a_look_where_the_text_lives() {
+        let mut s = revenue();
+        let before = s.frame("revenue", f64::INFINITY).unwrap();
+        // Dusk's headline is 550, short of bold: ⌘B makes "doubled" bold. Its display is 600,
+        // bold itself, so ⌘B on the intro's title takes it to 400.
+        assert_eq!(s.bolding("revenue", "title", 8, 15).unwrap(), serde_json::json!({ "style/weight": 700 }));
+        assert_eq!(s.bolding("intro", "title", 0, 2).unwrap(), serde_json::json!({ "style/weight": 400 }));
+        let look = serde_json::json!({ "style/weight": 700, "style/color": "accent" });
+        let ops = serde_json::json!([{ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": look }]);
+        assert!(s.typed(&ops, None).unwrap());
+        assert_eq!(
+            s.deck.to_value().unwrap()["states"][1]["props"]["title"]["runs"],
+            serde_json::json!([{ "text": "Revenue " }, { "text": "doubled", "style": { "weight": 700, "color": "accent" } }])
+        );
+        assert_ne!(s.frame("revenue", f64::INFINITY).unwrap(), before, "the frame shows it");
+        assert_eq!(s.carets("revenue", "title").unwrap().unwrap().text, "Revenue doubled");
+        // Bold now by a weight of its own: ⌘B takes that away.
+        assert_eq!(s.bolding("revenue", "title", 8, 15).unwrap(), serde_json::json!({ "style/weight": null }));
+        let offered = s.character_choices("revenue", "title", 10, 12).unwrap();
+        let value = |prop: &str| offered.fields.iter().find(|f| f.prop == prop).and_then(|f| f.value.clone());
+        assert_eq!((value("style/weight"), value("style/color")), (Some(700.into()), Some("accent".into())));
+        assert!(s.bolding("revenue", "rev", 0, 1).is_err(), "a chart is no text");
     }
 
     /// A page reads a caret from the deck its source says (PLAN 2.32): the session says

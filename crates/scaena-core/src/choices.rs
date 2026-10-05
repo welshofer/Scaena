@@ -201,6 +201,76 @@ pub fn choices(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Ch
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect() })
 }
 
+/// What an inspector edits on characters selected in a text (PLAN 2.38): a run's own, which
+/// `style_text` sets. A run takes the theme's names only, so a color has no override.
+const CHARACTERS: [(&str, Source); 5] = [
+    ("role", Names(V::TextRole, false)),
+    ("emphasis", Schema(false)),
+    ("style/family", Names(V::FontFamily, false)),
+    ("style/weight", Schema(false)),
+    ("style/color", Names(V::Color, false)),
+];
+
+/// What an inspector offers for the characters `from` to `to` (Unicode scalar values, as
+/// `style_text` counts them) of text `node` as `state` shows it, in `theme` (PLAN 2.38):
+/// each look a run of its own takes, which `style_text` sets. A value is the first selected
+/// character's run's own, absent where its run sets none and the node's look shows; where
+/// it is set, it lives where the text does, which is where `style_text` writes.
+pub fn characters(
+    deck: &Deck,
+    theme: &Theme,
+    state: &str,
+    node: &str,
+    (from, to): (usize, usize),
+) -> Result<Choices, String> {
+    let i = deck.state_index(state).ok_or_else(|| format!("no state `{state}`"))?;
+    let own_props = deck.nodes.get(node).ok_or_else(|| format!("no node `{node}`"))?;
+    if own_props.node_type != NodeType::Text {
+        return Err(format!("`{node}` is no text: only a text's characters take a look of their own"));
+    }
+    let snapshots = resolve_states(deck).map_err(|e| e.to_string())?;
+    let mut shown = (snapshots[i].nodes.get(node).cloned())
+        .ok_or_else(|| format!("`{node}` is not on screen in `{state}`: an inspector edits what a state shows"))?;
+    let over = deck.overrides.get(node);
+    if let Some(over) = over {
+        merge_props(&mut shown, over);
+    }
+    let runs = shown.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
+    let count = match runs {
+        Some(runs) => runs.iter().filter_map(|r| r.get("text")?.as_str()).map(|t| t.chars().count()).sum(),
+        None => shown.get("text").and_then(Value::as_str).map_or(0, |t| t.chars().count()),
+    };
+    if from >= to || to > count {
+        return Err(format!(
+            "`{node}` reads {count} characters there: select one or more, `from` before `to`, up to {count}"
+        ));
+    }
+    // The run the first selected character is in.
+    let mut start = 0;
+    let run = runs.into_iter().flatten().find(|r| {
+        start += r.get("text").and_then(Value::as_str).map_or(0, |t| t.chars().count());
+        start > from
+    });
+    let prop = if runs.is_some() { "runs" } else { "text" };
+    let lives = lives_at(deck, i, node, over, prop, None);
+    let fields = CHARACTERS.iter().filter_map(|&(prop, source)| {
+        let takes = match source {
+            Names(of, overrides) => Takes::Name { of, names: theme.names(of), overrides },
+            Schema(overrides) => {
+                let (def, key) = prop.split_once('/').map_or(("Run", prop), |(_, key)| ("TextStyle", key));
+                allowed(Checker::deck().def_property(def, key)?, overrides)?
+            }
+        };
+        let value = run.and_then(|r| match prop.split_once('/') {
+            Some((name, key)) => r.get(name)?.get(key),
+            None => r.get(prop),
+        });
+        let lives = value.map(|_| lives.clone());
+        Some(Field { prop: prop.into(), takes, value: value.cloned(), lives, literal: false })
+    });
+    Ok(Choices { node: node.into(), node_type: NodeType::Text, state: state.into(), fields: fields.collect() })
+}
+
 /// What an inspector edits on a state: what `set_state` names. A transition's keys are those
 /// of `TransitionSpec`; the rest are `State`'s.
 const STATE: [(&str, Source); 7] = [
@@ -353,6 +423,20 @@ mod tests {
             let (def, name) = prop.strip_prefix("transition/").map_or(("State", prop), |k| ("TransitionSpec", k));
             let schema = Checker::deck().def_property(def, name);
             assert!(schema.is_some(), "{def} has no {name}");
+            if let Schema(overrides) = source {
+                assert!(allowed(schema.unwrap(), overrides).is_some(), "{prop}: {schema:?}");
+            }
+        }
+    }
+
+    /// Each look characters take is one a run has, and the schema allows something an
+    /// inspector can offer for those it takes from there.
+    #[test]
+    fn every_character_property_offered_is_one_a_run_has() {
+        for (prop, source) in CHARACTERS {
+            let (def, key) = prop.split_once('/').map_or(("Run", prop), |(_, key)| ("TextStyle", key));
+            let schema = Checker::deck().def_property(def, key);
+            assert!(schema.is_some(), "{def} has no {key}");
             if let Schema(overrides) = source {
                 assert!(allowed(schema.unwrap(), overrides).is_some(), "{prop}: {schema:?}");
             }

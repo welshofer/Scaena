@@ -8,7 +8,7 @@ use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
-use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, resolve_states, tracks_from};
+use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
 use std::ops::Range;
@@ -70,6 +70,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::ReplaceText { node, from, to, text, state, fork } => {
             replace_text(&d, node, (*from as usize, *to as usize), text, state.as_deref(), *fork)?
+        }
+        SemanticOp::StyleText { node, from, to, look, state, fork } => {
+            style_text(&d, node, (*from as usize, *to as usize), look, state.as_deref(), *fork)?
         }
         SemanticOp::Choose { node, prop, value, state, fork } => {
             choose(&d, node, prop, value, state.as_deref(), *fork)?
@@ -347,12 +350,14 @@ type Entry = (String, Option<String>, Value);
 
 /// Ops that make `entries` the node's: in state `state`'s delta, or in its defaults, where
 /// `null` takes a property away, and an object it leaves with nothing goes. A delta keeps
-/// `null`, which takes it away from what the node tracks (SPEC §2.2).
+/// `null`, which takes it away from what the node tracks (SPEC §2.2). A text's `text` or
+/// `runs` set there takes the other away there, as a delta's does (`other_spelling`).
 fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result<Vec<JsonOp>, String> {
     let Some(i) = state else {
         let old = d.node(node)?;
         let mut new = old.clone();
         for (name, key, value) in entries {
+            spell(&mut new, &name, key.as_deref(), &value);
             match (key, new.get_mut(&name)) {
                 (None, _) if value.is_null() => drop(new.shift_remove(&name)),
                 (None, _) => drop(new.insert(name, value)),
@@ -373,6 +378,7 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
     let old = props.and_then(|p| p.get(node)).and_then(Value::as_object);
     let mut new = old.cloned().unwrap_or_default();
     for (name, key, value) in entries {
+        spell(&mut new, &name, key.as_deref(), &value);
         match (key, new.get_mut(&name)) {
             (None, _) => drop(new.insert(name, value)),
             (Some(key), Some(Value::Object(map))) => drop(map.insert(key, value)),
@@ -385,6 +391,14 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
         (Some(_), None) => vec![JsonOp::Add { path: base, value: Value::Object(new) }],
         (Some(_), Some(old)) => diff(&base, old, &new),
     })
+}
+
+/// `props` about to be given `value` for `name` (or its `key`): a text's `text` or `runs`
+/// takes the other away, as they are one property written two ways (SPEC §2.2).
+fn spell(props: &mut Map<String, Value>, name: &str, key: Option<&str>, value: &Value) {
+    if let (None, false, Some(other)) = (key, value.is_null(), other_spelling(name)) {
+        props.shift_remove(other);
+    }
 }
 
 /// `place` (ADR-0013): `spot` becomes `node`'s placement where its placement lives, the
@@ -515,64 +529,267 @@ fn replace_text(
     state: Option<&str>,
     fork: bool,
 ) -> Result<Vec<JsonOp>, String> {
-    let kind = d.kind(node)?;
-    if kind != "text" {
-        return Err(format!("`{node}` is a {kind} node; `replace_text` edits a text node's text"));
-    }
-    if fork && state.is_none() {
-        return Err("`fork` keeps an edit to a state: name it (`state`)".into());
-    }
-    // The text as the state shows it: its own props, or the state's, under the overrides.
-    let own = d.node(node)?;
-    let shown = d.showing(node, state)?;
-    let mut props: Props = match &shown {
-        Some((_, props)) => props.clone(),
-        None => own.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-    };
-    let over = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object);
-    if let Some(over) = over {
-        merge_props(&mut props, &over.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-    }
-    let runs = props.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
-    let prop = if runs.is_some() { "runs" } else { "text" };
-    let written: String = match runs {
-        Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect(),
-        None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
-    };
-    let count = written.chars().count();
-    if from > to || to > count {
-        return Err(format!(
-            "`{node}` reads {count} characters there: `from` and `to` are offsets from 0 to {count}, `from` first"
-        ));
-    }
-    let byte = |chars: usize| written.char_indices().nth(chars).map_or(written.len(), |(i, _)| i);
-    let (from, to) = (byte(from), byte(to));
-    let value = match runs {
+    let shown = Shown::read(d, node, state, fork, "`replace_text` edits a text node's text")?;
+    let (from, to) = shown.bytes(node, from, to)?;
+    let value = match &shown.runs {
         Some(runs) => Value::Array(edit_runs(runs, from..to, text)),
-        None => Value::String(format!("{}{text}{}", &written[..from], &written[to..])),
+        None => Value::String(format!("{}{text}{}", &shown.written[..from], &shown.written[to..])),
     };
-    // The deck's overrides win in every state: text they set is changed there.
-    if let Some(over) = over.filter(|o| o.contains_key(prop)) {
-        if fork {
-            return Err(format!(
-                "the deck's `overrides` set `{node}`'s {prop} in every state (`/overrides/{node}/{prop}`): kept to one state, an edit would not show"
-            ));
-        }
-        let mut new = over.clone();
-        new.insert(prop.into(), value);
-        return Ok(diff(&format!("/overrides/{}", esc(node)), over, &new));
+    let prop = shown.prop();
+    shown.write(d, node, state, fork, vec![(prop.into(), None, value)], prop)
+}
+
+/// `style_text` (ADR-0013, PLAN 2.38): characters `from`..`to` of `node`'s text as `state`
+/// shows it take `look`, as runs split at the range's ends and joined where alike, written
+/// where the text lives.
+fn style_text(
+    d: &Doc,
+    node: &str,
+    (from, to): (usize, usize),
+    look: &Props,
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    if look.is_empty() {
+        return Err("`look` names nothing to set: a run's `role`, `emphasis`, `lang`, or one key of its `style`".into());
     }
-    let at = match shown {
-        Some((i, _)) => {
-            let (deck, _) = d.snapshots()?;
-            match if fork { Lives::State(i) } else { lives(&deck, i, node, prop, &[]) } {
-                Lives::State(j) => Some(j),
-                Lives::Node => None,
+    for (key, value) in look {
+        let (name, sub) = key.split_once('/').map_or((key.as_str(), None), |(n, k)| (n, Some(k)));
+        match (name, sub) {
+            ("role" | "emphasis" | "lang", None) => {}
+            ("style", Some("size")) => {
+                return Err("a run's size comes with a role: choose a role for the characters".into());
+            }
+            ("style", Some(_)) if !value.is_null() && literal(key, value) => {
+                return Err(format!(
+                    "{value} is written out where the theme has names: a run takes them (a color token or role), as a value written out is legal only in the deck's `overrides`, which would hold the text in every state"
+                ));
+            }
+            ("style", Some(k)) if STYLE_KEYS.contains(&k) => {}
+            _ => {
+                return Err(format!(
+                    "a run's look is its `role`, `emphasis`, `lang`, or one key of its `style` ({}), not `{key}`",
+                    STYLE_KEYS.iter().map(|k| format!("`style/{k}`")).collect::<Vec<_>>().join(", ")
+                ));
             }
         }
-        None => None,
+    }
+    let shown = Shown::read(d, node, state, fork, "`style_text` sets the look of a text node's characters")?;
+    if from == to {
+        return Err(format!("`from` and `to` select no characters of `{node}`: give the look to one or more"));
+    }
+    let (from, to) = shown.bytes(node, from, to)?;
+    let runs = match &shown.runs {
+        Some(runs) => runs.clone(),
+        None => vec![Value::Object(Map::from_iter([("text".to_string(), Value::String(shown.written.clone()))]))],
     };
-    set(d, node, vec![(prop.into(), None, value)], at)
+    let runs = join_runs(look_runs(split_runs(&runs, &[from, to]), from..to, look));
+    // Runs that all read as the node does are its text again.
+    let plain = runs.iter().all(|r| r.as_object().is_some_and(|o| o.len() == 1 && o.contains_key("text")));
+    let entry: Entry = if plain {
+        let text: String = runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect();
+        ("text".into(), None, Value::String(text))
+    } else {
+        ("runs".into(), None, Value::Array(runs))
+    };
+    shown.write(d, node, state, fork, vec![entry], shown.prop())
+}
+
+/// The keys of a run's `style` that `style_text` sets: the theme's names, and numbers that
+/// are no literal (W300's).
+const STYLE_KEYS: [&str; 7] = ["family", "weight", "leading", "tracking", "opsz", "case", "color"];
+
+/// A text node's text as a state shows it, and where an edit of it is written.
+struct Shown {
+    /// The deck's overrides for the node.
+    over: Option<Map<String, Value>>,
+    /// Its runs, if it has any.
+    runs: Option<Vec<Value>>,
+    /// Its text: its `text`, or its runs' texts end to end.
+    written: String,
+}
+
+impl Shown {
+    /// `node`'s text as `state` shows it (its own props, or the state's, under the overrides);
+    /// refused, saying `what`, for a node that is not a text.
+    fn read(d: &Doc, node: &str, state: Option<&str>, fork: bool, what: &str) -> Result<Shown, String> {
+        let kind = d.kind(node)?;
+        if kind != "text" {
+            return Err(format!("`{node}` is a {kind} node; {what}"));
+        }
+        if fork && state.is_none() {
+            return Err("`fork` keeps an edit to a state: name it (`state`)".into());
+        }
+        let own = d.node(node)?;
+        let shown = d.showing(node, state)?;
+        let mut props: Props = match &shown {
+            Some((_, props)) => props.clone(),
+            None => own.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        };
+        let over = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object).cloned();
+        if let Some(over) = &over {
+            merge_props(&mut props, &over.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        }
+        let runs = props.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty()).cloned();
+        let written: String = match &runs {
+            Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect(),
+            None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
+        };
+        Ok(Shown { over, runs, written })
+    }
+
+    /// The property the text is: `runs`, or `text`.
+    fn prop(&self) -> &'static str {
+        if self.runs.is_some() { "runs" } else { "text" }
+    }
+
+    /// Character offsets `from`..`to` as byte offsets into the text, or why they are not.
+    fn bytes(&self, node: &str, from: usize, to: usize) -> Result<(usize, usize), String> {
+        let count = self.written.chars().count();
+        if from > to || to > count {
+            return Err(format!(
+                "`{node}` reads {count} characters there: `from` and `to` are offsets from 0 to {count}, `from` first"
+            ));
+        }
+        let byte = |chars: usize| self.written.char_indices().nth(chars).map_or(self.written.len(), |(i, _)| i);
+        Ok((byte(from), byte(to)))
+    }
+
+    /// Ops that write `entries` where the text lives (`prop`, `text` or `runs`): in the deck's
+    /// `overrides` if they set it; else in the latest delta that sets it, from `state` back
+    /// along what it tracks, or, to `fork` it, in `state`'s own; else in the node's own.
+    fn write(
+        &self,
+        d: &Doc,
+        node: &str,
+        state: Option<&str>,
+        fork: bool,
+        entries: Vec<Entry>,
+        prop: &str,
+    ) -> Result<Vec<JsonOp>, String> {
+        // The deck's overrides win in every state: text they set is changed there.
+        if let Some(over) = self.over.as_ref().filter(|o| o.contains_key(prop)) {
+            if fork {
+                return Err(format!(
+                    "the deck's `overrides` set `{node}`'s {prop} in every state (`/overrides/{node}/{prop}`): kept to one state, an edit would not show"
+                ));
+            }
+            let mut new = over.clone();
+            for (name, key, value) in entries {
+                spell(&mut new, &name, key.as_deref(), &value);
+                if value.is_null() {
+                    new.shift_remove(&name);
+                } else {
+                    new.insert(name, value);
+                }
+            }
+            return Ok(diff(&format!("/overrides/{}", esc(node)), over, &new));
+        }
+        let at = match d.showing(node, state)? {
+            Some((i, _)) => {
+                let (deck, _) = d.snapshots()?;
+                match if fork { Lives::State(i) } else { lives(&deck, i, node, prop, &[]) } {
+                    Lives::State(j) => Some(j),
+                    Lives::Node => None,
+                }
+            }
+            None => None,
+        };
+        set(d, node, entries, at)
+    }
+}
+
+/// `runs` cut at each byte offset of `cuts` into their texts end to end: a run a cut falls
+/// inside becomes two, each with its look.
+fn split_runs(runs: &[Value], cuts: &[usize]) -> Vec<Value> {
+    let mut out = Vec::with_capacity(runs.len() + cuts.len());
+    let mut start = 0;
+    for run in runs {
+        let text = run.get("text").and_then(Value::as_str).unwrap_or_default();
+        let end = start + text.len();
+        let mut at = 0;
+        for cut in cuts.iter().filter(|&&c| start < c && c < end).map(|c| c - start) {
+            if cut > at {
+                out.push(with_text(run, &text[at..cut]));
+                at = cut;
+            }
+        }
+        out.push(with_text(run, &text[at..]));
+        start = end;
+    }
+    out
+}
+
+/// `look` set on each run of `runs` that lies within `range` (byte offsets into their texts
+/// end to end), its `null`s taken away; a `style` left with nothing goes.
+fn look_runs(runs: Vec<Value>, range: Range<usize>, look: &Props) -> Vec<Value> {
+    let mut start = 0;
+    runs.into_iter()
+        .map(|mut run| {
+            let len = run.get("text").and_then(Value::as_str).map_or(0, str::len);
+            let inside = start >= range.start && start + len <= range.end && len > 0;
+            start += len;
+            if !inside {
+                return run;
+            }
+            let Some(fields) = run.as_object_mut() else { return run };
+            for (key, value) in look {
+                match key.split_once('/') {
+                    Some((name, sub)) => {
+                        let style = fields.entry(name.to_string()).or_insert_with(|| Value::Object(Map::new()));
+                        if let Some(style) = style.as_object_mut() {
+                            if value.is_null() {
+                                style.shift_remove(sub);
+                            } else {
+                                style.insert(sub.to_string(), value.clone());
+                            }
+                        }
+                        if fields.get(name).and_then(Value::as_object).is_some_and(Map::is_empty) {
+                            fields.shift_remove(name);
+                        }
+                    }
+                    None if value.is_null() => drop(fields.shift_remove(key)),
+                    None => drop(fields.insert(key.clone(), value.clone())),
+                }
+            }
+            run
+        })
+        .collect()
+}
+
+/// `runs` with each run joined to the one before it where the two read alike, and runs left
+/// with no text gone, unless every run is.
+fn join_runs(runs: Vec<Value>) -> Vec<Value> {
+    fn look(run: &Value) -> Option<Vec<(&String, &Value)>> {
+        run.as_object().map(|o| o.iter().filter(|(k, _)| *k != "text").collect())
+    }
+    let mut out: Vec<Value> = Vec::with_capacity(runs.len());
+    for run in runs {
+        let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if look(last) == look(&run) => {
+                let joined = format!("{}{text}", last.get("text").and_then(Value::as_str).unwrap_or_default());
+                *last = with_text(last, &joined);
+            }
+            _ => out.push(run),
+        }
+    }
+    if out.is_empty() {
+        out.push(Value::Object(Map::from_iter([("text".to_string(), Value::String(String::new()))])));
+    }
+    out
+}
+
+/// `run` with `text` for its text.
+fn with_text(run: &Value, text: &str) -> Value {
+    let mut run = run.clone();
+    if let Some(fields) = run.as_object_mut() {
+        fields.insert("text".into(), Value::String(text.to_string()));
+    }
+    run
 }
 
 /// `choose` (ADR-0013): `value` becomes `node`'s `prop` (a property, or one key of one), as an
