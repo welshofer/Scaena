@@ -264,6 +264,128 @@ fn inspect_says_what_stands_where() {
     assert!(text.contains(", topmost first:") && text.contains("    card-tag-label (in card)"), "{text}");
 }
 
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// `inspect --targets` says what holds a node and where it may go (ADR-0013); `--snap` lands
+/// a dropped box there with the patch that puts it there, which `scaena patch` applies.
+#[test]
+fn inspect_says_where_a_node_may_go() {
+    let (code, states) = json(&["inspect", TORTURE, "--state", "containers", "--targets", "board-dot"]);
+    assert_eq!(code, 0, "{states:#}");
+    let t = &states[0]["targets"];
+    assert_eq!((t["by"].as_str(), t["parent"].as_str()), (Some("cells"), Some("board")));
+    assert_eq!(t["columns"].as_array().map(Vec::len), Some(2));
+    assert_eq!(t["slots"].as_object().unwrap().keys().collect::<Vec<_>>(), ["mark", "note", "photo"]);
+    assert_eq!(t["snaps"], serde_json::json!(["move", "resize", "slot"]));
+    let (_, states) = json(&["inspect", TORTURE, "--state", "containers", "--targets", "stat-b"]);
+    assert_eq!(states[0]["targets"]["flow"], serde_json::json!(["stat-a", "stat-b", "stat-c"]));
+    assert_eq!(states[0]["targets"]["snaps"], serde_json::json!(["order"]));
+
+    // A box dropped on another slot of the template lands in it; its patch, applied, puts
+    // the node there.
+    let bundle = scratch("targets").join("torture.scaena");
+    copy_dir(Path::new(TORTURE), &bundle);
+    let b = bundle.to_str().unwrap();
+    let (_, states) = json(&["inspect", b, "--state", "containers", "--targets", "case"]);
+    let right: Vec<f64> =
+        states[0]["targets"]["slots"]["right"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let to = format!("{},{},{},{}", right[0] + 20.0, right[1] + 20.0, right[2] / 2.0, right[3] / 2.0);
+    let (code, states) =
+        json(&["inspect", b, "--state", "containers", "--targets", "case", "--snap", "slot", "--to", &to]);
+    assert_eq!(code, 0, "{states:#}");
+    let snapped = &states[0]["snapped"];
+    assert_eq!(
+        snapped["patch"],
+        serde_json::json!([{ "op": "place", "node": "case", "at": { "in": "right" }, "state": "containers" }])
+    );
+    // `case` shows in every state, placed by its own `at`: the move lives there, so lint
+    // finds it in the other states it now stands over.
+    let ops = bundle.parent().unwrap().join("ops.json");
+    std::fs::write(&ops, snapped["patch"].to_string()).unwrap();
+    let (code, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap(), "--dry-run"]);
+    assert_eq!(code, 1, "{patched:#}");
+    assert!(patched["added"].as_array().unwrap().iter().any(|f| f["state"] != "containers"), "{patched:#}");
+    // `tally` is in `containers` alone: moved a column right, it stands there.
+    let (_, states) = json(&["inspect", b, "--state", "containers", "--targets", "tally"]);
+    let cell: Vec<f64> = states[0]["targets"]["cell"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let to = format!("{},{},{},{}", cell[0] + 150.0, cell[1], cell[2], cell[3]);
+    let (_, states) =
+        json(&["inspect", b, "--state", "containers", "--targets", "tally", "--snap", "move", "--to", &to]);
+    let snapped = &states[0]["snapped"];
+    std::fs::write(&ops, snapped["patch"].to_string()).unwrap();
+    // The torture deck holds its failing cases' errors; the move adds none.
+    let (_, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(
+        (&patched["applied"], &patched["added"]),
+        (&serde_json::json!(true), &serde_json::json!([])),
+        "{patched:#}"
+    );
+    let (_, states) = json(&["inspect", b, "--state", "containers", "--targets", "tally"]);
+    assert_eq!(states[0]["targets"]["cell"], snapped["cell"]);
+    assert_ne!(states[0]["targets"]["cell"], serde_json::json!(cell));
+
+    // What it needs, and a way that does not place the node, are errors that say so.
+    assert_eq!(scaena(&["inspect", TORTURE, "--targets", "case"]).status.code(), Some(2));
+    assert_eq!(
+        scaena(&["inspect", TORTURE, "--state", "containers", "--targets", "case", "--snap", "move"]).status.code(),
+        Some(2)
+    );
+    assert_eq!(
+        scaena(&[
+            "inspect",
+            TORTURE,
+            "--state",
+            "containers",
+            "--targets",
+            "case",
+            "--snap",
+            "sideways",
+            "--to",
+            "0,0,1,1"
+        ])
+        .status
+        .code(),
+        Some(2)
+    );
+    let (code, err) = json(&[
+        "inspect",
+        TORTURE,
+        "--state",
+        "containers",
+        "--targets",
+        "stat-a",
+        "--snap",
+        "free",
+        "--to",
+        "0,0,10,10",
+    ]);
+    assert_ne!(code, 0);
+    assert!(err["error"]["message"].as_str().is_some_and(|m| m.contains("it snaps by order")), "{err:#}");
+    let (code, err) = json(&["inspect", TORTURE, "--state", "containers", "--targets", "nobody"]);
+    assert_ne!(code, 0);
+    assert!(err["error"]["message"].as_str().is_some_and(|m| m.contains("`nobody`")), "{err:#}");
+
+    // For a person: what holds it, its slots, and the patch.
+    let out =
+        scaena(&["inspect", TORTURE, "--state", "containers", "--targets", "case", "--snap", "slot", "--to", &to]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("targets: on the theme's grid") && text.contains("    right ") && text.contains("patch: [{"),
+        "{text}"
+    );
+}
+
 #[test]
 fn inspect_keeps_its_snapshot_without_the_views() {
     // The views add keys; the snapshot is the same either way.

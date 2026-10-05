@@ -15,6 +15,7 @@
 mod ops;
 
 use crate::document::{DataSource, Node, Props, State};
+use crate::model::values::{Range, Rect};
 use crate::model::{Id, StateDeltaRef, ThemeRef};
 use crate::validate::BundleFiles;
 use schemars::JsonSchema;
@@ -183,6 +184,22 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
     },
+    /// A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that
+    /// say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`,
+    /// and the rest of them go. They are written where the placement lives: in the deck's
+    /// `overrides` if they set it; else in the latest delta that sets it, from `state` back
+    /// along what it tracks; else in the node's own `at`. Without `state`, in the node's own
+    /// unless the overrides set it. The node stays in its container (`at.parent`), which says
+    /// what places it: the theme's grid places a root or a group's member by cells, slot, or
+    /// `rect`; a grid container by cells or `area`; a stack by `index`; a frame by `rect`.
+    Place {
+        #[schemars(with = "Id")]
+        node: String,
+        at: Spot,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+    },
     /// A text node's `text`, in a state or in its defaults. `runs` there go, so the text
     /// is what shows.
     SetText {
@@ -279,6 +296,7 @@ impl SemanticOp {
             SemanticOp::ShowNode { .. } => "show_node",
             SemanticOp::HideNode { .. } => "hide_node",
             SemanticOp::SetProp { .. } => "set_prop",
+            SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
@@ -289,6 +307,34 @@ impl SemanticOp {
             SemanticOp::Retheme { .. } => "retheme",
         }
     }
+}
+
+/// Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col`
+/// and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the
+/// state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Spot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col: Option<Range>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<Range>,
+    /// A slot of the state's layout template, or `canvas` or `grid`.
+    #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
+    /// `[x, y, w, h]`, canvas units: on the canvas, an override (W301), or from a frame's
+    /// padding edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rect: Option<Rect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+}
+
+impl Spot {
+    /// The keys of `at` that say where a node goes: what `place` replaces.
+    pub const KEYS: [&'static str; 6] = ["col", "row", "in", "rect", "area", "index"];
 }
 
 /// The motion a motion preset is for.

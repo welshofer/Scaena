@@ -368,3 +368,141 @@ fn json_patch_and_semantic_ops_mix_and_fail_together() {
     assert_eq!((err.index, err.message.as_str()), (2, "`/states/9/hold` is not there"));
     assert_eq!(doc, example());
 }
+
+#[test]
+fn place_writes_a_placement_where_it_lives() {
+    // `revenue` moves the title into the header, and `mix` tracks it from there: a move in
+    // `mix` changes `revenue`'s delta, so both show it.
+    let c = patch(&example(), json!([{ "op": "place", "node": "title", "state": "mix", "at": { "in": "kicker" } }]))
+        .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/props/title/at/in", "value": "kicker" }]));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let at = |i: usize| snaps[i].nodes["title"]["at"].clone();
+    assert_eq!(
+        (at(0), at(1), at(2), at(3)),
+        (json!({ "in": "title" }), json!({ "in": "kicker" }), json!({ "in": "kicker" }), json!({ "in": "title" }))
+    );
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // `intro` shows the title's own placement: cells there replace the slot, and the states
+    // that set their own keep it.
+    let c = patch(
+        &example(),
+        json!([{ "op": "place", "node": "title", "state": "intro", "at": { "col": [2, 9], "row": [3, 8] } }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["title"]["at"], json!({ "col": [2, 9], "row": [3, 8] }));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    assert_eq!(snaps[1].nodes["title"]["at"], json!({ "col": [2, 9], "row": [3, 8], "in": "header" }));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // Into a delta whose state tracks a slot: the slot goes with `null`, which the merge takes
+    // away from what it tracks.
+    let c = patch(
+        &example(),
+        json!([{ "op": "place", "node": "title", "state": "revenue", "at": { "col": [1, 8], "row": [1, 2] } }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["states"][1]["props"]["title"]["at"], json!({ "col": [1, 8], "row": [1, 2], "in": null }));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    assert_eq!(snaps[2].nodes["title"]["at"], json!({ "col": [1, 8], "row": [1, 2] }));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // Without a state, the node's own placement, whatever the states set over it.
+    let c = patch(&example(), json!([{ "op": "place", "node": "note", "at": { "in": "kicker" } }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/note/at/in", "value": "kicker" }]));
+}
+
+#[test]
+fn place_follows_a_node_out_and_back_and_into_its_overrides() {
+    let doc = json!({
+        "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
+            "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
+        },
+        "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
+        "states": [
+            { "id": "a", "props": { "t": { "at": { "in": "canvas" } }, "u": {} } },
+            { "id": "b", "remove": ["t"] },
+            { "id": "c", "props": { "t": {} } },
+        ],
+    });
+    // `t` leaves in `b` and comes back in `c` with its own placement: that is where it lives.
+    let c =
+        patch(&doc, json!([{ "op": "place", "node": "t", "state": "c", "at": { "col": [2, 3], "row": 2 } }])).unwrap();
+    assert_eq!(c.doc["nodes"]["t"]["at"], json!({ "align": "center", "col": [2, 3], "row": 2 }));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    assert_eq!(snaps[0].nodes["t"]["at"], json!({ "in": "canvas", "align": "center", "col": [2, 3], "row": 2 }));
+    assert_eq!(snaps[2].nodes["t"]["at"], json!({ "align": "center", "col": [2, 3], "row": 2 }));
+    // The overrides place `u` in every state: a move changes them, and takes the node's own
+    // cells away under them.
+    let c = patch(&doc, json!([{ "op": "place", "node": "u", "state": "a", "at": { "in": "grid" } }])).unwrap();
+    assert_eq!(
+        rfc(&c),
+        json!([
+            { "op": "add", "path": "/overrides/u/at/col", "value": null },
+            { "op": "add", "path": "/overrides/u/at/in", "value": "grid" },
+            { "op": "remove", "path": "/overrides/u/at/rect" },
+        ])
+    );
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let mut shown = snaps[0].nodes["u"].clone();
+    scaena_core::tracking::merge_props(&mut shown, &deck(&c.doc).overrides["u"]);
+    assert_eq!(shown["at"], json!({ "in": "grid" }));
+    // Overrides that take `at` away whole keep the rest of it away when a placement goes there.
+    let mut gone = doc.clone();
+    gone["overrides"] = json!({ "t": { "at": null } });
+    let c = patch(&gone, json!([{ "op": "place", "node": "t", "state": "a", "at": { "col": 1 } }])).unwrap();
+    assert_eq!(c.doc["overrides"]["t"]["at"], json!({ "align": null, "col": 1, "in": null }));
+    let snaps = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let mut shown = snaps[0].nodes["t"].clone();
+    scaena_core::tracking::merge_props(&mut shown, &deck(&c.doc).overrides["t"]);
+    assert_eq!(shown["at"], json!({ "col": 1 }));
+}
+
+#[test]
+fn place_says_what_places_a_node() {
+    let doc = json!({
+        "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
+            "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
+            "b": { "type": "text", "text": "B", "at": { "parent": "row", "index": 1 } },
+            "board": { "type": "grid", "cols": 2, "rows": 2, "at": { "in": "grid" } },
+            "dot": { "type": "shape", "kind": "ellipse", "at": { "parent": "board", "col": 1, "row": 1 } },
+            "card": { "type": "frame", "at": { "in": "grid" } },
+            "tag": { "type": "text", "text": "T", "at": { "parent": "card" } },
+        },
+        "states": [{ "id": "s", "props": { "row": {}, "a": {}, "b": {}, "board": {}, "dot": {}, "card": {}, "tag": {} } }],
+    });
+    // Each container places its children its own way, and the node stays in it.
+    let c = patch(
+        &doc,
+        json!([
+            { "op": "place", "node": "a", "state": "s", "at": { "index": 2 } },
+            { "op": "place", "node": "dot", "state": "s", "at": { "col": [1, 2], "row": 2 } },
+            { "op": "place", "node": "tag", "at": { "rect": [8, 8, 120, 40] } },
+        ]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["a"]["at"], json!({ "parent": "row", "index": 2 }));
+    assert_eq!(c.doc["nodes"]["dot"]["at"], json!({ "parent": "board", "col": [1, 2], "row": 2 }));
+    assert_eq!(c.doc["nodes"]["tag"]["at"], json!({ "parent": "card", "rect": [8.0, 8.0, 120.0, 40.0] }));
+    for (op, says) in [
+        (
+            json!({ "op": "place", "node": "a", "at": { "col": 1 } }),
+            "in stack `row`, which places its children in order: by `index`",
+        ),
+        (json!({ "op": "place", "node": "dot", "at": { "in": "grid" } }), "in grid `board`"),
+        (json!({ "op": "place", "node": "tag", "at": { "index": 0 } }), "in frame `card`"),
+        (json!({ "op": "place", "node": "row", "at": { "area": "x" } }), "on the theme's grid"),
+        (json!({ "op": "place", "node": "row", "at": {} }), "say where"),
+        (json!({ "op": "place", "node": "row", "at": { "in": "grid", "col": 1 } }), "one placement"),
+        (json!({ "op": "place", "node": "row", "at": { "parent": "board" } }), "unknown field `parent`"),
+        (json!({ "op": "place", "node": "nobody", "at": { "in": "grid" } }), "no node `nobody`"),
+    ] {
+        let err = patch(&doc, json!([op.clone()])).unwrap_err();
+        assert!(err.message.contains(says), "{op}: {err}");
+    }
+}

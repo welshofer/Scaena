@@ -1,7 +1,7 @@
 //! Inspect a deck (SPEC §7.1): each state's snapshot, tracking applied (SPEC §2.2); through
 //! the theme cascade (PLAN 1.6); its cue on the timeline (PLAN 1.14); the rows its charts and
-//! tables read; and what stands where at rest, for a client that edits by pointing (ADR-0013).
-//! And what changes between two states.
+//! tables read; and, for a client that edits by pointing (ADR-0013), what stands where at
+//! rest and where a node may go. And what changes between two states.
 
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
@@ -12,6 +12,7 @@ use scaena_core::timeline::{self, CubicBezier, Look};
 use scaena_core::{Deck, Snapshot};
 use scaena_engine::cascade;
 use scaena_engine::data::{self, DataFiles, Datum};
+use scaena_engine::geometry::{By, Snap};
 use scaena_engine::layout::Grid;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest, project};
@@ -45,12 +46,76 @@ pub struct Views {
     /// template set; the deck's own canvas without it.
     #[serde(default)]
     pub format: Option<String>,
+    /// A node shown in the state inspected: where it may go, as a drag snaps it (ADR-0013).
+    /// What holds it, its cell, and the tracks, slots, or order it takes.
+    #[serde(default)]
+    pub targets: Option<String>,
+    /// With `targets` and `to`: how the dropped box snaps, and the patch that puts the node
+    /// there.
+    #[serde(default)]
+    pub snap: Option<SnapMode>,
+    /// With `snap`: the box a drag left, `[x, y, width, height]` in canvas units: the node's
+    /// cell, moved or resized.
+    #[serde(default)]
+    pub to: Option<[f32; 4]>,
 }
 
 impl Views {
     /// Whether a view needs the state laid out, as a frame lays it out.
     fn laid(&self) -> bool {
-        self.boxes || self.at.is_some()
+        self.boxes || self.at.is_some() || self.targets.is_some()
+    }
+}
+
+/// How a box dropped on a node's targets snaps (ADR-0013).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapMode {
+    /// As many cells as the node spans, from the track nearest the box's corner.
+    Move,
+    /// Each edge to the nearest track's.
+    Resize,
+    /// Into the slot, or the grid container's area, the box covers most.
+    Slot,
+    /// Where it was dropped, in whole canvas units: a `rect`. On the theme's grid, an
+    /// override (W301); in a frame, its own way of placing.
+    Free,
+    /// Among a stack's children, where the box's middle falls.
+    Order,
+}
+
+impl SnapMode {
+    pub const ALL: [SnapMode; 5] = [SnapMode::Move, SnapMode::Resize, SnapMode::Slot, SnapMode::Free, SnapMode::Order];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SnapMode::Move => "move",
+            SnapMode::Resize => "resize",
+            SnapMode::Slot => "slot",
+            SnapMode::Free => "free",
+            SnapMode::Order => "order",
+        }
+    }
+
+    fn engine(self) -> Snap {
+        match self {
+            SnapMode::Move => Snap::Move,
+            SnapMode::Resize => Snap::Resize,
+            SnapMode::Slot => Snap::Slot,
+            SnapMode::Free => Snap::Free,
+            SnapMode::Order => Snap::Order,
+        }
+    }
+}
+
+impl std::str::FromStr for SnapMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<SnapMode, String> {
+        SnapMode::ALL.into_iter().find(|m| m.name() == s).ok_or_else(|| {
+            let names: Vec<&str> = SnapMode::ALL.iter().map(|m| m.name()).collect();
+            format!("`{s}` is not a way to snap: {}", names.join(", "))
+        })
     }
 }
 
@@ -78,6 +143,57 @@ pub struct Inspected {
     /// The nodes that draw at the point asked about (`at`), topmost first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hits: Option<Vec<Hit>>,
+    /// Where the node asked about may go (`targets`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Targets>,
+    /// Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapped: Option<Snapped>,
+}
+
+/// Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Targets {
+    /// What holds it, and so how it is placed: `grid`, the theme's (by cells, a slot, or a
+    /// `rect`); `stack` (by order); `cells`, a grid container's (by its cells or areas); or
+    /// `frame` (by a `rect` from its padding edge).
+    pub by: String,
+    /// The container that holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// The box its placement names now, before its inset, offset, alignment, and size: what
+    /// a drag moves.
+    pub cell: [f32; 4],
+    /// The tracks a placement by cells takes, each `[start, end]`: columns left to right.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<[f32; 2]>,
+    /// Rows, top to bottom.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<[f32; 2]>,
+    /// The boxes a placement by name takes: the template's slots, then `canvas` and `grid`;
+    /// or a grid container's areas.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub slots: IndexMap<String, [f32; 4]>,
+    /// A stack's children in their order, this node among them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<String>,
+    /// What a `rect` is measured in: the canvas, or a frame's padding box; else the box of
+    /// the container that holds it.
+    pub within: [f32; 4],
+    /// How a box dropped here snaps (`snap`).
+    pub snaps: Vec<SnapMode>,
+}
+
+/// Where a dropped box lands.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Snapped {
+    /// The box a guide shows there: a cell, a slot, a `rect`, or, in a stack, a line across
+    /// it where the node goes.
+    pub cell: [f32; 4],
+    /// The patch that puts the node there, made in the state inspected: `place` ops (SPEC
+    /// §7.3), each written where that placement lives. What `scaena patch` and `deck_patch`
+    /// take; empty when the node is there already.
+    pub patch: Vec<Value>,
 }
 
 /// A visible node's box at rest, canvas units (ADR-0013).
@@ -297,6 +413,15 @@ pub fn inspect_deck(
         Some((deck, theme)) => (deck.as_ref(), Some(theme.as_ref())),
         None => (deck, theme),
     };
+    match (&views.targets, state, views.snap, views.to) {
+        (Some(_), None, ..) => return Err(OpsError::new("`targets` names a node in a state: name the state")),
+        (None, _, Some(_), _) => return Err(OpsError::new("`snap` snaps a node's box: name it with `targets`")),
+        (_, _, Some(_), None) => return Err(OpsError::new("`snap` snaps the box a drag left: give it with `to`")),
+        (_, _, None, Some(_)) => {
+            return Err(OpsError::new("`to` is a box dropped on a node's targets: say how it snaps with `snap`"));
+        }
+        _ => {}
+    }
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let selected: Vec<&Snapshot> = snaps.iter().filter(|s| state.is_none_or(|id| s.state_id == id)).collect();
     if selected.is_empty() {
@@ -328,8 +453,17 @@ pub fn inspect_deck(
     let mut out = Vec::new();
     for s in selected {
         let snapshot = if views.resolved { cascade::with_overrides(deck, s) } else { s.clone() };
-        let mut inspected =
-            Inspected { snapshot, looks: None, overrides: None, timeline: None, data: None, boxes: None, hits: None };
+        let mut inspected = Inspected {
+            snapshot,
+            looks: None,
+            overrides: None,
+            timeline: None,
+            data: None,
+            boxes: None,
+            hits: None,
+            targets: None,
+            snapped: None,
+        };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
             for (id, props) in &inspected.snapshot.nodes {
@@ -370,10 +504,62 @@ pub fn inspect_deck(
                 inspected.hits =
                     Some(hits.map(|h| Hit { node: h.node, rect: h.rect, containers: h.containers }).collect());
             }
+            if let Some(node) = &views.targets {
+                let found = engine.targets(&req, node)?;
+                if let (Some(how), Some(to)) = (views.snap, views.to) {
+                    let Some(target) = snap(&found, how, to, state)? else {
+                        let ways: Vec<&str> = Targets::from(found).snaps.iter().map(|m| m.name()).collect();
+                        return Err(OpsError::new(format!(
+                            "`{node}` does not snap by `{}` where it is held: it snaps by {}",
+                            how.name(),
+                            ways.join(", ")
+                        )));
+                    };
+                    inspected.snapped = Some(target);
+                }
+                inspected.targets = Some(Targets::from(found));
+            }
         }
         out.push(inspected);
     }
     Ok(out)
+}
+
+impl From<scaena_engine::geometry::Targets> for Targets {
+    fn from(found: scaena_engine::geometry::Targets) -> Targets {
+        let snaps = SnapMode::ALL.into_iter().filter(|m| found.snap(m.engine(), found.cell).is_some()).collect();
+        let (by, parent) = match found.by {
+            By::Grid => ("grid", None),
+            By::Stack { parent, .. } => ("stack", Some(parent)),
+            By::Cells { parent } => ("cells", Some(parent)),
+            By::Frame { parent } => ("frame", Some(parent)),
+        };
+        Targets {
+            by: by.to_string(),
+            parent,
+            cell: found.cell,
+            columns: found.columns,
+            rows: found.rows,
+            slots: found.slots.into_iter().collect(),
+            flow: found.flow.into_iter().map(|(id, ..)| id).collect(),
+            within: found.within,
+            snaps,
+        }
+    }
+}
+
+/// Where the box `to` lands on `found` when it snaps `how`, with the patch that puts the
+/// node there as an edit in `state`; `None` where nothing places the node that way.
+pub fn snap(
+    found: &scaena_engine::geometry::Targets,
+    how: SnapMode,
+    to: [f32; 4],
+    state: &str,
+) -> Result<Option<Snapped>, OpsError> {
+    let Some(target) = found.snap(how.engine(), to) else { return Ok(None) };
+    let ops = target.ops(Some(state));
+    let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    Ok(Some(Snapped { cell: target.cell, patch }))
 }
 
 fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition) -> Cue {

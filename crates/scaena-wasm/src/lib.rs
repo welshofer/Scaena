@@ -88,6 +88,9 @@ pub struct Session {
     /// The state last asked what stands where, laid out at rest, so a pointer's every move
     /// lays out nothing (ADR-0013).
     rest: Option<(String, scaena_engine::sample::Scene)>,
+    /// Where the node last asked about may go, by its state and its id: a drag asks again
+    /// with every move, and lays nothing out (ADR-0013).
+    targets: Option<(String, String, scaena_engine::geometry::Targets)>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// The fonts and images the engine was built from, as painters read them.
@@ -162,6 +165,7 @@ impl Session {
             engine: None,
             transition: None,
             rest: None,
+            targets: None,
             format: None,
             store: Assets::new(),
             #[cfg(feature = "cpu")]
@@ -238,6 +242,7 @@ impl Session {
     fn forget(&mut self) {
         self.transition = None;
         self.rest = None;
+        self.targets = None;
     }
 
     /// Build the engine from the fonts and images the deck names, if it is not built yet.
@@ -359,6 +364,42 @@ impl Session {
     /// topmost first, each with the containers it sits in (ADR-0013).
     pub fn hit(&mut self, state: &str, point: [f32; 2]) -> Result<Vec<scaena_engine::geometry::Hit>, Error> {
         Ok(self.at_rest(state)?.hit(point))
+    }
+
+    /// Where `node` may go in `state` at rest, in the format shown (ADR-0013): what holds
+    /// it, its cell, and the tracks, slots, or order a drag snaps it to.
+    pub fn targets(&mut self, state: &str, node: &str) -> Result<&scaena_engine::geometry::Targets, Error> {
+        if self.targets.as_ref().is_none_or(|(s, n, _)| s != state || n != node) {
+            self.duration(state)?;
+            let engine = self.engine.as_mut().expect("built for the span");
+            let format = self.format.as_deref();
+            let req = FrameRequest {
+                deck: &self.deck,
+                theme: &self.theme,
+                data: &self.data,
+                state,
+                t_ms: f64::INFINITY,
+                format,
+            };
+            let found = engine.targets(&req, node)?;
+            self.targets = Some((state.to_string(), node.to_string(), found));
+        }
+        Ok(&self.targets.as_ref().expect("found above").2)
+    }
+
+    /// Where the box `to` (`node`'s cell as a drag left it) lands in `state` when it snaps
+    /// `how`, with the patch that puts the node there; `None` where nothing places the node
+    /// that way.
+    #[cfg(feature = "editor")]
+    pub fn snap(
+        &mut self,
+        state: &str,
+        node: &str,
+        how: scaena_ops::inspect::SnapMode,
+        to: [f32; 4],
+    ) -> Result<Option<scaena_ops::inspect::Snapped>, Error> {
+        let found = self.targets(state, node)?.clone();
+        scaena_ops::inspect::snap(&found, how, to, state).map_err(|e| Error::Deck(e.to_string()))
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
@@ -564,26 +605,6 @@ impl Player {
         self.0.reading(state).map_err(js)
     }
 
-    /// Each visible node's box in `state` at rest, in the format shown, as JSON (ADR-0013):
-    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws" }]`, canvas units, those that draw
-    /// in paint order, then the containers and groups that only hold others.
-    pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
-        let boxes: Vec<serde_json::Value> = (self.0.boxes(state).map_err(js)?.into_iter())
-            .map(|b| serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws }))
-            .collect();
-        serde_json::to_string(&boxes).map_err(js)
-    }
-
-    /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
-    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers" }]`, each node's
-    /// containers innermost first.
-    pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
-        let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
-            .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
-            .collect();
-        serde_json::to_string(&hits).map_err(js)
-    }
-
     /// `state` at `t_ms` (`Infinity`: at rest), painted by `vello_cpu` `width` pixels wide,
     /// the height keeping the canvas's aspect: straight-alpha sRGB, four bytes a pixel, row
     /// by row, as `new ImageData(pixels, width)` takes them.
@@ -709,6 +730,60 @@ impl Player {
     /// set, and its cue.
     pub fn inspect(&mut self, state: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.inspect(state).map_err(js)?).map_err(js)
+    }
+}
+
+/// Direct manipulation (ADR-0013): what stands where in a state at rest, and where a node may
+/// go, for the editor's canvas. The player's module leaves it out.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// Each visible node's box in `state` at rest, in the format shown, as JSON (ADR-0013):
+    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws" }]`, canvas units, those that draw
+    /// in paint order, then the containers and groups that only hold others.
+    pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
+        let boxes: Vec<serde_json::Value> = (self.0.boxes(state).map_err(js)?.into_iter())
+            .map(|b| serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws }))
+            .collect();
+        serde_json::to_string(&boxes).map_err(js)
+    }
+
+    /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
+    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers" }]`, each node's
+    /// containers innermost first.
+    pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
+            .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
+            .collect();
+        serde_json::to_string(&hits).map_err(js)
+    }
+
+    /// Where `node` may go in `state` at rest, in the format shown, as JSON (ADR-0013): `{
+    /// "by", "parent"?, "cell", "columns"?, "rows"?, "slots"?, "flow"?, "within", "snaps" }`,
+    /// as `scaena inspect --targets` gives it.
+    pub fn targets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        let found = self.0.targets(state, node).map_err(js)?.clone();
+        serde_json::to_string(&scaena_ops::inspect::Targets::from(found)).map_err(js)
+    }
+
+    /// Where the box `x`, `y`, `w`, `h` (`node`'s cell as a drag left it) lands in `state`
+    /// when it snaps `how` (`move`, `resize`, `slot`, `free`, `order`), as JSON: `{ "cell",
+    /// "patch" }`, the patch the place ops that put the node there; `null` where nothing
+    /// places the node that way. Asked with each move of a drag, it lays nothing out.
+    #[allow(clippy::too_many_arguments)]
+    pub fn snap(
+        &mut self,
+        state: &str,
+        node: &str,
+        how: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> Result<String, JsError> {
+        let how: scaena_ops::inspect::SnapMode = how.parse().map_err(|e: String| JsError::new(&e))?;
+        let snapped = self.0.snap(state, node, how, [x, y, w, h]).map_err(js)?;
+        serde_json::to_string(&snapped).map_err(js)
     }
 }
 
@@ -1231,6 +1306,41 @@ mod tests {
         let tall = s.boxes("formats").unwrap();
         assert!(tall.iter().all(|b| b.rect[0] + b.rect[2] <= 1080.01), "{tall:?}");
         assert!(matches!(s.boxes("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    /// A drag asks where its node may go once, and each move after snaps with what it was
+    /// told, laying nothing out. The patch it ends with applies as any edit does, and the
+    /// node stands where the drag said (ADR-0013).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_snaps_its_node_and_the_patch_puts_it_there() {
+        use scaena_ops::inspect::SnapMode;
+        let mut s = torture();
+        let found = s.targets("containers", "tally").unwrap().clone();
+        let (cell, pitch) = (found.cell, found.columns[1][0] - found.columns[0][0]);
+        let mut snapped = None;
+        for dx in [10.0, 0.6 * pitch, 1.1 * pitch] {
+            snapped = s.snap("containers", "tally", SnapMode::Move, [cell[0] + dx, cell[1], cell[2], cell[3]]).unwrap();
+            assert!(
+                s.targets
+                    .as_ref()
+                    .is_some_and(|(state, node, t)| state == "containers" && node == "tally" && *t == found)
+            );
+        }
+        let snapped = snapped.unwrap();
+        assert_eq!(
+            snapped.patch,
+            [
+                serde_json::json!({ "op": "place", "node": "tally", "at": { "col": [2, 12], "row": 5 }, "state": "containers" })
+            ]
+        );
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": snapped.patch }), by).unwrap();
+        assert!(s.targets.is_none(), "the deck changed, and with it where things stand");
+        assert_eq!(s.targets("containers", "tally").unwrap().cell, snapped.cell);
+        // A way that does not place a node is no target, and a node not on screen is an error.
+        assert!(s.snap("containers", "stat-a", SnapMode::Move, cell).unwrap().is_none());
+        assert!(s.targets("containers", "title").is_err());
     }
 
     /// The revenue example, its files handed over as a page hands them.

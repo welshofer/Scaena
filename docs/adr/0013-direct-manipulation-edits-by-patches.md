@@ -31,8 +31,8 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
 
    | Gesture | Patch |
    |---|---|
-   | Move within the grid or into a slot | `set_prop` of `at`: cells, or `in` |
-   | Resize within the grid | `set_prop` of `at`: spans |
+   | Move within the grid, into a slot, or among a container's children | `place`: cells, a slot (`in`), an `area`, or an `index` |
+   | Resize within the grid | `place`: spans |
    | Typing | `set_text` |
    | Choosing a look | a role, a style, or a preset from the theme's vocabulary |
 

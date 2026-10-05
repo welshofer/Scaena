@@ -187,10 +187,13 @@ async fn spec_is_served_by_section_and_nothing_is_lost() {
     }
     let start = spec.find("\n## 0. ").unwrap() + 1;
     assert!(rebuilt == spec[start..], "the sections, in order, are SPEC after its preamble");
-    // A subsection is its own resource whether its section is served whole or not.
+    // A subsection is its own resource whether its section is served whole or not; it is
+    // listed when its section is served by subsection, as §3 and §7 are, and §8 is not.
     assert!(read(&client, "scaena://spec/3.7").await.starts_with("### 3.7 Charts\n"));
     assert!(read(&client, "scaena://spec/7.2").await.starts_with("### 7.2 "));
+    assert!(read(&client, "scaena://spec/8.2").await.starts_with("### 8.2 "));
     let listed: Vec<String> = client.list_all_resources().await.unwrap().into_iter().map(|r| r.uri).collect();
-    assert!(listed.iter().any(|u| u == "scaena://spec/3.7") && !listed.iter().any(|u| u == "scaena://spec/7.2"));
+    let has = |uri: &str| listed.iter().any(|u| u == uri);
+    assert!(has("scaena://spec/3.7") && has("scaena://spec/7.2") && !has("scaena://spec/8.2"));
     client.cancel().await.unwrap();
 }
