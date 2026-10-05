@@ -65,6 +65,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Drag them, or press an arrow key, and they move together, keeping where they stand about each other. Delete, ⌘D, ⌘C, and ⌘X act on all of them, and a paste puts them down as they stood.
   - The inspector aligns them by their left, right, top, or bottom edges or their middles, on the grid's tracks, and spreads three or more evenly. It offers what all of them have, and what you choose there is theirs.
   - ⌘] brings what is selected in front of the next thing it overlaps, and ⌘[ sends it behind; with Shift, in front of or behind everything beside it. Each is one ⌘Z.
+  - ⌘G (Ctrl+G) puts what is selected in a group, which moves, fades, and enters as one; ⌘⇧G takes a group apart again. Nothing moves either way. The objects in a stack or a grid are already held together, and stay as they are.
 - **Type.** Double-click a text in the preview, or press Enter with it selected, and type where it stands.
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.

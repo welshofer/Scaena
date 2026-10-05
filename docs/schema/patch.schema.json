@@ -134,6 +134,25 @@
           }
         },
         {
+          "description": "A new group, `id`, holding `nodes` where they stand (ADR-0008, ADR-0013). They are children of one container, the slide or a group, as `state` shows them (else as their own `at` places them), and take the group as their container wherever that one is written. A group lays nothing out, so nothing moves. It sits where they sat, at the highest `z` among them (0 for one that sets none), last among what stands there; and it shows in each state that shows one of them in it, and only there.",
+          "type": "object",
+          "required": ["op", "id", "nodes"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "nodes": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "minItems": 1 },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "group" }
+          }
+        },
+        {
+          "description": "A group's children taken out to the group's own container where they stand, each keeping its own `z`, and the group gone with everything that names it: its deltas, its exits, its choreography, and its overrides. Its look goes with it.",
+          "type": "object",
+          "required": ["op", "group"],
+          "additionalProperties": false,
+          "properties": { "group": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "ungroup" } }
+        },
+        {
           "description": "One property (`kind`), or one key of an object property (`at/in`), set to `value`: in a state, as its delta, or in the node's defaults. `null` takes it away: from the node's defaults, or, in a state, from what the node tracks (SPEC §2.2).",
           "type": "object",
           "required": ["op", "node", "prop", "value"],

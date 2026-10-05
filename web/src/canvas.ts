@@ -12,6 +12,9 @@
 //   on all of them; the inspector aligns and spreads them. ⌘] and ⌘[ put what is selected in
 //   front of, or behind, the next thing it overlaps, and with Shift in front of, or behind,
 //   everything its container holds. Each is one patch, one step to undo.
+// - ⌘G (Ctrl+G) puts what is selected in a new group where it stands, the group selected; ⌘⇧G
+//   takes the group selected apart, its children out to its container where they stand, all of
+//   them selected (PLAN 2.43). Each is one patch, one step to undo.
 // - A drag moves the node's layer, painted from the state as laid out at rest, and shows where it
 //   would land from its targets: the theme's tracks, the template's slots, a grid container's
 //   areas, a stack's order. On drop, where it lands is the patch. With Shift, it goes off the grid,
@@ -659,6 +662,36 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     });
   }
 
+  /** What is selected in a new group where it stands (PLAN 2.43): one patch, the group selected. */
+  function group() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      if (!shown || !nodes.length) return;
+      try {
+        const grouped = await stage.grouping(editor.source(), shown.state, nodes);
+        await change(grouped.patch, "grouping…", `${nodes.join(", ")} grouped as ${grouped.id}`, grouped.id);
+      } catch (e) {
+        editor.say(`not grouped: ${said(e)}`);
+      }
+    });
+  }
+
+  /** The group selected taken apart (PLAN 2.43): its children out to its container where they
+   * stand, all of them selected; one patch. */
+  function ungroup() {
+    return inTurn(async () => {
+      const node = selected;
+      if (node === undefined || also.length) return editor.say("select one group to take it apart");
+      const held = boxes.filter((b) => b.parent === node).map((b) => b.node);
+      try {
+        await change([{ op: "ungroup", group: node }], "ungrouping…", `${node} taken apart: ${held.join(", ")}`, held);
+      } catch (e) {
+        editor.say(`not ungrouped: ${said(e)}`);
+      }
+    });
+  }
+
   /** What is selected arranged `how` (PLAN 2.42): aligned, spread, or put in front or behind;
    * one patch. `fork` keeps it to the state shown. */
   function arrange(how: Arrange, fork = false) {
@@ -1038,6 +1071,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         e.preventDefault();
         return void (also.length ? duplicateAll(chosen()) : duplicate(selected));
       }
+      // ⌘G groups what is selected, and ⌘⇧G takes the group selected apart (PLAN 2.43).
+      if (mod && key === "g" && !e.altKey) {
+        e.preventDefault();
+        return void (e.shiftKey ? ungroup() : group());
+      }
       // ⌘] and ⌘[: in front of, or behind, the next it overlaps; with Shift, of all (PLAN 2.42).
       if (mod && (e.code === "BracketRight" || e.code === "BracketLeft") && !e.altKey) {
         e.preventDefault();
@@ -1090,6 +1128,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     select,
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */
     selectAll,
+    /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
+    group,
+    ungroup,
     /** Arrange what is selected, as the inspector and ⌘] do (PLAN 2.42). */
     arrange,
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status

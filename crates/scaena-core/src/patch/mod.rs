@@ -171,6 +171,28 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         state: String,
     },
+    /// A new group, `id`, holding `nodes` where they stand (ADR-0008, ADR-0013). They are
+    /// children of one container, the slide or a group, as `state` shows them (else as their
+    /// own `at` places them), and take the group as their container wherever that one is
+    /// written. A group lays nothing out, so nothing moves. It sits where they sat, at the
+    /// highest `z` among them (0 for one that sets none), last among what stands there; and
+    /// it shows in each state that shows one of them in it, and only there.
+    Group {
+        #[schemars(with = "Id")]
+        id: String,
+        #[schemars(with = "Vec<Id>", length(min = 1))]
+        nodes: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+    },
+    /// A group's children taken out to the group's own container where they stand, each
+    /// keeping its own `z`, and the group gone with everything that names it: its deltas, its
+    /// exits, its choreography, and its overrides. Its look goes with it.
+    Ungroup {
+        #[schemars(with = "Id")]
+        group: String,
+    },
     /// One property (`kind`), or one key of an object property (`at/in`), set to `value`:
     /// in a state, as its delta, or in the node's defaults. `null` takes it away: from the
     /// node's defaults, or, in a state, from what the node tracks (SPEC §2.2).
@@ -393,6 +415,8 @@ impl SemanticOp {
             SemanticOp::RenameNode { .. } => "rename_node",
             SemanticOp::ShowNode { .. } => "show_node",
             SemanticOp::HideNode { .. } => "hide_node",
+            SemanticOp::Group { .. } => "group",
+            SemanticOp::Ungroup { .. } => "ungroup",
             SemanticOp::SetProp { .. } => "set_prop",
             SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
@@ -523,7 +547,7 @@ pub fn apply(doc: &mut Value, ops: &[Value]) -> Result<(), PatchError> {
     Ok(())
 }
 
-fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
+pub(super) fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
     match op {
         JsonOp::Add { path, value } => add(doc, path, value.clone()),
         JsonOp::Remove { path } => remove(doc, path).map(drop),

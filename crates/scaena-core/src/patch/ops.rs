@@ -43,6 +43,8 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::ShowNode { node, state, props } => show_node(&d, node, state, props.clone())?,
         SemanticOp::HideNode { node, state } => hide_node(&d, node, state)?,
+        SemanticOp::Group { id, nodes, state } => group(&d, id, nodes, state.as_deref())?,
+        SemanticOp::Ungroup { group } => ungroup(&d, group)?,
         SemanticOp::SetProp { node, prop, value, state } => {
             d.node(node)?;
             let (name, key) = parse_prop(prop)?;
@@ -1168,6 +1170,12 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     if !held.is_empty() {
         return Err(format!("`{id}` holds {}: remove them first, or move them out of it (`at.parent`)", list(held)));
     }
+    Ok(removal(d, id))
+}
+
+/// The ops that take node `id` out of the deck, with everything that names it: its deltas,
+/// its exits, its choreography, and its overrides.
+fn removal(d: &Doc, id: &str) -> Vec<JsonOp> {
     let mut ops = Vec::new();
     for (i, state) in d.states().iter().enumerate() {
         if state.get("props").and_then(|p| p.get(id)).is_some() {
@@ -1176,8 +1184,7 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
         if let Some(Value::Array(exits)) = state.get("remove")
             && exits.iter().any(|x| x.as_str() == Some(id))
         {
-            let kept = exits.iter().filter(|x| x.as_str() != Some(id)).cloned().collect();
-            ops.push(JsonOp::Replace { path: format!("/states/{i}/remove"), value: Value::Array(kept) });
+            ops.push(without_exit(i, exits, id));
         }
         if let Some(Value::Array(items)) = state.get("choreography") {
             ops.extend(retarget_ops(&format!("/states/{i}/choreography"), items, &|t| {
@@ -1189,6 +1196,159 @@ fn remove_node(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
         ops.push(JsonOp::Remove { path: format!("/overrides/{}", esc(id)) });
     }
     ops.push(JsonOp::Remove { path: format!("/nodes/{}", esc(id)) });
+    ops
+}
+
+/// State `i`'s exits, `exits`, without `node`: the list goes when it would be left empty, as
+/// a state with no exits is written.
+fn without_exit(i: usize, exits: &[Value], node: &str) -> JsonOp {
+    let kept: Vec<Value> = exits.iter().filter(|x| x.as_str() != Some(node)).cloned().collect();
+    match kept.is_empty() {
+        true => JsonOp::Remove { path: format!("/states/{i}/remove") },
+        false => JsonOp::Replace { path: format!("/states/{i}/remove"), value: Value::Array(kept) },
+    }
+}
+
+/// A node's container, as its resolved props (or its own) place it.
+fn parent_of(props: &Map<String, Value>) -> Option<&str> {
+    props.get("at")?.get("parent")?.as_str()
+}
+
+/// A new group `id` holding `nodes` where they stand (ADR-0008, ADR-0013): see
+/// [`SemanticOp::Group`].
+fn group(d: &Doc, id: &str, nodes: &[String], state: Option<&str>) -> Result<Vec<JsonOp>, String> {
+    d.free("node", id, d.node(id).is_ok())?;
+    let Some(first) = nodes.first() else { return Err("a group holds one node or more: name them in `nodes`".into()) };
+    for (i, node) in nodes.iter().enumerate() {
+        d.node(node)?;
+        if nodes[..i].contains(node) {
+            return Err(format!("`{node}` is named twice"));
+        }
+    }
+    // Their container: as `state` shows them, else as their own `at` places them.
+    let (deck, snapshots) = d.snapshots()?;
+    let shown = state.map(|s| d.state(s)).transpose()?;
+    let container = |node: &str| -> Result<Option<String>, String> {
+        let props = match shown {
+            Some(i) => snapshots[i].nodes.get(node).map(|p| p.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+            None => Some(d.node(node)?.clone()),
+        };
+        let props = props.ok_or_else(|| format!("`{node}` is not on screen in `{}`", state.unwrap_or_default()))?;
+        Ok(parent_of(&props).map(String::from))
+    };
+    let held = container(first)?;
+    for node in &nodes[1..] {
+        let theirs = container(node)?;
+        if theirs != held {
+            let name = |c: &Option<String>| c.as_ref().map_or("the slide".to_string(), |c| format!("`{c}`"));
+            return Err(format!(
+                "`{first}` is in {} and `{node}` in {}: a group holds what one container holds",
+                name(&held),
+                name(&theirs)
+            ));
+        }
+    }
+    if let Some(outer) = &held
+        && d.kind(outer)? != "group"
+    {
+        return Err(format!(
+            "`{first}` is in {} `{outer}`, which places what it holds itself: a group sits on the slide or in a group",
+            d.kind(outer)?
+        ));
+    }
+
+    // The group: in their container, at the highest `z` any of them sets.
+    let mut node = Map::from_iter([("type".to_string(), Value::String("group".into()))]);
+    if let Some(outer) = &held {
+        node.insert("at".into(), object("parent", Value::String(outer.clone())));
+    }
+    let z = |n: &String| d.node(n).ok().and_then(|n| n.get("z")?.as_i64()).unwrap_or(0);
+    let top = nodes.iter().map(z).max().unwrap_or(0);
+    if top != 0 {
+        node.insert("z".into(), Value::from(top));
+    }
+    let mut ops = vec![JsonOp::Add { path: format!("/nodes/{}", esc(id)), value: Value::Object(node) }];
+
+    // Each takes the group as its container wherever that one is written; on the slide, in
+    // its own `at`.
+    match &held {
+        Some(outer) => {
+            for (path, node, parent) in d.parents() {
+                if nodes.iter().any(|n| n == node) && parent == outer {
+                    ops.push(JsonOp::Replace { path, value: Value::String(id.into()) });
+                }
+            }
+        }
+        None => {
+            for node in nodes {
+                let at = d.node(node)?.get("at");
+                ops.push(match at {
+                    Some(Value::Object(_)) => {
+                        JsonOp::Add { path: format!("/nodes/{}/at/parent", esc(node)), value: Value::String(id.into()) }
+                    }
+                    _ => JsonOp::Add {
+                        path: format!("/nodes/{}/at", esc(node)),
+                        value: object("parent", Value::String(id.into())),
+                    },
+                });
+            }
+        }
+    }
+
+    // It shows in each state that shows one of them in it, and only there: it enters where
+    // the state before does not bring it, and leaves where it would come along with none.
+    let mut work = d.0.clone();
+    for op in &ops {
+        super::one(&mut work, op)?;
+    }
+    let (_, after) = Doc(&work).snapshots()?;
+    let mut shows = vec![false; after.len()];
+    for (i, snapshot) in after.iter().enumerate() {
+        let needed = nodes.iter().any(|n| {
+            snapshot
+                .nodes
+                .get(n)
+                .is_some_and(|p| p.get("at").and_then(|a| a.get("parent")) == Some(&Value::String(id.into())))
+        });
+        let brought = tracks_from(&deck, i).is_some_and(|j| shows[j]);
+        if needed && !brought {
+            ops.push(enter(d, i, id, Props::new()));
+        } else if !needed && brought {
+            let value = Value::String(id.into());
+            ops.push(match d.states()[i].get("remove") {
+                Some(Value::Array(_)) => JsonOp::Add { path: format!("/states/{i}/remove/-"), value },
+                _ => JsonOp::Add { path: format!("/states/{i}/remove"), value: Value::Array(vec![value]) },
+            });
+        }
+        shows[i] = needed;
+    }
+    Ok(ops)
+}
+
+/// A group's children out to its container, and the group gone (ADR-0008, ADR-0013): see
+/// [`SemanticOp::Ungroup`].
+fn ungroup(d: &Doc, group: &str) -> Result<Vec<JsonOp>, String> {
+    let kind = d.kind(group)?;
+    if kind != "group" {
+        return Err(format!("`{group}` is a {kind} node; `ungroup` takes a group's children out of it"));
+    }
+    let outer = d.node(group)?.get("at").and_then(|a| a.get("parent")).and_then(Value::as_str);
+    let mut ops = Vec::new();
+    for (path, node, parent) in d.parents() {
+        if parent != group || node == group {
+            continue;
+        }
+        match outer {
+            Some(outer) => ops.push(JsonOp::Replace { path, value: Value::String(outer.into()) }),
+            None => {
+                // Out to the slide: its `parent` goes, and an `at` it leaves empty goes with it.
+                let at = path.strip_suffix("/parent").unwrap_or(&path);
+                let alone = d.0.pointer(at).and_then(Value::as_object).is_some_and(|a| a.len() == 1);
+                ops.push(JsonOp::Remove { path: if alone { at.to_string() } else { path.clone() } });
+            }
+        }
+    }
+    ops.extend(removal(d, group));
     Ok(ops)
 }
 
@@ -1234,8 +1394,7 @@ fn show_node(d: &Doc, node: &str, state: &str, props: Option<Props>) -> Result<V
     let mut ops = Vec::new();
     // It leaves here: it stays instead, as it is in the state before.
     if let Some(exits) = exits.filter(|e| e.iter().any(|x| x.as_str() == Some(node))) {
-        let kept = exits.iter().filter(|x| x.as_str() != Some(node)).cloned().collect();
-        ops.push(JsonOp::Replace { path: format!("/states/{i}/remove"), value: Value::Array(kept) });
+        ops.push(without_exit(i, exits, node));
         if let Some(props) = props.filter(|p| !p.is_empty()) {
             ops.push(enter(d, i, node, props));
         }

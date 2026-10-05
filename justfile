@@ -165,6 +165,7 @@ web-smoke: site
     node web/clipboard.mjs
     node web/charts.mjs
     node web/several.mjs
+    node web/group.mjs
     node web/runs.mjs
     node web/theme.mjs
     node web/strip.mjs

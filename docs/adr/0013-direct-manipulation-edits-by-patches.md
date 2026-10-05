@@ -35,6 +35,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Resize within the grid | `place`: spans |
    | Several moved together, by a drag or the arrow keys | `place` for each: the first as it would snap alone, the rest as far as it went, each its own way; all stopped where the grid's edge stops one (PLAN 2.42) |
    | Several aligned or spread | `place` for each that moves: each box to the edge all of them reach farthest, or the middle of them all; or, the first and the last staying, equal gaps between them; snapped as a move snaps |
+   | Group, ungroup (⌘G, ⌘⇧G) | `group`: a new group holding the nodes selected where they stand, shown wherever one of them is in it; `ungroup`: its children out to its container and the group gone, the deck as it was before `group` (PLAN 2.43) |
    | Forward, backward, to the front, to the back (⌘], ⌘[, with Shift) | `choose` of `z`: in front of the next it overlaps, or behind the one before; or past all its container holds; the one `z` that does it where there is one, else the fewest |
    | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |
    | ⌘B, or a role or color chosen, with characters selected | `style_text`: those characters' look, as runs split at the selection's ends and joined where alike, where the text lives; ⌘B bold, or not, by the weight the engine sets each in |

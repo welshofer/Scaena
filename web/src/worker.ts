@@ -30,6 +30,7 @@ import type {
   Opened,
   Painter,
   Pasted,
+  Grouped,
   Section,
   Slot,
   Snapped,
@@ -176,6 +177,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "grouping":
+        current(data.source);
+        return post({ type: "grouped", id: data.id, grouped: JSON.parse(player.grouping(data.state, data.nodes)) as Grouped });
       case "copying":
         current(data.source);
         layOut(data.format);
