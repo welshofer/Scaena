@@ -578,6 +578,9 @@ export interface Finding {
   fix?: unknown[];
   at?: Place;
   fixable: boolean;
+  /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds
+   * there, and the rest in every format. */
+  shown: boolean;
 }
 
 /** What an edit came to (PLAN 2.3). */

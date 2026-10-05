@@ -287,6 +287,9 @@ async function edit(source: Source) {
           if (update.docChanged) {
             version++;
             clearTimeout(pending);
+            // Where each state starts moves with the change until the source is compiled again:
+            // the cursor an undo puts back is in the state it was in.
+            if (last) last = { ...last, states: last.states.map(([id, at]) => [id, update.changes.mapPos(at, 1)]) };
             if (!quiet) {
               edits++;
               tell();
@@ -406,7 +409,10 @@ async function edit(source: Source) {
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
-  });
+    // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
+    fix: (f) => fix(f),
+    go: (f) => go(f),
+  }, $("#marks"), $("#marked"));
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -600,6 +606,9 @@ async function edit(source: Source) {
    * step took; `whole`, how long the lint of every state took. */
   function report(findings: Finding[], edited: Edited, whole?: number) {
     list(findings);
+    // Those about each state stand on the canvas and count in the strip (PLAN 2.49).
+    board.found(findings);
+    states.found(findings);
     if (edited.error) {
       status.textContent = "does not compile";
       return;
@@ -624,15 +633,27 @@ async function edit(source: Source) {
       severity: f.severity,
       source: f.code,
       message: `${f.file ? `${f.file}: ` : ""}${f.message}${f.format ? ` (${f.format})` : ""}${f.hint ? `\n${f.hint}` : ""}`,
-      actions: f.fix ? [{ name: "Fix", apply: () => void fix(f) }] : [],
+      actions: f.fix ? [{ name: "Fix", apply: () => void fix(f).catch((e) => say(`not fixed: ${said(e)}`)) }] : [],
     };
   }
 
   /** Apply `f`'s fix: the engine patches the deck and writes it back as source, and the
-   * editor takes only what changed. */
+   * editor takes only what changed, as a patch from the canvas: one step to undo, and what the
+   * status said stays. */
   async function fix(f: Finding) {
+    const read = version;
     const next = await stage.fix(f.fix!);
-    view.dispatch({ changes: change(view.state.doc.toString(), next), userEvent: "input.fix" });
+    const edited = await stage.edit(next, shown, format());
+    // A source changed while the fix was made keeps the change: lint says again what to fix.
+    if (read !== version) throw new Error("the source changed while the fix was made");
+    made(next, edited);
+  }
+
+  /** Where the source writes what `f` is about, the cursor there. */
+  function go(f: Finding) {
+    if (!f.at) return;
+    view.dispatch({ selection: { anchor: f.at.from }, scrollIntoView: true });
+    view.focus();
   }
 
   /** Every finding under the source; one that stands in it is a button, which goes there. */
@@ -647,12 +668,9 @@ async function edit(source: Source) {
         )}</span>`;
         if (!f.at) li.innerHTML = said;
         else {
-          const go = li.appendChild(document.createElement("button"));
-          go.innerHTML = said;
-          go.onclick = () => {
-            view.dispatch({ selection: { anchor: f.at!.from }, scrollIntoView: true });
-            view.focus();
-          };
+          const button = li.appendChild(document.createElement("button"));
+          button.innerHTML = said;
+          button.onclick = () => go(f);
         }
         return li;
       }),
@@ -910,6 +928,11 @@ async function edit(source: Source) {
   formatPicker.onchange = () => {
     void show(shown);
     states.reformat();
+    // Which findings hold in the format shown is lint's to say again (PLAN 2.49): CodeMirror lints
+    // again only once the source changes.
+    taken = undefined;
+    const doc = view.state.doc;
+    void lint(view).then((found) => view.state.doc === doc && view.dispatch(setDiagnostics(view.state, found)));
   };
 
   // For tests and the console.

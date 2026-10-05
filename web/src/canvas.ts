@@ -42,8 +42,11 @@
 //   comes in as a text in the theme's body role. What the clip names that the theme lacks is
 //   taken out of it, and the status says so (PLAN 2.37). A page must fill the clipboard at once,
 //   so what is selected is copied when it is selected.
+// - Lint's findings stand on what they are about, a mark at each box's corner, and a mark opened
+//   offers each finding's fix (PLAN 2.49, `marks.ts`).
+import { marks } from "./marks";
 import { CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Insert, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Edited, Finding, Insert, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -75,6 +78,10 @@ export interface Editor {
   keeps(to: EventTarget | null): boolean;
   /** The preview is zoomed to `zoom`: 1 shows the whole canvas (PLAN 2.46). */
   zoomed(zoom: number): void;
+  /** Take `f`'s fix: one patch, one step to undo (PLAN 2.49). */
+  fix(f: Finding): Promise<void>;
+  /** Show where the source writes what `f` is about. */
+  go(f: Finding): void;
 }
 
 /** A node's `at`, resolved. */
@@ -220,8 +227,9 @@ function resized([x, y, w, h]: Rect, edge: Edge, [dx, dy]: [number, number]): Re
 }
 
 /** The canvas over `overlay`, which holds an `<svg>` the size of the preview, on `stage`'s state
- * shown. The editor makes one for each bundle it opens. */
-export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
+ * shown, with lint's findings marked in `layer` over it, each opened in `pop`. The editor makes one
+ * for each bundle it opens. */
+export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer: HTMLElement, pop: HTMLElement) {
   const svg = overlay.querySelector("svg")!;
   /** The canvas in canvas units, and what stands where in the state shown. */
   let size: [number, number] = [1920, 1080];
@@ -320,6 +328,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     box: (node) => box(node)?.rect,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
+  });
+
+  /** Lint's findings on the state shown (PLAN 2.49), on the boxes of the state they stand in. */
+  const pins = marks(layer, pop, {
+    shown: () => editor.shown(),
+    boxes: () => (boxed !== undefined && boxed === editor.shown()?.state ? boxes : undefined),
+    view: () => view,
+    select: (node) => select(node),
+    fix: (f) => editor.fix(f),
+    go: (f) => editor.go(f),
+    say: (words) => editor.say(words),
   });
 
   /** Type in `node` (a text), at the caret nearest `at`, or at its end, or with `all` its words
@@ -538,6 +557,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (marked && box(marked.node)) for (const r of marked.rects) parts.push(rect(r, "found"));
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
+    pins.aside(Boolean(drag || sketch || marquee));
+    pins.draw();
   }
 
   /** Say where the drag lands, and which states that changes. */
@@ -1472,7 +1493,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       text.close();
       drag = press = starting = armed = sketch = undefined;
       svg.replaceChildren();
+      pins.found([]);
     },
+    /** What lint found, every finding: those about the state shown, in the format shown, stand on
+     * it (PLAN 2.49). */
+    found: (findings: Finding[]) => pins.found(findings),
+    /** The findings' marks shown, for a test. */
+    marks: () => pins.shown(),
     /** Select `node`, as a click on it does; nothing with `undefined`. */
     select,
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */
