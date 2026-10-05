@@ -6,14 +6,20 @@ import type {
   At,
   Edited,
   FromWorker,
+  Hit,
   Inspected,
   Linted,
+  NodeBox,
   Opened,
   Painter,
   ProviderId,
+  Rect,
   SaveTo,
   Slot,
+  Snapped,
+  SnapMode,
   Source,
+  Targets,
   ToWorker,
 } from "./protocol";
 
@@ -34,7 +40,12 @@ type Reply = Extract<
       | "zipped"
       | "dropped"
       | "models"
-      | "reloaded";
+      | "reloaded"
+      | "boxes"
+      | "hits"
+      | "targets"
+      | "dragged"
+      | "placed";
   }
 >;
 
@@ -179,6 +190,50 @@ export class Stage {
     return this.request<"inspected">({ type: "inspect", id: ++this.asked, state, format }).then(({ inspected }) => inspected);
   }
 
+  /** Each visible node's box in `state` at rest, in `format`, and the canvas's size, canvas
+   * units (ADR-0013). */
+  boxes(state: string, format?: string): Promise<{ boxes: NodeBox[]; size: [number, number] }> {
+    return this.request<"boxes">({ type: "boxes", id: ++this.asked, state, format });
+  }
+
+  /** The nodes that draw at `point` in `state` at rest, topmost first. */
+  hit(state: string, point: [number, number], format?: string): Promise<Hit[]> {
+    return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
+  }
+
+  /** Where `node` may go in `state` at rest. */
+  targets(state: string, node: string, format?: string): Promise<Targets> {
+    return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
+  }
+
+  /** A drag's move: `node` painted `by` from where it stands, where its box would land `snap`ped,
+   * and the states that patch changes; or, to `preview`, the state as the patch would make it. */
+  drag(
+    state: string,
+    node: string,
+    move: { by?: [number, number]; snap?: { how: SnapMode; to: Rect; fork: boolean }; preview?: boolean },
+    format?: string,
+  ): Promise<{ snapped?: Snapped | null; states?: string[] }> {
+    return this.request<"dragged">({ type: "drag", id: ++this.asked, state, node, ...move, format });
+  }
+
+  /** A drag is over and changes nothing: `state` at rest as it stands. */
+  rest(state: string, format?: string): Promise<void> {
+    return this.request<"shown">({ type: "rest", id: ++this.asked, state, format }).then(() => {});
+  }
+
+  /** Make `ops` by the user on the deck `source` compiles to, and show slot `index` from it: the
+   * deck's source after, and what the edit came to. */
+  place(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
+    return this.request<"placed">({ type: "place", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
+      if (edited.at) {
+        this.at = edited.at;
+        this.onAt(edited.at);
+      }
+      return { source, edited };
+    });
+  }
+
   /** Save the bundle with the deck `source` compiles to where it is kept, or into the
    * browser's storage (PLAN 2.4). The session goes on from the save. */
   save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
@@ -290,6 +345,11 @@ export class Stage {
       case "dropped":
       case "models":
       case "reloaded":
+      case "boxes":
+      case "hits":
+      case "targets":
+      case "dragged":
+      case "placed":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

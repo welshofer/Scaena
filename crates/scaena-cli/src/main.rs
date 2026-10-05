@@ -93,6 +93,10 @@ enum Cmd {
         /// The box a drag left, `X,Y,W,H` in canvas units: NODE's cell, moved or resized.
         #[arg(long, value_name = "X,Y,W,H", value_parser = rect, requires = "snap")]
         to: Option<[f32; 4]>,
+        /// Keep the snapped patch to the state: the placement goes into its own props,
+        /// wherever it lives now (`place`'s `fork`).
+        #[arg(long, requires = "snap")]
+        fork: bool,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -369,8 +373,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format, targets, snap, to } => {
-            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to };
+        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format, targets, snap, to, fork } => {
+            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {

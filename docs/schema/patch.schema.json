@@ -155,6 +155,10 @@
             "node": { "$ref": "#/$defs/Id" },
             "at": { "$ref": "#/$defs/Spot" },
             "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever the placement lives now: the node goes there in that state, and in the states that track it as they take the rest of its props, and stays where it was in the others. Refused where the deck's `overrides` place the node, in every state.",
+              "type": "boolean"
+            },
             "op": { "type": "string", "const": "place" }
           }
         },

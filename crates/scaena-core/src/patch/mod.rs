@@ -199,6 +199,12 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
+        /// Write it into `state`'s own props, wherever the placement lives now: the node goes
+        /// there in that state, and in the states that track it as they take the rest of its
+        /// props, and stays where it was in the others. Refused where the deck's `overrides`
+        /// place the node, in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
     },
     /// A text node's `text`, in a state or in its defaults. `runs` there go, so the text
     /// is what shows.

@@ -190,7 +190,7 @@ impl BundleFiles for Bundle {
 /// `deck` with `target`'s patch, made in `state`, applied: every op where it lives.
 fn placed(deck: &Deck, state: &str, target: &scaena_engine::geometry::Target) -> Deck {
     let ops: Vec<serde_json::Value> = target
-        .ops(Some(state))
+        .ops(Some(state), false)
         .into_iter()
         .map(|op| serde_json::to_value(PatchOp::Semantic(Box::new(op))).unwrap())
         .collect();
@@ -324,4 +324,90 @@ fn targets_follow_the_format() {
     assert_ne!(wide.columns, tall.columns);
     assert!(tall.slots.iter().all(|(_, r)| r[0] + r[2] <= 1080.0 + 0.01));
     assert!(tall.slots.iter().zip(&wide.slots).any(|(t, w)| t.0 == w.0 && t.1 != w.1));
+}
+
+/// `still` as a drag of `held` shows it: their layers on top, in their order, each that
+/// stands outside them `by` away.
+fn carried(still: &[Op], held: &[&str]) -> Vec<Op> {
+    let mine = |op: &Op| matches!(op, Op::Layer { node: Some(id), .. } if held.contains(&id.as_str()));
+    let (over, mut rest): (Vec<Op>, Vec<Op>) = still.iter().cloned().partition(mine);
+    rest.extend(over);
+    rest
+}
+
+/// `moved` is `still` with the outermost layer of each node in `held` `by` away, and every
+/// other op as it was. Layers that hold others here stand at the origin, unturned.
+fn moved_by(still: &[Op], moved: &[Op], held: &[&str], by: [f32; 2]) {
+    assert_eq!(still.len(), moved.len());
+    for (was, is) in still.iter().zip(moved) {
+        match (was, is) {
+            (Op::Layer { node: Some(id), .. }, _) if held.contains(&id.as_str()) => {
+                let mut expected = was.clone();
+                if let Op::Layer { transform, .. } = &mut expected {
+                    transform[4] += by[0];
+                    transform[5] += by[1];
+                }
+                assert_eq!(&expected, is, "`{id}` moves by {by:?}");
+            }
+            (Op::Layer { ops: inner, .. }, Op::Layer { ops: inner_now, .. }) => {
+                let (mut outer, mut outer_now) = (was.clone(), is.clone());
+                for op in [&mut outer, &mut outer_now] {
+                    if let Op::Layer { ops, .. } = op {
+                        ops.clear();
+                    }
+                }
+                assert_eq!(outer, outer_now);
+                moved_by(inner, inner_now, held, by);
+            }
+            _ => assert_eq!(was, is),
+        }
+    }
+}
+
+/// A drag moves its node's layers and those of everything it holds, and nothing else: a
+/// frame and what is in it, a group composited as one layer, a member inside that layer, a
+/// stack of stacks. Nothing is laid out again (ADR-0013).
+#[test]
+fn a_drag_moves_a_node_and_what_it_holds_and_nothing_else() {
+    let scene = at_rest("containers", None);
+    let time = 3.25;
+    let still = scene.draw_at(time);
+    let by = [40.0, -20.0];
+    for (node, held) in [
+        ("card", &["card", "card-photo", "card-tag", "card-tag-label"][..]),
+        ("marks", &["marks", "marks-ring", "marks-dot"][..]),
+        ("marks-dot", &["marks-dot"][..]),
+        ("tally-label", &["tally-label"][..]),
+        (
+            "stats",
+            &[
+                "stats",
+                "stat-a",
+                "stat-a-figure",
+                "stat-a-label",
+                "stat-b",
+                "stat-b-figure",
+                "stat-b-label",
+                "stat-c",
+                "stat-c-figure",
+                "stat-c-label",
+            ][..],
+        ),
+    ] {
+        let moved = scene.moved(time, node, by);
+        assert_ne!(moved, still, "`{node}` moves");
+        // Held above the rest, and where it is dragged.
+        moved_by(&carried(&still.ops, held), &moved.ops, held, by);
+        let top = moved
+            .ops
+            .iter()
+            .rev()
+            .take_while(|op| matches!(op, Op::Layer { node: Some(id), .. } if held.contains(&id.as_str())));
+        assert!(top.count() > 0 || node == "marks-dot", "`{node}` is drawn over the rest");
+    }
+    // Composited, the group is one layer: its members move inside it, with it.
+    let group = still.ops.iter().find(|op| matches!(op, Op::Layer { node: Some(id), .. } if id == "marks"));
+    assert!(matches!(group, Some(Op::Layer { ops, .. }) if ops.len() == 2), "{group:?}");
+    // Not there: the frame as it was.
+    assert_eq!(scene.moved(time, "nowhere", by), still);
 }

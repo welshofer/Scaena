@@ -57,6 +57,10 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each keystroke compiles. Source that does not compile says where, and the preview keeps the last deck that did.
   - The state picker jumps to a state's line.
   - The format picker shows the deck in each of its `formats`.
+- **Move.** Click an object in the preview to select it, and drag it.
+  - It snaps to the theme's grid and the layout's slots, and the move becomes a change to your source: one ⌘Z undoes it, in the preview or the source.
+  - Before you let go, the status says in how many states the move shows. Hold Alt to keep it to the state shown, and Shift to place it freely, off the grid, which lint flags as an override (W301).
+  - Handles resize it by the grid's tracks. The arrow keys move it a track at a time, and Shift with an arrow resizes it. Escape selects what holds it.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
   - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
   - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.

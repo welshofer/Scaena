@@ -50,6 +50,59 @@ export interface Slot {
   hold: number;
 }
 
+/** A box, canvas units: `[x, y, width, height]`. */
+export type Rect = [number, number, number, number];
+
+/** A visible node's place in a state at rest (ADR-0013): its box, what it sits in, and whether it
+ * draws anything (a container with no panel, and a group, only hold others). */
+export interface NodeBox {
+  node: string;
+  rect: Rect;
+  parent: string | null;
+  draws: boolean;
+}
+
+/** A node that draws at a point, with the containers and groups it sits in, innermost first. */
+export interface Hit {
+  node: string;
+  rect: Rect;
+  containers: string[];
+}
+
+/** How a box dropped by a drag snaps (`scaena inspect --snap`): moved as many cells as it spans,
+ * resized to the nearest tracks, into the slot or area it covers most, where it was dropped as a
+ * `rect`, or among a stack's children. */
+export type SnapMode = "move" | "resize" | "slot" | "free" | "order";
+
+/** Where a node may go in a state at rest (ADR-0013, `scaena inspect --targets`). */
+export interface Targets {
+  /** What holds it: the theme's `grid` (by cells, a slot, or a `rect`), a `stack` (by order), a
+   * grid container's `cells` (by its cells or areas), or a `frame` (by a `rect`). */
+  by: "grid" | "stack" | "cells" | "frame";
+  parent?: string;
+  /** The box its placement names now, before its inset, offset, alignment, and size: what a
+   * drag moves. */
+  cell: Rect;
+  /** The tracks a placement by cells takes, each `[start, end]`. */
+  columns?: [number, number][];
+  rows?: [number, number][];
+  /** The boxes a placement by name takes: the template's slots, `canvas`, and `grid`; or a grid
+   * container's areas. */
+  slots?: Record<string, Rect>;
+  /** A stack's children in their order, this node among them. */
+  flow?: string[];
+  /** What a `rect` is measured in. */
+  within: Rect;
+  snaps: SnapMode[];
+}
+
+/** Where a dropped box lands: the box a guide shows, and the patch that puts the node there,
+ * empty where it is already. */
+export interface Snapped {
+  cell: Rect;
+  patch: unknown[];
+}
+
 /** The page to the worker. */
 export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
@@ -87,6 +140,33 @@ export type ToWorker =
   | { type: "fix"; id: number; patch: unknown[] }
   /** `state` inspected, in `format` or on the deck's own canvas. */
   | { type: "inspect"; id: number; state: string; format?: string }
+  /** What stands where in `state` at rest (ADR-0013): each visible node's box, canvas units. */
+  | { type: "boxes"; id: number; state: string; format?: string }
+  /** The nodes that draw at `point` in `state` at rest, topmost first. */
+  | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** Where `node` may go in `state` at rest. */
+  | { type: "targets"; id: number; state: string; node: string; format?: string }
+  /** A drag's move (ADR-0013). With `by`, `state` painted at rest with `node`, and what it holds,
+   * that far from where it stands, laying nothing out. With `snap`, where its cell would land,
+   * `snap.to` snapped `snap.how`, and the states the patch changes; `fork` keeps the patch to
+   * `state`. With `preview`, `state` painted as that patch would make it, laid out once: a resize
+   * that pauses. */
+  | {
+      type: "drag";
+      id: number;
+      state: string;
+      node: string;
+      by?: [number, number];
+      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      preview?: boolean;
+      format?: string;
+    }
+  /** A drag is over, and changes nothing: `state` painted at rest as it stands. */
+  | { type: "rest"; id: number; state: string; format?: string }
+  /** Make `ops`, the patch a gesture on the canvas ends in, by the user, on the deck the editor's
+   * `source` compiles to (ADR-0013); then the deck's source, compiled, shown at slot `index`, and
+   * linted, as an edit of it is. */
+  | { type: "place"; id: number; source: string; ops: unknown[]; index: number; format?: string }
   /** Save the bundle with the deck `source` compiles to as `scaena save` does (SPEC §3.1),
    * fonts kept whole, where it is kept; one kept nowhere goes into the browser's storage under
    * its name (`name-2`, … where that is taken). A source that does not compile, or a deck
@@ -304,6 +384,14 @@ export type FromWorker =
   | ({ type: "linted"; id: number } & Linted)
   | { type: "fixed"; id: number; source: string }
   | { type: "inspected"; id: number; inspected: Inspected }
+  /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
+  | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
+  | { type: "hits"; id: number; hits: Hit[] }
+  | { type: "targets"; id: number; targets: Targets }
+  /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
+  | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
+  /** The patch is made: the deck's source now, and what the edit came to. */
+  | { type: "placed"; id: number; source: string; edited: Edited }
   /** The bundle is saved `where`, and the session goes on from it: the files the save
    * renamed, from and to, each a path the source may name; and how many files it wrote. */
   | { type: "saved"; id: number; where: Where; renamed: [string, string][]; files: number; recorded: boolean }
