@@ -193,16 +193,16 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
-      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
-      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
       # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
-      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
       # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
-      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5).
-      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
-      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.
       - name: WASM size

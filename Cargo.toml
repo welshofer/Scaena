@@ -146,6 +146,32 @@ opt-level = "s"
 [profile.release.package.write-fonts]
 opt-level = "s"
 
+# The WASM modules (`just wasm`): release's, with what runs as a deck is read, edited, or saved,
+# not each frame, built for size, so the editor's module keeps within SPEC §15's 3.0 MB: 87 KB
+# less gzipped than at opt-level 3, and B1's frames paint as fast. Release's overrides carry over.
+[profile.wasm]
+inherits = "release"
+[profile.wasm.package.scaena-ops]
+opt-level = "z"
+[profile.wasm.package.scaena-store]
+opt-level = "z"
+# What links the module: Cargo strips its symbols only where its own override says so.
+[profile.wasm.package.scaena-wasm]
+opt-level = "z"
+strip = true
+[profile.wasm.package.serde_json]
+opt-level = "z"
+[profile.wasm.package.zip]
+opt-level = "z"
+[profile.wasm.package.png]
+opt-level = "z"
+[profile.wasm.package.zlib-rs]
+opt-level = "z"
+[profile.wasm.package.fdeflate]
+opt-level = "z"
+[profile.wasm.package.regex-lite]
+opt-level = "z"
+
 [profile.dev.package."*"]
 opt-level = 1
 
