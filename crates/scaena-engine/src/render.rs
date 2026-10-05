@@ -253,7 +253,24 @@ impl Engine {
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &snapshots[state_index(&snapshots, req.state)?];
         let scene = self.scene(deck, theme, req.data, snap)?;
-        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node)
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)
+    }
+
+    /// Where `node` may go in `req.state` at rest `into` another container, or onto the
+    /// canvas for `None` (PLAN 2.50): as [`Engine::targets`] says it for a node that container
+    /// holds, the node's cell the box it stands in now.
+    pub fn targets_into(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        into: Option<&str>,
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, Some(into))
     }
 
     /// Where a node new to `req.state`, named `node`, would go at the root, laid out in

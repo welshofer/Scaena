@@ -57,6 +57,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | A node shown or hidden from the layers (PLAN 2.50) | `show_node` or `hide_node` in the state shown, for it and what it holds |
    | A node renamed in the layers | `rename_node`: the id everywhere the deck names it |
    | A node dragged among the layers of its container, or moved with Alt and an arrow | Just over or under the one it drops beside: the `z` that does it, as an order does; in a stack, `place` of each `at.index` that changes |
+   | A node dragged into another container in the layers, or out onto the canvas, or moved with Alt and ← or → | `place` with `parent`: placed as that container places what it holds, where the node stands where it can (the cells its box stands in, a `rect` inside a frame's padding, its place in a stack's order, after a grid's flow), written where the node's placement lives; then the `z` that lists it where it dropped |
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
    | Choosing a theme | `retheme`, as `scaena theme --apply` re-themes a bundle: a theme that ships written into the bundle with the fonts it names that the bundle lacks, or the bundle's own; refused, with why, where the deck would not validate in it |

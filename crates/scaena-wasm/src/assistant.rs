@@ -181,6 +181,8 @@ struct DeckInspect {
     #[serde(default)]
     after: Option<String>,
     #[serde(default)]
+    into: Option<String>,
+    #[serde(default)]
     by: Option<[f32; 2]>,
     #[serde(default)]
     free: bool,
@@ -322,6 +324,7 @@ impl Session {
                     order: a.order,
                     before: a.before,
                     after: a.after,
+                    into: a.into,
                     by: a.by,
                     free: a.free,
                     choices: a.choices,

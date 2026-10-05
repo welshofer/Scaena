@@ -557,6 +557,25 @@ fn inspect_arranges_several_nodes_at_once() {
         serde_json::json!([index("stat-a", 1), index("stat-b", 2)]),
         "the third first: the others renumbered after it"
     );
+    // Before a child of another container, or into one: into it (`place` with `parent`),
+    // placed as it places what it holds. Into another stack, at its place in the order.
+    assert_eq!(
+        arranged(&["tally-label", "--before", "stat-a-label"])["patch"],
+        serde_json::json!([
+            place("tally-label", serde_json::json!({ "parent": "stat-a", "index": 1 })),
+            index("stat-a-label", 2)
+        ])
+    );
+    // Onto the canvas, in the cells it stood in, and just over the card.
+    let out = arranged(&["card-tag-label", "--before", "card"])["patch"].clone();
+    assert_eq!(out[0], place("card-tag-label", serde_json::json!({ "parent": null, "col": 9, "row": 6 })), "{out:#}");
+    assert_eq!(out[1], z("card-tag-label", 0), "{out:#}");
+    // Into a frame, first among what it holds, by a `rect` inside its padding.
+    let into = arranged(&["marks-dot", "--into", "card"])["patch"].clone();
+    assert_eq!(into[0]["at"]["parent"], "card", "{into:#}");
+    let rect: Vec<f64> = serde_json::from_value(into[0]["at"]["rect"].clone()).unwrap();
+    assert!(rect[0] >= 0.0 && rect[1] >= 0.0, "inside the padding: {rect:?}");
+    assert_eq!(into[1], z("marks-dot", 1), "{into:#}");
 
     // Applied, a patch moves what it says: the card now stands over the board, which lint
     // says, and nothing else.
@@ -571,6 +590,16 @@ fn inspect_arranges_several_nodes_at_once() {
     assert!(!added.is_empty() && added.iter().all(|c| *c == "E101"), "{patched:#}");
     let (_, boxes) = json(&["inspect", b, "--state", "containers", "--boxes"]);
     assert_eq!(boxes[0]["boxes"]["card"]["rect"][0], 96.0);
+    // Moved into another stack, the label is listed there, and the deck stays valid.
+    let moved = arranged(&["tally-label", "--before", "stat-a-label"]);
+    std::fs::write(&ops, moved["patch"].to_string()).unwrap();
+    let (_, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(patched["applied"], true, "{patched:#}");
+    let (_, listed) = json(&["inspect", b, "--state", "containers", "--layers"]);
+    let stat_a =
+        listed[0]["layers"].as_array().unwrap().iter().find(|l| l["node"] == "stats").unwrap()["children"][0].clone();
+    let held: Vec<&str> = stat_a["children"].as_array().unwrap().iter().filter_map(|l| l["node"].as_str()).collect();
+    assert_eq!(held, ["stat-a-figure", "tally-label", "stat-a-label"], "{stat_a:#}");
 
     // Children of two containers, a stack's children, and two ways at once are errors that
     // say why.
@@ -587,8 +616,11 @@ fn inspect_arranges_several_nodes_at_once() {
     refused(&["tally,card", "--align", "left", "--order", "front"], "one way");
     refused(&["case,stats", "--spread", "down"], "three nodes or more");
     refused(&["tally,nobody", "--align", "left"], "`nobody`");
-    refused(&["stat-a", "--before", "card-tag"], "`card-tag` is not held by what holds `stat-a`");
     refused(&["stat-a,stat-b", "--before", "stat-c"], "one node goes before or after another at a time");
+    refused(&["card", "--before", "card-tag"], "a node goes into nothing it holds");
+    refused(&["stats", "--into", "stat-a"], "a node goes into nothing it holds");
+    refused(&["tally", "--into", "case"], "`case` holds nothing");
+    refused(&["stat-a,stat-b", "--into", "card"], "one node goes into a container at a time");
     assert_eq!(scaena(&["inspect", TORTURE, "--arrange", "tally,card", "--align", "left"]).status.code(), Some(2));
 
     // For a person: where each lands, and the patch.

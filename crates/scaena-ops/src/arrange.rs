@@ -17,9 +17,15 @@
 //!   children as a layers panel lists them (`scaena_core::layers`): over it or under it, by
 //!   the `z` that does it as an order does; in a stack, before it or after it in the order the
 //!   stack lays them out, each child whose `at.index` that changes renumbered.
+//! - **Moved in** (PLAN 2.50). Before or after a child of another container, or into one,
+//!   first among what it holds, a node goes into that container (`place` with `parent`),
+//!   placed as it places what it holds: on the theme's grid (the canvas, a group) by the cells
+//!   the box it stands in now stands in; in a frame by a `rect` there, inside its padding; in a
+//!   stack at its place in the order; in a grid container after its flow, in the first cell
+//!   free. Then it is listed where it went, by `z` as above.
 
 use crate::{Context, OpsError};
-use scaena_core::patch::SemanticOp;
+use scaena_core::patch::{SemanticOp, Spot};
 use scaena_core::{Deck, Snapshot};
 use scaena_engine::geometry::{By, NodeBox, Snap, Target, Targets};
 use schemars::JsonSchema;
@@ -388,15 +394,20 @@ pub enum How {
     Align(Align),
     Spread(Spread),
     Order(Order),
-    /// Listed just before `to`, or just after it, among what holds it (PLAN 2.50).
+    /// Listed just before `to`, or just after it, among what holds it (PLAN 2.50): into that,
+    /// if it is another container.
     Next {
         to: String,
         after: bool,
     },
+    /// Into the container `holder`, listed first among what it holds (PLAN 2.50).
+    Into {
+        holder: String,
+    },
 }
 
 /// How nodes are arranged, as a client asks: one of `align`, `spread`, `order`, `before`,
-/// `after`, and `by`.
+/// `after`, `into`, and `by`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Asked {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -405,12 +416,16 @@ pub struct Asked {
     pub spread: Option<Spread>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<Order>,
-    /// Listed just before this child of the same container, as a layers panel lists them.
+    /// Listed just before this node, as a layers panel lists them: among what holds it, which
+    /// the node goes into if it is another container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
-    /// Listed just after this child of the same container.
+    /// Listed just after this node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
+    /// Into this container, listed first among what it holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<[f32; 2]>,
     /// With `by`: off the grid.
@@ -427,22 +442,24 @@ impl Asked {
             self.order.is_some(),
             self.before.is_some(),
             self.after.is_some(),
+            self.into.is_some(),
             self.by.is_some(),
         ];
         if ways.iter().filter(|w| **w).count() != 1 {
             return Err(OpsError::new(
-                "nodes are arranged one way: give one of `align`, `spread`, `order`, `before`, `after`, and `by`",
+                "nodes are arranged one way: give one of `align`, `spread`, `order`, `before`, `after`, `into`, and `by`",
             ));
         }
         if self.free && self.by.is_none() {
             return Err(OpsError::new("`free` moves nodes off the grid: move them with `by`"));
         }
-        Ok(match (self.align, self.spread, self.order, &self.before, &self.after, self.by) {
+        Ok(match (self.align, self.spread, self.order, &self.before, &self.after, &self.into, self.by) {
             (Some(edge), ..) => How::Align(edge),
             (_, Some(along), ..) => How::Spread(along),
             (_, _, Some(order), ..) => How::Order(order),
             (_, _, _, Some(to), ..) => How::Next { to: to.clone(), after: false },
-            (_, _, _, _, Some(to), _) => How::Next { to: to.clone(), after: true },
+            (_, _, _, _, Some(to), ..) => How::Next { to: to.clone(), after: true },
+            (_, _, _, _, _, Some(holder), _) => How::Into { holder: holder.clone() },
             (.., Some(by)) => How::Together { by, free: self.free },
             _ => return Err(OpsError::new("nodes are arranged one way")),
         })
@@ -478,9 +495,15 @@ pub fn siblings(deck: &Deck, snap: &Snapshot, boxes: &[NodeBox], node: &str) -> 
     Ok(mine.map(sibling).collect())
 }
 
+/// Where a node may go in another container, or on the canvas (`None`), as the engine says
+/// it (`Engine::targets_into`): asked of a node moved in.
+pub type Elsewhere<'a> = dyn FnMut(&str, Option<&str>) -> Result<Targets, OpsError> + 'a;
+
 /// `nodes` arranged `how` in `snap`, laid out as `boxes` (PLAN 2.42): `found` is where each
-/// may go, the engine's, in the order named. They are children of one container; the patch
-/// is made in the state, or, to `fork` it, kept there. `None` where nothing moves them.
+/// may go, the engine's, in the order named, and `into` where one may go elsewhere. They are
+/// children of one container; the patch is made in the state, or, to `fork` it, kept there.
+/// `None` where nothing moves them.
+#[allow(clippy::too_many_arguments)]
 pub fn arrange(
     deck: &Deck,
     snap: &Snapshot,
@@ -489,6 +512,7 @@ pub fn arrange(
     found: Vec<Targets>,
     how: How,
     fork: bool,
+    into: &mut Elsewhere<'_>,
 ) -> Result<Option<Arranged>, OpsError> {
     let Some(first) = nodes.first() else { return Err(OpsError::new("name the nodes to arrange")) };
     let parent = holder(boxes, snap, first)?;
@@ -505,7 +529,7 @@ pub fn arrange(
     let state = &snap.state_id;
     let members = members(snap, found);
     if let (false, Some(By::Stack { parent, .. })) =
-        (matches!(how, How::Order(_) | How::Next { .. }), members.first().map(|m| &m.targets.by))
+        (matches!(how, How::Order(_) | How::Next { .. } | How::Into { .. }), members.first().map(|m| &m.targets.by))
     {
         return Err(OpsError::new(format!(
             "the stack `{parent}` places what it holds in its order: drag one along it, or order them in front or behind"
@@ -519,15 +543,48 @@ pub fn arrange(
             let changed = ordering(&siblings(deck, snap, boxes, first)?, nodes, order)?;
             Ok(Some(Arranged { landed: Vec::new(), patch: zs(&changed, state, fork) }))
         }
+        How::Into { holder: to } => {
+            if nodes.len() > 1 {
+                return Err(OpsError::new("one node goes into a container at a time"));
+            }
+            container(deck, boxes, snap, first, &to)?;
+            let member = &members[0];
+            if parent.as_deref() != Some(to.as_str()) {
+                let targets = into(first, Some(&to))?;
+                return moving(deck, snap, boxes, first, Some(to.as_str()), None, targets, fork).map(Some);
+            }
+            // In it already: first among what it holds.
+            match member.targets.ordered(0) {
+                Some(target) => {
+                    let mut landing = Landing::default();
+                    if !target.spots.is_empty() {
+                        landing.landed.push(Landed { node: first.clone(), cell: target.cell });
+                        landing.targets.push(target);
+                    }
+                    landing.arranged(state, fork).map(Some)
+                }
+                None => {
+                    let changed = ordering(&siblings(deck, snap, boxes, first)?, nodes, Order::Front)?;
+                    Ok(Some(Arranged { landed: Vec::new(), patch: zs(&changed, state, fork) }))
+                }
+            }
+        }
         How::Next { to, after } => {
             if nodes.len() > 1 {
                 return Err(OpsError::new("one node goes before or after another at a time"));
             }
             if &to == first {
-                return Err(OpsError::new(format!("`{first}` goes before or after another child of what holds it")));
+                return Err(OpsError::new(format!("`{first}` goes before or after another node, not itself")));
             }
-            if holder(boxes, snap, &to)? != parent {
-                return Err(OpsError::new(format!("`{to}` is not held by what holds `{first}`")));
+            let there = holder(boxes, snap, &to)?;
+            if there != parent {
+                // Into what holds `to`: another container, or the canvas.
+                if let Some(holder) = there {
+                    container(deck, boxes, snap, first, holder)?;
+                }
+                let targets = into(first, there.as_deref())?;
+                let next = Some((to.as_str(), after));
+                return moving(deck, snap, boxes, first, there.as_deref(), next, targets, fork).map(Some);
             }
             let member = &members[0];
             if !matches!(member.targets.by, By::Stack { .. }) {
@@ -548,6 +605,116 @@ pub fn arrange(
             landing.arranged(state, fork).map(Some)
         }
     }
+}
+
+/// Whether `node` may go into `holder` in `snap`, laid out as `boxes`: a container on screen,
+/// neither the node nor anything it holds.
+fn container(deck: &Deck, boxes: &[NodeBox], snap: &Snapshot, node: &str, holder: &str) -> Result<(), OpsError> {
+    let on = |id: &str| boxes.iter().find(|b| b.node == id);
+    let held =
+        on(holder).ok_or_else(|| OpsError::new(format!("`{holder}` is not on screen in `{}`", snap.state_id)))?;
+    if !deck.nodes.get(holder).is_some_and(|h| h.node_type.is_container()) {
+        return Err(OpsError::new(format!(
+            "`{holder}` holds nothing: a node goes into a stack, a grid, a frame, or a group"
+        )));
+    }
+    // Up from `holder`, each container it sits in: the node is none of them.
+    let mut up = Some(held);
+    for _ in 0..=boxes.len() {
+        let Some(b) = up else { break };
+        if b.node == node {
+            return Err(OpsError::new(format!("`{holder}` is `{node}` or in it: a node goes into nothing it holds")));
+        }
+        up = b.parent.as_deref().and_then(on);
+    }
+    Ok(())
+}
+
+/// `node` into `to`, a container, or onto the canvas (`None`), where `targets` (the engine's
+/// for it there) says it may go: listed just before or after `next` among what `to` holds, or
+/// first there (PLAN 2.50). Placed as `to` places what it holds: on the theme's grid by the
+/// cells the box it stands in now stands in; in a frame by a `rect` there, moved inside the
+/// frame's padding as little as it takes; in a stack at its place in the order; in a grid
+/// container after its flow. Then, but in a stack, painted where it is listed, by `z`.
+#[allow(clippy::too_many_arguments)]
+fn moving(
+    deck: &Deck,
+    snap: &Snapshot,
+    boxes: &[NodeBox],
+    node: &str,
+    to: Option<&str>,
+    next: Option<(&str, bool)>,
+    targets: Targets,
+    fork: bool,
+) -> Result<Arranged, OpsError> {
+    let state = snap.state_id.as_str();
+    let stands = targets.cell;
+    let unplaced =
+        || OpsError::new(format!("`{node}` has no place in {}", to.map_or("the canvas".into(), |t| format!("`{t}`"))));
+    let index =
+        |id: &str| snap.nodes.get(id).and_then(|p| p.get("at")).and_then(|at| at.get("index")).and_then(Value::as_u64);
+    let mut target = match &targets.by {
+        By::Stack { .. } => {
+            let k = match next {
+                Some((to_node, after)) => {
+                    let at = targets.flow.iter().position(|(id, ..)| id == to_node);
+                    at.ok_or_else(|| {
+                        OpsError::new(format!("`{to_node}` is not in `{}`'s order", to.unwrap_or_default()))
+                    })? + usize::from(after)
+                }
+                None => 0,
+            };
+            let mut target = targets.ordered(k).ok_or_else(unplaced)?;
+            // Its place in the order, said even where the number is its own already.
+            if !target.spots.iter().any(|(id, _)| id == node) {
+                let k = k.min(targets.flow.iter().filter(|(id, ..)| id != node).count()) as u32;
+                target.spots.insert(0, (node.to_string(), Spot { index: Some(k), ..Spot::default() }));
+            }
+            target
+        }
+        By::Cells { parent } => {
+            let flow = boxes.iter().filter(|b| b.parent.as_deref() == Some(parent.as_str()) && b.node != node);
+            let last = flow.filter_map(|b| index(&b.node)).max();
+            let spot = Spot { index: Some(last.map_or(0, |i| i as u32 + 1)), ..Spot::default() };
+            Target { cell: stands, spots: vec![(node.to_string(), spot)] }
+        }
+        By::Frame { .. } => {
+            let w = targets.within;
+            let size = [stands[2].min(w[2]), stands[3].min(w[3])];
+            let x = stands[0].min(w[0] + w[2] - size[0]).max(w[0]);
+            let y = stands[1].min(w[1] + w[3] - size[1]).max(w[1]);
+            targets.snap(Snap::Free, [x, y, size[0], size[1]]).ok_or_else(unplaced)?
+        }
+        By::Grid => targets.standing(stands).or_else(|| targets.snap(Snap::Free, stands)).ok_or_else(unplaced)?,
+    };
+    for (id, spot) in &mut target.spots {
+        if id == node {
+            spot.parent = Some(to.map(String::from));
+        }
+    }
+    // Painted where it is listed among what `to` holds: over or under `next`, else over all.
+    let changed = match targets.by {
+        By::Stack { .. } => Vec::new(),
+        _ => {
+            let z = |id: &str| snap.nodes.get(id).and_then(|p| p.get("z")).and_then(Value::as_i64).unwrap_or(0);
+            let order = |id: &str| deck.nodes.get_index_of(id).unwrap_or(usize::MAX);
+            let sibling = |id: &str, rect: Rect| Sibling { node: id.to_string(), z: z(id), index: order(id), rect };
+            let mut held: Vec<Sibling> = boxes
+                .iter()
+                .filter(|b| b.parent.as_deref() == to && b.node != node)
+                .map(|b| sibling(&b.node, b.rect))
+                .collect();
+            held.push(sibling(node, target.cell));
+            match next {
+                Some((to_node, after)) => restacking(&held, node, to_node, after)?,
+                None => ordering(&held, &[node.to_string()], Order::Front)?,
+            }
+        }
+    };
+    let ops = target.ops(Some(state), fork);
+    let mut patch: Vec<Value> = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    patch.extend(zs(&changed, state, fork));
+    Ok(Arranged { landed: vec![Landed { node: node.to_string(), cell: target.cell }], patch })
 }
 
 #[cfg(test)]

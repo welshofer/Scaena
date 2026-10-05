@@ -210,9 +210,11 @@ export type Arrange =
   | { align: "left" | "center" | "right" | "top" | "middle" | "bottom" }
   | { spread: "across" | "down" }
   | { order: "forward" | "backward" | "front" | "back" }
-  /** One node, listed just before or just after another child of its container (PLAN 2.50). */
+  /** One node, listed just before or just after another (PLAN 2.50): into what holds that one,
+   * if it is another container; or into a container, listed first there. */
   | { before: string }
   | { after: string }
+  | { into: string }
   | { by: [number, number]; free?: boolean };
 
 /** Several nodes arranged: where each lands, and the patch that puts them there. */
