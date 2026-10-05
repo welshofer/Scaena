@@ -735,6 +735,14 @@ fn choose_writes_a_choice_where_the_property_lives() {
     )
     .unwrap();
     assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/title/style", "value": { "color": "accent" } }]));
+    // Taken away, the node's style goes with its last key: the deck is as it was.
+    let away = patch(
+        &c.doc,
+        json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": null, "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&away), json!([{ "op": "remove", "path": "/nodes/title/style" }]));
+    assert_eq!(away.doc, example());
 
     // A color written out is an override: it goes in the deck's `overrides`, the only place
     // it is legal, in every state; it cannot be kept to one.

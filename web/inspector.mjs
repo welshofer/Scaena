@@ -13,6 +13,7 @@
 // - A color written out is an override: it goes in the deck's `overrides` and shows as one; a
 //   theme name chosen then is written there too; the × takes it away.
 // - What cannot be kept to one state (a value written out) is refused, and says why.
+// - An inspection that offers the same, as each edit's does, leaves the controls in place.
 // - With nothing selected, the inspector edits the state shown (PLAN 2.36): `mix`'s layout, from
 //   the theme's layouts with a slot for each node, written in `revenue`, where it lives, or kept to
 //   `mix`; its transition, which a cut takes away; its hold, in seconds; and its notes. Each is one
@@ -101,7 +102,8 @@ try {
   check(kept?.value === "body" && kept?.lives?.state === "revenue", `only in revenue: the note's role lives in its delta: ${JSON.stringify(kept)}`);
   check((await source()).includes('note text role:caption "Revenue in $M.'), "and the node keeps its own");
   // A color written out cannot be kept to one state: it goes in the overrides, which hold in every one.
-  await page.locator("#look-style-color-written").evaluate((input) => {
+  await page.evaluate(() => {
+    const input = document.querySelector("#look-style-color-written");
     input.value = "#ff3366";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
@@ -115,7 +117,16 @@ try {
 
   // A color written out is an override, in every state, and shows as one.
   await select("title");
-  await page.locator("#look-style-color-written").evaluate((input) => {
+  // An inspection that offers the same, as each edit's does, leaves the controls in place: a
+  // change on its way to one, or a color picker open on it, still lands.
+  const stays = await page.evaluate(async () => {
+    const input = document.querySelector("#look-style-color-written");
+    await window.scaena.look.show("title");
+    return input?.isConnected;
+  });
+  check(stays, "an inspection that offers the same leaves the controls in place");
+  await page.evaluate(() => {
+    const input = document.querySelector("#look-style-color-written");
     input.value = "#ff3366";
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });

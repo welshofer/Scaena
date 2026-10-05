@@ -56,6 +56,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   /** One choice at a time, each made on the source the one before it left. */
   let queue: Promise<unknown> = Promise.resolve();
   let asked = 0;
+  /** What the controls show: drawn again only when it changes, so that a control in use (a
+   * color picker open, a change on its way) is not swapped out from under it by an edit's
+   * inspection that offers the same. */
+  let drawn = "";
 
   /** Show what the deck offers for node `next` in the state shown, or for the state with none. */
   async function show(next: string | undefined) {
@@ -140,13 +144,18 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     return `<span class="lives">${html(lives)}</span>${flag}${away}`;
   }
 
-  /** Draw what is offered, the control that had focus keeping it. */
-  function render() {
+  /** Draw what is offered, the control that had focus keeping it: when it changed, or, `again`,
+   * to put the controls back to what the deck says. */
+  function render(again = false) {
     const now = around.shown();
     if (!offered || !now) {
+      drawn = "";
       into.replaceChildren();
       return;
     }
+    const showing = JSON.stringify([now.state, keep, offered]);
+    if (showing === drawn && !again) return;
+    drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     const rows = offered.fields.map((f) => {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
@@ -187,7 +196,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     } catch (e) {
       around.say(`not chosen: ${said(e)}`);
       // The controls go back to what the deck says.
-      render();
+      render(true);
     }
   }
 
