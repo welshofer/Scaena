@@ -18,6 +18,7 @@ import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
   Asking,
   AssistantEvent,
+  Carets,
   Edited,
   Finding,
   FromHelper,
@@ -146,6 +147,21 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "place":
         return post({ type: "placed", id: data.id, ...(await place(data.source, data.ops, data.index, data.format)) });
+      case "reach":
+        return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
+      case "carets": {
+        // The source as it stands, where the deck shown is not yet the one it compiles to: an
+        // undo, or the source changed under the text.
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        return post({ type: "carets", id: data.id, carets: JSON.parse(player.carets(data.state, data.node)) as Carets | null });
+      }
+      case "type": {
+        const typed = await type(data.source, data.ops, data.index, data.format);
+        const carets = JSON.parse(player.carets(data.state, data.node)) as Carets | null;
+        return post({ type: "typed", id: data.id, ...typed, carets });
+      }
       case "save":
         saveable(data.source);
         return post({ type: "saved", id: data.id, ...(await save()) });
@@ -627,6 +643,20 @@ async function place(source: string, ops: unknown[], index: number, at: string |
     const why = (JSON.parse(json) as { added?: Finding[] }).added?.find((f) => f.severity === "error");
     throw new Error(why ? `the deck refuses it: ${why.message}` : "it is there already");
   }
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { source: next, edited: await edit(next, index, at) };
+}
+
+/** Make `ops`, text typed on the editor's canvas (PLAN 2.32), by the user, on the deck `source`
+ * compiles to, which must validate: validated as a patch is, but not linted. The deck's source
+ * after is compiled, shown at slot `index`, and linted, as an edit of it is. */
+async function type(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
+  saveable(source);
+  player.setMoving(undefined, 0, 0);
+  player.preview(undefined);
+  if (!player.typed(JSON.stringify(ops), new Date().toISOString())) throw new Error("it reads so already");
   latest++;
   shown = { index, format: at };
   const next = player.source();

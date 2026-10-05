@@ -19,6 +19,7 @@ parley.workspace = true
 fontique.workspace = true
 taffy.workspace = true
 hypher.workspace = true
+icu_segmenter.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 libm.workspace = true

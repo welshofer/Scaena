@@ -221,6 +221,10 @@ pub struct Hit {
     pub rect: [f32; 4],
     /// The containers and groups it sits in, innermost first.
     pub containers: Vec<String>,
+    /// For a text, where a caret put at the point stands: how many characters of its text
+    /// (Unicode scalar values) come before it, as `replace_text` counts them (ADR-0013).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<usize>,
 }
 
 /// A text node's look as the cascade resolved it (SPEC §3.6).
@@ -507,9 +511,13 @@ pub fn inspect_deck(
                 inspected.boxes = Some(boxes.collect());
             }
             if let Some(point) = views.at {
-                let hits = scene.hit(point).into_iter();
-                inspected.hits =
-                    Some(hits.map(|h| Hit { node: h.node, rect: h.rect, containers: h.containers }).collect());
+                let hits = scene.hit(point).into_iter().map(|h| {
+                    // The engine counts bytes; an agent counts characters.
+                    let chars = |at: usize| scene.carets(&h.node).map_or(at, |c| c.text[..at].chars().count());
+                    let offset = h.offset.map(chars);
+                    Hit { node: h.node, rect: h.rect, containers: h.containers, offset }
+                });
+                inspected.hits = Some(hits.collect());
             }
             if let Some(node) = &views.targets {
                 let found = engine.targets(&req, node)?;

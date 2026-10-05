@@ -49,6 +49,10 @@ Cut until each slide says its one thing.
    ```json
    [{ "op": "set_text", "node": "miles-title", "state": "miles", "text": "Crews rebuilt 52 miles" }]
    ```
+   - A node set in `runs` (several looks in one text) would lose them to `set_text`. Change the words with `replace_text` instead: the characters from `from` to `to` of the text the state shows become `text`, and each run keeps its look.
+     ```json
+     [{ "op": "replace_text", "node": "miles-title", "state": "miles", "from": 0, "to": 12, "text": "Crews rebuilt" }]
+     ```
    - Run it with `--dry-run` first. The lint delta (`added`, `removed`) shows what changed. `errors` counts what remains, including a finding that only changed its figures, which the delta counts as the same.
    - `applied` says whether the deck was written. Exit 1 means it was refused, or errors remain.
 7. **Check.**

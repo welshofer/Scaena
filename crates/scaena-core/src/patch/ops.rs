@@ -7,9 +7,10 @@ use super::{JsonOp, Renamed, SemanticOp, Spot, esc};
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::model::theme::Theme;
-use crate::tracking::{Lives, Snapshot, lives, resolve_states, tracks_from};
+use crate::tracking::{Lives, Snapshot, lives, merge_props, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
+use std::ops::Range;
 
 /// What one semantic op compiles to.
 pub(super) struct Out {
@@ -65,6 +66,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
                 entries.push(("runs".to_string(), None, Value::Null));
             }
             set(&d, node, entries, at.map(|(i, _)| i))?
+        }
+        SemanticOp::ReplaceText { node, from, to, text, state, fork } => {
+            replace_text(&d, node, (*from as usize, *to as usize), text, state.as_deref(), *fork)?
         }
         SemanticOp::BindData { node, data, source, state } => {
             let kind = d.kind(node)?;
@@ -488,6 +492,108 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
     };
     let at = placed(at, &|key| under.contains_key(key));
     set(d, node, vec![("at".into(), None, at)], Some(j))
+}
+
+/// `replace_text` (ADR-0013): the characters `from..to` of `node`'s text as `state` shows it
+/// become `text`, where the text lives, or, to `fork` it, in `state`'s own delta. A text set
+/// by runs keeps them: the edit is made in their texts.
+fn replace_text(
+    d: &Doc,
+    node: &str,
+    (from, to): (usize, usize),
+    text: &str,
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    let kind = d.kind(node)?;
+    if kind != "text" {
+        return Err(format!("`{node}` is a {kind} node; `replace_text` edits a text node's text"));
+    }
+    if fork && state.is_none() {
+        return Err("`fork` keeps an edit to a state: name it (`state`)".into());
+    }
+    // The text as the state shows it: its own props, or the state's, under the overrides.
+    let own = d.node(node)?;
+    let shown = d.showing(node, state)?;
+    let mut props: Props = match &shown {
+        Some((_, props)) => props.clone(),
+        None => own.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    let over = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object);
+    if let Some(over) = over {
+        merge_props(&mut props, &over.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+    }
+    let runs = props.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
+    let prop = if runs.is_some() { "runs" } else { "text" };
+    let written: String = match runs {
+        Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect(),
+        None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
+    };
+    let count = written.chars().count();
+    if from > to || to > count {
+        return Err(format!(
+            "`{node}` reads {count} characters there: `from` and `to` are offsets from 0 to {count}, `from` first"
+        ));
+    }
+    let byte = |chars: usize| written.char_indices().nth(chars).map_or(written.len(), |(i, _)| i);
+    let (from, to) = (byte(from), byte(to));
+    let value = match runs {
+        Some(runs) => Value::Array(edit_runs(runs, from..to, text)),
+        None => Value::String(format!("{}{text}{}", &written[..from], &written[to..])),
+    };
+    // The deck's overrides win in every state: text they set is changed there.
+    if let Some(over) = over.filter(|o| o.contains_key(prop)) {
+        if fork {
+            return Err(format!(
+                "the deck's `overrides` set `{node}`'s {prop} in every state (`/overrides/{node}/{prop}`): kept to one state, an edit would not show"
+            ));
+        }
+        let mut new = over.clone();
+        new.insert(prop.into(), value);
+        return Ok(diff(&format!("/overrides/{}", esc(node)), over, &new));
+    }
+    let at = match shown {
+        Some((i, _)) => {
+            let (deck, _) = d.snapshots()?;
+            match if fork { Lives::State(i) } else { lives(&deck, i, node, prop, &[]) } {
+                Lives::State(j) => Some(j),
+                Lives::Node => None,
+            }
+        }
+        None => None,
+    };
+    set(d, node, vec![(prop.into(), None, value)], at)
+}
+
+/// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed into
+/// the run the range starts in, the one before where two meet, or the first at the start. A
+/// run the edit leaves with no text goes, unless it was typed into.
+fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
+    let texts: Vec<&str> = runs.iter().map(|r| r.get("text").and_then(Value::as_str).unwrap_or_default()).collect();
+    let starts: Vec<usize> = texts.iter().scan(0, |at, t| Some(std::mem::replace(at, *at + t.len()))).collect();
+    let into = match range.start {
+        0 => 0,
+        start => (0..texts.len())
+            .find(|&k| starts[k] < start && start <= starts[k] + texts[k].len())
+            .unwrap_or(texts.len().saturating_sub(1)),
+    };
+    let mut out = Vec::with_capacity(runs.len());
+    for (k, (run, own)) in runs.iter().zip(&texts).enumerate() {
+        let (start, end) = (starts[k], starts[k] + own.len());
+        let (cut, kept) = (range.start.clamp(start, end) - start, range.end.clamp(start, end) - start);
+        let mut new = format!("{}{}", &own[..cut], &own[kept..]);
+        if k == into {
+            new.insert_str(cut, text);
+        } else if new.is_empty() && !own.is_empty() {
+            continue;
+        }
+        let mut run = run.clone();
+        if let Some(fields) = run.as_object_mut() {
+            fields.insert("text".into(), Value::String(new));
+        }
+        out.push(run);
+    }
+    out
 }
 
 /// Ops that turn `old`, the object at `base`, into `new`: member by member, and one level

@@ -76,6 +76,9 @@ taffy    = { version = "0.14.0", default-features = false, features = ["std", "t
 hypher   = { version = "0.1.8", default-features = false, features = ["alloc", "english", "german", "french", "spanish", "italian", "portuguese", "dutch", "swedish", "danish", "finnish", "polish", "czech", "russian", "ukrainian", "turkish", "greek", "catalan"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
+# Grapheme clusters, where a caret stands in a text (ADR-0013): parley's own segmenter, with its compiled
+# data. Already in the graph through parley.
+icu_segmenter = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 # Pure-Rust cbrt/pow for color interpolation: the same bits on every platform, unlike the platform
 # math library behind f32::cbrt and f32::powf (SPEC §13). Already in the graph through the painters.
 libm     = "0.2.16"

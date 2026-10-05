@@ -243,6 +243,9 @@ fn inspect_says_what_stands_where() {
     let hits = states[0]["hits"].as_array().unwrap();
     assert_eq!(hits[0]["node"], "card-tag-label");
     assert_eq!(hits[0]["containers"], serde_json::json!(["card"]));
+    // A text says where a caret put at the point stands, in characters; a shape does not.
+    assert!(hits[0]["offset"].as_u64().is_some(), "{hits:#?}");
+    assert!(hits.iter().filter(|h| h["node"] != "card-tag-label").all(|h| h.get("offset").is_none()), "{hits:#?}");
     assert!(states[0].get("boxes").is_none());
 
     // In a format, the boxes are that format's layout's.
@@ -261,7 +264,10 @@ fn inspect_says_what_stands_where() {
     // For a person: a line per box, and the hits, topmost first.
     let out = scaena(&["inspect", TORTURE, "--state", "containers", "--at", &at]);
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.contains(", topmost first:") && text.contains("    card-tag-label (in card)"), "{text}");
+    assert!(
+        text.contains(", topmost first:") && text.contains("    card-tag-label (in card), a caret after "),
+        "{text}"
+    );
 }
 
 fn copy_dir(from: &Path, to: &Path) {

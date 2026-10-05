@@ -29,6 +29,8 @@ pub type Recorder<'a> = dyn Fn(&[u8], &str) -> Result<Vec<u8>, String> + 'a;
 /// Who makes the page's own edits: what the user types, a finding's fix they click, and the
 /// save (SPEC §8.2).
 const USER: &str = "user";
+/// What a run of typing on the canvas is called in the bundle's history (PLAN 2.32).
+pub(crate) const TYPED: &str = "type";
 
 /// Seconds since 1970 at `rfc3339`, as a page says the time (`Date.toISOString`, in UTC);
 /// `None` when it says it otherwise.
@@ -100,7 +102,7 @@ impl Session {
             deck_file: "deck.json".into(),
             deck: self.deck.clone(),
             theme_json: Some(self.theme_json.clone()),
-            files: Files::Zip(Arc::new(self.files.clone())),
+            files: Files::Zip(Arc::clone(&self.files)),
             author: "user".into(),
         }
     }
@@ -183,7 +185,15 @@ impl Session {
         }
         let json = |deck: &Deck| deck.to_json().map_err(|e| Error::Deck(e.to_string()));
         let before = json(&self.deck)?;
-        if self.recorded.last().is_none_or(|last| last.deck != before) {
+        // A run of typing on the canvas is one change: each keystroke takes the place of the
+        // one before it, which nothing has changed since.
+        let typing = why.message == TYPED
+            && (self.recorded.last()).is_some_and(|last| {
+                last.deck == before && last.author == by.author && last.message.as_deref() == Some(TYPED)
+            });
+        if typing {
+            self.recorded.pop();
+        } else if self.recorded.last().is_none_or(|last| last.deck != before) {
             self.recorded.push(Recorded { message: Some("edit".into()), ..change(before, USER, by.at) });
         }
         self.recorded.push(Recorded {
@@ -476,6 +486,33 @@ mod tests {
             said(&saved.files[HISTORY], 1),
             [by(FS, OUTSIDE, t0 + 60), by("agent:scripted", "patch: set_text", t0 + 60), by("user", "save", t0 + 120)]
         );
+    }
+
+    /// Typing on the canvas (PLAN 2.32): a run of keystrokes is one change, `type`, by the
+    /// user, stamped at its last; anything made between two runs ends the first.
+    #[test]
+    fn a_run_of_typing_on_the_canvas_is_one_change() {
+        let (files, t0) = begun();
+        let mut s = Session::open(files).unwrap();
+        let typed = |s: &mut Session, from: u32, text: &str, at: i64| {
+            let ops = json!([{ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": from, "text": text }]);
+            assert!(s.typed(&ops, Some(at)).unwrap());
+        };
+        typed(&mut s, 15, "!", t0 + 10);
+        typed(&mut s, 16, "!", t0 + 11);
+        typed(&mut s, 17, "?", t0 + 12);
+        let user = Caller { author: "user", at: Some(t0 + 20) };
+        let patch = json!({ "ops": [{ "op": "set_text", "node": "note", "text": "In $M." }] });
+        assert!(s.tool("deck_patch", patch, user).unwrap().edited);
+        typed(&mut s, 0, "Net ", t0 + 30);
+        let saved = s.save(&rfc3339(t0 + 60), false, Some(&recorder)).unwrap();
+        assert_eq!(
+            said(&saved.files[HISTORY], 1),
+            [by("user", TYPED, t0 + 12), by("user", "patch: set_text", t0 + 20), by("user", TYPED, t0 + 30)],
+            "the save changes nothing after them"
+        );
+        let deck = DeckDoc::load(&saved.files[HISTORY]).unwrap().deck().unwrap().to_json().unwrap();
+        assert!(deck.contains("Net Revenue doubled!!?"), "{deck}");
     }
 
     #[test]

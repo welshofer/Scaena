@@ -248,6 +248,14 @@ pub struct TextLayout {
     /// The text as laid out: its spans in their `case`, with the soft hyphens hyphenation
     /// inserted. Line ranges index into it.
     pub text: String,
+    /// The text as written: the node's `text`, or its runs' texts end to end. A caret
+    /// stands between its characters (ADR-0013, [`crate::carets`]).
+    pub written: String,
+    /// Where each character of `written` starts in `text`, as `(written, text)` byte
+    /// offsets in order, then both ends. Case can set a character longer than it is
+    /// written (ß in capitals is SS), and hyphenation inserts soft hyphens that are not
+    /// written at all.
+    pub offsets: Vec<(usize, usize)>,
     pub lines: Vec<LineBox>,
     pub runs: Vec<GlyphRun>,
     /// Widest line, trailing whitespace and hung quotes excluded.
@@ -404,6 +412,9 @@ pub struct GlyphRun {
     /// Each glyph's advance: with its position, the box a split unit turns about.
     pub advances: Vec<f32>,
     pub line: usize,
+    /// Its glyphs set right-to-left text: its clusters run from the right, and a caret
+    /// before one stands at its right edge.
+    pub rtl: bool,
     /// A hyphen drawn where a line breaks inside a word. It says the soft hyphen it
     /// draws, though its clusters put it with the letter before, so it moves with that
     /// letter.
@@ -581,6 +592,8 @@ impl TextEngine {
                 line.text = 0..0;
             }
         }
+        read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
+        read.offsets = offsets(&spec.spans, &cased);
         Ok(read)
     }
 
@@ -631,24 +644,75 @@ fn set_case(text: &str, case: Option<Case>) -> Cow<'_, str> {
         Some(Case::Lower) => Cow::Owned(text.to_lowercase()),
         Some(Case::Title) => {
             let mut out = String::with_capacity(text.len());
-            let mut word_start = true;
-            for c in text.chars() {
-                if word_start && c.is_alphabetic() {
+            for (c, starts) in title_case(text) {
+                if starts {
                     out.extend(c.to_uppercase());
-                    word_start = false;
-                    continue;
+                } else {
+                    out.push(c);
                 }
-                if c.is_whitespace() {
-                    word_start = true;
-                } else if c.is_alphanumeric() {
-                    word_start = false;
-                }
-                out.push(c);
             }
             Cow::Owned(out)
         }
         Some(Case::None | Case::Smallcaps) | None => Cow::Borrowed(text),
     }
+}
+
+/// Each character of `text`, and whether title case capitalizes it: a letter that starts a
+/// word, after whitespace or at the start.
+fn title_case(text: &str) -> impl Iterator<Item = (char, bool)> + '_ {
+    let mut word_start = true;
+    text.chars().map(move |c| {
+        if word_start && c.is_alphabetic() {
+            word_start = false;
+            return (c, true);
+        }
+        if c.is_whitespace() {
+            word_start = true;
+        } else if c.is_alphanumeric() {
+            word_start = false;
+        }
+        (c, false)
+    })
+}
+
+/// How long each character of `text` is in `case`, in bytes, as [`set_case`] sets it. A
+/// final sigma in lower case is ς where a character alone would be σ: the same length.
+fn case_lengths(text: &str, case: Option<Case>) -> Vec<usize> {
+    let len = |chars: &mut dyn Iterator<Item = char>| chars.map(char::len_utf8).sum();
+    match case {
+        Some(Case::Upper) => text.chars().map(|c| len(&mut c.to_uppercase())).collect(),
+        Some(Case::Lower) => text.chars().map(|c| len(&mut c.to_lowercase())).collect(),
+        Some(Case::Title) => {
+            title_case(text).map(|(c, starts)| if starts { len(&mut c.to_uppercase()) } else { c.len_utf8() }).collect()
+        }
+        Some(Case::None | Case::Smallcaps) | None => text.chars().map(char::len_utf8).collect(),
+    }
+}
+
+/// Where each character of the spans' texts, end to end, starts in what is laid out: the
+/// spans as `laid` sets them, in their case and with the soft hyphens hyphenation inserted
+/// ([`TextLayout::offsets`]). An inserted soft hyphen sits between two letters of a word,
+/// never beside one that is written, so it is the one a written character does not start
+/// with.
+fn offsets(spans: &[Span], laid: &[Cow<str>]) -> Vec<(usize, usize)> {
+    let mut map = Vec::with_capacity(spans.iter().map(|s| s.text.len() + 1).sum());
+    let (mut from, mut to) = (0, 0);
+    for (span, laid) in spans.iter().zip(laid) {
+        let (start, mut rest) = (to, laid.as_ref());
+        for (c, len) in span.text.chars().zip(case_lengths(&span.text, span.style.case)) {
+            while c != SHY && rest.starts_with(SHY) {
+                (to, rest) = (to + SHY.len_utf8(), &rest[SHY.len_utf8()..]);
+            }
+            let len = len.min(rest.len());
+            map.push((from, to));
+            (from, to, rest) = (from + c.len_utf8(), to + len, &rest[len..]);
+        }
+        // Whatever is left (none, unless case set a character longer than it says) ends the
+        // span's last character.
+        to = start + laid.len();
+    }
+    map.push((from, to));
+    map
 }
 
 fn tag(name: &str) -> Result<Tag, EngineError> {
@@ -996,7 +1060,7 @@ fn segments(layout: &mut Layout<Ink>, text: &str, rtl: bool, room: Room) -> Vec<
 /// Whether `c` draws something: not whitespace, and not one of the default-ignorable
 /// characters a font sets invisibly (soft hyphens, zero-width spaces and joiners, bidi
 /// controls, the word joiner, the byte order mark).
-fn sets_ink(c: char) -> bool {
+pub(crate) fn sets_ink(c: char) -> bool {
     !c.is_whitespace()
         && !matches!(
             c,
@@ -1436,6 +1500,7 @@ fn read_layout(
                 clusters,
                 advances,
                 line: index,
+                rtl: run.is_rtl(),
                 hyphen: false,
             });
         }
@@ -1476,6 +1541,8 @@ fn read_layout(
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     Ok(TextLayout {
         text: text.to_string(),
+        written: text.to_string(),
+        offsets: text.char_indices().map(|(i, _)| (i, i)).chain([(text.len(), text.len())]).collect(),
         lines,
         runs,
         width,
