@@ -72,6 +72,10 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - What you choose goes where you last clicked in the preview, or in its middle, snapped to the grid. A text or an image clicked into an empty slot of the layout fills the slot, so it follows the deck into its other formats. A shader fills the canvas, behind everything. It appears from the state shown on, selected, ready to drag or type in.
   - Delete (or Backspace) takes the object selected, and what it holds, out of the state shown and the states after it. Something that no state shows any more leaves the deck, so adding and deleting leaves nothing behind. Shift+Delete takes it out of the deck. ⌘D (Ctrl+D) puts a copy beside it, with copies of what it holds.
   - Each is one ⌘Z.
+- **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.
+  - **+ Step** adds a state after the one shown that shows what it shows: change it, and the deck builds from one to the other. **+ Slide** adds an empty slide after the shown one's, in its layout, ready to fill from the Insert menu.
+  - Drag a state to move it, or hold Alt and press an arrow key. F2, or a double click on its name, renames it, and Delete removes it. A state another builds on stays; the status says which.
+  - Each is one ⌘Z.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
   - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
   - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.

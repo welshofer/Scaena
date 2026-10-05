@@ -26,6 +26,7 @@ import type {
   FromHelper,
   FromWorker,
   Insert,
+  Thumb,
   Opened,
   Painter,
   Section,
@@ -164,6 +165,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "thumbnails": {
+        layOut(data.format);
+        const thumbs = await thumbnails(data.height, data.known);
+        return post({ type: "thumbnails", id: data.id, thumbs }, thumbs.flatMap((t) => (t.pixels ? [t.pixels] : [])));
+      }
+      case "addingState":
+        current(data.source);
+        return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
       case "deleting":
         current(data.source);
         return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });
@@ -565,6 +574,36 @@ function timeline(): Slot[] {
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
+/** The strip's thumbnails are asked for again: the last one asked stops. */
+let thumbing = 0;
+
+/** Each state of the timeline at rest, `height` pixels high, for the state strip (PLAN 2.35):
+ * pixels for each whose drawing (its display list's digest) is not the one `known` holds. A
+ * state at a time, the worker answering what else is asked between them; a newer request stops
+ * it with what it has. A state the deck no longer has, changed meanwhile, is left out. */
+async function thumbnails(height: number, known: Record<string, string>): Promise<Thumb[]> {
+  const mine = ++thumbing;
+  const [w, h] = player.canvasSize();
+  const width = Math.max(1, Math.round((height * w) / h));
+  const thumbs: Thumb[] = [];
+  for (const { state } of slots) {
+    if (mine !== thumbing) break;
+    try {
+      const digest = player.digest(state);
+      if (known[state] === digest) {
+        thumbs.push({ state, digest });
+        continue;
+      }
+      const pixels = player.pixels(state, Infinity, width);
+      thumbs.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
+    } catch {
+      continue;
+    }
+    await new Promise((go) => setTimeout(go, 0));
+  }
+  return thumbs;
+}
+
 /** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
  * one, after an undo or while the source is typed in. */
 function current(source: string) {

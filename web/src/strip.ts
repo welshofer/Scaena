@@ -1,0 +1,280 @@
+// The state strip (PLAN 2.35, ADR-0013): the deck's states in order, each a thumbnail the engine
+// paints at rest, with its cue's length. The page lays nothing out and paints nothing itself.
+//
+// - A click on a state, or the arrow keys, Home, and End among them, shows it.
+// - New step adds a state after the state shown that tracks from it, in its slide: it shows what
+//   that state shows until it is changed. New slide adds an empty slide, in the shown state's
+//   layout, after the last step of its slide.
+// - A state dragged to another place, or moved with Alt and an arrow key, moves there
+//   (`move_state`). F2, or a double click, renames it (`rename_state`), and Delete removes it
+//   (`remove_state`).
+// - Each is one patch, by the user, one step to undo; what the deck refuses, the status says why.
+// - A thumbnail is painted again only when its state's drawing changed (the digest of its display
+//   list), once every state is laid out after an edit.
+import type { Edited, Slot, Thumb } from "./protocol";
+import type { Stage } from "./stage";
+
+/** What the strip asks of the editor around it. */
+export interface StripEditor {
+  /** The state shown, by its id and its slot's index; none while the source does not compile. */
+  shown(): { state: string; index: number } | undefined;
+  format(): string | undefined;
+  source(): string;
+  /** Show the state at slot `index`, as the state picker does. */
+  show(index: number): void;
+  /** Take `source`, a patch's, as one change: one step to undo. */
+  apply(source: string, edited: Edited): void;
+  say(text: string): void;
+}
+
+const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+/** A cue's length, as the strip says it. */
+const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+
+/** How high a thumbnail is painted, CSS pixels, on a display of `ratio` device pixels each. */
+const HIGH = 54;
+
+/** The strip in `into` (its `ol` the states, its buttons the strip's own), over `stage`. */
+export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
+  const list = into.querySelector<HTMLOListElement>("ol")!;
+  /** Each state's thumbnail, by id: what identifies its drawing, and its pixels. */
+  const thumbs = new Map<string, { digest: string; image: ImageData }>();
+  let slots: Slot[] = [];
+  /** The state a drag carries, and where it would drop: before or after which. */
+  let dragging: string | undefined;
+  /** One change at a time, each made on the source the one before left. */
+  let making: Promise<unknown> = Promise.resolve();
+  /** Thumbnails asked for: the last answer wins. */
+  let painting = 0;
+
+  /** The states as `edited` says the deck has them, `shown` the one shown. */
+  function states(next: Slot[], shown: number) {
+    slots = next;
+    for (const id of [...thumbs.keys()]) if (!next.some((s) => s.state === id)) thumbs.delete(id);
+    const focused = list.contains(document.activeElement);
+    list.innerHTML = next
+      .map((s, i) => {
+        const on = i === shown;
+        return `<li role="option" id="strip-${html(s.state)}" data-state="${html(s.state)}" aria-selected="${on}" tabindex="${on ? 0 : -1}" draggable="true" title="${html(s.state)}: its cue ${seconds(s.span)}">
+          <canvas aria-hidden="true"></canvas><span class="id">${html(s.state)}</span><span class="cue">${seconds(s.span)}</span></li>`;
+      })
+      .join("");
+    for (const s of next) draw(s.state);
+    const item = list.children[shown] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (focused) item?.focus();
+  }
+
+  /** The state shown is slot `shown`: it is the strip's selection, and takes the focus if the
+   * strip has it. */
+  function select(shown: number) {
+    const focused = list.contains(document.activeElement) && document.activeElement?.tagName !== "INPUT";
+    for (const [i, li] of [...list.children].entries()) {
+      li.setAttribute("aria-selected", String(i === shown));
+      (li as HTMLElement).tabIndex = i === shown ? 0 : -1;
+    }
+    const item = list.children[shown] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (focused) item?.focus();
+  }
+
+  /** `state`'s thumbnail onto its item, if there is one yet. */
+  function draw(state: string) {
+    const canvas = list.querySelector<HTMLCanvasElement>(`li[data-state="${CSS.escape(state)}"] canvas`);
+    const thumb = thumbs.get(state);
+    if (!canvas || !thumb) return;
+    [canvas.width, canvas.height] = [thumb.image.width, thumb.image.height];
+    canvas.getContext("2d")?.putImageData(thumb.image, 0, 0);
+  }
+
+  /** Ask the engine for the thumbnails whose drawing changed, and draw them. */
+  async function paint() {
+    const asked = ++painting;
+    const known = Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest]));
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    let got: Thumb[];
+    try {
+      got = await stage.thumbnails(Math.round(HIGH * ratio), known, editor.format());
+    } catch {
+      return;
+    }
+    if (asked !== painting) return;
+    for (const t of got) {
+      if (!t.pixels || !t.width || !t.height) continue;
+      thumbs.set(t.state, { digest: t.digest, image: new ImageData(new Uint8ClampedArray(t.pixels), t.width, t.height) });
+      draw(t.state);
+    }
+  }
+
+  /** The format changed: every thumbnail is painted again. */
+  function reformat() {
+    thumbs.clear();
+    void paint();
+  }
+
+  /** Make `ops` on the source as it stands: one change to undo. The deck after it shows slot
+   * `to`: `to(slots)` of the slots as they are, which the patch is made on. Then say `done`. */
+  function make(ops: unknown[], doing: string, done: string, to: (slots: Slot[]) => number) {
+    const run = async () => {
+      if (!editor.shown()) return editor.say("the strip waits for a source that compiles");
+      editor.say(doing);
+      try {
+        const { source, edited } = await stage.make(editor.source(), ops, Math.max(0, to(slots)), editor.format());
+        editor.apply(source, edited);
+        editor.say(done);
+      } catch (e) {
+        editor.say(`not made: ${said(e)}`);
+      }
+    };
+    making = making.then(run, run);
+    return making;
+  }
+
+  /** A state after the one shown: a `step` of its slide, or a `slide` of its own. */
+  function add(what: "step" | "slide") {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the strip waits for a source that compiles");
+    return stage
+      .addingState(editor.source(), shown.state, what)
+      .then((added) => {
+        const after = (added.patch[0] as { after?: string }).after;
+        const said = `${added.id} added after ${what === "step" ? shown.state : `${shown.state}'s slide`}`;
+        return make(added.patch, `adding a ${what}…`, said, (all) => all.findIndex((s) => s.state === after) + 1);
+      })
+      .catch((e) => editor.say(`not added: ${said(e)}`));
+  }
+
+  /** Move `state` before or after `to`. */
+  function move(state: string, where: "before" | "after", to: string) {
+    if (state === to) return;
+    const lands = (all: Slot[]) => {
+      const rest = all.map((s) => s.state).filter((id) => id !== state);
+      return rest.indexOf(to) + (where === "after" ? 1 : 0);
+    };
+    return make([{ op: "move_state", id: state, [where]: to }], "moving…", `${state} moved ${where} ${to}`, lands);
+  }
+
+  /** Rename `state`: a field where its name stands, Enter to rename and Escape to leave it. */
+  function rename(state: string) {
+    const label = list.querySelector<HTMLElement>(`li[data-state="${CSS.escape(state)}"] .id`);
+    if (!label) return;
+    const field = Object.assign(document.createElement("input"), { value: state, spellcheck: false });
+    field.setAttribute("aria-label", `Rename ${state}`);
+    label.replaceChildren(field);
+    field.select();
+    field.focus();
+    let done = false;
+    const end = (to?: string) => {
+      if (done) return;
+      done = true;
+      label.textContent = state;
+      if (to && to !== state) void make([{ op: "rename_state", id: state, to }], "renaming…", `${state} renamed ${to}`, () => index(state));
+      else (list.querySelector(`li[data-state="${CSS.escape(state)}"]`) as HTMLElement | null)?.focus();
+    };
+    field.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") end(field.value.trim());
+      else if (e.key === "Escape") end();
+    };
+    field.onblur = () => end();
+  }
+
+  /** Remove `state`: the state after it shows, or, past the last, the one before it. */
+  function remove(state: string) {
+    return make([{ op: "remove_state", id: state }], "removing…", `${state} removed`, (all) => Math.min(index(state), all.length - 2));
+  }
+
+  const item = (e: Event) => (e.target as Element).closest<HTMLElement>("li[data-state]");
+  const index = (state: string) => slots.findIndex((s) => s.state === state);
+
+  list.onclick = (e) => {
+    const li = item(e);
+    if (li) editor.show(index(li.dataset.state!));
+  };
+  list.ondblclick = (e) => {
+    const li = item(e);
+    if (li && (e.target as Element).closest(".id")) rename(li.dataset.state!);
+  };
+  list.onkeydown = (e) => {
+    const li = item(e);
+    if (!li || (e.target as Element).tagName === "INPUT") return;
+    const state = li.dataset.state!;
+    const at = index(state);
+    const steps: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, Home: -at, End: slots.length - 1 - at };
+    if (e.key in steps) {
+      e.preventDefault();
+      const to = Math.max(0, Math.min(slots.length - 1, at + steps[e.key]));
+      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        const other = slots[to]?.state;
+        if (other && other !== state) void move(state, e.key === "ArrowLeft" ? "before" : "after", other);
+        return;
+      }
+      if (to !== at) editor.show(to);
+      return;
+    }
+    if (e.key === "F2") {
+      e.preventDefault();
+      rename(state);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      void remove(state);
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      editor.show(at);
+    }
+  };
+
+  // A state dragged among the others: it drops before or after the one under the pointer, by
+  // which half the pointer is over.
+  const half = (e: DragEvent, li: HTMLElement) => {
+    const r = li.getBoundingClientRect();
+    return e.clientX < r.left + r.width / 2 ? "before" : "after";
+  };
+  const unmark = () => list.querySelectorAll(".drop-before, .drop-after").forEach((li) => li.classList.remove("drop-before", "drop-after"));
+  list.ondragstart = (e) => {
+    const li = item(e);
+    if (!li || !e.dataTransfer) return;
+    dragging = li.dataset.state;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragging!);
+  };
+  list.ondragover = (e) => {
+    const li = item(e);
+    if (!li || dragging === undefined) return;
+    e.preventDefault();
+    unmark();
+    if (li.dataset.state !== dragging) li.classList.add(`drop-${half(e, li)}`);
+  };
+  list.ondragleave = () => unmark();
+  list.ondrop = (e) => {
+    const li = item(e);
+    const state = dragging;
+    unmark();
+    dragging = undefined;
+    if (!li || state === undefined) return;
+    e.preventDefault();
+    void move(state, half(e, li), li.dataset.state!);
+  };
+  list.ondragend = () => {
+    dragging = undefined;
+    unmark();
+  };
+  into.querySelector<HTMLButtonElement>("[data-add=step]")!.onclick = () => void add("step");
+  into.querySelector<HTMLButtonElement>("[data-add=slide]")!.onclick = () => void add("slide");
+
+  return {
+    states,
+    select,
+    paint,
+    reformat,
+    add,
+    move,
+    remove,
+    rename,
+    /** The changes made through the strip, for a test: once they are. */
+    settled: () => making,
+    /** Each state's thumbnail digest, for a test. */
+    digests: () => Object.fromEntries([...thumbs].map(([id, t]) => [id, t.digest])),
+  };
+}

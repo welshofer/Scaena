@@ -528,6 +528,17 @@ impl Session {
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// The patch that adds a state after `state`, the state shown (PLAN 2.35): a step of its
+    /// slide, tracking from it, or a slide of its own, empty, after the slide's last step.
+    #[cfg(feature = "editor")]
+    pub fn adding_state(
+        &self,
+        state: &str,
+        what: scaena_ops::states::Adding,
+    ) -> Result<scaena_ops::states::AddedState, Error> {
+        scaena_ops::states::adding(&self.deck, state, what).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`) made by
     /// `user` at `at` (seconds since the epoch), validated and refused as a patch is but not
     /// linted: the page lints the state it shows after, as it does after a keystroke in the
@@ -738,6 +749,13 @@ impl Player {
     /// The display list for `state` at `t_ms` (`Infinity`: at rest), postcard-encoded.
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<Vec<u8>, JsError> {
         self.0.frame(state, t_ms).map_err(js)?.to_postcard().map_err(js)
+    }
+
+    /// What identifies `state`'s drawing at rest, in the format shown: its display list's
+    /// digest (FNV-1a over its postcard bytes, as the goldens keep it). One digest, one
+    /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
+    pub fn digest(&mut self, state: &str) -> Result<String, JsError> {
+        self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
@@ -1007,6 +1025,14 @@ impl Player {
     /// for each (PLAN 2.34).
     pub fn deleting(&self, state: &str, node: &str, everywhere: bool) -> Result<String, JsError> {
         serde_json::to_string(&self.0.deleting(state, node, everywhere).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that adds a state after `state`, the state shown, as JSON: `{ id, patch }`,
+    /// `what` a `step` of its slide or a `slide` of its own (PLAN 2.35).
+    #[wasm_bindgen(js_name = addingState)]
+    pub fn adding_state(&self, state: &str, what: &str) -> Result<String, JsError> {
+        let what = serde_json::from_value(serde_json::Value::String(what.into())).map_err(js)?;
+        serde_json::to_string(&self.0.adding_state(state, what).map_err(js)?).map_err(js)
     }
 
     /// Make `ops` (JSON: a `replace_text`, typed on the canvas) as `user` at `at` (RFC 3339),
@@ -1860,6 +1886,39 @@ mod tests {
             assert!(tried.typed(&serde_json::json!(delete), None).unwrap(), "the deck takes {delete:?}");
             assert!(shows(&tried, "card").iter().all(|state| state != "containers"));
         }
+    }
+
+    /// The state strip adds a step after the state shown, which shows what it shows, and a
+    /// slide after the shown state's slide, empty, in its layout (PLAN 2.35).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_step_shows_what_the_state_before_it_shows_and_a_slide_starts_empty() {
+        use scaena_ops::states::Adding;
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let ids = |s: &Session| s.deck.states.iter().map(|st| st.id.clone()).collect::<Vec<_>>();
+        let shows = |s: &Session, state: &str| {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            snaps.into_iter().find(|snap| snap.state_id == state).unwrap()
+        };
+
+        let step = s.adding_state("revenue", Adding::Step).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": step.patch }), by).unwrap();
+        assert_eq!(ids(&s), ["intro", "revenue", "revenue-2", "mix", "close"]);
+        assert_eq!(shows(&s, "revenue-2").nodes, shows(&s, "revenue").nodes, "a step shows what it follows");
+        assert_eq!(
+            s.frame("revenue-2", f64::INFINITY).unwrap().digest().unwrap(),
+            s.frame("revenue", f64::INFINITY).unwrap().digest().unwrap()
+        );
+
+        let slide = s.adding_state("revenue-2", Adding::Slide).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": slide.patch }), by).unwrap();
+        assert_eq!(ids(&s), ["intro", "revenue", "revenue-2", "mix", "slide", "close"], "after the slide's last step");
+        let empty = shows(&s, "slide");
+        assert!(empty.nodes.is_empty(), "{:?}", empty.nodes.keys());
+        assert_eq!(empty.layout.as_deref(), Some("figure"));
+        // `close` tracks from the empty slide now: its own props, as before, and its title.
+        assert!(shows(&s, "close").nodes.contains_key("title"));
     }
 
     /// Every insert the torture deck's theme and bundle offer makes a patch the deck takes, one

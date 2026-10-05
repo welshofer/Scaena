@@ -52,6 +52,7 @@ import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
+import { strip } from "./strip";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -384,6 +385,20 @@ async function edit(source: Source) {
       void look.show(node);
     },
   });
+  /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
+   * move, rename, and remove them. */
+  const states = strip(stage, $("#strip"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    show: (index) => {
+      const start = last?.states[index]?.[1];
+      if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+      void show(index);
+    },
+    apply: made,
+    say,
+  });
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
@@ -435,6 +450,7 @@ async function edit(source: Source) {
       statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
       if (edited.at) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
+      states.states(edited.slots, shown);
       void inspect();
       void board.refresh().catch(failed);
       void offer();
@@ -463,6 +479,8 @@ async function edit(source: Source) {
     if (read !== version || !last) return;
     last = { ...last, findings: linted.findings, laid: linted.laid, whole: true };
     report(linted.findings, last, linted.ms);
+    // Every state is laid out: the strip's thumbnails that changed are painted again.
+    void states.paint();
     view.dispatch(setDiagnostics(view.state, linted.findings.map((f) => diagnostic(f, view.state.doc.length))));
   }
 
@@ -544,6 +562,7 @@ async function edit(source: Source) {
   async function show(index: number) {
     shown = index;
     statesPicker.selectedIndex = index;
+    states.select(index);
     await stage.seek(index, undefined, format());
     await inspect();
     await board.refresh();
@@ -770,7 +789,10 @@ async function edit(source: Source) {
     if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
     void show(statesPicker.selectedIndex);
   };
-  formatPicker.onchange = () => void show(shown);
+  formatPicker.onchange = () => {
+    void show(shown);
+    states.reformat();
+  };
 
   // For tests and the console.
   Object.assign(window, {
@@ -813,6 +835,8 @@ async function edit(source: Source) {
       canvas: board,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
+      /** The state strip: its states, thumbnails, and the patches it makes. */
+      strip: states,
     },
   });
 }

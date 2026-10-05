@@ -22,6 +22,7 @@ import type {
   SnapMode,
   Source,
   Targets,
+  Thumb,
   ToWorker,
   Carets,
   Choices,
@@ -56,7 +57,9 @@ type Reply = Extract<
       | "typed"
       | "inserts"
       | "adding"
-      | "deleting";
+      | "deleting"
+      | "thumbnails"
+      | "addingState";
   }
 >;
 
@@ -279,6 +282,18 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
+  /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
+   * pixels where its drawing is not the one `known` holds. */
+  thumbnails(height: number, known: Record<string, string>, format?: string): Promise<Thumb[]> {
+    return this.request<"thumbnails">({ type: "thumbnails", id: ++this.asked, height, known, format }).then(({ thumbs }) => thumbs);
+  }
+
+  /** The patch that adds a state after `state`, a `step` of its slide or a `slide` of its own, on
+   * the deck `source` compiles to (PLAN 2.35). */
+  addingState(source: string, state: string, what: "step" | "slide"): Promise<{ id: string; patch: unknown[] }> {
+    return this.request<"addingState">({ type: "addingState", id: ++this.asked, source, state, what }).then(({ added }) => added);
+  }
+
   /** The patch that takes `node`, with what it holds, out of `state` and the states after it, or,
    * `everywhere`, out of the deck, on the deck `source` compiles to. */
   deleting(source: string, state: string, node: string, everywhere: boolean): Promise<unknown[]> {
@@ -427,6 +442,8 @@ export class Stage {
       case "inserts":
       case "adding":
       case "deleting":
+      case "thumbnails":
+      case "addingState":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;
