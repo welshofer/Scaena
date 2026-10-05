@@ -73,6 +73,8 @@ export interface Editor {
   chose(selected: Selected | undefined): void;
   /** Whether focus gone to `to` keeps typing on: the inspector. */
   keeps(to: EventTarget | null): boolean;
+  /** The preview is zoomed to `zoom`: 1 shows the whole canvas (PLAN 2.46). */
+  zoomed(zoom: number): void;
 }
 
 /** A node's `at`, resolved. */
@@ -82,6 +84,10 @@ export type Placement = Record<string, unknown>;
 type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const EDGES: Edge[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const CURSORS: Record<Edge, string> = { n: "ns", s: "ns", e: "ew", w: "ew", ne: "nesw", sw: "nesw", nw: "nwse", se: "nwse" };
+
+/** The zoom's steps, ⌘+ and ⌘− (PLAN 2.46): from the whole canvas to eight times as close. */
+const ZOOMS = [1, 1.5, 2, 3, 4, 6, 8];
+const MAX_ZOOM = 8;
 
 /** A drag under way: the node, where the pointer went down and is now, the keys held, where the
  * node may go, and where it lands as last asked. */
@@ -197,6 +203,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   const svg = overlay.querySelector("svg")!;
   /** The canvas in canvas units, and what stands where in the state shown. */
   let size: [number, number] = [1920, 1080];
+  /** The part of the canvas the preview shows, canvas units: all of it, until it is zoomed in
+   * (PLAN 2.46). Frames are painted through it at the size shown, and every point the pointer
+   * names is read through it. */
+  let view: Rect = [0, 0, 1920, 1080];
+  /** A pan under way: the view where the pointer went down, and where it went down, client px. */
+  let panning: { from: Rect; client: [number, number]; pointer: number } | undefined;
+  /** Whether Space is held: a drag then pans. */
+  let spaced = false;
+  /** The format the view is of: another shows the whole canvas again. */
+  let framed: string | undefined;
   let boxes: NodeBox[] = [];
   /** The state `boxes` stand in. */
   let boxed: string | undefined;
@@ -245,10 +261,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   const box = (node?: string) => (node === undefined ? undefined : boxes.find((b) => b.node === node));
   const point = (e: MouseEvent): [number, number] => {
     const r = overlay.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * size[0], ((e.clientY - r.top) / r.height) * size[1]];
+    return [view[0] + ((e.clientX - r.left) / r.width) * view[2], view[1] + ((e.clientY - r.top) / r.height) * view[3]];
   };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
-  const unit = () => size[0] / Math.max(1, overlay.getBoundingClientRect().width);
+  const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
   /** Every node selected: the one selected, then those beside it. */
   const chosen = () => (selected === undefined ? [] : [selected, ...also]);
@@ -268,6 +284,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     say: (words) => editor.say(words),
     draw: () => draw(),
     unit,
+    origin: () => [view[0], view[1]],
     box: (node) => box(node)?.rect,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
@@ -284,9 +301,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   async function refresh() {
     const shown = editor.shown();
     if (!shown) return;
-    ({ boxes, size } = await stage.boxes(shown.state, editor.format()));
+    const [was, format] = [size, editor.format()];
+    ({ boxes, size } = await stage.boxes(shown.state, format));
     boxed = shown.state;
-    svg.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
+    // Another format, laid out again, or another canvas: the preview shows all of it again.
+    if (size[0] !== was[0] || size[1] !== was[1] || format !== framed) void look([0, 0, size[0], size[1]]);
+    framed = format;
+    svg.setAttribute("viewBox", view.join(" "));
     also = also.filter((n) => box(n) !== undefined);
     if (selected !== undefined && !box(selected)) select(also[0]);
     else if (selected !== undefined) aimAt(selected);
@@ -294,6 +315,48 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     draw();
     await text.sync();
   }
+
+  /** How close the preview is: 1 shows the whole canvas (PLAN 2.46). */
+  const zoom = () => size[0] / view[2];
+  /** The view the worker paints through, as last sent, and the send under way: a wheel's many
+   * moves send the last of them, one paint at a time. */
+  let sent = "";
+  let sending: Promise<void> | undefined;
+  /** Show `next`, as close as it asks, from the whole canvas to eight times as close, kept on the
+   * canvas, and have the preview painted there. Resolves once it is. */
+  function look(next: Rect): Promise<void> {
+    const z = Math.min(MAX_ZOOM, Math.max(1, size[0] / next[2]));
+    const [w, h] = [size[0] / z, size[1] / z];
+    view = [Math.min(Math.max(next[0], 0), size[0] - w), Math.min(Math.max(next[1], 0), size[1] - h), w, h];
+    svg.setAttribute("viewBox", view.join(" "));
+    draw();
+    editor.zoomed(z);
+    sending ??= (async () => {
+      while (sent !== view.join(" ")) {
+        const now: Rect = [...view];
+        sent = now.join(" ");
+        await stage.view(size[0] / now[2] > 1 ? now : undefined).catch(() => {});
+      }
+      sending = undefined;
+    })();
+    return sending;
+  }
+  /** As close as `z`, canvas point `about` staying where it is on the screen: the pointer's, or
+   * the middle of what is shown. */
+  function zoomTo(z: number, about?: [number, number]) {
+    const [ax, ay] = about ?? [view[0] + view[2] / 2, view[1] + view[3] / 2];
+    const [fx, fy] = [(ax - view[0]) / view[2], (ay - view[1]) / view[3]];
+    const [w, h] = [size[0] / z, size[1] / z];
+    return look([ax - fx * w, ay - fy * h, w, h]);
+  }
+  /** A step closer (`1`) or farther (`-1`), about `about`. */
+  function zoomStep(by: 1 | -1, about?: [number, number]) {
+    const z = zoom();
+    const next = by > 0 ? (ZOOMS.find((s) => s > z + 1e-6) ?? MAX_ZOOM) : ([...ZOOMS].reverse().find((s) => s < z - 1e-6) ?? 1);
+    return zoomTo(next, about);
+  }
+  /** The whole canvas again. */
+  const fit = () => look([0, 0, size[0], size[1]]);
 
   function select(node: string | undefined) {
     if (node === selected && also.length === 0) return;
@@ -897,6 +960,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   }
 
   overlay.onpointerdown = async (e) => {
+    // The middle button, or a drag with Space held, pans what is zoomed in (PLAN 2.46).
+    if (e.button === 1 || (e.button === 0 && spaced)) {
+      e.preventDefault();
+      if (zoom() <= 1) return;
+      overlay.setPointerCapture(e.pointerId);
+      panning = { from: [...view], client: [e.clientX, e.clientY], pointer: e.pointerId };
+      overlay.classList.add("panning");
+      return;
+    }
     if (e.button !== 0) return;
     // A press that picks an image's focal point picks it, and does nothing else (PLAN 2.45).
     if (picking !== undefined) {
@@ -1034,6 +1106,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   };
 
   overlay.onpointermove = (e) => {
+    if (panning) {
+      const [p, u] = [panning, unit()];
+      return void look([p.from[0] - (e.clientX - p.client[0]) * u, p.from[1] - (e.clientY - p.client[1]) * u, p.from[2], p.from[3]]);
+    }
     const at = point(e);
     if (text.drag(at)) return;
     if (starting) {
@@ -1077,6 +1153,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   overlay.onpointerup = (e) => {
     if (overlay.hasPointerCapture(e.pointerId)) overlay.releasePointerCapture(e.pointerId);
+    if (panning?.pointer === e.pointerId) {
+      panning = undefined;
+      if (!spaced) overlay.classList.remove("panning");
+      return;
+    }
     if (text.up()) return;
     if (starting) {
       [starting.at, starting.shift, starting.alt, starting.up] = [point(e), e.shiftKey, e.altKey, true];
@@ -1116,6 +1197,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   };
 
   overlay.onkeydown = (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    const key = e.key.toLowerCase();
+    // Zoom (PLAN 2.46): ⌘+ and ⌘− a step about the middle of what is shown, ⌘0 the whole canvas;
+    // while typing too, which no text takes.
+    if (mod && !e.altKey && ["=", "+", "-", "_", "0"].includes(key) && !drag) {
+      e.preventDefault();
+      return void (key === "0" ? fit() : zoomStep(key === "-" || key === "_" ? -1 : 1));
+    }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
     if (picking !== undefined && e.key === "Escape") {
@@ -1123,8 +1212,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       unpick();
       return editor.say("the focal point is as it was");
     }
-    const mod = e.metaKey || e.ctrlKey;
-    const key = e.key.toLowerCase();
+    if (e.key === " " && !mod && !drag) {
+      e.preventDefault();
+      spaced = true;
+      if (zoom() > 1) overlay.classList.add("panning");
+      return;
+    }
     if (e.key === "Enter" && selected !== undefined && !drag && !mod) {
       e.preventDefault();
       return void type(selected, undefined, e.altKey);
@@ -1181,11 +1274,47 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     void inTurn(() => nudge(node, step, grow, fork));
   };
 
+  overlay.onkeyup = (e) => {
+    if (e.key !== " ") return;
+    spaced = false;
+    if (!panning) overlay.classList.remove("panning");
+  };
+  overlay.addEventListener("blur", () => {
+    spaced = false;
+    if (!panning) overlay.classList.remove("panning");
+  });
+  // Pinch, or the wheel with ⌘ or Ctrl, zooms about the pointer; the wheel alone pans what is zoomed
+  // in, and scrolls the page past what is not (PLAN 2.46).
+  overlay.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        return void zoomTo(Math.min(MAX_ZOOM, Math.max(1, zoom() * Math.exp(-e.deltaY / 240))), point(e));
+      }
+      if (zoom() <= 1) return;
+      e.preventDefault();
+      const u = unit() * (e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1);
+      void look([view[0] + e.deltaX * u, view[1] + e.deltaY * u, view[2], view[3]]);
+    },
+    { passive: false },
+  );
+
   const sized = new ResizeObserver(() => draw());
   sized.observe(overlay);
 
   return {
     refresh,
+    /** Zoom the preview (PLAN 2.46): a step closer or farther, as ⌘+ and ⌘− do, the whole canvas, as
+     * ⌘0 does, or as close as a number, about canvas point `about` or the middle of what is shown.
+     * Resolves once the preview is painted so. */
+    zoom: (how: "in" | "out" | "fit" | number, about?: [number, number]) =>
+      how === "fit" ? fit() : typeof how === "number" ? zoomTo(how, about) : zoomStep(how === "in" ? 1 : -1, about),
+    /** Move what is zoomed in by `dx`, `dy` canvas units, as the wheel and a drag with Space do. */
+    pan: (dx: number, dy: number) => look([view[0] + dx, view[1] + dy, view[2], view[3]]),
+    /** The part of the canvas shown, canvas units, and how close it is. */
+    view: () => [...view] as Rect,
+    zoomed: zoom,
     /** Let the overlay go: the editor opens another bundle, which makes a canvas of its own. */
     close: () => {
       sized.disconnect();

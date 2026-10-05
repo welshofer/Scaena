@@ -285,6 +285,9 @@ export type ToWorker =
   | { type: "boxes"; id: number; state: string; format?: string }
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
+   * canvas with none; and paint what is shown again so (PLAN 2.46). */
+  | { type: "view"; id: number; view: [number, number, number, number] | null }
   /** The point of image `node` under `point` in `state` at rest, in fractions of its crop:
    * what a focal point picked there is (PLAN 2.45). */
   | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
@@ -648,6 +651,8 @@ export type FromWorker =
   /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
   | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
   | { type: "hits"; id: number; hits: Hit[] }
+  /** The preview is painted through the view asked for. */
+  | { type: "viewed"; id: number }
   /** Where a focal point picked there would be; `null` off the image. */
   | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }

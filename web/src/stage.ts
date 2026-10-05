@@ -55,6 +55,7 @@ type Reply = Extract<
       | "reloaded"
       | "boxes"
       | "hits"
+      | "viewed"
       | "focal"
       | "targets"
       | "dragged"
@@ -232,6 +233,13 @@ export class Stage {
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   hit(state: string, point: [number, number], format?: string): Promise<Hit[]> {
     return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
+  }
+
+  /** Paint the preview through `view`, `[x, y, w, h]` canvas units: the part of the canvas a
+   * zoomed editor shows, at the size shown; the whole canvas with none (PLAN 2.46). Resolves once
+   * what is shown is painted so. */
+  view(view: [number, number, number, number] | undefined): Promise<void> {
+    return this.request<"viewed">({ type: "view", id: ++this.asked, view: view ?? null }).then(() => {});
   }
 
   /** The point of image `node` under `point` in `state` at rest, in the deck `source` compiles
@@ -542,6 +550,7 @@ export class Stage {
       case "reloaded":
       case "boxes":
       case "hits":
+      case "viewed":
       case "focal":
       case "targets":
       case "dragged":

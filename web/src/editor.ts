@@ -400,7 +400,15 @@ async function edit(source: Source) {
     // focus there keeps the text typed in.
     chose: (selected) => void look.characters(selected),
     keeps: (to) => to instanceof Node && $("#look").contains(to),
+    zoomed: (zoom) => {
+      $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
+    },
   });
+  // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
+  $("#zoom").onclick = (e) => {
+    const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
+    if (how === "in" || how === "out" || how === "fit") void board.zoom(how);
+  };
   /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
    * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
   cueing = cue(stage, $("#cue"), $("#preview"), {

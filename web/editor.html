@@ -52,6 +52,8 @@
       #overlay .flow { fill: none; stroke: rgb(156 196 228 / 0.5); stroke-width: 1; stroke-dasharray: 2 3; }
       #overlay .landing { fill: rgb(156 196 228 / 0.18); stroke: var(--info); stroke-width: 1.5; }
       #overlay.picking { cursor: crosshair; }
+      #overlay.panning { cursor: grab; }
+      #zoom output { display: inline-block; min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
       #look .fraction { width: 4.2em; }
       #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
       #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
@@ -215,6 +217,12 @@
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>
           <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
           <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
+          <span id="zoom" role="group" aria-label="Zoom">
+            <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (⌘−)">−</button>
+            <output title="How close the preview is. Zoomed in, the wheel or a drag with Space moves what it shows">100%</output>
+            <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (⌘+), or pinch">+</button>
+            <button type="button" data-zoom="fit" title="The whole canvas (⌘0)">Fit</button>
+          </span>
           <span id="status" role="status">loading…</span>
         </p>
         <nav id="tabs" role="tablist">
