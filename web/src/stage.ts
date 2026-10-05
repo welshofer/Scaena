@@ -1,12 +1,14 @@
 // One canvas and the engine's worker that paints it (PLAN 2.1–2.4): the page's side of
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
 import type {
+  Added,
   Asking,
   AssistantEvent,
   At,
   Edited,
   FromWorker,
   Hit,
+  Insert,
   Inspected,
   Linted,
   NodeBox,
@@ -51,7 +53,10 @@ type Reply = Extract<
       | "choices"
       | "carets"
       | "reached"
-      | "typed";
+      | "typed"
+      | "inserts"
+      | "adding"
+      | "deleting";
   }
 >;
 
@@ -257,6 +262,29 @@ export class Stage {
     return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
   }
 
+  /** What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each kind
+   * of shape, each image in the bundle, and each shader preset. */
+  inserts(): Promise<Insert[]> {
+    return this.request<"inserts">({ type: "inserts", id: ++this.asked }).then(({ inserts }) => inserts);
+  }
+
+  /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
+   * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
+  inserting(source: string, state: string, n: number, at: [number, number], format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format }).then(({ added }) => added);
+  }
+
+  /** The patch that copies `node` beside it in `state`, on the deck `source` compiles to. */
+  duplicating(source: string, state: string, node: string, format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
+  }
+
+  /** The patch that takes `node`, with what it holds, out of `state` and the states after it, or,
+   * `everywhere`, out of the deck, on the deck `source` compiles to. */
+  deleting(source: string, state: string, node: string, everywhere: boolean): Promise<unknown[]> {
+    return this.request<"deleting">({ type: "deleting", id: ++this.asked, source, state, node, everywhere }).then(({ patch }) => patch);
+  }
+
   /** Make `ops`, typed on the canvas, by the user on the deck `source` compiles to, and show slot
    * `index` from it: the deck's source after, what the edit came to, and where a caret stands in
    * `node`'s text in `state` now. */
@@ -396,6 +424,9 @@ export class Stage {
       case "carets":
       case "reached":
       case "typed":
+      case "inserts":
+      case "adding":
+      case "deleting":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

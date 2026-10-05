@@ -35,6 +35,10 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Resize within the grid | `place`: spans |
    | Typing | `replace_text`: the characters typed over, where the text lives; runs keep their looks |
    | Choosing a look | `choose`: a role, a key of a style, a preset, or a prop, from the theme's names for it (`inspect --choices`); a value written out goes in the deck's `overrides` |
+   | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), about the pointer, on the grid, or a text or an image in the empty slot under it |
+   | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |
+   | Delete | `hide_node` in the state shown, for the node and what it holds; `remove_node` for one no state shows after |
+   | Delete from the deck | `remove_node`, for the node and what it holds |
 
    A drag off the grid or out of the template places the node by `rect`, in canvas units: an override in SPEC §3.4's sense, allowed, and flagged by lint (W301) and in the inspector. That is what PLAN 3.7 means by visibly flagged. Every patch is validated and linted as an agent's is, and the editor shows the lint delta.
 3. **An edit changes the value where it lives.** If the deck's `overrides` set the property, the edit changes it there, since they win in every state. If the state shown sets it in its props, or a state it tracks from does, the edit changes it in the latest of those. Otherwise it changes the node. Before it is made, the editor says how many states it changes ("in 3 states"), and a patch made says which (`states`). One key keeps the edit to this state (Alt in the web editor; `place`'s `fork`): the property goes into this state's props. The states that track this one take it, as they take the rest of its props, so a move in a build carries on through it. Nothing forks a value without being asked.

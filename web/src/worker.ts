@@ -16,6 +16,7 @@
 import init, { Canvas, Player, engineModule, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
+  Added,
   Asking,
   AssistantEvent,
   Carets,
@@ -24,6 +25,7 @@ import type {
   Finding,
   FromHelper,
   FromWorker,
+  Insert,
   Opened,
   Painter,
   Section,
@@ -152,6 +154,19 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
+      case "inserts":
+        return post({ type: "inserts", id: data.id, inserts: JSON.parse(player.inserts()) as Insert[] });
+      case "inserting":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.inserting(data.state, data.n, ...data.at)) as Added });
+      case "duplicating":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "deleting":
+        current(data.source);
+        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.
@@ -550,6 +565,14 @@ function timeline(): Slot[] {
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
+/** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
+ * one, after an undo or while the source is typed in. */
+function current(source: string) {
+  if (player.compiledFrom(source)) return;
+  saveable(source);
+  layOut(format, true);
+}
+
 function layOut(next: string | undefined, again = false) {
   if (next === format && !again) return;
   player.setFormat(next);

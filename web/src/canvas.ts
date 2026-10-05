@@ -17,6 +17,12 @@
 //   the placement where it lives; Alt keeps it to the state shown (`fork`).
 // - A double click on a text, or Enter on one selected, types in it where it stands (PLAN 2.32,
 //   `typing.ts`): with Alt, what is typed is kept to the state shown.
+// - Insert puts what the theme or the bundle offers where the pointer last pressed, or in the
+//   middle, snapped to the grid as a drop snaps, or a text or an image into the empty slot there;
+//   it enters in the state shown, selected (PLAN 2.34). Delete (or Backspace) takes the node
+//   selected, with what it holds, out of the state shown and the states after it; Shift+Delete,
+//   out of the deck. ⌘D (Ctrl+D) adds a copy beside it, with what it holds. Each is one patch,
+//   one step to undo.
 import type { Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { typing } from "./typing";
@@ -165,6 +171,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
   let hovered: string | undefined;
+  /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
+  let pointed: [number, number] | undefined;
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
@@ -422,6 +430,73 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     }
   }
 
+  /** Make `ops`, a node added or taken away, on the source as it stands: one change to undo. Then
+   * `next` is selected (nothing with `null`), and the status says `done`. */
+  async function change(ops: unknown[], doing: string, done: string, next?: string | null) {
+    const shown = editor.shown();
+    if (!shown) return;
+    editor.say(doing);
+    try {
+      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
+      editor.apply(source, edited);
+      await refresh();
+      if (next !== undefined) select(next ?? undefined);
+      editor.say(done);
+    } catch (e) {
+      editor.say(`not made: ${said(e)}`);
+    }
+  }
+
+  /** Insert what the deck offers `n`th (`Stage.inserts`) where the pointer last pressed, or in the
+   * middle of the canvas: it enters in the state shown, selected. */
+  function insert(n: number, label = "it") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const at: [number, number] = pointed
+        ? [Math.min(Math.max(pointed[0], 0), size[0]), Math.min(Math.max(pointed[1], 0), size[1])]
+        : [size[0] / 2, size[1] / 2];
+      try {
+        const added = await stage.inserting(editor.source(), shown.state, n, at, editor.format());
+        await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
+      } catch (e) {
+        editor.say(`not inserted: ${said(e)}`);
+      }
+    });
+  }
+
+  /** A copy of `node` beside it, selected. */
+  function duplicate(node: string) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return;
+      try {
+        const added = await stage.duplicating(editor.source(), shown.state, node, editor.format());
+        await change(added.patch, "duplicating…", `${node} copied as ${added.id}`, added.id);
+      } catch (e) {
+        editor.say(`not copied: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Take `node`, with what it holds, out of the state shown and the states after it, or,
+   * `everywhere`, out of the deck. */
+  function remove(node: string, everywhere: boolean) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return;
+      try {
+        const ops = await stage.deleting(editor.source(), shown.state, node, everywhere);
+        // A node no state shows once it is out of this one goes from the deck.
+        const gone = ops.every((op) => (op as { op?: string }).op === "remove_node");
+        const done = gone ? `${node} deleted from the deck` : `${node} deleted from ${shown.state} on`;
+        await change(ops, "deleting…", done, null);
+      } catch (e) {
+        editor.say(`not deleted: ${said(e)}`);
+      }
+    });
+  }
+
   /** Move the node selected a step, or, to `grow` it, resize it: a track on a grid, a place along
    * its stack, a canvas unit off the grid. `fork` keeps it to the state shown. */
   async function nudge(node: string, [sx, sy]: [number, number], grow: boolean, fork: boolean) {
@@ -467,6 +542,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (e.button !== 0) return;
     const count = clicks(e);
     const from = point(e);
+    pointed = from;
     // Typing: a press in the text puts the caret there, and one outside it stops typing.
     if (text.node() !== undefined) {
       if (text.down(from, e.shiftKey, count)) {
@@ -640,6 +716,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       e.preventDefault();
       return key === "y" || e.shiftKey ? editor.redo() : editor.undo();
     }
+    if (selected !== undefined && !drag && !starting) {
+      if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
+        e.preventDefault();
+        return void remove(selected, e.shiftKey);
+      }
+      if (mod && key === "d" && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        return void duplicate(selected);
+      }
+    }
     if (e.key === "Escape") {
       if (starting) {
         e.preventDefault();
@@ -680,6 +766,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     },
     /** Select `node`, as a click on it does; nothing with `undefined`. */
     select,
+    /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status
+     * calls it. */
+    insert,
+    /** A copy of `node` beside it, as ⌘D does. */
+    duplicate,
+    /** Take `node` out of the state shown on, as Delete does; `everywhere`, out of the deck, as
+     * Shift+Delete does. */
+    remove,
+    /** Where the pointer last pressed, canvas units. */
+    pointed: () => pointed,
     selected: () => selected,
     boxes: () => boxes,
     /** The state the boxes stand in: what a test waits for once it shows another. */

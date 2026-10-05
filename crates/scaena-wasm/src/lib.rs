@@ -483,6 +483,56 @@ impl Session {
         scaena_core::choices::choices(&self.deck, &self.theme, state, node).map_err(Error::Ops)
     }
 
+    /// What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each
+    /// kind of shape, each image in the bundle, and each shader preset, each as `add_node`
+    /// adds it, with the box it takes at first.
+    pub fn inserts(&self) -> Vec<scaena_core::inserts::Insert> {
+        let paths: Vec<String> = self.files.keys().cloned().collect();
+        scaena_core::inserts::inserts(&self.deck, &self.theme, &paths)
+    }
+
+    /// The patch that inserts what [`Session::inserts`] offers `n`th in `state`, the box it
+    /// starts as about `at` (canvas units, in the format shown), snapped to the theme's grid
+    /// as a drop snaps; or into the slot it fills (PLAN 2.34). Its id is new to the deck.
+    #[cfg(feature = "editor")]
+    pub fn inserting(&mut self, state: &str, n: usize, at: [f32; 2]) -> Result<scaena_ops::inspect::Added, Error> {
+        use scaena_core::inserts::{Start, fresh};
+        let offered = self.inserts().into_iter().nth(n);
+        let insert = offered.ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))?;
+        let id = fresh(&self.deck, &insert.id);
+        let share = match insert.start {
+            Start::Box { w, h } => [w, h],
+            Start::Slot(_) => [1.0, 1.0],
+        };
+        self.duration(state)?;
+        let engine = self.engine.as_mut().expect("built for the span");
+        let format = self.format.as_deref();
+        let req =
+            FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
+        let room = engine.room(&req, &id, share)?;
+        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The patch that copies `node`, as `state` shows it, with what it holds there, beside it
+    /// under an id new to the deck, clear of the rest where there is room (PLAN 2.34).
+    #[cfg(feature = "editor")]
+    pub fn duplicating(&mut self, state: &str, node: &str) -> Result<scaena_ops::inspect::Added, Error> {
+        let mut found = self.targets(state, node)?.clone();
+        found.node = scaena_core::inserts::fresh(&self.deck, node);
+        let boxes = self.boxes(state)?;
+        scaena_ops::inspect::duplicating(&self.deck, &found, node, state, &boxes)
+            .map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The patch that deletes `node` from `state`, with what it holds there (PLAN 2.34): each
+    /// leaves there and in the states after it, and one no state shows then goes from the deck;
+    /// or, `everywhere`, each goes from the deck.
+    #[cfg(feature = "editor")]
+    pub fn deleting(&self, state: &str, node: &str, everywhere: bool) -> Result<Vec<serde_json::Value>, Error> {
+        scaena_ops::inspect::deleting(&self.deck, &editor::Handed(&self.files), node, state, everywhere)
+            .map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`) made by
     /// `user` at `at` (seconds since the epoch), validated and refused as a patch is but not
     /// linted: the page lints the state it shows after, as it does after a keystroke in the
@@ -937,6 +987,31 @@ impl Player {
     /// `{ node, type, state, fields }`, as `scaena inspect --choices` says it.
     pub fn choices(&self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// What may be inserted, as JSON (PLAN 2.34): `[{ label, node, id, start }]`, as `scaena
+    /// inspect --inserts` says it.
+    pub fn inserts(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inserts()).map_err(js)
+    }
+
+    /// The patch that inserts what `inserts` offers `n`th in `state`, about `x`, `y` (canvas
+    /// units), as JSON: `{ id, cell, patch }` (PLAN 2.34).
+    pub fn inserting(&mut self, state: &str, n: usize, x: f32, y: f32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inserting(state, n, [x, y]).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that copies `node` beside it in `state`, as JSON: `{ id, cell, patch }`
+    /// (PLAN 2.34).
+    pub fn duplicating(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that deletes `node` from `state`, with what it holds there, as JSON: `hide_node`
+    /// for each, or `remove_node` for one no state shows after; with `everywhere`, `remove_node`
+    /// for each (PLAN 2.34).
+    pub fn deleting(&self, state: &str, node: &str, everywhere: bool) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.deleting(state, node, everywhere).map_err(js)?).map_err(js)
     }
 
     /// Make `ops` (JSON: a `replace_text`, typed on the canvas) as `user` at `at` (RFC 3339),
@@ -1639,6 +1714,176 @@ mod tests {
             s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
         }
         s
+    }
+
+    /// What may be inserted goes where the pointer is, and a copy of a node beside it (PLAN
+    /// 2.34): each patch adds a node new to the deck, entering in the state shown, placed on
+    /// the theme's grid as a drop places it; a shader fills the canvas under the rest.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn an_insert_lands_where_the_pointer_is_and_a_copy_beside_its_node() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let offered = s.inserts();
+        let of = |kind: &str| offered.iter().filter(|i| i.node["type"] == kind).count();
+        assert_eq!(of("text"), s.theme.typography.roles.len(), "a text in each of Dusk's roles");
+        assert_eq!((of("shape"), of("image"), of("shader")), (4, 0, 2), "the revenue bundle holds no PNG");
+        let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
+        let within =
+            |c: [f32; 4], p: [f32; 2]| c[0] <= p[0] && p[0] <= c[0] + c[2] && c[1] <= p[1] && p[1] <= c[1] + c[3];
+        let stands = |s: &mut Session, state: &str, node: &str| {
+            s.boxes(state).unwrap().into_iter().find(|b| b.node == node).map(|b| b.rect)
+        };
+
+        // A headline about the middle of the canvas, in `revenue`.
+        let added = s.inserting("revenue", n("Text · headline"), [960.0, 540.0]).unwrap();
+        assert_eq!(added.id, "headline");
+        let ops: Vec<&str> = added.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["add_node", "place"]);
+        assert_eq!(added.patch[0]["state"], "revenue", "it enters in the state shown");
+        assert!(within(added.cell, [960.0, 540.0]), "{:?}", added.cell);
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        assert_eq!(stands(&mut s, "revenue", "headline"), Some(added.cell));
+        assert_eq!(stands(&mut s, "intro", "headline"), None, "nor before it");
+        assert!(stands(&mut s, "mix", "headline").is_some(), "the states after it track it");
+
+        // A copy beside it, under the next free id, clear of it.
+        let copy = s.duplicating("revenue", "headline").unwrap();
+        assert_eq!(copy.id, "headline-2");
+        let [x, y, w, h] = added.cell;
+        let c = copy.cell;
+        assert!(
+            c[0] >= x + w || c[0] + c[2] <= x || c[1] >= y + h || c[1] + c[3] <= y,
+            "{c:?} clear of {:?}",
+            added.cell
+        );
+        assert_eq!((c[2], c[3]), (w, h), "the same span");
+        s.tool("deck_patch", serde_json::json!({ "ops": copy.patch }), by).unwrap();
+        assert_eq!(stands(&mut s, "revenue", "headline-2"), Some(copy.cell));
+        assert_eq!(s.deck.nodes["headline-2"].props.get("text"), s.deck.nodes["headline"].props.get("text"));
+
+        // In a slot nothing fills, a text fills it: `close` shows nothing in `subtitle`.
+        let slots = s.targets("close", "title").unwrap().slots.clone();
+        let (_, sub) = slots.iter().find(|(name, _)| name == "subtitle").unwrap();
+        let middle = [sub[0] + sub[2] / 2.0, sub[1] + sub[3] / 2.0];
+        let lede = s.inserting("close", n("Text · lede"), middle).unwrap();
+        assert_eq!(lede.cell, *sub);
+        assert_eq!(lede.patch[1]["at"], serde_json::json!({ "in": "subtitle" }), "{:?}", lede.patch);
+        // Where a slot is filled, it takes the grid's cells: `title` fills `close`'s title slot.
+        let (_, title) = slots.iter().find(|(name, _)| name == "title").unwrap();
+        let over =
+            s.inserting("close", n("Text · lede"), [title[0] + title[2] / 2.0, title[1] + title[3] / 2.0]).unwrap();
+        assert!(over.patch[1]["at"].get("in").is_none(), "{:?}", over.patch);
+
+        // A shader preset fills the canvas, under what is there.
+        let shader = s.inserting("revenue", n("Shader · texture"), [10.0, 10.0]).unwrap();
+        assert_eq!(shader.cell, [0.0, 0.0, 1920.0, 1080.0]);
+        assert_eq!(shader.patch[0]["node"]["z"], -1);
+        s.tool("deck_patch", serde_json::json!({ "ops": shader.patch }), by).unwrap();
+        let topmost = s.hit("revenue", [960.0, 540.0]).unwrap();
+        assert_ne!(topmost.first().map(|h| h.node.as_str()), Some("texture"), "it draws under the rest");
+    }
+
+    /// Delete takes a node out of the state shown and the states that track it from there; one
+    /// that no state shows then goes from the deck, so a node inserted and deleted leaves
+    /// nothing behind. Shift+Delete takes it from the deck. A container goes with what it holds,
+    /// what it holds first (PLAN 2.34).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_node_deleted_leaves_the_state_shown_and_one_inserted_leaves_nothing() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let ops = |patch: &[serde_json::Value]| -> Vec<String> {
+            patch
+                .iter()
+                .map(|op| format!("{} {}", op["op"].as_str().unwrap(), op.get("node").or(op.get("id")).unwrap()))
+                .collect()
+        };
+        let shows = |s: &Session, node: &str| -> Vec<String> {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            snaps.iter().filter(|snap| snap.nodes.contains_key(node)).map(|snap| snap.state_id.clone()).collect()
+        };
+
+        // The title leaves `mix`; `close` shows it again, by its own delta.
+        assert_eq!(shows(&s, "title"), ["intro", "revenue", "mix", "close"]);
+        let delete = s.deleting("mix", "title", false).unwrap();
+        assert_eq!(ops(&delete), [r#"hide_node "title""#]);
+        s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
+        assert_eq!(shows(&s, "title"), ["intro", "revenue", "close"]);
+
+        // A headline inserted in `revenue`, deleted there: no state shows it, so it goes.
+        let n = s.inserts().iter().position(|i| i.label == "Text · headline").unwrap();
+        let added = s.inserting("revenue", n, [960.0, 540.0]).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
+        let delete = s.deleting("revenue", "headline", false).unwrap();
+        assert_eq!(ops(&delete), [r#"remove_node "headline""#]);
+        s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
+        assert!(!s.deck.nodes.contains_key("headline"));
+
+        // Shift+Delete: the chart goes from the deck.
+        let delete = s.deleting("revenue", "rev", true).unwrap();
+        assert_eq!(ops(&delete), [r#"remove_node "rev""#]);
+        s.tool("deck_patch", serde_json::json!({ "ops": delete }), by).unwrap();
+        assert!(!s.deck.nodes.contains_key("rev") && shows(&s, "rev").is_empty());
+        assert!(s.deleting("revenue", "rev", false).is_err(), "nothing is there to delete");
+
+        // A copy of a container holds copies of what it holds.
+        let mut t = torture();
+        let copy = t.duplicating("containers", "card").unwrap();
+        assert!(t.typed(&serde_json::json!(copy.patch), None).unwrap(), "the deck takes {:?}", copy.patch);
+        let snaps = scaena_core::resolve_states(&t.deck).unwrap();
+        let snap = snaps.iter().find(|snap| snap.state_id == "containers").unwrap();
+        let parent = |id: &str| {
+            snap.nodes[id].get("at").and_then(|a| a.get("parent")).and_then(|p| p.as_str()).map(String::from)
+        };
+        let held_by = |p: &str| snap.nodes.keys().filter(|id| parent(id).as_deref() == Some(p)).count();
+        assert!(held_by("card") > 0);
+        assert_eq!(held_by(&copy.id), held_by("card"), "the copy holds what the card holds");
+
+        // A container goes with what it holds, what it holds first.
+        let s = torture();
+        let card: Vec<String> = {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            let snap = snaps.iter().find(|snap| snap.state_id == "containers").unwrap();
+            let parent = |id: &str| {
+                snap.nodes[id].get("at").and_then(|a| a.get("parent")).and_then(|p| p.as_str()).map(String::from)
+            };
+            snap.nodes
+                .keys()
+                .filter(|id| parent(id).is_some_and(|p| p == "card" || parent(&p).as_deref() == Some("card")))
+                .cloned()
+                .collect()
+        };
+        assert!(!card.is_empty(), "the card holds nodes");
+        for everywhere in [false, true] {
+            let delete = s.deleting("containers", "card", everywhere).unwrap();
+            let named: Vec<&str> =
+                delete.iter().map(|op| op.get("node").or(op.get("id")).unwrap().as_str().unwrap()).collect();
+            assert_eq!(named.last(), Some(&"card"), "{named:?}");
+            assert!(card.iter().all(|id| named.contains(&id.as_str())), "{named:?} has {card:?}");
+            let mut tried = torture();
+            assert!(tried.typed(&serde_json::json!(delete), None).unwrap(), "the deck takes {delete:?}");
+            assert!(shows(&tried, "card").iter().all(|state| state != "containers"));
+        }
+    }
+
+    /// Every insert the torture deck's theme and bundle offer makes a patch the deck takes, one
+    /// after another, in a state laid out by the theme's grid (PLAN 2.34): each node is valid
+    /// as `add_node` adds it, and lands on the grid or fills its slot. Each is validated as
+    /// `deck_patch` validates a patch, which refuses one only for what validation finds, but
+    /// not linted: linting the whole torture deck for each would take minutes.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn every_insert_offered_is_a_patch_the_deck_takes() {
+        let mut s = torture();
+        let offered = s.inserts();
+        assert!(offered.iter().any(|i| i.node["type"] == "image"), "the torture bundle's PNG is offered");
+        for (n, insert) in offered.iter().enumerate() {
+            let added = s.inserting("axes", n, [700.0, 400.0]).unwrap_or_else(|e| panic!("{}: {e}", insert.label));
+            let made = s.typed(&serde_json::json!(added.patch), None);
+            assert!(made.unwrap_or_else(|e| panic!("{}: {e}", insert.label)), "{}: the deck took it", insert.label);
+            assert!(s.deck.nodes.contains_key(&added.id), "{}", insert.label);
+        }
     }
 
     /// A state reads as a single-file export reads it (PLAN 2.5, 2.8): these are what `scaena

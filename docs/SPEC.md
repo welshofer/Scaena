@@ -833,7 +833,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--choices NODE] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, what a node's look may be
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--choices NODE] [--inserts] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, what a node's look may be, what may be inserted
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -853,7 +853,7 @@ A command that writes a bundle that keeps history (`patch`, `theme --apply`, `li
 | Command | `--json` |
 |---|---|
 | `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
-| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, `--snap` adds `snapped`, and `--choices` adds `choices` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, `--snap` adds `snapped`, `--choices` adds `choices`, and `--inserts` adds `inserts` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
 | `decompile` | `{ out, scn? }` |
@@ -922,6 +922,14 @@ A way that does not place the node is an error that names those that do.
 
 A node the state does not show is an error that says so.
 
+`inspect --state S --inserts` says what an editor may insert (PLAN 2.34): the nodes the theme and the bundle name, each as `add_node` adds it (§7.3), unplaced (`node`), with what its id starts from (`id`), what a menu calls it (`label`), and the box it takes at first (`start`).
+- **A text** in each of the theme's roles, its text the role's name: half the canvas wide and two of the role's lines tall (`{ "box": { "w", "h" } }`, each a share of the canvas's side).
+- **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the theme's `accent` (or its first color), a quarter of the canvas wide and square; a line and an arrow, drawn in the theme's rule.
+- **An image** of each PNG in the bundle, a third of the canvas wide and square.
+- **A shader** of each of the theme's presets, filling the `canvas` slot (`{ "slot": "canvas" }`) under what is there (`z` -1).
+
+An editor puts a box about the pointer, snapped to the theme's grid as a dropped box snaps (`move`), and the node enters in the state shown: `add_node` with its `state`, then `place`. A text or an image fills instead the template's slot under the pointer where no node the state shows is placed in it (`slot`), so it moves with the deck's formats. Its id is the first of `id`, `id-2`, … that names no node. A copy of a node is made the same way, of the props the state shows it with, with a copy of each node it holds there, held by the copy. It goes one span to the right of the node, below it, to its left, or above it: the first of those clear of the node and of what else draws there in front of the background, or else the first clear of the node. Deleting a node in a state is `hide_node` for it and for each node it holds there, and `remove_node` for one that no state shows after that, so a node inserted and deleted leaves nothing behind; deleting it from the deck is `remove_node` for each, what it holds first.
+
 `--format` inspects the deck in one of its formats, laid out again with its template set (§3.4), for every view.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
@@ -942,7 +950,7 @@ A node the state does not show is an error that says so.
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `choices`, and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `choices`, `inserts`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -1193,6 +1201,11 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
     - **Written out.** A color or a length written out, and any text size, goes in the deck's `overrides` and shows as an override, in every state. A theme name chosen then is written there too, since the overrides win; the × beside a value takes it away where it lives, the override first. What cannot be kept to one state is refused, and says why.
     - **The status** keeps what a gesture on the canvas or a choice said, and what lint finds after it, until the source is edited by hand.
     - `web/inspector.mjs` checks it in headless Chromium on the revenue example, and `web/a11y.mjs` audits it.
+  - **Adding and taking away** (PLAN 2.34, ADR-0013). The Insert menu offers what the theme and the bundle name, as `inspect --inserts` says (`Player.inserts`): a text in each role, each shape, each image in the bundle, and each shader preset.
+    - **Insert** puts what is chosen where the pointer last pressed the canvas, or in its middle, snapped to the theme's grid as a drop snaps; a text or an image fills the template's slot there if nothing fills it, and a shader fills the canvas, under the rest. It enters in the state shown, selected: one `add_node` and `place` patch (`Player.inserting`).
+    - **Delete** (or Backspace) takes the node selected, with what it holds, out of the state shown and the states that track it from there (`hide_node`); a node no state shows then goes from the deck. Shift+Delete takes it out of the deck (`remove_node`). ⌘D (Ctrl+D) adds a copy beside it, with copies of what it holds, clear of the rest where there is room, selected, under the next id free (`Player.duplicating`, `Player.deleting`).
+    - **Each** is one patch, by `user`, linted as an agent's is: one change in the source and one step to undo. The status says what was made, and where.
+    - `web/insert.mjs` checks it in headless Chromium on the revenue example.
   - **Keys.** A finding under the source is a button that goes to where it stands. CodeMirror's lint keys move between findings (F8, Shift-F8) and list them (Mod-Shift-M). Tab indents, so Escape then Tab leaves the source, which is named for a screen reader. The arrow keys, Home, and End move between the inspector's and the assistant's tabs.
   - **What a reader needs** is checked by axe-core against WCAG 2.1 A and AA on the player, the presenter view, the editor with each tab, and a single file (`web/a11y.mjs`).
   - **Speed.** On B1, an edit's round trip (compile, the frame, lint of the state shown) takes a median of 114 ms in headless Chromium painting on the CPU, against gate 2's 200 ms. The lint of every state that follows takes 1.2 s (`web/editor.mjs`).

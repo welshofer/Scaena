@@ -96,6 +96,11 @@
         "description": "A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each\nproperty it edits, with the theme's names for it or what the schema allows, the value\nthe state shows, and where that value lives, which is where `choose` writes.",
         "type": ["string", "null"],
         "default": null
+      },
+      "inserts": {
+        "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, and each shader preset,\neach as `add_node` adds it, with the box it takes at first.",
+        "type": "boolean",
+        "default": false
       }
     },
     "additionalProperties": false
@@ -162,6 +167,11 @@
           "choices": {
             "description": "What an inspector offers for the node asked about (`choices`).",
             "anyOf": [{ "$ref": "#/$defs/Choices" }, { "type": "null" }]
+          },
+          "inserts": {
+            "description": "What may be inserted in this state (`inserts`).",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Insert" }
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -589,6 +599,48 @@
             "additionalProperties": false
           },
           { "description": "The node's own properties.", "type": "string", "const": "node" }
+        ]
+      },
+      "Insert": {
+        "description": "One thing an editor may insert.",
+        "type": "object",
+        "properties": {
+          "label": {
+            "description": "What a menu says: the node's type, and the name it is made from.",
+            "type": "string"
+          },
+          "node": { "description": "The node `add_node` adds, unplaced." },
+          "id": {
+            "description": "What its id starts from: a role, a kind, an image's name, a preset.",
+            "type": "string"
+          },
+          "start": { "description": "The box it takes at first.", "$ref": "#/$defs/Start" }
+        },
+        "required": ["label", "node", "id", "start"]
+      },
+      "Start": {
+        "description": "The box an inserted node takes at first.",
+        "oneOf": [
+          {
+            "description": "A box about the pointer, each side a fraction of the canvas's, snapped to the theme's\ngrid as a drop snaps; a text or an image fills instead the template's slot under the\npointer, if nothing fills it.",
+            "type": "object",
+            "properties": {
+              "box": {
+                "type": "object",
+                "properties": { "w": { "type": "number" }, "h": { "type": "number" } },
+                "required": ["w", "h"]
+              }
+            },
+            "required": ["box"],
+            "additionalProperties": false
+          },
+          {
+            "description": "A slot it fills whole, and under the nodes there (`z`): a shader fills the canvas.",
+            "type": "object",
+            "properties": { "slot": { "type": "string" } },
+            "required": ["slot"],
+            "additionalProperties": false
+          }
         ]
       }
     },

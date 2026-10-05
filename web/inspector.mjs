@@ -49,6 +49,10 @@ try {
   };
   const back = async (to) => {
     await page.waitForFunction((s) => window.scaena.source() === s, to, { timeout: 30000, polling: 50 }).catch(() => {});
+    // The inspector is drawn again once the edit is shown: a control written to before then is
+    // drawn over.
+    await page.evaluate(() => window.scaena.look.settled());
+    await page.waitForTimeout(300);
     return (await source()) === to;
   };
   /** Select `node` in the state shown, and wait for the inspector to show it. */

@@ -155,6 +155,8 @@ struct DeckInspect {
     fork: bool,
     #[serde(default)]
     choices: Option<String>,
+    #[serde(default)]
+    inserts: bool,
 }
 
 #[derive(Deserialize)]
@@ -270,6 +272,7 @@ impl Session {
                     to: a.to,
                     fork: a.fork,
                     choices: a.choices,
+                    inserts: a.inserts,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
