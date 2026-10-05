@@ -10,9 +10,9 @@
 mod common;
 
 use common::{GOLDEN, assets, goldens};
-use scaena_core::displaylist::DisplayList;
+use scaena_core::displaylist::{Blend, Color, DisplayList, Glyph, Op, Paint};
 use scaena_paint::cpu::CpuPainter;
-use scaena_paint::{Assets, Painter, Raster, diff};
+use scaena_paint::{Assets, PaintError, Painter, Raster, diff};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Paints one state and blesses or checks its golden; returns a failure line if it fails.
@@ -60,4 +60,47 @@ fn rasters_match_goldens_within_spec_tolerance() {
     });
     failures.sort();
     assert!(failures.is_empty(), "rasters outside SPEC §13.5 tolerance:\n{}", failures.join("\n"));
+}
+
+/// A painter keeps its render context from frame to frame (`Kept`), reset between them. One
+/// painter that paints every state in turn, through the formats' sizes and a frame that
+/// stops with an error inside a layer, draws each byte for byte as a new painter does.
+#[test]
+fn a_kept_context_paints_what_a_new_one_does() {
+    let dls = goldens();
+    let store = assets(&dls);
+    // A frame that stops partway: a layer pushed, then glyphs in a font the list lacks.
+    let glyphs = Op::Glyphs {
+        font: 9,
+        size: 12.0,
+        coords: Vec::new(),
+        paint: Paint::Solid(Color([0, 0, 0, 255])),
+        text: String::new(),
+        glyphs: vec![Glyph { id: 1, x: 0.0, y: 12.0 }],
+        clusters: Vec::new(),
+    };
+    let layer = Op::Layer {
+        node: None,
+        cell: None,
+        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        opacity: 0.5,
+        blend: Blend::Normal,
+        clip: None,
+        ops: vec![glyphs],
+    };
+    let mut kept = CpuPainter::default();
+    let mut sizes = std::collections::BTreeSet::new();
+    for (i, (state, dl)) in dls.iter().enumerate() {
+        if i % 7 == 3 {
+            // The size of the frame after it, so that frame gets the context it left.
+            let mut broken = DisplayList::new(dl.viewport);
+            broken.ops.push(layer.clone());
+            assert!(matches!(kept.paint(&broken, &store, 1.0), Err(PaintError::FontIndex(9))));
+        }
+        let again = kept.paint(dl, &store, 1.0).unwrap_or_else(|e| panic!("{state}: {e}"));
+        let new = CpuPainter::default().paint(dl, &store, 1.0).unwrap();
+        sizes.insert((new.width, new.height));
+        assert!(again.rgba == new.rgba, "{state}: a kept context paints other bytes than a new one");
+    }
+    assert!(sizes.len() > 1, "the states change the frame's size: {sizes:?}");
 }
