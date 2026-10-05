@@ -158,7 +158,7 @@ impl Step {
             };
             by.push((self.column(&table, name, &["sort"])?, descending));
         }
-        table.rows.sort_by(|a, b| {
+        crate::sort::by(&mut table.rows, |a, b| {
             by.iter()
                 .map(|&(c, descending)| match (&a[c], &b[c]) {
                     (Datum::Null, Datum::Null) => std::cmp::Ordering::Equal,
@@ -412,7 +412,7 @@ fn compute<'d>(op: &str, values: impl Iterator<Item = &'d Datum>, rows: usize, a
         "mean" => some(numbers().fold(0.0, |a, b| a + b) / present.len() as f64),
         "median" => {
             let mut sorted: Vec<f64> = numbers().collect();
-            sorted.sort_by(f64::total_cmp);
+            crate::sort::by(&mut sorted, f64::total_cmp);
             match sorted.len() {
                 0 => Datum::Null,
                 n if n % 2 == 1 => Datum::Number(sorted[n / 2]),

@@ -154,6 +154,18 @@ struct DeckInspect {
     #[serde(default)]
     fork: bool,
     #[serde(default)]
+    arrange: Option<Vec<String>>,
+    #[serde(default)]
+    align: Option<scaena_ops::arrange::Align>,
+    #[serde(default)]
+    spread: Option<scaena_ops::arrange::Spread>,
+    #[serde(default)]
+    order: Option<scaena_ops::arrange::Order>,
+    #[serde(default)]
+    by: Option<[f32; 2]>,
+    #[serde(default)]
+    free: bool,
+    #[serde(default)]
     choices: Option<String>,
     #[serde(default)]
     state_choices: bool,
@@ -273,6 +285,12 @@ impl Session {
                     snap: a.snap,
                     to: a.to,
                     fork: a.fork,
+                    arrange: a.arrange,
+                    align: a.align,
+                    spread: a.spread,
+                    order: a.order,
+                    by: a.by,
+                    free: a.free,
                     choices: a.choices,
                     state_choices: a.state_choices,
                     inserts: a.inserts,

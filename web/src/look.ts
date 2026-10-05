@@ -16,11 +16,16 @@
 //   in every state.
 // - The × beside a value takes it away where it lives, so what is under it shows.
 //
+// With several nodes selected (PLAN 2.42), what they share: each property all of them offer alike,
+// its value where they agree, and a choice is a `choose` for each, one patch. Buttons align them on
+// an edge or a middle, spread them so the gaps between them are equal, and put them in front of or
+// behind what they overlap (`Player.arranging`), as they do for one node.
+//
 // With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
 // character's. Each choice is one `style_text`, written where the text lives; × takes the run's
 // own away, so the text's look shows there. A run takes the theme's names only.
-import type { Choices, Edited, Field, Lives, StateChoices } from "./protocol";
+import type { Arrange, Choices, Edited, Field, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
 
@@ -35,7 +40,41 @@ export interface Around {
   say(text: string): void;
   /** Give the characters selected in the text typed in `look` (`style_text`): whether it was. */
   style(look: Record<string, unknown>): Promise<boolean>;
+  /** Arrange what the canvas selects `how` (PLAN 2.42). */
+  arrange(how: Arrange): Promise<void>;
 }
+
+/** What several nodes offer alike: each field all of them have with the same choices, its value
+ * where they agree. */
+type Shared = Choices & { nodes: string[] };
+
+function shared(all: Choices[]): Shared {
+  const [first, ...rest] = all;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const alike = (f: Field) => rest.every((c) => c.fields.some((g) => g.prop === f.prop && same(g.takes, f.takes)));
+  const fields = first.fields.filter(alike).map((f) => {
+    const agree = rest.every((c) => same(c.fields.find((g) => g.prop === f.prop)?.value, f.value));
+    return agree ? f : { prop: f.prop, takes: f.takes };
+  });
+  const types = [...new Set(all.map((c) => c.type))];
+  return { ...first, type: types.join(", "), fields, nodes: all.map((c) => c.node) };
+}
+
+/** The buttons that arrange what is selected: each how, and what it says. */
+const ARRANGE: [string, Arrange, string][] = [
+  ["align", { align: "left" }, "Left"],
+  ["align", { align: "center" }, "Center"],
+  ["align", { align: "right" }, "Right"],
+  ["align", { align: "top" }, "Top"],
+  ["align", { align: "middle" }, "Middle"],
+  ["align", { align: "bottom" }, "Bottom"],
+  ["spread", { spread: "across" }, "Across"],
+  ["spread", { spread: "down" }, "Down"],
+  ["order", { order: "front" }, "To front"],
+  ["order", { order: "forward" }, "Forward"],
+  ["order", { order: "backward" }, "Backward"],
+  ["order", { order: "back" }, "To back"],
+];
 
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -64,6 +103,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   let chars: Selected | undefined;
   /** The node shown when no characters are. */
   let node: string | undefined;
+  /** Selected beside it (PLAN 2.42). */
+  let beside: string[] = [];
   /** Choices kept to the state shown (`choose`'s `fork`). */
   let keep = false;
   /** One choice at a time, each made on the source the one before it left. */
@@ -74,16 +115,21 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
    * inspection that offers the same. */
   let drawn = "";
 
-  /** Show what the deck offers for node `next` in the state shown, or for the state with none. */
-  async function show(next: string | undefined) {
+  /** Show what the deck offers for node `next` in the state shown, with `also` selected beside it,
+   * or for the state with none. */
+  async function show(next: string | undefined, also: string[] = []) {
     node = next;
+    beside = next === undefined ? [] : also;
     if (chars) return;
     const now = around.shown();
     const ask = ++asked;
     // A node the state does not show offers nothing: the state shows instead.
     const state = (s: string) => stage.stateChoices(s).catch(() => undefined);
     let found: Choices | StateChoices | undefined;
-    if (now) found = await (next !== undefined ? stage.choices(now.state, next).catch(() => state(now.state)) : state(now.state));
+    if (now && next !== undefined && beside.length) {
+      const all = await Promise.all([next, ...beside].map((n) => stage.choices(now.state, n).catch(() => undefined)));
+      found = all.every((c) => c !== undefined) ? shared(all as Choices[]) : await state(now.state);
+    } else if (now) found = await (next !== undefined ? stage.choices(now.state, next).catch(() => state(now.state)) : state(now.state));
     if (ask !== asked) return;
     offered = found;
     // Notes being written are kept: the change they make draws the inspector again.
@@ -197,17 +243,32 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       const id = `look-${f.prop.replace(/\//g, "-")}`;
       return `<label for="${id}">${html(f.prop)}</label><span class="control">${control(f, id)}</span><span>${note(f)}</span>`;
     });
+    const nodes = "nodes" in offered ? (offered as Shared).nodes : "node" in offered ? [offered.node] : [];
     const title = chars
       ? `${html(chars.node)} · characters ${chars.from + 1}–${chars.to}`
-      : "node" in offered
-        ? `${html(offered.node)} · ${html(offered.type)}`
-        : `${html(offered.state)} · state`;
+      : nodes.length > 1
+        ? `${nodes.length} selected · ${html(nodes.join(", "))}`
+        : "node" in offered
+          ? `${html(offered.node)} · ${html(offered.type)}`
+          : `${html(offered.state)} · state`;
+    // Aligning takes two, spreading three; ordering takes one or more.
+    const offers = (kind: string) => (kind === "order" ? nodes.length >= 1 : kind === "align" ? nodes.length >= 2 : nodes.length >= 3);
+    const groups = ["align", "spread", "order"].filter((kind) => !chars && offers(kind));
+    const arrange = groups
+      .map((kind) => {
+        const buttons = ARRANGE.filter(([k]) => k === kind).map(
+          ([, how, label]) => `<button type="button" data-arrange='${html(JSON.stringify(how))}'>${html(label)}</button>`,
+        );
+        return `<span class="arrange-kind">${kind}</span><span class="arrange-buttons" role="group" aria-label="${kind}">${buttons.join("")}</span>`;
+      })
+      .join("");
     const kept = "node" in offered ? `only in ${html(now.state)}` : `layout only in ${html(now.state)}`;
     // Characters are kept to the state as their text is typed in: with Alt, or not.
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     into.innerHTML = `
       <h2>${title}</h2>
       ${keeping}
+      ${arrange ? `<div class="arrange">${arrange}</div>` : ""}
       <div class="fields">${rows.join("")}</div>`;
     if (focused) into.querySelector<HTMLElement>(`#${CSS.escape(focused)}`)?.focus();
   }
@@ -230,15 +291,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       return;
     }
     const on = "node" in offered ? offered.node : undefined;
-    const op =
-      on !== undefined
-        ? { op: "choose", node: on, prop, value, state: now.state, ...(keep ? { fork: true } : {}) }
-        : { op: "set_state", id: now.state, prop, value, ...(keep && prop === "layout" ? { fork: true } : {}) };
-    const who = on ?? now.state;
+    const all = "nodes" in offered ? (offered as Shared).nodes : on !== undefined ? [on] : [];
+    const ops = all.length
+      ? all.map((n) => ({ op: "choose", node: n, prop, value, state: now.state, ...(keep ? { fork: true } : {}) }))
+      : [{ op: "set_state", id: now.state, prop, value, ...(keep && prop === "layout" ? { fork: true } : {}) }];
+    const who = all.length ? all.join(", ") : now.state;
     around.say(`choosing ${who}'s ${prop}…`);
     try {
-      const states = await stage.reach([op]);
-      const { source, edited } = await stage.make(around.source(), [op], now.index, around.format());
+      const states = await stage.reach(ops);
+      const { source, edited } = await stage.make(around.source(), ops, now.index, around.format());
       around.apply(source, edited);
       const reach = states.length === 1 && states[0] === now.state ? "in this state" : `in ${states.length} states`;
       around.say(`${who}'s ${prop}: ${value === null ? "taken away" : told(prop, value)} · ${reach}`);
@@ -265,6 +326,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   into.addEventListener("click", (e) => {
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");
     if (away?.dataset.away) void choose(away.dataset.away, null);
+    const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");
+    if (arranging?.dataset.arrange) void around.arrange(JSON.parse(arranging.dataset.arrange) as Arrange);
   });
 
   return {

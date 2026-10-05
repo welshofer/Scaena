@@ -2,6 +2,8 @@
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
 import type {
   Added,
+  Arrange,
+  Arranged,
   Asking,
   AssistantEvent,
   At,
@@ -54,6 +56,7 @@ type Reply = Extract<
       | "hits"
       | "targets"
       | "dragged"
+      | "arranged"
       | "made"
       | "choices"
       | "stateChoices"
@@ -237,10 +240,23 @@ export class Stage {
   drag(
     state: string,
     node: string,
-    move: { by?: [number, number]; snap?: { how: SnapMode; to: Rect; fork: boolean }; preview?: boolean },
+    move: {
+      by?: [number, number];
+      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      with?: string[];
+      together?: { by: [number, number]; free: boolean; fork: boolean };
+      preview?: boolean;
+    },
     format?: string,
   ): Promise<{ snapped?: Snapped | null; states?: string[] }> {
     return this.request<"dragged">({ type: "drag", id: ++this.asked, state, node, ...move, format });
+  }
+
+  /** `nodes`, children of one container, arranged `how` in `state` at rest (PLAN 2.42): where each
+   * lands and the patch that puts them there, kept to the state to `fork` it; `null` where nothing
+   * moves them so. */
+  arranging(state: string, nodes: string[], how: Arrange, fork: boolean, format?: string): Promise<Arranged | null> {
+    return this.request<"arranged">({ type: "arrange", id: ++this.asked, state, nodes, how, fork, format }).then(({ arranged }) => arranged);
   }
 
   /** A drag is over and changes nothing: `state` at rest as it stands. */
@@ -346,10 +362,10 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
-  /** What the clipboard holds of `node` as `state` shows it, on the deck `source` compiles to
-   * (PLAN 2.37): the clip, as JSON text. */
-  copying(source: string, state: string, node: string, format?: string): Promise<string> {
-    return this.request<"copied">({ type: "copying", id: ++this.asked, source, state, node, format }).then(({ clip }) => clip);
+  /** What the clipboard holds of `nodes` as `state` shows them, on the deck `source` compiles to
+   * (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
+  copying(source: string, state: string, nodes: string[], format?: string): Promise<string> {
+    return this.request<"copied">({ type: "copying", id: ++this.asked, source, state, nodes, format }).then(({ clip }) => clip);
   }
 
   /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
@@ -511,6 +527,7 @@ export class Stage {
       case "hits":
       case "targets":
       case "dragged":
+      case "arranged":
       case "made":
       case "choices":
       case "stateChoices":
@@ -557,6 +574,11 @@ export class Stage {
         return this.help(data.count);
       case "ready":
         return;
+      default: {
+        // A reply the switch does not name would leave its request waiting: the compiler says so.
+        const unheard: never = data;
+        return unheard;
+      }
     }
   }
 }

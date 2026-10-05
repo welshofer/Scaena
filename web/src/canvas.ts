@@ -5,6 +5,13 @@
 // - A click selects what `hit` says is topmost there. A press in the node selected, or in what
 //   holds it, keeps it, so a drag moves it; a click without a drag then selects what is topmost.
 //   Escape selects what holds the node selected.
+// - Several of one container's children are selected at once (PLAN 2.42): Shift+click puts one in
+//   the selection or takes it out, and a drag across empty canvas, or across what fills it behind
+//   all, selects the children of the canvas it encloses (with Shift, beside those selected). A
+//   drag moves them together, the arrow keys too, and Delete, ⌘D, ⌘C, ⌘X, and the inspector act
+//   on all of them; the inspector aligns and spreads them. ⌘] and ⌘[ put what is selected in
+//   front of, or behind, the next thing it overlaps, and with Shift in front of, or behind,
+//   everything its container holds. Each is one patch, one step to undo.
 // - A drag moves the node's layer, painted from the state as laid out at rest, and shows where it
 //   would land from its targets: the theme's tracks, the template's slots, a grid container's
 //   areas, a stack's order. On drop, where it lands is the patch. With Shift, it goes off the grid,
@@ -25,14 +32,15 @@
 //   selected, with what it holds, out of the state shown and the states after it; Shift+Delete,
 //   out of the deck. ⌘D (Ctrl+D) adds a copy beside it, with what it holds. Each is one patch,
 //   one step to undo.
-// - ⌘C and ⌘X put the node selected, with what it holds, on the clipboard as JSON
-//   (`application/x-scaena+json`) and as text; a cut then takes it out as Delete does. ⌘V pastes
-//   it where the pointer last pressed, as Insert places a node, under ids new to the deck, in
-//   this deck or another; text from elsewhere comes in as a text in the theme's body role. What
-//   the clip names that the theme lacks is taken out of it, and the status says so (PLAN 2.37).
-//   A page must fill the clipboard at once, so the node selected is copied when it is selected.
+// - ⌘C and ⌘X put the nodes selected, with what they hold, on the clipboard as JSON
+//   (`application/x-scaena+json`) and as text; a cut then takes them out as Delete does. ⌘V
+//   pastes them where the pointer last pressed, as Insert places a node, several where they stood
+//   about each other, under ids new to the deck, in this deck or another; text from elsewhere
+//   comes in as a text in the theme's body role. What the clip names that the theme lacks is
+//   taken out of it, and the status says so (PLAN 2.37). A page must fill the clipboard at once,
+//   so what is selected is copied when it is selected.
 import { CLIP } from "./protocol";
-import type { Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Arrange, Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { type Selected, typing } from "./typing";
 
@@ -56,8 +64,8 @@ export interface Editor {
   undo(): void;
   redo(): void;
   say(text: string): void;
-  /** The node selected is now `node`. */
-  selected(node: string | undefined): void;
+  /** The node selected is now `node`, with `also` selected beside it (PLAN 2.42). */
+  selected(node: string | undefined, also: string[]): void;
   /** The characters selected in a text typed in are now `selected`, or none are (PLAN 2.38). */
   chose(selected: Selected | undefined): void;
   /** Whether focus gone to `to` keeps typing on: the inspector. */
@@ -77,6 +85,8 @@ const CURSORS: Record<Edge, string> = { n: "ns", s: "ns", e: "ew", w: "ew", ne: 
 interface Drag {
   kind: "move" | "resize";
   node: string;
+  /** The nodes selected beside it, which move with it (PLAN 2.42). */
+  with: string[];
   edge?: Edge;
   from: [number, number];
   at: [number, number];
@@ -100,6 +110,13 @@ interface Drag {
  * selects what the engine says once it does, or, moved past the slop, drops it there. */
 interface Press {
   node?: string;
+  /** The nodes selected beside `node`, which a drag moves with it. */
+  with?: string[];
+  /** With Shift: what a click puts in the selection or takes out of it. */
+  toggle?: string;
+  /** On nothing, or on what fills the canvas behind all: a drag draws a marquee. */
+  marquee?: boolean;
+  shift?: boolean;
   edge?: Edge;
   from: [number, number];
   client: [number, number];
@@ -181,13 +198,18 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** The state `boxes` stand in. */
   let boxed: string | undefined;
   let selected: string | undefined;
+  /** Selected beside it, children of what holds it too (PLAN 2.42). */
+  let also: string[] = [];
+  /** A drag across empty canvas: where it began, where the pointer is, and whether it adds to
+   * what is selected. */
+  let marquee: { from: [number, number]; at: [number, number]; adding: boolean } | undefined;
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
   let hovered: string | undefined;
   /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
   let pointed: [number, number] | undefined;
-  /** The node selected as the clipboard would hold it, asked for when it is selected, and kept
-   * by what it was asked of: a copy, which the page answers at once, finds it at hand. */
+  /** What is selected as the clipboard would hold it, asked for when it is selected, and kept by
+   * what it was asked of: a copy, which the page answers at once, finds it at hand. */
   let held: { key: string; clip: Promise<string>; text?: string } | undefined;
   let press: Press | undefined;
   let starting: Starting | undefined;
@@ -225,6 +247,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => size[0] / Math.max(1, overlay.getBoundingClientRect().width);
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
+  /** Every node selected: the one selected, then those beside it. */
+  const chosen = () => (selected === undefined ? [] : [selected, ...also]);
+  /** What holds `node` in the state shown: `null` at the root. */
+  const holder = (node: string) => box(node)?.parent ?? null;
+  /** Whether `r` covers the canvas: what stands behind everything. */
+  const covers = (r: Rect | undefined) => r !== undefined && r[0] <= 0 && r[1] <= 0 && r[0] + r[2] >= size[0] && r[1] + r[3] >= size[1];
 
   /** Typing in a text where it stands. */
   const text = typing(stage, overlay, {
@@ -256,7 +284,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     ({ boxes, size } = await stage.boxes(shown.state, editor.format()));
     boxed = shown.state;
     svg.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
-    if (selected !== undefined && !box(selected)) select(undefined);
+    also = also.filter((n) => box(n) !== undefined);
+    if (selected !== undefined && !box(selected)) select(also[0]);
     else if (selected !== undefined) aimAt(selected);
     hold();
     draw();
@@ -264,11 +293,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   }
 
   function select(node: string | undefined) {
-    if (node === selected) return;
+    if (node === selected && also.length === 0) return;
     if (text.node() !== undefined && text.node() !== node) text.leave();
     selected = node;
+    also = [];
     aim = undefined;
-    editor.selected(node);
+    editor.selected(node, []);
     if (node !== undefined) {
       editor.say(`${node} selected: drag it, or move it with the arrow keys`);
       aimAt(node);
@@ -277,20 +307,51 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     draw();
   }
 
-  /** What the clipboard would hold of the node selected, as the source stands, kept by what it is
-   * asked of: the source's version, the state shown, the node, and the format. */
+  /** Select `nodes`, children of one container, at once (PLAN 2.42): the first leads a drag. */
+  function selectAll(nodes: string[]) {
+    if (nodes.length <= 1) return select(nodes[0]);
+    if (text.node() !== undefined) text.leave();
+    [selected, also] = [nodes[0], nodes.slice(1)];
+    aim = undefined;
+    editor.selected(selected, also);
+    editor.say(`${nodes.length} selected, ${nodes.join(", ")}: drag them, move them with the arrow keys, or align them in the inspector`);
+    hold();
+    draw();
+  }
+
+  /** Shift+click on `node`: out of the selection if it is in it, else in it beside what is
+   * selected where one container holds them all, else selected alone. */
+  function toggle(node: string) {
+    const all = chosen();
+    if (all.includes(node)) return selectAll(all.filter((n) => n !== node));
+    if (selected === undefined || holder(node) !== holder(selected)) return select(node);
+    selectAll([...all, node]);
+  }
+
+  /** The children of the canvas the marquee encloses, beside what is selected where it adds. */
+  function enclosed(m: NonNullable<typeof marquee>) {
+    const [x, y] = [Math.min(m.from[0], m.at[0]), Math.min(m.from[1], m.at[1])];
+    const area: Rect = [x, y, Math.abs(m.at[0] - m.from[0]), Math.abs(m.at[1] - m.from[1])];
+    const within = (r: Rect) => r[0] >= area[0] && r[1] >= area[1] && r[0] + r[2] <= area[0] + area[2] && r[1] + r[3] <= area[1] + area[3];
+    const found = boxes.filter((b) => (b.parent ?? null) === null && within(b.rect)).map((b) => b.node);
+    const kept = m.adding && selected !== undefined && holder(selected) === null ? chosen() : [];
+    return [...kept, ...found.filter((n) => !kept.includes(n))];
+  }
+
+  /** What the clipboard would hold of what is selected, as the source stands, kept by what it is
+   * asked of: the source's version, the state shown, the nodes, and the format. */
   const holding = () => {
     const shown = editor.shown();
-    return shown && selected !== undefined ? JSON.stringify([editor.version(), shown.state, selected, editor.format() ?? null]) : undefined;
+    return shown && selected !== undefined ? JSON.stringify([editor.version(), shown.state, chosen(), editor.format() ?? null]) : undefined;
   };
-  /** Ask for what the clipboard would hold of the node selected, unless it is at hand; not while
+  /** Ask for what the clipboard would hold of what is selected, unless it is at hand; not while
    * a text is typed in, whose keys copy what is selected in it. */
   function hold() {
     const key = holding();
     if (key === undefined || text.node() !== undefined) return void (held = undefined);
     if (held?.key === key) return;
     const shown = editor.shown()!;
-    const now: NonNullable<typeof held> = { key, clip: stage.copying(editor.source(), shown.state, selected!, editor.format()) };
+    const now: NonNullable<typeof held> = { key, clip: stage.copying(editor.source(), shown.state, chosen(), editor.format()) };
     held = now;
     now.clip.then(
       (clip) => (now.text = clip),
@@ -335,15 +396,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       if (drag.how === "order") for (const id of t.flow ?? []) if (id !== drag.node && box(id)) parts.push(rect(box(id)!.rect, "flow"));
       if (drag.how === "free") parts.push(rect(t.within, "slot"));
       const land = drag.snapped?.cell;
-      if (land && drag.how === "order") parts.push(line(land[0], land[1], land[0] + land[2], land[1] + land[3], "landing-line"));
+      if (drag.snapped?.landed) for (const l of drag.snapped.landed) parts.push(rect(l.cell, "landing"));
+      else if (land && drag.how === "order") parts.push(line(land[0], land[1], land[0] + land[2], land[1] + land[3], "landing-line"));
       else if (land) parts.push(rect(land, "landing"));
     }
-    const chosen = box(selected);
     const typed = text.node() !== undefined;
-    if (chosen) {
-      const r = drag?.kind === "move" ? moved(chosen.rect, [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]]) : chosen.rect;
+    const by: [number, number] = drag?.kind === "move" ? [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]] : [0, 0];
+    for (const node of also) {
+      const other = box(node);
+      if (other) parts.push(rect(moved(other.rect, by), "selected"));
+    }
+    const first = box(selected);
+    if (first) {
+      const r = drag?.kind === "move" ? moved(first.rect, by) : first.rect;
       parts.push(rect(r, typed ? "selected typed" : "selected"));
-      if (!drag && !typed && aim && snapOf(aim, editor.at(chosen.node), true, false)) {
+      if (!drag && !typed && also.length === 0 && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const [x, y, w, h] = r;
         const spot: Record<Edge, [number, number]> = {
@@ -357,7 +424,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       }
     }
     const over = box(hovered);
-    if (over && over.node !== selected && !drag && !typed) parts.push(rect(over.rect, "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee) parts.push(rect(over.rect, "hover"));
+    if (marquee) {
+      const [x, y] = [Math.min(marquee.from[0], marquee.at[0]), Math.min(marquee.from[1], marquee.at[1])];
+      parts.push(rect([x, y, Math.abs(marquee.at[0] - marquee.from[0]), Math.abs(marquee.at[1] - marquee.from[1])], "marquee"));
+    }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
   }
@@ -366,6 +437,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   function tell(d: Drag) {
     const state = editor.shown()?.state;
     const op = d.snapped?.patch[0] as { at?: Placement } | undefined;
+    if (d.with.length) {
+      const n = d.states?.length ?? 0;
+      const where = n === 1 && d.states?.[0] === state ? "in this state" : `in ${n} states`;
+      if (!op) return editor.say(`${d.with.length + 1} selected stay where they are`);
+      return editor.say(`${d.with.length + 1} selected move together · ${where}${d.alt ? ` · kept to ${state}` : ""}`);
+    }
     if (!d.how) return editor.say(`${d.node} is placed by name: drag it into another slot, or with Shift off the grid`);
     if (!op) return editor.say(`${d.node} stays where it is`);
     const n = d.states?.length ?? 0;
@@ -377,7 +454,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** The box `d` leaves, and how it snaps, with the pointer where it is now. */
   function aimed(d: Drag): { how?: SnapMode; to: Rect; by: [number, number] } {
     const by: [number, number] = [d.at[0] - d.from[0], d.at[1] - d.from[1]];
-    const how = snapOf(d.targets, editor.at(d.node), d.kind === "resize", d.shift);
+    // Several move as the first does: on the grid, by its tracks, or with Shift off it.
+    const how = d.with.length ? (d.shift ? "free" : "move") : snapOf(d.targets, editor.at(d.node), d.kind === "resize", d.shift);
     const to = d.kind === "move" ? moved(d.targets.cell, by) : resized(d.targets.cell, d.edge!, by);
     return { how, to, by };
   }
@@ -394,7 +472,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     d.how = how;
     busy = true;
     try {
-      const move = { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt } : undefined };
+      const move = d.with.length
+        ? { by, with: d.with, together: { by, free: d.shift, fork: d.alt } }
+        : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt } : undefined };
       const reply = await stage.drag(shown.state, d.node, move, editor.format());
       if (drag !== d) return;
       d.snapped = how ? reply.snapped : null;
@@ -435,15 +515,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     clearTimeout(d.pause);
     const shown = editor.shown();
     if (!shown || editor.version() !== d.version) return still("the source changed under the drag: nothing is placed");
-    const { how, to } = aimed(d);
+    const { how, to, by } = aimed(d);
     let snapped: Snapped | null | undefined;
     try {
-      if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt } }, editor.format())).snapped;
+      const together = { with: d.with, together: { by, free: d.shift, fork: d.alt } };
+      if (d.with.length) snapped = (await stage.drag(shown.state, d.node, together, editor.format())).snapped;
+      else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt } }, editor.format())).snapped;
     } catch (e) {
       return still(`not placed: ${said(e)}`);
     }
-    if (!snapped?.patch.length) return still(`${d.node} stays where it is`);
-    await commit(snapped.patch);
+    if (!snapped?.patch.length) return still(d.with.length ? `${d.with.length + 1} selected stay where they are` : `${d.node} stays where it is`);
+    await commit(snapped.patch, d.with.length ? `${d.with.length + 1} selected moved together` : undefined);
   }
 
   /** The state shown as it stands, after a drag that places nothing. */
@@ -455,8 +537,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (shown) await stage.rest(shown.state, editor.format()).catch((e) => editor.say(`error: ${said(e)}`));
   }
 
-  /** Make `ops`, by the user, on the source as it stands: one change to undo. */
-  async function commit(ops: unknown[]) {
+  /** Make `ops`, by the user, on the source as it stands: one change to undo; `done` is what the
+   * status says of it, else where its node is placed. */
+  async function commit(ops: unknown[], done?: string) {
     const shown = editor.shown();
     if (!shown) return;
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
@@ -465,15 +548,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
-      editor.say(`${op?.node} placed: ${placed(op?.at ?? {}, aim?.by)}`);
+      editor.say(done ?? `${op?.node} placed: ${placed(op?.at ?? {}, aim?.by)}`);
     } catch (e) {
       await still(`not placed: ${said(e)}`);
     }
   }
 
   /** Make `ops`, a node added or taken away, on the source as it stands: one change to undo. Then
-   * `next` is selected (nothing with `null`), and the status says `done`. */
-  async function change(ops: unknown[], doing: string, done: string, next?: string | null) {
+   * `next` is selected (several, children of one container, PLAN 2.42; nothing with `null`), and
+   * the status says `done`. */
+  async function change(ops: unknown[], doing: string, done: string, next?: string | string[] | null) {
     const shown = editor.shown();
     if (!shown) return;
     editor.say(doing);
@@ -481,7 +565,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
-      if (next !== undefined) select(next ?? undefined);
+      if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
+      else if (next !== undefined) select(next ?? undefined);
       editor.say(done);
     } catch (e) {
       editor.say(`not made: ${said(e)}`);
@@ -540,22 +625,76 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     });
   }
 
-  /** ⌘C, and ⌘X with `cut`: the node selected onto the clipboard, as a clip and as its text; a
+  /** Take `nodes`, children of one container, out of the state shown on, or, `everywhere`, out of
+   * the deck, as Delete takes one (PLAN 2.42): one patch. `how` says what took them (a cut). */
+  function removeAll(nodes: string[], everywhere: boolean, how = "deleted") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return;
+      try {
+        const source = editor.source();
+        const ops = (await Promise.all(nodes.map((n) => stage.deleting(source, shown.state, n, everywhere)))).flat();
+        await change(ops, `${how === "deleted" ? "deleting" : "cutting"}…`, `${nodes.length} ${how}: ${nodes.join(", ")}`, null);
+      } catch (e) {
+        editor.say(`not ${how}: ${said(e)}`);
+      }
+    });
+  }
+
+  /** A copy of each of `nodes` beside it, as ⌘D makes one (PLAN 2.42): one patch, the copies
+   * selected. */
+  function duplicateAll(nodes: string[]) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return;
+      try {
+        const source = editor.source();
+        const added = await Promise.all(nodes.map((n) => stage.duplicating(source, shown.state, n, editor.format())));
+        const ids = added.map((a) => a.id);
+        if (new Set(ids).size !== ids.length) throw new Error(`two copies would take one id: ${ids.join(", ")}`);
+        await change(added.flatMap((a) => a.patch), "duplicating…", `${nodes.length} copied as ${ids.join(", ")}`, ids);
+      } catch (e) {
+        editor.say(`not copied: ${said(e)}`);
+      }
+    });
+  }
+
+  /** What is selected arranged `how` (PLAN 2.42): aligned, spread, or put in front or behind;
+   * one patch. `fork` keeps it to the state shown. */
+  function arrange(how: Arrange, fork = false) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      if (!shown || !nodes.length) return;
+      const what = Object.entries(how)[0]?.join(" ") ?? "";
+      try {
+        const arranged = await stage.arranging(shown.state, nodes, how, fork, editor.format());
+        if (!arranged?.patch.length) return editor.say(`${nodes.join(", ")}: ${what}, where they are already`);
+        // What is selected stays so: the canvas keeps it as the source changes.
+        await commit(arranged.patch, `${nodes.join(", ")}: ${what}`);
+      } catch (e) {
+        editor.say(`not arranged: ${said(e)}`);
+      }
+    });
+  }
+
+  /** ⌘C, and ⌘X with `cut`: what is selected onto the clipboard, as a clip and as its text; a
    * cut then takes it out of the state shown on, as Delete does. */
   function copy(e: ClipboardEvent, cut: boolean) {
     const shown = editor.shown();
-    const node = selected;
-    if (!copies() || node === undefined || !shown) return;
+    const nodes = chosen();
+    if (!copies() || !nodes.length || !shown) return;
     e.preventDefault();
     const at = held !== undefined && held.key === holding() ? held : undefined;
-    const done = () => editor.say(`${node} ${cut ? "cut" : "copied"}: ⌘V pastes it, in this deck or another`);
+    const them = nodes.length > 1 ? `${nodes.length} selected` : nodes[0];
+    const done = () => editor.say(`${them} ${cut ? "cut" : "copied"}: ⌘V pastes ${nodes.length > 1 ? "them" : "it"}, in this deck or another`);
     if (at?.text !== undefined && e.clipboardData) {
       e.clipboardData.setData(CLIP, at.text);
       e.clipboardData.setData("text/plain", at.text);
       done();
     } else {
       // Not at hand yet: written once it is, as the page may write the clipboard, as text.
-      const clip = at?.clip ?? stage.copying(editor.source(), shown.state, node, editor.format());
+      const clip = at?.clip ?? stage.copying(editor.source(), shown.state, nodes, editor.format());
       const blob = clip.then((t) => new Blob([t], { type: "text/plain" }));
       const write =
         typeof ClipboardItem === "function"
@@ -563,7 +702,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
           : clip.then((t) => navigator.clipboard.writeText(t));
       write.then(done, (err) => editor.say(`not ${cut ? "cut" : "copied"}: ${said(err)}`));
     }
-    if (cut) void remove(node, false, "cut");
+    if (cut) void (nodes.length > 1 ? removeAll(nodes, false, "cut") : remove(nodes[0], false, "cut"));
   }
 
   /** ⌘V: what the clipboard holds, `clip`, where the pointer last pressed, as Insert places a
@@ -576,8 +715,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       try {
         const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
         const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
-        const done = [`${pasted.id} pasted in ${shown.state}`, ...lacked].join("; ");
-        await change(pasted.patch, "pasting…", done, pasted.id);
+        const ids = [pasted.id, ...(pasted.also ?? [])];
+        const done = [`${ids.join(", ")} pasted in ${shown.state}`, ...lacked].join("; ");
+        await change(pasted.patch, "pasting…", done, ids.length > 1 ? ids : pasted.id);
       } catch (e) {
         editor.say(`not pasted: ${said(e)}`);
       }
@@ -641,6 +781,18 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         : [sx ? step(cols, x, sx, 0) : 0, sy ? step(rows, y, sy, 0) : 0];
       if (d[0] !== undefined && d[1] !== undefined) to = grow ? [x, y, w + d[0], h + d[1]] : [x + d[0], y + d[1], w, h];
     }
+    if (also.length && to) {
+      // Several move as far as the first steps, together (PLAN 2.42).
+      const nodes = chosen();
+      try {
+        const by: [number, number] = [to[0] - x, to[1] - y];
+        const arranged = await stage.arranging(shown.state, nodes, { by, free: how === "free" }, fork, editor.format());
+        if (!arranged?.patch.length) return editor.say(`${nodes.length} selected stay where they are`);
+        return await commit(arranged.patch, `${nodes.length} selected moved together`);
+      } catch (e) {
+        return editor.say(`not placed: ${said(e)}`);
+      }
+    }
     if (!how) return editor.say(`${node} is placed by name: drag it into another slot`);
     if (!to) return editor.say(`${node} is at the edge`);
     try {
@@ -656,6 +808,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (e.button !== 0) return;
     const count = clicks(e);
     const from = point(e);
+    const shift = e.shiftKey;
     pointed = from;
     // Typing: a press in the text puts the caret there, and one outside it stops typing.
     if (text.node() !== undefined) {
@@ -676,35 +829,63 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       press = { node: selected, edge, from, client };
       return;
     }
-    const mine: Press = { from, client, asking: true };
+    const mine: Press = { from, client, asking: true, shift };
     press = mine;
     const hits = await stage.hit(shown.state, from, editor.format()).catch(() => []);
     mine.asking = false;
     const top = hits[0];
     const chain = top ? [top.node, ...top.containers] : [];
-    // In the node selected, or in what holds it, the press keeps it: a drag moves it, and a click
-    // selects what is topmost.
-    const keeps = selected !== undefined && chain.includes(selected);
+    // In what is selected, or in what holds it, the press keeps it: a drag moves it, with the
+    // rest of what is selected, and a click selects what is topmost.
+    const all = chosen();
+    const keeps = selected !== undefined && chain.some((n) => all.includes(n));
     const node = keeps ? selected : top?.node;
+    if (keeps) mine.with = also.slice();
+    // With Shift, a click puts what was clicked in the selection, or takes it out of it: in what
+    // holds the selection, the child of it the click is in.
+    if (shift && selected !== undefined) {
+      const holds = holder(selected);
+      mine.toggle = chain.find((n) => all.includes(n)) ?? chain.find((n) => holder(n) === holds) ?? top?.node;
+    }
+    // On nothing, or on what fills the canvas behind all, a drag draws a marquee.
+    if (!keeps && (!top || covers(box(top.node)?.rect))) mine.marquee = true;
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
     const far = moved !== undefined && Math.hypot(moved.client[0] - client[0], moved.client[1] - client[1]) >= SLOP;
-    if (far && node !== undefined && (press === mine || mine.released)) {
+    if (far && mine.marquee && (press === mine || mine.released)) {
+      if (press === mine) press = undefined;
+      marquee = { from, at: moved.at, adding: shift };
+      if (mine.released) return finish();
+      return draw();
+    }
+    if (far && node !== undefined && mine.toggle === undefined && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       early++;
       if (!keeps) select(node);
       return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, up: mine.released });
     }
     // A click let go before the engine answered selects what is topmost.
-    if (mine.released) return select(top?.node);
+    if (mine.released) return mine.toggle !== undefined ? toggle(mine.toggle) : select(top?.node);
     if (press !== mine) return;
     if (keeps) [mine.node, mine.click] = [selected, top?.node];
+    else if (mine.toggle !== undefined || mine.marquee) mine.click = top?.node;
     else {
       select(top?.node);
       mine.node = top?.node;
     }
   };
+
+  /** The marquee let go: what it encloses is selected. */
+  function finish() {
+    const m = marquee;
+    marquee = undefined;
+    if (!m) return;
+    const found = enclosed(m);
+    if (found.length) selectAll(found);
+    else if (!m.adding) select(undefined);
+    draw();
+  }
 
   /** Drag `begun`'s node, the pointer as `now` says, once the engine says where it may go; let go
    * meanwhile, it drops there. */
@@ -721,6 +902,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         const d: Drag = {
           kind: begun.edge ? "resize" : "move",
           node: begun.node!,
+          with: begun.edge ? [] : (begun.with ?? []),
           edge: begun.edge,
           from: begun.from,
           at: now.at,
@@ -765,6 +947,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       void pump(drag);
       return;
     }
+    if (marquee) {
+      marquee.at = at;
+      return draw();
+    }
     if (!press) {
       // What a click would select, from the boxes the engine gave: nothing is asked.
       const under = boxes.filter((b) => b.draws && inside(b.rect, at)).at(-1)?.node;
@@ -778,7 +964,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       press.moved = { at, shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
       return;
     }
-    if (!press.node || Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) < SLOP) return;
+    const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
+    if (far && press.marquee) {
+      marquee = { from: press.from, at, adding: press.shift === true };
+      press = undefined;
+      return draw();
+    }
+    if (!press.node || !far) return;
     const begun = press;
     press = undefined;
     begin(begun, { at, shift: e.shiftKey, alt: e.altKey });
@@ -798,16 +990,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       void inTurn(() => drop(d));
       return;
     }
+    if (marquee) {
+      marquee.at = point(e);
+      return finish();
+    }
     const clicked = press;
     press = undefined;
     if (!clicked) return;
-    if (clicked.asking) clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
-    if (clicked.node === undefined && !clicked.edge) clicked.released = true;
+    if (clicked.asking) {
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      clicked.released = true;
+    } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
+    else if (clicked.marquee) select(clicked.click);
     else if (clicked.click !== undefined) select(clicked.click);
   };
 
   overlay.onpointercancel = () => {
-    press = starting = undefined;
+    press = starting = marquee = undefined;
     if (drag) void still("the drag was cancelled");
   };
 
@@ -833,11 +1032,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
-        return void remove(selected, e.shiftKey);
+        return void (also.length ? removeAll(chosen(), e.shiftKey) : remove(selected, e.shiftKey));
       }
       if (mod && key === "d" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        return void duplicate(selected);
+        return void (also.length ? duplicateAll(chosen()) : duplicate(selected));
+      }
+      // ⌘] and ⌘[: in front of, or behind, the next it overlaps; with Shift, of all (PLAN 2.42).
+      if (mod && (e.code === "BracketRight" || e.code === "BracketLeft") && !e.altKey) {
+        e.preventDefault();
+        const up = e.code === "BracketRight";
+        return void arrange({ order: e.shiftKey ? (up ? "front" : "back") : up ? "forward" : "backward" });
       }
     }
     if (e.key === "Escape") {
@@ -852,7 +1057,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       }
       if (selected !== undefined) {
         e.preventDefault();
-        select(box(selected)?.parent ?? undefined);
+        if (also.length) select(selected);
+        else select(box(selected)?.parent ?? undefined);
         if (selected === undefined) editor.say("nothing selected");
       }
       return;
@@ -862,6 +1068,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     if (!step || selected === undefined || drag || mod) return;
     e.preventDefault();
     const [node, grow, fork] = [selected, e.shiftKey, e.altKey];
+    if (also.length && grow) return editor.say("several move together; resize one at a time");
     void inTurn(() => nudge(node, step, grow, fork));
   };
 
@@ -881,6 +1088,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     },
     /** Select `node`, as a click on it does; nothing with `undefined`. */
     select,
+    /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */
+    selectAll,
+    /** Arrange what is selected, as the inspector and ⌘] do (PLAN 2.42). */
+    arrange,
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status
      * calls it. */
     insert,
@@ -901,6 +1112,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     /** Where the pointer last pressed, canvas units. */
     pointed: () => pointed,
     selected: () => selected,
+    /** Every node selected: the one selected, then those beside it. */
+    chosen,
     boxes: () => boxes,
     /** The state the boxes stand in: what a test waits for once it shows another. */
     boxed: () => boxed,

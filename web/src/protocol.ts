@@ -169,6 +169,27 @@ export interface Targets {
 export interface Snapped {
   cell: Rect;
   patch: unknown[];
+  /** With several nodes moved together (PLAN 2.42): where each lands. */
+  landed?: Landed[];
+}
+
+/** Where a node arranged with others lands (PLAN 2.42). */
+export interface Landed {
+  node: string;
+  cell: Rect;
+}
+
+/** How several nodes are arranged (PLAN 2.42): one of these. */
+export type Arrange =
+  | { align: "left" | "center" | "right" | "top" | "middle" | "bottom" }
+  | { spread: "across" | "down" }
+  | { order: "forward" | "backward" | "front" | "back" }
+  | { by: [number, number]; free?: boolean };
+
+/** Several nodes arranged: where each lands, and the patch that puts them there. */
+export interface Arranged {
+  landed: Landed[];
+  patch: unknown[];
 }
 
 /** Something the editor may insert (PLAN 2.34), as `scaena inspect --inserts` says it: a node the
@@ -202,9 +223,11 @@ export interface Added {
 }
 
 /** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
- * the files the clip carried that the bundle lacked, now in it; and what the copies named that
- * the theme lacks, each taken out of them. */
+ * the copies of the others copied with it (PLAN 2.42); the files the clip carried that the
+ * bundle lacked, now in it; and what the copies named that the theme lacks, each taken out of
+ * them. */
 export interface Pasted extends Added {
+  also?: string[];
   files: string[];
   findings: Finding[];
 }
@@ -265,11 +288,18 @@ export type ToWorker =
       id: number;
       state: string;
       node: string;
+      /** The nodes moved with it, children of what holds it (PLAN 2.42). */
+      with?: string[];
       by?: [number, number];
       snap?: { how: SnapMode; to: Rect; fork: boolean };
+      /** With `with`: where they all land, moved `by` together, `free` off the grid. */
+      together?: { by: [number, number]; free: boolean; fork: boolean };
       preview?: boolean;
       format?: string;
     }
+  /** `nodes`, children of one container, arranged in `state` at rest (PLAN 2.42): where each
+   * lands and the patch that puts them there, kept to the state to `fork` it. */
+  | { type: "arrange"; id: number; state: string; nodes: string[]; how: Arrange; fork: boolean; format?: string }
   /** A drag is over, and changes nothing: `state` painted at rest as it stands. */
   | { type: "rest"; id: number; state: string; format?: string }
   /** Make `ops`, the patch a gesture on the canvas or a choice in the inspector ends in, by the
@@ -307,9 +337,9 @@ export type ToWorker =
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
-  /** What the clipboard holds of `node` as `state` shows it, on the deck the editor's `source`
-   * compiles to (PLAN 2.37): the clip, as JSON text. */
-  | { type: "copying"; id: number; source: string; state: string; node: string; format?: string }
+  /** What the clipboard holds of `nodes` as `state` shows them, on the deck the editor's `source`
+   * compiles to (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
+  | { type: "copying"; id: number; source: string; state: string; nodes: string[]; format?: string }
   /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
    * units), on the deck the editor's `source` compiles to: a clip pastes what it holds, other
    * text a text in the theme's body role (PLAN 2.37). */
@@ -573,6 +603,7 @@ export type FromWorker =
   | { type: "targets"; id: number; targets: Targets }
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
+  | { type: "arranged"; id: number; arranged: Arranged | null }
   /** The patch is made: the deck's source now, and what the edit came to. */
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }

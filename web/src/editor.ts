@@ -258,8 +258,9 @@ async function edit(source: Source) {
   let taken: { source: string; edited: Edited } | undefined;
   /** The state shown, inspected: each node's placement, which the canvas reads. */
   let inspected: Inspected | undefined;
-  /** The node the canvas has selected. */
+  /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
   let chosen: string | undefined;
+  let beside: string[] = [];
 
   const view = new EditorView({
     parent: $("#code"),
@@ -349,6 +350,7 @@ async function edit(source: Source) {
     apply: made,
     say,
     style: (given) => board.style(given),
+    arrange: (how) => board.arrange(how, false),
   });
 
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
@@ -380,10 +382,12 @@ async function edit(source: Source) {
       if (redo(view)) forceLinting(view);
     },
     say,
-    selected: (node) => {
+    selected: (node, also) => {
       chosen = node;
-      for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(row.getAttribute("data-node") === node));
-      void look.show(node);
+      beside = node === undefined ? [] : also;
+      const all = node === undefined ? [] : [node, ...also];
+      for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(all.includes(row.getAttribute("data-node") ?? "")));
+      void look.show(node, also);
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
     // focus there keeps the text typed in.
@@ -652,12 +656,12 @@ async function edit(source: Source) {
       const at = found.nodes[id].at as Record<string, unknown> | undefined;
       const off = at?.rect !== undefined && last?.findings.some((f) => f.code === "W301" && f.node === id);
       const place = at ? `${html(placed(at))}${off ? ' <span class="flag" title="W301: placed by a rect, an override">override</span>' : ""}` : "";
-      return `<tr data-node="${html(id)}"${id === chosen ? ' aria-selected="true"' : ""}><td>${html(id)}</td><td>${place}</td><td>${text}</td><td>${overrides || ""}</td></tr>`;
+      return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(id)}</td><td>${place}</td><td>${text}</td><td>${overrides || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
       (m) => `<tr><td>${html(m.node)}</td><td>${html(m.motion)}${m.units > 1 ? ` × ${m.units}` : ""}</td><td>${m.start.toFixed(0)}–${m.end.toFixed(0)} ms</td></tr>`,
     );
-    void look.show(chosen);
+    void look.show(chosen, beside);
     listing.innerHTML = `
       <h2>${html(found.state_id)}${found.layout ? ` · ${html(found.layout)}` : ""}</h2>
       ${cue ? `<p>starts at ${cue.start.toFixed(0)} ms · cue ${cue.span.toFixed(0)} ms · holds ${cue.hold.toFixed(0)} ms · transition ${cue.transition.duration.toFixed(0)} ms, matched by ${html(cue.transition.match)}</p>` : ""}

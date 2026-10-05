@@ -98,14 +98,14 @@ impl Scene {
         })
     }
 
-    /// The state at rest, its shaders `time` seconds into the global timeline, with `node`
-    /// and everything it holds drawn `by` canvas units from where they stand, over the rest:
+    /// The state at rest, its shaders `time` seconds into the global timeline, with `nodes`
+    /// and everything they hold drawn `by` canvas units from where they stand, over the rest:
     /// what a drag shows while it moves, held above the page. Only their layers move;
     /// nothing is laid out again (ADR-0013). A member of a group composited as one layer
     /// moves inside it, in its place.
-    pub fn moved(&self, time: f64, node: &str, by: [f32; 2]) -> DisplayList {
+    pub fn moved(&self, time: f64, nodes: &[&str], by: [f32; 2]) -> DisplayList {
         let mut dl = self.draw_at(time);
-        let mut held = vec![node];
+        let mut held = nodes.to_vec();
         let mut i = 0;
         while let Some(id) = held.get(i).copied() {
             held.extend(self.tree.get(id).into_iter().flat_map(|p| p.children.iter().map(String::as_str)));

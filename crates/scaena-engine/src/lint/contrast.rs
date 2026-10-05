@@ -248,26 +248,43 @@ fn judge(run: &Run, ratios: &Ratios, px: &Pixels, ink: Option<&Pixels>, scale: f
     let [x, y, w, h] = run.rect.map(|v| v * scale);
     let (x0, y0) = (x.floor().max(0.0) as u32, y.floor().max(0.0) as u32);
     let (x1, y1) = (((x + w).ceil() as u32).min(px.width), ((y + h).ceil() as u32).min(px.height));
-    let mut seen: Vec<(f64, f64, [u8; 3])> = Vec::new();
+    // How much of each color the glyphs cover, in 255ths of a pixel: a run's box holds many
+    // pixels and few colors, so it is the colors that are judged and sorted, and the sums are
+    // exact whatever their order.
+    let mut covered: BTreeMap<[u8; 3], u64> = BTreeMap::new();
+    // Neighbors mostly share a color: each streak of one is counted, then entered once.
+    let mut streak: Option<([u8; 3], u64)> = None;
     for py in y0..y1 {
         for pxl in x0..x1 {
-            let cover = ink.map_or(1.0, |m| f64::from(m.pixel(pxl, py)[0]) / 255.0);
-            if cover <= 0.0 {
+            let cover = ink.map_or(255, |m| m.pixel(pxl, py)[0]);
+            if cover == 0 {
                 continue;
             }
             let [r, g, b, _] = px.pixel(pxl, py);
-            seen.push((ratios.over([r, g, b]), cover, [r, g, b]));
+            match &mut streak {
+                Some((color, sum)) if *color == [r, g, b] => *sum += u64::from(cover),
+                _ => {
+                    if let Some((color, sum)) = streak.replace(([r, g, b], u64::from(cover))) {
+                        *covered.entry(color).or_default() += sum;
+                    }
+                }
+            }
         }
     }
-    let total: f64 = seen.iter().map(|s| s.1).sum();
-    if total <= 0.0 {
+    if let Some((color, sum)) = streak {
+        *covered.entry(color).or_default() += sum;
+    }
+    let total: u64 = covered.values().sum();
+    if total == 0 {
         return None;
     }
-    seen.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut sum = 0.0;
+    let mut seen: Vec<(f64, u64, [u8; 3])> =
+        covered.into_iter().map(|(bg, cover)| (ratios.over(bg), cover, bg)).collect();
+    scaena_core::sort::by(&mut seen, |a, b| a.0.total_cmp(&b.0));
+    let (mut sum, spare) = (0, total as f64 * SPARE);
     for &(r, cover, bg) in &seen {
         sum += cover;
-        if sum > total * SPARE {
+        if sum as f64 > spare {
             return Some((r, bg));
         }
     }

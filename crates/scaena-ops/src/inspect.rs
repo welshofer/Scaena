@@ -4,6 +4,7 @@
 //! rest, where a node may go, and what an inspector offers for it. And what changes between
 //! two states.
 
+use crate::arrange::{self, Align, Arranged, Asked, Order, Spread};
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
@@ -63,10 +64,35 @@ pub struct Views {
     /// cell, moved or resized.
     #[serde(default)]
     pub to: Option<[f32; 4]>,
-    /// With `snap`: the patch keeps the placement to the state inspected, written into its
-    /// own props wherever it lives now (`place`'s `fork`).
+    /// With `snap` or `arrange`: the patch keeps what it changes to the state inspected,
+    /// written into its own props wherever it lives now (`place`'s and `choose`'s `fork`).
     #[serde(default)]
     pub fork: bool,
+    /// Several nodes shown in the state inspected, children of one container, arranged at
+    /// once (PLAN 2.42): with one of `align`, `spread`, `order`, or `by`, where each lands
+    /// and the patch that puts them there.
+    #[serde(default)]
+    pub arrange: Option<Vec<String>>,
+    /// With `arrange`: the edge, or the middle, they all take: the one all of them reach
+    /// farthest, or the middle of them all; on a grid, snapped to its tracks.
+    #[serde(default)]
+    pub align: Option<Align>,
+    /// With `arrange`: the first and the last stay, and the ones between move so the gaps
+    /// between them all are equal, `across` or `down`.
+    #[serde(default)]
+    pub spread: Option<Spread>,
+    /// With `arrange`: each goes `forward` in front of the next of its container's children
+    /// that it overlaps, `backward` behind the one before, or to the `front` or the `back` of
+    /// them all, by its `z`.
+    #[serde(default)]
+    pub order: Option<Order>,
+    /// With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of
+    /// it snaps, the rest as far as it went, each its own way.
+    #[serde(default)]
+    pub by: Option<[f32; 2]>,
+    /// With `by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.
+    #[serde(default)]
+    pub free: bool,
     /// A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each
     /// property it edits, with the theme's names for it or what the schema allows, the value
     /// the state shows, and where that value lives, which is where `choose` writes.
@@ -79,8 +105,9 @@ pub struct Views {
     #[serde(default)]
     pub state_choices: bool,
     /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
-    /// theme's roles, each kind of shape, each image in the bundle, and each shader preset,
-    /// each as `add_node` adds it, with the box it takes at first.
+    /// theme's roles, each kind of shape, each image in the bundle, a chart and a table of
+    /// each data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with
+    /// the box it takes at first.
     #[serde(default)]
     pub inserts: bool,
 }
@@ -88,7 +115,7 @@ pub struct Views {
 impl Views {
     /// Whether a view needs the state laid out, as a frame lays it out.
     fn laid(&self) -> bool {
-        self.boxes || self.at.is_some() || self.targets.is_some()
+        self.boxes || self.at.is_some() || self.targets.is_some() || self.arrange.is_some()
     }
 }
 
@@ -174,6 +201,9 @@ pub struct Inspected {
     /// Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapped: Option<Snapped>,
+    /// Where the nodes `arrange` names land, and the patch that puts them there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arranged: Option<Arranged>,
     /// What an inspector offers for the node asked about (`choices`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choices: Option<Choices>,
@@ -484,8 +514,29 @@ pub fn inspect_deck(
         (_, _, None, Some(_)) => {
             return Err(OpsError::new("`to` is a box dropped on a node's targets: say how it snaps with `snap`"));
         }
-        (_, _, None, None) if views.fork => {
-            return Err(OpsError::new("`fork` keeps a snapped patch to its state: say how it snaps with `snap`"));
+        (_, _, None, None) if views.fork && views.arrange.is_none() => {
+            return Err(OpsError::new(
+                "`fork` keeps a snapped or arranged patch to its state: say how it snaps with `snap`, or arrange nodes with `arrange`",
+            ));
+        }
+        _ => {}
+    }
+    let ways = [views.align.is_some(), views.spread.is_some(), views.order.is_some(), views.by.is_some()];
+    match (&views.arrange, state, ways.iter().filter(|w| **w).count()) {
+        (Some(_), None, _) => return Err(OpsError::new("`arrange` names nodes in a state: name the state")),
+        (Some(_), _, 0) => {
+            return Err(OpsError::new("`arrange` arranges nodes one way: give `align`, `spread`, `order`, or `by`"));
+        }
+        (Some(_), _, 2..) => {
+            return Err(OpsError::new(
+                "`arrange` arranges nodes one way: give one of `align`, `spread`, `order`, and `by`",
+            ));
+        }
+        (None, _, 1..) => {
+            return Err(OpsError::new("`align`, `spread`, `order`, and `by` arrange nodes: name them with `arrange`"));
+        }
+        _ if views.free && views.by.is_none() => {
+            return Err(OpsError::new("`free` moves nodes off the grid: move them with `arrange` and `by`"));
         }
         _ => {}
     }
@@ -532,6 +583,7 @@ pub fn inspect_deck(
             hits: None,
             targets: None,
             snapped: None,
+            arranged: None,
             choices: None,
             state_choices: None,
             inserts: None,
@@ -600,6 +652,19 @@ pub fn inspect_deck(
                     inspected.snapped = Some(target);
                 }
                 inspected.targets = Some(Targets::from(found));
+            }
+            if let Some(nodes) = &views.arrange {
+                let found = nodes.iter().map(|n| engine.targets(&req, n)).collect::<Result<Vec<_>, _>>()?;
+                let asked = Asked {
+                    align: views.align,
+                    spread: views.spread,
+                    order: views.order,
+                    by: views.by,
+                    free: views.free,
+                };
+                let how = asked.how()?;
+                let (shown, boxes) = (cascade::with_overrides(deck, s), scene.boxes());
+                inspected.arranged = arrange::arrange(deck, &shown, &boxes, nodes, found, how, views.fork)?;
             }
         }
         out.push(inspected);
@@ -850,7 +915,7 @@ pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
         }
     }
     let mut ids: Vec<(String, usize)> = depth.into_iter().collect();
-    ids.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
     ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
 }
 

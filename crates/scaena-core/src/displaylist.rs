@@ -636,7 +636,7 @@ pub fn paint_order(snapshot: &Snapshot) -> Vec<&str> {
         .iter()
         .map(|(id, props)| (props.get("z").and_then(Value::as_i64).unwrap_or(0), id.as_str()))
         .collect();
-    nodes.sort_by_key(|&(z, _)| z);
+    crate::sort::by_key(&mut nodes, |&(z, _)| z);
     nodes.into_iter().map(|(_, id)| id).collect()
 }
 

@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
 use scaena_engine::EngineError;
 use scaena_ops::OpsError;
+use scaena_ops::arrange::{Align, Order, Spread};
 use scaena_ops::inspect::{SnapMode, Views};
 use scaena_ops::lint::Linted;
 use scaena_ops::render::Painter;
@@ -93,10 +94,34 @@ enum Cmd {
         /// The box a drag left, `X,Y,W,H` in canvas units: NODE's cell, moved or resized.
         #[arg(long, value_name = "X,Y,W,H", value_parser = rect, requires = "snap")]
         to: Option<[f32; 4]>,
-        /// Keep the snapped patch to the state: the placement goes into its own props,
-        /// wherever it lives now (`place`'s `fork`).
-        #[arg(long, requires = "snap")]
+        /// Keep the snapped or arranged patch to the state: what it changes goes into the
+        /// state's own props, wherever it lives now (`place`'s and `choose`'s `fork`).
+        #[arg(long)]
         fork: bool,
+        /// Several nodes in the state, children of one container, arranged at once (PLAN
+        /// 2.42): with `--align`, `--spread`, `--order`, or `--by`, where each lands and the
+        /// patch that puts them there. Needs `--state`.
+        #[arg(long, value_name = "NODES", value_delimiter = ',', requires = "state")]
+        arrange: Option<Vec<String>>,
+        /// The edge, or the middle, the nodes `--arrange` names all take: left, center,
+        /// right, top, middle, or bottom; on a grid, snapped to its tracks.
+        #[arg(long, value_name = "EDGE", requires = "arrange")]
+        align: Option<Align>,
+        /// Spread the nodes `--arrange` names so the gaps between them are equal, the first
+        /// and the last staying: across or down.
+        #[arg(long, value_name = "WAY", requires = "arrange")]
+        spread: Option<Spread>,
+        /// Order the nodes `--arrange` names among their container's children, by `z`:
+        /// forward or backward past the next each overlaps, or to the front or the back.
+        #[arg(long, value_name = "HOW", requires = "arrange")]
+        order: Option<Order>,
+        /// Move the nodes `--arrange` names together `DX,DY` canvas units: the first snapped
+        /// as a drag of it snaps, the rest as far as it went.
+        #[arg(long, value_name = "DX,DY", value_parser = point, requires = "arrange", allow_hyphen_values = true)]
+        by: Option<[f32; 2]>,
+        /// With `--by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.
+        #[arg(long, requires = "by")]
+        free: bool,
         /// What an inspector offers for NODE in the state (ADR-0013): each property it
         /// edits, the value shown and where it lives, and the theme's names for it. Needs
         /// `--state`.
@@ -109,8 +134,9 @@ enum Cmd {
         #[arg(long, requires = "state")]
         state_choices: bool,
         /// What may be inserted in the state (PLAN 2.34): a text in each of the theme's
-        /// roles, each kind of shape, each image in the bundle, and each shader preset, as
-        /// `add_node` adds each, with the box it takes at first. Needs `--state`.
+        /// roles, each kind of shape, each image in the bundle, a chart and a table of each
+        /// data source, and each shader preset, as `add_node` adds each, with the box it
+        /// takes at first. Needs `--state`.
         #[arg(long, requires = "state")]
         inserts: bool,
     },
@@ -402,6 +428,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             snap,
             to,
             fork,
+            arrange,
+            align,
+            spread,
+            order,
+            by,
+            free,
             choices,
             state_choices,
             inserts,
@@ -417,6 +449,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 snap,
                 to,
                 fork,
+                arrange,
+                align,
+                spread,
+                order,
+                by,
+                free,
                 choices,
                 state_choices,
                 inserts,
@@ -883,6 +921,17 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
             match snapped.patch.is_empty() {
                 true => println!("    where it is: nothing to patch"),
                 false => println!("    patch: {}", serde_json::to_string(&snapped.patch)?),
+            }
+        }
+        if let Some(arranged) = &i.arranged {
+            println!("  arranged:");
+            for landed in &arranged.landed {
+                let [x, y, w, h] = landed.cell.map(|v| num(f64::from(v)));
+                println!("    {} lands at x {x}, y {y}, {w} × {h}", landed.node);
+            }
+            match arranged.patch.is_empty() {
+                true => println!("    where they are: nothing to patch"),
+                false => println!("    patch: {}", serde_json::to_string(&arranged.patch)?),
             }
         }
         if let Some(c) = &i.choices {

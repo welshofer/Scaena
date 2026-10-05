@@ -153,7 +153,7 @@ pub fn check(deck: &Deck, theme: Option<&Theme>) -> Vec<Finding> {
 
 /// Findings in report order: errors first, then by code, then where they are.
 pub fn sort(findings: &mut [Finding]) {
-    findings.sort_by(|a, b| {
+    crate::sort::by(findings, |a, b| {
         b.severity.cmp(&a.severity).then_with(|| a.code.cmp(&b.code)).then_with(|| a.format.cmp(&b.format))
     });
 }
