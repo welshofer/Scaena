@@ -312,6 +312,21 @@
           "stagger": { "description": "From one unit's start to the next's.", "type": "number" },
           "duration": { "description": "Each unit's.", "type": "number" },
           "end": { "type": "number" },
+          "moving": {
+            "description": "When its first unit starts to change and its last comes to rest: an `anim`'s from when\nits first key falls.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "delay": {
+            "description": "Its `delay` as written, what `time_motion` reads and sets (PLAN 2.44): a choreography\nitem's own, else its preset call's, and a node's own preset call's. A node's own `anim`\nhas none: it is when its first key falls.",
+            "type": "number"
+          },
+          "written": {
+            "description": "Where it is written, a JSON pointer into the deck: the choreography item\n(`/states/2/choreography/0`), or the node's own property where it lives\n(`/states/1/props/title/enter`, `/nodes/title/exit`).",
+            "type": ["string", "null"]
+          },
           "curve": { "$ref": "#/$defs/Curve" },
           "from": {
             "description": "An entrance's look before it: what it changes from rest.",
@@ -330,7 +345,7 @@
             "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }]
           }
         },
-        "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "curve"]
+        "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "moving", "delay", "curve"]
       },
       "SplitUnit": {
         "description": "What a choreographed entrance splits its target into.",

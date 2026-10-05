@@ -3,7 +3,7 @@
 //! whose bundle is `docs/examples/`.
 
 use scaena_core::Deck;
-use scaena_core::patch::{Compiled, JsonOp, PatchError, Renamed, compile};
+use scaena_core::patch::{Compiled, JsonOp, PatchError, Renamed, Timed, Written, compile, written};
 use scaena_core::validate::{BundleFiles, validate_bundle};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -1107,4 +1107,175 @@ fn group_nests_in_a_group_and_refuses_what_it_cannot_hold() {
     );
     assert!(refused(json!([{ "op": "group", "id": "pair", "nodes": [] }])).contains("one node or more"));
     assert!(refused(json!([{ "op": "ungroup", "group": "title" }])).contains("takes a group's children out"));
+}
+
+/// `time_motion` sets a motion's delay and duration where the engine reads them: the
+/// choreography item that moves the node so, else the node's own preset (PLAN 2.44).
+#[test]
+fn time_motion_writes_where_the_motion_is_written() {
+    let original = example();
+    // The subtitle's rise in `intro`, a choreography item with a delay of its own.
+    let c = patch(&original, json!([{ "op": "time_motion", "node": "subtitle", "motion": "enter", "state": "intro", "delay": 300, "duration": 600 }]))
+        .unwrap();
+    assert_eq!(
+        c.doc["states"][0]["choreography"][1],
+        json!({ "target": "subtitle", "enter": "rise", "delay": 300, "duration": 600 })
+    );
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // A delay of 0 is no delay; a theme duration is written by its name.
+    let c = patch(&original, json!([{ "op": "time_motion", "node": "subtitle", "motion": "enter", "state": "intro", "delay": 0, "duration": "slow" }]))
+        .unwrap();
+    assert_eq!(
+        c.doc["states"][0]["choreography"][1],
+        json!({ "target": "subtitle", "enter": "rise", "duration": "slow" })
+    );
+
+    // The chart's grow is a call: its delay goes on the item, which wins over the call.
+    let c = patch(
+        &original,
+        json!([{ "op": "time_motion", "node": "rev", "motion": "enter", "state": "revenue", "delay": 120 }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["states"][1]["choreography"][0]["delay"], json!(120));
+    assert_eq!(c.doc["states"][1]["choreography"][0]["enter"], original["states"][1]["choreography"][0]["enter"]);
+    // It runs on a spring, which lasts as long as it settles.
+    let sprung = patch(
+        &original,
+        json!([{ "op": "time_motion", "node": "rev", "motion": "enter", "state": "revenue", "duration": 500 }]),
+    )
+    .unwrap_err()
+    .message;
+    assert!(sprung.contains("runs on the spring `snappy`"), "{sprung}");
+
+    // A node's own entrance, where it lives: a name becomes a call, and back again.
+    let own = patch(
+        &original,
+        json!([{ "op": "apply_preset", "node": "bg", "preset": "fade", "motion": "enter", "state": "close" }]),
+    )
+    .unwrap()
+    .doc;
+    let c = patch(&own, json!([{ "op": "time_motion", "node": "bg", "motion": "enter", "state": "close", "delay": 120, "duration": "fast" }]))
+        .unwrap();
+    assert_eq!(
+        c.doc["states"][3]["props"]["bg"]["enter"],
+        json!({ "preset": "fade", "delay": 120, "duration": "fast" })
+    );
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    let back =
+        patch(&c.doc, json!([{ "op": "time_motion", "node": "bg", "motion": "enter", "state": "close", "delay": 0 }]))
+            .unwrap();
+    assert_eq!(back.doc["states"][3]["props"]["bg"]["enter"], json!({ "preset": "fade", "duration": "fast" }));
+
+    // An exit is read from the state the node leaves: the subtitle leaves `intro` for `revenue`.
+    let own = patch(
+        &original,
+        json!([{ "op": "apply_preset", "node": "subtitle", "preset": "fade", "motion": "exit", "state": "intro" }]),
+    )
+    .unwrap()
+    .doc;
+    let c = patch(
+        &own,
+        json!([{ "op": "time_motion", "node": "subtitle", "motion": "exit", "state": "revenue", "duration": 200 }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["states"][0]["props"]["subtitle"]["exit"], json!({ "preset": "fade", "duration": 200 }));
+}
+
+/// `anim` tracks keep their keys spaced as they were: a delay moves them, a duration stretches
+/// them from the first (PLAN 2.44).
+#[test]
+fn time_motion_moves_and_stretches_anim_keys() {
+    let tracks = json!({ "opacity": [{ "t": 100, "v": 0 }, { "t": 500, "v": 1, "ease": "out" }], "rotate": [{ "t": 300, "v": 4 }] });
+    let animated = patch(
+        &example(),
+        json!([{ "op": "set_prop", "node": "title", "state": "mix", "prop": "anim", "value": tracks }]),
+    )
+    .unwrap()
+    .doc;
+    let c = patch(&animated, json!([{ "op": "time_motion", "node": "title", "motion": "anim", "state": "mix", "delay": 300, "duration": 200 }]))
+        .unwrap();
+    assert_eq!(
+        c.doc["states"][2]["props"]["title"]["anim"],
+        json!({ "opacity": [{ "t": 300, "v": 0 }, { "t": 500, "v": 1, "ease": "out" }], "rotate": [{ "t": 400, "v": 4 }] })
+    );
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // In choreography, an item's delay is the item's, in a sequence too.
+    let sequenced = patch(
+        &animated,
+        json!([{ "op": "add", "path": "/states/2/choreography", "value": [
+            { "sequence": [ { "target": "rev", "emphasis": "pulse" }, { "target": ["title", "rev"], "anim": tracks } ] }
+        ] }]),
+    )
+    .unwrap()
+    .doc;
+    let c = patch(
+        &sequenced,
+        json!([{ "op": "time_motion", "node": "rev", "motion": "anim", "state": "mix", "delay": 80, "duration": 800 }]),
+    )
+    .unwrap();
+    let item = &c.doc["states"][2]["choreography"][0]["sequence"][1];
+    assert_eq!(item["delay"], json!(80));
+    assert_eq!(item["anim"]["opacity"], json!([{ "t": 100, "v": 0 }, { "t": 900, "v": 1, "ease": "out" }]));
+    assert_eq!(item["anim"]["rotate"], json!([{ "t": 500, "v": 4 }]));
+    assert_eq!(
+        c.doc["states"][2]["props"]["title"]["anim"], tracks,
+        "the title's own, which the item's gives way to, stays"
+    );
+    let pulse = patch(
+        &sequenced,
+        json!([{ "op": "time_motion", "node": "rev", "motion": "emphasis", "state": "mix", "delay": 50 }]),
+    )
+    .unwrap();
+    assert_eq!(pulse.doc["states"][2]["choreography"][0]["sequence"][0]["delay"], json!(50));
+
+    let refused = |doc: &Value, ops: Value| patch(doc, ops).unwrap_err().message;
+    let flat = json!({ "opacity": [{ "t": 0, "v": 0 }] });
+    let one = patch(
+        &example(),
+        json!([{ "op": "set_prop", "node": "title", "state": "mix", "prop": "anim", "value": flat }]),
+    )
+    .unwrap()
+    .doc;
+    let stretch = refused(
+        &one,
+        json!([{ "op": "time_motion", "node": "title", "motion": "anim", "state": "mix", "duration": 400 }]),
+    );
+    assert!(stretch.contains("no time between them"), "{stretch}");
+    let none = refused(
+        &example(),
+        json!([{ "op": "time_motion", "node": "title", "motion": "emphasis", "state": "mix", "delay": 10 }]),
+    );
+    assert!(none.contains("is not there to time: `apply_preset` gives it one"), "{none}");
+    let nothing =
+        refused(&example(), json!([{ "op": "time_motion", "node": "subtitle", "motion": "enter", "state": "intro" }]));
+    assert!(nothing.contains("name the `delay` or the `duration`"), "{nothing}");
+    let named = refused(
+        &example(),
+        json!([{ "op": "time_motion", "node": "subtitle", "motion": "enter", "state": "intro", "duration": "glacial" }]),
+    );
+    assert!(named.contains("no duration `glacial`; it has `fast`, `standard`, `slow`"), "{named}");
+}
+
+/// `written` says where `time_motion` writes a motion, and the delay it reads there (PLAN 2.44).
+#[test]
+fn written_finds_a_motion_where_time_motion_writes_it() {
+    let doc = example();
+    let at = |doc: &Value, state: &str, node: &str, motion: Timed| written(doc, state, node, motion).unwrap();
+    let item = |pointer: &str, delay: f64| Written { pointer: pointer.into(), delay };
+    assert_eq!(at(&doc, "intro", "subtitle", Timed::Enter), item("/states/0/choreography/1", 240.0));
+    assert_eq!(at(&doc, "revenue", "rev", Timed::Enter), item("/states/1/choreography/0", 0.0));
+    let timed = patch(
+        &doc,
+        json!([
+            { "op": "apply_preset", "node": "bg", "preset": "fade", "motion": "enter", "state": "close" },
+            { "op": "time_motion", "node": "bg", "motion": "enter", "state": "close", "delay": 120 },
+            { "op": "set_prop", "node": "title", "state": "mix", "prop": "anim", "value": { "opacity": [{ "t": 100, "v": 0 }, { "t": 400, "v": 1 }] } },
+        ]),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(at(&timed, "close", "bg", Timed::Enter), item("/states/3/props/bg/enter", 120.0));
+    assert_eq!(at(&timed, "mix", "title", Timed::Anim), item("/states/2/props/title/anim", 100.0));
+    assert!(written(&doc, "mix", "title", Timed::Exit).unwrap_err().contains("is not there to time"));
 }

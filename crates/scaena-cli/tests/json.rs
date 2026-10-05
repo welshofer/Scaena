@@ -186,12 +186,17 @@ fn inspect_timeline_places_each_motion_on_its_states_clock() {
     let dot = on("mo-dot");
     assert_eq!(dot["motion"], "emphasis");
     assert_eq!(dot["peak"]["scale"], serde_json::json!([1.25, 1.25]));
+    // Where each is written, and its delay there: what `time_motion` sets (PLAN 2.44).
+    assert_eq!((title["written"].as_str(), title["delay"].as_f64()), (Some("/states/41/choreography/0"), Some(0.0)));
+    assert_eq!((dot["written"].as_str(), dot["delay"].as_f64()), (Some("/states/41/choreography/3"), Some(900.0)));
+    assert_eq!(title["moving"], serde_json::json!([0.0, 720.0]));
 
     // Case 42: a look that tints toward a theme color, and one that draws an outline on.
     let (_, morph) = json(&["inspect", TORTURE, "--state", "morph", "--timeline"]);
     let motions = morph[0]["timeline"]["motions"].as_array().unwrap();
     let arrow = motions.iter().find(|m| m["node"] == "mf-arrow").unwrap();
     assert_eq!(arrow["from"], serde_json::json!({ "progress": 0.0 }));
+    assert_eq!(arrow["written"], "/states/43/props/mf-arrow/enter", "the arrow's own entrance, where it lives");
     let badge = motions.iter().find(|m| m["node"] == "mf-badge").unwrap();
     assert!(badge["peak"]["tint"]["color"].as_str().is_some_and(|c| c.starts_with('#')), "{badge:#}");
 

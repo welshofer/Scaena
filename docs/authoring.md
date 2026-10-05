@@ -66,6 +66,10 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - The inspector aligns them by their left, right, top, or bottom edges or their middles, on the grid's tracks, and spreads three or more evenly. It offers what all of them have, and what you choose there is theirs.
   - ⌘] brings what is selected in front of the next thing it overlaps, and ⌘[ sends it behind; with Shift, in front of or behind everything beside it. Each is one ⌘Z.
   - ⌘G (Ctrl+G) puts what is selected in a group, which moves, fades, and enters as one; ⌘⇧G takes a group apart again. Nothing moves either way. The objects in a stack or a grid are already held together, and stay as they are.
+- **Time the build.** Under the preview, the state's cue is a timeline: the transition, then a bar for each thing that moves.
+  - Drag a bar to start it later or sooner, and drag its end to make it longer or shorter. Each change is written where the motion is set, in the state's choreography or on the object itself, and one ⌘Z undoes it. A motion on a spring lasts as long as it takes to settle, so its end stays put.
+  - Add a motion picks one of the theme's presets for the object selected: as it comes on, or for emphasis. Objects that leave in this state can be given one as they go.
+  - Press or drag along the ruler to see the cue at that moment, and Play to watch it run. Click the slide to edit it at rest again.
 - **Type.** Double-click a text in the preview, or press Enter with it selected, and type where it stands.
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.

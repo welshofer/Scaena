@@ -65,6 +65,33 @@
         resize: none; overflow: hidden; white-space: pre; pointer-events: none; caret-color: transparent;
       }
       aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* What a press on the cue's ruler shows is the state in its cue, not at rest: the canvas's
+         outlines, which are where things rest, step back. */
+      #preview.scrubbing #overlay svg { visibility: hidden; }
+      /* The cue of the state shown (PLAN 2.44): its transition and each motion, a bar each, on the
+         cue's clock. */
+      #cue { padding: 0 12px; }
+      #cue[hidden] { display: none; }
+      #cue .cue-head { padding: 6px 0 2px; }
+      #cue .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+      #cue select { margin-left: auto; max-width: 16em; }
+      #cue .lanes { position: relative; display: grid; grid-template-columns: minmax(6em, 11em) minmax(0, 1fr); column-gap: 8px; row-gap: 2px; max-height: 26vh; overflow-y: auto; padding-bottom: 4px; }
+      #cue .label { grid-column: 1; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
+      #cue .ruler, #cue .track { grid-column: 2; position: relative; height: 16px; cursor: text; }
+      #cue .track { background: rgb(255 255 255 / 0.03); border-radius: 2px; }
+      #cue .ruler { border-bottom: 1px solid var(--line); }
+      #cue .tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+      #cue .tick:first-child { transform: none; }
+      #cue .bar { position: absolute; top: 2px; bottom: 2px; min-width: 2px; border-radius: 3px; background: var(--info); opacity: 0.85; cursor: grab; touch-action: none; }
+      #cue .bar.transition { background: var(--muted); opacity: 0.5; cursor: default; }
+      #cue .bar.exit { background: var(--warning); }
+      #cue .bar.emphasis { background: #c9a2e8; }
+      #cue .bar.anim { background: #9fd49a; }
+      #cue .end { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -4px; cursor: ew-resize; touch-action: none; border-radius: 2px; }
+      #cue .end::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 2px; background: var(--ink); opacity: 0.6; }
+      #cue .bar:focus-visible, #cue .end:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+      #cue .head { grid-column: 2; position: relative; pointer-events: none; }
+      #cue .head i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--error); }
       /* The state strip (PLAN 2.35): each state at rest, small, with its cue's length. */
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
@@ -166,6 +193,14 @@
             aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
           ><svg aria-hidden="true"></svg></div>
         </div>
+        <section id="cue" aria-label="The cue of the state shown" hidden>
+          <p class="cue-head">
+            <button type="button" data-play aria-label="Play the cue">▶</button>
+            <span class="clock"></span>
+            <select data-add aria-label="Add a motion" title="A motion from the theme's presets for the node selected, as it enters or for emphasis, or for a node that leaves"></select>
+          </p>
+          <div class="lanes"></div>
+        </section>
         <div id="strip">
           <ol role="listbox" aria-label="States" aria-orientation="horizontal"></ol>
           <span class="adds">

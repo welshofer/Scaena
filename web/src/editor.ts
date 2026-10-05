@@ -45,6 +45,7 @@ import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
+import { cue } from "./cue";
 import { keptNames } from "./folders";
 import { looks } from "./look";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
@@ -355,6 +356,8 @@ async function edit(source: Source) {
     ungroup: () => board.ungroup(),
   });
 
+  /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
+  let cueing: ReturnType<typeof cue> | undefined;
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
    * one change, one step to undo. It waits while the source does not compile, and while the
    * assistant works. */
@@ -390,11 +393,24 @@ async function edit(source: Source) {
       const all = node === undefined ? [] : [node, ...also];
       for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(all.includes(row.getAttribute("data-node") ?? "")));
       void look.show(node, also);
+      void cueing?.offer();
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
     // focus there keeps the text typed in.
     chose: (selected) => void look.characters(selected),
     keeps: (to) => to instanceof Node && $("#look").contains(to),
+  });
+  /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
+   * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
+  cueing = cue(stage, $("#cue"), $("#preview"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    say,
+    chosen: () => board.chosen()[0],
+    select: (node) => board.select(node),
+    states: () => last?.states.map(([id]) => id) ?? [],
   });
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
    * move, rename, and remove them. */
@@ -646,6 +662,7 @@ async function edit(source: Source) {
       return;
     }
     inspected = found;
+    cueing?.show(found);
     const cue = found.timeline;
     const rows = Object.keys(found.nodes).map((id) => {
       const look = found.looks?.[id];
@@ -902,6 +919,8 @@ async function edit(source: Source) {
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
       strip: states,
+      /** The cue of the state shown: its bars, and the patches its drags make. */
+      cue: cueing,
     },
   });
 }

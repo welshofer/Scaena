@@ -104,7 +104,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "reading", id: data.id, html: player.reading(data.state) });
       case "run":
         layOut(data.format);
-        return run(data.index, data.t, ++latest, data.still);
+        return run(data.index, data.t, ++latest, data.still, data.alone);
       case "seek": {
         latest++;
         layOut(data.format);
@@ -975,9 +975,10 @@ function help(port: MessagePort) {
 /** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state
  * that holds, short of the last, gives way to the next when its cue and hold are over; one
  * that does not hold, and the last, comes to rest and waits. `still`: each cue is a cut, the
- * state painted at rest once, and the clock waits out its cue and hold without frames. */
-function run(index: number, t: number, run: number, still = false) {
-  const goesOn = (i: number) => slots[i].hold > 0 && i < slots.length - 1;
+ * state painted at rest once, and the clock waits out its cue and hold without frames.
+ * `alone`: slot `index`'s cue alone, which comes to rest and waits. */
+function run(index: number, t: number, run: number, still = false, alone = false) {
+  const goesOn = (i: number) => !alone && slots[i].hold > 0 && i < slots.length - 1;
   const start = performance.now();
   /** Where the clock started, from the slot it is in now. */
   let offset = t;

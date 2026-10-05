@@ -166,6 +166,7 @@ web-smoke: site
     node web/charts.mjs
     node web/several.mjs
     node web/group.mjs
+    node web/cue.mjs
     node web/runs.mjs
     node web/theme.mjs
     node web/strip.mjs
