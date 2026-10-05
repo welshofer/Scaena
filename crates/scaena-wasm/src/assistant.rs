@@ -156,6 +156,8 @@ struct DeckInspect {
     #[serde(default)]
     choices: Option<String>,
     #[serde(default)]
+    state_choices: bool,
+    #[serde(default)]
     inserts: bool,
 }
 
@@ -272,6 +274,7 @@ impl Session {
                     to: a.to,
                     fork: a.fork,
                     choices: a.choices,
+                    state_choices: a.state_choices,
                     inserts: a.inserts,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })

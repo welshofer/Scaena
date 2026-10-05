@@ -3,7 +3,7 @@
 //! shows, and where that value lives.
 
 use scaena_core::Deck;
-use scaena_core::choices::{Choices, Field, Takes, Where, choices};
+use scaena_core::choices::{Choices, Field, StateChoices, Takes, Where, choices, state_choices};
 use scaena_core::model::Theme;
 use scaena_core::model::theme::Vocabulary;
 use scaena_core::patch::compile;
@@ -141,4 +141,81 @@ fn a_value_written_out_lives_in_the_overrides_and_says_so() {
         assert!(color.literal, "{state}");
     }
     assert!(!field(&offered(&doc, "revenue", "title"), "role").literal);
+}
+
+fn state(doc: &Value, state: &str) -> StateChoices {
+    let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+    state_choices(&deck, &Theme::from_json(DUSK).unwrap(), state).unwrap()
+}
+
+fn own<'a>(c: &'a StateChoices, prop: &str) -> &'a Field {
+    c.fields.iter().find(|f| f.prop == prop).unwrap_or_else(|| panic!("no {prop} in {:?}", c.fields))
+}
+
+/// The value a field shows, and where it lives.
+fn shown(f: &Field) -> (Option<Value>, Option<Where>) {
+    (f.value.clone(), f.lives.clone())
+}
+
+#[test]
+fn a_state_offers_its_layout_transition_hold_and_notes() {
+    let mix = state(&example(), "mix");
+    let props: Vec<&str> = mix.fields.iter().map(|f| f.prop.as_str()).collect();
+    assert_eq!(
+        props,
+        ["layout", "transition/duration", "transition/ease", "transition/spring", "transition/match", "hold", "notes"]
+    );
+    // The layout `mix` takes from `revenue`, which it builds on, and where it lives.
+    let layout = own(&mix, "layout");
+    let Takes::Name { of: Vocabulary::Layout, names, overrides: false } = &layout.takes else { panic!("{layout:?}") };
+    assert_eq!(
+        names,
+        &["full", "figure", "narrow-figure"],
+        "the theme's layouts with a slot for each node `revenue` and `mix` place in one, in its order"
+    );
+    assert_eq!(shown(layout), (Some(json!("figure")), Some(Where::State("revenue".into()))));
+    // A bare duration is the transition's duration; its other keys are not set.
+    assert_eq!(shown(own(&mix, "transition/duration")), (Some(json!("slow")), Some(Where::State("mix".into()))));
+    let Takes::Name { of: Vocabulary::Easing, names, .. } = &own(&mix, "transition/ease").takes else { panic!() };
+    assert_eq!(names, &["standard", "in", "out", "linear"]);
+    assert_eq!(shown(own(&mix, "transition/ease")), (None, None));
+    let Takes::Name { of: Vocabulary::Spring, .. } = &own(&mix, "transition/spring").takes else { panic!() };
+    assert_eq!(own(&mix, "transition/match").takes, Takes::Word { words: vec!["id".into(), "none".into()] });
+    // Its hold, a number of milliseconds, and its notes, words for people.
+    assert_eq!(
+        own(&mix, "hold").takes,
+        Takes::Number { min: Some(0.0), above: None, max: None, whole: false, overrides: false }
+    );
+    assert_eq!(shown(own(&mix, "hold")), (Some(json!(6000.0)), Some(Where::State("mix".into()))));
+    assert_eq!(own(&mix, "notes").takes, Takes::Text);
+    assert!(own(&mix, "notes").value.as_ref().is_some_and(|n| n.as_str().unwrap().starts_with("Same bars")));
+
+    // `revenue` sets its own layout and a transition object; `intro` sets none, so it cuts.
+    let revenue = state(&example(), "revenue");
+    assert_eq!(shown(own(&revenue, "layout")), (Some(json!("figure")), Some(Where::State("revenue".into()))));
+    assert_eq!(
+        shown(own(&revenue, "transition/ease")),
+        (Some(json!("standard")), Some(Where::State("revenue".into())))
+    );
+    assert!(
+        state(&example(), "intro")
+            .fields
+            .iter()
+            .filter(|f| f.prop.starts_with("transition/"))
+            .all(|f| f.value.is_none())
+    );
+    assert_eq!(shown(own(&revenue, "notes")), (None, None));
+    let intro = state(&example(), "intro");
+    let Takes::Name { names, .. } = &own(&intro, "layout").takes else { panic!() };
+    assert_eq!(names, &["title"], "the title and the subtitle have slots in `title` alone");
+
+    // An empty slide (`absolute`) with no layout takes none from anywhere.
+    let ops = json!([{ "op": "add_state", "state": { "id": "blank", "mode": "absolute" }, "after": "close" }]);
+    let doc = compile(&example(), ops.as_array().unwrap(), &Examples).unwrap().doc;
+    let blank = state(&doc, "blank");
+    assert_eq!(shown(own(&blank, "layout")), (None, None));
+    let Takes::Name { names, .. } = &own(&blank, "layout").takes else { panic!() };
+    assert_eq!(names.len(), 11, "with nothing placed in a slot, every layout fits: {names:?}");
+    let deck: Deck = serde_json::from_value(example()).unwrap();
+    assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
 }

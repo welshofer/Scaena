@@ -109,6 +109,41 @@ pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Li
     Lives::Node
 }
 
+/// Where `deck.states[i]` gets its layout template from, which tracks like a property: the
+/// latest state that sets one, from state `i` back along what it tracks. `None` where none
+/// does.
+pub fn layout_lives(deck: &Deck, i: usize) -> Option<usize> {
+    let mut at = Some(i);
+    while let Some(j) = at {
+        if deck.states[j].layout.is_some() {
+            return Some(j);
+        }
+        // A state tracks from one before it; a `from` that does not is an error resolving.
+        at = tracks_from(deck, j).filter(|&k| k < j);
+    }
+    None
+}
+
+/// The states that take their layout from state `w`, were it to set one: `w`, and each state
+/// whose way back along what it tracks reaches `w` before a state that sets one.
+pub fn layout_takers(deck: &Deck, w: usize) -> Vec<usize> {
+    (0..deck.states.len())
+        .filter(|&j| {
+            let mut at = Some(j);
+            while let Some(k) = at {
+                if k == w {
+                    return true;
+                }
+                if deck.states[k].layout.is_some() {
+                    return false;
+                }
+                at = tracks_from(deck, k).filter(|&back| back < k);
+            }
+            false
+        })
+        .collect()
+}
+
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
     nodes
         .iter()

@@ -26,6 +26,7 @@ import type {
   ToWorker,
   Carets,
   Choices,
+  StateChoices,
 } from "./protocol";
 
 type Reply = Extract<
@@ -52,6 +53,7 @@ type Reply = Extract<
       | "dragged"
       | "made"
       | "choices"
+      | "stateChoices"
       | "carets"
       | "reached"
       | "typed"
@@ -260,6 +262,12 @@ export class Stage {
     return this.request<"choices">({ type: "choices", id: ++this.asked, state, node }).then(({ choices }) => choices);
   }
 
+  /** What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
+   * transition, its hold, and its notes, each with its value and where it lives. */
+  stateChoices(state: string): Promise<StateChoices> {
+    return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
+  }
+
   /** The states `ops` (a patch) would change, by id, with nothing made. */
   reach(ops: unknown[]): Promise<string[]> {
     return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
@@ -436,6 +444,7 @@ export class Stage {
       case "dragged":
       case "made":
       case "choices":
+      case "stateChoices":
       case "carets":
       case "reached":
       case "typed":

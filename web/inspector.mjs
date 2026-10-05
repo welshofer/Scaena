@@ -13,6 +13,10 @@
 // - A color written out is an override: it goes in the deck's `overrides` and shows as one; a
 //   theme name chosen then is written there too; the × takes it away.
 // - What cannot be kept to one state (a value written out) is refused, and says why.
+// - With nothing selected, the inspector edits the state shown (PLAN 2.36): `mix`'s layout, from
+//   the theme's layouts with a slot for each node, written in `revenue`, where it lives, or kept to
+//   `mix`; its transition, which a cut takes away; its hold, in seconds; and its notes. Each is one
+//   `set_state` patch, one step to undo.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -132,9 +136,85 @@ try {
   await page.waitForFunction(() => !window.scaena.look.offered()?.fields.find((f) => f.prop === "style/color")?.value, null, { timeout: 30000 }).catch(() => {});
   check((await field("style/color"))?.value === undefined, "and the role's color shows again");
   check((await page.evaluate(() => window.scaena.last().valid)), "the source still compiles and validates");
+
+  // With nothing selected, the inspector edits the state shown.
+  const stated = (prop) => page.evaluate((p) => window.scaena.look.offered()?.fields.find((f) => f.prop === p), prop);
+  const mixLine = async () => (await source()).split("\n").find((l) => l.startsWith("state mix")) ?? "";
+  const slot = () => page.evaluate(() => window.scaena.last().slots.find((s) => s.state === "mix"));
+  const undo = async () => {
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+  };
+  await page.evaluate((offset) => window.scaena.cursor(offset), (await source()).indexOf("state mix") + "state ".length);
+  await page.waitForFunction(() => window.scaena.shown() === 2 && window.scaena.at().index === 2, null, { timeout: 30000 });
+  await page.evaluate(() => window.scaena.canvas.select(undefined));
+  await page.waitForFunction(() => window.scaena.look.offered()?.state === "mix" && !("node" in window.scaena.look.offered()), null, {
+    timeout: 30000,
+  });
+  const titled = await page.evaluate(() => document.querySelector("#look h2")?.textContent);
+  check(titled === "mix · state", `with nothing selected, the inspector shows the state: ${titled}`);
+  const layouts = await page.evaluate(() => [...document.querySelectorAll("#look-layout option")].slice(1).map((o) => o.textContent));
+  check(layouts.join() === "full,figure,narrow-figure", `its layout takes the theme's layouts with a slot for each node: ${layouts}`);
+  check((await page.inputValue("#look-layout")) === "figure", "it shows the layout `mix` takes");
+  const from = await page.evaluate(() => document.querySelector("#look-layout")?.closest(".control")?.nextElementSibling?.textContent);
+  check(from?.includes("set in revenue"), `from revenue, which sets it: ${from}`);
+
+  // A layout chosen is written where it lives, and reaches the states that take it from there.
+  await page.selectOption("#look-layout", "full");
+  check(await reads("state revenue layout:full"), "a layout chosen in mix is written in revenue, where it lives");
+  const told = await status();
+  check(told.includes("mix's layout: full") && told.includes("in 2 states"), `the status says what changed and where: ${told}`);
+  await undo();
+  check(await back(original), "one undo takes it back");
+  // Kept to `mix`, it is its own.
+  await page.check("#look [data-keep]");
+  await page.selectOption("#look-layout", "narrow-figure");
+  await page.evaluate(() => window.scaena.look.settled());
+  await page.waitForFunction(() => window.scaena.source().includes("layout:narrow-figure"), null, { timeout: 30000 }).catch(() => {});
+  check((await mixLine()).includes("layout:narrow-figure") && (await source()).includes("state revenue layout:figure"), `layout only in mix: ${await mixLine()}`);
+  await page.uncheck("#look [data-keep]");
+  await undo();
+  check(await back(original), "and one undo takes it back");
+
+  // Its transition, its own: a duration from the theme, then an ease, then none, a cut.
+  const slow = (await slot()).span;
+  await page.selectOption("#look-transition-duration", "fast");
+  check(await reads("state mix slide:revenue transition:fast"), `a duration chosen: ${await mixLine()}`);
+  check((await slot()).span < slow, `the cue is shorter: ${(await slot()).span} ms, from ${slow}`);
+  await page.selectOption("#look-transition-ease", "out");
+  check(await reads("ease: out"), `an ease makes the transition an object: ${await mixLine()}`);
+  check((await stated("transition/ease"))?.lives?.state === "mix", "set in mix");
+  await page.click('#look [data-away="transition/ease"]');
+  await page.evaluate(() => window.scaena.look.settled());
+  await page.click('#look [data-away="transition/duration"]');
+  await page.evaluate(() => window.scaena.look.settled());
+  await page.waitForFunction(() => !window.scaena.source().split("\n").find((l) => l.startsWith("state mix"))?.includes("transition"), null, {
+    timeout: 30000,
+  }).catch(() => {});
+  check(!(await mixLine()).includes("transition"), `taken away, the state cuts: ${await mixLine()}`);
+  await page.waitForFunction(() => window.scaena.last().slots.find((s) => s.state === "mix").span === 0, null, { timeout: 30000 }).catch(() => {});
+  check((await slot()).span === 0, "its cue is a cut");
+  const cut = await page.evaluate(() => document.querySelector("#look-transition-duration option")?.textContent);
+  check(cut === "cut", `the duration says so: ${cut}`);
+
+  // Its hold, in seconds, and its notes.
+  await page.locator("#look-hold").evaluate((input) => {
+    input.value = "4.5";
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.evaluate(() => window.scaena.look.settled());
+  await page.waitForFunction(() => window.scaena.last().slots.find((s) => s.state === "mix").hold === 4500, null, { timeout: 30000 }).catch(() => {});
+  check((await slot()).hold === 4500, `a hold in seconds holds the state: ${(await slot()).hold} ms`);
+  check((await status()).includes("mix's hold: 4.5 s"), `the status says it in seconds: ${await status()}`);
+  await page.fill("#look-notes", "Let the stack land.");
+  await page.locator("#overlay").focus();
+  check(await reads('notes "Let the stack land."'), "notes written in the inspector are the state's");
+  for (let i = 0; i < 6; i++) await undo();
+  check(await back(original), "an undo a change takes the state back as it was");
+  check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
 } finally {
   await browser.close();
   await server.close();
 }
-console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "a node's look is chosen from the theme, each a patch");
+console.log(failures.length ? `${failures.length} failure(s): ${failures.join("; ")}` : "a node's look and a state's are chosen from the theme, each a patch");
 process.exit(failures.length ? 1 : 0);

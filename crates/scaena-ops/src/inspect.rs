@@ -7,7 +7,7 @@
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
-use scaena_core::choices::{Choices, choices};
+use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::inserts::{Insert, Start, inserts};
 use scaena_core::model::values::SplitUnit;
@@ -72,6 +72,12 @@ pub struct Views {
     /// the state shows, and where that value lives, which is where `choose` writes.
     #[serde(default)]
     pub choices: Option<String>,
+    /// What an inspector offers for the state inspected itself (PLAN 2.36): its layout (the
+    /// theme's layouts with a slot for each node placed in one), each key of its transition,
+    /// its hold, and its notes, each with the value it has and where it lives, which is where
+    /// `set_state` writes.
+    #[serde(default)]
+    pub state_choices: bool,
     /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
     /// theme's roles, each kind of shape, each image in the bundle, and each shader preset,
     /// each as `add_node` adds it, with the box it takes at first.
@@ -171,6 +177,9 @@ pub struct Inspected {
     /// What an inspector offers for the node asked about (`choices`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choices: Option<Choices>,
+    /// What an inspector offers for the state itself (`state_choices`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_choices: Option<StateChoices>,
     /// What may be inserted in this state (`inserts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserts: Option<Vec<Insert>>,
@@ -412,6 +421,7 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
         || views.laid()
         || views.format.is_some()
         || views.choices.is_some()
+        || views.state_choices
         || views.inserts;
     let theme = if themed { Some(crate::theme(b)?) } else { None };
     let files = if views.timeline || views.data || views.laid() { data_files(b)? } else { DataFiles::new() };
@@ -456,6 +466,9 @@ pub fn inspect_deck(
     if views.choices.is_some() && state.is_none() {
         return Err(OpsError::new("`choices` names a node in a state: name the state"));
     }
+    if views.state_choices && state.is_none() {
+        return Err(OpsError::new("`state_choices` says what an inspector offers for a state: name the state"));
+    }
     if views.inserts && state.is_none() {
         return Err(OpsError::new("`inserts` says what may be inserted in a state: name the state"));
     }
@@ -477,7 +490,8 @@ pub fn inspect_deck(
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
-    let theme = match (views.resolved || views.timeline || views.laid() || views.choices.is_some(), theme) {
+    let offers = views.choices.is_some() || views.state_choices;
+    let theme = match (views.resolved || views.timeline || views.laid() || offers, theme) {
         (true, None) => {
             let what = match (views.resolved, views.timeline, views.laid()) {
                 (true, ..) => "resolved values",
@@ -514,6 +528,7 @@ pub fn inspect_deck(
             targets: None,
             snapped: None,
             choices: None,
+            state_choices: None,
             inserts: None,
         };
         if let (true, Some(theme)) = (views.resolved, theme) {
@@ -541,6 +556,9 @@ pub fn inspect_deck(
         }
         if let (Some(node), Some(theme)) = (&views.choices, theme) {
             inspected.choices = Some(choices(deck, theme, &s.state_id, node).map_err(OpsError::new)?);
+        }
+        if let (true, Some(theme)) = (views.state_choices, theme) {
+            inspected.state_choices = Some(state_choices(deck, theme, &s.state_id).map_err(OpsError::new)?);
         }
         if let (true, Some(theme), Some(engine)) = (views.laid(), theme, engine.as_deref_mut()) {
             // The deck is in its format already: lay it out as it stands.

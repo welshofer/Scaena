@@ -153,6 +153,12 @@ impl Checker {
         Some(self.follow(at))
     }
 
+    /// What the schema allows definition `def` (`State`, `TransitionSpec`) for its property
+    /// `prop`, references followed. `None` for a property it does not have.
+    pub fn def_property(&self, def: &str, prop: &str) -> Option<&Value> {
+        Some(self.follow(self.member(self.defs.get(def)?, prop)?))
+    }
+
     /// `name` among the properties of `schema`, else of the definition it refers to: a
     /// node's own properties, then those every node has.
     fn member<'s>(&'s self, schema: &'s Value, name: &str) -> Option<&'s Value> {
@@ -160,10 +166,12 @@ impl Checker {
         own.or_else(|| self.member(self.defs.get(def_of(schema.get("$ref")?.as_str()?))?, name))
     }
 
-    /// The definition `schema` only refers to (`{"$ref": …}`, perhaps with a description),
-    /// followed to what it says.
+    /// The definition `schema` only refers to (`{"$ref": …}`, perhaps with a description or
+    /// a default), followed to what it says.
     fn follow<'s>(&'s self, schema: &'s Value) -> &'s Value {
-        let only = schema.as_object().is_some_and(|s| s.keys().all(|k| k == "$ref" || k == "description"));
+        let only = schema
+            .as_object()
+            .is_some_and(|s| s.keys().all(|k| matches!(k.as_str(), "$ref" | "description" | "default")));
         match schema.get("$ref").and_then(Value::as_str).and_then(|r| self.defs.get(def_of(r))) {
             Some(target) if only => self.follow(target),
             _ => schema,

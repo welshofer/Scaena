@@ -794,3 +794,94 @@ fn choose_writes_a_choice_where_the_property_lives() {
         .to_string();
     assert!(e.contains("not a property"), "{e}");
 }
+
+#[test]
+fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
+    let layouts = |doc: &Value| -> Vec<Option<String>> {
+        scaena_core::resolve_states(&deck(doc)).unwrap().into_iter().map(|s| s.layout).collect()
+    };
+    let figure = || Some("figure".to_string());
+    let title = || Some("title".to_string());
+    // `mix` builds on `revenue` and takes its layout from there: a layout chosen in `mix` is
+    // written in `revenue`, and both show it.
+    let c = patch(&example(), json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": "full" }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/layout", "value": "full" }]));
+    let full = || Some("full".to_string());
+    assert_eq!(layouts(&c.doc), [title(), full(), full(), title()]);
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+    // Forked, it is `mix`'s own, and `revenue` keeps its layout.
+    let c =
+        patch(&example(), json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": "full", "fork": true }]))
+            .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/2/layout", "value": "full" }]));
+    assert_eq!(layouts(&c.doc), [title(), figure(), full(), title()]);
+    // Taken away where it lives, what is under it shows: `revenue` tracks `intro`'s.
+    let c = patch(&example(), json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": null }])).unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/states/1/layout" }]));
+    assert_eq!(layouts(&c.doc), [title(), title(), title(), title()]);
+    // A name the theme lacks is the deck's error, as any patch's: E102 says what it has.
+    let c =
+        patch(&example(), json!([{ "op": "set_state", "id": "close", "prop": "layout", "value": "nowhere" }])).unwrap();
+    assert!(errors(&c.doc).iter().any(|e| e.starts_with("E102 layout `nowhere`")), "{:?}", errors(&c.doc));
+
+    // A transition is the state's own. One that is a bare duration stays bare while its
+    // duration is all it sets, and becomes an object to take another key; one that is an
+    // object stays one.
+    let set = |id: &str, prop: &str, value: Value| {
+        let c = patch(&example(), json!([{ "op": "set_state", "id": id, "prop": prop, "value": value }])).unwrap();
+        assert!(errors(&c.doc).is_empty(), "{id} {prop}: {:?}", errors(&c.doc));
+        (rfc(&c), c.doc)
+    };
+    let (ops, doc) = set("intro", "transition/duration", json!("fast"));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/0/transition", "value": "fast" }]));
+    assert_eq!(doc["states"][0]["transition"], "fast", "a cut takes a duration bare");
+    let (ops, _) = set("mix", "transition/ease", json!("out"));
+    assert_eq!(
+        ops,
+        json!([{ "op": "add", "path": "/states/2/transition", "value": { "duration": "slow", "ease": "out" } }])
+    );
+    let (ops, _) = set("revenue", "transition/duration", json!("slow"));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/1/transition/duration", "value": "slow" }]));
+    let (ops, _) = set("revenue", "transition/spring", json!("gentle"));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/1/transition/spring", "value": "gentle" }]));
+    // `null` takes a key away; a transition left with nothing goes, and the state cuts.
+    let (ops, _) = set("revenue", "transition/ease", Value::Null);
+    assert_eq!(ops, json!([{ "op": "remove", "path": "/states/1/transition/ease" }]));
+    let (ops, _) = set("mix", "transition/duration", Value::Null);
+    assert_eq!(ops, json!([{ "op": "remove", "path": "/states/2/transition" }]));
+    let (ops, _) = set("mix", "transition/ease", Value::Null);
+    assert_eq!(ops, json!([]), "a key it does not set is not there to take away: `slow` stays bare");
+    let (ops, _) = set("revenue", "transition", Value::Null);
+    assert_eq!(ops, json!([{ "op": "remove", "path": "/states/1/transition" }]));
+    // Its hold and its notes.
+    let (ops, _) = set("close", "hold", json!(4500));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/3/hold", "value": 4500 }]));
+    let (ops, _) = set("revenue", "notes", json!("Let the bars land."));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/1/notes", "value": "Let the bars land." }]));
+    let (ops, _) = set("intro", "notes", Value::Null);
+    assert_eq!(ops, json!([{ "op": "remove", "path": "/states/0/notes" }]));
+    // A duration the theme lacks is E102.
+    let c = patch(
+        &example(),
+        json!([{ "op": "set_state", "id": "mix", "prop": "transition/duration", "value": "glacial" }]),
+    )
+    .unwrap();
+    assert!(errors(&c.doc).iter().any(|e| e.starts_with("E102 duration `glacial`")), "{:?}", errors(&c.doc));
+
+    // What it does not set, it says so, and what does.
+    for (prop, says) in [
+        ("mode", "not one `set_state` sets"),
+        ("transition/delay", "not one `set_state` sets"),
+        ("props", "not one `set_state` sets"),
+        ("layout/x/y", "not a property"),
+    ] {
+        let e = patch(&example(), json!([{ "op": "set_state", "id": "mix", "prop": prop, "value": 1 }]))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains(says), "{prop}: {e}");
+    }
+    let e = patch(&example(), json!([{ "op": "set_state", "id": "nowhere", "prop": "hold", "value": 1 }]))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("no state `nowhere`"), "{e}");
+}

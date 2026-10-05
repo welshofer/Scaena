@@ -9,15 +9,18 @@
 //! - **A value written out** where the theme has names is lint W300's: a color, a text size,
 //!   a length in canvas units. It is legal only in the deck's `overrides`, where `choose`
 //!   writes it, and where it counts as an override.
+//!
+//! A state has its own (PLAN 2.36, [`state_choices`]): its layout, its transition, its hold,
+//! and its notes, which `set_state` writes.
 
 use crate::document::{Deck, NodeType, Props};
 use crate::lint::literal;
 use crate::model::check::Checker;
 use crate::model::theme::{Theme, Vocabulary};
-use crate::tracking::{Lives, lives, merge_props, resolve_states};
+use crate::tracking::{Lives, layout_lives, layout_takers, lives, merge_props, resolve_states};
 use schemars::JsonSchema;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// What an inspector offers for one node as one state shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
@@ -27,6 +30,15 @@ pub struct Choices {
     pub node_type: NodeType,
     pub state: String,
     /// Each property the inspector edits: the node type's own, then those every node has.
+    pub fields: Vec<Field>,
+}
+
+/// What an inspector offers for a state itself (PLAN 2.36).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct StateChoices {
+    pub state: String,
+    /// Its layout, each key of its transition, its hold, and its notes: what `set_state`
+    /// names. A state that sets no key of its transition cuts in.
     pub fields: Vec<Field>,
 }
 
@@ -56,7 +68,8 @@ pub struct Field {
 pub enum Where {
     /// The deck's `overrides`, in every state: an override.
     Overrides,
-    /// A state's delta, by the state's id: the state shown, or one it tracks from.
+    /// A state's delta, by the state's id: the state shown, or one it tracks from. For a
+    /// state's own property, the state that sets it.
     State(String),
     /// The node's own properties.
     Node,
@@ -94,6 +107,8 @@ pub enum Takes {
     },
     /// Yes or no.
     Flag,
+    /// Words for people, as they are written: a state's notes.
+    Text,
 }
 
 /// Where a property's values come from.
@@ -186,8 +201,77 @@ pub fn choices(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Ch
     Ok(Choices { node: node.into(), node_type, state: state.into(), fields: fields.collect() })
 }
 
-/// What the schema allows, as an inspector offers it: a word, a number, or yes or no. `None`
-/// for anything else.
+/// What an inspector edits on a state: what `set_state` names. A transition's keys are those
+/// of `TransitionSpec`; the rest are `State`'s.
+const STATE: [(&str, Source); 7] = [
+    ("layout", Names(V::Layout, false)),
+    ("transition/duration", Names(V::Duration, false)),
+    ("transition/ease", Names(V::Easing, false)),
+    ("transition/spring", Names(V::Spring, false)),
+    ("transition/match", Schema(false)),
+    ("hold", Schema(false)),
+    ("notes", Schema(false)),
+];
+
+/// What an inspector offers for `state` itself, in `theme` (PLAN 2.36). Its layout tracks
+/// (SPEC §2.2): it shows the layout the state takes, and lives where it is set, the state
+/// shown or one it tracks from. The layouts offered are those with a slot for each node
+/// placed in one, in each state that takes its layout from there (E102's). Its transition,
+/// hold, and notes are its own; a transition that is a bare duration shows as its
+/// `duration`.
+pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateChoices, String> {
+    let i = deck.state_index(state).ok_or_else(|| format!("no state `{state}`"))?;
+    let snapshots = resolve_states(deck).map_err(|e| e.to_string())?;
+    let own = &deck.states[i];
+    let transition: Map<String, Value> = match &own.transition {
+        Some(Value::Object(spec)) => spec.clone(),
+        Some(duration) => Map::from_iter([("duration".to_string(), duration.clone())]),
+        None => Map::new(),
+    };
+    // The slots the nodes are placed in, in the states a layout chosen here would reach.
+    let takers = layout_takers(deck, layout_lives(deck, i).unwrap_or(i));
+    let placed: Vec<&str> = (takers.iter().flat_map(|&j| snapshots[j].nodes.values()))
+        .filter_map(|props| props.get("at")?.get("in")?.as_str())
+        .filter(|slot| !matches!(*slot, "canvas" | "grid"))
+        .collect();
+    let fits =
+        |layout: &String| theme.layouts.get(layout).is_some_and(|l| placed.iter().all(|s| l.slots.contains_key(*s)));
+    let fields = STATE.iter().filter_map(|&(prop, source)| {
+        let key = prop.strip_prefix("transition/");
+        let takes = match source {
+            Names(V::Layout, overrides) => Takes::Name {
+                of: V::Layout,
+                names: theme.names(V::Layout).into_iter().filter(fits).collect(),
+                overrides,
+            },
+            Names(of, overrides) => Takes::Name { of, names: theme.names(of), overrides },
+            Schema(overrides) => {
+                let (def, name) = key.map_or(("State", prop), |key| ("TransitionSpec", key));
+                allowed(Checker::deck().def_property(def, name)?, overrides)?
+            }
+        };
+        let (value, lives) = match (prop, key) {
+            ("layout", _) => {
+                let set = layout_lives(deck, i).map(|j| Where::State(deck.states[j].id.clone()));
+                (snapshots[i].layout.clone().map(Value::String), set)
+            }
+            (_, key) => {
+                let value = match (prop, key) {
+                    (_, Some(key)) => transition.get(key).cloned(),
+                    ("hold", _) => own.hold.map(Value::from),
+                    _ => own.notes.clone().map(Value::String),
+                };
+                let set = value.as_ref().map(|_| Where::State(state.to_string()));
+                (value, set)
+            }
+        };
+        Some(Field { prop: prop.into(), takes, value, lives, literal: false })
+    });
+    Ok(StateChoices { state: state.into(), fields: fields.collect() })
+}
+
+/// What the schema allows, as an inspector offers it: a word, a number, yes or no, or words
+/// for people. `None` for anything else.
 fn allowed(schema: &Value, overrides: bool) -> Option<Takes> {
     let strings = |values: &[Value]| -> Option<Vec<String>> {
         values.iter().map(|v| v.as_str().or_else(|| v.get("const")?.as_str()).map(String::from)).collect()
@@ -201,6 +285,7 @@ fn allowed(schema: &Value, overrides: bool) -> Option<Takes> {
     let number = |key: &str| schema.get(key).and_then(Value::as_f64);
     match schema.get("type").and_then(Value::as_str)? {
         "boolean" => Some(Takes::Flag),
+        "string" => Some(Takes::Text),
         kind @ ("integer" | "number") => Some(Takes::Number {
             min: number("minimum"),
             above: number("exclusiveMinimum"),
@@ -256,6 +341,20 @@ mod tests {
                 if let Schema(overrides) = source {
                     assert!(allowed(schema.unwrap(), overrides).is_some(), "{tag}'s {prop}: {schema:?}");
                 }
+            }
+        }
+    }
+
+    /// Each property a state offers is one `State` or its transition has, and the schema
+    /// allows something an inspector can offer for those it takes from there.
+    #[test]
+    fn every_state_property_offered_is_one_the_schema_has() {
+        for (prop, source) in STATE {
+            let (def, name) = prop.strip_prefix("transition/").map_or(("State", prop), |k| ("TransitionSpec", k));
+            let schema = Checker::deck().def_property(def, name);
+            assert!(schema.is_some(), "{def} has no {name}");
+            if let Schema(overrides) = source {
+                assert!(allowed(schema.unwrap(), overrides).is_some(), "{prop}: {schema:?}");
             }
         }
     }
