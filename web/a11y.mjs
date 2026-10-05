@@ -211,6 +211,10 @@ try {
   check(JSON.stringify(await tab("#layers")) === JSON.stringify(["tab-layers", "tab-layers", false]), `→ on the tabs shows the layers: ${JSON.stringify(await tab("#layers"))}`);
   await audit(editor, "the editor, its layers");
   await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#data")) === JSON.stringify(["tab-data", "tab-data", false]), `→ again shows the data: ${JSON.stringify(await tab("#data"))}`);
+  await editor.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length > 0, null, { timeout: 60000 }).catch(() => {});
+  await audit(editor, "the editor, its data");
+  await editor.keyboard.press("ArrowRight");
   check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");

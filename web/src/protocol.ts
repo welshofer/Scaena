@@ -460,6 +460,18 @@ export type ToWorker =
   /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
    * is named by its SHA-256 (`Player.place`). */
   | { type: "drop"; id: number; name: string; bytes: ArrayBuffer }
+  /** The deck's data sources, and source `name` as a sheet (PLAN 2.55, `data_edit` with no
+   * edits): the first source without it. The deck `source` compiles to names them; it need not
+   * validate, since a cell its column does not read is what the sheet shows, to fix. */
+  | { type: "sheet"; id: number; source: string; name?: string }
+  /** Edits of data source `name`, by the user (PLAN 2.55, `data_edit`): all or none, one write of
+   * its file or one patch of rows written inline, refused where a value does not read or the deck
+   * would be invalid. The deck's source after is compiled, shown at slot `index`, and linted, as
+   * an edit of it is. */
+  | { type: "dataEdit"; id: number; source: string; name: string; edits: RowEdit[]; index: number; format?: string }
+  /** The last edit of a data file undone, or with `redo` the last undone made again (PLAN 2.55):
+   * the file as it was, written, then shown and linted as an edit is. */
+  | { type: "dataUndo"; id: number; source: string; redo: boolean; index: number; format?: string }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -638,6 +650,38 @@ export interface Finding {
   shown: boolean;
 }
 
+/** A data source's rows as the Data panel shows them (PLAN 2.55, SPEC §3.10): its columns, each
+ * one's type, each row's cells as written, and each cell its column does not read, with why. */
+export interface Sheet {
+  columns: { name: string; type: "number" | "string" | "boolean" | "date" }[];
+  rows: string[][];
+  problems?: { row: number; column: string; why: string }[];
+}
+
+/** A data source the deck declares: the file it is, or none for rows written inline. */
+export interface DataSource {
+  name: string;
+  file?: string;
+}
+
+/** An edit of a data source's rows, row 0 the first after the header (`data_edit`). */
+export type RowEdit =
+  | { op: "set"; row: number; column: string; value: string }
+  | { op: "add"; row?: number; values?: Record<string, string> }
+  | { op: "remove"; row: number };
+
+/** What `data_edit` did (SPEC §7.2). */
+export interface DataEdited {
+  edited: boolean;
+  source: string;
+  file?: string;
+  sheet: Sheet;
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+  refused: boolean;
+}
+
 /** What an edit came to (PLAN 2.3). */
 export interface Edited {
   /** Why the source does not compile, and where. */
@@ -790,6 +834,13 @@ export type FromWorker =
   | { type: "exported"; id: number; bytes: ArrayBuffer }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
+  /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
+  | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
+  /** What `dataEdit` did; where it wrote, the deck's source after and what the edit of it came to. */
+  | { type: "dataEdited"; id: number; result: DataEdited; source?: string; edited?: Edited }
+  /** The source whose file an undo or redo wrote, and what the edit came to; none where there was
+   * nothing to undo or redo. */
+  | { type: "dataUndone"; id: number; name?: string; edited?: Edited }
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }

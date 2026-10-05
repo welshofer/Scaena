@@ -94,7 +94,11 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     }
     let read = |deck: &Deck, view: &View| sheet(deck, &Texts(view), name).map_err(OpsError::new);
     let invalid = validate_bundle(&b.deck.to_json()?, &b.files)?;
-    if req.edits.is_empty() {
+    // Edits that leave the file and the deck as they were, a cell set to what it held, write
+    // nothing.
+    let same =
+        |path: &String| view.pending.get(path).is_none_or(|bytes| b.files.read(path).is_ok_and(|was| was == *bytes));
+    if req.edits.is_empty() || (file.as_ref().is_none_or(same) && deck.to_json()? == b.deck.to_json()?) {
         let errors = errors(&invalid);
         let sheet = read(&b.deck, &View::of(b))?;
         let edited = DataEdited {

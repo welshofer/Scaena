@@ -107,7 +107,8 @@ impl<'a> Edit<'a> {
 /// A change for a history to record, as one module hands it to another (PLAN 2.9): the
 /// deck it leaves, as deck.json's text, the data files it writes, and the [`Edit`] that made
 /// it. A page's engine keeps no CRDT, so it hands its changes, as JSON, to the module that
-/// does (`scaena-history`).
+/// does (`scaena-history`). One by `fs` is the bundle's files as the page opened them, which
+/// the history takes in as it takes in what a command finds on disk ([`DeckDoc::outside`]).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Recorded {
@@ -233,13 +234,37 @@ impl DeckDoc {
         out
     }
 
+    /// What the files say, taken in by `fs` (SPEC §8.1, ADR-0014): `disk`, the deck deck.json
+    /// holds, as one change, then each of `files`, data files by their paths, whose bytes say
+    /// otherwise than the document's, as another that names them. Each at `timestamp`, now
+    /// without it. How many changes that made.
+    pub fn outside(&self, disk: &Deck, files: &[(String, Vec<u8>)], timestamp: Option<i64>) -> Result<usize> {
+        let outside = Edit { message: Some(OUTSIDE), timestamp, ..Edit::by(FS) };
+        let mut made = usize::from(self.apply(disk, &outside)?);
+        let held = self.files();
+        let changed: Vec<(String, Vec<u8>)> =
+            files.iter().filter(|(path, bytes)| held.get(path) != Some(bytes)).cloned().collect();
+        if !changed.is_empty() {
+            let paths: Vec<&str> = changed.iter().map(|(path, _)| path.as_str()).collect();
+            let message = format!("{} changed outside Scaena", paths.join(", "));
+            let edit = Edit { message: Some(&message), timestamp, ..Edit::by(FS) };
+            made += usize::from(self.apply_with(disk, &changed, &edit)?);
+        }
+        Ok(made)
+    }
+
     /// [`DeckDoc::apply_with`]s each of `changes` in order: one that leaves the deck and its
-    /// files as they were is no change. How many were.
+    /// files as they were is no change. A change by `fs` is what the files say, taken in as
+    /// [`DeckDoc::outside`] takes them, whatever it says of itself. How many changes were made.
     pub fn record(&self, changes: &[Recorded]) -> Result<usize> {
         let mut recorded = 0;
         for change in changes {
             let files: Vec<(String, Vec<u8>)> =
                 change.files.iter().map(|(path, text)| (path.clone(), text.as_bytes().to_vec())).collect();
+            if change.author == FS {
+                recorded += self.outside(&Deck::from_json(&change.deck)?, &files, change.timestamp)?;
+                continue;
+            }
             let edit = Edit {
                 author: &change.author,
                 message: change.message.as_deref(),

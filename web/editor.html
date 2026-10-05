@@ -202,6 +202,27 @@
       #layers li.drop-before > .row { box-shadow: inset 0 2px 0 var(--info); }
       #layers li.drop-after > .row { box-shadow: inset 0 -2px 0 var(--info); }
       #layers li.drop-into > .row { box-shadow: inset 0 0 0 2px var(--info); }
+      /* The data (PLAN 2.55): a source as a table, each cell a field; a cell its column does not
+         read marked. */
+      #data { padding: 6px 12px; }
+      #data .data-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
+      #data [data-where] { color: var(--muted); font-size: 12px; flex: 1 1 auto; }
+      #data .sheet { max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+      #data table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+      #data th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: normal; text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      #data th .type { display: block; font-size: 10px; font-style: italic; }
+      #data th.index, #data tbody th { color: var(--muted); text-align: right; padding: 0 6px; position: static; border-bottom: none; }
+      #data thead th.index { position: sticky; }
+      #data td { padding: 0; border-bottom: 1px solid var(--line); }
+      #data td input { width: 9em; box-sizing: border-box; font: inherit; background: transparent; color: var(--ink); border: 1px solid transparent; padding: 3px 6px; }
+      #data td.number input { text-align: right; }
+      #data td input:focus { outline: none; border-color: var(--info); background: var(--surface); }
+      #data td input[aria-invalid="true"] { border-color: var(--error); color: var(--error); }
+      #data td input[readonly] { color: var(--muted); }
+      #data tr.current th { color: var(--ink); }
+      #data [data-problems] { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
+      #data [data-problems] button { all: unset; color: var(--error); cursor: pointer; }
+      #data [data-problems] button:focus-visible { outline: 2px solid var(--info); }
       #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
       #tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
       #assistant { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; min-height: 0; }
@@ -324,6 +345,7 @@
         <nav id="tabs" role="tablist">
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
           <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
+          <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
@@ -332,6 +354,18 @@
         </div>
         <section id="layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
           <ul aria-label="The state shown's nodes, topmost first"></ul>
+        </section>
+        <section id="data" role="tabpanel" aria-labelledby="tab-data" hidden>
+          <p class="data-head">
+            <select data-source aria-label="Data source"></select>
+            <span data-where></span>
+            <button type="button" data-add title="A row after the row of the cell last focused, or at the end">+ Row</button>
+            <button type="button" data-remove title="Take the row of the cell last focused away">− Row</button>
+            <button type="button" data-undo title="Undo the last change to the data (⌘Z in the table)">Undo</button>
+            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the table)">Redo</button>
+          </p>
+          <div class="sheet"><table aria-label="The source's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
+          <ul data-problems aria-label="Cells their column does not read"></ul>
         </section>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">

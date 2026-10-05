@@ -112,3 +112,12 @@ fn rows_written_inline_are_the_decks() {
     assert_eq!(after["data"]["goals"]["source"]["inline"], json!([{ "year": "2026", "target": 95 }]));
     assert_eq!(set.sheet.rows, [["2026", "95"]]);
 }
+
+#[test]
+fn a_cell_set_to_what_it_holds_writes_nothing() {
+    let dir = revenue("same");
+    let same =
+        edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.2" }]), false).unwrap();
+    assert!(!same.edited && !same.refused, "{same:?}");
+    assert_eq!(same.sheet.rows[0][2], "18.2");
+}

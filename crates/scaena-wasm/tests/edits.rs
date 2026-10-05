@@ -427,6 +427,57 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("schema", json!({ column: *r.pick(&["number", "date", "boolean", "nope"]) }));
             set!("parse", json!({ column: *r.pick(&["%Y", "%", "%Q", "%Y%Y%Y%Y%Y%Y", ""]) }));
         }
+        "data_edit" => {
+            let sources: Vec<Value> = match b.deck.get("data").and_then(Value::as_object) {
+                Some(data) => data.keys().map(|k| json!(k)).collect(),
+                None => Vec::new(),
+            };
+            let source = match r.below(5) {
+                0 => json!("no-such-source"),
+                1 => junk(r),
+                _ if sources.is_empty() => json!("q3"),
+                _ => r.pick(&sources).clone(),
+            };
+            set!("source", source);
+            // Rows at an edge, columns there or not, values a column reads or does not.
+            let rows = [json!(0), json!(1), json!(11), json!(12), json!(4096), json!(-1), json!(1.5), junk(r)];
+            let columns = [json!("quarter"), json!("product"), json!("revenue"), json!(""), json!("nope"), junk(r)];
+            let cells = [
+                json!("19.8"),
+                json!(19.8),
+                json!("n/a"),
+                json!(""),
+                json!(null),
+                json!(true),
+                json!("2026-Q1"),
+                json!("Core"),
+                json!("a,\"quoted\"\nvalue"),
+                json!("1e308"),
+                junk(r),
+            ];
+            let mut edits = Vec::new();
+            for _ in 0..r.below(4) {
+                let mut edit = Map::new();
+                let op = *r.pick(&["set", "add", "remove", "move", ""]);
+                edit.insert("op".into(), json!(op));
+                if r.below(5) > 0 {
+                    edit.insert("row".into(), r.pick(&rows).clone());
+                }
+                if op == "set" || r.below(8) == 0 {
+                    edit.insert("column".into(), r.pick(&columns).clone());
+                    edit.insert("value".into(), r.pick(&cells).clone());
+                }
+                if op == "add" && r.below(2) == 0 {
+                    edit.insert(
+                        "values".into(),
+                        json!({ "quarter": r.pick(&cells).clone(), "revenue": r.pick(&cells).clone() }),
+                    );
+                }
+                edits.push(Value::Object(edit));
+            }
+            set!("edits", if r.below(8) == 0 { junk(r) } else { Value::Array(edits) });
+            set!("dry_run", flag(r));
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {
@@ -552,7 +603,8 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                 if !s.compile(&sources[i]).valid {
                     return;
                 }
-                let by = Caller { author: "agent:test", at: None };
+                // The user's calls are the Data panel's (PLAN 2.55), which it undoes and redoes.
+                let by = Caller { author: if r.below(3) == 0 { "user" } else { "agent:test" }, at: None };
                 for _ in 0..1 + r.below(3) {
                     let states = s.states();
                     if states.is_empty() {
@@ -560,13 +612,22 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                     }
                     let (name, args) = tool_call(&mut r, b, &states, &values);
                     said.push(format!("{name} {}", short(&args)));
-                    let Ok(called) = s.tool(&name, args, by) else { continue };
-                    if let Some(frame) = &called.frame {
-                        assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
+                    if let Ok(called) = s.tool(&name, args, by) {
+                        if let Some(frame) = &called.frame {
+                            assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
+                        }
+                        if called.edited {
+                            let compiled = s.compile(&s.source()).valid;
+                            exercise(&mut r, s, compiled, &[]);
+                        }
                     }
-                    if called.edited {
-                        let compiled = s.compile(&s.source()).valid;
-                        exercise(&mut r, s, compiled, &[]);
+                    if r.below(4) == 0 {
+                        let redo = r.below(2) == 0;
+                        said.push(format!("data {}", if redo { "redo" } else { "undo" }));
+                        if s.data_undo(redo, by).is_ok_and(|undone| undone.is_some()) {
+                            let compiled = s.compile(&s.source()).valid;
+                            exercise(&mut r, s, compiled, &[]);
+                        }
                     }
                 }
                 let compiled = s.compile(&s.source()).valid;

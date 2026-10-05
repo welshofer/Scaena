@@ -47,6 +47,7 @@ import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
 import { type Command, MOD, menu, palette, SHIFT } from "./commands";
 import { cue } from "./cue";
+import { sheets } from "./data";
 import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
@@ -443,6 +444,29 @@ async function edit(source: Source) {
     apply: made,
     say,
   });
+  /** A data file written, the source as it stands (PLAN 2.55): its deck shown and linted again, as
+   * `edited` says, and a change to save. */
+  const wrote = (edited: Edited) => {
+    const source = view.state.doc.toString();
+    taken = { source, edited };
+    edits++;
+    tell();
+    // The source is as it was, so CodeMirror lints nothing: the edit is shown here.
+    const findings = take(edited, source, version);
+    view.dispatch(setDiagnostics(view.state, findings.map((f) => diagnostic(f, view.state.doc.length))));
+  };
+  /** The deck's data (PLAN 2.55): a source as a table in a tab of its own, each change one write of
+   * its file, or one patch of rows written inline. */
+  const data = sheets(stage, $("#data"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    took: wrote,
+    undo: () => void undo(view),
+    redo: () => void redo(view),
+    say,
+  });
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -601,6 +625,13 @@ async function edit(source: Source) {
       return [];
     }
     trips.push({ ms: performance.now() - sent, ...edited.ms });
+    return take(edited, source, read).map((f) => diagnostic(f, view.state.doc.length));
+  }
+
+  /** Show `edited`, what the worker made of `source`, version `read` of it: the deck shown and
+   * linted, its findings listed, and every state linted once typing stops. The findings, to mark
+   * in the source. */
+  function take(edited: Edited, source: string, read: number): Finding[] {
     last = edited;
     if (edited.valid) {
       statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
@@ -609,6 +640,7 @@ async function edit(source: Source) {
       states.states(edited.slots, shown);
       void inspect();
       void layering.refresh();
+      void data.refresh();
       void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
@@ -620,7 +652,7 @@ async function edit(source: Source) {
       clearTimeout(pending);
       pending = setTimeout(() => void lintAll(read), pause);
     }
-    return findings.map((f) => diagnostic(f, view.state.doc.length));
+    return findings;
   }
 
   /** Lint every state of the deck compiled from version `read`, and show what it finds if
@@ -948,8 +980,10 @@ async function edit(source: Source) {
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
     apply: (source, edited, touched) => {
-      taken = { source, edited };
       touching = touched?.length ? { source, nodes: touched } : undefined;
+      // An edit that leaves the source as it is wrote a data file (`data_edit`).
+      if (source === view.state.doc.toString()) return wrote(edited);
+      taken = { source, edited };
       view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
     },
     seeing,
@@ -989,7 +1023,7 @@ async function edit(source: Source) {
   const picked = () => (ready() ? board.chosen() : []);
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "assistant") => {
+  const tab = (id: "inspector" | "layers" | "data" | "assistant") => {
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1139,6 +1173,7 @@ async function edit(source: Source) {
       { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
       { label: "Show the inspector", run: () => tab("inspector").focus() },
       { label: "Show the layers", run: () => tab("layers").focus() },
+      { label: "Show the data", run: () => tab("data").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
     ];
   }
@@ -1376,6 +1411,8 @@ async function edit(source: Source) {
       canvas: board,
       /** The layers panel: what it lists, and the patches it makes. */
       layers: layering,
+      /** The data panel (PLAN 2.55): the source shown and its sheet. */
+      data,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
@@ -1390,7 +1427,7 @@ async function edit(source: Source) {
   });
 }
 
-/** The tabs under the preview: the inspector, the layers, and the assistant. The arrow keys, Home, and
+/** The tabs under the preview: the inspector, the layers, the data, and the assistant. The arrow keys, Home, and
  * End move between them, and only the one shown is in the tab order. */
 function tabs() {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];

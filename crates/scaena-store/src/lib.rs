@@ -193,16 +193,7 @@ impl Bundle {
         }
         let doc = DeckDoc::load(&self.read(HISTORY)?)?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
-        let outside = Edit { message: Some(crdt::OUTSIDE), ..Edit::by(crdt::FS) };
-        doc.apply(&disk, &outside)?;
-        let held = doc.files();
-        let changed: Vec<(String, Vec<u8>)> =
-            self.data_files(&disk).into_iter().filter(|(path, bytes)| held.get(path) != Some(bytes)).collect();
-        if !changed.is_empty() {
-            let paths: Vec<&str> = changed.iter().map(|(path, _)| path.as_str()).collect();
-            let message = format!("{} changed outside Scaena", paths.join(", "));
-            doc.apply_with(&disk, &changed, &Edit { message: Some(&message), ..Edit::by(crdt::FS) })?;
-        }
+        doc.outside(&disk, &self.data_files(&disk), None)?;
         Ok(Some(doc))
     }
 

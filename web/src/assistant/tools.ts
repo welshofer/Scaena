@@ -78,6 +78,13 @@ export function summary(name: string, json: string, error: boolean): string {
     }
     case "data_attach":
       return (r.attached ? `attached ${r.source}: ${r.rows} rows` : "refused") + delta();
+    case "data_edit": {
+      const rows = r.sheet?.rows?.length ?? 0;
+      const sheet = `${r.source}, ${rows} row${rows === 1 ? "" : "s"}`;
+      if (r.edited) return `edited ${sheet}${delta()}`;
+      if (r.refused) return `refused${delta()}`;
+      return r.added?.length || r.removed?.length ? `not written (a dry run)${delta()}` : `read ${sheet}`;
+    }
     case "deck_lint": {
       const fixed = r.fixed?.length ? `fixed ${codes(r.fixed)}; ` : "";
       const counts = ["error", "warning", "info"].map((s) => [s, (r.findings ?? []).filter((f: { severity: string }) => f.severity === s).length] as const);

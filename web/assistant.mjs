@@ -236,7 +236,7 @@ try {
     const tools = wire.tools(first.body);
     const names = tools.map((t) => t.name);
     check(
-      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "resource_read"].every((n) => names.includes(n)),
+      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "resource_read"].every((n) => names.includes(n)),
       `${id}: the tools: ${names.join(", ")}`,
     );
     check(

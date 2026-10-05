@@ -21,6 +21,8 @@ import type {
   AssistantEvent,
   Carets,
   Choices,
+  DataEdited,
+  DataSource,
   Edited,
   Export,
   Finding,
@@ -33,7 +35,9 @@ import type {
   Painter,
   Pasted,
   Grouped,
+  RowEdit,
   Section,
+  Sheet,
   Slot,
   Snapped,
   Arrange,
@@ -86,7 +90,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         await painting;
         was.free();
         format = undefined;
-        slots = timeline();
+        slots = opening();
         [canvas.width, canvas.height] = size();
         gpu?.resize(canvas.width, canvas.height);
         return post({ type: "reloaded", id: data.id, ...opened() });
@@ -299,6 +303,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         player.addFile(path, bytes);
         return post({ type: "dropped", id: data.id, path });
       }
+      case "sheet":
+        return post({ type: "sheet", id: data.id, ...sheet(data.source, data.name) });
+      case "dataEdit":
+        return post({ type: "dataEdited", id: data.id, ...(await dataEdit(data.source, data.name, data.edits, data.index, data.format)) });
+      case "dataUndo":
+        return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
       case "ask":
         return await ask(data.id, data.source, data.ask);
       case "stop":
@@ -350,7 +360,7 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   }
   from = source;
   await load(source);
-  slots = timeline();
+  slots = opening();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
   post({ type: "ready", ...opened() });
@@ -743,6 +753,18 @@ function timeline(): Slot[] {
   return only ? only.flatMap((state) => all.filter((slot) => slot.state === state)) : all;
 }
 
+/** The timeline of a bundle just opened; where the engine cannot lay the deck out to time it, as
+ * when a data file holds a cell its column does not read (E103), each state at an instant. The
+ * editor opens on such a bundle, to mend it (PLAN 2.55), and the player says why when it paints. */
+function opening(): Slot[] {
+  try {
+    return timeline();
+  } catch {
+    const states = player.states();
+    return (only ? only.filter((state) => states.includes(state)) : states).map((state) => ({ state, start: 0, span: 0, hold: 0 }));
+  }
+}
+
 /** The canvas frames are laid out on now, in whole pixels. */
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
@@ -898,6 +920,67 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
   shown = { index, format: at };
   const next = player.source();
   return { source: next, edited: await edit(next, index, at) };
+}
+
+/** Compile `source` into the deck a data edit works on (PLAN 2.55), which need not validate: a
+ * cell its column does not read (E103) leaves the deck invalid, and the edit is what fixes it. */
+function compiles(source: string) {
+  if (player.compiledFrom(source)) return;
+  const compiled = JSON.parse(player.compile(source)) as { error?: Finding };
+  if (!compiled.error) return;
+  const where = compiled.error.at ? ` (line ${compiled.error.at.line})` : "";
+  throw new Error(`the source does not compile: ${compiled.error.message}${where}`);
+}
+
+/** The deck `source` compiles to's data sources, and source `name` as a sheet (PLAN 2.55): the
+ * first without it; or why it does not read as one. */
+function sheet(source: string, name: string | undefined): { sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string } {
+  compiles(source);
+  const sources = JSON.parse(player.dataSources()) as DataSource[];
+  const shown = sources.find((s) => s.name === name)?.name ?? sources[0]?.name;
+  if (shown === undefined) return { sources };
+  try {
+    const { sheet, file } = JSON.parse(player.dataSheet(shown)) as { sheet: Sheet; file?: string | null };
+    return { sources, name: shown, sheet, file: file ?? undefined };
+  } catch (e) {
+    return { sources, name: shown, why: said(e) };
+  }
+}
+
+/** `edits` of data source `name`, by the user (PLAN 2.55), on the deck `source` compiles to: one
+ * write of its file, or one patch of rows written inline. Where they wrote, the deck's source
+ * after is compiled, shown at slot `index`, and linted, as an edit of it is. A value its column
+ * does not read is an error that says why; edits the deck refuses say so in what they did. */
+async function dataEdit(
+  source: string,
+  name: string,
+  edits: RowEdit[],
+  index: number,
+  at: string | undefined,
+): Promise<{ result: DataEdited; source?: string; edited?: Edited }> {
+  compiles(source);
+  player.setMoving([], 0, 0);
+  player.preview(undefined);
+  const { result, wrote } = JSON.parse(player.dataEdit(JSON.stringify({ source: name, edits }), "user", new Date().toISOString())) as {
+    result: DataEdited;
+    wrote: boolean;
+  };
+  if (!wrote) return { result };
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { result, source: next, edited: await edit(next, index, at) };
+}
+
+/** The last edit of a data file undone, or with `redo` made again (PLAN 2.55): its file written as
+ * it was, by the user, then the deck shown at slot `index` and linted, as an edit is. */
+async function dataUndo(source: string, redo: boolean, index: number, at: string | undefined): Promise<{ name?: string; edited?: Edited }> {
+  compiles(source);
+  const name = redo ? player.dataRedo("user", new Date().toISOString()) : player.dataUndo("user", new Date().toISOString());
+  if (name === undefined) return {};
+  latest++;
+  shown = { index, format: at };
+  return { name, edited: await edit(player.source(), index, at) };
 }
 
 /** Make `ops`, text typed on the editor's canvas (PLAN 2.32), by the user, on the deck `source`

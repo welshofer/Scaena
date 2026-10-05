@@ -277,6 +277,9 @@ jobs:
       # The state shown as a PNG, the deck as a PDF by its own module, and as one HTML file, each what
       # `scaena export` writes (PLAN 2.54).
       - run: node web/export.mjs
+      # A data source as a table: a cell set, rows added and taken away, undone, and saved as
+      # `scaena data` writes the file (PLAN 2.55).
+      - run: node web/data.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

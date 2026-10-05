@@ -34,6 +34,7 @@ Multi-user editing is deferred (SPEC §8.4). Concurrent edits to one data file c
    - The CRDT gains a `files` map: each data file a source names, by its path, and its bytes now, as a binary value. A version is never edited in place, so it is replaced whole.
    - An edit to the file sets its bytes, in the same change as the deck's edit when there is one, by its author with its message (`data_edit q3: revenue of row 3`). Bytes as the map holds them are no change.
    - The history keeps every version, as it keeps every value a map held. Undo and redo set the bytes back, and the file is written from them.
+   - The web editor's engine keeps no CRDT (SPEC §15). Its session keeps each version an edit wrote, and undoes and redoes from them. A save hands the history's module every version, each by its author, after the files as the page opened them, which go in as a change by `fs` where they say otherwise than the history.
    - The deck's containers are read as before: `deck.json` comes back byte for byte, and the files are read beside it.
    - A history begins with the data files the deck names (`save --history`).
 2. **The file stays the truth, byte for byte.**

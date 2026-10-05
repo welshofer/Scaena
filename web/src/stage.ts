@@ -7,6 +7,8 @@ import type {
   Asking,
   AssistantEvent,
   At,
+  DataEdited,
+  DataSource,
   Edited,
   Export,
   Found,
@@ -24,7 +26,9 @@ import type {
   ProviderId,
   Query,
   Rect,
+  RowEdit,
   SaveTo,
+  Sheet,
   Slot,
   Snapped,
   SnapMode,
@@ -55,6 +59,9 @@ type Reply = Extract<
       | "saved"
       | "zipped"
       | "exported"
+      | "sheet"
+      | "dataEdited"
+      | "dataUndone"
       | "dropped"
       | "models"
       | "reloaded"
@@ -314,6 +321,45 @@ export class Stage {
       }
       return { source, edited };
     });
+  }
+
+  /** The deck's data sources, and source `name` as a sheet (PLAN 2.55): the first source without
+   * it; or why it does not read as one. */
+  sheet(source: string, name?: string): Promise<{ sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }> {
+    return this.request<"sheet">({ type: "sheet", id: ++this.asked, source, name }).then(({ type: _, id: __, ...got }) => got);
+  }
+
+  /** `edits` of data source `name`, by the user (PLAN 2.55): what they did, and where they wrote,
+   * the deck's source after and what the edit of it came to. */
+  dataEdit(
+    source: string,
+    name: string,
+    edits: RowEdit[],
+    index: number,
+    format?: string,
+  ): Promise<{ result: DataEdited; source?: string; edited?: Edited }> {
+    return this.request<"dataEdited">({ type: "dataEdit", id: ++this.asked, source, name, edits, index, format }).then(
+      ({ result, source, edited }) => {
+        this.moved(edited);
+        return { result, source, edited };
+      },
+    );
+  }
+
+  /** The last edit of a data file undone, or with `redo` made again (PLAN 2.55): the source whose
+   * file it wrote, and what the edit came to; nothing where there was nothing to do. */
+  dataUndo(source: string, redo: boolean, index: number, format?: string): Promise<{ name?: string; edited?: Edited }> {
+    return this.request<"dataUndone">({ type: "dataUndo", id: ++this.asked, source, redo, index, format }).then(({ name, edited }) => {
+      this.moved(edited);
+      return { name, edited };
+    });
+  }
+
+  /** Where an edit left the deck shown, if it says. */
+  private moved(edited: Edited | undefined) {
+    if (!edited?.at) return;
+    this.at = edited.at;
+    this.onAt(edited.at);
   }
 
   /** Where a caret stands in `node`'s text in `state` at rest, in the deck `source` compiles to;
@@ -618,6 +664,9 @@ export class Stage {
       case "pasted":
       case "thumbnails":
       case "addingState":
+      case "sheet":
+      case "dataEdited":
+      case "dataUndone":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;

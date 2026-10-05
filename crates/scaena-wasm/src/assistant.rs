@@ -19,6 +19,7 @@ use scaena_paint::Raster;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The tools a page's assistant has, by their MCP names.
 pub const TOOLS: &[&str] = &[
@@ -32,6 +33,7 @@ pub const TOOLS: &[&str] = &[
     "spine_read",
     "spine_update",
     "data_attach",
+    "data_edit",
 ];
 
 /// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
@@ -217,6 +219,16 @@ struct DeckRender {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DataEdit {
+    source: String,
+    #[serde(default)]
+    edits: Vec<scaena_ops::data::RowEdit>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SpineRead {}
 
 #[derive(Deserialize)]
@@ -363,17 +375,43 @@ impl Session {
                 let edited = self.write(deck, by)?;
                 Ok(Called { edited, ..Called::of(attached)? })
             }
+            "data_edit" => {
+                let a: DataEdit = args(name, a)?;
+                let req = scaena_ops::data::DataEdit { source: a.source, edits: a.edits };
+                let (mut edited, made) = scaena_ops::data::editing(&b, &req, true)?;
+                edited.edited &= !a.dry_run;
+                let wrote = self.write(made.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited: wrote, ..Called::of(edited)? })
+            }
             _ => Err(ops(format!("no tool `{name}`: the tools are {}", TOOLS.join(", ")))),
         }
     }
 
     /// Write what an operation `by` called computed into the session: its files, then its
-    /// deck, which frames show from now on, kept for the next save to record. Whether there
-    /// was anything to write.
+    /// deck, which frames show from now on, kept for the next save to record with the data
+    /// files it wrote (ADR-0014). Whether there was anything to write.
+    ///
+    /// Each data file it changed is kept as the bundle held it before the first such write, for
+    /// the next save to record as the bundle's own, and the change is a step the Data panel
+    /// undoes (PLAN 2.55): the editor's own edit, its user's or its assistant's, as the source's
+    /// undo takes the assistant's edits too, and never a file's (SPEC §8.2).
     pub(crate) fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
         let Some(w) = w else { return Ok(false) };
-        self.keep(&w.deck, &w.why, by)?;
+        let named: BTreeSet<&str> = w.deck.data.values().filter_map(|source| source.source.as_str()).collect();
+        let data: BTreeMap<String, String> = (w.files.iter())
+            .filter(|(path, _)| named.contains(path.as_str()))
+            .map(|(path, bytes)| (path.clone(), String::from_utf8_lossy(bytes).into_owned()))
+            .collect();
+        self.keep(&w.deck, &data, &w.why, by)?;
         for (path, bytes) in w.files {
+            if let Some(before) = self.files.get(&path).filter(|before| data.contains_key(&path) && **before != bytes) {
+                let why = w.why.message.clone();
+                let written =
+                    crate::data::Written { path: path.clone(), before: before.clone(), after: bytes.clone(), why };
+                self.held.entry(path.clone()).or_insert_with(|| written.before.clone());
+                self.undone.clear();
+                self.done.push(written);
+            }
             self.add_file(&path, bytes);
         }
         self.set_deck(w.deck);

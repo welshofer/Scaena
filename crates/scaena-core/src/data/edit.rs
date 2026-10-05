@@ -329,6 +329,10 @@ pub fn edit(deck: &Deck, files: &dyn SourceFiles, name: &str, edit: &RowEdit) ->
     }
 }
 
+/// Why an edit stops where the file's rows, read again to edit them, are not the rows the reader
+/// read: it never should be.
+const UNREAD: &str = "the file reads otherwise than its rows were read: edit it in its file";
+
 /// A value an edit sets: its column, the value as typed, and the column's type.
 type Setting = (String, String, ColumnType);
 
@@ -442,10 +446,10 @@ fn csv(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting]) -> Re
     let mut out = String::with_capacity(text.len() + 64);
     match edit {
         RowEdit::Set { row, .. } => {
-            let (column, value, kind) = &values[0];
-            let record = rows[*row];
+            let (column, value, kind) = values.first().ok_or("no value to set")?;
+            let record = *rows.get(*row).ok_or(UNREAD)?;
             let i = index(column);
-            let field = record.fields[i].clone();
+            let field = record.fields.get(i).ok_or(UNREAD)?.clone();
             out.push_str(&text[..field.start]);
             out.push_str(&csv_field(value, *kind, quoted(record, i)));
             out.push_str(&text[field.end..]);
@@ -490,7 +494,7 @@ fn csv(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting]) -> Re
             }
         }
         RowEdit::Remove { row } => {
-            let record = rows[*row];
+            let record = *rows.get(*row).ok_or(UNREAD)?;
             if record.next > record.end {
                 out.push_str(&text[..record.start]);
                 out.push_str(&text[record.next..]);
@@ -679,8 +683,8 @@ fn json_file(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting])
     let splice = |range: Range<usize>, with: &str| format!("{}{with}{}", &text[..range.start], &text[range.end..]);
     Ok(match edit {
         RowEdit::Set { row, .. } => {
-            let (column, value, kind) = &values[0];
-            let element = &elements[*row];
+            let (column, value, kind) = values.first().ok_or("no value to set")?;
+            let element = elements.get(*row).ok_or(UNREAD)?;
             let object = set_member(text, element, column, &json_value(value, *kind));
             splice(element.span.clone(), &object)
         }
@@ -728,8 +732,8 @@ fn json_file(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting])
             }
         }
         RowEdit::Remove { row } => {
-            let element = &elements[*row];
-            match (elements.get(*row + 1), row.checked_sub(1).map(|r| &elements[r])) {
+            let element = elements.get(*row).ok_or(UNREAD)?;
+            match (elements.get(*row + 1), row.checked_sub(1).and_then(|r| elements.get(r))) {
                 (Some(next), _) => splice(element.span.start..next.span.start, ""),
                 (None, Some(before)) => splice(before.span.end..element.span.end, ""),
                 // The only one, and the space before it.
@@ -768,7 +772,7 @@ fn inline(
     };
     Ok(match edit {
         RowEdit::Set { row, .. } => {
-            let (column, value, kind) = &values[0];
+            let (column, value, kind) = values.first().ok_or("no value to set")?;
             let held = deck.data[name].source["inline"][*row].get(column).is_some();
             let op = if held { "replace" } else { "add" };
             vec![json!({ "op": op, "path": format!("{rows}/{row}/{}", token(column)), "value": typed(value, *kind) })]

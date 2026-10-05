@@ -184,30 +184,42 @@ impl Session {
 
     /// What a save of `saved`, the deck as saved, records in the bundle's history, at `at`
     /// (PLAN 2.9): as JSON, the changes `scaena-history` records, in order.
-    /// - `deck.json` as the bundle holds it, by `fs`: a change only if it says otherwise than
-    ///   the history, edited outside Scaena since it was recorded (SPEC §8.1).
+    /// - The bundle as it was opened, by `fs`: `deck.json` and the data files it names, each
+    ///   a change only if it says otherwise than the history, edited outside Scaena since it
+    ///   was recorded (SPEC §8.1, ADR-0014).
     /// - Each edit an operation made since the bundle was opened or saved, after the deck as
     ///   it stood before it, which holds the user's edits until then
-    ///   ([`Session::keep`]).
-    /// - `saved`, by the user: the rest of their edits, and the files the save renamed.
+    ///   ([`Session::keep`]), with the data files it wrote.
+    /// - `saved`, by the user: the rest of their edits, the files the save renamed, and the
+    ///   data files it names as they are, a file dropped on the page among them.
     ///
     /// Each is stamped when it was made, the first as the earliest: the history never
     /// stamps a change before the one it follows.
     pub fn changes(&self, saved: &Deck, at: Option<i64>) -> Result<String, Error> {
         let held = self.files.get("deck.json").ok_or_else(|| Error::Missing("deck.json".into()))?;
         let held = String::from_utf8(held.clone()).map_err(|e| Error::Deck(e.to_string()))?;
+        let opened = Deck::from_json(&held).map_err(|e| Error::Deck(e.to_string()))?;
         let first = self.recorded.first().map_or(at, |c| c.timestamp);
-        let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), ..change(held, FS, first) }];
+        // Each data file as it was before an edit here wrote it.
+        let files = data_texts(&opened, |path| self.held.get(path).or_else(|| self.files.get(path)));
+        let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), files, ..change(held, FS, first) }];
         changes.extend(self.recorded.iter().cloned());
+        let files = data_texts(saved, |path| self.files.get(path));
         let saved = saved.to_json().map_err(|e| Error::Deck(e.to_string()))?;
-        changes.push(Recorded { message: Some("save".into()), ..change(saved, USER, at) });
+        changes.push(Recorded { message: Some("save".into()), files, ..change(saved, USER, at) });
         serde_json::to_string(&changes).map_err(|e| Error::Deck(e.to_string()))
     }
 
-    /// Keep `deck`, which an operation `by` called wrote for `why`, for the next save to
-    /// record, after the deck shown before it: the user's edits until then. Only a bundle
-    /// that keeps a history records anything.
-    pub(crate) fn keep(&mut self, deck: &Deck, why: &Why, by: Caller) -> Result<(), Error> {
+    /// Keep `deck`, which an operation `by` called wrote for `why`, and `files`, the data files it
+    /// wrote, as their text, for the next save to record, after the deck shown before it: the
+    /// user's edits until then. Only a bundle that keeps a history records anything.
+    pub(crate) fn keep(
+        &mut self,
+        deck: &Deck,
+        files: &BTreeMap<String, String>,
+        why: &Why,
+        by: Caller,
+    ) -> Result<(), Error> {
         if !self.files.contains_key(HISTORY) {
             return Ok(());
         }
@@ -225,6 +237,7 @@ impl Session {
             self.recorded.push(Recorded { message: Some("edit".into()), ..change(before, USER, by.at) });
         }
         self.recorded.push(Recorded {
+            files: files.clone(),
             message: Some(why.message.clone()),
             renamed_nodes: why.renamed_nodes.clone(),
             renamed_states: why.renamed_states.clone(),
@@ -245,9 +258,20 @@ impl Session {
             let source = next.source();
             next.compile(&source);
         }
+        // A save writes each data file as it is, under its own name: the Data panel's undo
+        // goes on undoing what it did.
+        next.done = std::mem::take(&mut self.done);
+        next.undone = std::mem::take(&mut self.undone);
         *self = next;
         Ok(())
     }
+}
+
+/// The data files `deck`'s sources name, by their paths, as text: each as `bytes` gives it, where
+/// it does (ADR-0014).
+fn data_texts<'a>(deck: &Deck, bytes: impl Fn(&str) -> Option<&'a Vec<u8>>) -> BTreeMap<String, String> {
+    let paths = deck.data.values().filter_map(|source| source.source.as_str());
+    paths.filter_map(|path| Some((path.to_string(), String::from_utf8_lossy(bytes(path)?).into_owned()))).collect()
 }
 
 /// `deck`'s change by `author`, at `at`, saying nothing yet.
@@ -591,6 +615,123 @@ mod tests {
         );
         let deck = DeckDoc::load(&saved.files[HISTORY]).unwrap().deck().unwrap().to_json().unwrap();
         assert!(deck.contains("Net Revenue doubled!!?"), "{deck}");
+    }
+
+    const CSV: &str = "data/q3-revenue.csv";
+
+    /// `edits` of the revenue example's source, `q3`, as a page sends them.
+    fn q3(edits: serde_json::Value) -> scaena_ops::data::DataEdit {
+        serde_json::from_value(json!({ "source": "q3", "edits": edits })).unwrap()
+    }
+
+    /// A cell set in the Data panel (PLAN 2.55): the file written with that one field changed, and
+    /// the chart that reads it drawn again; an edit refused writes nothing; the file put back by
+    /// the panel's undo and written again by its redo, before a save and after it.
+    #[test]
+    fn a_cell_set_from_the_page_is_drawn_and_undone() {
+        let mut s = Session::open(revenue()).unwrap();
+        let original = s.file(CSV).unwrap().to_vec();
+        let before = drawn(&mut s, &[]);
+        let user = Caller { author: USER, at: None };
+        let set = q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }]));
+        let (edited, wrote) = s.data_edit(&set, false, user).unwrap();
+        assert!(wrote && edited.edited && edited.file.as_deref() == Some(CSV), "{edited:?}");
+        let expected = String::from_utf8_lossy(&original).replace("Enterprise,4.4,38", "Enterprise,4.6,38");
+        assert_eq!(String::from_utf8_lossy(s.file(CSV).unwrap()), expected);
+        assert_eq!(s.data_sheet("q3").unwrap().0.rows[2][2], "4.6");
+        let after = drawn(&mut s, &[]);
+        assert_ne!(after, before, "the chart that reads it is drawn again");
+
+        // A second Core in 2025-Q4 makes two marks of one key (E103): refused, nothing written.
+        let twice = q3(json!([{ "op": "set", "row": 1, "column": "product", "value": "Core" }]));
+        let (refused, wrote) = s.data_edit(&twice, false, user).unwrap();
+        assert!(refused.refused && !wrote && refused.added.iter().any(|f| f.code == "E103"), "{refused:?}");
+        assert_eq!(String::from_utf8_lossy(s.file(CSV).unwrap()), expected);
+
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice());
+        assert_eq!(drawn(&mut s, &[]), before, "undone, the chart is drawn as it was");
+        assert_eq!(s.data_undo(false, user).unwrap(), None, "nothing more to undo");
+        assert_eq!(s.data_undo(true, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(drawn(&mut s, &[]), after);
+        assert_eq!(s.data_undo(true, user).unwrap(), None, "nothing more to redo");
+
+        // A save writes the file as it is, and the panel goes on undoing what it did.
+        let saved = s.save(NOW, false, None).unwrap();
+        assert_eq!(String::from_utf8_lossy(&saved.files[CSV]), expected);
+        s.adopt(&saved).unwrap();
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice());
+    }
+
+    /// An editor undoes its own changes, never a file's (SPEC §8.2): the Data panel undoes the
+    /// assistant's edit of a file, as the source's undo does its edits of the deck, then the
+    /// user's; a file changed by other means, dropped on the page, has nothing left to undo.
+    #[test]
+    fn the_data_panel_undoes_the_editors_own_edits_and_never_a_files() {
+        let mut s = Session::open(revenue()).unwrap();
+        let original = s.file(CSV).unwrap().to_vec();
+        let user = Caller { author: USER, at: None };
+        let agent = Caller { author: "agent:scripted", at: None };
+        s.data_edit(&q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }])), false, user).unwrap();
+        let users = s.file(CSV).unwrap().to_vec();
+        let edits = json!([{ "op": "set", "row": 0, "column": "customers", "value": 1211 }]);
+        let called = s.tool("data_edit", json!({ "source": "q3", "edits": edits }), agent).unwrap();
+        assert!(called.edited, "{}", called.result);
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), users.as_slice(), "the assistant's edit undone");
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice(), "then the user's");
+
+        s.data_edit(&q3(json!([{ "op": "remove", "row": 11 }])), false, user).unwrap();
+        s.add_file(CSV, users.clone());
+        let changed = s.data_undo(false, user).unwrap_err().to_string();
+        assert!(changed.contains("has changed since"), "{changed}");
+        assert_eq!(s.file(CSV).unwrap(), users.as_slice());
+        assert_eq!((s.data_undo(false, user).unwrap(), s.data_undo(true, user).unwrap()), (None, None));
+    }
+
+    /// A save records each version of a data file as each edit wrote it, by its author (ADR-0014):
+    /// the file as it was opened, changed outside Scaena, first, by `fs`; then the user's cell, the
+    /// assistant's row, the user's next cell, and its undo. The history ends holding the file as
+    /// saved, so the next command that records takes in nothing.
+    #[test]
+    fn a_save_records_each_version_of_a_data_file_by_its_author() {
+        let (mut files, t0) = begun();
+        let outside = String::from_utf8(files[CSV].clone()).unwrap().replace("2026-Q3,Core,23.9", "2026-Q3,Core,24.1");
+        files.insert(CSV.into(), outside.into_bytes());
+        let mut s = Session::open(files).unwrap();
+        let user = |at: i64| Caller { author: USER, at: Some(t0 + at) };
+        s.data_edit(&q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }])), false, user(10))
+            .unwrap();
+        let row = json!({ "op": "add", "values": { "quarter": "2026-Q4", "product": "Core", "revenue": 25.2, "customers": 1600 } });
+        let agent = Caller { author: "agent:scripted", at: Some(t0 + 20) };
+        let called = s.tool("data_edit", json!({ "source": "q3", "edits": [row] }), agent).unwrap();
+        assert!(called.edited, "{}", called.result);
+        s.data_edit(&q3(json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.3" }])), false, user(30))
+            .unwrap();
+        assert_eq!(s.data_undo(false, user(40)).unwrap().as_deref(), Some("q3"));
+        // A dry run writes nothing, and records nothing.
+        let dry = json!({ "source": "q3", "edits": [{ "op": "remove", "row": 0 }], "dry_run": true });
+        assert!(!s.tool("data_edit", dry, agent).unwrap().edited);
+
+        let saved = s.save(&rfc3339(t0 + 60), false, Some(&recorder)).unwrap();
+        let history = &saved.files[HISTORY];
+        assert_eq!(
+            said(history, 1),
+            [
+                by(FS, &format!("{CSV} changed outside Scaena"), t0 + 10),
+                by("user", "data_edit q3: revenue of row 2", t0 + 10),
+                by("agent:scripted", "data_edit q3: a row added", t0 + 20),
+                by("user", "data_edit q3: revenue of row 0", t0 + 30),
+                by("user", "undo data_edit q3: revenue of row 0", t0 + 40),
+            ]
+        );
+        let doc = DeckDoc::load(history).unwrap();
+        assert_eq!(doc.files()[CSV], saved.files[CSV]);
+        assert!(String::from_utf8_lossy(&saved.files[CSV]).ends_with("2026-Q4,Core,25.2,1600\n"));
+        let next = Bundle::in_memory(saved.files.clone()).unwrap().history().unwrap().unwrap();
+        assert_eq!(next.changes().len(), 6, "the file as saved is the history's");
     }
 
     #[test]

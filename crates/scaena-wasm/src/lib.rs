@@ -42,6 +42,8 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "editor")]
 pub mod assistant;
 #[cfg(feature = "editor")]
+mod data;
+#[cfg(feature = "editor")]
 pub mod editor;
 #[cfg(feature = "editor")]
 mod store;
@@ -132,6 +134,16 @@ pub struct Session {
     /// before it (PLAN 2.9).
     #[cfg(feature = "editor")]
     recorded: Vec<scaena_store::crdt::Recorded>,
+    /// The data files edits wrote, each as it was before and after (PLAN 2.55): the Data panel
+    /// undoes the last, and redoes the last undone.
+    #[cfg(feature = "editor")]
+    done: Vec<data::Written>,
+    #[cfg(feature = "editor")]
+    undone: Vec<data::Written>,
+    /// Each data file an edit wrote, as the bundle held it when it was opened or last saved:
+    /// what the next save records as the bundle's own, before the edits (PLAN 2.55).
+    #[cfg(feature = "editor")]
+    held: BTreeMap<String, Vec<u8>>,
 }
 
 /// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
@@ -206,6 +218,12 @@ impl Session {
             subsets: BTreeMap::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
+            #[cfg(feature = "editor")]
+            done: Vec::new(),
+            #[cfg(feature = "editor")]
+            undone: Vec::new(),
+            #[cfg(feature = "editor")]
+            held: BTreeMap::new(),
         })
     }
 
@@ -1720,6 +1738,65 @@ impl Player {
                 ToolResult { json, error: true, edited: false, frame: None }
             }
         }
+    }
+}
+
+/// A data source from the editor (PLAN 2.55, SPEC §3.10): its sheet, its edits, and their undo.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck's data sources, as JSON: `[{ name, file? }]`, in its order, `file` the file each
+    /// is (none for rows written inline).
+    #[wasm_bindgen(js_name = dataSources)]
+    pub fn data_sources(&self) -> String {
+        let sources = self.0.data_sources().into_iter().map(|(name, file)| match file {
+            Some(file) => serde_json::json!({ "name": name, "file": file }),
+            None => serde_json::json!({ "name": name }),
+        });
+        serde_json::Value::Array(sources.collect()).to_string()
+    }
+
+    /// Data source `name` as a sheet, as `scaena data` reads it: as JSON, `{ sheet, file? }`.
+    #[wasm_bindgen(js_name = dataSheet)]
+    pub fn data_sheet(&self, name: &str) -> Result<String, JsError> {
+        let (sheet, file) = self.0.data_sheet(name).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "sheet": sheet, "file": file })).map_err(js)
+    }
+
+    /// `req` (JSON: `{ source, edits }`, as `data_edit` takes them) made by `author` (`user`
+    /// without one) at `at` (RFC 3339): validated, as a patch is, but not linted, as for a value
+    /// typed in a cell. As JSON, `{ result, wrote }`: what `data_edit` says it did, and whether it
+    /// wrote the file or the deck.
+    #[wasm_bindgen(js_name = dataEdit)]
+    pub fn data_edit(&mut self, req: &str, author: Option<String>, at: Option<String>) -> Result<String, JsError> {
+        let req: scaena_ops::data::DataEdit = serde_json::from_str(req).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (result, wrote) = self.0.data_edit(&req, false, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "result": result, "wrote": wrote })).map_err(js)
+    }
+
+    /// The data file the last edit wrote put back as it was, by `author` (`user` without one) at
+    /// `at`: the source it is, by name; none where there was nothing to undo.
+    #[wasm_bindgen(js_name = dataUndo)]
+    pub fn data_undo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        self.0.data_undo(false, by).map_err(js)
+    }
+
+    /// The data file the last undo put back written again, as [`Player::data_undo`] says.
+    #[wasm_bindgen(js_name = dataRedo)]
+    pub fn data_redo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        self.0.data_undo(true, by).map_err(js)
     }
 }
 
