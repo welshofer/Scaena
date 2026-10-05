@@ -332,7 +332,7 @@ pub fn creating(
     let deck_json = serde_json::to_string_pretty(&doc)?;
     let invalid = validate_bundle(&deck_json, &view)?;
     let mut listed: Vec<String> = files.keys().cloned().chain(["deck.json".to_string()]).collect();
-    listed.sort();
+    scaena_core::sort::sort(&mut listed);
     if invalid.iter().any(|f| f.severity == scaena_core::Severity::Error) {
         return Ok((Created { created: false, files: listed, errors: errors(&invalid), findings: invalid }, None));
     }

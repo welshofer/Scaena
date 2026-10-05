@@ -1720,7 +1720,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                                 .filter_map(|k| out.marks.iter().find(|m| m.key == *k))
                                 .map(|m| m.shape.point())
                                 .collect();
-                            at.sort_by(|a, b| a[0].total_cmp(&b[0]));
+                            scaena_core::sort::by(&mut at, |a, b| a[0].total_cmp(&b[0]));
                             let cross = |x: f32| {
                                 at.windows(2).find(|w| w[0][0] <= x && x <= w[1][0]).map(|w| {
                                     let t = if w[1][0] > w[0][0] { (x - w[0][0]) / (w[1][0] - w[0][0]) } else { 0.0 };
@@ -1880,7 +1880,7 @@ fn collisions(labels: &[Label], apart: f32) -> Vec<(String, String)> {
 fn hide(labels: &mut Vec<Label>, apart: f32) {
     let size = |l: &Label| l.value.map_or(0.0, |v| v.value.abs());
     let mut order: Vec<usize> = (0..labels.len()).collect();
-    order.sort_by(|&i, &j| size(&labels[j]).total_cmp(&size(&labels[i])).then(i.cmp(&j)));
+    scaena_core::sort::by(&mut order, |&i, &j| size(&labels[j]).total_cmp(&size(&labels[i])).then(i.cmp(&j)));
     let mut kept: Vec<usize> = Vec::new();
     for i in order {
         if !kept.iter().any(|&k| near(ink(&labels[k]), ink(&labels[i]), apart)) {
@@ -1902,7 +1902,7 @@ fn nudge(labels: &mut [Label], apart: f32) {
     let boxes: Vec<[f32; 4]> = labels.iter().map(ink).collect();
     // Columns: labels whose spans across overlap, transitively.
     let mut across: Vec<usize> = (0..labels.len()).collect();
-    across.sort_by(|&i, &j| boxes[i][0].total_cmp(&boxes[j][0]).then(i.cmp(&j)));
+    scaena_core::sort::by(&mut across, |&i, &j| boxes[i][0].total_cmp(&boxes[j][0]).then(i.cmp(&j)));
     let mut columns: Vec<(Vec<usize>, f32)> = Vec::new();
     for i in across {
         match columns.last_mut() {
@@ -1914,7 +1914,7 @@ fn nudge(labels: &mut [Label], apart: f32) {
         }
     }
     for (mut column, _) in columns {
-        column.sort_by(|&i, &j| boxes[i][1].total_cmp(&boxes[j][1]).then(i.cmp(&j)));
+        scaena_core::sort::by(&mut column, |&i, &j| boxes[i][1].total_cmp(&boxes[j][1]).then(i.cmp(&j)));
         // Blocks of labels set edge to edge: their members, and where the block's top
         // goes. Each member wants its top where it is.
         let mut blocks: Vec<(Vec<usize>, f32)> = Vec::new();

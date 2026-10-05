@@ -910,7 +910,7 @@ fn choose_data(
         let mut taken: Vec<&str> = channels.iter().filter_map(|&c| field(c).filter(|f| reads(c).contains(f))).collect();
         let mut moving: Vec<&str> =
             channels.into_iter().filter(|&c| field(c).is_some_and(|f| !reads(c).contains(&f))).collect();
-        moving.sort_by_key(|&c| reads(c).len());
+        crate::sort::by_key(&mut moving, |&c| reads(c).len());
         for c in moving {
             let free: Vec<&str> = reads(c).into_iter().filter(|column| !taken.contains(column)).collect();
             let like = was(c).and_then(|was| free.iter().copied().find(|&column| kind(column) == Some(was)));

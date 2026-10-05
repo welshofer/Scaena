@@ -209,7 +209,7 @@ pub fn spreading(members: &[Member], along: Spread, state: &str, fork: bool) -> 
         Spread::Down => 1,
     };
     let mut order: Vec<&Member> = members.iter().collect();
-    order.sort_by(|p, q| p.targets.cell[a].total_cmp(&q.targets.cell[a]));
+    scaena_core::sort::by(&mut order, |p, q| p.targets.cell[a].total_cmp(&q.targets.cell[a]));
     let (first, last) = (order[0].targets.cell, order[order.len() - 1].targets.cell);
     let sizes: f32 = order.iter().map(|m| m.targets.cell[a + 2]).sum();
     let gap = (last[a] + last[a + 2] - first[a] - sizes) / (order.len() - 1) as f32;
@@ -252,14 +252,14 @@ pub fn ordering(siblings: &[Sibling], nodes: &[String], order: Order) -> Result<
     let key = |s: &Sibling| (s.z, s.index);
     let painted = |now: &[Sibling]| {
         let mut l: Vec<usize> = (0..now.len()).collect();
-        l.sort_by_key(|&i| key(&now[i]));
+        scaena_core::sort::by_key(&mut l, |&i| key(&now[i]));
         l
     };
     // The nodes in the order that keeps what they keep among themselves: the topmost first
     // when they go up, the lowest first when they go down.
     let mut mine: Vec<&String> = nodes.iter().collect();
     let place = |now: &[Sibling], n: &str| painted(now).iter().position(|&i| now[i].node == n).unwrap_or(0);
-    mine.sort_by_key(|n| place(&now, n));
+    scaena_core::sort::by_key(&mut mine, |n| place(&now, n));
     if matches!(order, Order::Forward | Order::Back) {
         mine.reverse();
     }
@@ -292,7 +292,7 @@ pub fn ordering(siblings: &[Sibling], nodes: &[String], order: Order) -> Result<
         let fits = |v: i64| below.is_none_or(|b| b < (v, idx)) && above.is_none_or(|a| (v, idx) < a);
         let near = [below.map(|b| b.0), below.map(|b| b.0 + 1), above.map(|a| a.0), above.map(|a| a.0 - 1)];
         let mut tries: Vec<i64> = near.into_iter().flatten().collect();
-        tries.sort_by_key(|v| (v - now[n].z).abs());
+        scaena_core::sort::by_key(&mut tries, |v| (v - now[n].z).abs());
         if let Some(v) = tries.into_iter().find(|&v| fits(v)) {
             now[n].z = v;
             changed.retain(|(c, _)| c != node);

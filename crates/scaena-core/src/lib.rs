@@ -20,6 +20,7 @@
 //! - [`reading`] — how a deck reads to someone who hears it: each node's part, and a state as
 //!   HTML (SPEC §3.12), for a tagged PDF, a single file, and the web player.
 //! - [`spine`] — the spine projection the pipelines beyond the deck read (SPEC §10).
+//! - [`sort`] — stable sorts that share one compiled merge sort, for the browser's module.
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
@@ -39,6 +40,7 @@ pub mod model;
 pub mod patch;
 pub mod reading;
 pub mod shader;
+pub mod sort;
 pub mod spine;
 pub mod timeline;
 pub mod tracking;

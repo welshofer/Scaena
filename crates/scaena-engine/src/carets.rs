@@ -326,7 +326,7 @@ impl Carets {
                 .filter(|c| from <= c.offset && c.offset < to && c.lead != c.trail)
                 .map(|c| (c.lead.min(c.trail), c.lead.max(c.trail)))
                 .collect();
-            spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+            scaena_core::sort::by(&mut spans, |a, b| a.0.total_cmp(&b.0));
             let mut merged: Vec<(f32, f32)> = Vec::new();
             for (left, right) in spans {
                 match merged.last_mut() {

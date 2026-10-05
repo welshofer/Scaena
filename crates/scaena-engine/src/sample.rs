@@ -604,7 +604,7 @@ impl Transition {
             tracks.push((b.paint.clone(), track));
         }
         // Stable: within one paint position, an exiting node draws under its successor.
-        tracks.sort_by(|a, b| a.0.cmp(&b.0));
+        scaena_core::sort::by(&mut tracks, |a, b| a.0.cmp(&b.0));
         let tracks: Vec<Track> = tracks.into_iter().map(|(_, t)| t).collect();
 
         // What each split cue's targets split into: an exit's in the state left, any
@@ -2049,7 +2049,7 @@ fn entry(m: &Mark, a: Option<&ChartLayout>, b: Option<&ChartLayout>, entering: b
     {
         let mut points: Vec<Shape> =
             path.marks.iter().filter_map(|k| o.marks.iter().find(|x| x.key == *k)).map(|x| x.shape).collect();
-        points.sort_by(|p, q| p.center_x().total_cmp(&q.center_x()));
+        scaena_core::sort::by(&mut points, |p, q| p.center_x().total_cmp(&q.center_x()));
         if !points.is_empty() {
             return on_path(m.shape, &points, m.shape.center_x() + dx);
         }
@@ -2299,7 +2299,7 @@ fn broken_rule_op(rule: &Rule, gaps: &[[f32; 2]], alpha: f32) -> Option<Op> {
     if cuts.is_empty() {
         return Some(rule_op(rule, alpha));
     }
-    cuts.sort_by(|g, h| g[0].total_cmp(&h[0]));
+    scaena_core::sort::by(&mut cuts, |g, h| g[0].total_cmp(&h[0]));
     let point = |at: f32| lerp2(rule.from, rule.to, (at - a) / (b - a));
     let (mut els, mut at) = (Vec::new(), lo);
     for [start, end] in cuts.into_iter().chain([[hi, hi]]) {

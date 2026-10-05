@@ -416,7 +416,7 @@ pub fn pdf_pages(deck: &scaena_core::Deck, states: Option<&[String]>) -> Result<
         }
     }
     // Stable: the slides no beat names keep the deck's order, after the rest.
-    pages.sort_by_key(|(s, _)| order.iter().position(|o| o == s).unwrap_or(usize::MAX));
+    scaena_core::sort::by_key(&mut pages, |(s, _)| order.iter().position(|o| o == s).unwrap_or(usize::MAX));
     Ok(pages.into_iter().map(|(_, state)| state.to_string()).collect())
 }
 

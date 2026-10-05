@@ -531,7 +531,7 @@ const KEYWORD_ORDER: &[&str] = &[
 fn order_keys(schema: &mut Map<String, Value>) {
     let rank = |key: &str| KEYWORD_ORDER.iter().position(|k| *k == key).unwrap_or(KEYWORD_ORDER.len());
     let mut entries: Vec<(String, Value)> = std::mem::take(schema).into_iter().collect();
-    entries.sort_by_key(|(key, _)| rank(key));
+    crate::sort::by_key(&mut entries, |(key, _)| rank(key));
     schema.extend(entries);
 }
 

@@ -637,7 +637,7 @@ fn children<'a>(deck: &Deck, snap: &'a Snapshot, id: &str) -> Vec<&'a str> {
         .filter(|(_, props)| parent(props) == Some(id))
         .map(|(kid, props)| (index(props).unwrap_or(0), order(kid), kid.as_str()))
         .collect();
-    kids.sort();
+    scaena_core::sort::sort(&mut kids);
     kids.into_iter().map(|(_, _, kid)| kid).collect()
 }
 

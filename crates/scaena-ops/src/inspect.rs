@@ -915,7 +915,7 @@ pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
         }
     }
     let mut ids: Vec<(String, usize)> = depth.into_iter().collect();
-    ids.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
     ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
 }
 

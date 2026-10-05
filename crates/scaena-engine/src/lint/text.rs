@@ -578,7 +578,7 @@ impl Rule for W312ChartTextSize {
                         None => by_size.push((*size, vec![part.name()])),
                     }
                 }
-                by_size.sort_by(|a, b| a.0.total_cmp(&b.0));
+                scaena_core::sort::by(&mut by_size, |a, b| a.0.total_cmp(&b.0));
                 let said: Vec<String> = by_size
                     .iter()
                     .map(|(size, names)| {

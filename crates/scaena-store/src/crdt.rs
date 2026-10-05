@@ -235,7 +235,7 @@ impl DeckDoc {
                 counter = meta.id.counter + meta.len as i32;
             }
         }
-        out.sort_by_key(|c| (c.lamport, c.peer));
+        scaena_core::sort::by_key(&mut out, |c| (c.lamport, c.peer));
         out
     }
 
@@ -366,7 +366,7 @@ fn ordered_keys(map: &LoroMap) -> Result<Vec<String>> {
         }
     }
     let mut rest: Vec<String> = present.into_iter().filter(|k| !out.contains(k)).collect();
-    rest.sort();
+    scaena_core::sort::sort(&mut rest);
     out.extend(rest);
     Ok(out)
 }
@@ -660,7 +660,7 @@ fn read_deltas(map: &LoroMap, keys: &Keys) -> Result<Map<String, Value>> {
     };
     let mut present: Vec<String> =
         map.keys().map(|k| k.to_string()).filter(|k| !k.starts_with('\0') || k.starts_with(UNRESOLVED)).collect();
-    present.sort();
+    scaena_core::sort::sort(&mut present);
     let order = listed.iter().filter(|k| present.contains(k)).chain(present.iter().filter(|k| !listed.contains(k)));
     for key in order {
         let Some(ValueOrContainer::Container(Container::Map(delta))) = map.get(key) else { continue };
@@ -771,7 +771,7 @@ impl DeckDoc {
         let listed: Vec<String> =
             order.to_vec().into_iter().filter_map(|v| v.as_string().map(|s| s.to_string())).collect();
         let mut rest: Vec<String> = nodes.keys().map(|k| k.to_string()).filter(|k| !listed.contains(k)).collect();
-        rest.sort();
+        scaena_core::sort::sort(&mut rest);
         for key in listed.into_iter().chain(rest) {
             if !seen.insert(key.clone()) {
                 continue;

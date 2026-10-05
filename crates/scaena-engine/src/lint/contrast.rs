@@ -263,7 +263,7 @@ fn judge(run: &Run, ratios: &Ratios, px: &Pixels, ink: Option<&Pixels>, scale: f
     if total <= 0.0 {
         return None;
     }
-    seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+    scaena_core::sort::by(&mut seen, |a, b| a.0.total_cmp(&b.0));
     let mut sum = 0.0;
     for &(r, cover, bg) in &seen {
         sum += cover;

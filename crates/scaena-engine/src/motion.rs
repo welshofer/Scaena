@@ -241,7 +241,7 @@ fn keys_cue(
     let mut keys = Keys::default();
     for (property, frames) in &tracks.0 {
         let mut frames: Vec<&Keyframe> = frames.iter().collect();
-        frames.sort_by(|a, b| a.t.total_cmp(&b.t));
+        scaena_core::sort::by(&mut frames, |a, b| a.t.total_cmp(&b.t));
         let curve = |k: &Keyframe| -> Result<Curve, EngineError> {
             match (&k.spring, &k.ease) {
                 (Some(s), _) => Ok(Curve::spring(spring_of(theme, s)?)),
