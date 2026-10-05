@@ -692,7 +692,7 @@ pub fn inserting(
 }
 
 /// The smallest of the template's slots under `at` that no node `state` shows is placed in.
-fn empty_slot(
+pub(crate) fn empty_slot(
     deck: &Deck,
     room: &scaena_engine::geometry::Targets,
     state: &str,
@@ -786,7 +786,7 @@ pub fn duplicating(
 }
 
 /// The first of `base`, `base-2`, `base-3`, … not in `taken`.
-fn free_id(taken: &[String], base: &str) -> String {
+pub(crate) fn free_id(taken: &[String], base: &str) -> String {
     (1..)
         .map(|n| if n == 1 { base.to_string() } else { format!("{base}-{n}") })
         .find(|id| !taken.contains(id))
@@ -828,7 +828,7 @@ pub fn deleting(
 }
 
 /// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
-fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
+pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
     let mut depth: IndexMap<String, usize> = IndexMap::new();
     for snap in snaps {
         let parent = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str().map(String::from);

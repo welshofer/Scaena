@@ -540,6 +540,50 @@ impl Session {
             .map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// What a copy of `node`, as `state` shows it, holds (PLAN 2.37): it and what it holds
+    /// there, their overrides, the data sources they read, and the files those and their images
+    /// read, with its box as a share of the canvas in the format shown.
+    #[cfg(feature = "editor")]
+    pub fn copying(&mut self, state: &str, node: &str) -> Result<scaena_ops::clipboard::Clip, Error> {
+        let boxes = self.boxes(state)?;
+        let rect = boxes.iter().find(|b| b.node == node).map(|b| b.rect);
+        let rect = rect.ok_or_else(|| Error::Ops(format!("`{node}` stands nowhere in `{state}`")))?;
+        let [w, h] = self.canvas_size()?;
+        let files = Arc::clone(&self.files);
+        let read = |p: &str| files.get(p).cloned();
+        scaena_ops::clipboard::copying(&self.deck, &self.theme, state, node, rect, [w as f32, h as f32], &read)
+            .map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that pastes `clip` in `state` (PLAN 2.37): each node it holds under an id
+    /// new to the deck, the copy of the node copied placed about `at` (canvas units, in the
+    /// format shown) as Insert places a node, its box the clip's share of the canvas. The
+    /// files it carries that the bundle lacks are handed over here; what the theme lacks is
+    /// taken out of the copies and said in its findings.
+    #[cfg(feature = "editor")]
+    pub fn pasting(
+        &mut self,
+        clip: &scaena_ops::clipboard::Clip,
+        state: &str,
+        at: [f32; 2],
+    ) -> Result<scaena_ops::clipboard::Pasted, Error> {
+        let id = scaena_core::inserts::fresh(&self.deck, &clip.node);
+        self.duration(state)?;
+        let engine = self.engine.as_mut().expect("built for the span");
+        let format = self.format.as_deref();
+        let req =
+            FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
+        let room = engine.room(&req, &id, [clip.share[2], clip.share[3]])?;
+        let files = Arc::clone(&self.files);
+        let read = |p: &str| files.get(p).cloned();
+        let pasted = scaena_ops::clipboard::pasting(&self.deck, &editor::Handed(&files), &read, &room, clip, state, at)
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        for (path, bytes) in pasted.files.iter().zip(&pasted.bytes) {
+            self.add_file(path, bytes.clone());
+        }
+        Ok(pasted)
+    }
+
     /// The patch that adds a state after `state`, the state shown (PLAN 2.35): a step of its
     /// slide, tracking from it, or a slide of its own, empty, after the slide's last step.
     #[cfg(feature = "editor")]
@@ -1037,6 +1081,23 @@ impl Player {
     /// (PLAN 2.34).
     pub fn duplicating(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// What a copy of `node`, as `state` shows it, holds (PLAN 2.37), as JSON: what goes on
+    /// the clipboard, as `application/x-scaena+json` and as text.
+    pub fn copying(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.copying(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that pastes what the clipboard holds in `state` about `x`, `y` (PLAN 2.37), as
+    /// JSON: `{ id, cell, patch, files, findings }`. A clip as [`Player::copying`] gives it pastes
+    /// what it holds; other text, a text in the theme's body role.
+    pub fn pasting(&mut self, text: &str, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let clip = match scaena_ops::clipboard::read(text).map_err(js)? {
+            Some(clip) => clip,
+            None => scaena_ops::clipboard::of_text(&self.0.deck, &self.0.theme, text).map_err(js)?,
+        };
+        serde_json::to_string(&self.0.pasting(&clip, state, [x, y]).map_err(js)?).map_err(js)
     }
 
     /// The patch that deletes `node` from `state`, with what it holds there, as JSON: `hide_node`
@@ -1905,6 +1966,137 @@ mod tests {
             assert!(tried.typed(&serde_json::json!(delete), None).unwrap(), "the deck takes {delete:?}");
             assert!(shows(&tried, "card").iter().all(|state| state != "containers"));
         }
+    }
+
+    /// A copy goes on the clipboard as JSON, with what it reads, and pastes where the pointer
+    /// pressed under an id new to the deck, as Insert places a node: one patch (PLAN 2.37).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_copy_pastes_where_the_pointer_pressed_with_what_it_reads() {
+        use scaena_ops::clipboard::read;
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let stands = |s: &mut Session, state: &str, node: &str| {
+            s.boxes(state).unwrap().into_iter().find(|b| b.node == node).map(|b| b.rect)
+        };
+        let keys = |m: Vec<&String>| m.into_iter().cloned().collect::<Vec<String>>();
+
+        // The chart, with its data source and the file it reads.
+        let clip = s.copying("revenue", "rev").unwrap();
+        assert_eq!((clip.node.as_str(), keys(clip.nodes.keys().collect())), ("rev", vec!["rev".to_string()]));
+        assert_eq!(clip.nodes["rev"]["type"], "chart");
+        assert_eq!(clip.nodes["rev"]["data"], "@q3");
+        assert_eq!(keys(clip.data.keys().collect()), ["q3"]);
+        assert_eq!(keys(clip.files.keys().collect()), ["data/q3-revenue.csv"]);
+        let rect = stands(&mut s, "revenue", "rev").unwrap();
+        assert_eq!(clip.share, [rect[0] / 1920.0, rect[1] / 1080.0, rect[2] / 1920.0, rect[3] / 1080.0]);
+        // As the clipboard holds it, and back.
+        assert_eq!(read(&serde_json::to_string(&clip).unwrap()).unwrap(), Some(clip.clone()));
+
+        // Pasted in `close`, about a point: a chart of its own there, reading the same source.
+        let pasted = s.pasting(&clip, "close", [700.0, 600.0]).unwrap();
+        assert_eq!(pasted.id, "rev-2");
+        assert!(pasted.findings.is_empty() && pasted.files.is_empty(), "{pasted:?}");
+        let ops: Vec<&str> = pasted.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["add_node", "place"]);
+        assert_eq!(pasted.patch[0]["state"], "close", "it enters in the state shown");
+        assert_eq!((pasted.cell[2], pasted.cell[3]), (rect[2], rect[3]), "the box it was copied with");
+        let [x, y, w, h] = pasted.cell;
+        assert!(x <= 700.0 && 700.0 <= x + w && y <= 600.0 && 600.0 <= y + h, "{:?}", pasted.cell);
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
+        assert_eq!(stands(&mut s, "close", "rev-2"), Some(pasted.cell));
+        assert_eq!(s.deck.nodes["rev-2"].props.get("data"), Some(&serde_json::json!("@q3")));
+        assert_eq!(s.deck.data.len(), 1, "no source is declared twice");
+
+        // From a bundle whose file of that name holds other rows: the file comes in under a
+        // name of its own, and so the source that reads it.
+        let mut other = revenue();
+        let csv = "quarter,product,revenue,customers\nQ3,Core,12,40\n";
+        other.add_file("data/q3-revenue.csv", csv.as_bytes().to_vec());
+        let theirs = other.copying("revenue", "rev").unwrap();
+        let pasted = s.pasting(&theirs, "close", [1400.0, 600.0]).unwrap();
+        assert_eq!(pasted.id, "rev-3");
+        assert_eq!(pasted.files, ["data/q3-revenue-2.csv"]);
+        assert_eq!(s.files.get("data/q3-revenue-2.csv").map(Vec::as_slice), Some(csv.as_bytes()), "handed over");
+        let ops: Vec<&str> = pasted.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["add", "add_node", "place"]);
+        assert_eq!(pasted.patch[0]["path"], "/data/q3-2");
+        assert_eq!(pasted.patch[0]["value"]["source"], "data/q3-revenue-2.csv");
+        assert_eq!(pasted.patch[1]["node"]["data"], "@q3-2");
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
+        assert_eq!(s.deck.data.len(), 2);
+
+        // Text from anywhere else is no clip, and pastes as a text in the body role; a clip
+        // that is damaged or newer is refused, with why.
+        assert_eq!(read("Q3 Review").unwrap(), None);
+        assert_eq!(read(r#"{ "kind": "scaena/deck" }"#).unwrap(), None);
+        let refused = |text: &str| read(text).unwrap_err().message;
+        let newer = serde_json::to_string(&scaena_ops::clipboard::Clip { version: 2, ..clip.clone() }).unwrap();
+        assert!(refused(&newer).contains("newer"), "{}", refused(&newer));
+        assert!(refused(r#"{ "kind": "scaena/clip", "version": 1 }"#).contains("damaged"));
+        let text = scaena_ops::clipboard::of_text(&s.deck, &s.theme, "Margins held.\n").unwrap();
+        let pasted = s.pasting(&text, "close", [960.0, 900.0]).unwrap();
+        assert_eq!(pasted.id, "body");
+        assert_eq!(
+            pasted.patch[0]["node"],
+            serde_json::json!({ "type": "text", "role": "body", "text": "Margins held." })
+        );
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
+        assert!(stands(&mut s, "close", "body").is_some());
+        assert!(scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n").is_err(), "nothing to paste");
+    }
+
+    /// A paste into a deck whose theme lacks what the copy names takes it out of the copy, and
+    /// says so in findings; the deck takes the rest. A container comes with copies of what it
+    /// holds, each held by the copy of what held it (PLAN 2.37).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_paste_takes_out_what_the_theme_lacks_and_a_container_brings_what_it_holds() {
+        let mut s = revenue();
+        let mut t = torture();
+
+        // Dusk's `title` role is not the torture theme's.
+        let clip = s.copying("intro", "subtitle").unwrap();
+        assert_eq!(clip.nodes["subtitle"]["role"], "title");
+        let pasted = t.pasting(&clip, "shapes", [960.0, 900.0]).unwrap();
+        assert_eq!(pasted.id, "subtitle");
+        let found: Vec<(&str, Option<&str>)> =
+            pasted.findings.iter().map(|f| (f.code.as_str(), f.path.as_deref())).collect();
+        assert_eq!(found, [("E102", Some("/nodes/subtitle/role"))], "{:?}", pasted.findings);
+        assert!(pasted.findings[0].message.contains("role `title`"), "{:?}", pasted.findings);
+        // Dusk's title, 48 cu, is nearest its body, 32, of the roles every theme has.
+        assert_eq!(clip.roles.get("title").map(String::as_str), Some("body"));
+        assert_eq!(pasted.patch[0]["node"]["role"], "body", "in its place: {:?}", pasted.patch);
+        assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
+        assert_eq!(t.deck.nodes["subtitle"].props.get("text"), s.deck.nodes["subtitle"].props.get("text"));
+
+        // The chart brings its source and its file, which the torture bundle lacks.
+        let clip = s.copying("revenue", "rev").unwrap();
+        let pasted = t.pasting(&clip, "shapes", [960.0, 500.0]).unwrap();
+        assert_eq!(pasted.files, ["data/q3-revenue.csv"]);
+        assert!(pasted.findings.is_empty(), "the torture theme has every name the chart takes: {:?}", pasted.findings);
+        assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted);
+        let declared = |s: &Session| serde_json::to_value(&s.deck.data["q3"]).unwrap();
+        assert_eq!(declared(&t), declared(&s));
+        assert!(t.boxes("shapes").unwrap().iter().any(|b| b.node == pasted.id && b.draws));
+
+        // The card holds a photo, a tag, and the tag's label.
+        let clip = t.copying("containers", "card").unwrap();
+        let ids: Vec<&str> = clip.nodes.keys().map(String::as_str).collect();
+        assert_eq!(ids[0], "card");
+        assert!(ids.contains(&"card-photo") && ids.contains(&"card-tag-label"), "{ids:?}");
+        assert!(clip.files.keys().any(|p| p.starts_with("assets/")), "the photo's file: {:?}", clip.files.keys());
+        let pasted = t.pasting(&clip, "containers", [300.0, 300.0]).unwrap();
+        assert_eq!(pasted.id, "card-2");
+        assert!(pasted.files.is_empty(), "the bundle holds the photo's bytes already");
+        assert!(t.typed(&serde_json::json!(pasted.patch), None).unwrap(), "the deck takes {:?}", pasted.patch);
+        let snaps = scaena_core::resolve_states(&t.deck).unwrap();
+        let snap = snaps.iter().find(|snap| snap.state_id == "containers").unwrap();
+        let parent = |id: &str| snap.nodes[id].get("at").and_then(|a| a.get("parent")).and_then(|p| p.as_str());
+        for held in ["card-photo-2", "card-tag-2", "card-tag-label-2"] {
+            assert_eq!(parent(held), Some("card-2"), "{held} is held by the copy of the card");
+        }
+        assert_eq!(parent("card-2"), None, "pasted at the root, where the pointer pressed");
     }
 
     /// The state strip adds a step after the state shown, which shows what it shows, and a

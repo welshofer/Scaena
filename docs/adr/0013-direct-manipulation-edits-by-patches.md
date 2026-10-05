@@ -39,6 +39,9 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |
    | Delete | `hide_node` in the state shown, for the node and what it holds; `remove_node` for one no state shows after |
    | Delete from the deck | `remove_node`, for the node and what it holds |
+   | Copy | Nothing: a clip of the node and what it holds, as the state shows them, with their overrides, the data sources they read, and the files those read (`application/x-scaena+json`, and as text) |
+   | Cut | A copy, then Delete's patch |
+   | Paste | The sources a clip brings, `add_node` for each node it holds under an id new to the deck, entering in the state shown, their overrides, then `place` as Insert places a node; what the theme lacks taken out of the copy, as findings, a text's role given way to its stand-in |
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
    | Choosing a state's look, with no node selected | `set_state`: its layout, from the theme's layouts with a slot for each node placed in one, written where it lives; its transition's keys, its hold, and its notes, its own (`inspect --state-choices`) |

@@ -201,6 +201,17 @@ export interface Added {
   patch: unknown[];
 }
 
+/** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
+ * the files the clip carried that the bundle lacked, now in it; and what the copies named that
+ * the theme lacks, each taken out of them. */
+export interface Pasted extends Added {
+  files: string[];
+  findings: Finding[];
+}
+
+/** The media type a clip goes on the clipboard as, beside its text (PLAN 2.37). */
+export const CLIP = "application/x-scaena+json";
+
 /** The page to the worker. */
 export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
@@ -282,6 +293,13 @@ export type ToWorker =
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** What the clipboard holds of `node` as `state` shows it, on the deck the editor's `source`
+   * compiles to (PLAN 2.37): the clip, as JSON text. */
+  | { type: "copying"; id: number; source: string; state: string; node: string; format?: string }
+  /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
+   * units), on the deck the editor's `source` compiles to: a clip pastes what it holds, other
+   * text a text in the theme's body role (PLAN 2.37). */
+  | { type: "pasting"; id: number; source: string; state: string; clip: string; at: [number, number]; format?: string }
   /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
    * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
    * digest, as the strip last had it) come with pixels. */
@@ -528,6 +546,9 @@ export type FromWorker =
   | { type: "adding"; id: number; added: Added }
   /** The patch that takes a node away. */
   | { type: "deleting"; id: number; patch: unknown[] }
+  /** A node as the clipboard holds it, and what pasting a clip makes. */
+  | { type: "copied"; id: number; clip: string }
+  | { type: "pasted"; id: number; pasted: Pasted }
   | { type: "thumbnails"; id: number; thumbs: Thumb[] }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }

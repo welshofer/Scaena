@@ -162,6 +162,7 @@ web-smoke: site
     node web/typing.mjs
     node web/inspector.mjs
     node web/insert.mjs
+    node web/clipboard.mjs
     node web/strip.mjs
     node web/storage.mjs
     node web/assistant.mjs
