@@ -119,6 +119,43 @@ fn every_rule_triggers_on_its_fixture_and_not_on_its_clean_twin() {
     }
 }
 
+/// The editor keeps a finding of its last lint of every state only while the deck has every
+/// node it is about (PLAN 2.3): `scaena_engine::lint::nodes` names each node of the deck that a
+/// finding's measure names, besides its own.
+#[test]
+fn a_finding_is_about_every_node_its_measure_names() {
+    /// Each string in `v`, but for the states it lists.
+    fn strings<'v>(v: &'v Value, out: &mut Vec<&'v str>) {
+        match v {
+            Value::String(s) => out.push(s),
+            Value::Array(items) => items.iter().for_each(|v| strings(v, out)),
+            Value::Object(map) => map.iter().filter(|(k, _)| *k != "states").for_each(|(_, v)| strings(v, out)),
+            _ => {}
+        }
+    }
+    let mut beside = Vec::new();
+    for (code, _) in RULES {
+        let dir = fixture("about", code, "trigger");
+        let deck: Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+        let (_, found) = lint(&dir);
+        for f in &found {
+            let finding: scaena_core::Finding = serde_json::from_value(f.clone()).unwrap();
+            let about = scaena_engine::lint::nodes(&finding);
+            let mut named = Vec::new();
+            strings(&f["measure"], &mut named);
+            for id in named.into_iter().filter(|id| deck["nodes"].get(id).is_some()) {
+                assert!(about.contains(&id), "tests/lint/{code}/trigger.deck.json: `{id}` is not in {about:?}: {f:#}");
+            }
+            if about.len() > usize::from(finding.node.is_some()) {
+                beside.push(finding.code);
+            }
+        }
+    }
+    beside.sort();
+    beside.dedup();
+    assert_eq!(beside, ["E101", "W220", "W311"]);
+}
+
 /// A bundle of `test`'s own: the lint theme as `theme` edits it, its fonts, and `deck`.
 fn bundle(test: &str, deck: &Value, theme: impl FnOnce(&mut Value)) -> PathBuf {
     let dir = fixture(test, "E110", "trigger");

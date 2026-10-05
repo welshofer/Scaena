@@ -176,7 +176,8 @@ impl Session {
     /// every format, laid out by the session's engine. With `only`, the layout rules lay out
     /// that state alone, the one being edited, so the answer comes at once (PLAN 2.3); the
     /// other states keep what the layout rules found the last time they ran on every state,
-    /// placed again in this source.
+    /// placed again in this source, but not a finding about a state, a format, or a node the
+    /// deck no longer has.
     pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
         let shown = self.shown();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
@@ -203,7 +204,9 @@ impl Session {
                 Some(only) => {
                     let kept = (laid.iter())
                         .filter(|f| f.state.as_deref() != Some(only))
-                        .filter(|f| deck.states.iter().any(|s| f.state.as_ref() == Some(&s.id)));
+                        .filter(|f| deck.states.iter().any(|s| f.state.as_ref() == Some(&s.id)))
+                        .filter(|f| f.format.as_ref().is_none_or(|format| deck.formats.contains(format)))
+                        .filter(|f| scaena_engine::lint::nodes(f).into_iter().all(|id| deck.nodes.contains_key(id)));
                     found.into_iter().chain(kept.cloned()).collect()
                 }
             };
@@ -428,6 +431,66 @@ mod tests {
         // What compiling finds holds in every format.
         let found = s.compile(&source.replace("@q3", "@q4")).findings;
         assert!(!found.is_empty() && found.iter().all(|f| f.shown), "{found:?}");
+    }
+
+    #[test]
+    fn a_lint_of_one_state_keeps_nothing_about_what_the_deck_no_longer_has() {
+        let mut s = revenue();
+        // The closing title in more lines than its role's `maxLines` (W202): what lint finds in
+        // `close` about a node the deck keeps throughout.
+        let thanks =
+            "Thank you all, every one of you, for this quarter, for the year it began, and for the year to come";
+        let source = s.source().replace("\"Thank you\"", &format!("\"{thanks}\""));
+        // The chart pasted into `revenue` over the rest as `rev-2`, as the editor's clipboard
+        // puts it (PLAN 2.37). It stays on into `close`, over the mesh there.
+        let (chart, note) = (source.find("  rev chart:bar").unwrap(), source.find("  note text").unwrap());
+        let copy = source[chart..note]
+            .replacen("rev chart", "rev-2 chart", 1)
+            .replace("at:in(main)", "at:col(1-12) row(5-12)");
+        let pasted = format!("{}{copy}{}", &source[..note], &source[note..]);
+        let found = |l: &Linting| -> Vec<String> {
+            let said = |f: &Finding| format!("{} {:?} {:?} {:?}: {}", f.code, f.state, f.node, f.format, f.message);
+            l.findings.iter().map(|f| said(&f.finding)).collect()
+        };
+        let naming = |l: &Linting, id: &str| -> Vec<String> {
+            let names = |f: &Finding| serde_json::to_string(f).unwrap().contains(id);
+            l.findings.iter().filter(|f| names(&f.finding)).map(|f| f.finding.message.clone()).collect()
+        };
+        let title = |l: &Linting, format: Option<&str>| {
+            (l.findings.iter()).any(|f| {
+                let f = &f.finding;
+                (f.code.as_str(), f.state.as_deref(), f.node.as_deref(), f.format.as_deref())
+                    == ("W202", Some("close"), Some("title"), format)
+            })
+        };
+        assert!(s.compile(&pasted).valid);
+        let whole = s.lint(None).unwrap();
+        // The copy is found in `close` too: its text against the mesh, and the mesh behind it,
+        // a finding at the shader that names the chart only in its measure (W311).
+        let shader = (whole.findings.iter().map(|f| &f.finding))
+            .find(|f| f.code == "W311" && f.state.as_deref() == Some("close") && f.format.is_none())
+            .unwrap_or_else(|| panic!("{:#?}", found(&whole)));
+        assert_eq!(shader.node.as_deref(), Some("bg"));
+        assert_eq!(shader.measure.as_ref().unwrap()["data"], "rev-2");
+        assert!(title(&whole, None) && title(&whole, Some("9:16")), "{:#?}", found(&whole));
+        // The paste undone: linting `revenue` alone keeps what the whole lint found in the other
+        // states, but nothing about the copy.
+        assert!(s.compile(&source).valid);
+        let one = s.lint(Some("revenue")).unwrap();
+        assert!(!one.whole);
+        assert_eq!(naming(&one, "rev-2"), Vec::<String>::new());
+        assert!(title(&one, None) && title(&one, Some("9:16")), "{:#?}", found(&one));
+        // Nor anything in a format the deck no longer lists.
+        let source = source.replace("formats:[16:9, 9:16]", "formats:[16:9]");
+        assert!(s.compile(&source).valid);
+        let one = s.lint(Some("revenue")).unwrap();
+        assert!(!one.findings.iter().any(|f| f.finding.format.is_some()), "{:#?}", found(&one));
+        assert!(title(&one, None), "{:#?}", found(&one));
+        // Nor in a state it no longer has.
+        let source = source.replace("states:[close]", "states:[end]").replace("state close ", "state end ");
+        assert!(s.compile(&source).valid);
+        let one = s.lint(Some("revenue")).unwrap();
+        assert!(!one.findings.iter().any(|f| f.finding.state.as_deref() == Some("close")), "{:#?}", found(&one));
     }
 
     #[test]

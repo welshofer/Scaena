@@ -596,7 +596,8 @@ export interface Edited {
   /** Whether lint laid the deck out: it does once nothing is an error. */
   laid: boolean;
   /** Whether it laid out every state; an edit lays out the state shown, and the others keep
-   * what the last lint of every state found in them. */
+   * what the last lint of every state found in them, but nothing about a state, a format, or
+   * a node the deck no longer has. */
   whole: boolean;
   /** The deck's timeline now. */
   slots: Slot[];

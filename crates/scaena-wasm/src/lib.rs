@@ -1204,7 +1204,8 @@ impl Player {
 
     /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
     /// With `state`, the layout rules run on that state alone, the one being edited, and
-    /// the other states keep what they found when they last ran on every state.
+    /// the other states keep what they found when they last ran on every state, but not a
+    /// finding about a state, a format, or a node the deck no longer has.
     pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
         serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
     }

@@ -8,6 +8,9 @@
 //   text: the chart, its data source, and the CSV it reads.
 // - ⌘V pastes it where the canvas was last pressed, under an id new to the deck, `rev-2`, which
 //   enters in the state shown, selected, reading the same source: one patch, one undo.
+// - Once every state is linted, what lint finds about `rev-2` stands in the states after the one
+//   shown too. Undone, the lint of the state shown keeps the other states' findings until every
+//   state is linted again, but none about `rev-2`, which the deck no longer has (PLAN 2.3).
 // - ⌘X on the note cuts it, as Delete takes it, and ⌘V brings it back.
 // - Text from anywhere else pastes as a text in the theme's body role.
 // - With the keyboard: Ctrl+C and Ctrl+V copy the title through the browser's clipboard, which
@@ -115,6 +118,10 @@ try {
       return e.defaultPrevented;
     }, data);
 
+  /** The findings that name `node`: as what they are about, in their message, or in their measure. */
+  const naming = (findings, node) =>
+    findings.filter((f) => f.node === node || f.message.includes(`\`${node}\``) || JSON.stringify(f.measure ?? {}).includes(`"${node}"`));
+
   const page = await open("/docs/examples/revenue.deck.json");
   await showState(page, "revenue");
   const original = await source(page);
@@ -133,6 +140,7 @@ try {
   // ⌘V where the canvas was last pressed: `rev-2`, entering in `revenue`, selected.
   const at = [600, 820];
   await press(page, at);
+  const wholes = await page.evaluate(() => window.scaena.wholes().length);
   check(await paste(page, { [CLIP]: copied.clip, "text/plain": copied.text }), "the canvas takes the paste");
   check(await reads(page, "rev-2 chart"), "the chart is pasted as `rev-2`");
   check(await says(page, "rev-2 pasted in revenue"), `the status says where: ${await status(page)}`);
@@ -142,7 +150,22 @@ try {
   check(scn.split("@q3").length === original.split("@q3").length + 1, "reading the same source, declared once");
   const cell = await box(page, "rev-2");
   check(Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3], `about the point pressed: ${cell}`);
+  // Every state linted with the copy in it: what lint finds about it stands after `revenue` too.
+  await page.waitForFunction((n) => window.scaena.wholes().length > n && window.scaena.last().whole, wholes, { timeout: 60000 }).catch(() => {});
+  const linted = await page.evaluate(() => window.scaena.last());
+  const after = naming(linted.findings, "rev-2").filter((f) => f.state !== "revenue");
+  check(linted.whole && after.length > 0, `once every state is linted, \`rev-2\` has findings after \`revenue\`: ${after.map((f) => `${f.code} in ${f.state}`)}`);
+  // Undone: the lint of `revenue` alone, which keeps the other states' findings until every
+  // state is linted again, and none about a node the deck no longer has.
+  const trips = await page.evaluate(() => window.scaena.trips().length);
   await page.keyboard.press("Control+z");
+  const undone = await page
+    .waitForFunction((n) => window.scaena.trips().length > n && window.scaena.last(), trips, { timeout: 30000, polling: 50 })
+    .then((found) => found.jsonValue())
+    .catch(() => undefined);
+  const kept = naming(undone?.findings ?? [], "rev-2");
+  check(undone?.whole === false, "the undo lints the state shown");
+  check(kept.length === 0, `and keeps no finding about \`rev-2\`: ${kept.map((f) => `${f.code} in ${f.state}`).join(", ") || "none"}`);
   check(await back(page, original), "one undo takes the paste back");
 
   // ⌘X on the note: it goes as Delete takes it; ⌘V brings it back where the canvas was pressed.

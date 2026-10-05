@@ -24,6 +24,7 @@ use scaena_core::document::Deck;
 use scaena_core::lint::{Backdrop, Finding, Severity};
 use scaena_core::timeline::{Schedule, Slot};
 use scaena_core::tracking::Snapshot;
+use serde_json::Value;
 use std::borrow::Cow;
 
 /// A layout-level rule: a stable code from SPEC §7.5, and what it finds in the deck as
@@ -54,6 +55,41 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
     ]
+}
+
+/// The nodes a layout finding is about: its `node`, and each other node its measure names:
+/// the two that overlap (E101), the shader and the chart or table under it (W311), and the
+/// paragraphs a state aligns more than one way (W220). A rule whose measure names a node says
+/// so here: an editor keeps a finding of its last lint of every state only while the deck has
+/// every node it is about (PLAN 2.3). `crates/scaena-cli/tests/lint.rs` holds this to each
+/// rule's fixture.
+pub fn nodes(f: &Finding) -> Vec<&str> {
+    let mut out = Vec::new();
+    if let Some(node) = &f.node {
+        out.push(node.as_str());
+    }
+    let Some(measure) = &f.measure else { return out };
+    match f.code.as_str() {
+        "E101" => named(&measure["nodes"], &mut out),
+        "W311" => {
+            named(&measure["shader"], &mut out);
+            named(&measure["data"], &mut out);
+        }
+        // Each alignment's paragraphs.
+        "W220" => named(measure, &mut out),
+        _ => {}
+    }
+    out
+}
+
+/// Each id `v` holds, added to `out` once: `v` is an id, a list of them, or lists of them by name.
+fn named<'v>(v: &'v Value, out: &mut Vec<&'v str>) {
+    match v {
+        Value::String(id) if !out.contains(&id.as_str()) => out.push(id),
+        Value::Array(ids) => ids.iter().for_each(|id| named(id, out)),
+        Value::Object(by) => by.values().for_each(|ids| named(ids, out)),
+        _ => {}
+    }
 }
 
 /// The deck laid out in one format: what layout rules read.
