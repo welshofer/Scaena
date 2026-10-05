@@ -115,7 +115,7 @@
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
-    "required": ["applied", "patch", "added", "removed", "errors"],
+    "required": ["applied", "patch", "added", "removed", "errors", "states"],
     "type": "object",
     "properties": {
       "applied": {
@@ -137,7 +137,12 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 }
+      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
+      "states": {
+        "description": "The states it changes what shows in, by id: each whose nodes, resolved with the\ndeck's overrides, are not as they were, and each it adds. None when it is refused.",
+        "type": "array",
+        "items": { "type": "string" }
+      }
     }
   }
 }

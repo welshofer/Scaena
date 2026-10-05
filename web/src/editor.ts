@@ -15,6 +15,10 @@
 // The assistant (PLAN 2.6) works on the deck with the user's own key: the source is read-only
 // while it works, and each edit it makes comes into the source as it is made.
 //
+// The preview is a canvas too (PLAN 2.31, ADR-0013, `canvas.ts`): a click selects a node, a drag
+// or an arrow key moves it and a handle resizes it, each a `place` patch by the user that comes
+// into the source as one change, and one step to undo.
+//
 // `?bundle=` is a bundle's directory or its deck file (by default the bundle the build names,
 // the site's demo deck (PLAN 2.7), or else the revenue example), `opfs:NAME` for one the
 // browser keeps, or `folder:NAME` for a folder opened before; `?painter=` chooses who paints,
@@ -25,7 +29,7 @@
 // that is the source the editor shows and saves. A change on disk, from a text editor or
 // another page, comes into the editor when it has no changes of its own not saved; over such
 // changes, the editor offers to take it.
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
@@ -40,6 +44,7 @@ import {
 import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
+import { canvas, placed } from "./canvas";
 import { keptNames } from "./folders";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
@@ -244,9 +249,14 @@ async function edit(source: Source) {
   const pause = 500;
   /** Whether the source takes typing: not while the assistant works. */
   const locked = new Compartment();
-  /** The source the assistant's last edit made, and what the worker found in it: the lint of
-   * that source takes it as it is, rather than asking the worker again. */
-  let assisted: { source: string; edited: Edited } | undefined;
+  let assisting = false;
+  /** The source the assistant's last edit, or the canvas's, made, and what the worker found in
+   * it: the lint of that source takes it as it is, rather than asking the worker again. */
+  let taken: { source: string; edited: Edited } | undefined;
+  /** The state shown, inspected: each node's placement, which the canvas reads. */
+  let inspected: Inspected | undefined;
+  /** The node the canvas has selected. */
+  let chosen: string | undefined;
 
   const view = new EditorView({
     parent: $("#code"),
@@ -308,6 +318,37 @@ async function edit(source: Source) {
     }),
   });
 
+  /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
+   * one change, one step to undo. It waits while the source does not compile, and while the
+   * assistant works. */
+  const board = canvas(stage, $("#overlay"), {
+    shown: () => {
+      const state = last?.valid && !last.error ? last.states[shown]?.[0] : undefined;
+      return state !== undefined && !assisting ? { state, index: shown } : undefined;
+    },
+    format,
+    source: () => view.state.doc.toString(),
+    version: () => version,
+    at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
+    apply: (source, edited) => {
+      taken = { source, edited };
+      const changes = change(view.state.doc.toString(), source);
+      view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+    },
+    undo: () => undo(view),
+    redo: () => redo(view),
+    say: (text) => (status.textContent = text),
+    selected: (node) => {
+      chosen = node;
+      for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(row.getAttribute("data-node") === node));
+    },
+  });
+  // A node's row in the inspector selects it on the canvas.
+  inspector.onclick = (e) => {
+    const row = (e.target as Element).closest("tr[data-node]");
+    if (row) board.select(row.getAttribute("data-node") ?? undefined);
+  };
+
   /** Compile what is in the editor, show it, and lint the state shown: CodeMirror's lint
    * source. Once typing stops, every state is linted. */
   async function lint(view: EditorView): Promise<Diagnostic[]> {
@@ -316,7 +357,7 @@ async function edit(source: Source) {
     const sent = performance.now();
     let edited: Edited;
     try {
-      edited = assisted?.source === source ? assisted.edited : await stage.edit(source, shown, format());
+      edited = taken?.source === source ? taken.edited : await stage.edit(source, shown, format());
     } catch (e) {
       status.textContent = `error: ${said(e)}`;
       return [];
@@ -328,6 +369,7 @@ async function edit(source: Source) {
       if (edited.at) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       void inspect();
+      void board.refresh().catch(failed);
     }
     const findings = edited.error ? [edited.error] : edited.findings;
     report(findings, edited);
@@ -435,6 +477,7 @@ async function edit(source: Source) {
     statesPicker.selectedIndex = index;
     await stage.seek(index, undefined, format());
     await inspect();
+    await board.refresh();
   }
 
   /** The inspector: the state's cue, then each node, its look if it sets text, and how
@@ -449,6 +492,7 @@ async function edit(source: Source) {
       inspector.textContent = said(e);
       return;
     }
+    inspected = found;
     const cue = found.timeline;
     const rows = Object.keys(found.nodes).map((id) => {
       const look = found.looks?.[id];
@@ -456,7 +500,12 @@ async function edit(source: Source) {
       const text = look
         ? `<span class="swatch" style="background:${look.hex}"></span>${html(look.role)} · ${html(look.family)} ${look.size}/${look.weight} · ${html(look.color)}`
         : "";
-      return `<tr><td>${html(id)}</td><td>${text}</td><td>${overrides || ""}</td></tr>`;
+      // A placement by `rect` on the template's grid is an override, as lint says (W301): once for
+      // each place a `rect` is written, under the first state that shows it.
+      const at = found.nodes[id].at as Record<string, unknown> | undefined;
+      const off = at?.rect !== undefined && last?.findings.some((f) => f.code === "W301" && f.node === id);
+      const place = at ? `${html(placed(at))}${off ? ' <span class="flag" title="W301: placed by a rect, an override">override</span>' : ""}` : "";
+      return `<tr data-node="${html(id)}"${id === chosen ? ' aria-selected="true"' : ""}><td>${html(id)}</td><td>${place}</td><td>${text}</td><td>${overrides || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
       (m) => `<tr><td>${html(m.node)}</td><td>${html(m.motion)}${m.units > 1 ? ` × ${m.units}` : ""}</td><td>${m.start.toFixed(0)}–${m.end.toFixed(0)} ms</td></tr>`,
@@ -466,7 +515,7 @@ async function edit(source: Source) {
       ${cue ? `<p>starts at ${cue.start.toFixed(0)} ms · cue ${cue.span.toFixed(0)} ms · holds ${cue.hold.toFixed(0)} ms · transition ${cue.transition.duration.toFixed(0)} ms, matched by ${html(cue.transition.match)}</p>` : ""}
       ${motions.length ? `<table><tr><th>moves</th><th></th><th></th></tr>${motions.join("")}</table>` : ""}
       <h2>Nodes</h2>
-      <table><tr><th>node</th><th>look</th><th>overrides</th></tr>${rows.join("")}</table>`;
+      <table><tr><th>node</th><th>place</th><th>look</th><th>overrides</th></tr>${rows.join("")}</table>`;
   }
 
   /** Save the source as it stands where the bundle is kept, or into the browser's storage. A
@@ -563,11 +612,13 @@ async function edit(source: Source) {
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
     apply: (source, edited) => {
-      assisted = { source, edited };
+      taken = { source, edited };
       view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
     },
-    lock: (on) =>
-      view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) }),
+    lock: (on) => {
+      assisting = on;
+      view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
+    },
   });
 
   /** Served (PLAN 2.11): what changed on disk comes in, when nothing here is changed and not
@@ -637,6 +688,7 @@ async function edit(source: Source) {
     close: () => {
       clearTimeout(pending);
       hearing?.close();
+      board.close();
       view.destroy();
       stage.close();
     },
@@ -687,6 +739,8 @@ async function edit(source: Source) {
       at: () => stage.at,
       /** The assistant: ask it something, and read the conversation. */
       assistant,
+      /** The canvas: what it selected, what stands where, and its drag. */
+      canvas: board,
     },
   });
 }

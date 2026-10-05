@@ -6,8 +6,9 @@ use crate::lint::{View, Why, Write, errors, lint, lint_in, write};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::lint::{Delta, delta};
 use scaena_core::patch::{JsonOp, Renamed};
-use scaena_core::validate::validate_bundle;
+use scaena_core::validate::{BundleFiles, validate_bundle};
 use scaena_core::{Deck, Finding};
+use scaena_engine::cascade::with_overrides;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -25,6 +26,9 @@ pub struct Patched {
     pub removed: Vec<Finding>,
     /// The findings that are errors, after.
     pub errors: usize,
+    /// The states it changes what shows in, by id: each whose nodes, resolved with the
+    /// deck's overrides, are not as they were, and each it adds. None when it is refused.
+    pub states: Vec<String>,
     /// Refused: the patch would have added a validation finding (in `added`).
     #[serde(skip)]
     pub refused: bool,
@@ -71,10 +75,12 @@ pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched,
     let invalid_after = validate_bundle(&text, &b.files)?;
     let refused = !delta(&invalid, &was, &invalid_after, &is, &compiled.renamed).added.is_empty();
     let mut write = None;
+    let mut states = Vec::new();
     let (before, after) = if refused {
         (invalid, invalid_after)
     } else {
         let next = Deck::from_json(&text).context("the patched deck")?;
+        states = changed(&b.deck, &next)?;
         let before = lint(b)?.findings;
         let after = lint_in(&next, &View::of(b))?.findings;
         if compiled.doc != doc {
@@ -98,7 +104,33 @@ pub fn patching(b: &Bundle, ops: &Value, what: Option<&str>) -> Result<(Patched,
         added: added.into_iter().cloned().collect(),
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
+        states,
         refused,
     };
     Ok((patched, write))
+}
+
+/// The states `ops` would change what shows in, by id, as [`Patched::states`] says, with
+/// nothing validated, linted, or written: what an editor says of a drag before it is dropped
+/// ("in 3 states", ADR-0013). `files` is the bundle, for the ops that read the theme.
+pub fn reach(deck: &Deck, files: &dyn BundleFiles, ops: &[Value]) -> Result<Vec<String>, OpsError> {
+    let doc = deck.to_value()?;
+    let compiled = scaena_core::patch::compile(&doc, ops, files).map_err(|e| OpsError {
+        message: e.to_string(),
+        plan: None,
+        op: Some(e.index),
+    })?;
+    changed(deck, &Deck::from_value(&compiled.doc).map_err(OpsError::new)?)
+}
+
+/// The states of `after` whose nodes, resolved with its overrides, differ from the same
+/// state's in `before`, and those `before` does not have, in `after`'s order.
+fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsError> {
+    let was = scaena_core::resolve_states(before).context("tracking")?;
+    let is = scaena_core::resolve_states(after).context("tracking")?;
+    let differs = |s: &scaena_core::Snapshot| {
+        let then = was.iter().find(|w| w.state_id == s.state_id);
+        then.is_none_or(|w| with_overrides(before, w).nodes != with_overrides(after, s).nodes)
+    };
+    Ok(is.iter().filter(|s| differs(s)).map(|s| s.state_id.clone()).collect())
 }

@@ -26,6 +26,7 @@ import type {
   Painter,
   Section,
   Slot,
+  Snapped,
   Source,
   ToHelper,
   ToWorker,
@@ -120,6 +121,31 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "inspect":
         layOut(data.format);
         return post({ type: "inspected", id: data.id, inspected: JSON.parse(player.inspect(data.state)) });
+      case "boxes": {
+        layOut(data.format);
+        const [width, height] = player.canvasSize();
+        return post({ type: "boxes", id: data.id, boxes: JSON.parse(player.boxes(data.state)), size: [width, height] });
+      }
+      case "hit":
+        layOut(data.format);
+        return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "targets":
+        layOut(data.format);
+        return post({ type: "targets", id: data.id, targets: JSON.parse(player.targets(data.state, data.node)) });
+      case "drag":
+        layOut(data.format);
+        return post({ type: "dragged", id: data.id, ...(await drag(data)) });
+      case "rest": {
+        latest++;
+        layOut(data.format);
+        player.setMoving(undefined, 0, 0);
+        player.preview(undefined);
+        const start = performance.now();
+        await paint(data.state, Infinity);
+        return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
+      }
+      case "place":
+        return post({ type: "placed", id: data.id, ...(await place(data.source, data.ops, data.index, data.format)) });
       case "save":
         saveable(data.source);
         return post({ type: "saved", id: data.id, ...(await save()) });
@@ -553,6 +579,58 @@ async function edit(source: string, index: number, at: string | undefined): Prom
     at: where,
     ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
   };
+}
+
+/** The states the patch a drag last snapped to changes, by the patch: most moves of a drag land
+ * where the one before did. */
+let reached: { patch: string; states: string[] } | undefined;
+
+/** A drag's move on the editor's canvas (ADR-0013): where its box would land and the states that
+ * patch changes, and the state painted with the node moved, laying nothing out, or, when a resize
+ * pauses, as the patch would make it. */
+async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?: Snapped | null; states?: string[] }> {
+  let snapped: Snapped | null | undefined;
+  let states: string[] | undefined;
+  if (d.snap) {
+    const [x, y, w, h] = d.snap.to;
+    snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork)) as Snapped | null;
+    states = [];
+    if (snapped?.patch.length) {
+      const patch = JSON.stringify(snapped.patch);
+      if (reached?.patch !== patch) reached = { patch, states: JSON.parse(player.reach(patch)) as string[] };
+      states = reached.states;
+    }
+  }
+  if (d.by || d.preview) {
+    latest++;
+    const [dx, dy] = d.by ?? [0, 0];
+    player.setMoving(d.by ? d.node : undefined, dx, dy);
+    player.preview(d.preview && snapped?.patch.length ? JSON.stringify(snapped.patch) : undefined);
+    await paint(d.state, Infinity);
+  }
+  return { snapped, states };
+}
+
+/** Make `ops`, the patch a gesture on the editor's canvas ended in, by the user, on the deck
+ * `source` compiles to, which must validate (ADR-0013). The deck's source after is compiled,
+ * shown at slot `index`, and linted, as an edit of it is. A patch the deck refuses, or one that
+ * changes nothing, is an error that says why. */
+async function place(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
+  saveable(source);
+  player.setMoving(undefined, 0, 0);
+  player.preview(undefined);
+  const made = player.tool("deck_patch", JSON.stringify({ ops }), "user", new Date().toISOString());
+  const [json, failed, changed] = [made.json, made.error, made.edited];
+  made.free();
+  if (failed) throw new Error((JSON.parse(json) as { message?: string }).message ?? json);
+  if (!changed) {
+    const why = (JSON.parse(json) as { added?: Finding[] }).added?.find((f) => f.severity === "error");
+    throw new Error(why ? `the deck refuses it: ${why.message}` : "it is there already");
+  }
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { source: next, edited: await edit(next, index, at) };
 }
 
 /** The CPU painter's frame in flight: the next waits for it, since the module holds one frame

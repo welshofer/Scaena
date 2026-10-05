@@ -413,6 +413,61 @@ fn place_writes_a_placement_where_it_lives() {
     assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/note/at/in", "value": "kicker" }]));
 }
 
+/// `fork` keeps a placement to the state it names: the state's own delta takes it, and the
+/// states that track that state take it with the rest of its props; where the placement lived
+/// keeps it for the others (ADR-0013).
+#[test]
+fn place_forks_a_placement_into_its_state() {
+    let before = scaena_core::resolve_states(&deck(&example())).unwrap();
+    let at = |snaps: &[scaena_core::Snapshot], i: usize, node: &str| snaps[i].nodes.get(node).map(|p| p["at"].clone());
+    // `title` lives in `revenue`'s delta, which `mix` tracks: forked in `mix`, `mix` has its own.
+    let c = patch(
+        &example(),
+        json!([{ "op": "place", "node": "title", "state": "mix", "at": { "in": "kicker" }, "fork": true }]),
+    )
+    .unwrap();
+    let mut title = example()["states"][2]["props"]["title"].clone();
+    title["at"] = json!({ "in": "kicker" });
+    assert_eq!(c.doc["states"][2]["props"]["title"], title, "beside the text `mix` sets");
+    assert_eq!(c.doc["states"][1], example()["states"][1], "where it lived keeps it");
+    let after = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    assert_eq!(at(&after, 2, "title"), Some(json!({ "in": "kicker" })));
+    for i in [0, 1, 3] {
+        assert_eq!(at(&after, i, "title"), at(&before, i, "title"), "state {i}");
+    }
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // `note` lives in its own `at`: forked onto cells in `revenue`, it stands there and in
+    // `mix`, which tracks it; its slot is taken away with `null`, and it keeps it elsewhere.
+    let c = patch(
+        &example(),
+        json!([{ "op": "place", "node": "note", "state": "revenue", "at": { "col": [2, 5], "row": 3 }, "fork": true }]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["states"][1]["props"]["note"]["at"], json!({ "col": [2, 5], "row": 3, "in": null }));
+    assert_eq!(c.doc["nodes"]["note"], example()["nodes"]["note"]);
+    let after = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    for i in [1, 2] {
+        assert_eq!(at(&after, i, "note"), Some(json!({ "col": [2, 5], "row": 3 })), "state {i}");
+    }
+    assert_eq!(at(&after, 0, "note"), at(&before, 0, "note"));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // Nothing to keep it to without a state; and over the deck's overrides it would not show.
+    let e = patch(&example(), json!([{ "op": "place", "node": "title", "at": { "in": "kicker" }, "fork": true }]))
+        .unwrap_err();
+    assert!(e.to_string().contains("`fork`"), "{e}");
+    let doc = json!({
+        "scaena": "0.10", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
+        "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
+        "states": [{ "id": "a", "props": { "u": {} } }],
+    });
+    let e = patch(&doc, json!([{ "op": "place", "node": "u", "state": "a", "at": { "col": [2, 3] }, "fork": true }]))
+        .unwrap_err();
+    assert!(e.to_string().contains("overrides"), "{e}");
+}
+
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({

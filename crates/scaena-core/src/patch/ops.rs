@@ -49,7 +49,7 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             let at = d.showing(node, state.as_deref())?;
             set(&d, node, vec![(name, key, value.clone())], at.map(|(i, _)| i))?
         }
-        SemanticOp::Place { node, at, state } => place_node(&d, node, at, state.as_deref())?,
+        SemanticOp::Place { node, at, state, fork } => place_node(&d, node, at, state.as_deref(), *fork)?,
         SemanticOp::SetText { node, text, state } => {
             let kind = d.kind(node)?;
             if kind != "text" {
@@ -374,10 +374,13 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
 }
 
 /// `place` (ADR-0013): `spot` becomes `node`'s placement where its placement lives, the
-/// deck's `overrides`, a state's delta, or the node's own `at`. Of `at`'s placement keys,
-/// those `spot` names are set there and the rest go: a delta or an override takes them away
-/// with `null` from what it merges into.
-fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>) -> Result<Vec<JsonOp>, String> {
+/// deck's `overrides`, a state's delta, or the node's own `at`; or, to `fork` it, in
+/// `state`'s own delta. Of `at`'s placement keys, those `spot` names are set there and the
+/// rest go: a delta or an override takes them away with `null` from what it merges into.
+fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool) -> Result<Vec<JsonOp>, String> {
+    if fork && state.is_none() {
+        return Err("`fork` keeps a placement to a state: name it (`state`)".into());
+    }
     let own = d.node(node)?;
     let spot = match serde_json::to_value(spot).map_err(|e| e.to_string())? {
         Value::Object(spot) => spot,
@@ -435,6 +438,11 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>) -> Result<V
         Some(Value::Null) => true,
         _ => false,
     }) {
+        if fork {
+            return Err(format!(
+                "the deck's `overrides` place `{node}` in every state (`/overrides/{node}/at`): kept to one state, a placement would not show"
+            ));
+        }
         let deltas = d.states().iter().filter_map(|s| s.get("props").and_then(|p| p.get(node)));
         let mut ats: Vec<&Value> = deltas.filter_map(|p| p.get("at")).collect();
         ats.extend(own.get("at"));
@@ -451,7 +459,7 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>) -> Result<V
     let lives = match shown {
         Some((i, _)) => {
             let (deck, snapshots) = d.snapshots()?;
-            match lives(&deck, i, node, "at", &Spot::KEYS) {
+            match if fork { Lives::State(i) } else { lives(&deck, i, node, "at", &Spot::KEYS) } {
                 Lives::State(j) => {
                     // What the delta merges into: the node as the state it tracks from shows
                     // it, or, where it enters there, its own.

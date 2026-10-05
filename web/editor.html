@@ -39,6 +39,19 @@
       #bundle { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
       #where { color: var(--muted); }
       #stage { display: block; width: 100%; height: auto; background: #000; }
+      #preview { position: relative; }
+      #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
+      #overlay:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #overlay svg { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #overlay rect, #overlay line { vector-effect: non-scaling-stroke; }
+      #overlay .selected { fill: none; stroke: var(--info); stroke-width: 1.5; }
+      #overlay .hover { fill: none; stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+      #overlay .handle { fill: var(--surface); stroke: var(--info); stroke-width: 1; pointer-events: all; }
+      #overlay .track { stroke: rgb(156 196 228 / 0.35); stroke-width: 1; }
+      #overlay .slot { fill: none; stroke: var(--warning); stroke-width: 1; stroke-dasharray: 6 4; }
+      #overlay .flow { fill: none; stroke: rgb(156 196 228 / 0.5); stroke-width: 1; stroke-dasharray: 2 3; }
+      #overlay .landing { fill: rgb(156 196 228 / 0.18); stroke: var(--info); stroke-width: 1.5; }
+      #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
       aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
       #status { color: var(--muted); font-variant-numeric: tabular-nums; }
       #inspector { padding: 0 12px 12px; }
@@ -46,6 +59,9 @@
       #inspector table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
       #inspector td, #inspector th { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
       #inspector th { color: var(--muted); font-weight: 500; }
+      #inspector tr[data-node] { cursor: pointer; }
+      #inspector tr[aria-selected="true"] td { background: var(--line); }
+      #inspector .flag { color: var(--warning); font-size: 12px; margin-left: 4px; }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
@@ -99,7 +115,15 @@
           <button id="again" hidden></button>
           <span id="where"></span>
         </nav>
-        <canvas id="stage"></canvas>
+        <div id="preview">
+          <canvas id="stage"></canvas>
+          <div
+            id="overlay"
+            tabindex="0"
+            role="application"
+            aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
+          ><svg aria-hidden="true"></svg></div>
+        </div>
         <p>
           <select id="state" aria-label="State"></select>
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>

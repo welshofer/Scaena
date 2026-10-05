@@ -91,6 +91,13 @@ pub struct Session {
     /// Where the node last asked about may go, by its state and its id: a drag asks again
     /// with every move, and lays nothing out (ADR-0013).
     targets: Option<(String, String, scaena_engine::geometry::Targets)>,
+    /// The node a drag moves, and how far, canvas units: frames at rest draw it there, from
+    /// the state as laid out at rest, laying nothing out (ADR-0013).
+    moving: Option<(String, [f32; 2])>,
+    /// The deck a patch would make, shown before it is made: frames at rest draw it, laid out
+    /// once a frame, as a resize does when it pauses (ADR-0013).
+    #[cfg(feature = "editor")]
+    previewing: Option<Deck>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// The fonts and images the engine was built from, as painters read them.
@@ -166,6 +173,9 @@ impl Session {
             transition: None,
             rest: None,
             targets: None,
+            moving: None,
+            #[cfg(feature = "editor")]
+            previewing: None,
             format: None,
             store: Assets::new(),
             #[cfg(feature = "cpu")]
@@ -238,11 +248,17 @@ impl Session {
         self.files.get(path).map(Vec::as_slice)
     }
 
-    /// Let go of what was laid out: the deck, its files, or its format changed.
+    /// Let go of what was laid out: the deck, its files, or its format changed. A drag, or a
+    /// patch previewed, ends with it.
     fn forget(&mut self) {
         self.transition = None;
         self.rest = None;
         self.targets = None;
+        self.moving = None;
+        #[cfg(feature = "editor")]
+        {
+            self.previewing = None;
+        }
     }
 
     /// Build the engine from the fonts and images the deck names, if it is not built yet.
@@ -313,17 +329,33 @@ impl Session {
     }
 
     /// The display list for `state`, `t_ms` into its cue (`f64::INFINITY`: at rest). At
-    /// rest, the state laid out alone. Inside its cue, a sample of it, laid out on the
-    /// first such frame and kept: the frames of one cue lay out once (SPEC §5).
+    /// rest, the state laid out alone, once, and kept until the deck, its files, or the format
+    /// change: what stands where is read from the same layout. Inside its cue, a sample of
+    /// it, laid out on the first such frame and kept: the frames of one cue lay out once
+    /// (SPEC §5).
     pub fn frame(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
-        // The engine is built by now: the span took it.
-        let span = self.duration(state)?;
-        let engine = self.engine.as_mut().expect("built for the span");
+        let timeline = self.timeline()?;
+        let slot = timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        let (start, span) = (slot.start, slot.span);
+        // The engine is built by now: the timeline took it.
         let format = self.format.as_deref();
         if t_ms.is_nan() || t_ms >= span {
-            let req = FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms, format };
-            return Ok(engine.frame(&req)?.display_list);
+            #[cfg(feature = "editor")]
+            if let Some(deck) = &self.previewing {
+                let engine = self.engine.as_mut().expect("built for the timeline");
+                let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
+                return Ok(engine.frame(&req)?.display_list);
+            }
+            // Its shaders at the time it comes to rest, or `t_ms` into its hold.
+            let time = (start + if t_ms.is_finite() { t_ms } else { span }) / 1000.0;
+            let moving = self.moving.clone();
+            let scene = self.at_rest(state)?;
+            return Ok(match moving {
+                Some((node, by)) => scene.moved(time, &node, by),
+                None => scene.draw_at(time),
+            });
         }
+        let engine = self.engine.as_mut().expect("built for the timeline");
         let cached = self.transition.as_ref().is_some_and(|(s, _)| s == state);
         if !cached {
             let (deck, theme) = project(&self.deck, &self.theme, format)?;
@@ -388,8 +420,8 @@ impl Session {
     }
 
     /// Where the box `to` (`node`'s cell as a drag left it) lands in `state` when it snaps
-    /// `how`, with the patch that puts the node there; `None` where nothing places the node
-    /// that way.
+    /// `how`, with the patch that puts the node there, or, to `fork` it, keeps it to `state`;
+    /// `None` where nothing places the node that way.
     #[cfg(feature = "editor")]
     pub fn snap(
         &mut self,
@@ -397,9 +429,42 @@ impl Session {
         node: &str,
         how: scaena_ops::inspect::SnapMode,
         to: [f32; 4],
+        fork: bool,
     ) -> Result<Option<scaena_ops::inspect::Snapped>, Error> {
         let found = self.targets(state, node)?.clone();
-        scaena_ops::inspect::snap(&found, how, to, state).map_err(|e| Error::Deck(e.to_string()))
+        scaena_ops::inspect::snap(&found, how, to, state, fork).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// Draw a node, and what it holds, `by` canvas units from where it stands in the frames at
+    /// rest that follow, from the state as laid out at rest: what a drag shows as it moves,
+    /// laying nothing out (ADR-0013). `None` puts it back.
+    pub fn set_moving(&mut self, moving: Option<(String, [f32; 2])>) {
+        self.moving = moving;
+    }
+
+    /// Show `ops` (a patch) as if it were made, without making it: frames at rest draw the
+    /// deck it would make, laid out once a frame, until it is let go (`None`) or the deck
+    /// changes. A resize shows its text reflowed this way when it pauses (ADR-0013).
+    #[cfg(feature = "editor")]
+    pub fn preview(&mut self, ops: Option<&[serde_json::Value]>) -> Result<(), Error> {
+        self.previewing = match ops {
+            None => None,
+            Some(ops) => {
+                let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+                let compiled = scaena_core::patch::compile(&doc, ops, &editor::Handed(&self.files))
+                    .map_err(|e| Error::Ops(e.to_string()))?;
+                Some(Deck::from_value(&compiled.doc).map_err(Error::Deck)?)
+            }
+        };
+        Ok(())
+    }
+
+    /// The states `ops` (a patch) would change what shows in, by id, with nothing made,
+    /// validated, or linted: what the editor says of a drag before it is dropped ("in 3
+    /// states", ADR-0013).
+    #[cfg(feature = "editor")]
+    pub fn reach(&self, ops: &[serde_json::Value]) -> Result<Vec<String>, Error> {
+        scaena_ops::patch::reach(&self.deck, &editor::Handed(&self.files), ops).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
@@ -768,8 +833,9 @@ impl Player {
 
     /// Where the box `x`, `y`, `w`, `h` (`node`'s cell as a drag left it) lands in `state`
     /// when it snaps `how` (`move`, `resize`, `slot`, `free`, `order`), as JSON: `{ "cell",
-    /// "patch" }`, the patch the place ops that put the node there; `null` where nothing
-    /// places the node that way. Asked with each move of a drag, it lays nothing out.
+    /// "patch" }`, the patch the place ops that put the node there, kept to `state` when they
+    /// `fork`; `null` where nothing places the node that way. Asked with each move of a drag,
+    /// it lays nothing out.
     #[allow(clippy::too_many_arguments)]
     pub fn snap(
         &mut self,
@@ -780,10 +846,34 @@ impl Player {
         y: f32,
         w: f32,
         h: f32,
+        fork: bool,
     ) -> Result<String, JsError> {
         let how: scaena_ops::inspect::SnapMode = how.parse().map_err(|e: String| JsError::new(&e))?;
-        let snapped = self.0.snap(state, node, how, [x, y, w, h]).map_err(js)?;
+        let snapped = self.0.snap(state, node, how, [x, y, w, h], fork).map_err(js)?;
         serde_json::to_string(&snapped).map_err(js)
+    }
+
+    /// Draw `node`, and what it holds, `dx`, `dy` canvas units from where it stands in the
+    /// frames at rest that follow, laying nothing out: what a drag shows as it moves. Without
+    /// `node`, every node stands where it is.
+    #[wasm_bindgen(js_name = setMoving)]
+    pub fn set_moving(&mut self, node: Option<String>, dx: f32, dy: f32) {
+        self.0.set_moving(node.map(|node| (node, [dx, dy])));
+    }
+
+    /// Frames at rest draw the deck `ops` (a patch, JSON) would make, laid out once a frame,
+    /// without making it: a resize shows its text reflowed when it pauses. Without `ops`,
+    /// the deck as it is.
+    pub fn preview(&mut self, ops: Option<String>) -> Result<(), JsError> {
+        let ops: Option<Vec<serde_json::Value>> = ops.map(|o| serde_json::from_str(&o)).transpose().map_err(js)?;
+        self.0.preview(ops.as_deref()).map_err(js)
+    }
+
+    /// The states `ops` (a patch, JSON) would change what shows in, by id, as JSON: what the
+    /// editor says of a drag before it is dropped ("in 3 states"). Nothing is made.
+    pub fn reach(&self, ops: &str) -> Result<String, JsError> {
+        let ops: Vec<serde_json::Value> = serde_json::from_str(ops).map_err(js)?;
+        serde_json::to_string(&self.0.reach(&ops).map_err(js)?).map_err(js)
     }
 }
 
@@ -1320,7 +1410,9 @@ mod tests {
         let (cell, pitch) = (found.cell, found.columns[1][0] - found.columns[0][0]);
         let mut snapped = None;
         for dx in [10.0, 0.6 * pitch, 1.1 * pitch] {
-            snapped = s.snap("containers", "tally", SnapMode::Move, [cell[0] + dx, cell[1], cell[2], cell[3]]).unwrap();
+            snapped = s
+                .snap("containers", "tally", SnapMode::Move, [cell[0] + dx, cell[1], cell[2], cell[3]], false)
+                .unwrap();
             assert!(
                 s.targets
                     .as_ref()
@@ -1339,8 +1431,63 @@ mod tests {
         assert!(s.targets.is_none(), "the deck changed, and with it where things stand");
         assert_eq!(s.targets("containers", "tally").unwrap().cell, snapped.cell);
         // A way that does not place a node is no target, and a node not on screen is an error.
-        assert!(s.snap("containers", "stat-a", SnapMode::Move, cell).unwrap().is_none());
+        assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// A drag shows its node moved in the frames at rest, from the layout the session keeps,
+    /// and nothing is laid out while it moves. Before a drop, the editor hears which states
+    /// the patch changes, as the patch itself says once made; a resize previews the frame its
+    /// patch makes, and a drop makes it (ADR-0013).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_shows_its_node_moved_and_a_resize_its_patch() {
+        use scaena_ops::inspect::SnapMode;
+        let mut s = torture();
+        let still = s.frame("containers", f64::INFINITY).unwrap();
+        assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "containers"), "laid out once, and kept");
+        assert_eq!(s.boxes("containers").unwrap().len(), s.rest.as_ref().unwrap().1.boxes().len());
+
+        s.set_moving(Some(("tally".into(), [30.0, 0.0])));
+        let moved = s.frame("containers", f64::INFINITY).unwrap();
+        assert_ne!(moved, still);
+        assert!(s.rest.as_ref().is_some_and(|(state, _)| state == "containers"));
+        s.set_moving(None);
+        assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), still);
+
+        // Which states a move changes, said before it is made, and by the patch once made.
+        let found = s.targets("containers", "tally").unwrap().clone();
+        let (cell, pitch) = (found.cell, found.columns[1][0] - found.columns[0][0]);
+        let to = [cell[0] + pitch, cell[1], cell[2], cell[3]];
+        let snapped = s.snap("containers", "tally", SnapMode::Move, to, false).unwrap().unwrap();
+        let reach = s.reach(&snapped.patch).unwrap();
+        assert!(reach.contains(&"containers".to_string()), "{reach:?}");
+        let by = assistant::Caller { author: "user", at: None };
+        let dry = s.tool("deck_patch", serde_json::json!({ "ops": snapped.patch, "dry_run": true }), by).unwrap();
+        let said: serde_json::Value = serde_json::from_str(&dry.result).unwrap();
+        assert_eq!(said["states"], serde_json::json!(reach));
+        // Kept to the state, it changes no state it did not.
+        let forked = s.snap("containers", "tally", SnapMode::Move, to, true).unwrap().unwrap();
+        assert_eq!(forked.patch[0]["fork"], true);
+        let kept = s.reach(&forked.patch).unwrap();
+        assert!(kept.contains(&"containers".to_string()) && kept.iter().all(|state| reach.contains(state)));
+
+        // A resize, previewed: the frame its patch makes, with nothing made until it is. The
+        // board's areas fill it, so a narrower board draws them narrower.
+        let board = s.targets("containers", "board").unwrap().cell;
+        let narrower = [board[0], board[1], board[2] - pitch, board[3]];
+        let resize = s.snap("containers", "board", SnapMode::Resize, narrower, false).unwrap().unwrap();
+        assert!(!resize.patch.is_empty());
+        s.preview(Some(&resize.patch)).unwrap();
+        let previewed = s.frame("containers", f64::INFINITY).unwrap();
+        assert_ne!(previewed, still);
+        s.preview(None).unwrap();
+        assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), still);
+        s.preview(Some(&resize.patch)).unwrap();
+        s.set_moving(Some(("tally".into(), [30.0, 0.0])));
+        s.tool("deck_patch", serde_json::json!({ "ops": resize.patch }), by).unwrap();
+        assert!(s.moving.is_none() && s.previewing.is_none(), "the deck changed: the drag is over");
+        assert_eq!(s.frame("containers", f64::INFINITY).unwrap(), previewed);
     }
 
     /// The revenue example, its files handed over as a page hands them.
