@@ -51,12 +51,13 @@
       #overlay .slot { fill: none; stroke: var(--warning); stroke-width: 1; stroke-dasharray: 6 4; }
       #overlay .flow { fill: none; stroke: rgb(156 196 228 / 0.5); stroke-width: 1; stroke-dasharray: 2 3; }
       #overlay .landing { fill: rgb(156 196 228 / 0.18); stroke: var(--info); stroke-width: 1.5; }
-      #overlay.picking { cursor: crosshair; }
+      #overlay.picking, #overlay.drawing { cursor: crosshair; }
       #overlay.panning { cursor: grab; }
       #zoom output { display: inline-block; min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
       #look .fraction { width: 4.2em; }
       #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
       #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
+      #overlay .sketch-line { stroke: var(--info); stroke-width: 2; stroke-dasharray: 4 3; }
       #overlay .selected.typed { stroke-dasharray: 2 2; opacity: 0.6; }
       #overlay .caret { fill: var(--info); animation: blink 1.06s steps(1) infinite; }
       #overlay .text-selection { fill: rgb(156 196 228 / 0.38); }

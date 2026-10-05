@@ -46,6 +46,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | An image's focal point picked on it; an image file dropped on an image (PLAN 2.45) | `choose` of `focal`: the point of the image drawn under the pointer, in fractions of the part its crop keeps (`Scene::image_point`); `choose` of `src`: the file's path, once it joins the bundle under `assets/`, named by its SHA-256 |
    | Choosing what a chart reads | `choose`: its source from the deck's, and a channel's field from the columns of its data that the channel can read; another source points again what it cannot serve, in the same patch (PLAN 2.41) |
    | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), a chart and a table of each data source among them, about the pointer, on the grid, or a text or an image in the empty slot under it |
+   | Drawing (PLAN 2.48) | `add_node`, entering in the state shown, then `place`: over the grid's cells a drag covers, each edge on the nearest track's, or, with Shift, by `rect` where it went; a line's or an arrow's `points` the way the drag went |
    | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |
    | Delete | `hide_node` in the state shown, for the node and what it holds; `remove_node` for one no state shows after |
    | Delete from the deck | `remove_node`, for the node and what it holds |

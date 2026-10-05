@@ -247,8 +247,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   }
 
   /** Begin typing in `node`, in the state shown, at the caret nearest `point` (the end without
-   * one); `fork` keeps what is typed to that state. False for a node that is no text. */
-  async function enter(node: string, point: [number, number] | undefined, fork: boolean): Promise<boolean> {
+   * one, or with `all` every character selected); `fork` keeps what is typed to that state. False
+   * for a node that is no text. */
+  async function enter(node: string, point: [number, number] | undefined, fork: boolean, all = false): Promise<boolean> {
     const shown = around.shown();
     if (!shown) return false;
     const source = around.source();
@@ -266,7 +267,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (point) {
       const [at, line] = caretNear(found, point);
       put(at, at, line);
-    } else put(found.text.length);
+    } else put(all ? 0 : found.text.length, found.text.length);
     void tellWhere();
     return true;
   }

@@ -378,6 +378,10 @@ export type ToWorker =
    * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
    * after it, with what it holds, or, `everywhere`, out of the deck. */
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
+  /** What `inserts` offers `n`th, drawn in the box a drag from `from` to `to` covers (canvas
+   * units), snapped to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN
+   * 2.48). */
+  | { type: "drawing"; id: number; source: string; state: string; n: number; from: [number, number]; to: [number, number]; free: boolean; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
   /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group

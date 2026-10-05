@@ -43,7 +43,7 @@
 //   taken out of it, and the status says so (PLAN 2.37). A page must fill the clipboard at once,
 //   so what is selected is copied when it is selected.
 import { CLIP } from "./protocol";
-import type { Arrange, Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Edited, Insert, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -146,6 +146,28 @@ interface Starting {
 
 /** How far the pointer moves, CSS pixels, before a press is a drag. */
 const SLOP = 4;
+/** The keys that arm the canvas to draw (PLAN 2.48), each with what it draws of what the deck
+ * offers: a text, in the theme's `body` where it has one, a rectangle, an ellipse, a line, or an
+ * arrow. */
+const DRAWS: Record<string, (i: Insert) => boolean> = {
+  t: (i) => i.node.type === "text",
+  r: (i) => i.node.type === "shape" && i.node.kind === "rect",
+  o: (i) => i.node.type === "shape" && i.node.kind === "ellipse",
+  l: (i) => i.node.type === "shape" && i.node.kind === "line",
+  a: (i) => i.node.type === "shape" && i.node.kind === "arrow",
+};
+/** A drag drawing what the canvas is armed with (PLAN 2.48): where it began, in canvas units and
+ * client px, where the pointer is, and whether Shift is held, off the grid; where it lands, as the
+ * engine last said, and what was last asked of it. */
+interface Sketch {
+  from: [number, number];
+  client: [number, number];
+  at: [number, number];
+  shift: boolean;
+  cell?: Rect;
+  asking?: boolean;
+  asked?: string;
+}
 /** How soon a press follows the one before to count as a second click (or a third), ms. */
 const AGAIN = 450;
 /** How long a resize pauses before the preview shows it laid out, ms. */
@@ -236,6 +258,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
+  /** What a drag on the canvas draws, armed by its key (PLAN 2.48): what the deck offers `n`th,
+   * named `label`; and the drag drawing it. */
+  let armed: { key: string; n: number; label: string; text: boolean; line: boolean } | undefined;
+  let sketch: Sketch | undefined;
+  /** What the deck offers, as last asked: at hand when a key arms the canvas, so a drag that
+   * follows it at once draws. */
+  let offered: Insert[] = [];
   /** How many drags began from moves made before the engine said what was pressed. */
   let early = 0;
   /** A drag's request is with the worker: the next waits for it, so a fast drag never queues. */
@@ -293,11 +322,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     keeps: (to) => editor.keeps(to),
   });
 
-  /** Type in `node` (a text), at the caret nearest `at`, or at its end; `fork` keeps it to the
-   * state shown. */
-  async function type(node: string, at: [number, number] | undefined, fork: boolean) {
+  /** Type in `node` (a text), at the caret nearest `at`, or at its end, or with `all` its words
+   * selected; `fork` keeps it to the state shown. */
+  async function type(node: string, at: [number, number] | undefined, fork: boolean, all = false) {
     if (selected !== node) select(node);
-    if (!(await text.enter(node, at, fork))) editor.say(`${node} is no text: only a text takes typing`);
+    if (!(await text.enter(node, at, fork, all))) editor.say(`${node} is no text: only a text takes typing`);
   }
 
   /** What stands where in the state shown, asked again: the deck, the state, or the format changed. */
@@ -316,6 +345,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     else if (selected !== undefined) aimAt(selected);
     hold();
     draw();
+    void stage.inserts().then((i) => (offered = i), () => {});
     await text.sync();
   }
 
@@ -494,7 +524,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       }
     }
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee) parts.push(rect(over.rect, "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed) parts.push(rect(over.rect, "hover"));
+    if (sketch) {
+      const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
+      if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
+      if (armed?.line) parts.push(line(fx, fy, ax, ay, "sketch-line"));
+      else parts.push(rect([Math.min(fx, ax), Math.min(fy, ay), Math.abs(ax - fx), Math.abs(ay - fy)], "marquee"));
+    }
     if (marquee) {
       const [x, y] = [Math.min(marquee.from[0], marquee.at[0]), Math.min(marquee.from[1], marquee.at[1])];
       parts.push(rect([x, y, Math.abs(marquee.at[0] - marquee.from[0]), Math.abs(marquee.at[1] - marquee.from[1])], "marquee"));
@@ -660,6 +696,69 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
       } catch (e) {
         editor.say(`not inserted: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
+  function arm(key: string) {
+    if (armed?.key === key) return disarm("not drawing");
+    const fits = DRAWS[key];
+    const n = Math.max(offered.findIndex((i) => fits(i) && i.id === "body"), offered.findIndex(fits));
+    if (n < 0) return editor.say(`nothing to draw with ${key.toUpperCase()}: the deck offers none`);
+    const { label, node } = offered[n];
+    armed = { key, n, label: label.split(" · ").at(-1)!, text: node.type === "text", line: key === "l" || key === "a" };
+    overlay.classList.add("drawing");
+    draw();
+    editor.say(`drawing ${label}: drag where it goes, or click · Shift draws off the grid · Escape stops`);
+  }
+
+  function disarm(why?: string) {
+    armed = sketch = undefined;
+    overlay.classList.remove("drawing");
+    draw();
+    if (why) editor.say(why);
+  }
+
+  /** Ask where the drag drawing lands, one request at a time: the last asked once the one before
+   * answers. */
+  async function land(s: Sketch) {
+    const shown = editor.shown();
+    const asked = JSON.stringify([s.at, s.shift]);
+    if (s.asking || sketch !== s || !armed || !shown || asked === s.asked) return;
+    [s.asked, s.asking] = [asked, true];
+    try {
+      const added = await stage.drawing(editor.source(), shown.state, armed.n, [s.from, s.at], s.shift, editor.format());
+      if (sketch !== s) return;
+      s.cell = added.cell;
+      draw();
+    } catch {
+      // Said when it is let go, if it is drawn nowhere.
+    } finally {
+      s.asking = false;
+      if (sketch === s) void land(s);
+    }
+  }
+
+  /** The drag drawing let go: what is armed, drawn where it covers, or, a click, placed there as
+   * Insert places it. Either is one patch; it enters in the state shown, selected, and a text
+   * takes the caret, its words selected, so what is typed takes their place. */
+  function drawn(s: Sketch, click: boolean) {
+    const now = armed;
+    disarm();
+    if (!now) return;
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      try {
+        const added: Added = click
+          ? await stage.inserting(editor.source(), shown.state, now.n, s.from, editor.format())
+          : await stage.drawing(editor.source(), shown.state, now.n, [s.from, s.at], s.shift, editor.format());
+        const [doing, done] = click ? ["inserting…", "inserted"] : ["drawing…", "drawn"];
+        await change(added.patch, doing, `${now.label} ${done} as ${added.id}, in ${shown.state}`, added.id);
+        if (now.text && selected === added.id) await type(added.id, undefined, false, true);
+      } catch (e) {
+        editor.say(`not ${click ? "inserted" : "drawn"}: ${said(e)}`);
       }
     });
   }
@@ -988,6 +1087,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       return;
     }
     if (e.button !== 0) return;
+    // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
+    if (armed) {
+      e.preventDefault();
+      if (text.node() !== undefined) text.leave();
+      overlay.focus();
+      overlay.setPointerCapture(e.pointerId);
+      const from = point(e);
+      pointed = from;
+      sketch = { from, at: from, client: [e.clientX, e.clientY], shift: e.shiftKey };
+      return draw();
+    }
     // A press that picks an image's focal point picks it, and does nothing else (PLAN 2.45).
     if (picking !== undefined) {
       e.preventDefault();
@@ -1128,6 +1238,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       const [p, u] = [panning, unit()];
       return void look([p.from[0] - (e.clientX - p.client[0]) * u, p.from[1] - (e.clientY - p.client[1]) * u, p.from[2], p.from[3]]);
     }
+    if (sketch) {
+      [sketch.at, sketch.shift] = [point(e), e.shiftKey];
+      draw();
+      return void land(sketch);
+    }
     const at = point(e);
     if (text.drag(at)) return;
     if (starting) {
@@ -1176,6 +1291,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       if (!spaced) overlay.classList.remove("panning");
       return;
     }
+    if (sketch) {
+      const s = sketch;
+      [s.at, s.shift] = [point(e), e.shiftKey];
+      return void drawn(s, Math.hypot(e.clientX - s.client[0], e.clientY - s.client[1]) < SLOP);
+    }
     if (text.up()) return;
     if (starting) {
       [starting.at, starting.shift, starting.alt, starting.up] = [point(e), e.shiftKey, e.altKey, true];
@@ -1205,6 +1325,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   overlay.onpointercancel = () => {
     press = starting = marquee = undefined;
+    if (sketch) disarm("not drawn: the drag was cancelled");
     if (drag) void still("the drag was cancelled");
   };
 
@@ -1229,6 +1350,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       e.preventDefault();
       unpick();
       return editor.say("the focal point is as it was");
+    }
+    if (armed && e.key === "Escape") {
+      e.preventDefault();
+      return disarm(sketch ? "not drawn" : "not drawing");
+    }
+    // T, R, O, L, and A arm the canvas to draw a text, a rectangle, an ellipse, a line, or an
+    // arrow (PLAN 2.48); the same key again stops.
+    if (Object.hasOwn(DRAWS, key) && !mod && !e.altKey && !drag && !starting && !sketch) {
+      e.preventDefault();
+      return arm(key);
     }
     if (e.key === " " && !mod && !drag) {
       e.preventDefault();
@@ -1339,7 +1470,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       document.removeEventListener("keydown", unpress, true);
       for (const [type, hear] of clipboard) document.removeEventListener(type, hear as EventListener);
       text.close();
-      drag = press = starting = undefined;
+      drag = press = starting = armed = sketch = undefined;
       svg.replaceChildren();
     },
     /** Select `node`, as a click on it does; nothing with `undefined`. */
@@ -1361,6 +1492,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status
      * calls it. */
     insert,
+    /** Arm the canvas to draw what `key` draws, as T, R, O, L, and A do (PLAN 2.48). */
+    arm,
+    /** What the canvas is armed to draw, if anything: the key, and its name. */
+    armed: () => armed && { key: armed.key, label: armed.label },
     /** A copy of `node` beside it, as ⌘D does. */
     duplicate,
     /** Take `node` out of the state shown on, as Delete does; `everywhere`, out of the deck, as

@@ -234,6 +234,8 @@ jobs:
       - run: node web/inspector.mjs
       # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
       - run: node web/insert.mjs
+      # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
+      - run: node web/draw.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
       # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
