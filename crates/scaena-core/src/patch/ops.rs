@@ -345,8 +345,8 @@ fn parse_prop(prop: &str) -> Result<(String, Option<String>), String> {
 type Entry = (String, Option<String>, Value);
 
 /// Ops that make `entries` the node's: in state `state`'s delta, or in its defaults, where
-/// `null` takes a property away. A delta keeps `null`, which takes it away from what the
-/// node tracks (SPEC §2.2).
+/// `null` takes a property away, and an object it leaves with nothing goes. A delta keeps
+/// `null`, which takes it away from what the node tracks (SPEC §2.2).
 fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result<Vec<JsonOp>, String> {
     let Some(i) = state else {
         let old = d.node(node)?;
@@ -355,7 +355,12 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
             match (key, new.get_mut(&name)) {
                 (None, _) if value.is_null() => drop(new.shift_remove(&name)),
                 (None, _) => drop(new.insert(name, value)),
-                (Some(key), Some(Value::Object(map))) if value.is_null() => drop(map.shift_remove(&key)),
+                (Some(key), Some(Value::Object(map))) if value.is_null() => {
+                    map.shift_remove(&key);
+                    if map.is_empty() {
+                        new.shift_remove(&name);
+                    }
+                }
                 (Some(key), Some(Value::Object(map))) => drop(map.insert(key, value)),
                 (Some(_), _) if value.is_null() => {}
                 (Some(key), _) => drop(new.insert(name, object(&key, value))),
