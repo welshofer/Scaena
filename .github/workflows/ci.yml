@@ -234,6 +234,8 @@ jobs:
       - run: node web/inspector.mjs
       # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
       - run: node web/insert.mjs
+      # The state strip: thumbnails, and states added, moved, renamed, and removed (PLAN 2.35).
+      - run: node web/strip.mjs
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs

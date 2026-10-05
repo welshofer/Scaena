@@ -175,6 +175,16 @@ export interface Insert {
   start: { box: { w: number; h: number } } | { slot: string };
 }
 
+/** A state at rest, painted small for the state strip (PLAN 2.35): what identifies its drawing,
+ * and, where that is not what the strip holds, its pixels (straight-alpha RGBA, row by row). */
+export interface Thumb {
+  state: string;
+  digest: string;
+  width?: number;
+  height?: number;
+  pixels?: ArrayBuffer;
+}
+
 /** A node a patch adds: its id, where it lands, and the patch. */
 export interface Added {
   id: string;
@@ -262,6 +272,13 @@ export type ToWorker =
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
+   * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
+   * digest, as the strip last had it) come with pixels. */
+  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string }
+  /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
+   * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
+  | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
   /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
    * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
    * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
@@ -500,6 +517,9 @@ export type FromWorker =
   | { type: "adding"; id: number; added: Added }
   /** The patch that takes a node away. */
   | { type: "deleting"; id: number; patch: unknown[] }
+  | { type: "thumbnails"; id: number; thumbs: Thumb[] }
+  /** The patch that adds a state, and the state's id. */
+  | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save

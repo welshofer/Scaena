@@ -146,7 +146,7 @@ web-dev:
 # the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its canvas,
 # where a node is moved and resized (PLAN 2.31) and text typed where it stands (PLAN 2.32), its
 # inspector, where a node's look is chosen from the theme (PLAN 2.33), nodes inserted, copied,
-# and deleted (PLAN 2.34), its
+# and deleted (PLAN 2.34), its state strip (PLAN 2.35), its
 # storage: open, save, download, and drop (PLAN 2.4), its assistant, against a scripted server
 # for each provider (PLAN 2.6), its saves recorded in a bundle's history (PLAN 2.9), and the
 # pages on a folder `scaena serve` serves (PLAN 2.11). Then
@@ -162,6 +162,7 @@ web-smoke: site
     node web/typing.mjs
     node web/inspector.mjs
     node web/insert.mjs
+    node web/strip.mjs
     node web/storage.mjs
     node web/assistant.mjs
     node web/history.mjs

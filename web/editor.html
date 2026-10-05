@@ -64,6 +64,19 @@
         resize: none; overflow: hidden; white-space: pre; pointer-events: none; caret-color: transparent;
       }
       aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* The state strip (PLAN 2.35): each state at rest, small, with its cue's length. */
+      #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
+      #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
+      #strip li { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
+      #strip li[aria-selected="true"] { border-color: var(--info); }
+      #strip li:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      #strip canvas { display: block; height: 54px; width: auto; background: #000; }
+      #strip .id { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #strip .cue { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #strip input { width: 90px; font: inherit; font-size: 11px; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
+      #strip .drop-before { box-shadow: -3px 0 0 var(--info); }
+      #strip .drop-after { box-shadow: 3px 0 0 var(--info); }
+      #strip .adds { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
       #status { color: var(--muted); font-variant-numeric: tabular-nums; }
       #inspector { padding: 0 12px 12px; }
       #inspector h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 4px; }
@@ -145,6 +158,13 @@
             role="application"
             aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
           ><svg aria-hidden="true"></svg></div>
+        </div>
+        <div id="strip">
+          <ol role="listbox" aria-label="States" aria-orientation="horizontal"></ol>
+          <span class="adds">
+            <button type="button" data-add="step" title="A state after the one shown, in its slide, showing what it shows">+ Step</button>
+            <button type="button" data-add="slide" title="An empty slide after the shown state's slide">+ Slide</button>
+          </span>
         </div>
         <p>
           <select id="state" aria-label="State"></select>
