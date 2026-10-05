@@ -46,6 +46,7 @@ import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
 import { cue } from "./cue";
+import { finder } from "./find";
 import { keptNames } from "./folders";
 import { looks } from "./look";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
@@ -359,6 +360,8 @@ async function edit(source: Source) {
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
   let cueing: ReturnType<typeof cue> | undefined;
+  /** Find and replace across the deck's texts (PLAN 2.47), once the canvas is there. */
+  let finding: ReturnType<typeof finder> | undefined;
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
    * one change, one step to undo. It waits while the source does not compile, and while the
    * assistant works. */
@@ -421,6 +424,24 @@ async function edit(source: Source) {
     select: (node) => board.select(node),
     states: () => last?.states.map(([id]) => id) ?? [],
   });
+  /** Find and replace across the deck's texts, in every state (PLAN 2.47): a bar above the
+   * preview. Each match shows its state, its node selected and its characters marked; each
+   * replacement is a patch, written where each text lives. */
+  finding = finder(stage, $("#find"), {
+    shown: showing,
+    states: () => last?.states.map(([id]) => id) ?? [],
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    say,
+    reveal: async (state, node, from, to) => {
+      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+      if (index >= 0 && index !== shown) await show(index);
+      await board.mark(node, from, to);
+    },
+    unmark: () => void board.mark(),
+  });
+  $("#find-open").onclick = () => finding?.open();
   /** The state strip (PLAN 2.35): the deck's states, each a thumbnail, and the patches that add,
    * move, rename, and remove them. */
   const states = strip(stage, $("#strip"), {
@@ -542,6 +563,7 @@ async function edit(source: Source) {
       states.states(edited.slots, shown);
       void inspect();
       void board.refresh().catch(failed);
+      finding?.changed();
       void offer();
       void offerThemes();
     }
@@ -860,6 +882,11 @@ async function edit(source: Source) {
       e.preventDefault();
       void save().catch(failed);
     }
+    // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
+      e.preventDefault();
+      finding?.open();
+    }
   };
   onbeforeunload = (e) => {
     if (dirty()) e.preventDefault();
@@ -930,6 +957,8 @@ async function edit(source: Source) {
       strip: states,
       /** The cue of the state shown: its bars, and the patches its drags make. */
       cue: cueing,
+      /** Find and replace: what it finds, and the match shown. */
+      find: finding,
     },
   });
 }

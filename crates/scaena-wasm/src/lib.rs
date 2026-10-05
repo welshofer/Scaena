@@ -536,6 +536,42 @@ impl Session {
         scaena_ops::arrange::arrange(&deck, &shown, &boxes, nodes, found, how, fork).map_err(|e| Error::Ops(e.message))
     }
 
+    /// Each text of the deck that `query` matches, once for each place it is written, with
+    /// the states that show it from there (PLAN 2.47).
+    #[cfg(feature = "editor")]
+    pub fn find(&self, query: &scaena_core::patch::Query) -> Result<Vec<scaena_core::patch::Found>, Error> {
+        let doc = self.deck.to_value().map_err(|e| Error::Deck(e.to_string()))?;
+        scaena_core::patch::find(&doc, query).map_err(Error::Ops)
+    }
+
+    /// The patch that replaces what `query` matches with `with` (PLAN 2.47): every match, a
+    /// `replace_text` where each text lives, or, with `one`, `[text, match]` into what
+    /// [`Session::find`] gives, that match alone.
+    #[cfg(feature = "editor")]
+    pub fn replacing(
+        &self,
+        query: &scaena_core::patch::Query,
+        with: &str,
+        one: Option<[usize; 2]>,
+    ) -> Result<Vec<serde_json::Value>, Error> {
+        let found = self.find(query)?;
+        let found = match one {
+            None => found,
+            Some([i, k]) => {
+                let mut text = found.get(i).filter(|f| k < f.matches.len()).cloned().ok_or_else(|| {
+                    Error::Ops(format!(
+                        "there is no match {k} of text {i}: `{}` is in {} texts",
+                        query.find,
+                        found.len()
+                    ))
+                })?;
+                text.matches = vec![text.matches[k]];
+                vec![text]
+            }
+        };
+        Ok(scaena_core::patch::replacing(&found, with))
+    }
+
     /// Show `ops` (a patch) as if it were made, without making it: frames at rest draw the
     /// deck it would make, laid out once a frame, until it is let go (`None`) or the deck
     /// changes. A resize shows its text reflowed this way when it pauses (ADR-0013).
@@ -1232,6 +1268,27 @@ impl Player {
         let asked: scaena_ops::arrange::Asked = serde_json::from_str(how).map_err(js)?;
         let how = asked.how().map_err(|e| JsError::new(&e.message))?;
         serde_json::to_string(&self.0.arranging(state, &nodes, how, fork).map_err(js)?).map_err(js)
+    }
+
+    /// Each text of the deck that `query` matches (PLAN 2.47), `query` JSON: `{ "find",
+    /// "case"?, "words"? }`. As JSON: `[{ "node", "state", "states", "lives", "text",
+    /// "matches" }]`, once for each place a text is written, `matches` in characters.
+    pub fn find(&self, query: &str) -> Result<String, JsError> {
+        let query = serde_json::from_str(query).map_err(js)?;
+        serde_json::to_string(&self.0.find(&query).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that replaces what `query` matches with `with` (PLAN 2.47), as JSON: every
+    /// match, a `replace_text` where each text lives; or, with `one`, `[text, match]` into what
+    /// `find` gives, that match alone.
+    pub fn replacing(&self, query: &str, with: &str, one: Option<Vec<u32>>) -> Result<String, JsError> {
+        let query = serde_json::from_str(query).map_err(js)?;
+        let one = match one.as_deref() {
+            None => None,
+            Some(&[i, k]) => Some([i as usize, k as usize]),
+            Some(other) => return Err(JsError::new(&format!("one match is [text, match], not {other:?}"))),
+        };
+        serde_json::to_string(&self.0.replacing(&query, with, one).map_err(js)?).map_err(js)
     }
 
     /// Draw `nodes`, and what they hold, `dx`, `dy` canvas units from where they stand in the
@@ -2298,6 +2355,60 @@ mod tests {
             s.add_file(path, std::fs::read(format!("{dir}/{path}")).unwrap());
         }
         s
+    }
+
+    /// Find and replace across the deck's texts (PLAN 2.47): each text once for each place
+    /// it is written; one match replaced alone, where its text lives; and every match by the
+    /// assistant's `deck_find`, one patch.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn find_and_replace_write_each_text_where_it_lives() {
+        use scaena_core::patch::Query;
+        let mut s = revenue();
+        let query = Query { find: "rev".into(), ..Query::default() };
+        let found = s.find(&query).unwrap();
+        let places: Vec<(&str, &str, usize)> =
+            found.iter().map(|f| (f.node.as_str(), f.lives.as_str(), f.matches.len())).collect();
+        assert_eq!(
+            places,
+            [
+                ("title", "/nodes/title/text", 1),
+                ("title", "/states/1/props/title/text", 1),
+                ("note", "/nodes/note/text", 1),
+            ],
+            "Review, Revenue doubled, and Revenue in $M"
+        );
+        // One match, alone: the second text's first.
+        let one = s.replacing(&query, "Inc", Some([1, 0])).unwrap();
+        assert_eq!(
+            one,
+            [
+                serde_json::json!({ "op": "replace_text", "node": "title", "from": 0, "to": 3, "text": "Inc", "state": "revenue" })
+            ]
+        );
+        assert!(s.replacing(&query, "Inc", Some([1, 1])).is_err(), "no such match");
+        assert!(s.replacing(&query, "Inc", Some([9, 0])).is_err(), "no such text");
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": one }), by).unwrap();
+        assert!(s.source().contains("Incenue doubled"), "{}", s.source());
+        // Every match left, by the assistant, as an MCP client calls `deck_find`.
+        let called = s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "REV" }), by).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&called.result).unwrap();
+        assert!(called.edited, "{result}");
+        assert_eq!(result["matches"], 2, "{result}");
+        assert_eq!(result["replaced"]["applied"], true, "{result}");
+        assert!(s.source().contains("Q3 REView"), "{}", s.source());
+        assert!(
+            s.find(&Query { case: true, find: "Rev".into(), ..query.clone() }).unwrap().is_empty(),
+            "every `Rev` is `REV` now"
+        );
+        // A dry run finds, and writes nothing.
+        let source = s.source();
+        let dry =
+            s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "x", "dry_run": true }), by).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&dry.result).unwrap();
+        assert!(!dry.edited && result["replaced"]["applied"] == false, "{result}");
+        assert_eq!(s.source(), source);
     }
 
     /// What may be inserted goes where the pointer is, and a copy of a node beside it (PLAN

@@ -2,7 +2,7 @@
 //!
 //! The operations every client exposes (SPEC §7; ADR-0003, ADR-0009). Each works over a
 //! bundle: create it and attach data to it; compile its source; read, validate, lint, patch,
-//! re-theme, inspect, diff, render, and export it. Each returns a typed result. Serialized, a result is what
+//! re-theme, inspect, diff, find and replace in, render, and export it. Each returns a typed result. Serialized, a result is what
 //! `scaena --json` prints and what an MCP tool returns (named, where the CLI prints a list
 //! or a map, since a tool's result is an object), and its type generates the tool's output
 //! schema (`docs/schema/mcp/`).
@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod compile;
 pub mod create;
 pub mod export;
+pub mod find;
 pub mod inspect;
 pub mod lint;
 pub mod patch;

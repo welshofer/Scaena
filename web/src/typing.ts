@@ -542,8 +542,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   area.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
-    // The canvas's keys are not the text's, but for its zoom, which no text takes (PLAN 2.46).
-    if (mod && !e.altKey && ["=", "+", "-", "_", "0"].includes(key)) return;
+    // The canvas's keys are not the text's, but for its zoom and the deck's find, which no text
+    // takes (PLAN 2.46, 2.47).
+    if (mod && !e.altKey && ["=", "+", "-", "_", "0", "f"].includes(key)) return;
     e.stopPropagation();
     if (mod && (key === "z" || key === "y")) {
       e.preventDefault();

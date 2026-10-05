@@ -24,6 +24,7 @@ use serde_json::{Map, Value, json};
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
+    "deck_find",
     "deck_lint",
     "deck_inspect",
     "deck_diff",
@@ -104,6 +105,20 @@ struct DeckRead {
 #[serde(deny_unknown_fields)]
 struct DeckPatch {
     ops: Vec<Map<String, Value>>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeckFind {
+    find: String,
+    #[serde(default)]
+    case: bool,
+    #[serde(default)]
+    words: bool,
+    #[serde(default)]
+    replace: Option<String>,
     #[serde(default)]
     dry_run: bool,
 }
@@ -247,6 +262,16 @@ impl Session {
                 patched.applied &= !a.dry_run;
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })
+            }
+            "deck_find" => {
+                let a: DeckFind = args(name, a)?;
+                let query = scaena_core::patch::Query { find: a.find, case: a.case, words: a.words };
+                let (mut searched, deck) = scaena_ops::find::searching(&b, &query, a.replace.as_deref())?;
+                if let Some(replaced) = &mut searched.replaced {
+                    replaced.applied &= !a.dry_run;
+                }
+                let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited, ..Called::of(searched)? })
             }
             "deck_lint" => {
                 let a: DeckLint = args(name, a)?;

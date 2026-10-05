@@ -146,6 +146,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (lastPainted) await paint(lastPainted.state, lastPainted.t);
         return post({ type: "viewed", id: data.id });
       }
+      case "find":
+        current(data.source);
+        return post({ type: "found", id: data.id, found: JSON.parse(player.find(JSON.stringify(data.query))) });
+      case "replacing": {
+        current(data.source);
+        const one = data.one ? Uint32Array.from(data.one) : undefined;
+        return post({ type: "replacement", id: data.id, ops: JSON.parse(player.replacing(JSON.stringify(data.query), data.with, one)) });
+      }
       case "focalAt":
         current(data.source);
         layOut(data.format);

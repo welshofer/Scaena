@@ -60,6 +60,11 @@
       #overlay .selected.typed { stroke-dasharray: 2 2; opacity: 0.6; }
       #overlay .caret { fill: var(--info); animation: blink 1.06s steps(1) infinite; }
       #overlay .text-selection { fill: rgb(156 196 228 / 0.38); }
+      #find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+      #find[hidden] { display: none; }
+      #find input[name="find"], #find input[name="replace"] { flex: 1 1 10em; min-width: 8em; }
+      #find output { min-width: 6em; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+      #overlay .found { fill: rgb(240 200 90 / 0.45); stroke: rgb(240 200 90 / 0.9); stroke-width: 1; }
       @keyframes blink { 50% { opacity: 0; } }
       @media (prefers-reduced-motion: reduce) { #overlay .caret { animation: none; } }
       /* What typing on the canvas types into (PLAN 2.32): unseen, under the caret, where an input
@@ -188,6 +193,18 @@
           <button id="again" hidden></button>
           <span id="where"></span>
         </nav>
+        <div id="find" role="search" aria-label="Find and replace in the deck's texts" hidden>
+          <input name="find" type="search" spellcheck="false" placeholder="Find in the deck's texts" aria-label="Find" />
+          <output aria-live="polite"></output>
+          <button type="button" data-find="prev" aria-label="The match before" title="The match before (⇧Enter, ↑)">↑</button>
+          <button type="button" data-find="next" aria-label="The next match" title="The next match (Enter, ↓)">↓</button>
+          <label title="Upper and lower case apart"><input type="checkbox" name="case" /> Aa</label>
+          <label title="Whole words only"><input type="checkbox" name="words" /> Words</label>
+          <input name="replace" spellcheck="false" placeholder="Replace with" aria-label="Replace with" />
+          <button type="button" data-find="replace" title="Replace the match shown, written where its text lives, then show the next (Enter)">Replace</button>
+          <button type="button" data-find="all" title="Replace every match, one step to undo (⌘Enter)">Replace All</button>
+          <button type="button" data-find="close" aria-label="Close" title="Close (Escape)">×</button>
+        </div>
         <div id="preview">
           <canvas id="stage"></canvas>
           <div
@@ -217,6 +234,7 @@
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>
           <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
           <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
+          <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
           <span id="zoom" role="group" aria-label="Zoom">
             <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (⌘−)">−</button>
             <output title="How close the preview is. Zoomed in, the wheel or a drag with Space moves what it shows">100%</output>
