@@ -90,6 +90,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each is one ⌘Z.
 - **Layers.** The Layers tab beside the inspector lists the objects of the state shown, topmost first, inside what holds them. Click one to select it, even one under the rest. Those dimmed are not shown here: they leave in this state, another step of the slide shows them, or no state shows them any more.
   - The eye hides an object in this state, or shows one hidden here. A double click on a name, or F2, renames it everywhere the deck names it.
+  - Drag an object up or down among those beside it to put it in front of or behind them; in a stack, to lay it out earlier or later. Alt with ↑ or ↓ moves the one focused a place.
   - Each is one ⌘Z.
 - **Theme.** The theme menu beside the format menu lists the themes your bundle holds, the deck's own chosen, and the themes that ship. Choose one to see the deck in it: one ⌘Z takes it back. A theme that lacks a role or a color your deck uses is refused, and the status says which.
 - **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.

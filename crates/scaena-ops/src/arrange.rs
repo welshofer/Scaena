@@ -13,6 +13,10 @@
 //!   the deck lists it (SPEC §3.2). Forward puts it in front of the next of them that it
 //!   overlaps, backward behind the one before; front and back past all of them. Each is the
 //!   one `z` that does it where there is one, else the fewest that do.
+//! - **Listed** (PLAN 2.50). A node goes just before or after one of its container's other
+//!   children as a layers panel lists them (`scaena_core::layers`): over it or under it, by
+//!   the `z` that does it as an order does; in a stack, before it or after it in the order the
+//!   stack lays them out, each child whose `at.index` that changes renumbered.
 
 use crate::{Context, OpsError};
 use scaena_core::patch::SemanticOp;
@@ -286,46 +290,83 @@ pub fn ordering(siblings: &[Sibling], nodes: &[String], order: Order) -> Result<
         if k == at && matches!(order, Order::Front | Order::Back) {
             continue;
         }
-        let below = k.checked_sub(1).map(|i| key(&now[others[i]]));
-        let above = others.get(k).map(|&i| key(&now[i]));
-        let idx = now[n].index;
-        let fits = |v: i64| below.is_none_or(|b| b < (v, idx)) && above.is_none_or(|a| (v, idx) < a);
-        let near = [below.map(|b| b.0), below.map(|b| b.0 + 1), above.map(|a| a.0), above.map(|a| a.0 - 1)];
-        let mut tries: Vec<i64> = near.into_iter().flatten().collect();
-        scaena_core::sort::by_key(&mut tries, |v| (v - now[n].z).abs());
-        if let Some(v) = tries.into_iter().find(|&v| fits(v)) {
-            now[n].z = v;
-            changed.retain(|(c, _)| c != node);
-            changed.push((node.clone(), v));
-            continue;
-        }
-        // No one `z` puts it there: from where it goes up, each takes the least that keeps it
-        // after the one before.
-        let mut want: Vec<usize> = others.clone();
-        want.insert(k, n);
-        let mut last: Option<(i64, usize)> = None;
-        for i in want {
-            let (z, index) = key(&now[i]);
-            let z = match last {
-                Some((lz, li)) if (z, index) <= (lz, li) => {
-                    if index > li {
-                        lz
-                    } else {
-                        lz + 1
-                    }
-                }
-                _ => z,
-            };
-            if z != now[i].z {
-                now[i].z = z;
-                let id = now[i].node.clone();
-                changed.retain(|(c, _)| *c != id);
-                changed.push((id, z));
-            }
-            last = Some((z, index));
-        }
+        put(&mut now, n, k, &mut changed);
     }
     Ok(changed)
+}
+
+/// The `z` each of `siblings` takes for `node` to be listed just before `to`, painted just
+/// over it, or, `after`, just under it (PLAN 2.50): only those that change, in the order they
+/// changed.
+pub fn restacking(siblings: &[Sibling], node: &str, to: &str, after: bool) -> Result<Vec<(String, i64)>, OpsError> {
+    let mut now: Vec<Sibling> = siblings.to_vec();
+    let find = |id: &str| now.iter().position(|s| s.node == id);
+    let n =
+        find(node).ok_or_else(|| OpsError::new(format!("`{node}` is not one of the children it is ordered among")))?;
+    if node == to {
+        return Err(OpsError::new(format!("`{node}` goes before or after another child of what holds it")));
+    }
+    if find(to).is_none() {
+        return Err(OpsError::new(format!("`{to}` is not another child of what holds `{node}`")));
+    }
+    let mut l: Vec<usize> = (0..now.len()).collect();
+    scaena_core::sort::by_key(&mut l, |&i| (now[i].z, now[i].index));
+    let at = l.iter().position(|&i| i == n).unwrap_or(0);
+    let others: Vec<usize> = l.iter().copied().filter(|&i| i != n).collect();
+    let there = others.iter().position(|&i| now[i].node == to).unwrap_or(0);
+    let k = if after { there } else { there + 1 };
+    let mut changed = Vec::new();
+    if k != at {
+        put(&mut now, n, k, &mut changed);
+    }
+    Ok(changed)
+}
+
+/// `now[n]` painted `k`th among the others, by its `z`: one `z` where one does it, the
+/// nearest its own; else, from where it goes up, each the least that keeps it after the one
+/// before. Each `z` that changes goes into `changed`, once, last where it last changed.
+fn put(now: &mut [Sibling], n: usize, k: usize, changed: &mut Vec<(String, i64)>) {
+    let key = |s: &Sibling| (s.z, s.index);
+    let mut l: Vec<usize> = (0..now.len()).collect();
+    scaena_core::sort::by_key(&mut l, |&i| key(&now[i]));
+    let others: Vec<usize> = l.iter().copied().filter(|&i| i != n).collect();
+    let below = k.checked_sub(1).map(|i| key(&now[others[i]]));
+    let above = others.get(k).map(|&i| key(&now[i]));
+    let idx = now[n].index;
+    let fits = |v: i64| below.is_none_or(|b| b < (v, idx)) && above.is_none_or(|a| (v, idx) < a);
+    let near = [below.map(|b| b.0), below.map(|b| b.0 + 1), above.map(|a| a.0), above.map(|a| a.0 - 1)];
+    let mut tries: Vec<i64> = near.into_iter().flatten().collect();
+    scaena_core::sort::by_key(&mut tries, |v| (v - now[n].z).abs());
+    if let Some(v) = tries.into_iter().find(|&v| fits(v)) {
+        now[n].z = v;
+        let id = now[n].node.clone();
+        changed.retain(|(c, _)| *c != id);
+        changed.push((id, v));
+        return;
+    }
+    let mut want: Vec<usize> = others;
+    want.insert(k, n);
+    let mut last: Option<(i64, usize)> = None;
+    for i in want {
+        let (z, index) = key(&now[i]);
+        let z = match last {
+            Some((lz, li)) if (z, index) <= (lz, li) => {
+                if index > li {
+                    lz
+                } else {
+                    lz + 1
+                }
+            }
+            _ => z,
+        };
+        if z != now[i].z {
+            now[i].z = z;
+            let id = now[i].node.clone();
+            changed.retain(|(c, _)| *c != id);
+            changed.push((id, z));
+        }
+        last = Some((z, index));
+    }
 }
 
 /// The patch that gives each node its `z` (`choose`, written where `z` lives), made in
@@ -336,7 +377,7 @@ pub fn zs(changed: &[(String, i64)], state: &str, fork: bool) -> Vec<Value> {
 }
 
 /// How nodes are arranged (PLAN 2.42).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum How {
     /// Moved together, the first `by` canvas units as a drag snaps it (`free`, off the grid),
     /// the rest as far as it went.
@@ -347,10 +388,16 @@ pub enum How {
     Align(Align),
     Spread(Spread),
     Order(Order),
+    /// Listed just before `to`, or just after it, among what holds it (PLAN 2.50).
+    Next {
+        to: String,
+        after: bool,
+    },
 }
 
-/// How nodes are arranged, as a client asks: one of `align`, `spread`, `order`, and `by`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+/// How nodes are arranged, as a client asks: one of `align`, `spread`, `order`, `before`,
+/// `after`, and `by`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Asked {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<Align>,
@@ -358,6 +405,12 @@ pub struct Asked {
     pub spread: Option<Spread>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<Order>,
+    /// Listed just before this child of the same container, as a layers panel lists them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    /// Listed just after this child of the same container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<[f32; 2]>,
     /// With `by`: off the grid.
@@ -368,17 +421,28 @@ pub struct Asked {
 impl Asked {
     /// The one way asked, or why there is not one.
     pub fn how(&self) -> Result<How, OpsError> {
-        let ways = [self.align.is_some(), self.spread.is_some(), self.order.is_some(), self.by.is_some()];
+        let ways = [
+            self.align.is_some(),
+            self.spread.is_some(),
+            self.order.is_some(),
+            self.before.is_some(),
+            self.after.is_some(),
+            self.by.is_some(),
+        ];
         if ways.iter().filter(|w| **w).count() != 1 {
-            return Err(OpsError::new("nodes are arranged one way: give one of `align`, `spread`, `order`, and `by`"));
+            return Err(OpsError::new(
+                "nodes are arranged one way: give one of `align`, `spread`, `order`, `before`, `after`, and `by`",
+            ));
         }
         if self.free && self.by.is_none() {
             return Err(OpsError::new("`free` moves nodes off the grid: move them with `by`"));
         }
-        Ok(match (self.align, self.spread, self.order, self.by) {
+        Ok(match (self.align, self.spread, self.order, &self.before, &self.after, self.by) {
             (Some(edge), ..) => How::Align(edge),
             (_, Some(along), ..) => How::Spread(along),
-            (_, _, Some(order), _) => How::Order(order),
+            (_, _, Some(order), ..) => How::Order(order),
+            (_, _, _, Some(to), ..) => How::Next { to: to.clone(), after: false },
+            (_, _, _, _, Some(to), _) => How::Next { to: to.clone(), after: true },
             (.., Some(by)) => How::Together { by, free: self.free },
             _ => return Err(OpsError::new("nodes are arranged one way")),
         })
@@ -441,7 +505,7 @@ pub fn arrange(
     let state = &snap.state_id;
     let members = members(snap, found);
     if let (false, Some(By::Stack { parent, .. })) =
-        (matches!(how, How::Order(_)), members.first().map(|m| &m.targets.by))
+        (matches!(how, How::Order(_) | How::Next { .. }), members.first().map(|m| &m.targets.by))
     {
         return Err(OpsError::new(format!(
             "the stack `{parent}` places what it holds in its order: drag one along it, or order them in front or behind"
@@ -454,6 +518,34 @@ pub fn arrange(
         How::Order(order) => {
             let changed = ordering(&siblings(deck, snap, boxes, first)?, nodes, order)?;
             Ok(Some(Arranged { landed: Vec::new(), patch: zs(&changed, state, fork) }))
+        }
+        How::Next { to, after } => {
+            if nodes.len() > 1 {
+                return Err(OpsError::new("one node goes before or after another at a time"));
+            }
+            if &to == first {
+                return Err(OpsError::new(format!("`{first}` goes before or after another child of what holds it")));
+            }
+            if holder(boxes, snap, &to)? != parent {
+                return Err(OpsError::new(format!("`{to}` is not held by what holds `{first}`")));
+            }
+            let member = &members[0];
+            if !matches!(member.targets.by, By::Stack { .. }) {
+                let changed = restacking(&siblings(deck, snap, boxes, first)?, first, &to, after)?;
+                return Ok(Some(Arranged { landed: Vec::new(), patch: zs(&changed, state, fork) }));
+            }
+            // In a stack, the order it lays its children out in, as the list has them.
+            let others = member.targets.flow.iter().filter(|(id, ..)| id != first);
+            let there = others.clone().position(|(id, ..)| *id == to);
+            let there =
+                there.ok_or_else(|| OpsError::new(format!("`{to}` is not another child of what holds `{first}`")))?;
+            let target = member.targets.ordered(there + usize::from(after));
+            let mut landing = Landing::default();
+            if let Some(target) = target.filter(|t| !t.spots.is_empty()) {
+                landing.landed.push(Landed { node: first.clone(), cell: target.cell });
+                landing.targets.push(target);
+            }
+            landing.arranged(state, fork).map(Some)
         }
     }
 }
@@ -495,6 +587,20 @@ mod tests {
         let back = ordering(&siblings, &["d".into(), "c".into()], Order::Back).unwrap();
         assert_eq!(painted(&siblings, &back), ["c", "d", "a", "b"]);
         assert!(ordering(&siblings, &["d".into()], Order::Front).unwrap().is_empty(), "in front already");
+    }
+
+    #[test]
+    fn listed_before_one_is_painted_just_over_it_and_after_one_just_under_it() {
+        // Painted a, b, c (bottom first): a layers panel lists c, b, a.
+        let siblings = [s("a", 0, 0, ALL), s("b", 0, 1, ALL), s("c", 0, 2, ALL)];
+        let top = restacking(&siblings, "a", "c", false).unwrap();
+        assert_eq!(painted(&siblings, &top), ["b", "c", "a"], "before the topmost: over it, {top:?}");
+        assert_eq!(top.len(), 1, "one z does it");
+        let under = restacking(&siblings, "c", "b", true).unwrap();
+        assert_eq!(painted(&siblings, &under), ["a", "c", "b"], "after b: just under it, {under:?}");
+        assert!(restacking(&siblings, "b", "a", false).unwrap().is_empty(), "just over a already");
+        assert!(restacking(&siblings, "a", "a", false).is_err());
+        assert!(restacking(&siblings, "a", "d", false).is_err());
     }
 
     #[test]

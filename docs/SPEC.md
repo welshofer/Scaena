@@ -838,7 +838,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --by DX,DY [--free]) [--fork]] [--choices NODE] [--inserts] [--layers] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, what may be inserted, the layers
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --before NODE | --after NODE | --by DX,DY [--free]) [--fork]] [--choices NODE] [--inserts] [--layers] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, what may be inserted, the layers
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -921,6 +921,7 @@ A way that does not place the node is an error that names those that do.
 - **`--align EDGE`**, two nodes or more: each box takes the edge all of them reach farthest (`left`, `right`, `top`, `bottom`), or the middle of them all (`center`, `middle`), snapped as a move snaps, so on a grid they line up on its tracks.
 - **`--spread WAY`**, three nodes or more, `across` or `down`: the first and the last stay, and the ones between move so the gaps between them all are equal, as near as the tracks allow.
 - **`--order HOW`**: a node is painted after its container's other children by `z`, then by where the deck lists it (§3.2). `forward` puts each in front of the next of them it overlaps, `backward` behind the one before; `front` and `back` past all of them, keeping what the nodes named keep among themselves. Each is a `choose` of `z` (§7.3), written where `z` lives: the one `z` that does it where there is one, else the fewest that do.
+- **`--before NODE`**, **`--after NODE`** (PLAN 2.50): one node, listed just before or just after NODE, another child of its container, as `--layers` lists them. Elsewhere it is painted just over NODE, or just under it: a `choose` of `z`, as `--order` makes one. In a stack it is laid out just before NODE, or just after it: a `place` of each child whose `at.index` that changes, renumbered from 0. A node in another container is an error that says so; moving into one is `place` with `parent`.
 
 A node that lands where it stands is left out of the patch, so its placement stays as written, a slot's name and all. Nodes of two containers are an error, and so is any way but order in a stack, which places what it holds by its order.
 
@@ -990,7 +991,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_find` | `scaena find`: `find`, `case`, `words`, `replace`, and `dry_run`. | `{ found, matches, replaced? }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `inserts`, `layers`, and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, `before`, `after`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `inserts`, `layers`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -1307,6 +1308,7 @@ Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in C
   - **Selecting.** A click on a name selects the node on the canvas, one under the rest too, and a node selected on the canvas is marked in the list.
   - **Showing and hiding.** The eye hides a node in the state shown, with what it holds (`hide_node`), or shows one hidden there (`show_node`). What the deck refuses, a node whose slot the state's layout lacks, the status says why.
   - **Renaming.** A double click on a name, or F2, renames the node everywhere the deck names it (`rename_node`).
+  - **Reordering.** A node shown, dragged to another place among what its container holds, drops before or after the one under the pointer, by which half of it the pointer is over; Alt with ↑ or ↓ moves the one focused a place. It goes over or under it by `z`, or, in a stack, before or after it in its order (`Player.arranging`, as `inspect --arrange --before`).
   - **Each** is one patch, by `user`: one change in the source, one step to undo.
   - `web/layers.mjs` checks it in headless Chromium on the revenue example, and audits it with axe-core.
 

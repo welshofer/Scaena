@@ -541,6 +541,22 @@ fn inspect_arranges_several_nodes_at_once() {
     let z = |node: &str, z: i64| serde_json::json!({ "op": "choose", "node": node, "prop": "z", "value": z, "state": "containers", "fork": false });
     assert_eq!(arranged(&["card-photo", "--order", "front"])["patch"], serde_json::json!([z("card-photo", 2)]));
     assert_eq!(arranged(&["card", "--order", "back"])["patch"], serde_json::json!([z("card", -1)]));
+    // Listed before or after another of its container's children (PLAN 2.50): over or under
+    // it by `z`, or, in a stack, before or after it in its order.
+    assert_eq!(
+        arranged(&["card-photo", "--before", "card-tag-label"])["patch"],
+        serde_json::json!([z("card-photo", 2)])
+    );
+    assert_eq!(
+        arranged(&["card-tag-label", "--after", "card-photo"])["patch"],
+        serde_json::json!([z("card-tag-label", -1)])
+    );
+    let index = |node: &str, i: u32| place(node, serde_json::json!({ "index": i }));
+    assert_eq!(
+        arranged(&["stat-c", "--before", "stat-a"])["patch"],
+        serde_json::json!([index("stat-a", 1), index("stat-b", 2)]),
+        "the third first: the others renumbered after it"
+    );
 
     // Applied, a patch moves what it says: the card now stands over the board, which lint
     // says, and nothing else.
@@ -571,6 +587,8 @@ fn inspect_arranges_several_nodes_at_once() {
     refused(&["tally,card", "--align", "left", "--order", "front"], "one way");
     refused(&["case,stats", "--spread", "down"], "three nodes or more");
     refused(&["tally,nobody", "--align", "left"], "`nobody`");
+    refused(&["stat-a", "--before", "card-tag"], "`card-tag` is not held by what holds `stat-a`");
+    refused(&["stat-a,stat-b", "--before", "stat-c"], "one node goes before or after another at a time");
     assert_eq!(scaena(&["inspect", TORTURE, "--arrange", "tally,card", "--align", "left"]).status.code(), Some(2));
 
     // For a person: where each lands, and the patch.
