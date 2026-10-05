@@ -424,7 +424,12 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
         || views.state_choices
         || views.inserts;
     let theme = if themed { Some(crate::theme(b)?) } else { None };
-    let files = if views.timeline || views.data || views.laid() { data_files(b)? } else { DataFiles::new() };
+    let files = match (views.timeline || views.data || views.laid(), views.choices.is_some() || views.inserts) {
+        (true, _) => data_files(b)?,
+        // What a chart may read is its data's columns: a file the bundle lacks offers none.
+        (false, true) => data_files(b).unwrap_or_else(|_| DataFiles::new()),
+        (false, false) => DataFiles::new(),
+    };
     // A cue on lines, words, or a chart's marks counts them after layout, and boxes are
     // layout's, so both need the engine, with the bundle's fonts and images, as `render` does.
     let mut engine = match (&theme, views.timeline || views.laid()) {
@@ -436,7 +441,7 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     // list of the bundle's files.
     if let (true, Some(theme)) = (views.inserts, &theme) {
         let paths = b.files.list().context("the bundle's files")?;
-        let offered = inserts(&b.deck, theme, &paths);
+        let offered = inserts(&b.deck, theme, &paths, &files);
         out.iter_mut().for_each(|i| i.inserts = Some(offered.clone()));
     }
     Ok(out)
@@ -555,7 +560,7 @@ pub fn inspect_deck(
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
         }
         if let (Some(node), Some(theme)) = (&views.choices, theme) {
-            inspected.choices = Some(choices(deck, theme, &s.state_id, node).map_err(OpsError::new)?);
+            inspected.choices = Some(choices(deck, theme, &s.state_id, node, files).map_err(OpsError::new)?);
         }
         if let (true, Some(theme)) = (views.state_choices, theme) {
             inspected.state_choices = Some(state_choices(deck, theme, &s.state_id).map_err(OpsError::new)?);

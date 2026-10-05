@@ -37,7 +37,8 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | ⌘B, or a role or color chosen, with characters selected | `style_text`: those characters' look, as runs split at the selection's ends and joined where alike, where the text lives; ⌘B bold, or not, by the weight the engine sets each in |
    | ⌘I, with characters selected | `style_text` with `style/italic`: italic, or, all italic already, not, by what each asks; the family's italic face, never a slanted roman (PLAN 2.40) |
    | Choosing a look | `choose`: a role, a key of a style, a preset, or a prop, from the theme's names for it (`inspect --choices`); a value written out goes in the deck's `overrides` |
-   | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), about the pointer, on the grid, or a text or an image in the empty slot under it |
+   | Choosing what a chart reads | `choose`: its source from the deck's, and a channel's field from the columns of its data that the channel can read; another source points again what it cannot serve, in the same patch (PLAN 2.41) |
+   | Insert | `add_node`, entering in the state shown, then `place`: what the theme and the bundle offer (`inspect --inserts`), a chart and a table of each data source among them, about the pointer, on the grid, or a text or an image in the empty slot under it |
    | Duplicate | `add_node` with the props the state shows, for the node and what it holds, then `place` one span beside the node, clear of the rest where there is room |
    | Delete | `hide_node` in the state shown, for the node and what it holds; `remove_node` for one no state shows after |
    | Delete from the deck | `remove_node`, for the node and what it holds |

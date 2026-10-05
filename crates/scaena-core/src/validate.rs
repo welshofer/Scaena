@@ -4,7 +4,7 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
+use crate::data::{self, ColumnType, DataError, Datum, Table};
 use crate::document::{Deck, MAX_NESTING, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
@@ -17,7 +17,6 @@ use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
@@ -874,16 +873,10 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 /// field in the state: its delta, or the node. A chart with a `dataTransform` reads
 /// columns the transform makes, so its fields are checked once transforms run (PLAN 1.9e).
 fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Vec<Finding> {
-    struct Text<'a>(&'a dyn BundleFiles);
-    impl SourceFiles for Text<'_> {
-        fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
-            self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
-        }
-    }
     let mut out = Vec::new();
     let mut tables: BTreeMap<&str, Table> = BTreeMap::new();
     for name in deck.data.keys() {
-        match data::load(deck, &Text(files), name) {
+        match data::load(deck, &data::Texts(files), name) {
             Ok(table) => {
                 tables.insert(name, table);
             }
