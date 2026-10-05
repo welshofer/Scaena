@@ -23,6 +23,8 @@ import type {
   SnapMode,
   Source,
   Targets,
+  Themed,
+  Themes,
   Thumb,
   ToWorker,
   Carets,
@@ -58,6 +60,8 @@ type Reply = Extract<
       | "carets"
       | "characterChoices"
       | "bolding"
+      | "themes"
+      | "rethemed"
       | "reached"
       | "typed"
       | "inserts"
@@ -282,6 +286,30 @@ export class Stage {
     return this.request<"bolding">(asked).then(({ look }) => look);
   }
 
+  /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
+  themes(): Promise<Themes> {
+    return this.request<"themes">({ type: "themes", id: ++this.asked }).then(({ themes }) => themes);
+  }
+
+  /** The deck `source` compiles to in another theme (PLAN 2.39): one that ships, by its name, or
+   * one the bundle holds, by its path. What it did, and unless it was refused, the deck's source
+   * now and what the edit came to. */
+  retheme(
+    source: string,
+    theme: { ships: string } | { path: string },
+    index: number,
+    format?: string,
+  ): Promise<{ themed: Themed; source?: string; edited?: Edited }> {
+    const asked = { type: "retheme" as const, id: ++this.asked, source, theme, index, format };
+    return this.request<"rethemed">(asked).then(({ themed, source, edited }) => {
+      if (edited?.at) {
+        this.at = edited.at;
+        this.onAt(edited.at);
+      }
+      return { themed, source, edited };
+    });
+  }
+
   /** What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
    * transition, its hold, and its notes, each with its value and where it lives. */
   stateChoices(state: string): Promise<StateChoices> {
@@ -481,6 +509,8 @@ export class Stage {
       case "carets":
       case "characterChoices":
       case "bolding":
+      case "themes":
+      case "rethemed":
       case "reached":
       case "typed":
       case "inserts":

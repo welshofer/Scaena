@@ -215,8 +215,32 @@ impl Session {
                 }
             }
         }
+        if deck.theme != self.deck.theme {
+            self.follow_theme(&deck);
+        }
         self.deck = deck;
         self.forget();
+    }
+
+    /// Draw in the theme `deck` names (PLAN 2.39): a theme file the bundle holds, or one set
+    /// inline, as a re-theme or an edit of the deck's source names it. One that does not read
+    /// as a theme leaves the theme shown, as validation will have refused the deck.
+    fn follow_theme(&mut self, deck: &Deck) {
+        let text = match &deck.theme {
+            Some(serde_json::Value::String(path)) => {
+                self.files.get(path).and_then(|bytes| String::from_utf8(bytes.clone()).ok())
+            }
+            Some(inline @ serde_json::Value::Object(_)) => Some(inline.to_string()),
+            _ => None,
+        };
+        let Some(theme) = text.as_deref().and_then(|text| Theme::from_json(text).ok()) else { return };
+        self.theme = theme;
+        // The engine checks the theme against the fonts it is built from.
+        self.engine = None;
+        #[cfg(feature = "editor")]
+        if let Some(text) = text {
+            self.theme_json = text;
+        }
     }
 
     /// Hand over a file of the bundle by its path inside it (for a font, the deck's
@@ -494,6 +518,67 @@ impl Session {
         to: usize,
     ) -> Result<scaena_core::choices::Choices, Error> {
         scaena_core::choices::characters(&self.deck, &self.theme, state, node, (from, to)).map_err(Error::Ops)
+    }
+
+    /// The deck in another theme (PLAN 2.39), as `theme --apply` re-themes a bundle: the theme
+    /// file at `path` in the bundle, or `text` written there first, a theme that ships, which
+    /// the page carries with its fonts (`fonts`, by the paths its families give them). A path
+    /// the bundle holds with other bytes takes the next name free. A theme that would leave
+    /// the deck invalid is refused, and the deck keeps its own; else the deck names it, by
+    /// `user` at `at` (seconds since the epoch), and frames are drawn in it from now on.
+    #[cfg(feature = "editor")]
+    pub fn retheme(
+        &mut self,
+        path: &str,
+        text: Option<&str>,
+        fonts: BTreeMap<String, Vec<u8>>,
+        at: Option<i64>,
+    ) -> Result<scaena_ops::theme::Themed, Error> {
+        let (rel, text) = match text {
+            Some(text) => (self.free_path(path, text.as_bytes()), text.to_string()),
+            None => {
+                let bytes = self.files.get(path).ok_or_else(|| Error::Ops(format!("the bundle holds no `{path}`")))?;
+                let text = String::from_utf8(bytes.clone()).map_err(|_| Error::Ops(format!("`{path}` is not text")))?;
+                (path.to_string(), text)
+            }
+        };
+        if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(&rel) {
+            return Err(Error::Ops(format!("the deck is in `{rel}` already")));
+        }
+        let copy = self.files.get(&rel).is_none_or(|bytes| bytes != text.as_bytes());
+        let (themed, write) = scaena_ops::theme::theming(&self.bundle(), &rel, &text, &fonts, copy, false)?;
+        if !themed.refused {
+            self.write(Some(write), assistant::Caller { author: "user", at })?;
+        }
+        Ok(themed)
+    }
+
+    /// `path`, or where the bundle holds other bytes there, the first of `name-2.theme.json`,
+    /// `name-3.theme.json`, … it holds nothing at, or these bytes.
+    #[cfg(feature = "editor")]
+    fn free_path(&self, path: &str, bytes: &[u8]) -> String {
+        let fits = |p: &str| self.files.get(p).is_none_or(|held| held == bytes);
+        if fits(path) {
+            return path.to_string();
+        }
+        let (stem, ext) = path.strip_suffix(".theme.json").map_or((path, ""), |stem| (stem, ".theme.json"));
+        (2..).map(|n| format!("{stem}-{n}{ext}")).find(|p| fits(p)).expect("a name is free")
+    }
+
+    /// The theme the deck names, a path in the bundle (`(inline)` for one set in the deck),
+    /// and the theme files the bundle holds (PLAN 2.39): what the editor offers beside the
+    /// themes that ship.
+    pub fn themes(&self) -> (Option<String>, Vec<String>) {
+        let current = match &self.deck.theme {
+            Some(serde_json::Value::String(path)) => Some(path.clone()),
+            Some(_) => Some("(inline)".to_string()),
+            None => None,
+        };
+        let files = (self.files.keys())
+            .filter(|p| p.ends_with(".theme.json") || current.as_deref() == Some(p.as_str()))
+            .cloned()
+            .collect();
+        (current, files)
     }
 
     /// What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text
@@ -1097,6 +1182,13 @@ impl Player {
         serde_json::to_string(&self.0.bolding(state, node, from, to).map_err(js)?).map_err(js)
     }
 
+    /// The theme the deck names and the theme files the bundle holds, as JSON: `{ current,
+    /// files }` (PLAN 2.39).
+    pub fn themes(&self) -> Result<String, JsError> {
+        let (current, files) = self.0.themes();
+        serde_json::to_string(&serde_json::json!({ "current": current, "files": files })).map_err(js)
+    }
+
     /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
     /// as `scaena inspect --state-choices` says it.
     #[wasm_bindgen(js_name = stateChoices)]
@@ -1152,6 +1244,26 @@ impl Player {
     pub fn adding_state(&self, state: &str, what: &str) -> Result<String, JsError> {
         let what = serde_json::from_value(serde_json::Value::String(what.into())).map_err(js)?;
         serde_json::to_string(&self.0.adding_state(state, what).map_err(js)?).map_err(js)
+    }
+
+    /// The deck in another theme, by `user` at `at` (RFC 3339), as JSON: what `theme --apply`
+    /// says (PLAN 2.39). `path` is a theme file in the bundle, or, with `text`, where that
+    /// theme goes; `fonts` maps the paths its families give to their bytes.
+    pub fn retheme(
+        &mut self,
+        path: &str,
+        text: Option<String>,
+        fonts: &js_sys::Map,
+        at: Option<String>,
+    ) -> Result<String, JsError> {
+        let mut given = BTreeMap::new();
+        fonts.for_each(&mut |bytes, path| {
+            if let Some(path) = path.as_string() {
+                given.insert(path, js_sys::Uint8Array::new(&bytes).to_vec());
+            }
+        });
+        let at = at.as_deref().and_then(store::seconds);
+        serde_json::to_string(&self.0.retheme(path, text.as_deref(), given, at).map_err(js)?).map_err(js)
     }
 
     /// Make `ops` (JSON: a `replace_text` typed on the canvas, or a `style_text` given to the
@@ -1843,6 +1955,52 @@ mod tests {
         let value = |prop: &str| offered.fields.iter().find(|f| f.prop == prop).and_then(|f| f.value.clone());
         assert_eq!((value("style/weight"), value("style/color")), (Some(700.into()), Some("accent".into())));
         assert!(s.bolding("revenue", "rev", 0, 1).is_err(), "a chart is no text");
+    }
+
+    /// A theme chosen in the editor (PLAN 2.39): one that ships, which the page carries, or one
+    /// the bundle holds, re-themes the deck by `user`, and frames are drawn in it; one that
+    /// would leave the deck invalid is refused, with why, and the deck keeps its theme. A
+    /// theme named in an edit of the source is drawn in too.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_theme_chosen_in_the_editor_re_themes_the_deck_or_says_why_not() {
+        let mut s = revenue();
+        let dir = "../../docs/examples";
+        let before = s.frame("revenue", f64::INFINITY).unwrap();
+        let theme = |deck: &Deck| deck.theme.clone().and_then(|t| t.as_str().map(String::from));
+
+        let daybreak = std::fs::read_to_string(format!("{dir}/authorability/themes/daybreak.theme.json")).unwrap();
+        let themed = s.retheme("themes/daybreak.theme.json", Some(&daybreak), BTreeMap::new(), None).unwrap();
+        assert!(themed.applied && !themed.refused, "{themed:?}");
+        assert_eq!(theme(&s.deck).as_deref(), Some("themes/daybreak.theme.json"));
+        assert_eq!(s.files.get("themes/daybreak.theme.json").map(Vec::as_slice), Some(daybreak.as_bytes()));
+        assert_eq!(s.theme.name, "Daybreak");
+        let day = s.frame("revenue", f64::INFINITY).unwrap();
+        assert_ne!(day, before, "drawn in Daybreak");
+        assert_eq!(s.themes().1, ["themes/daybreak.theme.json", "themes/dusk.theme.json"]);
+        assert!(s.retheme("themes/daybreak.theme.json", None, BTreeMap::new(), None).is_err(), "in it already");
+
+        // Back to the bundle's own: drawn as it was.
+        s.retheme("themes/dusk.theme.json", None, BTreeMap::new(), None).unwrap();
+        assert_eq!(s.theme.name, "Dusk");
+        assert_eq!(s.frame("revenue", f64::INFINITY).unwrap(), before);
+
+        // A theme that lacks a role the deck uses is refused, and says so.
+        let mut thin: serde_json::Value = serde_json::from_slice(&s.files["themes/dusk.theme.json"]).unwrap();
+        thin["type"]["roles"].as_object_mut().unwrap().remove("display");
+        let thin = thin.to_string();
+        let themed = s.retheme("themes/dusk.theme.json", Some(&thin), BTreeMap::new(), None).unwrap();
+        assert!(themed.refused && !themed.applied);
+        assert_eq!(themed.theme, "themes/dusk-2.theme.json", "the bundle's own Dusk is kept");
+        assert!(themed.added.iter().any(|f| f.code == "E102" && f.message.contains("display")), "{:?}", themed.added);
+        assert_eq!(theme(&s.deck).as_deref(), Some("themes/dusk.theme.json"));
+        assert!(!s.files.contains_key("themes/dusk-2.theme.json"), "nothing written");
+
+        // The theme a source names, once compiled.
+        let source = s.source().replace("themes/dusk.theme.json", "themes/daybreak.theme.json");
+        assert!(s.compile(&source).valid);
+        assert_eq!(s.theme.name, "Daybreak");
+        assert_eq!(s.frame("revenue", f64::INFINITY).unwrap(), day);
     }
 
     /// A page reads a caret from the deck its source says (PLAN 2.32): the session says
