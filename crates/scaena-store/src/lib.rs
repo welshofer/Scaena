@@ -182,9 +182,11 @@ impl Bundle {
         self.files.read(rel)
     }
 
-    /// The bundle's CRDT document, if it keeps one ([`HISTORY`]), with `deck.json` as it is
-    /// now taken in: a deck edited outside Scaena since it was last written goes in as a
-    /// change by `fs` (SPEC §8.1).
+    /// The bundle's CRDT document, if it keeps one ([`HISTORY`]), with `deck.json` and the
+    /// data files its sources name as they are now taken in: a deck edited outside Scaena
+    /// since it was last written goes in as a change by `fs` (SPEC §8.1), and then so does a
+    /// data file replaced or edited outside it, or one the history does not hold yet
+    /// (ADR-0014).
     pub fn history(&self) -> Result<Option<DeckDoc>, StoreError> {
         if !self.files.exists(HISTORY) {
             return Ok(None);
@@ -193,15 +195,38 @@ impl Bundle {
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
         let outside = Edit { message: Some(crdt::OUTSIDE), ..Edit::by(crdt::FS) };
         doc.apply(&disk, &outside)?;
+        let held = doc.files();
+        let changed: Vec<(String, Vec<u8>)> =
+            self.data_files(&disk).into_iter().filter(|(path, bytes)| held.get(path) != Some(bytes)).collect();
+        if !changed.is_empty() {
+            let paths: Vec<&str> = changed.iter().map(|(path, _)| path.as_str()).collect();
+            let message = format!("{} changed outside Scaena", paths.join(", "));
+            doc.apply_with(&disk, &changed, &Edit { message: Some(&message), ..Edit::by(crdt::FS) })?;
+        }
         Ok(Some(doc))
     }
 
     /// The history to write beside `deck`, if the bundle keeps one: with the change from
-    /// the deck it holds to `deck` recorded as `edit` says.
-    pub fn record(&self, deck: &Deck, edit: &Edit) -> Result<Option<Vec<u8>>, StoreError> {
+    /// the deck it holds to `deck` recorded as `edit` says, and the data files `deck` names
+    /// that `written` holds, as they are written there, in the same change (ADR-0014).
+    pub fn record(
+        &self,
+        deck: &Deck,
+        written: &BTreeMap<String, Vec<u8>>,
+        edit: &Edit,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let Some(doc) = self.history()? else { return Ok(None) };
-        doc.apply(deck, edit)?;
+        let files: Vec<(String, Vec<u8>)> = data_paths(deck)
+            .filter_map(|path| written.get(path).map(|bytes| (path.to_string(), bytes.clone())))
+            .collect();
+        doc.apply_with(deck, &files, edit)?;
         Ok(Some(doc.save()?))
+    }
+
+    /// The data files `deck`'s sources name that the bundle holds, as (bundle path, bytes),
+    /// in deck order: what its history keeps of them (ADR-0014).
+    pub fn data_files(&self, deck: &Deck) -> Vec<(String, Vec<u8>)> {
+        data_paths(deck).filter_map(|path| Some((path.to_string(), self.read(path).ok()?))).collect()
     }
 
     /// The deck's font files (`fonts[].file`) in deck order, as (bundle id, bytes). The
@@ -226,6 +251,13 @@ impl Bundle {
         }
         Ok(out)
     }
+}
+
+/// The paths of the files `deck`'s data sources name (`data.*.source` strings), in deck
+/// order, each once.
+fn data_paths(deck: &Deck) -> impl Iterator<Item = &str> {
+    let mut seen = std::collections::BTreeSet::new();
+    deck.data.values().filter_map(|source| source.source.as_str()).filter(move |path| seen.insert(*path))
 }
 
 /// A bundle's deck file as text, unparsed, and the bundle's files: what `scaena validate`

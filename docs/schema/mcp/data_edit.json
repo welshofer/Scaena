@@ -1,0 +1,173 @@
+{
+  "name": "data_edit",
+  "description": "A data source's rows (SPEC §3.10). With no `edits`, the source as a sheet: its columns, each one's type, its rows as written, by index from 0, and the cells a column does not read. With them, cells set (`set`), rows added (`add`, at `row` or the end) and taken away (`remove`), in order, all or none: one write of the source's file that keeps every other byte, or a patch of rows written inline, and what that changes in what lint finds. A value its column's type refuses stops them, by index (`op`); edits that would leave the deck invalid are refused (`refused`, and why in `added`). Every chart and table that reads the source reads it changed.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "RowEdit": {
+        "description": "An edit of a data source's rows. Row 0 is the first after the header.",
+        "oneOf": [
+          {
+            "description": "`column` of row `row`, set to `value` as typed: a number, `true` or `false`, a date as the\ncolumn's `parse` format or ISO 8601 reads it, or any text. Empty, or null, is nothing.",
+            "type": "object",
+            "properties": {
+              "row": { "type": "integer", "minimum": 0 },
+              "column": { "type": "string" },
+              "value": { "type": ["string", "number", "boolean", "null"] },
+              "op": { "type": "string", "const": "set" }
+            },
+            "additionalProperties": false,
+            "required": ["op", "row", "column", "value"]
+          },
+          {
+            "description": "A row added at `row`, the rows from there on after it; at the end without it. Each column\nis its value in `values`, as typed, or nothing.",
+            "type": "object",
+            "properties": {
+              "row": { "type": ["integer", "null"], "minimum": 0 },
+              "values": {
+                "type": "object",
+                "additionalProperties": { "type": ["string", "number", "boolean", "null"] },
+                "default": {}
+              },
+              "op": { "type": "string", "const": "add" }
+            },
+            "additionalProperties": false,
+            "required": ["op"]
+          },
+          {
+            "description": "Row `row` taken away.",
+            "type": "object",
+            "properties": { "row": { "type": "integer", "minimum": 0 }, "op": { "type": "string", "const": "remove" } },
+            "additionalProperties": false,
+            "required": ["op", "row"]
+          }
+        ]
+      }
+    },
+    "required": ["bundle", "source"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "source": { "description": "The source's id: what a chart or a table names as `@id`.", "type": "string" },
+      "edits": {
+        "description": "The edits, made in order, all or none: each names a row as the edits before it leave the\nrows. With none, the source is read, and nothing is written.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/RowEdit" },
+        "default": []
+      },
+      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Sheet": {
+        "description": "A source as an editor shows it: its columns, each one's type, and each row's cells as\nwritten. Edits name a row by its place here, from 0, and a column by its name.",
+        "type": "object",
+        "properties": {
+          "columns": { "type": "array", "items": { "$ref": "#/$defs/SheetColumn" } },
+          "rows": {
+            "description": "Each row's cells, in the columns' order: a value as the source writes it, text without its\nquotes, and nothing as empty.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "string" } }
+          },
+          "problems": {
+            "description": "Each cell its column does not read, and why: what a chart that reads the source refuses\n(E103), until an edit sets the cell to what it reads.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/CellProblem" }
+          }
+        },
+        "required": ["columns", "rows"]
+      },
+      "SheetColumn": {
+        "description": "A column of a sheet.",
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": {
+            "description": "How the source's `schema` types it (`string` where it says nothing): what a value set in\nit must read as.",
+            "$ref": "#/$defs/ColumnType"
+          }
+        },
+        "required": ["name", "type"]
+      },
+      "ColumnType": {
+        "description": "What a column holds, from the source's `schema` (`string` when it says nothing).",
+        "type": "string",
+        "enum": ["number", "string", "boolean", "date"]
+      },
+      "CellProblem": {
+        "description": "A cell of a sheet that its column's type does not read.",
+        "type": "object",
+        "properties": {
+          "row": { "type": "integer", "minimum": 0 },
+          "column": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "required": ["row", "column", "why"]
+      },
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
+    "type": "object",
+    "properties": {
+      "edited": {
+        "description": "Whether it was written: not under a dry run, with no edits, nor when refused.",
+        "type": "boolean"
+      },
+      "source": { "type": "string" },
+      "file": {
+        "description": "The file it is, which an edit writes; none for rows written inline, which are the deck's.",
+        "type": ["string", "null"]
+      },
+      "sheet": {
+        "description": "The source as it reads after the edits, or as it is where there are none or they are\nrefused: its columns, their types, its rows as written, and the cells a column does not\nread.",
+        "$ref": "#/$defs/Sheet"
+      },
+      "added": {
+        "description": "What `validate` and `lint` find after the edits that they did not before.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "removed": {
+        "description": "What they found before that they do not after.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
+      "refused": {
+        "description": "Refused: the edits would have added a validation finding (in `added`).",
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -12,6 +12,8 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+pub mod edit;
+
 /// The bundle's files, by bundle path (`data/q3.csv`), as far as data needs them.
 pub trait SourceFiles {
     fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>>;
@@ -61,7 +63,8 @@ impl Datum {
 }
 
 /// What a column holds, from the source's `schema` (`string` when it says nothing).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum ColumnType {
     Number,
     String,
@@ -168,49 +171,34 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
         parse.insert(column, f);
     }
     let typed = |column: &str, kind: ColumnType, raw: Value| -> Result<Datum, DataError> {
-        let bad = |what: &str| at(format!("column `{column}`: {what}"));
-        Ok(match (kind, raw) {
-            (_, Value::Null) => Datum::Null,
-            (ColumnType::Number, Value::Number(n)) => Datum::Number(n.as_f64().ok_or_else(|| bad("not a number"))?),
-            (ColumnType::Number | ColumnType::Date, Value::String(s)) if s.trim().is_empty() => Datum::Null,
-            (ColumnType::Number, Value::String(s)) => {
-                Datum::Number(s.trim().parse().map_err(|_| bad(&format!("`{s}` is not a number")))?)
-            }
-            (ColumnType::Boolean, Value::Bool(b)) => Datum::Bool(b),
-            (ColumnType::Boolean, Value::String(s)) => match s.trim() {
-                "true" => Datum::Bool(true),
-                "false" => Datum::Bool(false),
-                other => return Err(bad(&format!("`{other}` is not true or false"))),
-            },
-            (ColumnType::Date, Value::String(s)) => Datum::Date(match parse.get(column) {
-                Some(f) => f.read(&s, locale).map_err(|e| bad(&e.to_string()))?,
-                None => format::read_iso(&s).map_err(|e| bad(&format!("{e}; give the column a `parse` format")))?,
-            }),
-            (ColumnType::String, Value::String(s)) => Datum::Text(s),
-            (ColumnType::String, other) => Datum::Text(other.to_string()),
-            (kind, other) => return Err(bad(&format!("`{other}` does not fit schema type `{}`", kind.name()))),
-        })
+        cell(column, kind, parse.get(column), locale, raw).map_err(at)
     };
-    let records: Records = match &source.source {
+    let (records, header): (Records, Option<Vec<String>>) = match &source.source {
         Value::String(path) => {
             let bytes =
                 files.bytes(path).ok_or_else(|| DataError::Missing { name: name.to_string(), path: path.clone() })?;
             let text = std::str::from_utf8(&bytes).map_err(|_| at(format!("`{path}` is not UTF-8")))?;
             if path.ends_with(".csv") {
-                csv(text).map_err(|e| at(format!("`{path}`: {e}")))?
+                let (header, records) = csv(text).map_err(|e| at(format!("`{path}`: {e}")))?;
+                (records, Some(header))
             } else if path.ends_with(".json") {
                 let rows: Value = serde_json::from_str(text).map_err(|e| at(format!("`{path}`: {e}")))?;
-                json_rows(&rows).map_err(|e| at(format!("`{path}`: {e}")))?
+                (json_rows(&rows).map_err(|e| at(format!("`{path}`: {e}")))?, None)
             } else {
                 return Err(at(format!("`{path}`: expected a .csv or .json file")));
             }
         }
         Value::Object(o) if o.contains_key("inline") => {
-            json_rows(&o["inline"]).map_err(|e| at(format!("inline: {e}")))?
+            (json_rows(&o["inline"]).map_err(|e| at(format!("inline: {e}")))?, None)
         }
         other => return Err(at(format!("unsupported source {other}"))),
     };
-    let columns = if records.is_empty() { schema.keys().cloned().collect() } else { columns_of(&records) };
+    // A CSV's columns are its header's, rows or none; JSON's, its rows' keys, else the schema's.
+    let columns = match header {
+        Some(header) => header,
+        None if records.is_empty() => schema.keys().cloned().collect(),
+        None => columns_of(&records),
+    };
     let types = columns
         .iter()
         .map(|c| ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}"))))
@@ -229,6 +217,40 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
     Ok(Table { columns, types, rows })
 }
 
+/// `raw`, a value of `column`, read as `kind`: a date by its column's `parse` format, else as ISO
+/// 8601. Why not, where it does not fit: what a chart reads a source by (SPEC §3.10), and what
+/// an edit of one is checked by ([`edit`]).
+fn cell(
+    column: &str,
+    kind: ColumnType,
+    parse: Option<&DateFormat>,
+    locale: &Locale,
+    raw: Value,
+) -> Result<Datum, String> {
+    let bad = |what: &str| format!("column `{column}`: {what}");
+    Ok(match (kind, raw) {
+        (_, Value::Null) => Datum::Null,
+        (ColumnType::Number, Value::Number(n)) => Datum::Number(n.as_f64().ok_or_else(|| bad("not a number"))?),
+        (ColumnType::Number | ColumnType::Date, Value::String(s)) if s.trim().is_empty() => Datum::Null,
+        (ColumnType::Number, Value::String(s)) => {
+            Datum::Number(s.trim().parse().map_err(|_| bad(&format!("`{s}` is not a number")))?)
+        }
+        (ColumnType::Boolean, Value::Bool(b)) => Datum::Bool(b),
+        (ColumnType::Boolean, Value::String(s)) => match s.trim() {
+            "true" => Datum::Bool(true),
+            "false" => Datum::Bool(false),
+            other => return Err(bad(&format!("`{other}` is not true or false"))),
+        },
+        (ColumnType::Date, Value::String(s)) => Datum::Date(match parse {
+            Some(f) => f.read(&s, locale).map_err(|e| bad(&e.to_string()))?,
+            None => format::read_iso(&s).map_err(|e| bad(&format!("{e}; give the column a `parse` format")))?,
+        }),
+        (ColumnType::String, Value::String(s)) => Datum::Text(s),
+        (ColumnType::String, other) => Datum::Text(other.to_string()),
+        (kind, other) => return Err(bad(&format!("`{other}` does not fit schema type `{}`", kind.name()))),
+    })
+}
+
 /// What a data file holds, read without a schema: its columns in order, the type each
 /// column's values all fit, and how many rows it has.
 #[derive(Debug, Clone, PartialEq)]
@@ -245,20 +267,20 @@ pub struct Inferred {
 /// a schema written by hand gives it.
 pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
     let text = std::str::from_utf8(bytes).map_err(|_| DataError::Bad(format!("`{path}` is not UTF-8")))?;
-    let records = if path.ends_with(".csv") {
-        csv(text)
+    // A CSV with a header and no rows still names its columns.
+    let (records, columns) = if path.ends_with(".csv") {
+        csv(text).map(|(header, records)| (records, header))
     } else if path.ends_with(".json") {
-        serde_json::from_str::<Value>(text).map_err(|e| e.to_string()).and_then(|rows| json_rows(&rows))
+        serde_json::from_str::<Value>(text).map_err(|e| e.to_string()).and_then(|rows| json_rows(&rows)).map(
+            |records| {
+                let columns = columns_of(&records);
+                (records, columns)
+            },
+        )
     } else {
         Err("expected a .csv or .json file".to_string())
     }
     .map_err(|e| DataError::Bad(format!("`{path}`: {e}")))?;
-    let columns: Vec<String> = match records.first() {
-        Some(_) => columns_of(&records),
-        // A CSV with a header and no rows still names its columns.
-        None if path.ends_with(".csv") => csv_rows(text).map(|(header, _)| header).unwrap_or_default(),
-        None => Vec::new(),
-    };
     let fits = |kind: ColumnType, v: &Value| match (kind, v) {
         (_, Value::Null) => true,
         (_, Value::String(s)) if s.trim().is_empty() => true,
@@ -307,10 +329,12 @@ fn columns_of(records: &Records) -> Vec<String> {
     columns
 }
 
-/// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote.
-fn csv(text: &str) -> Result<Records, String> {
+/// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote. The
+/// header, and the records.
+fn csv(text: &str) -> Result<(Vec<String>, Records), String> {
     let (header, rows) = csv_rows(text)?;
-    rows.into_iter()
+    let records = rows
+        .into_iter()
         .enumerate()
         .map(|(i, r)| {
             if r.len() != header.len() {
@@ -318,7 +342,8 @@ fn csv(text: &str) -> Result<Records, String> {
             }
             Ok((header.clone(), r.into_iter().map(Value::String).collect()))
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    Ok((header, records))
 }
 
 /// A CSV's header and its records, as text.

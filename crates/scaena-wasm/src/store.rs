@@ -254,6 +254,7 @@ impl Session {
 fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
     Recorded {
         deck,
+        files: Default::default(),
         author: author.into(),
         message: None,
         timestamp: at,

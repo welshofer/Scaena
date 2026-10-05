@@ -18,6 +18,9 @@
 //! - `spine` (tree): sections, with their beats under them.
 //! - A text node's `text` and the `notes` of a state or a beat are text, so concurrent edits
 //!   to one string merge by character; `runs` is rich text, its runs marked over it.
+//! - `files` (map): each data file a data source names, by its path, its bytes as they are now
+//!   (ADR-0014). An edit to one sets them, in the change that edits the deck, if it does; an
+//!   undo sets them back, from the history, which keeps every version.
 //!
 //! Every other value is JSON text: replaced whole, the last writer winning, with its keys in
 //! their order. A map whose keys the deck shows in an order keeps that order beside them.
@@ -28,7 +31,7 @@ use loro::{
 };
 use scaena_core::Deck;
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 /// Where a map keeps the order of its keys: JSON text of the list.
@@ -46,6 +49,8 @@ const RUN: &str = "run";
 pub const FS: &str = "fs";
 /// What such a change says.
 pub const OUTSIDE: &str = "deck.json changed outside Scaena";
+/// Where the data files are kept, each by its path (ADR-0014).
+const FILES: &str = "files";
 
 #[derive(Debug, Error)]
 pub enum CrdtError {
@@ -100,12 +105,16 @@ impl<'a> Edit<'a> {
 }
 
 /// A change for a history to record, as one module hands it to another (PLAN 2.9): the
-/// deck it leaves, as deck.json's text, and the [`Edit`] that made it. A page's engine keeps
-/// no CRDT, so it hands its changes, as JSON, to the module that does (`scaena-history`).
+/// deck it leaves, as deck.json's text, the data files it writes, and the [`Edit`] that made
+/// it. A page's engine keeps no CRDT, so it hands its changes, as JSON, to the module that
+/// does (`scaena-history`).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Recorded {
     pub deck: String,
+    /// The data files it writes, by their paths, as their text (PLAN 2.55, ADR-0014).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, String>,
     pub author: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -149,8 +158,14 @@ impl DeckDoc {
 
     /// A document holding `deck`: its first change, `edit`'s. Each node is keyed by its id.
     pub fn from_deck(deck: &Deck, edit: &Edit) -> Result<Self> {
+        DeckDoc::begin(deck, &[], edit)
+    }
+
+    /// A document holding `deck` and its data files, `files`, by their paths: its first
+    /// change, `edit`'s.
+    pub fn begin(deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit) -> Result<Self> {
         let me = DeckDoc::wrap(LoroDoc::new());
-        me.write(deck, edit, true)?;
+        me.write(deck, files, edit, true)?;
         Ok(me)
     }
 
@@ -159,7 +174,7 @@ impl DeckDoc {
         let doc = LoroDoc::new();
         doc.set_peer_id(peer)?;
         let me = DeckDoc::wrap(doc);
-        me.write(deck, edit, true)?;
+        me.write(deck, &[], edit, true)?;
         Ok(me)
     }
 
@@ -196,14 +211,35 @@ impl DeckDoc {
     /// Makes the document say what `deck` says, as one change by `edit`'s author, touching
     /// only what differs. Whether anything did.
     pub fn apply(&self, deck: &Deck, edit: &Edit) -> Result<bool> {
-        self.write(deck, edit, false)
+        self.write(deck, &[], edit, false)
     }
 
-    /// [`DeckDoc::apply`]s each of `changes` in order: one that leaves the deck as it was is
-    /// no change. How many were.
+    /// [`DeckDoc::apply`], with each of `files`, data files by their paths, held as those
+    /// bytes, in the same change (ADR-0014).
+    pub fn apply_with(&self, deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit) -> Result<bool> {
+        self.write(deck, files, edit, false)
+    }
+
+    /// Each data file the document holds, by its path: its bytes now (ADR-0014). A history
+    /// from before them holds none.
+    pub fn files(&self) -> BTreeMap<String, Vec<u8>> {
+        let map = self.doc.get_map(FILES);
+        let mut out = BTreeMap::new();
+        for key in map.keys() {
+            if let Some(ValueOrContainer::Value(LoroValue::Binary(bytes))) = map.get(&key) {
+                out.insert(key.to_string(), bytes.to_vec());
+            }
+        }
+        out
+    }
+
+    /// [`DeckDoc::apply_with`]s each of `changes` in order: one that leaves the deck and its
+    /// files as they were is no change. How many were.
     pub fn record(&self, changes: &[Recorded]) -> Result<usize> {
         let mut recorded = 0;
         for change in changes {
+            let files: Vec<(String, Vec<u8>)> =
+                change.files.iter().map(|(path, text)| (path.clone(), text.as_bytes().to_vec())).collect();
             let edit = Edit {
                 author: &change.author,
                 message: change.message.as_deref(),
@@ -211,7 +247,7 @@ impl DeckDoc {
                 renamed_nodes: &change.renamed_nodes,
                 renamed_states: &change.renamed_states,
             };
-            recorded += usize::from(self.apply(&Deck::from_json(&change.deck)?, &edit)?);
+            recorded += usize::from(self.apply_with(&Deck::from_json(&change.deck)?, &files, &edit)?);
         }
         Ok(recorded)
     }
@@ -680,7 +716,7 @@ const BEAT_FIELDS: [&str; 6] = ["id", "claim", "evidence", "states", "duration",
 const DECK_FIELDS: [&str; 6] = ["scaena", "canvas", "formats", "theme", "fonts", "_comment"];
 
 impl DeckDoc {
-    fn write(&self, deck: &Deck, edit: &Edit, fresh: bool) -> Result<bool> {
+    fn write(&self, deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit, fresh: bool) -> Result<bool> {
         let Value::Object(v) = serde_json::to_value(deck)? else {
             return Err(CrdtError::Shape("a deck is an object".into()));
         };
@@ -710,7 +746,21 @@ impl DeckDoc {
         let overrides = field("overrides").and_then(Value::as_object).unwrap_or(&empty);
         put_deltas(&self.doc.get_map("overrides"), overrides, &keys)?;
         self.write_spine(field("spine"))?;
+        self.write_files(files)?;
         Ok(self.commit(edit))
+    }
+
+    /// Each of `files` held as its bytes: set where they differ from what the document holds.
+    fn write_files(&self, files: &[(String, Vec<u8>)]) -> Result<()> {
+        let map = self.doc.get_map(FILES);
+        for (path, bytes) in files {
+            no_reserved([path])?;
+            let held = matches!(map.get(path), Some(ValueOrContainer::Value(LoroValue::Binary(b))) if **b == *bytes);
+            if !held {
+                map.insert(path, bytes.clone())?;
+            }
+        }
+        Ok(())
     }
 
     fn write_meta(&self, meta: Option<&Value>) -> Result<()> {

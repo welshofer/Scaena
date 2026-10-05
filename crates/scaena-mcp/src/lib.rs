@@ -460,6 +460,18 @@ pub struct DataAttach {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct DataEdit {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub data: scaena_ops::data::DataEdit,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpineUpdate {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -757,6 +769,22 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
         let author = author(&context);
         blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
+    }
+
+    #[tool(description = "A data source's rows (SPEC §3.10). With no `edits`, the source as a sheet: its columns, \
+        each one's type, its rows as written, by index from 0, and the cells a column does not read. With them, \
+        cells set (`set`), rows added (`add`, at `row` or the end) and taken away (`remove`), in order, all or none: \
+        one write of the source's file that keeps every other byte, or a patch of rows written inline, and what \
+        that changes in what lint finds. A value its column's type refuses stops them, by index (`op`); edits that \
+        would leave the deck invalid are refused (`refused`, and why in `added`). Every chart and table that reads \
+        the source reads it changed.")]
+    async fn data_edit(
+        &self,
+        Parameters(a): Parameters<DataEdit>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::data::DataEdited>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::data::data_edit(&open_by(&a.bundle, author)?, &a.data, a.dry_run)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \

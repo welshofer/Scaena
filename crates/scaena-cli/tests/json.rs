@@ -85,6 +85,9 @@ fn every_command_prints_one_json_value() {
             },
         ),
         (vec!["theme", EXAMPLE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
+        (vec!["data", EXAMPLE, "q3"], 0, |v| {
+            v["edited"] == false && v["sheet"]["rows"].as_array().is_some_and(|r| r.len() == 12)
+        }),
         (vec!["patch", EXAMPLE, "--ops", PATCH, "--dry-run"], 0, |v| {
             v["applied"] == false
                 && v["patch"].as_array().is_some_and(|p| p.len() == 9)
@@ -108,6 +111,7 @@ fn a_command_that_stops_prints_an_error_object() {
     .unwrap();
     for (args, exit, plan) in [
         (vec!["inspect", TORTURE, "--state", "nope"], 2, None),
+        (vec!["data", EXAMPLE, "q4"], 2, None),
         (vec!["render", TORTURE, "--state", "pretty", "--size", "wide"], 2, None),
         (vec!["validate", "no/such/bundle"], 2, None),
         (vec!["export", EXAMPLE, "--format", "spine", "--states", "intro"], 2, None),

@@ -97,11 +97,12 @@ impl Bundle {
     /// `begin`, where the bundle keeps none.
     fn recorded(&self, deck: &Deck, begin: bool) -> Result<Option<Vec<u8>>, StoreError> {
         let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
-        match self.record(deck, &edit)? {
+        match self.record(deck, &BTreeMap::new(), &edit)? {
             Some(bytes) => Ok(Some(bytes)),
             None if begin => {
+                // The deck, and the data it is drawn from (ADR-0014).
                 let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
-                Ok(Some(DeckDoc::from_deck(deck, &begun)?.save()?))
+                Ok(Some(DeckDoc::begin(deck, &self.data_files(deck), &begun)?.save()?))
             }
             None => Ok(None),
         }

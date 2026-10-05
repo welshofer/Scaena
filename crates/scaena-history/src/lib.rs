@@ -74,6 +74,7 @@ mod tests {
         let at = DeckDoc::load(&files[HISTORY]).unwrap().changes()[0].timestamp + 60;
         let change = |deck: &str, author: &str, message: &str| Recorded {
             deck: deck.into(),
+            files: Default::default(),
             author: author.into(),
             message: Some(message.into()),
             timestamp: Some(at),
@@ -87,7 +88,8 @@ mod tests {
         let mut bundle = Bundle::in_memory(files.clone()).unwrap();
         bundle.deck = scaena_core::Deck::from_json(&edited).unwrap();
         let edit = Edit { message: Some("save"), timestamp: Some(at), ..Edit::by("user") };
-        let theirs = DeckDoc::load(&bundle.record(&bundle.deck, &edit).unwrap().unwrap()).unwrap();
+        let written = Default::default();
+        let theirs = DeckDoc::load(&bundle.record(&bundle.deck, &written, &edit).unwrap().unwrap()).unwrap();
         let ours = DeckDoc::load(&ours).unwrap();
         assert_eq!(ours.deck().unwrap().to_json().unwrap(), theirs.deck().unwrap().to_json().unwrap());
         let said = |doc: &DeckDoc| -> Vec<_> {

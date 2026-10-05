@@ -89,6 +89,7 @@ async fn the_tools_and_resources_are_listed() {
         tools,
         [
             "data_attach",
+            "data_edit",
             "deck_create",
             "deck_diff",
             "deck_export",
@@ -228,6 +229,17 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert!(read["scn"].as_str().unwrap().contains("Revenue grew"), "{}", read["scn"]);
     let spine = ok(&client, "spine_read", json!({ "bundle": bundle })).await;
     assert_eq!(spine["spine"]["sections"][0]["beats"][1]["claim"], "Revenue doubled.");
+
+    // The data, edited in place (PLAN 2.55): the source read as a sheet, a cell set, and the
+    // chart reads it so: 2025-Q4's sum is 20.2 + 6.1 + 4.4.
+    let read = ok(&client, "data_edit", json!({ "bundle": bundle, "source": "q3" })).await;
+    assert_eq!(read["sheet"]["rows"][0], json!(["2025-Q4", "Core", "18.2", "1210"]), "{read:#}");
+    let edits = json!([{ "op": "set", "row": 0, "column": "revenue", "value": 20.2 }]);
+    let set = ok(&client, "data_edit", json!({ "bundle": bundle, "source": "q3", "edits": edits })).await;
+    assert_eq!((set["edited"].clone(), set["file"].clone()), (json!(true), json!("data/q3-revenue.csv")), "{set:#}");
+    let inspected = ok(&client, "deck_inspect", json!({ "bundle": bundle, "state": "revenue", "data": true })).await;
+    let sum = inspected["states"][0]["data"]["rev"]["rows"][0][1].as_f64().unwrap();
+    assert!((sum - 30.7).abs() < 1e-9, "{inspected:#}");
     client.cancel().await.unwrap();
 }
 

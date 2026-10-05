@@ -282,6 +282,43 @@ fn undo_undoes_ones_own_change_and_leaves_the_files_be() {
     assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("user"), Some("redo")));
 }
 
+/// A data file's history is its versions (ADR-0014): an edit holds its bytes in the change
+/// that makes it, by its author, bytes as they were are no change, and an undo sets the file
+/// back to what it was, from the history, leaving a file's change by `fs` be.
+#[test]
+fn a_data_file_is_kept_by_its_versions_and_undone_as_ones_own() {
+    let csv = |rows: &str| ("data/q3.csv".to_string(), format!("quarter,revenue\n{rows}").into_bytes());
+    let doc = DeckDoc::begin(&deck(base()), &[csv("Q1,1\n")], &user()).unwrap();
+    assert_eq!(doc.files(), [csv("Q1,1\n")].into());
+    let mut undo = doc.undo_manager();
+    let edit = Edit { message: Some("data_edit q3: revenue of row 0"), ..Edit::by("user") };
+    assert!(doc.apply_with(&deck(base()), &[csv("Q1,2\n")], &edit).unwrap());
+    assert!(!doc.apply_with(&deck(base()), &[csv("Q1,2\n")], &edit).unwrap(), "the same bytes are no change");
+    let last = doc.changes().pop().unwrap();
+    assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("user"), edit.message));
+    // Another file changes on disk, by `fs`.
+    let other = ("data/plan.csv".to_string(), b"quarter,target\nQ1,3\n".to_vec());
+    doc.apply_with(&deck(base()), std::slice::from_ref(&other), &Edit::by(FS)).unwrap();
+    assert!(undo.undo(&doc, "user").unwrap());
+    assert_eq!(doc.files(), [csv("Q1,1\n"), other.clone()].into(), "mine is undone, the file's stays");
+    assert!(undo.redo(&doc, "user").unwrap());
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,2\n").1);
+    // A history saved and loaded holds them, and so does one merged into.
+    let loaded = DeckDoc::load(&doc.save().unwrap()).unwrap();
+    assert_eq!(loaded.files(), doc.files());
+    let fork = doc.fork();
+    fork.apply_with(&deck(base()), &[csv("Q1,5\n")], &Edit::by("agent:test")).unwrap();
+    doc.merge(&fork).unwrap();
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,5\n").1);
+    // As a module hands it over: the file as text.
+    let recorded = Recorded {
+        files: [("data/q3.csv".to_string(), "quarter,revenue\nQ1,8\n".to_string())].into(),
+        ..Recorded { deck: deck(base()).to_json().unwrap(), author: "user".into(), ..at(4_000) }
+    };
+    assert_eq!(doc.record(&[recorded]).unwrap(), 1);
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,8\n").1);
+}
+
 #[test]
 fn a_key_the_crdt_keeps_for_itself_is_refused() {
     let mut v = base();
@@ -389,6 +426,7 @@ fn recorded_changes_go_in_one_by_one_by_their_authors() {
 fn at(timestamp: i64) -> Recorded {
     Recorded {
         deck: String::new(),
+        files: Default::default(),
         author: String::new(),
         message: None,
         timestamp: Some(timestamp),

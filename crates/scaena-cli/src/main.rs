@@ -242,6 +242,24 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// A data source's rows (PLAN 2.55, SPEC §3.10): without `--edits`, the source as a table,
+    /// each cell as written; with them, cells set and rows added and taken away, all or none, in
+    /// one write of its file that keeps every other byte, and what that changes in what
+    /// `validate` and `lint` find. A value its column refuses stops them; edits that would make
+    /// the deck invalid are refused.
+    Data {
+        bundle: PathBuf,
+        /// The source's id: what a chart or a table names as `@id`.
+        source: String,
+        /// The edits: a JSON array of `{"op": "set", "row", "column", "value"}`, `{"op": "add",
+        /// "row"?, "values"}`, and `{"op": "remove", "row"}`, rows from 0, or `-` for stdin
+        /// (`docs/schema/mcp/data_edit.json`).
+        #[arg(long)]
+        edits: Option<PathBuf>,
+        /// Say what would change, and write nothing.
+        #[arg(long, requires = "edits")]
+        dry_run: bool,
+    },
     /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
     /// once for each place the text is written, and the states that show it. With `--replace`,
     /// every match is replaced in one patch, a `replace_text` where each text lives.
@@ -578,6 +596,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
+        Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
@@ -852,6 +871,78 @@ fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCod
         print_delta(&p.added, &p.removed);
     }
     Ok(if p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena data` (PLAN 2.55, ADR-0014): a data source as a table, each cell as written and the
+/// cells its column does not read; or edited in place, reported as `patch` reports a patch. An
+/// edit that does not apply exits 2 with its index, as a patch's op does; edits that would make
+/// the deck invalid exit 1, refused. Either way, and under `--dry-run`, nothing is written.
+fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let edits = match edits {
+        None => Vec::new(),
+        Some(path) => {
+            let text = if path == Path::new("-") {
+                let mut text = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+                    .context("reading the edits from stdin")?;
+                text
+            } else {
+                std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+            };
+            serde_json::from_str(&text).with_context(|| {
+                format!("{} is not a JSON array of edits (docs/schema/mcp/data_edit.json)", path.display())
+            })?
+        }
+    };
+    let req = scaena_ops::data::DataEdit { source: source.to_string(), edits };
+    let d = scaena_ops::data::data_edit(&b, &req, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&d)?);
+        return Ok(if d.refused || d.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS });
+    }
+    let what = d.file.as_deref().map_or_else(|| "the deck's inline rows".to_string(), String::from);
+    let n = req.edits.len();
+    let edits = if n == 1 { "1 edit".to_string() } else { format!("{n} edits") };
+    match (n, d.refused, dry_run) {
+        (0, ..) => {
+            let rows = d.sheet.rows.len();
+            println!("@{source}  {what}  {}", if rows == 1 { "1 row".to_string() } else { format!("{rows} rows") });
+            print_sheet(&d.sheet);
+            return Ok(ExitCode::SUCCESS);
+        }
+        (_, true, _) => println!("refused: the edits would make the deck invalid; nothing was written"),
+        (_, false, true) => println!("would make {edits} in {what}"),
+        (_, false, false) => println!("made {edits} in {what}"),
+    }
+    print_delta(&d.added, &d.removed);
+    Ok(if d.refused || d.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// A data source's sheet as a table: each column's name and type over its cells, each row by
+/// its index, then the cells a column does not read.
+fn print_sheet(sheet: &scaena_ops::data::Sheet) {
+    let index = |i: usize| i.to_string();
+    let mut widths: Vec<usize> =
+        sheet.columns.iter().map(|c| c.name.chars().count().max(c.kind.name().len())).collect();
+    for row in &sheet.rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let first = index(sheet.rows.len().saturating_sub(1)).len().max(3);
+    let line = |lead: &str, cells: Vec<&str>| {
+        let cells: Vec<String> = cells.iter().zip(&widths).map(|(c, w)| format!("{c:<w$}")).collect();
+        println!("{lead:<first$}  {}", cells.join("  ").trim_end());
+    };
+    line("row", sheet.columns.iter().map(|c| c.name.as_str()).collect());
+    line("", sheet.columns.iter().map(|c| c.kind.name()).collect());
+    for (i, row) in sheet.rows.iter().enumerate() {
+        line(&index(i), row.iter().map(String::as_str).collect());
+    }
+    for p in &sheet.problems {
+        println!("! row {}, {}: {}", p.row, p.column, p.why);
+    }
 }
 
 /// `scaena find` (PLAN 2.47): each text the query matches, once for each place it is written,

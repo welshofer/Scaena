@@ -82,3 +82,38 @@ fn a_zip_keeps_its_history_too_and_a_bundle_without_one_keeps_none() {
     assert!(!flat.join("history").exists());
     assert!(scaena_ops::open(&flat).unwrap().history().unwrap().is_none());
 }
+
+/// A data file's edits are the history's too (PLAN 2.55, ADR-0014): the history begins with
+/// the data the deck is drawn from, a `data_edit` is one change by its author, holding the
+/// file as it wrote it, and a file edited outside Scaena goes in as a change by `fs`.
+#[test]
+fn a_data_files_edits_are_recorded_with_who_made_them() {
+    let dir = scratch("data");
+    keeping_history(&dir);
+    let csv = dir.join("data/q3-revenue.csv");
+    let was = std::fs::read(&csv).unwrap();
+    let held = |dir: &Path| scaena_ops::open(dir).unwrap().history().unwrap().unwrap().files();
+    assert_eq!(held(&dir)["data/q3-revenue.csv"], was, "the history begins with the data");
+    let mut b = scaena_ops::open(&dir).unwrap();
+    b.author = "agent:test".into();
+    let req = serde_json::from_value(json!({
+        "source": "q3", "edits": [{ "op": "set", "row": 0, "column": "revenue", "value": "18.5" }]
+    }))
+    .unwrap();
+    assert!(scaena_ops::data::data_edit(&b, &req, false).unwrap().edited);
+    let log = changes(&dir);
+    assert_eq!(
+        log.last().map(|c| (c.0.as_str(), c.1.as_str())),
+        Some(("agent:test", "data_edit q3: revenue of row 0"))
+    );
+    let edited = std::fs::read(&csv).unwrap();
+    assert_eq!(held(&dir)["data/q3-revenue.csv"], edited);
+    // Then the file is replaced on disk, as a spreadsheet would write it.
+    std::fs::write(&csv, String::from_utf8(edited).unwrap().replace('\n', "\r\n")).unwrap();
+    let b = scaena_ops::open(&dir).unwrap();
+    scaena_ops::patch::patch(&b, &json!([{ "op": "set_text", "node": "title", "text": "Q3" }]), false).unwrap();
+    let who: Vec<(String, String)> = changes(&dir).into_iter().map(|c| (c.0, c.1)).collect();
+    let tail: Vec<(&str, &str)> = who[who.len() - 2..].iter().map(|(a, m)| (a.as_str(), m.as_str())).collect();
+    assert_eq!(tail, [("fs", "data/q3-revenue.csv changed outside Scaena"), ("user", "patch: set_text")]);
+    assert_eq!(held(&dir)["data/q3-revenue.csv"], std::fs::read(&csv).unwrap());
+}
