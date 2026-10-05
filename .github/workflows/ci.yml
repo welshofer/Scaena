@@ -232,6 +232,8 @@ jobs:
       - run: node web/canvas.mjs
       - run: node web/typing.mjs
       - run: node web/inspector.mjs
+      # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
+      - run: node web/insert.mjs
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs

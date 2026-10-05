@@ -102,6 +102,11 @@ enum Cmd {
         /// `--state`.
         #[arg(long, value_name = "NODE", requires = "state")]
         choices: Option<String>,
+        /// What may be inserted in the state (PLAN 2.34): a text in each of the theme's
+        /// roles, each kind of shape, each image in the bundle, and each shader preset, as
+        /// `add_node` adds each, with the box it takes at first. Needs `--state`.
+        #[arg(long, requires = "state")]
+        inserts: bool,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -392,8 +397,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             to,
             fork,
             choices,
+            inserts,
         } => {
-            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork, choices };
+            let views =
+                Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork, choices, inserts };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
@@ -861,8 +868,25 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(c) = &i.choices {
             print_choices(c);
         }
+        if let Some(offered) = &i.inserts {
+            print_inserts(offered);
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `inspect --inserts`, for a person: what may be inserted, each with the node it adds and
+/// the box it takes at first.
+fn print_inserts(offered: &[scaena_core::inserts::Insert]) {
+    use scaena_core::inserts::Start;
+    println!("  inserts:");
+    for insert in offered {
+        let start = match &insert.start {
+            Start::Box { w, h } => format!("{:.0}% × {:.0}% of the canvas, at the pointer", w * 100.0, h * 100.0),
+            Start::Slot(slot) => format!("the {slot} slot, under the rest"),
+        };
+        println!("    {} as {}…: {}; {start}", insert.label, insert.id, insert.node);
+    }
 }
 
 /// `inspect --choices`, for a person: each property an inspector edits, the value the state

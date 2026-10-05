@@ -256,6 +256,24 @@ impl Engine {
         crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node)
     }
 
+    /// Where a node new to `req.state`, named `node`, would go at the root, laid out in
+    /// `req.format` (PLAN 2.34): the theme's grid and the template's slots there, its cell
+    /// `share` of the canvas's width and height ([`crate::geometry::room`]).
+    pub fn room(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        share: [f32; 2],
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        let size = [share[0] * scene.canvas[0], share[1] * scene.canvas[1]];
+        crate::geometry::room(theme, &cascade::with_overrides(deck, snap), &scene, node, size)
+    }
+
     /// One snapshot, laid out: every visible node in paint order.
     pub fn scene(
         &mut self,

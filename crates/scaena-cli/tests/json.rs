@@ -304,6 +304,33 @@ fn inspect_says_what_an_inspector_offers() {
     assert!(text.contains("role           headline, in revenue's delta · display, headline, title"), "{text}");
 }
 
+#[test]
+fn inspect_says_what_may_be_inserted() {
+    let (code, states) = json(&["inspect", TORTURE, "--state", "axes", "--inserts"]);
+    assert_eq!(code, 0, "{states:#}");
+    let offered = states[0]["inserts"].as_array().unwrap();
+    let of = |kind: &str| offered.iter().filter(|i| i["node"]["type"] == kind).count();
+    assert!(of("text") > 0 && of("image") > 0 && of("shader") > 0, "{offered:#?}");
+    assert_eq!(of("shape"), 4, "a rectangle, an ellipse, a line, and an arrow");
+    let rect = offered.iter().find(|i| i["label"] == "Shape · rect").unwrap();
+    assert_eq!(rect["id"], "rect");
+    assert!(rect["start"]["box"]["w"].as_f64().is_some_and(|w| w > 0.0), "{rect:#}");
+    let shader = offered.iter().find(|i| i["node"]["type"] == "shader").unwrap();
+    assert_eq!(
+        (&shader["start"]["slot"], &shader["node"]["z"]),
+        (&serde_json::json!("canvas"), &serde_json::json!(-1))
+    );
+
+    // It says what may be inserted in a state.
+    assert_eq!(scaena(&["inspect", TORTURE, "--inserts"]).status.code(), Some(2));
+
+    // For a person: a line per insert, the node it adds and the box it takes.
+    let out = scaena(&["inspect", TORTURE, "--state", "axes", "--inserts"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("  inserts:\n"), "{text}");
+    assert!(text.contains("    Shape · rect as rect…: "), "{text}");
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {

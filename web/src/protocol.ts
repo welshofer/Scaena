@@ -162,6 +162,26 @@ export interface Snapped {
   patch: unknown[];
 }
 
+/** Something the editor may insert (PLAN 2.34), as `scaena inspect --inserts` says it: a node the
+ * theme or the bundle names, as `add_node` adds it, unplaced. */
+export interface Insert {
+  /** What a menu says: the node's type, and the name it is made from. */
+  label: string;
+  node: { type: string } & Record<string, unknown>;
+  /** What its id starts from. */
+  id: string;
+  /** The box it takes at first: about the pointer, each side a share of the canvas's; or a slot
+   * it fills, under what is there. */
+  start: { box: { w: number; h: number } } | { slot: string };
+}
+
+/** A node a patch adds: its id, where it lands, and the patch. */
+export interface Added {
+  id: string;
+  cell: Rect;
+  patch: unknown[];
+}
+
 /** The page to the worker. */
 export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
@@ -233,6 +253,15 @@ export type ToWorker =
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
   /** The states `ops` (a patch) would change, with nothing made (ADR-0013). */
   | { type: "reach"; id: number; ops: unknown[] }
+  /** What may be inserted in the deck (PLAN 2.34). */
+  | { type: "inserts"; id: number }
+  /** A patch to add or take away a node, with nothing made, on the deck the editor's `source`
+   * compiles to (PLAN 2.34): what `inserts` offers `n`th, entering in `state` about `at` (canvas
+   * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
+   * after it, with what it holds, or, `everywhere`, out of the deck. */
+  | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
+  | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
+  | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
   /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
    * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
    * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
@@ -466,6 +495,11 @@ export type FromWorker =
   | { type: "choices"; id: number; choices: Choices }
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "reached"; id: number; states: string[] }
+  | { type: "inserts"; id: number; inserts: Insert[] }
+  /** The patch that adds a node: an insert, or a copy. */
+  | { type: "adding"; id: number; added: Added }
+  /** The patch that takes a node away. */
+  | { type: "deleting"; id: number; patch: unknown[] }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save

@@ -328,10 +328,7 @@ pub(crate) fn targets(
         let template = snap.layout.as_deref();
         t.cell = grid.cell(theme, template, at)?;
         (t.columns, t.rows) = (grid.columns(), grid.rows());
-        let slots = template.and_then(|name| theme.slots(name)).into_iter().flat_map(|slots| slots.keys());
-        for name in slots.map(String::as_str).chain(["canvas", "grid"]) {
-            t.slots.push((name.to_string(), grid.cell(theme, template, Some(&json!({ "in": name })))?));
-        }
+        t.slots = slots(theme, &grid, template)?;
         return Ok(t);
     };
     let holder = &scene.tree[parent];
@@ -390,6 +387,41 @@ pub(crate) fn targets(
         _ => {}
     }
     Ok(t)
+}
+
+/// Where a node new to the state `snap` resolves would go at the root, laid out as `scene`
+/// (PLAN 2.34): the theme's grid in this format and the template's slots, as [`targets`]
+/// gives them for a node the grid holds, the new node named `node`. Its cell is `size` from
+/// the grid's corner, so a move snaps a box by as many tracks as `size` covers.
+pub(crate) fn room(
+    theme: &Theme,
+    snap: &Snapshot,
+    scene: &Scene,
+    node: &str,
+    size: [f32; 2],
+) -> Result<Targets, EngineError> {
+    let grid = Grid::from_theme(theme, scene.canvas)?;
+    let template = snap.layout.as_deref();
+    let (columns, rows) = (grid.columns(), grid.rows());
+    let corner = [columns.first().map_or(0.0, |c| c[0]), rows.first().map_or(0.0, |r| r[0])];
+    Ok(Targets {
+        node: node.to_string(),
+        by: By::Grid,
+        cell: [corner[0], corner[1], size[0], size[1]],
+        columns,
+        rows,
+        slots: slots(theme, &grid, template)?,
+        flow: Vec::new(),
+        within: [0.0, 0.0, scene.canvas[0], scene.canvas[1]],
+    })
+}
+
+/// The boxes a root takes by name in `template`: its slots in this format, then `canvas`
+/// and `grid`.
+fn slots(theme: &Theme, grid: &Grid, template: Option<&str>) -> Result<Vec<(String, Rect)>, EngineError> {
+    let named = template.and_then(|name| theme.slots(name)).into_iter().flat_map(|slots| slots.keys());
+    let names = named.map(String::as_str).chain(["canvas", "grid"]);
+    names.map(|name| Ok((name.to_string(), grid.cell(theme, template, Some(&json!({ "in": name })))?))).collect()
 }
 
 /// The tracks a 1-based range `n` or `[a, b]` spans, `[start, end]`, if the grid has them.

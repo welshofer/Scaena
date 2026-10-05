@@ -384,6 +384,31 @@ async function edit(source: Source) {
       void look.show(node);
     },
   });
+  /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
+   * each edit, since the theme and the bundle's images change. */
+  const inserter = $<HTMLSelectElement>("#insert");
+  let offered = "";
+  async function offer() {
+    const inserts = await stage.inserts().catch(() => undefined);
+    const key = JSON.stringify(inserts?.map((i) => i.label));
+    if (!inserts || key === offered) return;
+    offered = key;
+    const groups = new Map<string, HTMLOptGroupElement>();
+    for (const [n, insert] of inserts.entries()) {
+      const [kind, name] = insert.label.includes(" · ") ? insert.label.split(" · ", 2) : [insert.node.type, insert.label];
+      const group = groups.get(kind) ?? Object.assign(document.createElement("optgroup"), { label: kind });
+      groups.set(kind, group);
+      group.append(new Option(name, String(n)));
+    }
+    inserter.replaceChildren(new Option("Insert…", ""), ...groups.values());
+  }
+  inserter.onchange = () => {
+    const chosen = inserter.selectedOptions[0];
+    inserter.value = "";
+    if (!chosen?.value) return;
+    void board.insert(Number(chosen.value), chosen.textContent ?? undefined);
+    $("#overlay").focus();
+  };
   // A node's row in the inspector selects it on the canvas.
   inspector.onclick = (e) => {
     const row = (e.target as Element).closest("tr[data-node]");
@@ -412,6 +437,7 @@ async function edit(source: Source) {
       statesPicker.selectedIndex = shown;
       void inspect();
       void board.refresh().catch(failed);
+      void offer();
     }
     const findings = edited.error ? [edited.error] : edited.findings;
     report(findings, edited);
