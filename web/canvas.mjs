@@ -275,9 +275,14 @@ try {
   const still = await shot(torture);
   n = await trips(torture);
   const narrower = await drag(torture, [bx + bw, by + bh / 2], [bx + bw - pitch, by + bh / 2], [], { hold: true, says: "col 1–7" });
-  // Paused, the preview shows it laid out as the patch would make it.
+  // Paused, the preview shows it laid out as the patch would make it: once the engine has laid it
+  // out and painted it, which a busy machine takes longer to do than an idle one.
   await torture.waitForTimeout(900);
-  const paused = await shot(torture);
+  let paused = await shot(torture);
+  for (let k = 0; k < 40 && paused.equals(still); k++) {
+    await torture.waitForTimeout(250);
+    paused = await shot(torture);
+  }
   await torture.mouse.up();
   check(narrower.includes("col 1–7"), `a handle resizes it by tracks: ${narrower}`);
   check(!paused.equals(still), "when the resize pauses, the preview shows it laid out");

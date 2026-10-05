@@ -354,6 +354,7 @@ async function edit(source: Source) {
     arrange: (how) => board.arrange(how, false),
     group: () => board.group(),
     ungroup: () => board.ungroup(),
+    pick: () => board.pick(),
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */

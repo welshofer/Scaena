@@ -89,6 +89,16 @@ impl Scene {
         out
     }
 
+    /// The point of image `node` drawn under `point`, in fractions of the part its crop keeps:
+    /// what its `focal` names (PLAN 2.45). `None` where it is no image this state draws, or the
+    /// point is off the image.
+    pub fn image_point(&self, node: &str, point: [f32; 2]) -> Option<[f32; 2]> {
+        self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
+            Content::Image(image) => image.point(point),
+            _ => None,
+        })
+    }
+
     /// Where a caret stands in `node`'s text, if it is a text this state draws: each
     /// character as written, on its line, between the edges of its glyphs.
     pub fn carets(&self, node: &str) -> Option<Carets> {

@@ -55,6 +55,7 @@ type Reply = Extract<
       | "reloaded"
       | "boxes"
       | "hits"
+      | "focal"
       | "targets"
       | "dragged"
       | "arranged"
@@ -231,6 +232,13 @@ export class Stage {
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   hit(state: string, point: [number, number], format?: string): Promise<Hit[]> {
     return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
+  }
+
+  /** The point of image `node` under `point` in `state` at rest, in the deck `source` compiles
+   * to: fractions of its crop, which a focal point picked there names; `null` off the image
+   * (PLAN 2.45). */
+  focalAt(source: string, state: string, node: string, point: [number, number], format?: string): Promise<[number, number] | null> {
+    return this.request<"focal">({ type: "focalAt", id: ++this.asked, source, state, node, point, format }).then(({ at }) => at);
   }
 
   /** Where `node` may go in `state` at rest. */
@@ -534,6 +542,7 @@ export class Stage {
       case "reloaded":
       case "boxes":
       case "hits":
+      case "focal":
       case "targets":
       case "dragged":
       case "arranged":
