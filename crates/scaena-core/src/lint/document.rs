@@ -212,6 +212,17 @@ impl Rule for W300Literal {
     }
 }
 
+/// Whether `value`, set as a node's `prop` (a property, or one key of one: `style/size`),
+/// is a literal W300 flags outside `overrides`: a color written out where a theme color goes,
+/// a text size, or a length in canvas units where a theme token goes.
+pub(crate) fn literal(prop: &str, value: &Value) -> bool {
+    let set = match prop.split_once('/') {
+        Some((name, key)) => (name, Value::Object(serde_json::Map::from_iter([(key.to_string(), value.clone())]))),
+        None => (prop, value.clone()),
+    };
+    !literals(&Props::from_iter([(set.0.to_string(), set.1)]), "").is_empty()
+}
+
 /// Keys whose strings are words for people, never colors.
 const PROSE: [&str; 9] = ["text", "alt", "title", "label", "notes", "comment", "format", "parse", "dataTransform"];
 

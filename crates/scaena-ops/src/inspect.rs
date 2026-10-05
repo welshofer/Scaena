@@ -1,11 +1,13 @@
 //! Inspect a deck (SPEC §7.1): each state's snapshot, tracking applied (SPEC §2.2); through
 //! the theme cascade (PLAN 1.6); its cue on the timeline (PLAN 1.14); the rows its charts and
 //! tables read; and, for a client that edits by pointing (ADR-0013), what stands where at
-//! rest and where a node may go. And what changes between two states.
+//! rest, where a node may go, and what an inspector offers for it. And what changes between
+//! two states.
 
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
+use scaena_core::choices::{Choices, choices};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{self, CubicBezier, Look};
@@ -62,6 +64,11 @@ pub struct Views {
     /// own props wherever it lives now (`place`'s `fork`).
     #[serde(default)]
     pub fork: bool,
+    /// A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each
+    /// property it edits, with the theme's names for it or what the schema allows, the value
+    /// the state shows, and where that value lives, which is where `choose` writes.
+    #[serde(default)]
+    pub choices: Option<String>,
 }
 
 impl Views {
@@ -153,6 +160,9 @@ pub struct Inspected {
     /// Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapped: Option<Snapped>,
+    /// What an inspector offers for the node asked about (`choices`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Choices>,
 }
 
 /// Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.
@@ -386,10 +396,8 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     if !snaps.iter().any(|s| state.is_none_or(|id| s.state_id == id)) {
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
-    let theme = match views.resolved || views.timeline || views.laid() || views.format.is_some() {
-        true => Some(crate::theme(b)?),
-        false => None,
-    };
+    let themed = views.resolved || views.timeline || views.laid() || views.format.is_some() || views.choices.is_some();
+    let theme = if themed { Some(crate::theme(b)?) } else { None };
     let files = if views.timeline || views.data || views.laid() { data_files(b)? } else { DataFiles::new() };
     // A cue on lines, words, or a chart's marks counts them after layout, and boxes are
     // layout's, so both need the engine, with the bundle's fonts and images, as `render` does.
@@ -421,6 +429,9 @@ pub fn inspect_deck(
         Some((deck, theme)) => (deck.as_ref(), Some(theme.as_ref())),
         None => (deck, theme),
     };
+    if views.choices.is_some() && state.is_none() {
+        return Err(OpsError::new("`choices` names a node in a state: name the state"));
+    }
     match (&views.targets, state, views.snap, views.to) {
         (Some(_), None, ..) => return Err(OpsError::new("`targets` names a node in a state: name the state")),
         (None, _, Some(_), _) => return Err(OpsError::new("`snap` snaps a node's box: name it with `targets`")),
@@ -439,12 +450,13 @@ pub fn inspect_deck(
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
-    let theme = match (views.resolved || views.timeline || views.laid(), theme) {
+    let theme = match (views.resolved || views.timeline || views.laid() || views.choices.is_some(), theme) {
         (true, None) => {
-            let what = match (views.resolved, views.timeline) {
-                (true, _) => "resolved values",
-                (_, true) => "the timeline",
-                _ => "where nodes stand",
+            let what = match (views.resolved, views.timeline, views.laid()) {
+                (true, ..) => "resolved values",
+                (_, true, _) => "the timeline",
+                (_, _, true) => "where nodes stand",
+                _ => "what an inspector offers",
             };
             return Err(needs(what));
         }
@@ -474,6 +486,7 @@ pub fn inspect_deck(
             hits: None,
             targets: None,
             snapped: None,
+            choices: None,
         };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
@@ -497,6 +510,9 @@ pub fn inspect_deck(
         }
         if views.data {
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
+        }
+        if let (Some(node), Some(theme)) = (&views.choices, theme) {
+            inspected.choices = Some(choices(deck, theme, &s.state_id, node).map_err(OpsError::new)?);
         }
         if let (true, Some(theme), Some(engine)) = (views.laid(), theme, engine.as_deref_mut()) {
             // The deck is in its format already: lay it out as it stands.

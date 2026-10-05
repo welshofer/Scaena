@@ -159,6 +159,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** The canvas in canvas units, and what stands where in the state shown. */
   let size: [number, number] = [1920, 1080];
   let boxes: NodeBox[] = [];
+  /** The state `boxes` stand in. */
+  let boxed: string | undefined;
   let selected: string | undefined;
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
@@ -226,6 +228,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     const shown = editor.shown();
     if (!shown) return;
     ({ boxes, size } = await stage.boxes(shown.state, editor.format()));
+    boxed = shown.state;
     svg.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
     if (selected !== undefined && !box(selected)) select(undefined);
     else if (selected !== undefined) aimAt(selected);
@@ -410,7 +413,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
     editor.say("placing…");
     try {
-      const { source, edited } = await stage.place(editor.source(), ops, shown.index, editor.format());
+      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
       editor.say(`${op?.node} placed: ${placed(op?.at ?? {}, aim?.by)}`);
@@ -679,6 +682,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     select,
     selected: () => selected,
     boxes: () => boxes,
+    /** The state the boxes stand in: what a test waits for once it shows another. */
+    boxed: () => boxed,
     size: () => size,
     /** Where `node` may go in the state shown. */
     targets: (node: string) => {

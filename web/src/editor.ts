@@ -46,6 +46,7 @@ import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
 import { keptNames } from "./folders";
+import { looks } from "./look";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
@@ -193,6 +194,7 @@ async function edit(source: Source) {
   const formatPicker = $<HTMLSelectElement>("#format");
   const problems = $<HTMLUListElement>("#problems");
   const inspector = $("#inspector");
+  const listing = $("#listing");
   const whereLine = $("#where");
   const play = $<HTMLAnchorElement>("#play");
   const stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
@@ -318,23 +320,45 @@ async function edit(source: Source) {
     }),
   });
 
+  /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
+   * what lint finds after it, until the source is edited by hand. */
+  let told: string | undefined;
+  const say = (text: string) => {
+    told = text;
+    status.textContent = text;
+  };
+  /** The state shown, where a gesture on the canvas or a choice in the inspector makes a patch:
+   * none while the source does not compile, nor while the assistant works. */
+  const showing = () => {
+    const state = last?.valid && !last.error ? last.states[shown]?.[0] : undefined;
+    return state !== undefined && !assisting ? { state, index: shown } : undefined;
+  };
+  /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
+  const made = (source: string, edited: Edited) => {
+    taken = { source, edited };
+    const changes = change(view.state.doc.toString(), source);
+    view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
+  };
+  /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
+   * patch, as each gesture on the canvas is. */
+  const look = looks(stage, $("#look"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    say,
+  });
+
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as
    * one change, one step to undo. It waits while the source does not compile, and while the
    * assistant works. */
   const board = canvas(stage, $("#overlay"), {
-    shown: () => {
-      const state = last?.valid && !last.error ? last.states[shown]?.[0] : undefined;
-      return state !== undefined && !assisting ? { state, index: shown } : undefined;
-    },
+    shown: showing,
     format,
     source: () => view.state.doc.toString(),
     version: () => version,
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
-    apply: (source, edited) => {
-      taken = { source, edited };
-      const changes = change(view.state.doc.toString(), source);
-      view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
-    },
+    apply: made,
     typed: (source, edited, joins) => {
       taken = { source, edited };
       const changes = change(view.state.doc.toString(), source);
@@ -353,10 +377,11 @@ async function edit(source: Source) {
     redo: () => {
       if (redo(view)) forceLinting(view);
     },
-    say: (text) => (status.textContent = text),
+    say,
     selected: (node) => {
       chosen = node;
       for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(row.getAttribute("data-node") === node));
+      void look.show(node);
     },
   });
   // A node's row in the inspector selects it on the canvas.
@@ -372,6 +397,7 @@ async function edit(source: Source) {
     const read = version;
     const sent = performance.now();
     let edited: Edited;
+    if (taken?.source !== source) told = undefined;
     try {
       edited = taken?.source === source ? taken.edited : await stage.edit(source, shown, format());
     } catch (e) {
@@ -428,7 +454,8 @@ async function edit(source: Source) {
       whole !== undefined
         ? `every state linted in ${ms(whole)}`
         : `${edited.whole ? "linted" : "its state linted"} in ${ms(edited.ms.lint)}`;
-    status.textContent = `${errors} error${errors === 1 ? "" : "s"}, ${findings.length - errors} other · compiled in ${ms(edited.ms.compile)}, shown in ${ms(edited.ms.paint)}, ${linted}`;
+    const found = `${errors} error${errors === 1 ? "" : "s"}, ${findings.length - errors} other · compiled in ${ms(edited.ms.compile)}, shown in ${ms(edited.ms.paint)}, ${linted}`;
+    status.textContent = told ? `${told} — ${found}` : found;
   }
 
   /** A finding as CodeMirror shows it, with its fix as an action. One about the theme file
@@ -505,7 +532,7 @@ async function edit(source: Source) {
     try {
       found = await stage.inspect(state, format());
     } catch (e) {
-      inspector.textContent = said(e);
+      listing.textContent = said(e);
       return;
     }
     inspected = found;
@@ -526,7 +553,8 @@ async function edit(source: Source) {
     const motions = (cue?.motions ?? []).map(
       (m) => `<tr><td>${html(m.node)}</td><td>${html(m.motion)}${m.units > 1 ? ` × ${m.units}` : ""}</td><td>${m.start.toFixed(0)}–${m.end.toFixed(0)} ms</td></tr>`,
     );
-    inspector.innerHTML = `
+    void look.show(chosen);
+    listing.innerHTML = `
       <h2>${html(found.state_id)}${found.layout ? ` · ${html(found.layout)}` : ""}</h2>
       ${cue ? `<p>starts at ${cue.start.toFixed(0)} ms · cue ${cue.span.toFixed(0)} ms · holds ${cue.hold.toFixed(0)} ms · transition ${cue.transition.duration.toFixed(0)} ms, matched by ${html(cue.transition.match)}</p>` : ""}
       ${motions.length ? `<table><tr><th>moves</th><th></th><th></th></tr>${motions.join("")}</table>` : ""}
@@ -757,6 +785,8 @@ async function edit(source: Source) {
       assistant,
       /** The canvas: what it selected, what stands where, and its drag. */
       canvas: board,
+      /** The inspector's edits: what it offers for the node selected, and a choice made there. */
+      look,
     },
   });
 }

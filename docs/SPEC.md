@@ -833,7 +833,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--choices NODE] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, what a node's look may be
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -853,7 +853,7 @@ A command that writes a bundle that keeps history (`patch`, `theme --apply`, `li
 | Command | `--json` |
 |---|---|
 | `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
-| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, and `--snap` adds `snapped` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, `--snap` adds `snapped`, and `--choices` adds `choices` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
 | `decompile` | `{ out, scn? }` |
@@ -906,6 +906,22 @@ A caret stands between characters as a reader counts them: grapheme clusters, so
 
 A way that does not place the node is an error that names those that do.
 
+`inspect --state S --choices NODE` says what an inspector offers for the node as that state shows it (ADR-0013, PLAN 2.33): each property it edits (`fields`), the node type's own first, then those every node has.
+- **What each takes** (`takes`). Some take one of the theme's names of a kind (`name`, with `of`: a text role, a font family, a color, a motion preset, a shader preset of the node's kind, a shader palette, a stroke, or a step of the space or radius scale), in the theme's order (`Theme::names`). Others take a word, a number in range, or yes or no, as the schema generated from the model allows. Where a value written out is legal too, a color or a length in canvas units, `overrides` says so: one goes in the deck's `overrides`. A text size is always written out, and always an override.
+- **The fields by type:**
+  - a text: `role`, `style/family`, `style/weight`, `style/size`, `style/color`, `style/case`, `fit`, `wrap`, and `maxLines`;
+  - a shape: `fill`, `stroke/paint`, `stroke/width`, and `radius`;
+  - an image: `fit` and `radius`;
+  - a shader: `preset` and `palette`;
+  - a chart: `kind`, `labels/show`, and `labels/role`;
+  - a stack: `axis` and `gap`; a grid container, `gap`;
+  - every node: `opacity`, `enter`, and `exit`.
+- **The value shown** (`value`) is the deck's: tracked (§2.2), then the overrides; absent where the theme's shows.
+- **Where it lives** (`lives`): `overrides`, a state's delta (`{ "state": id }`, the one shown or one it tracks from), or the `node`. That is where `choose` writes (§7.3).
+- `literal` marks a value written out where the theme has names: an override in the overrides, W300's anywhere else.
+
+A node the state does not show is an error that says so.
+
 `--format` inspects the deck in one of its formats, laid out again with its template set (§3.4), for every view.
 
 `compile` checks the deck it compiles as `validate` does, in the bundle it is written to: `-o`'s directory, or the source's when it writes to stdout. It shows each finding at the source that wrote that part of the deck, and the JSON pointer where it lands. It writes only a valid deck: findings exit 1 and source that does not parse exits 2, and either way nothing is written. `decompile` reads any deck, valid or not (§4).
@@ -926,7 +942,7 @@ A way that does not place the node is an error that names those that do.
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `choices`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -988,6 +1004,7 @@ A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patc
 | `set_prop` | `node`, `prop`, `value`, `state?` | Sets a property (`kind`) or one key of one (`at/in`); a delta merges objects one level deep (§2.2). `null` takes it away. Refused for `type` (E104), and for a node not on screen in `state`, which a delta would make enter (`show_node` does that) |
 | `place` | `node`, `at`, `state?`, `fork?` | Moves or resizes a node, as a drag does (ADR-0013). `at` is one placement: cells (`col`, `row`), a slot (`in`), a `rect`, a grid container's `area`, or a stack's `index`. The placement keys of the node's `at` become `at`'s, and the others go. It is written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks (§2.2); else in the node's own `at`. With `fork`, it is written into `state`'s own props instead, wherever it lives: the node goes there in that state and in the states that track it, as they take the rest of its props, and stays where it was in the others; refused where the overrides place the node. Refused for a placement the node's container does not take: the theme's grid takes cells, a slot, or a `rect`; a grid container its cells, an area, or an `index`; a stack an `index`; a frame a `rect` |
 | `set_text` | `node`, `text`, `state?` | Sets a text node's `text`; its `runs` there go |
+| `choose` | `node`, `prop`, `value`, `state?`, `fork?` | One property as an inspector chooses it (ADR-0013, PLAN 2.33): `prop` is a property or one key of one (`style/color`), and `value` is written where it lives, as `place` writes a placement: in the latest delta that sets it, from `state` back along what it tracks, else in the node's own. A value written out where the theme has names (W300's: a color, a text size, a length in canvas units) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. `null` takes it away where it lives, so what is under it shows: out of the overrides (which go once empty), out of the delta, or off the node. With `fork`, in `state`'s own props; refused for a value that goes in the overrides |
 | `replace_text` | `node`, `from`, `to`, `text`, `state?`, `fork?` | Text typed where it stands (ADR-0013): the characters from `from` to `to` of the node's text as `state` shows it (its `text`, or its runs' texts end to end, the deck's `overrides` over them) become `text`. Offsets count characters (Unicode scalar values). Runs keep their looks: what is typed takes the look of the run it is typed into, the one before where two meet, and a run the edit leaves with no text goes. It is written where the text lives, as `place` writes a placement: in the overrides if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own. With `fork`, in `state`'s own props; refused where the overrides set the text |
 | `bind_data` | `node`, `data`, `source?`, `state?` | A chart or table reads `@data`; `source` declares or replaces the data source. In a state, it is a data update (§3.7) |
 | `apply_preset` | `node`, `preset`, `motion?`, `state?` | With `motion` (`enter`, `exit`, `emphasis`), a theme motion preset as that motion. Without, a shader takes a theme shader preset whole: the preset's kind, and none of its own `palette` or `params` |
@@ -1171,6 +1188,11 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
     - **A burst of typing** is one step to undo, from the canvas (⌘Z) or the source, and one change in the bundle's history (`type`). An undo waits for what was typed to be made. The text is then read again where the deck now reads it, as it is whenever the source changes under it, and the caret goes where it changed. A key typed meanwhile goes there too, as a step of its own.
     - **Leaving.** Escape, a click outside the text, or focus elsewhere leaves it, the node still selected.
     - `web/typing.mjs` checks it in headless Chromium on the revenue example and the torture deck's paragraph and runs. On the revenue example, a key takes a median of 83 ms from the key to the source that holds it, the state shown painted and linted, on the CPU.
+  - **The inspector's edits** (PLAN 2.33, ADR-0013). The node selected shows above the state's nodes with what the theme offers for it (`Player.choices`, as `inspect --choices`): each property, the value the state shows, and where that value lives.
+    - **Choosing.** A role, a family, a color, a preset, a word, or a number chosen there is one `choose` patch (§7.3), by `user`, written where the value lives. It comes into the source as one change, one step to undo, and the status says which states it changes. "Only in" keeps it to the state shown (`fork`).
+    - **Written out.** A color or a length written out, and any text size, goes in the deck's `overrides` and shows as an override, in every state. A theme name chosen then is written there too, since the overrides win; the × beside a value takes it away where it lives, the override first. What cannot be kept to one state is refused, and says why.
+    - **The status** keeps what a gesture on the canvas or a choice said, and what lint finds after it, until the source is edited by hand.
+    - `web/inspector.mjs` checks it in headless Chromium on the revenue example, and `web/a11y.mjs` audits it.
   - **Keys.** A finding under the source is a button that goes to where it stands. CodeMirror's lint keys move between findings (F8, Shift-F8) and list them (Mod-Shift-M). Tab indents, so Escape then Tab leaves the source, which is named for a screen reader. The arrow keys, Home, and End move between the inspector's and the assistant's tabs.
   - **What a reader needs** is checked by axe-core against WCAG 2.1 A and AA on the player, the presenter view, the editor with each tab, and a single file (`web/a11y.mjs`).
   - **Speed.** On B1, an edit's round trip (compile, the frame, lint of the state shown) takes a median of 114 ms in headless Chromium painting on the CPU, against gate 2's 200 ms. The lint of every state that follows takes 1.2 s (`web/editor.mjs`).

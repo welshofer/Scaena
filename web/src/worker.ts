@@ -19,6 +19,7 @@ import type {
   Asking,
   AssistantEvent,
   Carets,
+  Choices,
   Edited,
   Finding,
   FromHelper,
@@ -145,8 +146,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         await paint(data.state, Infinity);
         return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
       }
-      case "place":
-        return post({ type: "placed", id: data.id, ...(await place(data.source, data.ops, data.index, data.format)) });
+      case "make":
+        return post({ type: "made", id: data.id, ...(await make(data.source, data.ops, data.index, data.format)) });
+      case "choices":
+        return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
       case "carets": {
@@ -627,11 +630,11 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
   return { snapped, states };
 }
 
-/** Make `ops`, the patch a gesture on the editor's canvas ended in, by the user, on the deck
- * `source` compiles to, which must validate (ADR-0013). The deck's source after is compiled,
- * shown at slot `index`, and linted, as an edit of it is. A patch the deck refuses, or one that
- * changes nothing, is an error that says why. */
-async function place(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
+/** Make `ops`, the patch a gesture on the editor's canvas or a choice in its inspector ended in,
+ * by the user, on the deck `source` compiles to, which must validate (ADR-0013). The deck's
+ * source after is compiled, shown at slot `index`, and linted, as an edit of it is. A patch the
+ * deck refuses, or one that changes nothing, is an error that says why. */
+async function make(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
   saveable(source);
   player.setMoving(undefined, 0, 0);
   player.preview(undefined);

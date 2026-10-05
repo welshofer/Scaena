@@ -6,6 +6,7 @@
 use super::{JsonOp, Renamed, SemanticOp, Spot, esc};
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
+use crate::lint::literal;
 use crate::model::theme::Theme;
 use crate::tracking::{Lives, Snapshot, lives, merge_props, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
@@ -69,6 +70,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::ReplaceText { node, from, to, text, state, fork } => {
             replace_text(&d, node, (*from as usize, *to as usize), text, state.as_deref(), *fork)?
+        }
+        SemanticOp::Choose { node, prop, value, state, fork } => {
+            choose(&d, node, prop, value, state.as_deref(), *fork)?
         }
         SemanticOp::BindData { node, data, source, state } => {
             let kind = d.kind(node)?;
@@ -341,8 +345,8 @@ fn parse_prop(prop: &str) -> Result<(String, Option<String>), String> {
 type Entry = (String, Option<String>, Value);
 
 /// Ops that make `entries` the node's: in state `state`'s delta, or in its defaults, where
-/// `null` takes a property away. A delta keeps `null`, which takes it away from what the
-/// node tracks (SPEC §2.2).
+/// `null` takes a property away, and an object it leaves with nothing goes. A delta keeps
+/// `null`, which takes it away from what the node tracks (SPEC §2.2).
 fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result<Vec<JsonOp>, String> {
     let Some(i) = state else {
         let old = d.node(node)?;
@@ -351,7 +355,12 @@ fn set(d: &Doc, node: &str, entries: Vec<Entry>, state: Option<usize>) -> Result
             match (key, new.get_mut(&name)) {
                 (None, _) if value.is_null() => drop(new.shift_remove(&name)),
                 (None, _) => drop(new.insert(name, value)),
-                (Some(key), Some(Value::Object(map))) if value.is_null() => drop(map.shift_remove(&key)),
+                (Some(key), Some(Value::Object(map))) if value.is_null() => {
+                    map.shift_remove(&key);
+                    if map.is_empty() {
+                        new.shift_remove(&name);
+                    }
+                }
                 (Some(key), Some(Value::Object(map))) => drop(map.insert(key, value)),
                 (Some(_), _) if value.is_null() => {}
                 (Some(key), _) => drop(new.insert(name, object(&key, value))),
@@ -563,6 +572,115 @@ fn replace_text(
         None => None,
     };
     set(d, node, vec![(prop.into(), None, value)], at)
+}
+
+/// `choose` (ADR-0013): `value` becomes `node`'s `prop` (a property, or one key of one), as an
+/// inspector sets it. A literal where the theme has names (W300's) goes in the deck's
+/// `overrides`, the only place it is legal, as does any value where the overrides set the
+/// property. Else it is written where the value lives: the latest delta that sets it, from
+/// `state` back, else the node's own; or, to `fork` it, in `state`'s own delta. `null` takes
+/// it away where it lives, so what is under it shows.
+fn choose(
+    d: &Doc,
+    node: &str,
+    prop: &str,
+    value: &Value,
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    let (name, key) = parse_prop(prop)?;
+    d.node(node)?;
+    if fork && state.is_none() {
+        return Err("`fork` keeps a choice to a state: name it (`state`)".into());
+    }
+    let over = d.0.get("overrides").and_then(|o| o.get(node)).and_then(Value::as_object);
+    let set_over = over.and_then(|o| o.get(&name));
+    let overridden = set_over.is_some_and(|v| key.as_ref().is_none_or(|k| v.is_null() || v.get(k).is_some()));
+    let written = !value.is_null() && literal(prop, value);
+    if overridden || written {
+        if !fork {
+            return Ok(overriding(d, node, over, &name, key.as_deref(), value));
+        }
+        let state = state.unwrap_or_default();
+        return Err(match overridden {
+            true => format!(
+                "the deck's `overrides` set `{node}`'s {prop} in every state (`/overrides/{node}/{name}`): kept to `{state}`, a choice would not show"
+            ),
+            false => format!(
+                "{value} is written out where the theme has names: it goes in the deck's `overrides`, which hold in every state, so it cannot be kept to `{state}`; one of the theme's names can"
+            ),
+        });
+    }
+    let at = match d.showing(node, state)? {
+        Some((i, _)) => {
+            let (deck, _) = d.snapshots()?;
+            let keys: Vec<&str> = key.iter().map(String::as_str).collect();
+            match if fork { Lives::State(i) } else { lives(&deck, i, node, &name, &keys) } {
+                Lives::State(j) => Some(j),
+                Lives::Node => None,
+            }
+        }
+        None => None,
+    };
+    match at {
+        // In the delta it lives in, taken away is taken out: what the delta merges into shows.
+        Some(j) if value.is_null() && !fork => Ok(unset(d, node, j, &name, key.as_deref())),
+        _ => set(d, node, vec![(name, key, value.clone())], at),
+    }
+}
+
+/// Ops that make `value` the `name` (or its key `key`) the deck's `overrides` set for `node`;
+/// `null` takes it out of them, and a node's overrides left with nothing go.
+fn overriding(
+    d: &Doc,
+    node: &str,
+    over: Option<&Map<String, Value>>,
+    name: &str,
+    key: Option<&str>,
+    value: &Value,
+) -> Vec<JsonOp> {
+    let mut new = over.cloned().unwrap_or_default();
+    match (key, new.get_mut(name)) {
+        (None, _) if value.is_null() => drop(new.shift_remove(name)),
+        (None, _) => drop(new.insert(name.into(), value.clone())),
+        (Some(key), Some(Value::Object(map))) if value.is_null() => {
+            map.shift_remove(key);
+            if map.is_empty() {
+                new.shift_remove(name);
+            }
+        }
+        (Some(key), Some(Value::Object(map))) => drop(map.insert(key.into(), value.clone())),
+        (Some(_), _) if value.is_null() => drop(new.shift_remove(name)),
+        (Some(key), _) => drop(new.insert(name.into(), object(key, value.clone()))),
+    }
+    let base = format!("/overrides/{}", esc(node));
+    match (d.0.get("overrides").and_then(Value::as_object), over) {
+        (_, None) if new.is_empty() => Vec::new(),
+        (None, _) => vec![JsonOp::Add { path: "/overrides".into(), value: object(node, Value::Object(new)) }],
+        (Some(_), None) => vec![JsonOp::Add { path: base, value: Value::Object(new) }],
+        (Some(all), Some(_)) if new.is_empty() && all.len() == 1 => vec![JsonOp::Remove { path: "/overrides".into() }],
+        (Some(_), Some(_)) if new.is_empty() => vec![JsonOp::Remove { path: base }],
+        (Some(_), Some(old)) => diff(&base, old, &new),
+    }
+}
+
+/// Ops that take `name` (or its key `key`) out of state `j`'s delta for `node`, so what the
+/// delta merges into shows; an object left with nothing goes too.
+fn unset(d: &Doc, node: &str, j: usize, name: &str, key: Option<&str>) -> Vec<JsonOp> {
+    let delta = d.states()[j].get("props").and_then(|p| p.get(node)).and_then(Value::as_object);
+    let Some(old) = delta else { return Vec::new() };
+    let mut new = old.clone();
+    match (key, new.get_mut(name)) {
+        (None, _) => drop(new.shift_remove(name)),
+        (Some(key), Some(Value::Object(map))) => {
+            map.shift_remove(key);
+            if map.is_empty() {
+                new.shift_remove(name);
+            }
+        }
+        (Some(_), _) => {}
+    }
+    diff(&format!("/states/{j}/props/{}", esc(node)), old, &new)
 }
 
 /// `runs` with the bytes `range` of their texts, end to end, replaced by `text`: typed into

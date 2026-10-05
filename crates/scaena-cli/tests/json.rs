@@ -270,6 +270,40 @@ fn inspect_says_what_stands_where() {
     );
 }
 
+#[test]
+fn inspect_says_what_an_inspector_offers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--choices", "title"]);
+    assert_eq!(code, 0, "{states:#}");
+    let c = &states[0]["choices"];
+    assert_eq!(
+        (c["node"].as_str(), c["type"].as_str(), c["state"].as_str()),
+        (Some("title"), Some("text"), Some("revenue"))
+    );
+    let role = &c["fields"][0];
+    assert_eq!(role["prop"], "role");
+    assert_eq!(role["takes"]["kind"], "name");
+    assert_eq!(role["takes"]["of"], "text-role");
+    assert_eq!(
+        (role["value"].as_str(), &role["lives"]),
+        (Some("headline"), &serde_json::json!({ "state": "revenue" }))
+    );
+    let color = c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == "style/color").unwrap();
+    assert_eq!(color["takes"]["overrides"], true, "{color:#}");
+    assert!(color.get("value").is_none() && color.get("lives").is_none(), "the role's color shows: {color:#}");
+
+    // It names a node in a state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--choices", "title"]).status.code(), Some(2));
+    let (code, err) = json(&["inspect", EXAMPLE, "--state", "intro", "--choices", "rev"]);
+    assert_ne!(code, 0);
+    assert!(err["error"]["message"].as_str().is_some_and(|m| m.contains("not on screen in `intro`")), "{err:#}");
+
+    // For a person: a line per property, what it shows and where it lives, and what it takes.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--choices", "title"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("choices for title (text):"), "{text}");
+    assert!(text.contains("role           headline, in revenue's delta · display, headline, title"), "{text}");
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {

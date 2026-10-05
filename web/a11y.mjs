@@ -182,6 +182,11 @@ try {
   const editor = await open(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=${revenue}`, () => window.scaena?.last());
   await editor.waitForFunction(() => window.scaena.wholes().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its inspector");
+  // The node selected, its look chosen from the theme (PLAN 2.33).
+  await editor.evaluate(() => window.scaena.canvas.select("title"));
+  await editor.waitForSelector("#look .fields", { timeout: 30000 }).catch(() => {});
+  check((await editor.locator("#look select").count()) > 0, "the inspector shows the title's look to choose");
+  await audit(editor, "the editor, a node's look in its inspector");
   const source = await editor.evaluate(() => window.scaena.source());
   const long = "Revenue doubled, and then some";
   await editor.evaluate((t) => window.scaena.type(t), source.replace('"Revenue doubled"', `"${long}"`));

@@ -12,6 +12,7 @@ mod document;
 mod narrative;
 
 pub use delta::{Delta, delta};
+pub(crate) use document::literal;
 
 use crate::displaylist::DisplayList;
 use crate::document::Deck;

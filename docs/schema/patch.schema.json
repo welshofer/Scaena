@@ -193,6 +193,23 @@
           }
         },
         {
+          "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. `null` takes it away where it lives, so what is under it shows.",
+          "type": "object",
+          "required": ["op", "node", "prop", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "prop": { "type": "string", "pattern": "^[^/]+(/[^/]+)?$" },
+            "value": true,
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever it lives now: it shows there, and in the states that track it as they take the rest of its props, and the others show what they did. Refused for a value that goes in the deck's `overrides`, which hold in every state.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "choose" }
+          }
+        },
+        {
           "description": "A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data update, morphed by key) or in its defaults. `source` declares it, or replaces it if the deck has it.",
           "type": "object",
           "required": ["op", "node", "data"],

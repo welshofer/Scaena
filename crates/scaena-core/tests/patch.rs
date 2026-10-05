@@ -693,3 +693,112 @@ fn replace_text_keeps_runs_and_their_looks() {
     .unwrap_err();
     assert!(e.to_string().contains("overrides"), "{e}");
 }
+
+#[test]
+fn choose_writes_a_choice_where_the_property_lives() {
+    let shown = |doc: &Value, i: usize, node: &str, prop: &str| {
+        let snaps = scaena_core::resolve_states(&deck(doc)).unwrap();
+        snaps[i].nodes.get(node).and_then(|p| p.get(prop).cloned())
+    };
+    // `revenue` sets the title's role, and `mix` tracks it from there: a choice in `mix`
+    // changes it in `revenue`'s delta, and the node keeps its own.
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "title", "prop": "role", "value": "title", "state": "mix" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/props/title/role", "value": "title" }]));
+    assert_eq!(shown(&c.doc, 2, "title", "role"), Some(json!("title")));
+    assert_eq!(c.doc["nodes"]["title"]["role"], "display");
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+
+    // Nothing in the states sets the note's role: the node's changes. Forked, `revenue`'s
+    // delta takes it, and `mix` with it.
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "note", "prop": "role", "value": "body", "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/note/role", "value": "body" }]));
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "note", "prop": "role", "value": "body", "state": "revenue", "fork": true }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/states/1/props/note/role", "value": "body" }]));
+    assert_eq!(shown(&c.doc, 2, "note", "role"), Some(json!("body")), "`mix` tracks it");
+
+    // One key of an object property: a theme color goes where the style lives, the node.
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": "accent", "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/title/style", "value": { "color": "accent" } }]));
+    // Taken away, the node's style goes with its last key: the deck is as it was.
+    let away = patch(
+        &c.doc,
+        json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": null, "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&away), json!([{ "op": "remove", "path": "/nodes/title/style" }]));
+    assert_eq!(away.doc, example());
+
+    // A color written out is an override: it goes in the deck's `overrides`, the only place
+    // it is legal, in every state; it cannot be kept to one.
+    let red =
+        json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": "#ff3366", "state": "revenue" }]);
+    let c = patch(&example(), red).unwrap();
+    assert_eq!(
+        rfc(&c),
+        json!([{ "op": "add", "path": "/overrides", "value": { "title": { "style": { "color": "#ff3366" } } } }])
+    );
+    assert!(errors(&c.doc).is_empty(), "no W300 in overrides: {:?}", errors(&c.doc));
+    let overridden = c.doc;
+    let forked = json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": "#ff3366", "state": "revenue", "fork": true }]);
+    let e = patch(&example(), forked).unwrap_err().to_string();
+    assert!(e.contains("cannot be kept to `revenue`"), "{e}");
+
+    // So is a text size. Where the overrides set the property, a theme name goes there too,
+    // since they win in every state; and kept to a state, it would not show.
+    let c = patch(
+        &overridden,
+        json!([
+            { "op": "choose", "node": "title", "prop": "style/size", "value": 120, "state": "revenue" },
+            { "op": "choose", "node": "title", "prop": "style/color", "value": "accent", "state": "revenue" }
+        ]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["overrides"], json!({ "title": { "style": { "color": "accent", "size": 120 } } }));
+    let forked = json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": "ink", "state": "revenue", "fork": true }]);
+    let e = patch(&overridden, forked).unwrap_err().to_string();
+    assert!(e.contains("`overrides` set `title`'s style/color in every state"), "{e}");
+
+    // `null` takes a choice away where it lives: out of the overrides, which go once empty;
+    // out of `revenue`'s delta, so the node's own role shows there again.
+    let c = patch(
+        &overridden,
+        json!([{ "op": "choose", "node": "title", "prop": "style/color", "value": null, "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/overrides" }]));
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "title", "prop": "role", "value": null, "state": "revenue" }]),
+    )
+    .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "remove", "path": "/states/1/props/title/role" }]));
+    assert_eq!(shown(&c.doc, 1, "title", "role"), Some(json!("display")));
+
+    // A name the theme lacks is the deck's error, as any patch's: E102 says what it has.
+    let c = patch(
+        &example(),
+        json!([{ "op": "choose", "node": "note", "prop": "role", "value": "nowhere", "state": "revenue" }]),
+    )
+    .unwrap();
+    assert!(errors(&c.doc).iter().any(|e| e.starts_with("E102 text role `nowhere`")), "{:?}", errors(&c.doc));
+    let e = patch(&example(), json!([{ "op": "choose", "node": "title", "prop": "style/color/x", "value": 1 }]))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("not a property"), "{e}");
+}

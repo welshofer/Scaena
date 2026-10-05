@@ -80,7 +80,8 @@ try {
     const at = (await source(page)).indexOf(`state ${state}`) + "state ".length;
     await page.evaluate((offset) => window.scaena.cursor(offset), at);
     await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, index, { timeout: 30000 });
-    await page.waitForFunction(() => window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
+    // The canvas's boxes are the shown state's, not the one shown before it.
+    await page.waitForFunction((s) => window.scaena.canvas.boxed() === s && window.scaena.canvas.boxes().length > 0, state, { timeout: 30000 });
   };
   /** Double click `node` at its box's middle, with `keys` held, and wait until it is typed in. */
   const typeIn = async (page, node, keys = []) => {

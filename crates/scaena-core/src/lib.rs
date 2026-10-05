@@ -24,6 +24,7 @@
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
+pub mod choices;
 pub mod color;
 pub mod data;
 pub mod displaylist;
