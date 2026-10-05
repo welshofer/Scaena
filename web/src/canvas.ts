@@ -23,6 +23,13 @@
 //   selected, with what it holds, out of the state shown and the states after it; Shift+Delete,
 //   out of the deck. ⌘D (Ctrl+D) adds a copy beside it, with what it holds. Each is one patch,
 //   one step to undo.
+// - ⌘C and ⌘X put the node selected, with what it holds, on the clipboard as JSON
+//   (`application/x-scaena+json`) and as text; a cut then takes it out as Delete does. ⌘V pastes
+//   it where the pointer last pressed, as Insert places a node, under ids new to the deck, in
+//   this deck or another; text from elsewhere comes in as a text in the theme's body role. What
+//   the clip names that the theme lacks is taken out of it, and the status says so (PLAN 2.37).
+//   A page must fill the clipboard at once, so the node selected is copied when it is selected.
+import { CLIP } from "./protocol";
 import type { Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { typing } from "./typing";
@@ -168,6 +175,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   let hovered: string | undefined;
   /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
   let pointed: [number, number] | undefined;
+  /** The node selected as the clipboard would hold it, asked for when it is selected, and kept
+   * by what it was asked of: a copy, which the page answers at once, finds it at hand. */
+  let held: { key: string; clip: Promise<string>; text?: string } | undefined;
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
@@ -232,6 +242,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     svg.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
     if (selected !== undefined && !box(selected)) select(undefined);
     else if (selected !== undefined) aimAt(selected);
+    hold();
     draw();
     await text.sync();
   }
@@ -246,7 +257,29 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       editor.say(`${node} selected: drag it, or move it with the arrow keys`);
       aimAt(node);
     }
+    hold();
     draw();
+  }
+
+  /** What the clipboard would hold of the node selected, as the source stands, kept by what it is
+   * asked of: the source's version, the state shown, the node, and the format. */
+  const holding = () => {
+    const shown = editor.shown();
+    return shown && selected !== undefined ? JSON.stringify([editor.version(), shown.state, selected, editor.format() ?? null]) : undefined;
+  };
+  /** Ask for what the clipboard would hold of the node selected, unless it is at hand; not while
+   * a text is typed in, whose keys copy what is selected in it. */
+  function hold() {
+    const key = holding();
+    if (key === undefined || text.node() !== undefined) return void (held = undefined);
+    if (held?.key === key) return;
+    const shown = editor.shown()!;
+    const now: NonNullable<typeof held> = { key, clip: stage.copying(editor.source(), shown.state, selected!, editor.format()) };
+    held = now;
+    now.clip.then(
+      (clip) => (now.text = clip),
+      () => {},
+    );
   }
 
   /** Where `node` may go, for its handles. */
@@ -439,17 +472,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     }
   }
 
+  /** Where what is inserted or pasted goes: where the pointer last pressed, on the canvas, or its
+   * middle. */
+  const landing = (): [number, number] =>
+    pointed ? [Math.min(Math.max(pointed[0], 0), size[0]), Math.min(Math.max(pointed[1], 0), size[1])] : [size[0] / 2, size[1] / 2];
+
   /** Insert what the deck offers `n`th (`Stage.inserts`) where the pointer last pressed, or in the
    * middle of the canvas: it enters in the state shown, selected. */
   function insert(n: number, label = "it") {
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say("the canvas waits for a source that compiles");
-      const at: [number, number] = pointed
-        ? [Math.min(Math.max(pointed[0], 0), size[0]), Math.min(Math.max(pointed[1], 0), size[1])]
-        : [size[0] / 2, size[1] / 2];
       try {
-        const added = await stage.inserting(editor.source(), shown.state, n, at, editor.format());
+        const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
         await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
       } catch (e) {
         editor.say(`not inserted: ${said(e)}`);
@@ -472,8 +507,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   }
 
   /** Take `node`, with what it holds, out of the state shown and the states after it, or,
-   * `everywhere`, out of the deck. */
-  function remove(node: string, everywhere: boolean) {
+   * `everywhere`, out of the deck; `how` says what took it (a cut). */
+  function remove(node: string, everywhere: boolean, how = "deleted") {
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return;
@@ -481,13 +516,84 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         const ops = await stage.deleting(editor.source(), shown.state, node, everywhere);
         // A node no state shows once it is out of this one goes from the deck.
         const gone = ops.every((op) => (op as { op?: string }).op === "remove_node");
-        const done = gone ? `${node} deleted from the deck` : `${node} deleted from ${shown.state} on`;
-        await change(ops, "deleting…", done, null);
+        const done = gone ? `${node} ${how} from the deck` : `${node} ${how} from ${shown.state} on`;
+        await change(ops, `${how === "deleted" ? "deleting" : "cutting"}…`, done, null);
       } catch (e) {
-        editor.say(`not deleted: ${said(e)}`);
+        editor.say(`not ${how}: ${said(e)}`);
       }
     });
   }
+
+  /** ⌘C, and ⌘X with `cut`: the node selected onto the clipboard, as a clip and as its text; a
+   * cut then takes it out of the state shown on, as Delete does. */
+  function copy(e: ClipboardEvent, cut: boolean) {
+    const shown = editor.shown();
+    const node = selected;
+    if (!copies() || node === undefined || !shown) return;
+    e.preventDefault();
+    const at = held !== undefined && held.key === holding() ? held : undefined;
+    const done = () => editor.say(`${node} ${cut ? "cut" : "copied"}: ⌘V pastes it, in this deck or another`);
+    if (at?.text !== undefined && e.clipboardData) {
+      e.clipboardData.setData(CLIP, at.text);
+      e.clipboardData.setData("text/plain", at.text);
+      done();
+    } else {
+      // Not at hand yet: written once it is, as the page may write the clipboard, as text.
+      const clip = at?.clip ?? stage.copying(editor.source(), shown.state, node, editor.format());
+      const blob = clip.then((t) => new Blob([t], { type: "text/plain" }));
+      const write =
+        typeof ClipboardItem === "function"
+          ? navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+          : clip.then((t) => navigator.clipboard.writeText(t));
+      write.then(done, (err) => editor.say(`not ${cut ? "cut" : "copied"}: ${said(err)}`));
+    }
+    if (cut) void remove(node, false, "cut");
+  }
+
+  /** ⌘V: what the clipboard holds, `clip`, where the pointer last pressed, as Insert places a
+   * node: a clip's nodes under ids new to the deck, or other text as a text in the theme's body
+   * role. It enters in the state shown, selected; the status says what the theme lacked. */
+  function paste(clip: string) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      try {
+        const pasted = await stage.pasting(editor.source(), shown.state, clip, landing(), editor.format());
+        const lacked = pasted.findings.map((f) => `${f.message.replace(/, which has .*$/, "")}, ${f.hint ?? "taken out"}`);
+        const done = [`${pasted.id} pasted in ${shown.state}`, ...lacked].join("; ");
+        await change(pasted.patch, "pasting…", done, pasted.id);
+      } catch (e) {
+        editor.say(`not pasted: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Whether the canvas takes a copy, a cut, or a paste: it has the focus, and no text is typed
+   * in, whose own clipboard it is; a copy or a cut, of a node selected. */
+  const pastes = () => document.activeElement === overlay && text.node() === undefined && !drag && !starting;
+  const copies = () => pastes() && selected !== undefined && editor.shown() !== undefined;
+  // The browser fires a clipboard event at the page's text selection, wherever it was left, else
+  // at the focus; and where nothing is editable, Chromium and WebKit fire one from the keys only
+  // where the page cancels the `before…` event that asks whether it takes it. So the canvas hears
+  // them on the document, and takes each while it has the focus.
+  const clipboard: [string, (e: ClipboardEvent) => void][] = [
+    ["beforecopy", (e) => copies() && e.preventDefault()],
+    ["beforecut", (e) => copies() && e.preventDefault()],
+    ["beforepaste", (e) => pastes() && e.preventDefault()],
+    ["copy", (e) => copy(e, false)],
+    ["cut", (e) => copy(e, true)],
+    [
+      "paste",
+      (e) => {
+        if (!pastes()) return;
+        const clip = e.clipboardData?.getData(CLIP) || e.clipboardData?.getData("text/plain");
+        if (!clip) return;
+        e.preventDefault();
+        void paste(clip);
+      },
+    ],
+  ];
+  for (const [type, hear] of clipboard) document.addEventListener(type, hear as EventListener);
 
   /** Move the node selected a step, or, to `grow` it, resize it: a track on a grid, a place along
    * its stack, a canvas unit off the grid. `fork` keeps it to the state shown. */
@@ -729,6 +835,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     close: () => {
       sized.disconnect();
       document.removeEventListener("keydown", unpress, true);
+      for (const [type, hear] of clipboard) document.removeEventListener(type, hear as EventListener);
       text.close();
       drag = press = starting = undefined;
       svg.replaceChildren();
@@ -743,6 +850,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     /** Take `node` out of the state shown on, as Delete does; `everywhere`, out of the deck, as
      * Shift+Delete does. */
     remove,
+    /** Paste `clip`, the clipboard's text, as ⌘V does. */
+    paste,
+    /** What the clipboard would hold of the node selected, once it is at hand: what a test
+     * waits for before ⌘C. */
+    held: () => held?.clip,
     /** Where the pointer last pressed, canvas units. */
     pointed: () => pointed,
     selected: () => selected,

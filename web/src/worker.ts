@@ -29,6 +29,7 @@ import type {
   Thumb,
   Opened,
   Painter,
+  Pasted,
   Section,
   Slot,
   Snapped,
@@ -168,6 +169,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         layOut(data.format);
         return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "copying":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "copied", id: data.id, clip: player.copying(data.state, data.node) });
+      case "pasting":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at)) as Pasted });
       case "thumbnails": {
         layOut(data.format);
         const thumbs = await thumbnails(data.height, data.known);

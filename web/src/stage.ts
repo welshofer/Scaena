@@ -14,6 +14,7 @@ import type {
   NodeBox,
   Opened,
   Painter,
+  Pasted,
   ProviderId,
   Rect,
   SaveTo,
@@ -60,6 +61,8 @@ type Reply = Extract<
       | "inserts"
       | "adding"
       | "deleting"
+      | "copied"
+      | "pasted"
       | "thumbnails"
       | "addingState";
   }
@@ -290,6 +293,19 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
+  /** What the clipboard holds of `node` as `state` shows it, on the deck `source` compiles to
+   * (PLAN 2.37): the clip, as JSON text. */
+  copying(source: string, state: string, node: string, format?: string): Promise<string> {
+    return this.request<"copied">({ type: "copying", id: ++this.asked, source, state, node, format }).then(({ clip }) => clip);
+  }
+
+  /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
+   * units), on the deck `source` compiles to (PLAN 2.37). The files it carries are in the bundle
+   * once it answers. */
+  pasting(source: string, state: string, clip: string, at: [number, number], format?: string): Promise<Pasted> {
+    return this.request<"pasted">({ type: "pasting", id: ++this.asked, source, state, clip, at, format }).then(({ pasted }) => pasted);
+  }
+
   /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
    * pixels where its drawing is not the one `known` holds. */
   thumbnails(height: number, known: Record<string, string>, format?: string): Promise<Thumb[]> {
@@ -451,6 +467,8 @@ export class Stage {
       case "inserts":
       case "adding":
       case "deleting":
+      case "copied":
+      case "pasted":
       case "thumbnails":
       case "addingState":
         this.waiting.get(data.id)?.resolve(data);
