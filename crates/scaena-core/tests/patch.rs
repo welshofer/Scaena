@@ -1023,3 +1023,88 @@ fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
         .to_string();
     assert!(e.contains("no state `nowhere`"), "{e}");
 }
+
+/// `group` puts nodes in a new group where they stand, shown in each state that shows one of
+/// them in it, and `ungroup` gives the deck back as it was (PLAN 2.43, ADR-0008).
+#[test]
+fn group_holds_nodes_where_they_stand_and_ungroup_gives_the_deck_back() {
+    let original = example();
+    // The title and subtitle: the title shows in every state, so the group does too.
+    let c =
+        patch(&original, json!([{ "op": "group", "id": "heading", "nodes": ["title", "subtitle"], "state": "intro" }]))
+            .unwrap();
+    assert_eq!(c.doc["nodes"]["heading"], json!({ "type": "group" }));
+    assert_eq!(c.doc["nodes"]["title"]["at"], json!({ "in": "title", "parent": "heading" }));
+    assert_eq!(c.doc["nodes"]["subtitle"]["at"], json!({ "in": "subtitle", "parent": "heading" }));
+    assert_eq!(c.doc["states"][0]["props"]["heading"], json!({}), "it enters with them in `intro`, and stays");
+    assert!(c.doc["states"].as_array().unwrap()[1..].iter().all(|s| s["props"].get("heading").is_none()));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    let back = patch(&c.doc, json!([{ "op": "ungroup", "group": "heading" }])).unwrap();
+    assert_eq!(back.doc.to_string(), original.to_string(), "ungroup gives the deck back, key for key");
+
+    // The chart and its note, in `revenue` and `mix`: the group enters in `revenue` and
+    // leaves with them in `close`.
+    let c =
+        patch(&original, json!([{ "op": "group", "id": "figure", "nodes": ["rev", "note"], "state": "mix" }])).unwrap();
+    assert_eq!(c.doc["states"][1]["props"]["figure"], json!({}));
+    assert_eq!(c.doc["states"][3]["remove"], json!(["rev", "note", "figure"]));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    let snapshots = scaena_core::resolve_states(&deck(&c.doc)).unwrap();
+    let shows: Vec<bool> = snapshots.iter().map(|s| s.nodes.contains_key("figure")).collect();
+    assert_eq!(shows, [false, true, true, false]);
+    let back = patch(&c.doc, json!([{ "op": "ungroup", "group": "figure" }])).unwrap();
+    assert_eq!(back.doc.to_string(), original.to_string());
+
+    // A group sits where its highest member sat: the backdrop stays behind, the title in front.
+    let c = patch(&original, json!([{ "op": "group", "id": "cover", "nodes": ["bg", "title"], "state": "intro" }]))
+        .unwrap();
+    assert_eq!(c.doc["nodes"]["cover"], json!({ "type": "group" }), "the title sets no z: 0, over the backdrop's -100");
+    let c = patch(&original, json!([{ "op": "group", "id": "back", "nodes": ["bg"], "state": "intro" }])).unwrap();
+    assert_eq!(c.doc["nodes"]["back"], json!({ "type": "group", "z": -100 }));
+    assert_eq!(c.doc["nodes"]["bg"]["z"], json!(-100), "each keeps its own");
+}
+
+/// A group in a group, and what `group` and `ungroup` refuse (PLAN 2.43).
+#[test]
+fn group_nests_in_a_group_and_refuses_what_it_cannot_hold() {
+    let original = example();
+    let c = patch(
+        &original,
+        json!([
+            { "op": "group", "id": "heading", "nodes": ["title", "subtitle"], "state": "intro" },
+            { "op": "group", "id": "words", "nodes": ["subtitle"], "state": "intro" },
+        ]),
+    )
+    .unwrap();
+    assert_eq!(c.doc["nodes"]["words"], json!({ "type": "group", "at": { "parent": "heading" } }));
+    assert_eq!(c.doc["nodes"]["subtitle"]["at"], json!({ "in": "subtitle", "parent": "words" }));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Out of the inner group, the subtitle is the outer group's again.
+    let out = patch(&c.doc, json!([{ "op": "ungroup", "group": "words" }])).unwrap();
+    assert_eq!(out.doc["nodes"]["subtitle"]["at"], json!({ "in": "subtitle", "parent": "heading" }));
+    assert!(out.doc["nodes"].get("words").is_none());
+    assert_eq!(errors(&out.doc), Vec::<String>::new());
+
+    let refused = |ops: Value| patch(&original, ops).unwrap_err().message;
+    let two = refused(json!([
+        { "op": "group", "id": "heading", "nodes": ["title"], "state": "intro" },
+        { "op": "group", "id": "pair", "nodes": ["title", "bg"], "state": "intro" },
+    ]));
+    assert!(two.contains("a group holds what one container holds"), "{two}");
+    let stack = refused(json!([
+        { "op": "add_node", "id": "row", "node": { "type": "stack", "at": { "in": "main" } } },
+        { "op": "set_prop", "node": "note", "prop": "at", "value": { "parent": "row" } },
+        { "op": "group", "id": "pair", "nodes": ["note"] },
+    ]));
+    assert!(stack.contains("places what it holds itself"), "{stack}");
+    assert!(
+        refused(json!([{ "op": "group", "id": "title", "nodes": ["note"] }]))
+            .contains("there is a node `title` already")
+    );
+    assert!(refused(json!([{ "op": "group", "id": "pair", "nodes": ["note", "note"] }])).contains("named twice"));
+    assert!(
+        refused(json!([{ "op": "group", "id": "pair", "nodes": ["rev"], "state": "intro" }])).contains("not on screen")
+    );
+    assert!(refused(json!([{ "op": "group", "id": "pair", "nodes": [] }])).contains("one node or more"));
+    assert!(refused(json!([{ "op": "ungroup", "group": "title" }])).contains("takes a group's children out"));
+}

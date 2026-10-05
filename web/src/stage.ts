@@ -9,6 +9,7 @@ import type {
   At,
   Edited,
   FromWorker,
+  Grouped,
   Hit,
   Insert,
   Inspected,
@@ -57,6 +58,7 @@ type Reply = Extract<
       | "targets"
       | "dragged"
       | "arranged"
+      | "grouped"
       | "made"
       | "choices"
       | "stateChoices"
@@ -362,6 +364,12 @@ export class Stage {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
   }
 
+  /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
+   * where they stand, on the deck `source` compiles to (PLAN 2.43): its id and the patch. */
+  grouping(source: string, state: string, nodes: string[]): Promise<Grouped> {
+    return this.request<"grouped">({ type: "grouping", id: ++this.asked, source, state, nodes }).then(({ grouped }) => grouped);
+  }
+
   /** What the clipboard holds of `nodes` as `state` shows them, on the deck `source` compiles to
    * (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
   copying(source: string, state: string, nodes: string[], format?: string): Promise<string> {
@@ -528,6 +536,7 @@ export class Stage {
       case "targets":
       case "dragged":
       case "arranged":
+      case "grouped":
       case "made":
       case "choices":
       case "stateChoices":

@@ -42,6 +42,9 @@ export interface Around {
   style(look: Record<string, unknown>): Promise<boolean>;
   /** Arrange what the canvas selects `how` (PLAN 2.42). */
   arrange(how: Arrange): Promise<void>;
+  /** Put what the canvas selects in a new group, and take the group it selects apart (PLAN 2.43). */
+  group(): Promise<void>;
+  ungroup(): Promise<void>;
 }
 
 /** What several nodes offer alike: each field all of them have with the same choices, its value
@@ -262,13 +265,19 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         return `<span class="arrange-kind">${kind}</span><span class="arrange-buttons" role="group" aria-label="${kind}">${buttons.join("")}</span>`;
       })
       .join("");
+    // Grouping takes one or more, and a group alone comes apart (PLAN 2.43).
+    const apart = nodes.length === 1 && "type" in offered && offered.type === "group";
+    const grouping =
+      !chars && nodes.length
+        ? `<span class="arrange-kind">group</span><span class="arrange-buttons" role="group" aria-label="group"><button type="button" data-group>Group</button>${apart ? '<button type="button" data-ungroup>Ungroup</button>' : ""}</span>`
+        : "";
     const kept = "node" in offered ? `only in ${html(now.state)}` : `layout only in ${html(now.state)}`;
     // Characters are kept to the state as their text is typed in: with Alt, or not.
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     into.innerHTML = `
       <h2>${title}</h2>
       ${keeping}
-      ${arrange ? `<div class="arrange">${arrange}</div>` : ""}
+      ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
       <div class="fields">${rows.join("")}</div>`;
     if (focused) into.querySelector<HTMLElement>(`#${CSS.escape(focused)}`)?.focus();
   }
@@ -328,6 +337,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (away?.dataset.away) void choose(away.dataset.away, null);
     const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");
     if (arranging?.dataset.arrange) void around.arrange(JSON.parse(arranging.dataset.arrange) as Arrange);
+    if ((e.target as Element).closest("[data-group]")) void around.group();
+    if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
   });
 
   return {

@@ -131,6 +131,14 @@ pub struct Session {
     recorded: Vec<scaena_store::crdt::Recorded>,
 }
 
+/// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
+#[cfg(feature = "editor")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Grouping {
+    pub id: String,
+    pub patch: Vec<serde_json::Value>,
+}
+
 /// A frame held to be painted once its shaders' pixels are in (PLAN 2.28): its display
 /// list, its scale, and each shader it draws.
 #[cfg(feature = "cpu")]
@@ -675,6 +683,16 @@ impl Session {
         let boxes = self.boxes(state)?;
         scaena_ops::inspect::duplicating(&self.deck, &found, node, state, &boxes)
             .map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The patch that puts `nodes`, children of one container as `state` shows them, in a new
+    /// group where they stand (PLAN 2.43): a `group` op, the group under the first id free from
+    /// `group`. The patch says why where the deck refuses it.
+    #[cfg(feature = "editor")]
+    pub fn grouping(&self, state: &str, nodes: &[String]) -> Grouping {
+        let id = scaena_core::inserts::fresh(&self.deck, "group");
+        let patch = vec![serde_json::json!({ "op": "group", "id": id, "nodes": nodes, "state": state })];
+        Grouping { id, patch }
     }
 
     /// The patch that deletes `node` from `state`, with what it holds there (PLAN 2.34): each
@@ -1272,6 +1290,12 @@ impl Player {
     /// (PLAN 2.34).
     pub fn duplicating(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.duplicating(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that puts `nodes` in a new group where they stand in `state` (PLAN 2.43), as
+    /// JSON: `{ id, patch }`.
+    pub fn grouping(&self, state: &str, nodes: Vec<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.grouping(state, &nodes)).map_err(js)
     }
 
     /// What a copy of `nodes`, as `state` shows them, holds (PLAN 2.37, 2.42), as JSON: what
@@ -2441,6 +2465,30 @@ mod tests {
             assert_eq!(parent(held), Some("card-2"), "{held} is held by the copy of the card");
         }
         assert_eq!(parent("card-2"), None, "pasted at the root, where the pointer pressed");
+    }
+
+    /// ⌘G's patch groups the nodes selected under an id new to the deck, where they stand,
+    /// and `ungroup` gives the deck back as it was (PLAN 2.43).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn grouping_makes_a_group_where_they_stand_and_ungroup_gives_the_deck_back() {
+        let mut t = torture();
+        let before = serde_json::to_string(&t.deck).unwrap();
+        let boxes = t.boxes("containers").unwrap();
+        let grouped = t.grouping("containers", &["tally".to_string(), "card".to_string()]);
+        assert_eq!(grouped.id, "group");
+        assert!(t.typed(&serde_json::json!(grouped.patch), None).unwrap(), "the deck takes {:?}", grouped.patch);
+        let after = t.boxes("containers").unwrap();
+        let rect =
+            |boxes: &[scaena_engine::geometry::NodeBox], n: &str| boxes.iter().find(|b| b.node == n).map(|b| b.rect);
+        for node in ["tally", "card", "card-photo"] {
+            assert_eq!(rect(&after, node), rect(&boxes, node), "{node} stands where it stood");
+        }
+        let parent = |n: &str| after.iter().find(|b| b.node == n).and_then(|b| b.parent.clone());
+        assert_eq!((parent("tally"), parent("card")), (Some("group".into()), Some("group".into())));
+        assert_eq!(t.grouping("containers", &["marks".to_string()]).id, "group-2", "the next is free");
+        assert!(t.typed(&serde_json::json!([{ "op": "ungroup", "group": "group" }]), None).unwrap());
+        assert_eq!(serde_json::to_string(&t.deck).unwrap(), before, "ungrouped, the deck is as it was");
     }
 
     /// Nodes copied together paste where they stood about each other, each under an id new to

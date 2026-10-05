@@ -351,6 +351,8 @@ async function edit(source: Source) {
     say,
     style: (given) => board.style(given),
     arrange: (how) => board.arrange(how, false),
+    group: () => board.group(),
+    ungroup: () => board.ungroup(),
   });
 
   /** The preview as a canvas (PLAN 2.31): each gesture a patch, which comes into the source as

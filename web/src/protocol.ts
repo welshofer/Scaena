@@ -232,6 +232,12 @@ export interface Pasted extends Added {
   findings: Finding[];
 }
 
+/** What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it. */
+export interface Grouped {
+  id: string;
+  patch: unknown[];
+}
+
 /** The media type a clip goes on the clipboard as, beside its text (PLAN 2.37). */
 export const CLIP = "application/x-scaena+json";
 
@@ -337,6 +343,9 @@ export type ToWorker =
   | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
   | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
   | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
+   * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
+  | { type: "grouping"; id: number; source: string; state: string; nodes: string[] }
   /** What the clipboard holds of `nodes` as `state` shows them, on the deck the editor's `source`
    * compiles to (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
   | { type: "copying"; id: number; source: string; state: string; nodes: string[]; format?: string }
@@ -625,6 +634,7 @@ export type FromWorker =
   /** A node as the clipboard holds it, and what pasting a clip makes. */
   | { type: "copied"; id: number; clip: string }
   | { type: "pasted"; id: number; pasted: Pasted }
+  | { type: "grouped"; id: number; grouped: Grouped }
   | { type: "thumbnails"; id: number; thumbs: Thumb[] }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
