@@ -1015,6 +1015,7 @@ fn takes(takes: &scaena_core::choices::Takes) -> String {
         }
         Takes::Flag => "yes or no".to_string(),
         Takes::Text => "words".to_string(),
+        Takes::Fractions { names } => format!("fractions of the image, {}", names.join(", ")),
     }
 }
 

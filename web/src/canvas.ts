@@ -677,6 +677,65 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     });
   }
 
+  /** The image whose focal point the next press on it picks (PLAN 2.45). */
+  let picking: string | undefined;
+  /** Pick the focal point of the image selected: the next press on it sets it to the point of the
+   * image under the pointer, where its subject is (PLAN 2.45). Escape leaves it as it is. */
+  function pick() {
+    if (selected === undefined || also.length) return editor.say("select one image to pick its focal point");
+    picking = selected;
+    overlay.classList.add("picking");
+    overlay.focus();
+    editor.say(`click ${selected} where its subject is · Escape leaves its focal point as it is`);
+  }
+  const unpick = () => {
+    picking = undefined;
+    overlay.classList.remove("picking");
+  };
+
+  /** Image `node`'s focal point, the point of it the engine draws under `at`: one `choose`. */
+  function focus(node: string, at: [number, number]) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return;
+      const focal = await stage.focalAt(editor.source(), shown.state, node, at, editor.format()).catch(() => null);
+      if (!focal) return editor.say(`${node} is not drawn there: its focal point is as it was`);
+      const op = { op: "choose", node, prop: "focal", value: focal, state: shown.state };
+      await change([op], "choosing…", `${node}'s focal point: ${focal.join(", ")}`, node);
+    });
+  }
+
+  /** An image file dropped on an image takes its place (PLAN 2.45): the file joins the bundle,
+   * named by its SHA-256 as one dropped on the source is, and the image's `src` is its path, one
+   * `choose` written where `src` lives. */
+  function replace(at: [number, number], file: File) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
+      if (!top || choices?.type !== "image") return editor.say("drop an image on an image to put it in its place; on the source, its path goes where it is dropped");
+      // An image shows a PNG, in v1 (SPEC §3.3): anything else stays out of the bundle.
+      if (!/\.png$/i.test(file.name)) return editor.say(`${file.name} is not a PNG: ${top.node} shows a PNG, and is as it was`);
+      try {
+        const path = await stage.drop(file.name, await file.arrayBuffer());
+        const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
+        await change([op], "replacing…", `${top.node} shows ${file.name}, kept as ${path}`, top.node);
+      } catch (e) {
+        editor.say(`not replaced: ${said(e)}`);
+      }
+    });
+  }
+  overlay.addEventListener("dragover", (e) => {
+    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  });
+  overlay.addEventListener("drop", (e) => {
+    const file = e.dataTransfer?.files[0];
+    if (!file) return;
+    e.preventDefault();
+    void replace(point(e), file);
+  });
+
   /** The group selected taken apart (PLAN 2.43): its children out to its container where they
    * stand, all of them selected; one patch. */
   function ungroup() {
@@ -839,6 +898,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   overlay.onpointerdown = async (e) => {
     if (e.button !== 0) return;
+    // A press that picks an image's focal point picks it, and does nothing else (PLAN 2.45).
+    if (picking !== undefined) {
+      e.preventDefault();
+      const node = picking;
+      unpick();
+      return void focus(node, point(e));
+    }
     const count = clicks(e);
     const from = point(e);
     const shift = e.shiftKey;
@@ -1052,6 +1118,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   overlay.onkeydown = (e) => {
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
+    if (picking !== undefined && e.key === "Escape") {
+      e.preventDefault();
+      unpick();
+      return editor.say("the focal point is as it was");
+    }
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
     if (e.key === "Enter" && selected !== undefined && !drag && !mod) {
@@ -1131,6 +1202,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,
+    /** Pick the focal point of the image selected with the next press on it, as the inspector's
+     * Pick does; and an image file dropped on an image, put in its place (PLAN 2.45). */
+    pick,
+    replace,
     /** Arrange what is selected, as the inspector and ⌘] do (PLAN 2.42). */
     arrange,
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status

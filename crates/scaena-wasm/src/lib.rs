@@ -432,6 +432,13 @@ impl Session {
         Ok(self.at_rest(state)?.hit(point))
     }
 
+    /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
+    /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
+    /// or for a node that is no image.
+    pub fn focal_at(&mut self, state: &str, node: &str, point: [f32; 2]) -> Result<Option<[f32; 2]>, Error> {
+        Ok(self.at_rest(state)?.image_point(node, point))
+    }
+
     /// Where `node` may go in `state` at rest, in the format shown (ADR-0013): what holds
     /// it, its cell, and the tracks, slots, or order a drag snaps it to.
     pub fn targets(&mut self, state: &str, node: &str) -> Result<&scaena_engine::geometry::Targets, Error> {
@@ -1148,6 +1155,16 @@ impl Player {
             .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
             .collect();
         serde_json::to_string(&hits).map_err(js)
+    }
+
+    /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
+    /// fractions of the part its crop keeps, which a focal point picked there names; `null` off
+    /// the image (PLAN 2.45).
+    #[wasm_bindgen(js_name = focalAt)]
+    pub fn focal_at(&mut self, state: &str, node: &str, x: f32, y: f32) -> Result<String, JsError> {
+        // To a thousandth, as a person would write it.
+        let at = self.0.focal_at(state, node, [x, y]).map_err(js)?.map(|p| p.map(|v| (v * 1000.0).round() / 1000.0));
+        serde_json::to_string(&at).map_err(js)
     }
 
     /// Where `node` may go in `state` at rest, in the format shown, as JSON (ADR-0013): `{
@@ -1894,6 +1911,28 @@ mod tests {
         let tall = s.boxes("formats").unwrap();
         assert!(tall.iter().all(|b| b.rect[0] + b.rect[2] <= 1080.01), "{tall:?}");
         assert!(matches!(s.boxes("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    /// The point of an image under a press is the image's own, in fractions of its crop: what
+    /// a focal point picked there names (PLAN 2.45). Off the image, or on a node that is no
+    /// image, there is none.
+    #[test]
+    fn a_press_on_an_image_says_the_point_of_it_drawn_there() {
+        let mut s = torture();
+        let boxes = s.boxes("images").unwrap();
+        let rect = |node: &str| boxes.iter().find(|b| b.node == node).unwrap().rect;
+        // Cover, about its middle: the box's middle is the image's.
+        let [x, y, w, h] = rect("image-cover");
+        assert_eq!(s.focal_at("images", "image-cover", [x + w / 2.0, y + h / 2.0]).unwrap(), Some([0.5, 0.5]));
+        // Filled from the middle half of the card: the box's left edge is the crop's.
+        let [x, y, _, h] = rect("image-fill");
+        let [fx, fy] = s.focal_at("images", "image-fill", [x, y + h / 2.0]).unwrap().unwrap();
+        assert!(fx.abs() < 1e-3 && (fy - 0.5).abs() < 1e-3, "{fx}, {fy}");
+        // Contained in its box, the card leaves bands above and below it, where it is not.
+        let [x, y, w, _] = rect("image-contain");
+        assert_eq!(s.focal_at("images", "image-contain", [x + w / 2.0, y + 1.0]).unwrap(), None);
+        let [x, y, w, h] = rect("case");
+        assert_eq!(s.focal_at("images", "case", [x + w / 2.0, y + h / 2.0]).unwrap(), None);
     }
 
     /// A drag asks where its node may go once, and each move after snaps with what it was

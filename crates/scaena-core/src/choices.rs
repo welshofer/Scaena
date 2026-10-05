@@ -110,6 +110,9 @@ pub enum Takes {
     Flag,
     /// Words for people, as they are written: a state's notes.
     Text,
+    /// Fractions of an image, from 0 to 1, one for each of `names` (PLAN 2.45): a point's `x`
+    /// and `y`, or a part's `x`, `y`, `w`, and `h`.
+    Fractions { names: Vec<String> },
 }
 
 /// Where a property's values come from.
@@ -124,9 +127,11 @@ enum Source {
     /// The columns of the table the node reads that its channel can read (PLAN 2.41,
     /// [`data::readable`]).
     Columns,
+    /// Fractions of the image, one for each name (PLAN 2.45).
+    Fractions(&'static [&'static str]),
 }
 
-use Source::{Columns, Data, Names, Schema};
+use Source::{Columns, Data, Fractions, Names, Schema};
 use Vocabulary as V;
 
 /// What an inspector edits on every node.
@@ -154,7 +159,13 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("stroke/width", Names(V::Stroke, true)),
             ("radius", Names(V::Radius, true)),
         ],
-        NodeType::Image => &[("fit", Schema(false)), ("radius", Names(V::Radius, true))],
+        // Where an image's focal point is and what part of it shows (PLAN 2.45).
+        NodeType::Image => &[
+            ("fit", Schema(false)),
+            ("focal", Fractions(&["x", "y"])),
+            ("crop", Fractions(&["x", "y", "w", "h"])),
+            ("radius", Names(V::Radius, true)),
+        ],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
         // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the
         // type it reads it as, and its key.
@@ -227,6 +238,7 @@ pub fn choices(
                 Takes::Name { of, names, overrides }
             }
             Schema(overrides) => allowed(Checker::deck().property(&tag, prop)?, overrides)?,
+            Fractions(names) => Takes::Fractions { names: names.iter().map(|n| n.to_string()).collect() },
         };
         let (name, key) = prop.split_once('/').map_or((prop, None), |(n, k)| (n, Some(k)));
         let value = match key {
@@ -300,8 +312,8 @@ pub fn characters(
                 let (def, key) = prop.split_once('/').map_or(("Run", prop), |(_, key)| ("TextStyle", key));
                 allowed(Checker::deck().def_property(def, key)?, overrides)?
             }
-            // A run reads no data.
-            Data | Columns => return None,
+            // A run reads no data and has no image.
+            Data | Columns | Fractions(_) => return None,
         };
         let value = run.and_then(|r| match prop.split_once('/') {
             Some((name, key)) => r.get(name)?.get(key),
@@ -361,8 +373,8 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 let (def, name) = key.map_or(("State", prop), |key| ("TransitionSpec", key));
                 allowed(Checker::deck().def_property(def, name)?, overrides)?
             }
-            // A state reads no data.
-            Data | Columns => return None,
+            // A state reads no data and has no image.
+            Data | Columns | Fractions(_) => return None,
         };
         let (value, lives) = match (prop, key) {
             ("layout", _) => {
@@ -500,6 +512,8 @@ mod tests {
                     // A source and a column are the data's names, never overrides.
                     Data => (None, json!("@q3")),
                     Columns => (None, json!("region")),
+                    // Fractions of an image are none either.
+                    Fractions(names) => (None, json!(vec![0.5; names.len()])),
                 };
                 if let Some(written) = written {
                     assert!(literal(prop, &written), "{prop} = {written} is an override");

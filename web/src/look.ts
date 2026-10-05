@@ -45,6 +45,8 @@ export interface Around {
   /** Put what the canvas selects in a new group, and take the group it selects apart (PLAN 2.43). */
   group(): Promise<void>;
   ungroup(): Promise<void>;
+  /** Pick the focal point of the image the canvas selects: the next press on it (PLAN 2.45). */
+  pick(): void;
 }
 
 /** What several nodes offer alike: each field all of them have with the same choices, its value
@@ -201,6 +203,18 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
       }
       case "text":
         return `<textarea id="${id}" ${prop} rows="3" placeholder="none">${html(typeof value === "string" ? value : "")}</textarea>`;
+      case "fractions": {
+        // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it.
+        const rest = f.prop === "crop" ? [0, 0, 1, 1] : [0.5, 0.5];
+        const now = Array.isArray(value) && value.length === t.names.length ? (value as number[]) : rest;
+        const inputs = t.names.map(
+          (name, k) =>
+            `<input${k === 0 ? ` id="${id}"` : ""} type="number" class="fraction" ${prop} data-part="${k}" min="0" max="1" step="0.01" value="${now[k]}" aria-label="${html(f.prop)} ${name}" title="${name}, a fraction of the image">`,
+        );
+        // The focal point is picked on the image itself: where its subject is.
+        const pick = f.prop === "focal" ? ' <button type="button" data-pick title="Then click the image where its subject is">Pick</button>' : "";
+        return `${inputs.join("")}${pick}`;
+      }
     }
   }
 
@@ -327,6 +341,20 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     }
     const prop = target.dataset.prop;
     if (prop === undefined) return;
+    // Fractions of the image, together (PLAN 2.45): a crop keeps some of the image, inside it.
+    if (target.dataset.part !== undefined) {
+      const inputs = [...into.querySelectorAll<HTMLInputElement>(`input[data-prop="${CSS.escape(prop)}"][data-part]`)];
+      const parts = inputs.map((i) => (i.value.trim() === "" ? NaN : Number(i.value)));
+      if (parts.some((p) => !Number.isFinite(p))) return render(true);
+      const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+      // In whole thousandths, as a person writes them, so that a crop's edges add up exactly.
+      let given = parts.map((p) => Math.round(clamp(p, 0, 1) * 1000));
+      if (prop === "crop") {
+        const [x, y] = [Math.min(given[0], 990), Math.min(given[1], 990)];
+        given = [x, y, clamp(given[2], 10, 1000 - x), clamp(given[3], 10, 1000 - y)];
+      }
+      return void choose(prop, given.map((p) => p / 1000));
+    }
     let value: unknown = target.value === "" ? null : target.value;
     if (target.matches("[data-flag]") && value !== null) value = value === "yes";
     if (target instanceof HTMLInputElement && target.type === "number" && value !== null) value = Number(value) * Number(target.dataset.scale ?? 1);
@@ -339,6 +367,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if (arranging?.dataset.arrange) void around.arrange(JSON.parse(arranging.dataset.arrange) as Arrange);
     if ((e.target as Element).closest("[data-group]")) void around.group();
     if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
+    if ((e.target as Element).closest("[data-pick]")) around.pick();
   });
 
   return {

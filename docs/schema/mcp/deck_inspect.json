@@ -667,6 +667,15 @@
             "type": "object",
             "properties": { "kind": { "type": "string", "const": "text" } },
             "required": ["kind"]
+          },
+          {
+            "description": "Fractions of an image, from 0 to 1, one for each of `names` (PLAN 2.45): a point's `x`\nand `y`, or a part's `x`, `y`, `w`, and `h`.",
+            "type": "object",
+            "properties": {
+              "names": { "type": "array", "items": { "type": "string" } },
+              "kind": { "type": "string", "const": "fractions" }
+            },
+            "required": ["kind", "names"]
           }
         ]
       },

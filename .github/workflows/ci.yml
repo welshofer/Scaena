@@ -242,7 +242,10 @@ jobs:
       - run: node web/several.mjs
       # Group and ungroup: a group where the nodes stand, and taken apart to the deck as it was (PLAN 2.43).
       - run: node web/group.mjs
+      # The cue under the preview: a motion's delay and duration dragged, a motion added, the ruler, Play (PLAN 2.44).
       - run: node web/cue.mjs
+      # An image from the inspector: its focal point picked on it, its crop and fit, an image file dropped on it (PLAN 2.45).
+      - run: node web/image.mjs
       # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
       - run: node web/runs.mjs
       # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).

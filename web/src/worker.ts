@@ -141,6 +141,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "hit":
         layOut(data.format);
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "focalAt":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "focal", id: data.id, at: JSON.parse(player.focalAt(data.state, data.node, ...data.point)) });
       case "targets":
         layOut(data.format);
         return post({ type: "targets", id: data.id, targets: JSON.parse(player.targets(data.state, data.node)) });

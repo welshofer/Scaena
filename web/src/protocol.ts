@@ -132,7 +132,10 @@ export type Takes =
   | { kind: "word"; words: string[] }
   | { kind: "number"; min?: number; above?: number; max?: number; whole?: boolean; overrides?: boolean }
   | { kind: "flag" }
-  | { kind: "text" };
+  | { kind: "text" }
+  /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
+   * `w`, and `h` (PLAN 2.45). */
+  | { kind: "fractions"; names: string[] };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -282,6 +285,9 @@ export type ToWorker =
   | { type: "boxes"; id: number; state: string; format?: string }
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** The point of image `node` under `point` in `state` at rest, in fractions of its crop:
+   * what a focal point picked there is (PLAN 2.45). */
+  | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
   /** Where `node` may go in `state` at rest. */
   | { type: "targets"; id: number; state: string; node: string; format?: string }
   /** A drag's move (ADR-0013). With `by`, `state` painted at rest with `node`, and what it holds,
@@ -642,6 +648,8 @@ export type FromWorker =
   /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
   | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
   | { type: "hits"; id: number; hits: Hit[] }
+  /** Where a focal point picked there would be; `null` off the image. */
+  | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
