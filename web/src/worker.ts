@@ -141,6 +141,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "hit":
         layOut(data.format);
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "view": {
+        viewing = data.view ? Float32Array.from(data.view) : null;
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t);
+        return post({ type: "viewed", id: data.id });
+      }
       case "focalAt":
         current(data.source);
         layOut(data.format);
@@ -824,6 +829,13 @@ async function type(source: string, ops: unknown[], index: number, at: string | 
   return { source: next, edited: await edit(next, index, at) };
 }
 
+/** What the preview last painted: what a new view paints again (PLAN 2.46). */
+let lastPainted: { state: string; t: number } | undefined;
+/** The part of the canvas the editor's preview shows zoomed in, `[x, y, w, h]` canvas units, or
+ * `null` for all of it; `undefined` until the editor first asks, as the player's page never does
+ * (PLAN 2.46). Each paint sets it on the engine, whichever the bundle is now: a reload makes another. */
+let viewing: Float32Array | null | undefined;
+
 /** The CPU painter's frame in flight: the next waits for it, since the module holds one frame
  * for its shaders at a time, and a reload waits for it before it lets the engine go. */
 let painting: Promise<void> = Promise.resolve();
@@ -831,11 +843,13 @@ let painting: Promise<void> = Promise.resolve();
 /** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
  * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
 async function paint(state: string, t: number) {
+  lastPainted = { state, t };
   const [width, height] = size();
   if (canvas.width !== width || canvas.height !== height) {
     [canvas.width, canvas.height] = [width, height];
     gpu?.resize(width, height);
   }
+  if (viewing !== undefined) player.setView(viewing);
   if (gpu) return player.paint(gpu, state, t);
   const before = painting;
   let done = () => {};

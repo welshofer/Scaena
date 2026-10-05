@@ -96,6 +96,9 @@ pub struct Session {
     /// The node a drag moves, and how far, canvas units: frames at rest draw it there, from
     /// the state as laid out at rest, laying nothing out (ADR-0013).
     moving: Option<(Vec<String>, [f32; 2])>,
+    /// The part of the canvas the editor's preview shows, `[x, y, w, h]` canvas units, when it
+    /// is zoomed in (PLAN 2.46): its frames are painted through it, at the size shown.
+    view: Option<[f32; 4]>,
     /// The deck a patch would make, shown before it is made: frames at rest draw it, laid out
     /// once a frame, as a resize does when it pauses (ADR-0013).
     #[cfg(feature = "editor")]
@@ -184,6 +187,7 @@ impl Session {
             rest: None,
             targets: Vec::new(),
             moving: None,
+            view: None,
             #[cfg(feature = "editor")]
             previewing: None,
             format: None,
@@ -487,6 +491,28 @@ impl Session {
     /// laying nothing out (ADR-0013). `None` puts them back.
     pub fn set_moving(&mut self, moving: Option<(Vec<String>, [f32; 2])>) {
         self.moving = moving;
+    }
+
+    /// Paint the preview's frames through `view`, `[x, y, w, h]` canvas units: the part of
+    /// the canvas a zoomed editor shows, painted at the size shown (PLAN 2.46). `None` shows
+    /// the whole canvas. A view that is not a part of some size is refused.
+    pub fn set_view(&mut self, view: Option<[f32; 4]>) -> Result<(), Error> {
+        if let Some([x, y, w, h]) = view
+            && !([x, y, w, h].iter().all(|v| v.is_finite()) && w > 0.0 && h > 0.0)
+        {
+            return Err(Error::Deck(format!("a view is a part of the canvas with a size: [{x}, {y}, {w}, {h}]")));
+        }
+        self.view = view;
+        Ok(())
+    }
+
+    /// `state` at `t_ms`, as the preview shows it: through the view, if it is zoomed in.
+    pub fn viewed(&mut self, state: &str, t_ms: f64) -> Result<DisplayList, Error> {
+        let dl = self.frame(state, t_ms)?;
+        Ok(match self.view {
+            Some(view) => dl.viewed(view),
+            None => dl,
+        })
     }
 
     /// `nodes`, children of one container, arranged `how` in `state` at rest, in the format
@@ -821,7 +847,7 @@ impl Session {
     #[cfg(feature = "cpu")]
     pub fn shading(&mut self, state: &str, t_ms: f64, width: u32) -> Result<usize, Error> {
         self.shading = None;
-        let dl = self.frame(state, t_ms)?;
+        let dl = self.viewed(state, t_ms)?;
         let scale = width as f32 / dl.viewport[0];
         let mut shaders = Vec::new();
         for spec in scaena_paint::shader_specs(&dl, scale)? {
@@ -1214,6 +1240,19 @@ impl Player {
     #[wasm_bindgen(js_name = setMoving)]
     pub fn set_moving(&mut self, nodes: Vec<String>, dx: f32, dy: f32) {
         self.0.set_moving((!nodes.is_empty()).then_some((nodes, [dx, dy])));
+    }
+
+    /// Paint the frames that follow through `view`, `[x, y, w, h]` canvas units: the part of
+    /// the canvas the editor's preview shows zoomed in, painted at the size shown (PLAN 2.46).
+    /// With none, the whole canvas.
+    #[wasm_bindgen(js_name = setView)]
+    pub fn set_view(&mut self, view: Option<Vec<f32>>) -> Result<(), JsError> {
+        let view = match view.as_deref() {
+            None => None,
+            Some(&[x, y, w, h]) => Some([x, y, w, h]),
+            Some(other) => return Err(JsError::new(&format!("a view is [x, y, w, h], not {other:?}"))),
+        };
+        self.0.set_view(view).map_err(js)
     }
 
     /// Frames at rest draw the deck `ops` (a patch, JSON) would make, laid out once a frame,
@@ -1743,7 +1782,7 @@ mod web {
     impl Player {
         /// Paint `state` at `t_ms` into `canvas`, scaled to the canvas width.
         pub fn paint(&mut self, canvas: &mut Canvas, state: &str, t_ms: f64) -> Result<(), JsError> {
-            let dl = self.0.frame(state, t_ms).map_err(js)?;
+            let dl = self.0.viewed(state, t_ms).map_err(js)?;
             let (width, height) = canvas.size;
             let scale = width as f32 / dl.viewport[0];
             // Shader ops run as compute passes into textures first; the scene draws them.
@@ -1933,6 +1972,47 @@ mod tests {
         assert_eq!(s.focal_at("images", "image-contain", [x + w / 2.0, y + 1.0]).unwrap(), None);
         let [x, y, w, h] = rect("case");
         assert_eq!(s.focal_at("images", "case", [x + w / 2.0, y + h / 2.0]).unwrap(), None);
+    }
+
+    /// A view paints the part of the canvas it shows at the size shown: what a frame twice
+    /// the size shows there, text, shapes, and images to within a level's rounding (PLAN 2.46).
+    /// A shader's grain is per device pixel, counted from the corner of what it covers on the
+    /// raster, so a view grains its own; its smooth part lies where the larger frame has it.
+    /// The strip's thumbnails and exports never see the view.
+    #[test]
+    fn a_view_paints_what_a_larger_frame_shows_there() {
+        use scaena_paint::Painter;
+        let mut s = torture();
+        for state in ["mesh", "containers", "images"] {
+            let whole = s.pixels(state, f64::INFINITY, 3840).unwrap();
+            s.set_view(Some([960.0, 540.0, 960.0, 540.0])).unwrap();
+            let dl = s.viewed(state, f64::INFINITY).unwrap();
+            assert_eq!(dl.viewport, [960.0, 540.0]);
+            let part = s.painter.paint(&dl, &s.store, 1920.0 / dl.viewport[0]).unwrap();
+            assert_eq!((part.width, part.height), (1920, 1080));
+            // The part's pixel (x, y) is the whole's (1920 + x, 1080 + y).
+            let ours = |x: usize, y: usize, c: usize| part.rgba[(y * 1920 + x) * 4 + c];
+            let theirs = |x: usize, y: usize, c: usize| whole.rgba[((1080 + y) * 3840 + 1920 + x) * 4 + c];
+            if state == "mesh" {
+                // Each 20 × 20 block's mean, grain and all, within two levels.
+                for (bx, by, c) in (0..54).flat_map(|by| (0..96).flat_map(move |bx| (0..4).map(move |c| (bx, by, c)))) {
+                    let sum = |f: &dyn Fn(usize, usize, usize) -> u8| {
+                        (0..400).map(|i| u32::from(f(bx * 20 + i % 20, by * 20 + i / 20, c))).sum::<u32>()
+                    };
+                    assert!(sum(&ours).abs_diff(sum(&theirs)) <= 2 * 400, "{state}: block ({bx}, {by}) differs");
+                }
+            } else {
+                for (x, y, c) in (0..1080).flat_map(|y| (0..1920).flat_map(move |x| (0..4).map(move |c| (x, y, c)))) {
+                    assert!(ours(x, y, c).abs_diff(theirs(x, y, c)) <= 1, "{state}: ({x}, {y}) differs");
+                }
+            }
+            // The thumbnails' frames are the whole canvas still.
+            assert_eq!(s.pixels(state, f64::INFINITY, 480).unwrap().width, 480);
+            assert_eq!(s.frame(state, f64::INFINITY).unwrap().viewport, [1920.0, 1080.0]);
+            s.set_view(None).unwrap();
+        }
+        assert!(s.set_view(Some([0.0, 0.0, 0.0, 540.0])).is_err(), "a view has a size");
+        assert!(s.set_view(Some([f32::NAN, 0.0, 960.0, 540.0])).is_err(), "and a place");
     }
 
     /// A drag asks where its node may go once, and each move after snaps with what it was

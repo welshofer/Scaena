@@ -168,6 +168,7 @@ web-smoke: site
     node web/group.mjs
     node web/cue.mjs
     node web/image.mjs
+    node web/zoom.mjs
     node web/runs.mjs
     node web/theme.mjs
     node web/strip.mjs

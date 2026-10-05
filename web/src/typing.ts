@@ -36,6 +36,9 @@ export interface Around {
   draw(): void;
   /** Canvas units to a CSS pixel. */
   unit(): number;
+  /** Where the preview's view begins, canvas units: its top left corner, the canvas's own until it
+   * is zoomed in (PLAN 2.46). */
+  origin(): [number, number];
   /** Where `node` stands in the state shown: its box. */
   box(node: string): Rect | undefined;
   /** The characters selected in the text typed in are now `selected`, or none are. */
@@ -537,10 +540,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     void send();
   });
   area.addEventListener("keydown", (e) => {
-    // The canvas's keys are not the text's.
-    e.stopPropagation();
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    // The canvas's keys are not the text's, but for its zoom, which no text takes (PLAN 2.46).
+    if (mod && !e.altKey && ["=", "+", "-", "_", "0"].includes(key)) return;
+    e.stopPropagation();
     if (mod && (key === "z" || key === "y")) {
       e.preventDefault();
       return history(key === "y" || e.shiftKey);
@@ -660,8 +664,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const here = caretAt(carets, head, on);
       const line = carets.lines[here.line];
       const r = overlay.getBoundingClientRect();
-      area.style.left = `${Math.max(0, Math.min(r.width - 1, here.x / u))}px`;
-      area.style.top = `${Math.max(0, Math.min(r.height - 1, line.bottom / u))}px`;
+      const [ox, oy] = around.origin();
+      area.style.left = `${Math.max(0, Math.min(r.width - 1, (here.x - ox) / u))}px`;
+      area.style.top = `${Math.max(0, Math.min(r.height - 1, (line.bottom - oy) / u))}px`;
       if (from !== to) {
         return covered(carets, from, to).map(([x, y, w, h]) => `<rect class="text-selection" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
       }
