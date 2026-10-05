@@ -139,7 +139,7 @@
       },
       "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
       "states": {
-        "description": "The states it changes what shows in, by id: each whose nodes, resolved with the\ndeck's overrides, are not as they were, and each it adds. None when it is refused.",
+        "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, or notes are not as they were, and\neach it adds. None when it is refused.",
         "type": "array",
         "items": { "type": "string" }
       }

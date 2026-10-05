@@ -483,6 +483,13 @@ impl Session {
         scaena_core::choices::choices(&self.deck, &self.theme, state, node).map_err(Error::Ops)
     }
 
+    /// What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
+    /// transition, its hold, and its notes, each with its value and where it lives, which is
+    /// where a `set_state` patch writes.
+    pub fn state_choices(&self, state: &str) -> Result<scaena_core::choices::StateChoices, Error> {
+        scaena_core::choices::state_choices(&self.deck, &self.theme, state).map_err(Error::Ops)
+    }
+
     /// What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each
     /// kind of shape, each image in the bundle, and each shader preset, each as `add_node`
     /// adds it, with the box it takes at first.
@@ -1005,6 +1012,13 @@ impl Player {
     /// `{ node, type, state, fields }`, as `scaena inspect --choices` says it.
     pub fn choices(&self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
+    /// as `scaena inspect --state-choices` says it.
+    #[wasm_bindgen(js_name = stateChoices)]
+    pub fn state_choices(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.state_choices(state).map_err(js)?).map_err(js)
     }
 
     /// What may be inserted, as JSON (PLAN 2.34): `[{ label, node, id, start }]`, as `scaena
@@ -1924,6 +1938,63 @@ mod tests {
         assert_eq!(empty.layout.as_deref(), Some("figure"));
         // `close` tracks from the empty slide now: its own props, as before, and its title.
         assert!(shows(&s, "close").nodes.contains_key("title"));
+    }
+
+    /// The inspector edits the state shown (PLAN 2.36): a layout chosen is written where it
+    /// lives, and each state that takes it from there is laid out in it; a transition, a hold,
+    /// and notes are the state's own. What a choice reaches is what the editor says of it.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_state_chosen_in_the_inspector_changes_where_it_lives() {
+        use serde_json::json;
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let field = |s: &Session, state: &str, prop: &str| {
+            let offered = s.state_choices(state).unwrap();
+            offered.fields.into_iter().find(|f| f.prop == prop).unwrap()
+        };
+        assert_eq!(field(&s, "mix", "layout").value, Some(json!("figure")));
+        let at_rest = |s: &mut Session, state: &str| s.frame(state, f64::INFINITY).unwrap().digest().unwrap();
+        let (revenue, mix) = (at_rest(&mut s, "revenue"), at_rest(&mut s, "mix"));
+
+        // `mix` takes its layout from `revenue`: a layout chosen there reaches both, and kept
+        // to `mix`, it reaches `mix` alone. Its hold is its own.
+        let full = json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": "full" }]);
+        assert_eq!(s.reach(full.as_array().unwrap()).unwrap(), ["revenue", "mix"]);
+        let kept = json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": "full", "fork": true }]);
+        assert_eq!(s.reach(kept.as_array().unwrap()).unwrap(), ["mix"]);
+        let hold = json!([{ "op": "set_state", "id": "mix", "prop": "hold", "value": 2500 }]);
+        assert_eq!(s.reach(hold.as_array().unwrap()).unwrap(), ["mix"]);
+
+        s.tool("deck_patch", json!({ "ops": full }), by).unwrap();
+        assert_eq!(field(&s, "mix", "layout").lives, Some(scaena_core::choices::Where::State("revenue".into())));
+        assert_ne!(at_rest(&mut s, "revenue"), revenue, "laid out again in `full`");
+        assert_ne!(at_rest(&mut s, "mix"), mix);
+
+        // A transition chosen changes the state's cue: `slow` to `fast`, and a cut has none.
+        let slow = s.duration("mix").unwrap();
+        let fast = json!([{ "op": "set_state", "id": "mix", "prop": "transition/duration", "value": "fast" }]);
+        s.tool("deck_patch", json!({ "ops": fast }), by).unwrap();
+        assert!(s.duration("mix").unwrap() < slow);
+        let cut = json!([{ "op": "set_state", "id": "mix", "prop": "transition", "value": null }]);
+        s.tool("deck_patch", json!({ "ops": cut }), by).unwrap();
+        assert_eq!(s.duration("mix").unwrap(), 0.0, "a state with no transition and no motions cuts in");
+        assert!(
+            s.state_choices("mix")
+                .unwrap()
+                .fields
+                .iter()
+                .all(|f| !f.prop.starts_with("transition/") || f.value.is_none())
+        );
+
+        // A layout without a slot for each node is not offered, and a patch that asks for one
+        // anyway is refused, as validation finds it.
+        let scaena_core::choices::Takes::Name { names, .. } = field(&s, "mix", "layout").takes else { panic!() };
+        assert!(!names.contains(&"statement".to_string()), "{names:?}");
+        let statement = json!([{ "op": "set_state", "id": "mix", "prop": "layout", "value": "statement" }]);
+        let refused = s.tool("deck_patch", json!({ "ops": statement }), by).unwrap();
+        let said: serde_json::Value = serde_json::from_str(&refused.result).unwrap();
+        assert_eq!((said["applied"].as_bool(), refused.edited), (Some(false), false), "{said}");
     }
 
     /// Every insert the torture deck's theme and bundle offer makes a patch the deck takes, one

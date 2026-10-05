@@ -922,6 +922,11 @@ A way that does not place the node is an error that names those that do.
 
 A node the state does not show is an error that says so.
 
+`inspect --state S --state-choices` says what an inspector offers for the state itself (PLAN 2.36), as `--choices` says a node's, which `set_state` writes (§7.3): its `layout`, each key of its transition (`transition/duration`, `transition/ease`, `transition/spring`, `transition/match`), its `hold`, and its `notes`.
+- **Its layout** shows the layout the state takes, which tracks as a property does (§2.2), and lives in the state that sets it: the one inspected, or one it tracks from. It takes the theme's layouts that have a slot for each node placed in one, in each state that takes its layout from there, since a slot the layout lacks is E102. A state that takes none shows none.
+- **Its transition, hold, and notes** are its own. A transition that is a bare duration shows as its `duration`; a state that sets no key of it cuts in.
+- Each takes what the theme names or the schema allows: a duration, an easing, or a spring of the theme's; `id` or `none`; a number of milliseconds from 0; or words (`text`).
+
 `inspect --state S --inserts` says what an editor may insert (PLAN 2.34): the nodes the theme and the bundle name, each as `add_node` adds it (§7.3), unplaced (`node`), with what its id starts from (`id`), what a menu calls it (`label`), and the box it takes at first (`start`).
 - **A text** in each of the theme's roles, its text the role's name: half the canvas wide and two of the role's lines tall (`{ "box": { "w", "h" } }`, each a share of the canvas's side).
 - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the theme's `accent` (or its first color), a quarter of the canvas wide and square; a line and an arrow, drawn in the theme's rule.
@@ -950,7 +955,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_read` | The deck, canonical: as JSON, or with `scn`, as `.scn` (§4). | `{ deck }` or `{ scn }` |
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `choices`, `inserts`, and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `choices`, `state_choices`, `inserts`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -1020,12 +1025,13 @@ A patch is a JSON array of ops, applied in order, all or none (`docs/schema/patc
 | `move_state` | `id`, `after` or `before` | Moves a state. A state in delta mode tracks from whichever state now comes before it |
 | `remove_state` | `id` | Removes a state and its place in the spine; the state after it tracks from the one before. Refused for a state that others build on (`slide`) or track from (`from`) |
 | `rename_state` | `id`, `to` | Renames the id everywhere: `slide`, `from`, the beats |
+| `set_state` | `id`, `prop`, `value`, `fork?` | One property of a state as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/duration`, `transition/ease`, `transition/spring`, `transition/match`), its `hold`, or its `notes`. A layout tracks (§2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it, or with `fork`. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows the one under it, and a transition left with nothing cuts. A layout without a slot for a node placed in one is the deck's error (E102), which `patch` refuses |
 | `retheme` | `theme` | Sets the deck's theme: a file in the bundle, or inline. `theme --apply` copies a file in |
 
 **`scaena patch` checks a patch before it writes it:**
 - It compiles the ops, then checks the deck they make as `validate` checks a bundle. A patch that adds a validation finding (E102–E106) is refused whole: exit 1, and nothing is written.
 - It reports the patch as RFC 6902 and the lint delta: what `lint` finds that it did not (`added`), and what it finds no more (`removed`).
-- It says which states the patch changes what shows in (`states`): each whose nodes, resolved with the deck's overrides, are not as they were, and each it adds.
+- It says which states the patch changes (`states`): each whose nodes, resolved with the deck's overrides, or whose layout, transition, choreography, hold, or notes are not as they were, and each it adds.
 - A finding is the same before and after when its code, format, file, state, and node match, and its message matches but for its figures. A path that names a state by place counts by the state's id, and renamed ids count by their new names. So a state added early does not move every finding after it, and a widow that gains a word is the same widow.
 - `--dry-run` reports without writing. An op that does not apply exits 2 with its index (`op`).
 
@@ -1200,6 +1206,7 @@ The first client. Headless; renders via `vello_cpu`. Used by Claude Code and any
     - **Choosing.** A role, a family, a color, a preset, a word, or a number chosen there is one `choose` patch (§7.3), by `user`, written where the value lives. It comes into the source as one change, one step to undo, and the status says which states it changes. "Only in" keeps it to the state shown (`fork`).
     - **Written out.** A color or a length written out, and any text size, goes in the deck's `overrides` and shows as an override, in every state. A theme name chosen then is written there too, since the overrides win; the × beside a value takes it away where it lives, the override first. What cannot be kept to one state is refused, and says why.
     - **The status** keeps what a gesture on the canvas or a choice said, and what lint finds after it, until the source is edited by hand.
+    - **The state** (PLAN 2.36). With no node selected, the inspector edits the state shown (`Player.stateChoices`, as `inspect --state-choices`): its layout, from the theme's layouts with a slot for each node placed in one; its transition's duration, ease, spring, and match, which say "cut" where it sets none; its hold, in seconds; and its notes. Each is one `set_state` patch (§7.3), by `user`. A layout is written where it lives, so the states that take it from there change with it, and the status says how many; "layout only in" keeps it to the state shown. The × takes a value away: a transition with nothing left cuts.
     - `web/inspector.mjs` checks it in headless Chromium on the revenue example, and `web/a11y.mjs` audits it.
   - **Adding and taking away** (PLAN 2.34, ADR-0013). The Insert menu offers what the theme and the bundle name, as `inspect --inserts` says (`Player.inserts`): a text in each role, each shape, each image in the bundle, and each shader preset.
     - **Insert** puts what is chosen where the pointer last pressed the canvas, or in its middle, snapped to the theme's grid as a drop snaps; a text or an image fills the template's slot there if nothing fills it, and a shader fills the canvas, under the rest. It enters in the state shown, selected: one `add_node` and `place` patch (`Player.inserting`).

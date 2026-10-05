@@ -8,7 +8,7 @@ use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
-use crate::tracking::{Lives, Snapshot, lives, merge_props, resolve_states, tracks_from};
+use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
 use std::ops::Range;
@@ -184,6 +184,7 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             renamed.push(Renamed::State { from: id.clone(), to: to.clone() });
             rename_state(&d, id, to)?
         }
+        SemanticOp::SetState { id, prop, value, fork } => set_state(&d, id, prop, value, *fork)?,
         SemanticOp::Retheme { theme } => {
             match theme {
                 Value::String(path) if !files.exists(path) => {
@@ -989,6 +990,69 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
     }
     ops.push(JsonOp::Remove { path: format!("/states/{i}") });
     Ok(ops)
+}
+
+/// The keys of a state's transition (SPEC §3.9).
+const TRANSITION: [&str; 4] = ["duration", "ease", "spring", "match"];
+
+/// `set_state` (PLAN 2.36): `value` becomes state `id`'s `prop`. A layout is written where it
+/// lives: the latest state that sets it, from `id` back along what it tracks, else `id`; or,
+/// to `fork` it, `id` itself. The rest are `id`'s own.
+fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result<Vec<JsonOp>, String> {
+    let i = d.state(id)?;
+    let (name, key) = parse_prop(prop)?;
+    let at = match (name.as_str(), key.as_deref()) {
+        ("layout", None) if fork => i,
+        ("layout", None) => layout_lives(&d.snapshots()?.0, i).unwrap_or(i),
+        ("hold" | "notes" | "transition", None) => i,
+        ("transition", Some(key)) if TRANSITION.contains(&key) => i,
+        _ => {
+            let keys = list(TRANSITION.iter().map(|k| format!("transition/{k}")));
+            return Err(format!(
+                "`{prop}` is not one `set_state` sets: a state's `layout`, `transition` or one of its keys ({keys}), `hold`, or `notes`; `rename_state` and `move_state` change the rest"
+            ));
+        }
+    };
+    let state = &d.states()[at];
+    let old = state.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(state)))?;
+    let set = match &key {
+        Some(key) => transition_with(old.get("transition"), key, value),
+        None => (!value.is_null()).then(|| value.clone()),
+    };
+    let mut new = old.clone();
+    match set {
+        Some(set) => drop(new.insert(name, set)),
+        None => drop(new.shift_remove(&name)),
+    }
+    Ok(diff(&format!("/states/{at}"), old, &new))
+}
+
+/// A state's transition, `old`, with its `key` set to `value`, or taken away with `null`. A
+/// bare duration, or none, stays bare while its duration is all it sets, and becomes an
+/// object to take another key. One left with nothing is none: the state cuts.
+fn transition_with(old: Option<&Value>, key: &str, value: &Value) -> Option<Value> {
+    let bare = matches!(old, None | Some(Value::String(_) | Value::Number(_)));
+    let has = match old {
+        Some(Value::Object(spec)) => spec.contains_key(key),
+        Some(_) => bare && key == "duration",
+        None => false,
+    };
+    if value.is_null() && !has {
+        return old.cloned();
+    }
+    if bare && key == "duration" {
+        return (!value.is_null()).then(|| value.clone());
+    }
+    let mut spec = match old {
+        Some(Value::Object(spec)) => spec.clone(),
+        Some(duration) if bare => Map::from_iter([("duration".to_string(), duration.clone())]),
+        _ => Map::new(),
+    };
+    match value {
+        Value::Null => drop(spec.shift_remove(key)),
+        _ => drop(spec.insert(key.into(), value.clone())),
+    }
+    (!spec.is_empty()).then_some(Value::Object(spec))
 }
 
 fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {

@@ -279,6 +279,22 @@
           }
         },
         {
+          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts.",
+          "type": "object",
+          "required": ["op", "id", "prop", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "prop": { "type": "string", "pattern": "^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$" },
+            "value": true,
+            "fork": {
+              "description": "Write a layout into `id` itself, wherever it lives now: it shows there, and in the states that track `id`, and the others show what they did. The rest are `id`'s own with or without it.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "set_state" }
+          }
+        },
+        {
           "description": "The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in), or a theme inline.",
           "type": "object",
           "required": ["op", "theme"],

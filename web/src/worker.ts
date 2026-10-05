@@ -33,6 +33,7 @@ import type {
   Slot,
   Snapped,
   Source,
+  StateChoices,
   ToHelper,
   ToWorker,
   Where,
@@ -153,6 +154,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "made", id: data.id, ...(await make(data.source, data.ops, data.index, data.format)) });
       case "choices":
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
+      case "stateChoices":
+        return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
       case "inserts":

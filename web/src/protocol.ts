@@ -104,6 +104,14 @@ export interface Choices {
   fields: Field[];
 }
 
+/** What an inspector offers for a state itself (PLAN 2.36), as `scaena inspect --state-choices`
+ * says it: its layout, each key of its transition, its hold, and its notes. */
+export interface StateChoices {
+  state: string;
+  /** What `set_state` names. A state that sets no key of its transition cuts in. */
+  fields: Field[];
+}
+
 /** One property an inspector edits. */
 export interface Field {
   /** A property, or one key of an object property (`style/color`): what `choose` names. */
@@ -123,7 +131,8 @@ export type Takes =
   | { kind: "name"; of: string; names: string[]; overrides?: boolean }
   | { kind: "word"; words: string[] }
   | { kind: "number"; min?: number; above?: number; max?: number; whole?: boolean; overrides?: boolean }
-  | { kind: "flag" };
+  | { kind: "flag" }
+  | { kind: "text" };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -258,6 +267,7 @@ export type ToWorker =
   | { type: "make"; id: number; source: string; ops: unknown[]; index: number; format?: string }
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
+  | { type: "stateChoices"; id: number; state: string }
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
@@ -510,6 +520,7 @@ export type FromWorker =
   /** The patch is made: the deck's source now, and what the edit came to. */
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
+  | { type: "stateChoices"; id: number; choices: StateChoices }
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "reached"; id: number; states: string[] }
   | { type: "inserts"; id: number; inserts: Insert[] }

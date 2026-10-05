@@ -86,7 +86,7 @@
       #inspector tr[data-node] { cursor: pointer; }
       #inspector tr[aria-selected="true"] td { background: var(--line); }
       #inspector .flag { color: var(--warning); font-size: 12px; margin-left: 4px; }
-      /* The node selected, its look chosen from the theme (PLAN 2.33). */
+      /* The node selected, its look chosen from the theme (PLAN 2.33); with none, the state's (PLAN 2.36). */
       #look:empty { display: none; }
       #look .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
       #look .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 4px 8px; align-items: center; }
@@ -95,6 +95,8 @@
       #look select { min-width: 0; max-width: 100%; }
       #look input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
       #look input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+      /* A state's notes (PLAN 2.36). */
+      #look textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
       #look .lives { color: var(--muted); font-size: 12px; }
       #look .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }

@@ -305,6 +305,36 @@ fn inspect_says_what_an_inspector_offers() {
 }
 
 #[test]
+fn inspect_says_what_a_state_offers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
+    assert_eq!(code, 0, "{states:#}");
+    let c = &states[0]["state_choices"];
+    assert_eq!(c["state"], "mix");
+    let field = |prop: &str| c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == prop).unwrap().clone();
+    let layout = field("layout");
+    assert_eq!(layout["takes"]["of"], "layout");
+    assert_eq!(layout["takes"]["names"], serde_json::json!(["full", "figure", "narrow-figure"]), "{layout:#}");
+    assert_eq!(
+        (layout["value"].as_str(), &layout["lives"]),
+        (Some("figure"), &serde_json::json!({ "state": "revenue" })),
+        "`mix` takes its layout from `revenue`"
+    );
+    assert_eq!(field("transition/duration")["value"], "slow");
+    assert_eq!(field("hold")["takes"]["kind"], "number");
+    assert_eq!(field("notes")["takes"]["kind"], "text");
+
+    // It says what a state offers: name the state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--state-choices"]).status.code(), Some(2));
+
+    // For a person: a line per property, its value and where it is set, and what it takes.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("choices for state mix:"), "{text}");
+    assert!(text.contains("layout               figure, set in revenue · full, figure, narrow-figure"), "{text}");
+    assert!(text.contains("transition/ease      not set · standard, in, out, linear"), "{text}");
+}
+
+#[test]
 fn inspect_says_what_may_be_inserted() {
     let (code, states) = json(&["inspect", TORTURE, "--state", "axes", "--inserts"]);
     assert_eq!(code, 0, "{states:#}");

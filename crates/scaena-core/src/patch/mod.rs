@@ -332,6 +332,26 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         to: String,
     },
+    /// One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its
+    /// `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout
+    /// tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it,
+    /// from `id` back along what it tracks, and each state that takes it from there changes
+    /// with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a
+    /// bare duration, or none, stays bare while its duration is all it sets, and becomes an
+    /// object to take another key. `null` takes a value away where it lives: a layout taken
+    /// away shows what is under it, and a transition left with nothing cuts.
+    SetState {
+        #[schemars(with = "Id")]
+        id: String,
+        #[schemars(regex(pattern = r"^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$"))]
+        prop: String,
+        value: Value,
+        /// Write a layout into `id` itself, wherever it lives now: it shows there, and in the
+        /// states that track `id`, and the others show what they did. The rest are `id`'s own
+        /// with or without it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in),
     /// or a theme inline.
     Retheme {
@@ -360,6 +380,7 @@ impl SemanticOp {
             SemanticOp::MoveState { .. } => "move_state",
             SemanticOp::RemoveState { .. } => "remove_state",
             SemanticOp::RenameState { .. } => "rename_state",
+            SemanticOp::SetState { .. } => "set_state",
             SemanticOp::Retheme { .. } => "retheme",
         }
     }

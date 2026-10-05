@@ -102,6 +102,12 @@ enum Cmd {
         /// `--state`.
         #[arg(long, value_name = "NODE", requires = "state")]
         choices: Option<String>,
+        /// What an inspector offers for the state itself (PLAN 2.36): its layout, from the
+        /// theme's layouts with a slot for each node placed in one; each key of its
+        /// transition; its hold; and its notes, each with its value and where it lives, which
+        /// is where `set_state` writes. Needs `--state`.
+        #[arg(long, requires = "state")]
+        state_choices: bool,
         /// What may be inserted in the state (PLAN 2.34): a text in each of the theme's
         /// roles, each kind of shape, each image in the bundle, and each shader preset, as
         /// `add_node` adds each, with the box it takes at first. Needs `--state`.
@@ -397,10 +403,24 @@ fn run(cli: Cli) -> Result<ExitCode> {
             to,
             fork,
             choices,
+            state_choices,
             inserts,
         } => {
-            let views =
-                Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork, choices, inserts };
+            let views = Views {
+                resolved,
+                timeline,
+                data,
+                boxes,
+                at,
+                format,
+                targets,
+                snap,
+                to,
+                fork,
+                choices,
+                state_choices,
+                inserts,
+            };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
@@ -868,6 +888,9 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(c) = &i.choices {
             print_choices(c);
         }
+        if let Some(c) = &i.state_choices {
+            print_state_choices(c);
+        }
         if let Some(offered) = &i.inserts {
             print_inserts(offered);
         }
@@ -892,7 +915,7 @@ fn print_inserts(offered: &[scaena_core::inserts::Insert]) {
 /// `inspect --choices`, for a person: each property an inspector edits, the value the state
 /// shows and where it lives, and what it takes.
 fn print_choices(c: &scaena_core::choices::Choices) {
-    use scaena_core::choices::{Takes, Where};
+    use scaena_core::choices::Where;
     let kind = serde_json::to_value(c.node_type).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     println!("  choices for {} ({kind}):", c.node);
     for f in &c.fields {
@@ -909,34 +932,60 @@ fn print_choices(c: &scaena_core::choices::Choices) {
             }
             _ => "the theme's".to_string(),
         };
-        let takes = match &f.takes {
-            Takes::Name { names, overrides, .. } => {
-                const SHOWN: usize = 8;
-                let more = names.len().saturating_sub(SHOWN);
-                let mut said = names.iter().take(SHOWN).cloned().collect::<Vec<_>>().join(", ");
-                if more > 0 {
-                    said += &format!(", … ({} in all)", names.len());
-                }
-                if *overrides {
-                    said += ", or a value written out, an override";
-                }
-                said
+        println!("    {:<14} {shown} · {}", f.prop, takes(&f.takes));
+    }
+}
+
+/// What a property takes, for a person.
+fn takes(takes: &scaena_core::choices::Takes) -> String {
+    use scaena_core::choices::Takes;
+    match takes {
+        Takes::Name { names, overrides, .. } => {
+            const SHOWN: usize = 8;
+            let more = names.len().saturating_sub(SHOWN);
+            let mut said = names.iter().take(SHOWN).cloned().collect::<Vec<_>>().join(", ");
+            if more > 0 {
+                said += &format!(", … ({} in all)", names.len());
             }
-            Takes::Word { words } => words.join(", "),
-            Takes::Number { min, above, max, whole, overrides } => {
-                let what = if *whole { "a whole number" } else { "a number" };
-                let from = match (min, above) {
-                    (Some(min), _) => format!(" from {}", num(*min)),
-                    (_, Some(above)) => format!(" above {}", num(*above)),
-                    _ => String::new(),
-                };
-                let to = max.map(|m| format!(" to {}", num(m))).unwrap_or_default();
-                let over = if *overrides { ", an override" } else { "" };
-                format!("{what}{from}{to}{over}")
+            if *overrides {
+                said += ", or a value written out, an override";
             }
-            Takes::Flag => "yes or no".to_string(),
+            said
+        }
+        Takes::Word { words } => words.join(", "),
+        Takes::Number { min, above, max, whole, overrides } => {
+            let what = if *whole { "a whole number" } else { "a number" };
+            let from = match (min, above) {
+                (Some(min), _) => format!(" from {}", num(*min)),
+                (_, Some(above)) => format!(" above {}", num(*above)),
+                _ => String::new(),
+            };
+            let to = max.map(|m| format!(" to {}", num(m))).unwrap_or_default();
+            let over = if *overrides { ", an override" } else { "" };
+            format!("{what}{from}{to}{over}")
+        }
+        Takes::Flag => "yes or no".to_string(),
+        Takes::Text => "words".to_string(),
+    }
+}
+
+/// `inspect --state-choices`, for a person: the state's layout, transition, hold, and notes,
+/// each with its value and where it lives, and what it takes.
+fn print_state_choices(c: &scaena_core::choices::StateChoices) {
+    use scaena_core::choices::Where;
+    println!("  choices for state {}:", c.state);
+    for f in &c.fields {
+        let shown = match (&f.value, &f.lives) {
+            (Some(v), Some(Where::State(state))) => {
+                let v = v.as_str().map_or_else(|| v.to_string(), String::from);
+                let v =
+                    if v.chars().count() > 40 { format!("{}…", v.chars().take(40).collect::<String>()) } else { v };
+                format!("{v}, set in {state}")
+            }
+            _ if f.prop == "layout" => "none".to_string(),
+            _ => "not set".to_string(),
         };
-        println!("    {:<14} {shown} · {takes}", f.prop);
+        println!("    {:<20} {shown} · {}", f.prop, takes(&f.takes));
     }
 }
 

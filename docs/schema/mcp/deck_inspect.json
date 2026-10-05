@@ -97,6 +97,11 @@
         "type": ["string", "null"],
         "default": null
       },
+      "state_choices": {
+        "description": "What an inspector offers for the state inspected itself (PLAN 2.36): its layout (the\ntheme's layouts with a slot for each node placed in one), each key of its transition,\nits hold, and its notes, each with the value it has and where it lives, which is where\n`set_state` writes.",
+        "type": "boolean",
+        "default": false
+      },
       "inserts": {
         "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, and each shader preset,\neach as `add_node` adds it, with the box it takes at first.",
         "type": "boolean",
@@ -167,6 +172,10 @@
           "choices": {
             "description": "What an inspector offers for the node asked about (`choices`).",
             "anyOf": [{ "$ref": "#/$defs/Choices" }, { "type": "null" }]
+          },
+          "state_choices": {
+            "description": "What an inspector offers for the state itself (`state_choices`).",
+            "anyOf": [{ "$ref": "#/$defs/StateChoices" }, { "type": "null" }]
           },
           "inserts": {
             "description": "What may be inserted in this state (`inserts`).",
@@ -556,6 +565,12 @@
             "type": "object",
             "properties": { "kind": { "type": "string", "const": "flag" } },
             "required": ["kind"]
+          },
+          {
+            "description": "Words for people, as they are written: a state's notes.",
+            "type": "object",
+            "properties": { "kind": { "type": "string", "const": "text" } },
+            "required": ["kind"]
           }
         ]
       },
@@ -592,7 +607,7 @@
             "const": "overrides"
           },
           {
-            "description": "A state's delta, by the state's id: the state shown, or one it tracks from.",
+            "description": "A state's delta, by the state's id: the state shown, or one it tracks from. For a\nstate's own property, the state that sets it.",
             "type": "object",
             "properties": { "state": { "type": "string" } },
             "required": ["state"],
@@ -600,6 +615,19 @@
           },
           { "description": "The node's own properties.", "type": "string", "const": "node" }
         ]
+      },
+      "StateChoices": {
+        "description": "What an inspector offers for a state itself (PLAN 2.36).",
+        "type": "object",
+        "properties": {
+          "state": { "type": "string" },
+          "fields": {
+            "description": "Its layout, each key of its transition, its hold, and its notes: what `set_state`\nnames. A state that sets no key of its transition cuts in.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Field" }
+          }
+        },
+        "required": ["state", "fields"]
       },
       "Insert": {
         "description": "One thing an editor may insert.",
