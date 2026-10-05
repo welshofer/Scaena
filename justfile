@@ -163,6 +163,7 @@ web-smoke: site
     node web/inspector.mjs
     node web/insert.mjs
     node web/clipboard.mjs
+    node web/charts.mjs
     node web/runs.mjs
     node web/theme.mjs
     node web/strip.mjs

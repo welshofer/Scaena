@@ -191,7 +191,7 @@ pub fn of_text(deck: &Deck, theme: &Theme, text: &str) -> Result<Clip, OpsError>
     if text.trim().is_empty() {
         return Err(OpsError::new("the clipboard holds nothing to paste"));
     }
-    let body = scaena_core::inserts::inserts(deck, theme, &[])
+    let body = scaena_core::inserts::inserts(deck, theme, &[], &std::collections::BTreeMap::new())
         .into_iter()
         .find(|i| i.node["type"] == "text" && i.node["role"] == "body")
         .ok_or_else(|| OpsError::new("the theme has no `body` role to paste text in"))?;

@@ -4,7 +4,10 @@
 //! Validation reads sources here for E103, and the engine for charts and tables.
 
 use crate::Deck;
+use crate::document::Props;
 use crate::format::{self, DateFormat, DateTime, Locale};
+use crate::transform;
+use crate::validate::BundleFiles;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -17,6 +20,16 @@ pub trait SourceFiles {
 impl SourceFiles for BTreeMap<String, Vec<u8>> {
     fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
         self.get(path).map(|b| Cow::Borrowed(b.as_slice()))
+    }
+}
+
+/// A bundle's files as validation reads them ([`BundleFiles`]), as sources read them: each
+/// file as its text.
+pub struct Texts<'a>(pub &'a dyn BundleFiles);
+
+impl SourceFiles for Texts<'_> {
+    fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
+        self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
     }
 }
 
@@ -100,6 +113,37 @@ pub enum DataError {
     Missing { name: String, path: String },
     #[error("{0}")]
     Bad(String),
+}
+
+/// The table a chart or a table reads, `props` its props as a state shows them: its source
+/// (`data`), through its `dataTransform` (SPEC §3.10). Why not, when it cannot.
+pub fn read(deck: &Deck, files: &dyn SourceFiles, props: &Props) -> Result<Table, String> {
+    let data = props.get("data").and_then(Value::as_str);
+    let name = data.and_then(|d| d.strip_prefix('@')).ok_or("it reads no data source")?;
+    let table = load(deck, files, name).map_err(|e| e.to_string())?;
+    match props.get("dataTransform").and_then(Value::as_array) {
+        Some(steps) => {
+            transform::apply(table, steps).map_err(|e| format!("`@{name}` through its `dataTransform`: {e}"))
+        }
+        None => Ok(table),
+    }
+}
+
+/// The columns of `table` a chart's channel `channel` (`x`, `y`, `series`, `color`,
+/// `sizeEncoding`; or `key`) can read, as `props` declares the channel's `type`: numbers for a
+/// quantitative one, and for a `y` or a size that declares none; dates for a temporal one;
+/// any column for the rest.
+pub fn readable<'t>(table: &'t Table, props: &Props, channel: &str) -> Vec<&'t str> {
+    let declared = props.get(channel).and_then(|e| e.get("type")).and_then(Value::as_str);
+    let wants = match (channel, declared) {
+        (_, Some("quantitative")) | ("y" | "sizeEncoding", None) => Some(ColumnType::Number),
+        (_, Some("temporal")) => Some(ColumnType::Date),
+        _ => None,
+    };
+    (table.columns.iter().zip(&table.types))
+        .filter(|(_, kind)| wants.is_none_or(|wants| **kind == wants))
+        .map(|(column, _)| column.as_str())
+        .collect()
 }
 
 /// The deck's data source `name` (a chart's `"@name"` without the `@`), typed.

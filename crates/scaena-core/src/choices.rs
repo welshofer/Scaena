@@ -13,6 +13,7 @@
 //! A state has its own (PLAN 2.36, [`state_choices`]): its layout, its transition, its hold,
 //! and its notes, which `set_state` writes.
 
+use crate::data::{self, SourceFiles};
 use crate::document::{Deck, NodeType, Props};
 use crate::lint::literal;
 use crate::model::check::Checker;
@@ -118,9 +119,14 @@ enum Source {
     Names(Vocabulary, bool),
     /// What the deck's schema allows; with `true`, every value is written out, an override.
     Schema(bool),
+    /// The deck's data sources, `@name` (PLAN 2.41).
+    Data,
+    /// The columns of the table the node reads that its channel can read (PLAN 2.41,
+    /// [`data::readable`]).
+    Columns,
 }
 
-use Source::{Names, Schema};
+use Source::{Columns, Data, Names, Schema};
 use Vocabulary as V;
 
 /// What an inspector edits on every node.
@@ -150,17 +156,39 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
         ],
         NodeType::Image => &[("fit", Schema(false)), ("radius", Names(V::Radius, true))],
         NodeType::Shader => &[("preset", Names(V::ShaderPreset, false)), ("palette", Names(V::ShaderPalette, false))],
-        NodeType::Chart => {
-            &[("kind", Schema(false)), ("labels/show", Schema(false)), ("labels/role", Names(V::TextRole, false))]
-        }
+        // What a chart reads, and how (PLAN 2.41): its source, each channel's field and the
+        // type it reads it as, and its key.
+        NodeType::Chart => &[
+            ("data", Data),
+            ("kind", Schema(false)),
+            ("x/field", Columns),
+            ("x/type", Schema(false)),
+            ("y/field", Columns),
+            ("y/type", Schema(false)),
+            ("series/field", Columns),
+            ("color/field", Columns),
+            ("sizeEncoding/field", Columns),
+            ("key", Columns),
+            ("labels/show", Schema(false)),
+            ("labels/role", Names(V::TextRole, false)),
+        ],
+        NodeType::Table => &[("data", Data), ("key", Columns), ("header", Schema(false))],
         NodeType::Stack => &[("axis", Schema(false)), ("gap", Names(V::Space, true))],
         NodeType::Grid => &[("gap", Names(V::Space, true))],
-        NodeType::Table | NodeType::Frame | NodeType::Group => &[],
+        NodeType::Frame | NodeType::Group => &[],
     }
 }
 
-/// What an inspector offers for `node` as `state` shows it, in `theme`.
-pub fn choices(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Choices, String> {
+/// What an inspector offers for `node` as `state` shows it, in `theme`. A chart's or a
+/// table's fields are the columns of the table it reads there, from the bundle's `files`
+/// (PLAN 2.41): none is offered where it cannot be read.
+pub fn choices(
+    deck: &Deck,
+    theme: &Theme,
+    state: &str,
+    node: &str,
+    files: &dyn SourceFiles,
+) -> Result<Choices, String> {
     let i = deck.state_index(state).ok_or_else(|| format!("no state `{state}`"))?;
     let own_props = deck.nodes.get(node).ok_or_else(|| format!("no node `{node}`"))?;
     let snapshots = resolve_states(deck).map_err(|e| e.to_string())?;
@@ -172,8 +200,18 @@ pub fn choices(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Ch
     }
     let node_type = own_props.node_type;
     let tag = serde_json::to_value(node_type).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    let table = match node_type {
+        NodeType::Chart | NodeType::Table => data::read(deck, files, &shown).ok(),
+        _ => None,
+    };
     let fields = own(node_type).iter().chain(&EVERY).filter_map(|&(prop, source)| {
         let takes = match source {
+            Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
+            Columns => {
+                let channel = prop.split_once('/').map_or(prop, |(channel, _)| channel);
+                let columns = data::readable(table.as_ref()?, &shown, channel);
+                Takes::Word { words: columns.into_iter().map(String::from).collect() }
+            }
             Names(of, overrides) => {
                 let mut names = theme.names(of);
                 // A shader takes the presets of its kind (E106).
@@ -262,6 +300,8 @@ pub fn characters(
                 let (def, key) = prop.split_once('/').map_or(("Run", prop), |(_, key)| ("TextStyle", key));
                 allowed(Checker::deck().def_property(def, key)?, overrides)?
             }
+            // A run reads no data.
+            Data | Columns => return None,
         };
         let value = run.and_then(|r| match prop.split_once('/') {
             Some((name, key)) => r.get(name)?.get(key),
@@ -321,6 +361,8 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 let (def, name) = key.map_or(("State", prop), |key| ("TransitionSpec", key));
                 allowed(Checker::deck().def_property(def, name)?, overrides)?
             }
+            // A state reads no data.
+            Data | Columns => return None,
         };
         let (value, lives) = match (prop, key) {
             ("layout", _) => {
@@ -455,6 +497,9 @@ mod tests {
                     Names(Vocabulary::Color, overrides) => (overrides.then(|| json!("#102030")), json!("accent")),
                     Names(_, overrides) => (overrides.then(|| json!(12)), json!("space.2")),
                     Schema(overrides) => (overrides.then(|| json!(12)), json!(1)),
+                    // A source and a column are the data's names, never overrides.
+                    Data => (None, json!("@q3")),
+                    Columns => (None, json!("region")),
                 };
                 if let Some(written) = written {
                     assert!(literal(prop, &written), "{prop} = {written} is an override");

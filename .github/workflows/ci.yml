@@ -236,6 +236,8 @@ jobs:
       - run: node web/insert.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
+      # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
+      - run: node web/charts.mjs
       # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
       - run: node web/runs.mjs
       # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).

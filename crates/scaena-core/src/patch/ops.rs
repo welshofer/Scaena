@@ -4,6 +4,7 @@
 //! to a node not on screen there, which would make it enter.
 
 use super::{JsonOp, Renamed, SemanticOp, Spot, esc};
+use crate::data;
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
@@ -74,9 +75,12 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         SemanticOp::StyleText { node, from, to, look, state, fork } => {
             style_text(&d, node, (*from as usize, *to as usize), look, state.as_deref(), *fork)?
         }
-        SemanticOp::Choose { node, prop, value, state, fork } => {
-            choose(&d, node, prop, value, state.as_deref(), *fork)?
-        }
+        SemanticOp::Choose { node, prop, value, state, fork } => match prop.as_str() {
+            "data" if !value.is_null() && matches!(d.kind(node)?, "chart" | "table") => {
+                choose_data(&d, files, node, value, state.as_deref(), *fork)?
+            }
+            _ => choose(&d, node, prop, value, state.as_deref(), *fork)?,
+        },
         SemanticOp::BindData { node, data, source, state } => {
             let kind = d.kind(node)?;
             if !matches!(kind, "chart" | "table") {
@@ -845,6 +849,113 @@ fn choose(
         Some(j) if value.is_null() && !fork => Ok(unset(d, node, j, &name, key.as_deref())),
         _ => set(d, node, vec![(name, key, value.clone())], at),
     }
+}
+
+/// A chart's or a table's source, chosen (`choose` with `data`, PLAN 2.41): written where its
+/// `data` lives, as any choice is, with what the new source cannot serve pointed again there,
+/// so that the choice reads. A chart's axis whose field the source lacks, or types otherwise
+/// than the axis reads ([`data::readable`]), reads a column it can that no other channel reads,
+/// one of the type its field had if there is one; a `series`, a `color`, a size, a projection,
+/// or a `key` with no column is
+/// taken away, and so is each of a table's `columns` the source lacks (all of them, and it shows
+/// every column). An `x` or a `y` with none to read refuses the source.
+fn choose_data(
+    d: &Doc,
+    files: &dyn BundleFiles,
+    node: &str,
+    value: &Value,
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    let named = value.as_str().and_then(|v| v.strip_prefix('@'));
+    let name = named.ok_or_else(|| format!("a data source is named `@name`; {value} is not"))?;
+    if fork && state.is_none() {
+        return Err("`fork` keeps a choice to a state: name it (`state`)".into());
+    }
+    let (deck, _) = d.snapshots()?;
+    if !deck.data.contains_key(name) {
+        let declared = list(deck.data.keys().map(|k| format!("@{k}")));
+        return Err(format!("the deck has no data source `@{name}`; it has {declared}"));
+    }
+    if d.0.get("overrides").and_then(|o| o.get(node)).and_then(|o| o.get("data")).is_some() {
+        return Err(format!(
+            "the deck's `overrides` set `{node}`'s data in every state (`/overrides/{node}/data`): take it out of them to choose its source"
+        ));
+    }
+    // The node as the state shows it, else as its own props have it.
+    let showing = d.showing(node, state)?;
+    let shown: Props = match &showing {
+        Some((_, props)) => props.clone(),
+        None => d.node(node)?.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    let mut reading = shown.clone();
+    reading.insert("data".into(), value.clone());
+    let table = data::read(&deck, &data::Texts(files), &reading)?;
+    let has = |column: &str| table.column(column).is_some();
+    let mut entries: Vec<Entry> = vec![("data".into(), None, value.clone())];
+    let away = |entries: &mut Vec<Entry>, name: &str| entries.push((name.into(), None, Value::Null));
+    if d.kind(node)? == "chart" {
+        let channels = ["x", "y", "series", "color", "sizeEncoding"];
+        let field = |c: &str| shown.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
+        let reads = |c: &str| data::readable(&table, &shown, c);
+        // The type each channel's field had in the source it read.
+        let before = data::read(&deck, &data::Texts(files), &shown).ok();
+        let was = |c: &str| {
+            let (field, before) = (field(c)?, before.as_ref()?);
+            before.column(field).map(|i| before.types[i])
+        };
+        let kind = |column: &str| table.column(column).map(|i| table.types[i]);
+        // The columns read on: each channel's that the new source serves as it is. The others
+        // are pointed again, the channel that can read the fewest columns first.
+        let mut taken: Vec<&str> = channels.iter().filter_map(|&c| field(c).filter(|f| reads(c).contains(f))).collect();
+        let mut moving: Vec<&str> =
+            channels.into_iter().filter(|&c| field(c).is_some_and(|f| !reads(c).contains(&f))).collect();
+        moving.sort_by_key(|&c| reads(c).len());
+        for c in moving {
+            let free: Vec<&str> = reads(c).into_iter().filter(|column| !taken.contains(column)).collect();
+            let like = was(c).and_then(|was| free.iter().copied().find(|&column| kind(column) == Some(was)));
+            match (c, like.or(free.first().copied())) {
+                ("x" | "y", Some(column)) => {
+                    taken.push(column);
+                    entries.push((c.into(), Some("field".into()), Value::String(column.into())));
+                }
+                ("x" | "y", None) => {
+                    let declared = shown.get(c).and_then(|e| e.get("type")).and_then(Value::as_str);
+                    let how = match (c, declared) {
+                        (_, Some(kind)) => format!(" as {kind}"),
+                        ("y", None) => " (numbers)".into(),
+                        _ => String::new(),
+                    };
+                    let columns = list(table.columns.iter().map(|c| format!("`{c}`")));
+                    return Err(format!(
+                        "`@{name}` has no column the chart's `{c}` can read{how} that another channel does not: it has {columns}"
+                    ));
+                }
+                _ => away(&mut entries, c),
+            }
+        }
+        let projected = shown.get("projected").and_then(|p| p.get("field")).and_then(Value::as_str);
+        if projected.is_some_and(|f| !has(f)) {
+            away(&mut entries, "projected");
+        }
+    } else if let Some(columns) = shown.get("columns").and_then(Value::as_array) {
+        let kept: Vec<Value> =
+            (columns.iter()).filter(|c| c.get("field").and_then(Value::as_str).is_some_and(has)).cloned().collect();
+        if kept.len() < columns.len() {
+            entries.push(("columns".into(), None, if kept.is_empty() { Value::Null } else { Value::Array(kept) }));
+        }
+    }
+    if shown.get("key").and_then(Value::as_str).is_some_and(|k| !has(k)) {
+        away(&mut entries, "key");
+    }
+    let at = match showing.map(|(i, _)| i) {
+        Some(i) => match if fork { Lives::State(i) } else { lives(&deck, i, node, "data", &[]) } {
+            Lives::State(j) => Some(j),
+            Lives::Node => None,
+        },
+        None => None,
+    };
+    set(d, node, entries, at)
 }
 
 /// Ops that make `value` the `name` (or its key `key`) the deck's `overrides` set for `node`;

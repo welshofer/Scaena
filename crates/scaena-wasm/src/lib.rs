@@ -502,9 +502,10 @@ impl Session {
 
     /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
     /// property it edits, with the theme's names for it or what the schema allows, the value
-    /// shown, and where that value lives, which is where a `choose` patch writes.
+    /// shown, and where that value lives, which is where a `choose` patch writes. A chart's or a
+    /// table's fields are the columns of the data handed over (PLAN 2.41).
     pub fn choices(&self, state: &str, node: &str) -> Result<scaena_core::choices::Choices, Error> {
-        scaena_core::choices::choices(&self.deck, &self.theme, state, node).map_err(Error::Ops)
+        scaena_core::choices::choices(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
     }
 
     /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
@@ -609,11 +610,11 @@ impl Session {
     }
 
     /// What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each
-    /// kind of shape, each image in the bundle, and each shader preset, each as `add_node`
-    /// adds it, with the box it takes at first.
+    /// kind of shape, each image in the bundle, a chart and a table of each data source (PLAN
+    /// 2.41), and each shader preset, each as `add_node` adds it, with the box it takes at first.
     pub fn inserts(&self) -> Vec<scaena_core::inserts::Insert> {
         let paths: Vec<String> = self.files.keys().cloned().collect();
-        scaena_core::inserts::inserts(&self.deck, &self.theme, &paths)
+        scaena_core::inserts::inserts(&self.deck, &self.theme, &paths, &*self.files)
     }
 
     /// The patch that inserts what [`Session::inserts`] offers `n`th in `state`, the box it
@@ -2437,6 +2438,73 @@ mod tests {
         assert_eq!((said["applied"].as_bool(), refused.edited), (Some(false), false), "{said}");
     }
 
+    /// A chart inserted from a data source reads what the inspector chooses (PLAN 2.41): a field
+    /// from the columns of its data that its channel can read, and another source, which points
+    /// what that source cannot serve again; each one patch by `user`, validated and linted as
+    /// the editor's are, and drawn.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_inserted_from_its_data_reads_what_the_inspector_chooses() {
+        use scaena_core::choices::Takes;
+        use serde_json::json;
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let applied = |s: &mut Session, ops: serde_json::Value| {
+            let called = s.tool("deck_patch", json!({ "ops": ops }), by).unwrap();
+            let said: serde_json::Value = serde_json::from_str(&called.result).unwrap();
+            assert_eq!(said["applied"], true, "{said}");
+        };
+        let field = |s: &Session, prop: &str| {
+            let offered = s.choices("revenue", "q3-chart").unwrap();
+            offered.fields.into_iter().find(|f| f.prop == prop).unwrap_or_else(|| panic!("no {prop}"))
+        };
+        let words = |s: &Session, prop: &str| match field(s, prop).takes {
+            Takes::Word { words } => words,
+            takes => panic!("{prop}: {takes:?}"),
+        };
+        let drawn = |s: &mut Session| s.frame("revenue", f64::INFINITY).unwrap().digest().unwrap();
+
+        // The chart of `q3`, its quarters grouped by product, about the middle of the canvas.
+        let offered = s.inserts();
+        let n = offered.iter().position(|i| i.label == "Chart · q3").expect("a chart of each source");
+        assert!(offered.iter().any(|i| i.label == "Table · q3"));
+        let added = s.inserting("revenue", n, [960.0, 540.0]).unwrap();
+        assert_eq!(added.id, "q3-chart");
+        applied(&mut s, json!(added.patch));
+        assert_eq!(field(&s, "series/field").value, Some(json!("product")));
+        assert_eq!(words(&s, "y/field"), ["revenue", "customers"], "a y reads numbers");
+
+        // Customers, not revenue: drawn otherwise.
+        let before = drawn(&mut s);
+        let customers = json!([{ "op": "choose", "node": "q3-chart", "prop": "y/field", "value": "customers", "state": "revenue" }]);
+        applied(&mut s, customers);
+        assert_eq!(field(&s, "y/field").value, Some(json!("customers")));
+        assert_ne!(drawn(&mut s), before);
+
+        // Another source, of other columns: the chart reads its segments and their sales, and
+        // its series, which that source has no column for, goes.
+        let source = json!([{ "op": "add", "path": "/data/segments", "value": {
+            "source": { "inline": [
+                { "segment": "Core", "sales": 30.1 },
+                { "segment": "Pro", "sales": 21.4 },
+                { "segment": "Enterprise", "sales": 15.2 },
+            ] },
+            "schema": { "segment": "string", "sales": "number" },
+        } }]);
+        applied(&mut s, source);
+        assert_eq!(words(&s, "data"), ["@q3", "@segments"]);
+        let segments =
+            json!([{ "op": "choose", "node": "q3-chart", "prop": "data", "value": "@segments", "state": "revenue" }]);
+        applied(&mut s, segments);
+        assert_eq!(
+            (field(&s, "x/field").value, field(&s, "y/field").value),
+            (Some(json!("segment")), Some(json!("sales")))
+        );
+        assert!(field(&s, "series/field").value.is_none());
+        assert_eq!(words(&s, "x/field"), ["segment", "sales"]);
+        drawn(&mut s);
+    }
+
     /// Every insert the torture deck's theme and bundle offer makes a patch the deck takes, one
     /// after another, in a state laid out by the theme's grid (PLAN 2.34): each node is valid
     /// as `add_node` adds it, and lands on the grid or fills its slot. Each is validated as
@@ -2448,6 +2516,8 @@ mod tests {
         let mut s = torture();
         let offered = s.inserts();
         assert!(offered.iter().any(|i| i.node["type"] == "image"), "the torture bundle's PNG is offered");
+        assert!(offered.iter().any(|i| i.node["type"] == "chart"), "a chart of a data source (PLAN 2.41)");
+        assert!(offered.iter().any(|i| i.node["type"] == "table"), "and a table");
         for (n, insert) in offered.iter().enumerate() {
             let added = s.inserting("axes", n, [700.0, 400.0]).unwrap_or_else(|e| panic!("{}: {e}", insert.label));
             let made = s.typed(&serde_json::json!(added.patch), None);

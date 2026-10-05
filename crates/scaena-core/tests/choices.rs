@@ -4,6 +4,7 @@
 
 use scaena_core::Deck;
 use scaena_core::choices::{Choices, Field, StateChoices, Takes, Where, characters, choices, state_choices};
+use scaena_core::data::Texts;
 use scaena_core::model::Theme;
 use scaena_core::model::theme::Vocabulary;
 use scaena_core::patch::compile;
@@ -28,7 +29,7 @@ impl BundleFiles for Examples {
 
 fn offered(doc: &Value, state: &str, node: &str) -> Choices {
     let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
-    choices(&deck, &Theme::from_json(DUSK).unwrap(), state, node).unwrap()
+    choices(&deck, &Theme::from_json(DUSK).unwrap(), state, node, &Texts(&Examples)).unwrap()
 }
 
 fn field<'a>(c: &'a Choices, prop: &str) -> &'a Field {
@@ -125,8 +126,148 @@ fn each_node_type_offers_what_its_theme_names() {
 
     // A node not on screen offers nothing: an inspector edits what the state shows.
     let deck: Deck = serde_json::from_value(example()).unwrap();
-    let e = choices(&deck, &Theme::from_json(DUSK).unwrap(), "intro", "rev").unwrap_err();
+    let e = choices(&deck, &Theme::from_json(DUSK).unwrap(), "intro", "rev", &Texts(&Examples)).unwrap_err();
     assert!(e.contains("not on screen in `intro`"), "{e}");
+}
+
+/// What a chart reads, and how, from its data (PLAN 2.41): its source, from the deck's; each
+/// channel's field, from the columns of the table it reads that the channel can read; the
+/// type it reads it as; and its key.
+#[test]
+fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
+    let rev = offered(&example(), "revenue", "rev");
+    let props: Vec<&str> = rev.fields.iter().map(|f| f.prop.as_str()).collect();
+    assert_eq!(
+        props,
+        [
+            "data",
+            "kind",
+            "x/field",
+            "x/type",
+            "y/field",
+            "y/type",
+            "series/field",
+            "color/field",
+            "sizeEncoding/field",
+            "key",
+            "labels/show",
+            "labels/role",
+            "opacity",
+            "enter",
+            "exit"
+        ]
+    );
+    let words = |prop: &str| match &field(&rev, prop).takes {
+        Takes::Word { words } => words.clone(),
+        takes => panic!("{prop}: {takes:?}"),
+    };
+    assert_eq!(words("data"), ["@q3"]);
+    assert_eq!(
+        (field(&rev, "data").value.clone(), field(&rev, "data").lives.clone()),
+        (Some(json!("@q3")), Some(Where::Node))
+    );
+    // An ordinal x reads any column; a quantitative y, and a size, the numbers.
+    assert_eq!(words("x/field"), ["quarter", "product", "revenue", "customers"]);
+    assert_eq!(words("y/field"), ["revenue", "customers"]);
+    assert_eq!(words("sizeEncoding/field"), ["revenue", "customers"]);
+    assert_eq!(words("x/type"), ["quantitative", "ordinal", "nominal", "temporal"]);
+    assert_eq!(words("key"), ["quarter", "product", "revenue", "customers"]);
+    assert_eq!(field(&rev, "y/field").value, Some(json!("revenue")));
+    assert_eq!(field(&rev, "sizeEncoding/field").value, None);
+
+    // A source not handed over offers no columns, and its source all the same.
+    let deck: Deck = serde_json::from_value(example()).unwrap();
+    let none = std::collections::BTreeMap::<String, Vec<u8>>::new();
+    let blind = choices(&deck, &Theme::from_json(DUSK).unwrap(), "revenue", "rev", &none).unwrap();
+    assert!(blind.fields.iter().any(|f| f.prop == "data"));
+    assert!(!blind.fields.iter().any(|f| f.prop.ends_with("/field") || f.prop == "key"));
+}
+
+/// The example, with a second source of other columns, inline: segments, not quarters.
+fn with_segments() -> Value {
+    let mut doc = example();
+    doc["data"]["segments"] = json!({
+        "source": { "inline": [
+            { "segment": "Core", "region": "West", "sales": 30.1, "accounts": 1600 },
+            { "segment": "Pro", "region": "West", "sales": 21.4, "accounts": 990 },
+        ] },
+        "schema": { "segment": "string", "region": "string", "sales": "number", "accounts": "number" },
+    });
+    doc
+}
+
+/// A source chosen (PLAN 2.41) is written where the chart's `data` lives, and what it cannot
+/// serve is pointed again there: an axis whose field it lacks reads a column it can that no
+/// other channel reads, of the type its field had where there is one, and a series or a color
+/// with none is taken away; with `fork`, all of it is the state's own, a data update.
+#[test]
+fn a_source_chosen_points_again_what_it_cannot_serve() {
+    let choose = |doc: &Value, state: &str, fork: bool| {
+        let ops = json!([{ "op": "choose", "node": "rev", "prop": "data", "value": "@segments", "state": state, "fork": fork }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).map(|c| c.doc)
+    };
+    let doc = choose(&with_segments(), "revenue", false).unwrap();
+    let rev = &doc["nodes"]["rev"];
+    assert_eq!(rev["data"], "@segments");
+    assert_eq!(rev["x"], json!({ "field": "segment", "type": "ordinal" }), "the first column x can read");
+    assert_eq!(rev["y"]["field"], "sales", "the first number");
+    assert!(rev.get("series").is_none() && rev.get("color").is_none(), "taken away: {rev}");
+    assert_eq!(rev["y"]["format"], "$,.1f", "what it reads by is kept");
+    let c = offered(&doc, "revenue", "rev");
+    assert_eq!(field(&c, "x/field").value, Some(json!("segment")));
+
+    // Kept to `mix`: a data update there, the node as it was.
+    let doc = choose(&with_segments(), "mix", true).unwrap();
+    assert_eq!(doc["nodes"]["rev"]["data"], "@q3");
+    let mix = &doc["states"][2]["props"]["rev"];
+    assert_eq!(mix["data"], "@segments", "{mix}");
+    assert_eq!((mix["x"]["field"].clone(), mix["y"]["field"].clone()), (json!("segment"), json!("sales")));
+    assert_eq!((mix["series"].clone(), mix["color"].clone()), (Value::Null, Value::Null), "taken away there");
+
+    // A source of the same columns changes the source alone.
+    let mut same = with_segments();
+    same["data"]["q4"] = same["data"]["q3"].clone();
+    let ops = json!([{ "op": "choose", "node": "rev", "prop": "data", "value": "@q4", "state": "revenue" }]);
+    let ours = compile(&same, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    let mut expected = same.clone();
+    expected["nodes"]["rev"]["data"] = json!("@q4");
+    assert_eq!(ours["nodes"], expected["nodes"]);
+
+    // An axis takes a column of the type its field had: a name for the quarters, a number for
+    // the revenue, wherever the source has them.
+    let mut first = with_segments();
+    first["data"]["numbers"] = json!({
+        "source": { "inline": [{ "sales": 30.1, "accounts": 1600, "region": "West" }] },
+        "schema": { "sales": "number", "accounts": "number", "region": "string" },
+    });
+    let ops = json!([{ "op": "choose", "node": "rev", "prop": "data", "value": "@numbers", "state": "revenue" }]);
+    let doc = compile(&first, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    let rev = &doc["nodes"]["rev"];
+    assert_eq!((rev["x"]["field"].clone(), rev["y"]["field"].clone()), (json!("region"), json!("sales")), "{rev}");
+
+    // A source with no column a `y` reads refuses, and says what it has.
+    let mut names = with_segments();
+    names["data"]["names"] = json!({ "source": { "inline": [{ "name": "Ada" }] } });
+    let ops = json!([{ "op": "choose", "node": "rev", "prop": "data", "value": "@names", "state": "revenue" }]);
+    let e = compile(&names, ops.as_array().unwrap(), &Examples).unwrap_err().to_string();
+    assert!(
+        e.contains("`@names` has no column the chart's `y` can read as quantitative") && e.contains("`name`"),
+        "{e}"
+    );
+    // One the deck does not declare says which it does.
+    let e = choose(&example(), "revenue", false).unwrap_err().to_string();
+    assert!(e.contains("no data source `@segments`; it has `@q3`"), "{e}");
+
+    // A table keeps the columns it lists that the source has, and shows every column where it
+    // has none of them; a key the source lacks goes.
+    let mut doc = with_segments();
+    doc["nodes"]["tbl"] = json!({
+        "type": "table", "data": "@q3", "key": "revenue",
+        "columns": [{ "field": "quarter" }, { "field": "revenue" }],
+    });
+    let ops = json!([{ "op": "choose", "node": "tbl", "prop": "data", "value": "@segments" }]);
+    let doc = compile(&doc, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(doc["nodes"]["tbl"], json!({ "type": "table", "data": "@segments" }));
 }
 
 #[test]
