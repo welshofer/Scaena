@@ -471,6 +471,13 @@ impl Session {
         Ok(self.at_rest(state)?.carets(node))
     }
 
+    /// What an inspector offers for `node` as `state` shows it (ADR-0013, PLAN 2.33): each
+    /// property it edits, with the theme's names for it or what the schema allows, the value
+    /// shown, and where that value lives, which is where a `choose` patch writes.
+    pub fn choices(&self, state: &str, node: &str) -> Result<scaena_core::choices::Choices, Error> {
+        scaena_core::choices::choices(&self.deck, &self.theme, state, node).map_err(Error::Ops)
+    }
+
     /// Text typed on the canvas (ADR-0013, PLAN 2.32): `ops` (a `replace_text`) made by
     /// `user` at `at` (seconds since the epoch), validated and refused as a patch is but not
     /// linted: the page lints the state it shows after, as it does after a keystroke in the
@@ -919,6 +926,12 @@ impl Player {
             })
             .collect();
         serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines })).map_err(js)
+    }
+
+    /// What an inspector offers for `node` as `state` shows it, as JSON (ADR-0013, PLAN 2.33):
+    /// `{ node, type, state, fields }`, as `scaena inspect --choices` says it.
+    pub fn choices(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
     }
 
     /// Make `ops` (JSON: a `replace_text`, typed on the canvas) as `user` at `at` (RFC 3339),

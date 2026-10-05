@@ -55,6 +55,70 @@ impl Theme {
     pub fn from_value(value: &serde_json::Value) -> Result<Theme, String> {
         Theme::from_json(&value.to_string()).map_err(crate::document::unplaced)
     }
+
+    /// The names this theme defines of one kind, in its order: what a deck may call them.
+    /// A color is a color role or a token, the roles first, a name both have once; a step of the space or radius
+    /// scale is `space.N` or `radius.N`; a data palette is `categorical`, then `sequential`
+    /// and `diverging` where the theme has them.
+    pub fn names(&self, of: Vocabulary) -> Vec<String> {
+        fn keys<V>(map: &IndexMap<String, V>) -> Vec<String> {
+            map.keys().cloned().collect()
+        }
+        fn steps(scale: Option<&Vec<NonNegative>>, token: &str) -> Vec<String> {
+            (0..scale.map_or(0, Vec::len)).map(|i| format!("{token}.{i}")).collect()
+        }
+        let shaders = self.shaders.as_ref();
+        match of {
+            Vocabulary::TextRole => keys(&self.typography.roles),
+            Vocabulary::FontFamily => keys(&self.typography.families),
+            Vocabulary::Color => {
+                let mut names = keys(&self.tokens.roles);
+                names.extend(self.tokens.color.keys().filter(|k| !self.tokens.roles.contains_key(*k)).cloned());
+                names
+            }
+            Vocabulary::Layout => keys(&self.layouts),
+            Vocabulary::MotionPreset => keys(&self.motion.presets),
+            Vocabulary::Duration => keys(&self.motion.durations),
+            Vocabulary::Easing => keys(&self.motion.easings),
+            Vocabulary::Spring => keys(&self.motion.springs),
+            Vocabulary::ShaderPreset => shaders.and_then(|s| s.presets.as_ref()).map(keys).unwrap_or_default(),
+            Vocabulary::ShaderPalette => shaders.and_then(|s| s.palettes.as_ref()).map(keys).unwrap_or_default(),
+            Vocabulary::DataPalette => {
+                let data = &self.tokens.data;
+                let more = [("sequential", data.sequential.is_some()), ("diverging", data.diverging.is_some())];
+                let more = more.into_iter().filter(|(_, has)| *has).map(|(name, _)| name);
+                ["categorical"].into_iter().chain(more).map(String::from).collect()
+            }
+            Vocabulary::Stroke => self.tokens.stroke.as_ref().map(keys).unwrap_or_default(),
+            Vocabulary::Radius => steps(self.tokens.radius.as_ref().and_then(|r| r.scale.as_ref()), "radius"),
+            Vocabulary::Space => steps(Some(&self.tokens.space.scale), "space"),
+        }
+    }
+}
+
+/// A kind of name a theme defines, which a deck calls it by (SPEC §3.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Vocabulary {
+    TextRole,
+    FontFamily,
+    /// A color role or a color token.
+    Color,
+    Layout,
+    MotionPreset,
+    Duration,
+    Easing,
+    Spring,
+    ShaderPreset,
+    ShaderPalette,
+    /// A chart's color scale.
+    DataPalette,
+    /// A stroke token: a width.
+    Stroke,
+    /// A step of the radius scale.
+    Radius,
+    /// A step of the space scale.
+    Space,
 }
 
 /// `#rrggbb[aa]`, `oklch(...)`, or `oklab(...)`.

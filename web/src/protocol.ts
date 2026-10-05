@@ -94,6 +94,40 @@ export interface CaretLine {
   chars: [number, number, number][];
 }
 
+/** What an inspector offers for a node as a state shows it (ADR-0013, PLAN 2.33), as `scaena
+ * inspect --choices` says it. */
+export interface Choices {
+  node: string;
+  type: string;
+  state: string;
+  /** Each property the inspector edits: the node type's own, then those every node has. */
+  fields: Field[];
+}
+
+/** One property an inspector edits. */
+export interface Field {
+  /** A property, or one key of an object property (`style/color`): what `choose` names. */
+  prop: string;
+  takes: Takes;
+  /** The value the state shows, as the deck sets it; absent where the theme's shows. */
+  value?: unknown;
+  /** Where that value lives: where a choice is written. */
+  lives?: Lives;
+  /** The value is written out where the theme has names: an override, or lint W300's. */
+  literal?: boolean;
+}
+
+/** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
+ * out, which is an override), one of some words, a number in range, or yes or no. */
+export type Takes =
+  | { kind: "name"; of: string; names: string[]; overrides?: boolean }
+  | { kind: "word"; words: string[] }
+  | { kind: "number"; min?: number; above?: number; max?: number; whole?: boolean; overrides?: boolean }
+  | { kind: "flag" };
+
+/** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
+export type Lives = "overrides" | "node" | { state: string };
+
 /** How a box dropped by a drag snaps (`scaena inspect --snap`): moved as many cells as it spans,
  * resized to the nearest tracks, into the slot or area it covers most, where it was dropped as a
  * `rect`, or among a stack's children. */
@@ -188,10 +222,12 @@ export type ToWorker =
     }
   /** A drag is over, and changes nothing: `state` painted at rest as it stands. */
   | { type: "rest"; id: number; state: string; format?: string }
-  /** Make `ops`, the patch a gesture on the canvas ends in, by the user, on the deck the editor's
-   * `source` compiles to (ADR-0013); then the deck's source, compiled, shown at slot `index`, and
-   * linted, as an edit of it is. */
-  | { type: "place"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** Make `ops`, the patch a gesture on the canvas or a choice in the inspector ends in, by the
+   * user, on the deck the editor's `source` compiles to (ADR-0013); then the deck's source,
+   * compiled, shown at slot `index`, and linted, as an edit of it is. */
+  | { type: "make"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
+  | { type: "choices"; id: number; state: string; node: string }
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
@@ -426,7 +462,8 @@ export type FromWorker =
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
   /** The patch is made: the deck's source now, and what the edit came to. */
-  | { type: "placed"; id: number; source: string; edited: Edited }
+  | { type: "made"; id: number; source: string; edited: Edited }
+  | { type: "choices"; id: number; choices: Choices }
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "reached"; id: number; states: string[] }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */

@@ -405,7 +405,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     const op = ops[0] as { node?: string; at?: Placement } | undefined;
     editor.say("placing…");
     try {
-      const { source, edited } = await stage.place(editor.source(), ops, shown.index, editor.format());
+      const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
       editor.apply(source, edited);
       await refresh();
       editor.say(`${op?.node} placed: ${placed(op?.at ?? {}, aim?.by)}`);

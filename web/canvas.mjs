@@ -88,7 +88,7 @@ try {
     const at = (await source(page)).indexOf(`state ${state}`) + "state ".length;
     await page.evaluate((offset) => window.scaena.cursor(offset), at);
     await page.waitForFunction((i) => window.scaena.shown() === i && window.scaena.at().index === i, index, { timeout: 30000 });
-    await page.waitForFunction((s) => document.querySelector("#inspector h2")?.textContent.startsWith(s), state, { timeout: 30000 });
+    await page.waitForFunction((s) => document.querySelector("#listing h2")?.textContent.startsWith(s), state, { timeout: 30000 });
     await page.waitForFunction(() => window.scaena.canvas.boxes().length > 0, null, { timeout: 30000 });
   };
   /** Press at `from`, move past the slop and on to `to` with `keys` held, and wait until the

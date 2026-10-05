@@ -91,6 +91,11 @@
         "description": "With `snap`: the patch keeps the placement to the state inspected, written into its\nown props wherever it lives now (`place`'s `fork`).",
         "type": "boolean",
         "default": false
+      },
+      "choices": {
+        "description": "A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each\nproperty it edits, with the theme's names for it or what the schema allows, the value\nthe state shows, and where that value lives, which is where `choose` writes.",
+        "type": ["string", "null"],
+        "default": null
       }
     },
     "additionalProperties": false
@@ -153,6 +158,10 @@
           "snapped": {
             "description": "Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.",
             "anyOf": [{ "$ref": "#/$defs/Snapped" }, { "type": "null" }]
+          },
+          "choices": {
+            "description": "What an inspector offers for the node asked about (`choices`).",
+            "anyOf": [{ "$ref": "#/$defs/Choices" }, { "type": "null" }]
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -452,6 +461,135 @@
           }
         },
         "required": ["cell", "patch"]
+      },
+      "Choices": {
+        "description": "What an inspector offers for one node as one state shows it.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "state": { "type": "string" },
+          "fields": {
+            "description": "Each property the inspector edits: the node type's own, then those every node has.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Field" }
+          }
+        },
+        "required": ["node", "type", "state", "fields"]
+      },
+      "NodeType": {
+        "description": "Node types (SPEC §3.3).",
+        "type": "string",
+        "enum": ["text", "shape", "image", "chart", "table", "shader", "stack", "grid", "frame", "group"]
+      },
+      "Field": {
+        "description": "One property an inspector edits.",
+        "type": "object",
+        "properties": {
+          "prop": {
+            "description": "A property, or one key of an object property (`style/color`): what `choose` names.",
+            "type": "string"
+          },
+          "takes": { "description": "What it takes.", "$ref": "#/$defs/Takes" },
+          "value": {
+            "description": "The value the state shows, as the deck sets it: tracked (SPEC §2.2), then the deck's\n`overrides`. Absent where nothing sets it, and the theme's shows."
+          },
+          "lives": {
+            "description": "Where that value lives: where a choice is written.",
+            "anyOf": [{ "$ref": "#/$defs/Where" }, { "type": "null" }]
+          },
+          "literal": {
+            "description": "The value is written out where the theme has names: an override in the deck's\n`overrides`, lint W300's anywhere else.",
+            "type": "boolean"
+          }
+        },
+        "required": ["prop", "takes"]
+      },
+      "Takes": {
+        "description": "What a property takes.",
+        "oneOf": [
+          {
+            "description": "One of the theme's names of a kind (`of`), in its order. With `overrides`, a value\nwritten out too (a color, a length in canvas units), which goes in the deck's\n`overrides`.",
+            "type": "object",
+            "properties": {
+              "of": { "$ref": "#/$defs/Vocabulary" },
+              "names": { "type": "array", "items": { "type": "string" } },
+              "overrides": { "type": "boolean" },
+              "kind": { "type": "string", "const": "name" }
+            },
+            "required": ["kind", "of", "names"]
+          },
+          {
+            "description": "One of these words.",
+            "type": "object",
+            "properties": {
+              "words": { "type": "array", "items": { "type": "string" } },
+              "kind": { "type": "string", "const": "word" }
+            },
+            "required": ["kind", "words"]
+          },
+          {
+            "description": "A number: at least `min`, or more than `above`; at most `max`; whole with `whole`.\nWith `overrides`, every value is written out (a text size), and goes in the deck's\n`overrides`.",
+            "type": "object",
+            "properties": {
+              "min": { "type": ["number", "null"] },
+              "above": { "type": ["number", "null"] },
+              "max": { "type": ["number", "null"] },
+              "whole": { "type": "boolean" },
+              "overrides": { "type": "boolean" },
+              "kind": { "type": "string", "const": "number" }
+            },
+            "required": ["kind"]
+          },
+          {
+            "description": "Yes or no.",
+            "type": "object",
+            "properties": { "kind": { "type": "string", "const": "flag" } },
+            "required": ["kind"]
+          }
+        ]
+      },
+      "Vocabulary": {
+        "description": "A kind of name a theme defines, which a deck calls it by (SPEC §3.6).",
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "text-role",
+              "font-family",
+              "layout",
+              "motion-preset",
+              "duration",
+              "easing",
+              "spring",
+              "shader-preset",
+              "shader-palette"
+            ]
+          },
+          { "description": "A color role or a color token.", "type": "string", "const": "color" },
+          { "description": "A chart's color scale.", "type": "string", "const": "data-palette" },
+          { "description": "A stroke token: a width.", "type": "string", "const": "stroke" },
+          { "description": "A step of the radius scale.", "type": "string", "const": "radius" },
+          { "description": "A step of the space scale.", "type": "string", "const": "space" }
+        ]
+      },
+      "Where": {
+        "description": "Where a value a state shows lives.",
+        "oneOf": [
+          {
+            "description": "The deck's `overrides`, in every state: an override.",
+            "type": "string",
+            "const": "overrides"
+          },
+          {
+            "description": "A state's delta, by the state's id: the state shown, or one it tracks from.",
+            "type": "object",
+            "properties": { "state": { "type": "string" } },
+            "required": ["state"],
+            "additionalProperties": false
+          },
+          { "description": "The node's own properties.", "type": "string", "const": "node" }
+        ]
       }
     },
     "type": "object",

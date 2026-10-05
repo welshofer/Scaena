@@ -22,6 +22,7 @@ import type {
   Targets,
   ToWorker,
   Carets,
+  Choices,
 } from "./protocol";
 
 type Reply = Extract<
@@ -46,7 +47,8 @@ type Reply = Extract<
       | "hits"
       | "targets"
       | "dragged"
-      | "placed"
+      | "made"
+      | "choices"
       | "carets"
       | "reached"
       | "typed";
@@ -228,8 +230,8 @@ export class Stage {
 
   /** Make `ops` by the user on the deck `source` compiles to, and show slot `index` from it: the
    * deck's source after, and what the edit came to. */
-  place(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
-    return this.request<"placed">({ type: "place", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
+  make(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
+    return this.request<"made">({ type: "make", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
@@ -242,6 +244,12 @@ export class Stage {
    * `null` for a node that is no text. */
   carets(source: string, state: string, node: string, format?: string): Promise<Carets | null> {
     return this.request<"carets">({ type: "carets", id: ++this.asked, source, state, node, format }).then(({ carets }) => carets);
+  }
+
+  /** What an inspector offers for `node` as `state` shows it (PLAN 2.33): each property it edits,
+   * the value shown and where it lives, and the theme's names for it. */
+  choices(state: string, node: string): Promise<Choices> {
+    return this.request<"choices">({ type: "choices", id: ++this.asked, state, node }).then(({ choices }) => choices);
   }
 
   /** The states `ops` (a patch) would change, by id, with nothing made. */
@@ -383,7 +391,8 @@ export class Stage {
       case "hits":
       case "targets":
       case "dragged":
-      case "placed":
+      case "made":
+      case "choices":
       case "carets":
       case "reached":
       case "typed":

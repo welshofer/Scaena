@@ -68,6 +68,7 @@ Errors:
    - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result is the patch as JSON Patch and what lint finds differently (`added`, `removed`).
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
+     - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.
      - `show_node` and `hide_node` make a node enter or leave.
      - `add_state` with `beat` adds a build to its beat.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.

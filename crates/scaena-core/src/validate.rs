@@ -10,7 +10,7 @@ use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
 use crate::model::check::{Checker, Kind, Violation};
-use crate::model::theme::Grid;
+use crate::model::theme::{Grid, Vocabulary};
 use crate::model::values::{Annotation, Duration, Easing, Range};
 use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
@@ -494,27 +494,21 @@ impl LoadedTheme {
     /// What the theme has of the kind `what` names, for a finding about a name it lacks:
     /// `, which has a, b, c`, or `, which has none`. Long lists end in their count.
     fn has(&self, what: &str) -> String {
-        fn listed<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<&'a str> {
-            keys.map(String::as_str).collect()
-        }
-        let t = &self.theme;
-        let shaders = t.shaders.as_ref();
-        let names: Vec<&str> = match what {
-            "text role" => listed(t.typography.roles.keys()),
-            "layout" => listed(t.layouts.keys()),
-            "font family" => listed(t.typography.families.keys()),
-            "color" => listed(t.tokens.roles.keys().chain(t.tokens.color.keys())),
-            "shader palette" => listed(shaders.and_then(|s| s.palettes.as_ref()).into_iter().flat_map(|p| p.keys())),
-            "shader preset" => listed(shaders.and_then(|s| s.presets.as_ref()).into_iter().flat_map(|p| p.keys())),
-            "data palette" => {
-                ["categorical", "sequential", "diverging"].into_iter().filter(|p| self.data_palette(p)).collect()
-            }
-            "motion preset" => listed(t.motion.presets.keys()),
-            "duration" => listed(t.motion.durations.keys()),
-            "easing" => listed(t.motion.easings.keys()),
-            "spring" => listed(t.motion.springs.keys()),
+        let of = match what {
+            "text role" => Vocabulary::TextRole,
+            "layout" => Vocabulary::Layout,
+            "font family" => Vocabulary::FontFamily,
+            "color" => Vocabulary::Color,
+            "shader palette" => Vocabulary::ShaderPalette,
+            "shader preset" => Vocabulary::ShaderPreset,
+            "data palette" => Vocabulary::DataPalette,
+            "motion preset" => Vocabulary::MotionPreset,
+            "duration" => Vocabulary::Duration,
+            "easing" => Vocabulary::Easing,
+            "spring" => Vocabulary::Spring,
             _ => return String::new(),
         };
+        let names = self.theme.names(of);
         const SHOWN: usize = 24;
         match names.len() {
             0 => ", which has none".into(),

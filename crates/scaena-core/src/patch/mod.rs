@@ -240,6 +240,30 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
     },
+    /// One property of a node (`prop`: a property, or one key of an object property,
+    /// `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the
+    /// property lives. A value written out where the theme has names (a color, a text size, a
+    /// length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it
+    /// is legal, and so does any value where the overrides set the property, since they win
+    /// in every state. Else it goes in the latest delta that sets it, from `state` back along
+    /// what it tracks, else in the node's own; without `state`, in the node's own. `null`
+    /// takes it away where it lives, so what is under it shows.
+    Choose {
+        #[schemars(with = "Id")]
+        node: String,
+        #[schemars(regex(pattern = r"^[^/]+(/[^/]+)?$"))]
+        prop: String,
+        value: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever it lives now: it shows there, and in
+        /// the states that track it as they take the rest of its props, and the others show
+        /// what they did. Refused for a value that goes in the deck's `overrides`, which hold
+        /// in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data
     /// update, morphed by key) or in its defaults. `source` declares it, or replaces it if
     /// the deck has it.
@@ -329,6 +353,7 @@ impl SemanticOp {
             SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
             SemanticOp::ReplaceText { .. } => "replace_text",
+            SemanticOp::Choose { .. } => "choose",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
             SemanticOp::AddState { .. } => "add_state",

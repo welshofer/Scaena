@@ -97,6 +97,11 @@ enum Cmd {
         /// wherever it lives now (`place`'s `fork`).
         #[arg(long, requires = "snap")]
         fork: bool,
+        /// What an inspector offers for NODE in the state (ADR-0013): each property it
+        /// edits, the value shown and where it lives, and the theme's names for it. Needs
+        /// `--state`.
+        #[arg(long, value_name = "NODE", requires = "state")]
+        choices: Option<String>,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -373,8 +378,22 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format, targets, snap, to, fork } => {
-            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork };
+        Cmd::Inspect {
+            bundle,
+            state,
+            resolved,
+            timeline,
+            data,
+            boxes,
+            at,
+            format,
+            targets,
+            snap,
+            to,
+            fork,
+            choices,
+        } => {
+            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork, choices };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
@@ -839,8 +858,62 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
                 false => println!("    patch: {}", serde_json::to_string(&snapped.patch)?),
             }
         }
+        if let Some(c) = &i.choices {
+            print_choices(c);
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `inspect --choices`, for a person: each property an inspector edits, the value the state
+/// shows and where it lives, and what it takes.
+fn print_choices(c: &scaena_core::choices::Choices) {
+    use scaena_core::choices::{Takes, Where};
+    let kind = serde_json::to_value(c.node_type).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    println!("  choices for {} ({kind}):", c.node);
+    for f in &c.fields {
+        let shown = match (&f.value, &f.lives) {
+            (Some(v), Some(lives)) => {
+                let v = v.as_str().map_or_else(|| v.to_string(), String::from);
+                let at = match lives {
+                    Where::Overrides => "the deck's overrides, an override".to_string(),
+                    Where::State(state) => format!("{state}'s delta"),
+                    Where::Node => "the node".to_string(),
+                };
+                let written = if f.literal && *lives != Where::Overrides { ", written out (W300)" } else { "" };
+                format!("{v}, in {at}{written}")
+            }
+            _ => "the theme's".to_string(),
+        };
+        let takes = match &f.takes {
+            Takes::Name { names, overrides, .. } => {
+                const SHOWN: usize = 8;
+                let more = names.len().saturating_sub(SHOWN);
+                let mut said = names.iter().take(SHOWN).cloned().collect::<Vec<_>>().join(", ");
+                if more > 0 {
+                    said += &format!(", … ({} in all)", names.len());
+                }
+                if *overrides {
+                    said += ", or a value written out, an override";
+                }
+                said
+            }
+            Takes::Word { words } => words.join(", "),
+            Takes::Number { min, above, max, whole, overrides } => {
+                let what = if *whole { "a whole number" } else { "a number" };
+                let from = match (min, above) {
+                    (Some(min), _) => format!(" from {}", num(*min)),
+                    (_, Some(above)) => format!(" above {}", num(*above)),
+                    _ => String::new(),
+                };
+                let to = max.map(|m| format!(" to {}", num(m))).unwrap_or_default();
+                let over = if *overrides { ", an override" } else { "" };
+                format!("{what}{from}{to}{over}")
+            }
+            Takes::Flag => "yes or no".to_string(),
+        };
+        println!("    {:<14} {shown} · {takes}", f.prop);
+    }
 }
 
 /// `inspect --targets`, for a person: what holds the node, its cell, and what a drag snaps
