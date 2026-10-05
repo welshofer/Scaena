@@ -276,36 +276,42 @@ impl Targets {
                 one(spot, [self.within[0] + x, self.within[1] + y, w, h])
             }
             (Snap::Order, By::Stack { across, .. }) => {
-                let ends = |r: &Rect| if *across { (r[0], r[0] + r[2]) } else { (r[1], r[1] + r[3]) };
-                let middle = |r: &Rect| {
-                    let (a, b) = ends(r);
-                    (a + b) / 2.0
-                };
-                let others: Vec<&(String, Rect, u32)> = self.flow.iter().filter(|(id, ..)| *id != self.node).collect();
-                let k = others.iter().filter(|(_, r, _)| middle(r) < middle(&cell)).count();
-                let mut order: Vec<&str> = others.iter().map(|(id, ..)| id.as_str()).collect();
-                order.insert(k, &self.node);
-                let now: Vec<&str> = self.flow.iter().map(|(id, ..)| id.as_str()).collect();
-                let spots = if order == now {
-                    Vec::new()
-                } else {
-                    let index = |id: &str| self.flow.iter().find(|(f, ..)| f == id).map_or(0, |(.., i)| *i);
-                    let moved = order.iter().enumerate().filter(|&(n, id)| index(id) != n as u32);
-                    moved.map(|(n, id)| (id.to_string(), Spot { index: Some(n as u32), ..Spot::default() })).collect()
-                };
-                // The guide: a line across the stack where the node goes.
-                let at = match (k.checked_sub(1).map(|i| &others[i].1), others.get(k).map(|o| &o.1)) {
-                    (Some(before), Some(after)) => (ends(before).1 + ends(after).0) / 2.0,
-                    (Some(before), None) => ends(before).1,
-                    (None, Some(after)) => ends(after).0,
-                    (None, None) => ends(&self.cell).0,
-                };
-                let w = self.within;
-                let line = if *across { [at, w[1], 0.0, w[3]] } else { [w[0], at, w[2], 0.0] };
-                Some(Target { cell: line, spots })
+                let middle = |r: &Rect| if *across { r[0] + r[2] / 2.0 } else { r[1] + r[3] / 2.0 };
+                let others = self.flow.iter().filter(|(id, ..)| *id != self.node);
+                self.ordered(others.filter(|(_, r, _)| middle(r) < middle(&cell)).count())
             }
             _ => None,
         }
+    }
+
+    /// The node `k`th among the other children of its stack, in the order the stack lays
+    /// them out (PLAN 2.50): each child whose `at.index` that changes, renumbered from 0, and
+    /// the guide, a line across the stack where the node goes. `None` outside a stack.
+    pub fn ordered(&self, k: usize) -> Option<Target> {
+        let By::Stack { across, .. } = &self.by else { return None };
+        let ends = |r: &Rect| if *across { (r[0], r[0] + r[2]) } else { (r[1], r[1] + r[3]) };
+        let others: Vec<&(String, Rect, u32)> = self.flow.iter().filter(|(id, ..)| *id != self.node).collect();
+        let k = k.min(others.len());
+        let mut order: Vec<&str> = others.iter().map(|(id, ..)| id.as_str()).collect();
+        order.insert(k, &self.node);
+        let now: Vec<&str> = self.flow.iter().map(|(id, ..)| id.as_str()).collect();
+        let spots = if order == now {
+            Vec::new()
+        } else {
+            let index = |id: &str| self.flow.iter().find(|(f, ..)| f == id).map_or(0, |(.., i)| *i);
+            let moved = order.iter().enumerate().filter(|&(n, id)| index(id) != n as u32);
+            moved.map(|(n, id)| (id.to_string(), Spot { index: Some(n as u32), ..Spot::default() })).collect()
+        };
+        // The guide: a line across the stack where the node goes.
+        let at = match (k.checked_sub(1).map(|i| &others[i].1), others.get(k).map(|o| &o.1)) {
+            (Some(before), Some(after)) => (ends(before).1 + ends(after).0) / 2.0,
+            (Some(before), None) => ends(before).1,
+            (None, Some(after)) => ends(after).0,
+            (None, None) => ends(&self.cell).0,
+        };
+        let w = self.within;
+        let line = if *across { [at, w[1], 0.0, w[3]] } else { [w[0], at, w[2], 0.0] };
+        Some(Target { cell: line, spots })
     }
 }
 

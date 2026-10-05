@@ -177,6 +177,10 @@ struct DeckInspect {
     #[serde(default)]
     order: Option<scaena_ops::arrange::Order>,
     #[serde(default)]
+    before: Option<String>,
+    #[serde(default)]
+    after: Option<String>,
+    #[serde(default)]
     by: Option<[f32; 2]>,
     #[serde(default)]
     free: bool,
@@ -316,6 +320,8 @@ impl Session {
                     align: a.align,
                     spread: a.spread,
                     order: a.order,
+                    before: a.before,
+                    after: a.after,
                     by: a.by,
                     free: a.free,
                     choices: a.choices,

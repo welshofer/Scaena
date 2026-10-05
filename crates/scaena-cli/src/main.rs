@@ -115,6 +115,15 @@ enum Cmd {
         /// forward or backward past the next each overlaps, or to the front or the back.
         #[arg(long, value_name = "HOW", requires = "arrange")]
         order: Option<Order>,
+        /// The node `--arrange` names, listed just before NODE, another child of its container,
+        /// as `--layers` lists them (PLAN 2.50): painted just over it, or, in a stack, laid out
+        /// just before it.
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        before: Option<String>,
+        /// The node `--arrange` names, listed just after NODE: painted just under it, or, in a
+        /// stack, laid out just after it.
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        after: Option<String>,
         /// Move the nodes `--arrange` names together `DX,DY` canvas units: the first snapped
         /// as a drag of it snaps, the rest as far as it went.
         #[arg(long, value_name = "DX,DY", value_parser = point, requires = "arrange", allow_hyphen_values = true)]
@@ -457,6 +466,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             align,
             spread,
             order,
+            before,
+            after,
             by,
             free,
             choices,
@@ -479,6 +490,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 align,
                 spread,
                 order,
+                before,
+                after,
                 by,
                 free,
                 choices,

@@ -128,6 +128,16 @@
         "anyOf": [{ "$ref": "#/$defs/Order" }, { "type": "null" }],
         "default": null
       },
+      "before": {
+        "description": "With `arrange`, one node: listed just before this other child of its container, as\n`layers` lists them (PLAN 2.50): painted just over it, by the `z` that does it, or, in a\nstack, laid out just before it.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "after": {
+        "description": "With `arrange`, one node: listed just after this other child of its container: painted\njust under it, or, in a stack, laid out just after it.",
+        "type": ["string", "null"],
+        "default": null
+      },
       "by": {
         "description": "With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of\nit snaps, the rest as far as it went, each its own way.",
         "type": ["array", "null"],

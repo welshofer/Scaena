@@ -2287,6 +2287,39 @@ mod tests {
         assert!(e.contains("the stack `stats`"), "{e}");
     }
 
+    /// A node listed before or after another of its container's children (PLAN 2.50), as the
+    /// layers panel drops it: by `z` in a frame, by the order it lays them out in a stack. Each
+    /// patch made, the layers list it there.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_node_listed_before_another_goes_there_in_the_layers() {
+        use scaena_ops::arrange::How;
+        let mut s = torture();
+        let next = |to: &str, after: bool| How::Next { to: to.into(), after };
+        let held = |s: &Session, node: &str| {
+            let layers = s.layers("containers").unwrap();
+            let layer = layers.iter().find(|l| l.node == node).unwrap().clone();
+            layer.children.into_iter().map(|l| l.node).collect::<Vec<_>>()
+        };
+        let by = || assistant::Caller { author: "user", at: None };
+        assert_eq!(held(&s, "card"), ["card-tag-label", "card-tag", "card-photo"]);
+        // A frame's, by `z`: the photo goes over the tag's label.
+        let over =
+            s.arranging("containers", &["card-photo".into()], next("card-tag-label", false), false).unwrap().unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": over.patch }), by()).unwrap();
+        assert_eq!(held(&s, "card"), ["card-photo", "card-tag-label", "card-tag"]);
+        // A stack's, by its order: the last stat goes first.
+        let first = s.arranging("containers", &["stat-c".into()], next("stat-a", false), false).unwrap().unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": first.patch }), by()).unwrap();
+        assert_eq!(held(&s, "stats"), ["stat-c", "stat-a", "stat-b"]);
+        // Where it is already, nothing to make.
+        let there = s.arranging("containers", &["stat-a".into()], next("stat-c", true), false).unwrap().unwrap();
+        assert!(there.patch.is_empty(), "{:?}", there.patch);
+        // Into another container, refused with why: that is a move (`place` with `parent`).
+        let e = s.arranging("containers", &["stat-a".into()], next("card-tag", false), false).unwrap_err().to_string();
+        assert!(e.contains("is not held by what holds `stat-a`"), "{e}");
+    }
+
     /// Text on the canvas (ADR-0013, PLAN 2.32): where a caret stands in a text, from the
     /// layout the frames at rest draw; and typing, a `replace_text` written where the text
     /// lives, which the next frame shows. A keystroke the deck cannot take says why.

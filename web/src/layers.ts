@@ -8,7 +8,11 @@
 //   `hide_node`): one patch, one step to undo.
 // - A double click on a name, or F2, renames the node everywhere (`rename_node`): Enter renames,
 //   Escape leaves it.
-import type { Edited, Layer } from "./protocol";
+// - A node shown, dragged to another place among what holds it, or moved with Alt and an arrow
+//   key, goes there: before or after the one it is dropped on, by which half of it the pointer
+//   is over. It goes over or under it by `z`, or, in a stack, before or after it in its order
+//   (`Player.arranging`): one patch.
+import type { Arrange, Edited, Layer } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the panel asks of the editor around it. */
@@ -74,7 +78,7 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
       const eye = l.shown ? `Hide ${l.node} in ${shown!.state}` : `Show ${l.node} in ${shown!.state}`;
       const held = (l.children ?? []).map((c) => row(c, depth + 1)).join("");
       return `<li data-layer="${html(l.node)}" class="${l.shown ? "shown" : "hidden"}"${on ? ' aria-current="true"' : ""}>
-        <div class="row" style="padding-left:${depth * 14}px">
+        <div class="row" style="padding-left:${depth * 14}px"${l.shown ? ' draggable="true"' : ""}>
           <button type="button" class="eye" data-eye aria-pressed="${l.shown}" aria-label="${html(eye)}" title="${html(eye)}">${l.shown ? "◉" : "○"}</button>
           <button type="button" class="name" data-pick title="${html(l.shown ? `Select ${l.node} (double click or F2 renames it)` : `${l.node} is not shown in ${shown!.state} (double click or F2 renames it)`)}">${html(l.node)}</button>
           <span class="kind">${html(l.type)}</span>
@@ -84,14 +88,17 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (focused !== undefined) list.querySelector<HTMLElement>(`[data-layer="${CSS.escape(focused)}"] [data-pick]`)?.focus();
   }
 
-  /** Make `ops` on the source as it stands: one change to undo, then say `done`. */
-  function make(ops: unknown[], doing: string, done: string) {
+  /** Make `ops`, or what `ask` gives, on the source as it stands: one change to undo, then say
+   * `done`. Nothing to make says `none`. */
+  function make(ops: unknown[] | (() => Promise<unknown[]>), doing: string, done: string, none = done) {
     const run = async () => {
       const now = editor.shown();
       if (!now) return editor.say("the layers wait for a source that compiles");
       editor.say(doing);
       try {
-        const { source, edited } = await stage.make(editor.source(), ops, now.index, editor.format());
+        const patch = typeof ops === "function" ? await ops() : ops;
+        if (!patch.length) return editor.say(none);
+        const { source, edited } = await stage.make(editor.source(), patch, now.index, editor.format());
         editor.apply(source, edited);
         editor.say(done);
       } catch (e) {
@@ -100,6 +107,24 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     };
     making = making.then(run, run);
     return making;
+  }
+
+  /** `node`, listed just before or after another child of what holds it: one patch. */
+  function restack(node: string, how: { before: string } | { after: string }) {
+    const state = shown?.state;
+    if (!state) return;
+    const [where, to] = "before" in how ? ["before", how.before] : ["after", how.after];
+    const ask = async () => (await stage.arranging(state, [node], how as Arrange, false, editor.format()))?.patch ?? [];
+    return make(ask, `moving ${node}…`, `${node} moved ${where} ${to}`, `${node} is ${where} ${to} already`);
+  }
+
+  /** The children shown of what holds `node`, as listed, and where `node` is among them. */
+  function siblings(node: string): { all: string[]; at: number } {
+    const li = list.querySelector<HTMLElement>(`li[data-layer="${CSS.escape(node)}"]`);
+    const all = [...(li?.parentElement?.children ?? [])]
+      .filter((c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("shown"))
+      .map((c) => c.dataset.layer!);
+    return { all, at: all.indexOf(node) };
   }
 
   /** Show `node` in the state shown, or hide it there, with what it holds. */
@@ -159,7 +184,62 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     if (e.key === "F2") {
       e.preventDefault();
       rename(node);
+    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      const { all, at } = siblings(node);
+      if (at < 0) return;
+      const up = e.key === "ArrowUp";
+      const to = all[up ? at - 1 : at + 1];
+      if (to === undefined) return editor.say(`${node} is ${up ? "first" : "last"} among what holds it`);
+      void restack(node, up ? { before: to } : { after: to });
     }
+  };
+
+  // A node shown dragged among the others its container holds: it drops before or after the one
+  // under the pointer, by which half the pointer is over.
+  let dragging: string | undefined;
+  const rowOf = (e: DragEvent) => (e.target as Element).closest<HTMLElement>("li[data-layer]");
+  const holderOf = (li: HTMLElement) => li.parentElement?.closest<HTMLElement>("li[data-layer]")?.dataset.layer ?? "";
+  const half = (e: DragEvent, li: HTMLElement) => {
+    const r = li.querySelector(".row")!.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2 ? "before" : "after";
+  };
+  const unmark = () => list.querySelectorAll(".drop-before, .drop-after").forEach((li) => li.classList.remove("drop-before", "drop-after"));
+  /** The row the dragged node may drop beside: shown, another child of what holds it. */
+  const target = (e: DragEvent) => {
+    const li = rowOf(e);
+    const from = dragging === undefined ? undefined : list.querySelector<HTMLElement>(`li[data-layer="${CSS.escape(dragging)}"]`);
+    if (!li || !from || li === from || !li.classList.contains("shown") || holderOf(li) !== holderOf(from)) return undefined;
+    return li;
+  };
+  list.ondragstart = (e) => {
+    const li = rowOf(e);
+    if (!li || !e.dataTransfer || !li.classList.contains("shown")) return;
+    dragging = li.dataset.layer;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragging!);
+  };
+  list.ondragover = (e) => {
+    const li = target(e);
+    unmark();
+    if (!li) return;
+    e.preventDefault();
+    li.classList.add(`drop-${half(e, li)}`);
+  };
+  list.ondragleave = () => unmark();
+  list.ondrop = (e) => {
+    const li = target(e);
+    const node = dragging;
+    unmark();
+    dragging = undefined;
+    if (!li || node === undefined) return;
+    e.preventDefault();
+    const to = li.dataset.layer!;
+    void restack(node, half(e, li) === "before" ? { before: to } : { after: to });
+  };
+  list.ondragend = () => {
+    dragging = undefined;
+    unmark();
   };
 
   return {
@@ -183,5 +263,6 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
     settled: () => making,
     toggle,
     rename,
+    restack,
   };
 }

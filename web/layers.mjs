@@ -13,6 +13,8 @@
 //   (`show_node`). The eye shows the background too; the subtitle, whose slot `figure` lacks, the
 //   deck refuses, and the status says why.
 // - A double click on a name renames the node everywhere (`rename_node`), and Escape leaves it.
+// - A node dragged before another of what holds it goes over it, by `z`, and Alt with an arrow key
+//   moves the node focused one place (PLAN 2.50): each one patch, one undo.
 // - axe-core finds nothing against WCAG 2.1 AA in the panel.
 // Exits 1 on any failure.
 import { createRequire } from "node:module";
@@ -146,6 +148,29 @@ try {
   check(await says("note renamed caption"), `the status says so: ${await status()}`);
   await undo();
   check(await back(original), "one undo takes the name back");
+
+  // Dragged before the note, the title goes over it: one `z`, one patch, one undo.
+  await row("title").dragTo(row("note"), { targetPosition: { x: 40, y: 2 } });
+  check(await lists(["title", "note", "rev", "subtitle (hidden)", "bg (hidden)"]), `dragged before the note, the title is listed first: ${(await listed()).join(", ")}`);
+  check(await says("title moved before note"), `the status says so: ${await status()}`);
+  check((await source()).includes("z:1"), "by its z");
+  await undo();
+  check(await back(original), "one undo takes it back");
+  // Alt with ↓ moves the note focused one place down: after the chart, under it. No one z does
+  // that, so the chart goes up instead: the fewest that do.
+  await lists(all);
+  await row("note").locator("[data-pick]").focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  check(await lists(["rev", "note", "subtitle (hidden)", "title", "bg (hidden)"]), `Alt+↓ moves the note under the chart: ${(await listed()).join(", ")}`);
+  check(await page.evaluate(() => document.activeElement?.closest("[data-layer]")?.dataset.layer === "note"), "and keeps the focus on it");
+  await page.keyboard.press("Alt+ArrowDown");
+  check(await says("note moved after title"), `again, under the title: ${await status()}`);
+  await undo();
+  await undo();
+  check(await back(original), "two undos take both back");
+  await row("note").locator("[data-pick]").focus();
+  await page.keyboard.press("Alt+ArrowUp");
+  check(await says("note is first among what holds it"), `the topmost goes no higher: ${await status()}`);
 
   // axe-core on the panel.
   await page.addScriptTag({ path: axe });
