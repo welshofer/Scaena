@@ -366,6 +366,27 @@ fn inspect_says_what_may_be_inserted() {
     assert!(text.contains("    Shape · rect as rect…: "), "{text}");
 }
 
+#[test]
+fn inspect_says_a_states_layers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--layers"]);
+    assert_eq!(code, 0, "{states:#}");
+    // Topmost first; the background and the subtitle leave in `revenue`, listed as `intro`
+    // places them, hidden.
+    let said: Vec<String> = (states[0]["layers"].as_array().unwrap().iter())
+        .map(|l| format!("{} {} {}", l["node"].as_str().unwrap(), l["type"].as_str().unwrap(), l["shown"]))
+        .collect();
+    assert_eq!(said, ["note text true", "rev chart true", "subtitle text false", "title text true", "bg shader false"]);
+
+    // It says a state's layers: name the state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--layers"]).status.code(), Some(2));
+
+    // For a person: a line per node, under what holds it, those hidden marked.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--layers"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("  layers, topmost first:\n    note (text)\n    rev (chart)\n"), "{text}");
+    assert!(text.contains("    bg (shader, hidden)\n"), "{text}");
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {

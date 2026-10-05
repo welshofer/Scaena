@@ -139,6 +139,11 @@ enum Cmd {
         /// takes at first. Needs `--state`.
         #[arg(long, requires = "state")]
         inserts: bool,
+        /// The state's layers (PLAN 2.50): its nodes nested as their containers and groups hold
+        /// them, topmost first, with those that leave in it and those another state of its
+        /// slide shows, hidden. Needs `--state`.
+        #[arg(long, requires = "state")]
+        layers: bool,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -457,6 +462,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             choices,
             state_choices,
             inserts,
+            layers,
         } => {
             let views = Views {
                 resolved,
@@ -478,6 +484,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 choices,
                 state_choices,
                 inserts,
+                layers,
             };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
@@ -1008,8 +1015,23 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(offered) = &i.inserts {
             print_inserts(offered);
         }
+        if let Some(layers) = &i.layers {
+            println!("  layers, topmost first:");
+            print_layers(layers, 2);
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `inspect --layers`, for a person: each node as a layers panel lists it, under what holds it,
+/// and those the state does not show marked hidden.
+fn print_layers(layers: &[scaena_core::layers::Layer], depth: usize) {
+    for l in layers {
+        let kind = serde_json::to_value(l.kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+        let hidden = if l.shown { "" } else { ", hidden" };
+        println!("{:width$}{} ({kind}{hidden})", "", l.node, width = depth * 2);
+        print_layers(&l.children, depth + 1);
+    }
 }
 
 /// `inspect --inserts`, for a person: what may be inserted, each with the node it adds and

@@ -838,7 +838,7 @@ scaena compile   <deck.scn> [-o deck.json]            # DSL → JSON, validated
 scaena decompile <bundle> [-o deck.scn]               # JSON → DSL (canonical form)
 scaena validate  <bundle>                             # schema + semantic validation
 scaena lint      <bundle> [--state ID] [--json] [--fix] [--severity error|warning|info]
-scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --by DX,DY [--free]) [--fork]] [--choices NODE] [--inserts] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, what may be inserted
+scaena inspect   <bundle> [--state ID] [--resolved] [--timeline] [--data] [--boxes] [--at X,Y] [--targets NODE [--snap HOW --to X,Y,W,H [--fork]]] [--arrange A,B,… (--align EDGE | --spread WAY | --order HOW | --by DX,DY [--free]) [--fork]] [--choices NODE] [--inserts] [--layers] [--format F]   # snapshot, styles, cue, rows, where nodes stand and may go, several arranged at once, what a node's look may be, what may be inserted, the layers
 scaena render    <bundle> --state ID [--t MS] [--format 9:16] [--size WxH] [--out frame.png] [--display-list out.json] [--painter cpu|gpu]
 scaena export    <bundle> --format pdf|png|svg|mp4|webm|prores|html|spine [--states a,b] [--size WxH] [--fps 60] [--audio FILE] [--painter cpu|gpu] [--out DIR|FILE]
 scaena patch     <bundle> --ops ops.json|- [--dry-run]  # JSON Patch (RFC 6902) + semantic ops (§7.3)
@@ -861,7 +861,7 @@ A command that writes a bundle that keeps history (`patch`, `find --replace`, `t
 | Command | `--json` |
 |---|---|
 | `validate`, `lint` | an array of findings (§7.4); `lint --fix` prints `{ fixed, findings }` |
-| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, `--snap` adds `snapped`, `--arrange` adds `arranged`, `--choices` adds `choices`, and `--inserts` adds `inserts` |
+| `inspect` | an array, one state each: `state_id`, `slide_id`, `layout`, `nodes`, `entered`, `exited`. `--resolved` adds `looks` and `overrides`, `--timeline` adds `timeline`, `--data` adds `data`, `--boxes` adds `boxes`, `--at` adds `hits`, `--targets` adds `targets`, `--snap` adds `snapped`, `--arrange` adds `arranged`, `--choices` adds `choices`, `--inserts` adds `inserts`, and `--layers` adds `layers` |
 | `diff` | an object by node id: `{ "enter": props }`, `{ "exit": true }`, or `{ "change": { prop: value } }` |
 | `compile` | `{ out, findings, deck? }`: the deck when it is written to stdout. Findings exit 1 with `out: null` |
 | `decompile` | `{ out, scn? }` |
@@ -952,6 +952,11 @@ A node the state does not show is an error that says so.
 - **Its transition, hold, and notes** are its own. A transition that is a bare duration shows as its `duration`; a state that sets no key of it cuts in.
 - Each takes what the theme names or the schema allows: a duration, an easing, or a spring of the theme's; `id` or `none`; a number of milliseconds from 0; or words (`text`).
 
+`inspect --state S --layers` says the state's layers (PLAN 2.50, `scaena-core::layers`): its nodes nested as their containers and groups hold them, in the order a layers panel lists them. Each is `{ node, type, shown, children? }`.
+- **Order.** Each list starts with the topmost: siblings paint by `z`, then the deck's order of nodes, and a container under what it holds (§3.4). A stack's children are listed in the order it lays them out (`at.index`, then the deck's order), its first first: they do not overlap, so that is the order the canvas shows.
+- **What it does not show** stands beside what it does, `shown: false`: the nodes that leave in the state, and those another state of its slide shows, each where the nearest state that shows it places it; and those no state shows, where their own `at` places them. `show_node` shows one there (§7.3).
+- A node whose container is not listed stands on the canvas.
+
 `inspect --state S --inserts` says what an editor may insert (PLAN 2.34): the nodes the theme and the bundle name, each as `add_node` adds it (§7.3), unplaced (`node`), with what its id starts from (`id`), what a menu calls it (`label`), and the box it takes at first (`start`).
 - **A text** in each of the theme's roles, its text the role's name: half the canvas wide and two of the role's lines tall (`{ "box": { "w", "h" } }`, each a share of the canvas's side).
 - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the theme's `accent` (or its first color), a quarter of the canvas wide and square; a line and an arrow, drawn in the theme's rule.
@@ -985,7 +990,7 @@ An editor puts a box about the pointer, snapped to the theme's grid as a dropped
 | `deck_patch` | `scaena patch` (§7.3). | `{ applied, patch, added, removed, errors, states }` |
 | `deck_find` | `scaena find`: `find`, `case`, `words`, `replace`, and `dry_run`. | `{ found, matches, replaced? }` |
 | `deck_lint` | `scaena lint`, with `state`, `severity`, and `fix`. | `{ findings, fixed?, errors, laid }` |
-| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `inserts`, and `format`. | `{ states }` |
+| `deck_inspect` | `scaena inspect`, with `state`, `resolved`, `timeline`, `data`, `boxes`, `at` (`[x, y]`), `targets`, `snap`, `to` (`[x, y, w, h]`), `fork`, `arrange` (the nodes) with one of `align`, `spread`, `order`, or `by` (`[dx, dy]`, with `free`), `choices`, `state_choices`, `inserts`, `layers`, and `format`. | `{ states }` |
 | `deck_render` | `scaena render`: `state`, `t`, `format`, `size`, `painter`, and `out`. | the PNG as image content, and `{ state, size, span_ms, digest, painter, out?, ms }` as text |
 | `deck_export` | `scaena export`: `format`, `states`, `out`, `size`, `fps`, `audio`, and `painter` (a video's: `gpu` in a server built with it). All but the spine needs `out`. An export still going after 40 s answers `running` (see **Long exports**). | `{ format, out?, spine?, pages?, files?, size?, frames?, fps?, duration_ms?, timeline?, chapters?, painter?, adapter?, bytes? }`, or `{ format, out, running }` |
 | `deck_diff` | `scaena diff`. | `{ changes }` |
@@ -1298,6 +1303,12 @@ Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in C
   - **Moving, renaming, removing.** A state dragged to another place, or moved with Alt and an arrow key, moves there (`move_state`). F2, or a double click on its name, renames it (`rename_state`), and Delete removes it (`remove_state`).
   - **Each** is one patch by `user`, one change in the source and one step to undo, and the state it leaves shown is the one it is about. What the deck refuses, the status says why: a state another builds on stays.
   - `web/strip.mjs` checks it in headless Chromium on the revenue example.
+- **The layers** (PLAN 2.50, ADR-0013). A tab beside the inspector lists the state shown's nodes, topmost first (a stack's in the order it lays them out), nested as their containers and groups hold them, as `inspect --layers` says (`Player.layers`, `web/src/layers.ts`). Those the state does not show are listed dimmed: those that leave in it, those another state of its slide shows, and those no state shows, a node hidden where it entered among them.
+  - **Selecting.** A click on a name selects the node on the canvas, one under the rest too, and a node selected on the canvas is marked in the list.
+  - **Showing and hiding.** The eye hides a node in the state shown, with what it holds (`hide_node`), or shows one hidden there (`show_node`). What the deck refuses, a node whose slot the state's layout lacks, the status says why.
+  - **Renaming.** A double click on a name, or F2, renames the node everywhere the deck names it (`rename_node`).
+  - **Each** is one patch, by `user`: one change in the source, one step to undo.
+  - `web/layers.mjs` checks it in headless Chromium on the revenue example, and audits it with axe-core.
 
 #### 9.2.5 Storage
 

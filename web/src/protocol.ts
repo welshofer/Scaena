@@ -218,6 +218,17 @@ export interface Arranged {
   patch: unknown[];
 }
 
+/** A node of a state's layers (PLAN 2.50), as `scaena inspect --layers` says it: each list the
+ * topmost first (a stack's in the order it lays them out), with what it holds. */
+export interface Layer {
+  node: string;
+  type: string;
+  /** Whether the state shows it: one it does not leaves in it, another state of its slide shows
+   * it, or no state does. */
+  shown: boolean;
+  children?: Layer[];
+}
+
 /** Something the editor may insert (PLAN 2.34), as `scaena inspect --inserts` says it: a node the
  * theme or the bundle names, as `add_node` adds it, unplaced. */
 export interface Insert {
@@ -373,6 +384,7 @@ export type ToWorker =
   | { type: "reach"; id: number; ops: unknown[] }
   /** What may be inserted in the deck (PLAN 2.34). */
   | { type: "inserts"; id: number }
+  | { type: "layers"; id: number; state: string }
   /** A patch to add or take away a node, with nothing made, on the deck the editor's `source`
    * compiles to (PLAN 2.34): what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
@@ -711,6 +723,7 @@ export type FromWorker =
   | { type: "rethemed"; id: number; themed: Themed; source?: string; edited?: Edited }
   | { type: "reached"; id: number; states: string[] }
   | { type: "inserts"; id: number; inserts: Insert[] }
+  | { type: "layers"; id: number; layers: Layer[] }
   /** The patch that adds a node: an insert, or a copy. */
   | { type: "adding"; id: number; added: Added }
   /** The patch that takes a node away. */

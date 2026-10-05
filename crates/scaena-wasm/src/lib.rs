@@ -713,6 +713,16 @@ impl Session {
         scaena_core::choices::state_choices(&self.deck, &self.theme, state).map_err(Error::Ops)
     }
 
+    /// `state`'s layers (PLAN 2.50): its nodes nested as their containers and groups hold them,
+    /// topmost first, with those that leave in it and those another state of its slide shows,
+    /// hidden, as `scaena inspect --layers` says them.
+    pub fn layers(&self, state: &str) -> Result<Vec<scaena_core::layers::Layer>, Error> {
+        let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let at = (snapshots.iter().position(|s| s.state_id == state))
+            .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        Ok(scaena_core::layers::layers(&self.deck, &snapshots, at))
+    }
+
     /// What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each
     /// kind of shape, each image in the bundle, a chart and a table of each data source (PLAN
     /// 2.41), and each shader preset, each as `add_node` adds it, with the box it takes at first.
@@ -1415,6 +1425,12 @@ impl Player {
         serde_json::to_string(&self.0.state_choices(state).map_err(js)?).map_err(js)
     }
 
+    /// `state`'s layers, as JSON (PLAN 2.50): `[{ node, type, shown, children? }]`, topmost
+    /// first, as `scaena inspect --layers` says them.
+    pub fn layers(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.layers(state).map_err(js)?).map_err(js)
+    }
+
     /// What may be inserted, as JSON (PLAN 2.34): `[{ label, node, id, start }]`, as `scaena
     /// inspect --inserts` says it.
     pub fn inserts(&self) -> Result<String, JsError> {
@@ -2052,6 +2068,23 @@ mod tests {
         let tall = s.boxes("formats").unwrap();
         assert!(tall.iter().all(|b| b.rect[0] + b.rect[2] <= 1080.01), "{tall:?}");
         assert!(matches!(s.boxes("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    /// A state's layers (PLAN 2.50), as `scaena inspect --layers` says them: nested as their
+    /// containers hold them, a stack's children in the order it lays them out, a frame's
+    /// topmost first.
+    #[test]
+    fn a_states_layers_nest_as_their_containers_hold_them() {
+        let s = torture();
+        let layers = s.layers("containers").unwrap();
+        let held = |node: &str| {
+            let layer = layers.iter().find(|l| l.node == node).unwrap();
+            layer.children.iter().map(|l| l.node.as_str()).collect::<Vec<_>>()
+        };
+        assert_eq!(held("stats"), ["stat-a", "stat-b", "stat-c"]);
+        assert_eq!(held("card"), ["card-tag-label", "card-tag", "card-photo"]);
+        assert!(layers.iter().all(|l| l.shown || l.node.starts_with("image-")), "{layers:?}");
+        assert!(matches!(s.layers("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
     }
 
     /// The point of an image under a press is the image's own, in fractions of its crop: what

@@ -186,6 +186,8 @@ struct DeckInspect {
     state_choices: bool,
     #[serde(default)]
     inserts: bool,
+    #[serde(default)]
+    layers: bool,
 }
 
 #[derive(Deserialize)]
@@ -319,6 +321,7 @@ impl Session {
                     choices: a.choices,
                     state_choices: a.state_choices,
                     inserts: a.inserts,
+                    layers: a.layers,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
@@ -541,6 +544,8 @@ mod tests {
         assert_eq!(json.result["deck"]["states"][1]["id"], "next");
         let inspected = call(&mut s, "deck_inspect", json!({ "state": "next", "resolved": true }));
         assert_eq!(inspected.result["states"][0]["looks"]["title"]["role"], "headline", "{}", inspected.result);
+        let layered = call(&mut s, "deck_inspect", json!({ "state": "next", "layers": true }));
+        assert_eq!(layered.result["states"][0]["layers"][0]["node"], "title", "{}", layered.result);
         let diff = call(&mut s, "deck_diff", json!({ "from": "start", "to": "next" }));
         assert!(diff.result["changes"]["title"].is_object(), "{}", diff.result);
         let spine = call(&mut s, "spine_read", json!({}));

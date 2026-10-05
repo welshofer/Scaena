@@ -26,6 +26,7 @@ import type {
   FromHelper,
   FromWorker,
   Insert,
+  Layer,
   Thumb,
   Opened,
   Painter,
@@ -186,6 +187,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
       case "inserts":
         return post({ type: "inserts", id: data.id, inserts: JSON.parse(player.inserts()) as Insert[] });
+      case "layers":
+        return post({ type: "layers", id: data.id, layers: JSON.parse(player.layers(data.state)) as Layer[] });
       case "inserting":
         current(data.source);
         layOut(data.format);

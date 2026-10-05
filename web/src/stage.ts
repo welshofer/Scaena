@@ -14,6 +14,7 @@ import type {
   Hit,
   Insert,
   Inspected,
+  Layer,
   Linted,
   NodeBox,
   Opened,
@@ -77,6 +78,7 @@ type Reply = Extract<
       | "reached"
       | "typed"
       | "inserts"
+      | "layers"
       | "adding"
       | "deleting"
       | "copied"
@@ -381,6 +383,13 @@ export class Stage {
     return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
   }
 
+  /** `state`'s layers (PLAN 2.50): its nodes in paint order, nested as their containers and groups
+   * hold them, with those it does not show that leave in it or that another state of its slide
+   * shows. */
+  layers(state: string): Promise<Layer[]> {
+    return this.request<"layers">({ type: "layers", id: ++this.asked, state }).then(({ layers }) => layers);
+  }
+
   /** What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each kind
    * of shape, each image in the bundle, and each shader preset. */
   inserts(): Promise<Insert[]> {
@@ -594,6 +603,7 @@ export class Stage {
       case "reached":
       case "typed":
       case "inserts":
+      case "layers":
       case "adding":
       case "deleting":
       case "copied":

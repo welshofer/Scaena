@@ -88,6 +88,9 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Delete (or Backspace) takes the object selected, and what it holds, out of the state shown and the states after it. Something that no state shows any more leaves the deck, so adding and deleting leaves nothing behind. Shift+Delete takes it out of the deck. ⌘D (Ctrl+D) puts a copy beside it, with copies of what it holds.
   - ⌘C (Ctrl+C) copies the object selected, with what it holds, and ⌘X cuts it. ⌘V pastes it where you last clicked, in this deck or another, bringing the data and images it reads. What the other deck's theme lacks, a color or a role, is left out, and the status says what; a text in a role the theme lacks takes the nearest role it has. Text copied from anywhere else comes in as body text.
   - Each is one ⌘Z.
+- **Layers.** The Layers tab beside the inspector lists the objects of the state shown, topmost first, inside what holds them. Click one to select it, even one under the rest. Those dimmed are not shown here: they leave in this state, another step of the slide shows them, or no state shows them any more.
+  - The eye hides an object in this state, or shows one hidden here. A double click on a name, or F2, renames it everywhere the deck names it.
+  - Each is one ⌘Z.
 - **Theme.** The theme menu beside the format menu lists the themes your bundle holds, the deck's own chosen, and the themes that ship. Choose one to see the deck in it: one ⌘Z takes it back. A theme that lacks a role or a color your deck uses is refused, and the status says which.
 - **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.
   - **+ Step** adds a state after the one shown that shows what it shows: change it, and the deck builds from one to the other. **+ Slide** adds an empty slide after the shown one's, in its layout, ready to fill from the Insert menu.

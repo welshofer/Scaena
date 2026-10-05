@@ -35,6 +35,7 @@ pub mod expr;
 pub mod format;
 pub mod ids;
 pub mod inserts;
+pub mod layers;
 pub mod lint;
 pub mod model;
 pub mod patch;
