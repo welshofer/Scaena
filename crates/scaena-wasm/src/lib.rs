@@ -726,6 +726,35 @@ impl Session {
     /// as a drop snaps; or into the slot it fills (PLAN 2.34). Its id is new to the deck.
     #[cfg(feature = "editor")]
     pub fn inserting(&mut self, state: &str, n: usize, at: [f32; 2]) -> Result<scaena_ops::inspect::Added, Error> {
+        let (insert, room) = self.room(state, n)?;
+        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The patch that draws what [`Session::inserts`] offers `n`th in `state`, in the box a drag
+    /// from one point to another covers (canvas units, in the format shown): each edge snapped
+    /// to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN 2.48). A line
+    /// or an arrow runs the way the drag went. Its id is new to the deck.
+    #[cfg(feature = "editor")]
+    pub fn drawing(
+        &mut self,
+        state: &str,
+        n: usize,
+        drag: [[f32; 2]; 2],
+        free: bool,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let (insert, room) = self.room(state, n)?;
+        scaena_ops::inspect::drawing(&self.deck, &room, &insert, state, drag, free)
+            .map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// What is offered `n`th, and where it may go in `state` under an id new to the deck, the
+    /// box it starts as its cell.
+    #[cfg(feature = "editor")]
+    fn room(
+        &mut self,
+        state: &str,
+        n: usize,
+    ) -> Result<(scaena_core::inserts::Insert, scaena_engine::geometry::Targets), Error> {
         use scaena_core::inserts::{Start, fresh};
         let offered = self.inserts().into_iter().nth(n);
         let insert = offered.ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))?;
@@ -739,8 +768,7 @@ impl Session {
         let format = self.format.as_deref();
         let req =
             FrameRequest { deck: &self.deck, theme: &self.theme, data: &self.data, state, t_ms: f64::INFINITY, format };
-        let room = engine.room(&req, &id, share)?;
-        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at).map_err(|e| Error::Deck(e.to_string()))
+        Ok((insert, engine.room(&req, &id, share)?))
     }
 
     /// The patch that copies `node`, as `state` shows it, with what it holds there, beside it
@@ -1397,6 +1425,23 @@ impl Player {
     /// units), as JSON: `{ id, cell, patch }` (PLAN 2.34).
     pub fn inserting(&mut self, state: &str, n: usize, x: f32, y: f32) -> Result<String, JsError> {
         serde_json::to_string(&self.0.inserting(state, n, [x, y]).map_err(js)?).map_err(js)
+    }
+
+    /// The patch that draws what `inserts` offers `n`th in `state`, in the box a drag from `x0`,
+    /// `y0` to `x1`, `y1` covers (canvas units), snapped to the grid or, `free`, where it was
+    /// drawn, as JSON: `{ id, cell, patch }` (PLAN 2.48).
+    #[allow(clippy::too_many_arguments)]
+    pub fn drawing(
+        &mut self,
+        state: &str,
+        n: usize,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        free: bool,
+    ) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.drawing(state, n, [[x0, y0], [x1, y1]], free).map_err(js)?).map_err(js)
     }
 
     /// The patch that copies `node` beside it in `state`, as JSON: `{ id, cell, patch }`
@@ -2477,6 +2522,67 @@ mod tests {
         s.tool("deck_patch", serde_json::json!({ "ops": shader.patch }), by).unwrap();
         let topmost = s.hit("revenue", [960.0, 540.0]).unwrap();
         assert_ne!(topmost.first().map(|h| h.node.as_str()), Some("texture"), "it draws under the rest");
+    }
+
+    /// A drag draws what is offered over the cells it covers, each edge on the nearest track's as
+    /// a resize snaps, or, off the grid, where it was drawn; a line or an arrow runs the way the
+    /// drag went, straight across where it was nearly level or upright (PLAN 2.48).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_draws_over_the_cells_it_covers_and_a_line_the_way_it_went() {
+        let mut s = revenue();
+        let by = assistant::Caller { author: "user", at: None };
+        let offered = s.inserts();
+        let n = |label: &str| offered.iter().position(|i| i.label == label).unwrap();
+        let grid = s.targets("revenue", "title").unwrap().clone();
+        let step = grid.columns[1][0] - grid.columns[0][0];
+        let on = |tracks: &[[f32; 2]], at: f32, side: usize| tracks.iter().any(|t| (t[side] - at).abs() < 0.01);
+        let near = |a: f32, b: f32| (a - b).abs() <= step / 2.0 + 0.01;
+        let points = |added: &scaena_ops::inspect::Added| -> Option<Vec<[f64; 2]>> {
+            let p = added.patch[0]["node"].get("points")?.as_array()?.clone();
+            Some(p.iter().map(|xy| [xy[0].as_f64().unwrap(), xy[1].as_f64().unwrap()]).collect())
+        };
+
+        // A rectangle drawn from one point to another: each edge a track's, the nearest the drag's.
+        let drag = [[300.0, 200.0], [1100.0, 700.0]];
+        let rect = s.drawing("revenue", n("Shape · rect"), drag, false).unwrap();
+        assert_eq!(rect.id, "rect");
+        let ops: Vec<&str> = rect.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
+        assert_eq!(ops, ["add_node", "place"]);
+        assert_eq!(rect.patch[0]["state"], "revenue", "it enters in the state shown");
+        let [x, y, w, h] = rect.cell;
+        let (cols, rows) = (&grid.columns, &grid.rows);
+        assert!(on(cols, x, 0) && on(cols, x + w, 1) && on(rows, y, 0) && on(rows, y + h, 1), "{:?}", rect.cell);
+        assert!(near(x, 300.0) && near(x + w, 1100.0) && near(y, 200.0) && near(y + h, 700.0), "{:?}", rect.cell);
+        // Drawn the other way, from the far corner, it lands the same.
+        let back = s.drawing("revenue", n("Shape · rect"), [drag[1], drag[0]], false).unwrap();
+        assert_eq!(back.cell, rect.cell);
+        s.tool("deck_patch", serde_json::json!({ "ops": rect.patch }), by).unwrap();
+        let stands = s.boxes("revenue").unwrap().into_iter().find(|b| b.node == "rect").map(|b| b.rect);
+        assert_eq!(stands, Some(rect.cell), "it stands where it was drawn");
+
+        // Off the grid, where it was drawn, in whole canvas units: a `rect`.
+        let free = s.drawing("revenue", n("Shape · ellipse"), [[301.4, 199.6], [700.2, 520.0]], true).unwrap();
+        assert_eq!(free.cell, [301.0, 200.0, 399.0, 320.0]);
+        assert_eq!(free.patch[1]["at"], serde_json::json!({ "rect": [301.0, 200.0, 399.0, 320.0] }));
+
+        // A line runs the way the drag went: up and to the right, from the bottom left corner.
+        let line = s.drawing("revenue", n("Shape · line"), [[400.0, 900.0], [1200.0, 300.0]], false).unwrap();
+        assert_eq!(points(&line), Some(vec![[0.0, 1.0], [1.0, 0.0]]));
+        // Nearly level, it is level: from left to right, a line's own way, nothing written.
+        let level = s.drawing("revenue", n("Shape · line"), [[400.0, 500.0], [1200.0, 560.0]], false).unwrap();
+        assert_eq!(points(&level), None);
+        // An arrow drawn from right to left points left, and one drawn up, up.
+        let left = s.drawing("revenue", n("Shape · arrow"), [[1200.0, 500.0], [400.0, 480.0]], false).unwrap();
+        assert_eq!(points(&left), Some(vec![[1.0, 0.5], [0.0, 0.5]]));
+        let up = s.drawing("revenue", n("Shape · arrow"), [[600.0, 900.0], [640.0, 200.0]], false).unwrap();
+        assert_eq!(points(&up), Some(vec![[0.5, 1.0], [0.5, 0.0]]));
+        s.tool("deck_patch", serde_json::json!({ "ops": up.patch }), by).unwrap();
+        assert!(s.boxes("revenue").unwrap().iter().any(|b| b.node == "arrow"), "the deck takes it");
+
+        // A shader fills its slot, as Insert puts it, however it was drawn.
+        let shader = s.drawing("revenue", n("Shader · texture"), drag, false).unwrap();
+        assert_eq!(shader.cell, [0.0, 0.0, 1920.0, 1080.0]);
     }
 
     /// Delete takes a node out of the state shown and the states that track it from there; one

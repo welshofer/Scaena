@@ -393,6 +393,13 @@ export class Stage {
     return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format }).then(({ added }) => added);
   }
 
+  /** The patch that draws what `inserts` offers `n`th, entering in `state`, in the box a drag
+   * from `from` to `to` covers (canvas units): snapped to the theme's grid as a resize snaps, or,
+   * `free`, where it was drawn (PLAN 2.48); on the deck `source` compiles to. */
+  drawing(source: string, state: string, n: number, [from, to]: [[number, number], [number, number]], free: boolean, format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "drawing", id: ++this.asked, source, state, n, from, to, free, format }).then(({ added }) => added);
+  }
+
   /** The patch that copies `node` beside it in `state`, on the deck `source` compiles to. */
   duplicating(source: string, state: string, node: string, format?: string): Promise<Added> {
     return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);

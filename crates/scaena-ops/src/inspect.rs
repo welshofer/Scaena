@@ -770,8 +770,66 @@ pub fn inserting(
             room.snap(Snap::Slot, *rect)
         }
     };
+    added(room, insert.node.clone(), state, target)
+}
+
+/// The patch that draws `insert` in `state` as `room`'s node (PLAN 2.48): `add_node`, the node
+/// entering there, then `place`. It takes the box a drag from `from` to `to` (canvas units)
+/// covers, each edge snapped to the nearest track's as a resize snaps, or, `free`, where it was
+/// drawn, in whole canvas units: a `rect` (W301). A line or an arrow runs across that box from
+/// the corner the drag began at to the one it ended at, or across its middle where the drag was
+/// nearly level or upright (`across`). What fills a slot, a shader, fills it as [`inserting`]
+/// puts it.
+pub fn drawing(
+    deck: &Deck,
+    room: &scaena_engine::geometry::Targets,
+    insert: &Insert,
+    state: &str,
+    [from, to]: [[f32; 2]; 2],
+    free: bool,
+) -> Result<Added, OpsError> {
+    if matches!(insert.start, Start::Slot(_)) {
+        return inserting(deck, room, insert, state, from);
+    }
+    let drawn = [from[0].min(to[0]), from[1].min(to[1]), (to[0] - from[0]).abs(), (to[1] - from[1]).abs()];
+    let target = room.snap(if free { Snap::Free } else { Snap::Resize }, drawn);
+    let mut node = insert.node.clone();
+    if matches!(node["kind"].as_str(), Some("line" | "arrow"))
+        && let Some(points) = across(from, to)
+    {
+        node["points"] = points;
+    }
+    added(room, node, state, target)
+}
+
+/// The points of a line drawn from `from` to `to`, as fractions of its box: from the corner the
+/// drag began at to the one it ended at, or across the middle where it was within 14° of level
+/// or upright, so a rule drawn by hand comes out straight. `None` for a line's own way, across
+/// the middle from left to right.
+fn across(from: [f32; 2], to: [f32; 2]) -> Option<Value> {
+    let [dx, dy] = [to[0] - from[0], to[1] - from[1]];
+    let ends = |d: f32| if d < 0.0 { (1, 0) } else { (0, 1) };
+    if dy.abs() * 4.0 <= dx.abs() {
+        return (dx < 0.0).then(|| serde_json::json!([[1, 0.5], [0, 0.5]]));
+    }
+    let (y0, y1) = ends(dy);
+    if dx.abs() * 4.0 <= dy.abs() {
+        return Some(serde_json::json!([[0.5, y0], [0.5, y1]]));
+    }
+    let (x0, x1) = ends(dx);
+    Some(serde_json::json!([[x0, y0], [x1, y1]]))
+}
+
+/// `add_node` for `node` as `room`'s, entering in `state`, then the `place` ops that put it on
+/// `target`.
+fn added(
+    room: &scaena_engine::geometry::Targets,
+    node: Value,
+    state: &str,
+    target: Option<scaena_engine::geometry::Target>,
+) -> Result<Added, OpsError> {
     let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
-    let node = serde_json::from_value(insert.node.clone()).context("an inserted node")?;
+    let node = serde_json::from_value(node).context("an inserted node")?;
     let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
     let ops: Vec<SemanticOp> = std::iter::once(add).chain(target.ops(Some(state), false)).collect();
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
