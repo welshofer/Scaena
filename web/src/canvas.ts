@@ -89,8 +89,9 @@ interface Drag {
 }
 
 /** The pointer down, not yet moved far enough to drag: on `node` (by a handle, `edge`), and what a
- * click there selects. Until the engine says what is there, `node` is unknown, and a pointer let go
- * meanwhile (`released`) selects what it says once it does. */
+ * click there selects. Until the engine says what is there (`asking`), `node` is unknown: the
+ * pointer's last move meanwhile is kept (`moved`), and a pointer let go meanwhile (`released`)
+ * selects what the engine says once it does, or, moved past the slop, drops it there. */
 interface Press {
   node?: string;
   edge?: Edge;
@@ -98,6 +99,8 @@ interface Press {
   client: [number, number];
   click?: string;
   released?: boolean;
+  asking?: boolean;
+  moved?: Starting & { client: [number, number] };
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -169,6 +172,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   /** The canvas in canvas units, and what stands where in the state shown. */
   let size: [number, number] = [1920, 1080];
   let boxes: NodeBox[] = [];
+  /** The state `boxes` stand in. */
+  let boxed: string | undefined;
   let selected: string | undefined;
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
@@ -181,6 +186,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
+  /** How many drags began from moves made before the engine said what was pressed. */
+  let early = 0;
   /** A drag's request is with the worker: the next waits for it, so a fast drag never queues. */
   let busy = false;
   /** The gesture being made into a patch: the next waits for it, so each is made on the source the
@@ -239,6 +246,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     const shown = editor.shown();
     if (!shown) return;
     ({ boxes, size } = await stage.boxes(shown.state, editor.format()));
+    boxed = shown.state;
     svg.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
     if (selected !== undefined && !box(selected)) select(undefined);
     else if (selected !== undefined) aimAt(selected);
@@ -660,22 +668,69 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       press = { node: selected, edge, from, client };
       return;
     }
-    const mine: Press = { from, client };
+    const mine: Press = { from, client, asking: true };
     press = mine;
     const hits = await stage.hit(shown.state, from, editor.format()).catch(() => []);
+    mine.asking = false;
     const top = hits[0];
     const chain = top ? [top.node, ...top.containers] : [];
+    // In the node selected, or in what holds it, the press keeps it: a drag moves it, and a click
+    // selects what is topmost.
+    const keeps = selected !== undefined && chain.includes(selected);
+    const node = keeps ? selected : top?.node;
+    // Moved past the slop before the engine answered, as a drag made while the worker paints is:
+    // the press was a drag all along, from where the pointer is now, dropped there if let go.
+    const moved = mine.moved;
+    const far = moved !== undefined && Math.hypot(moved.client[0] - client[0], moved.client[1] - client[1]) >= SLOP;
+    if (far && node !== undefined && (press === mine || mine.released)) {
+      if (press === mine) press = undefined;
+      early++;
+      if (!keeps) select(node);
+      return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, up: mine.released });
+    }
     // A click let go before the engine answered selects what is topmost.
     if (mine.released) return select(top?.node);
     if (press !== mine) return;
-    // In the node selected, or in what holds it, the press keeps it: a drag moves it, and a click
-    // selects what is topmost.
-    if (selected !== undefined && chain.includes(selected)) [mine.node, mine.click] = [selected, top?.node];
+    if (keeps) [mine.node, mine.click] = [selected, top?.node];
     else {
       select(top?.node);
       mine.node = top?.node;
     }
   };
+
+  /** Drag `begun`'s node, the pointer as `now` says, once the engine says where it may go; let go
+   * meanwhile, it drops there. */
+  function begin(begun: Press, now: Starting) {
+    const shown = editor.shown();
+    if (!shown) return;
+    const version = editor.version();
+    starting = now;
+    void stage
+      .targets(shown.state, begun.node!, editor.format())
+      .then((targets) => {
+        if (starting !== now) return;
+        starting = undefined;
+        const d: Drag = {
+          kind: begun.edge ? "resize" : "move",
+          node: begun.node!,
+          edge: begun.edge,
+          from: begun.from,
+          at: now.at,
+          shift: now.shift,
+          alt: now.alt,
+          version,
+          targets,
+        };
+        hovered = undefined;
+        if (now.up) return void inTurn(() => drop(d));
+        drag = d;
+        void pump(d);
+      })
+      .catch((err) => {
+        starting = undefined;
+        editor.say(`error: ${said(err)}`);
+      });
+  }
 
   // A double click on a text types in it, where it was clicked: in what is topmost there, which its
   // first click selects.
@@ -711,39 +766,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       }
       return;
     }
+    if (press.asking) {
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      return;
+    }
     if (!press.node || Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) < SLOP) return;
-    const shown = editor.shown();
     const begun = press;
     press = undefined;
-    if (!shown) return;
-    const version = editor.version();
-    const now: Starting = { at, shift: e.shiftKey, alt: e.altKey };
-    starting = now;
-    void stage
-      .targets(shown.state, begun.node!, editor.format())
-      .then((targets) => {
-        if (starting !== now) return;
-        starting = undefined;
-        const d: Drag = {
-          kind: begun.edge ? "resize" : "move",
-          node: begun.node!,
-          edge: begun.edge,
-          from: begun.from,
-          at: now.at,
-          shift: now.shift,
-          alt: now.alt,
-          version,
-          targets,
-        };
-        hovered = undefined;
-        if (now.up) return void inTurn(() => drop(d));
-        drag = d;
-        void pump(d);
-      })
-      .catch((err) => {
-        starting = undefined;
-        editor.say(`error: ${said(err)}`);
-      });
+    begin(begun, { at, shift: e.shiftKey, alt: e.altKey });
   };
 
   overlay.onpointerup = (e) => {
@@ -763,6 +793,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     const clicked = press;
     press = undefined;
     if (!clicked) return;
+    if (clicked.asking) clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
     if (clicked.node === undefined && !clicked.edge) clicked.released = true;
     else if (clicked.click !== undefined) select(clicked.click);
   };
@@ -859,6 +890,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     pointed: () => pointed,
     selected: () => selected,
     boxes: () => boxes,
+    /** The state the boxes stand in: what a test waits for once it shows another. */
+    boxed: () => boxed,
     size: () => size,
     /** Where `node` may go in the state shown. */
     targets: (node: string) => {
@@ -871,5 +904,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     typing: () => text.node(),
     /** What is typed in it, for a test. */
     typed: () => text.now(),
+    /** How many drags began from moves made before the engine said what was pressed, as a drag
+     * pressed while the worker paints or lints is. */
+    early: () => early,
   };
 }
