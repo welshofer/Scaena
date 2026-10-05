@@ -206,12 +206,15 @@ try {
   check((await gutter()) === line, `F8 goes to the next finding: line ${await gutter()}`);
   await editor.focus("#tab-inspector");
   await editor.keyboard.press("ArrowRight");
-  const tab = () =>
-    editor.evaluate(() => [document.activeElement?.id, document.querySelector('[role="tab"][aria-selected="true"]').id, document.querySelector("#assistant").hidden]);
-  check(JSON.stringify(await tab()) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ on the tabs shows the assistant: ${JSON.stringify(await tab())}`);
+  const tab = (panel) =>
+    editor.evaluate((p) => [document.activeElement?.id, document.querySelector('[role="tab"][aria-selected="true"]').id, document.querySelector(p).hidden], panel);
+  check(JSON.stringify(await tab("#layers")) === JSON.stringify(["tab-layers", "tab-layers", false]), `→ on the tabs shows the layers: ${JSON.stringify(await tab("#layers"))}`);
+  await audit(editor, "the editor, its layers");
+  await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");
-  check((await tab())[0] === "tab-inspector", "→ again comes round to the inspector");
+  check((await tab("#inspector"))[0] === "tab-inspector", "→ again comes round to the inspector");
   await editor.close();
 
   // A single file, from its address on disk.

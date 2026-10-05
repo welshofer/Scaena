@@ -48,6 +48,7 @@ import { canvas, placed } from "./canvas";
 import { cue } from "./cue";
 import { finder } from "./find";
 import { keptNames } from "./folders";
+import { layers } from "./layers";
 import { looks } from "./look";
 import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
@@ -193,6 +194,8 @@ const failed = (e: unknown) => {
 
 async function edit(source: Source) {
   const status = $("#status");
+  // A status too long for its two lines says the rest in its title.
+  new MutationObserver(() => (status.title = status.textContent ?? "")).observe(status, { childList: true, characterData: true, subtree: true });
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const problems = $<HTMLUListElement>("#problems");
@@ -401,6 +404,7 @@ async function edit(source: Source) {
       for (const row of inspector.querySelectorAll("tr[data-node]")) row.setAttribute("aria-selected", String(all.includes(row.getAttribute("data-node") ?? "")));
       void look.show(node, also);
       void cueing?.offer();
+      layering.selected(all);
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
     // focus there keeps the text typed in.
@@ -413,6 +417,15 @@ async function edit(source: Source) {
     fix: (f) => fix(f),
     go: (f) => go(f),
   }, $("#marks"), $("#marked"));
+  /** The layers of the state shown (PLAN 2.50): a tab beside the inspector, each change a patch. */
+  const layering = layers(stage, $("#layers"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    select: (node) => board.select(node),
+    apply: made,
+    say,
+  });
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -555,7 +568,14 @@ async function edit(source: Source) {
     let edited: Edited;
     if (taken?.source !== source) told = undefined;
     try {
-      edited = taken?.source === source ? taken.edited : await stage.edit(source, shown, format());
+      if (taken?.source === source) edited = taken.edited;
+      else {
+        const before = taken;
+        edited = await stage.edit(source, shown, format());
+        // The worker holds this source's deck now, not the one the patch left: an undo, then a
+        // redo back to the patch's source, compiles it again. A patch taken meanwhile stays.
+        if (taken === before) taken = undefined;
+      }
     } catch (e) {
       status.textContent = `error: ${said(e)}`;
       return [];
@@ -568,6 +588,7 @@ async function edit(source: Source) {
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
       void inspect();
+      void layering.refresh();
       void board.refresh().catch(failed);
       finding?.changed();
       void offer();
@@ -695,6 +716,7 @@ async function edit(source: Source) {
     states.select(index);
     await stage.seek(index, undefined, format());
     await inspect();
+    void layering.refresh();
     await board.refresh();
   }
 
@@ -974,6 +996,8 @@ async function edit(source: Source) {
       assistant,
       /** The canvas: what it selected, what stands where, and its drag. */
       canvas: board,
+      /** The layers panel: what it lists, and the patches it makes. */
+      layers: layering,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
@@ -986,7 +1010,7 @@ async function edit(source: Source) {
   });
 }
 
-/** The tabs under the preview: the inspector, and the assistant. The arrow keys, Home, and
+/** The tabs under the preview: the inspector, the layers, and the assistant. The arrow keys, Home, and
  * End move between them, and only the one shown is in the tab order. */
 function tabs() {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];

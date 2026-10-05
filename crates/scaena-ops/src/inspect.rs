@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::inserts::{Insert, Start, inserts};
+use scaena_core::layers::{Layer, layers};
 use scaena_core::model::values::SplitUnit;
 use scaena_core::patch::{SemanticOp, Timed};
 use scaena_core::timeline::{self, CubicBezier, Look};
@@ -110,6 +111,11 @@ pub struct Views {
     /// the box it takes at first.
     #[serde(default)]
     pub inserts: bool,
+    /// The state inspected's layers (PLAN 2.50): its nodes nested as their containers and
+    /// groups hold them, topmost first, with those that leave in it and those another state
+    /// of its slide shows, hidden, each where the nearest state that shows it places it.
+    #[serde(default)]
+    pub layers: bool,
 }
 
 impl Views {
@@ -213,6 +219,9 @@ pub struct Inspected {
     /// What may be inserted in this state (`inserts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserts: Option<Vec<Insert>>,
+    /// Its layers, what stands on the canvas topmost first (`layers`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layers: Option<Vec<Layer>>,
 }
 
 /// Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.
@@ -604,6 +613,7 @@ pub fn inspect_deck(
             choices: None,
             state_choices: None,
             inserts: None,
+            layers: None,
         };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
@@ -627,6 +637,10 @@ pub fn inspect_deck(
         }
         if views.data {
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
+        }
+        if views.layers {
+            let at = snaps.iter().position(|o| o.state_id == s.state_id).expect("a state of the deck");
+            inspected.layers = Some(layers(deck, &snaps, at));
         }
         if let (Some(node), Some(theme)) = (&views.choices, theme) {
             inspected.choices = Some(choices(deck, theme, &s.state_id, node, files).map_err(OpsError::new)?);

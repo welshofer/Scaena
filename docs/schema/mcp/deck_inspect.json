@@ -155,6 +155,11 @@
         "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, a chart and a table of\neach data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with\nthe box it takes at first.",
         "type": "boolean",
         "default": false
+      },
+      "layers": {
+        "description": "The state inspected's layers (PLAN 2.50): its nodes nested as their containers and\ngroups hold them, topmost first, with those that leave in it and those another state\nof its slide shows, hidden, each where the nearest state that shows it places it.",
+        "type": "boolean",
+        "default": false
       }
     },
     "additionalProperties": false
@@ -234,6 +239,11 @@
             "description": "What may be inserted in this state (`inserts`).",
             "type": ["array", "null"],
             "items": { "$ref": "#/$defs/Insert" }
+          },
+          "layers": {
+            "description": "Its layers, what stands on the canvas topmost first (`layers`).",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Layer" }
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -775,6 +785,24 @@
             "additionalProperties": false
           }
         ]
+      },
+      "Layer": {
+        "description": "One node of a state's layers.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "shown": {
+            "description": "Whether the state shows it. One it does not leaves in it, another state of its slide\nshows it, or no state does.",
+            "type": "boolean"
+          },
+          "children": {
+            "description": "What it holds, a container's or a group's children, listed as the state's are.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Layer" }
+          }
+        },
+        "required": ["node", "type", "shown"]
       }
     },
     "type": "object",

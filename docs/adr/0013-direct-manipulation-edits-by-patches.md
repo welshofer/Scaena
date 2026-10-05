@@ -54,6 +54,8 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | Copy | Nothing: a clip of the node and what it holds, as the state shows them, with their overrides, the data sources they read, and the files those read (`application/x-scaena+json`, and as text); of several, each with its box |
    | Cut | A copy, then Delete's patch |
    | Paste | The sources a clip brings, `add_node` for each node it holds under an id new to the deck, entering in the state shown, their overrides, then `place` as Insert places a node, several where they stood about each other; what the theme lacks taken out of the copy, as findings, a text's role given way to its stand-in |
+   | A node shown or hidden from the layers (PLAN 2.50) | `show_node` or `hide_node` in the state shown, for it and what it holds |
+   | A node renamed in the layers | `rename_node`: the id everywhere the deck names it |
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
    | Choosing a theme | `retheme`, as `scaena theme --apply` re-themes a bundle: a theme that ships written into the bundle with the fonts it names that the bundle lacks, or the bundle's own; refused, with why, where the deck would not validate in it |

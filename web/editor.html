@@ -153,7 +153,10 @@
       #strip .drop-before { box-shadow: -3px 0 0 var(--info); }
       #strip .drop-after { box-shadow: 3px 0 0 var(--info); }
       #strip .adds { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
-      #status { color: var(--muted); font-variant-numeric: tabular-nums; }
+      /* The status keeps one place, two lines tall, whatever it says, so a message never moves the
+         panels under it between two clicks; a longer one is clipped, whole in its title and to a
+         screen reader. */
+      #status { color: var(--muted); font-variant-numeric: tabular-nums; flex: 1 0 100%; min-height: 2lh; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
       #inspector { padding: 0 12px 12px; }
       #inspector h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 4px; }
       #inspector table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
@@ -181,6 +184,20 @@
       #look .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+      /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;
+         those it does not show dimmed. */
+      #layers ul { margin: 0; padding: 0; list-style: none; }
+      #layers > ul { padding: 6px 12px; }
+      #layers .row { display: flex; align-items: center; gap: 6px; }
+      #layers .eye { border: none; background: none; padding: 0 4px; color: var(--muted); }
+      #layers .eye[aria-pressed="true"] { color: var(--ink); }
+      #layers .name { all: unset; flex: 1 1 auto; padding: 2px 4px; border-radius: 3px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #layers .name:hover { background: var(--line); }
+      #layers .name:focus-visible { outline: 2px solid var(--info); }
+      #layers li[aria-current="true"] > .row .name { background: rgb(156 196 228 / 0.22); }
+      #layers li.hidden > .row .name { color: var(--muted); font-style: italic; }
+      #layers .kind { color: var(--muted); font-size: 11px; }
+      #layers input { flex: 1 1 auto; font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
       #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
       #tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
       #assistant { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; min-height: 0; }
@@ -285,12 +302,16 @@
         </p>
         <nav id="tabs" role="tablist">
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
+          <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
           <section id="look" aria-label="The node selected"></section>
           <div id="listing"></div>
         </div>
+        <section id="layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
+          <ul aria-label="The state shown's nodes, topmost first"></ul>
+        </section>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">
             <select id="provider" aria-label="Provider">
