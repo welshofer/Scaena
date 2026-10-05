@@ -9,13 +9,13 @@
 
 use crate::{Error, Session};
 use scaena_core::validate::BundleFiles;
-use scaena_core::{Deck, Finding, Severity};
+use scaena_core::{Deck, Finding, Severity, resolve_states};
 use scaena_ops::compile::{Compiled, compile, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
 use scaena_ops::lint::{layout_rules, lint_with};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The source compiled last, and what lint found in it.
 pub(crate) struct Edit {
@@ -24,6 +24,21 @@ pub(crate) struct Edit {
     findings: Vec<Finding>,
     /// Whether the deck it says validated: the one shown.
     shown: bool,
+}
+
+/// What the layout rules found in every state the last time they ran on all of them, and the
+/// nodes each state had then: kept for the states a lint of one state does not lay out.
+#[derive(Default)]
+pub(crate) struct Laid {
+    findings: Vec<Finding>,
+    nodes: BTreeMap<String, BTreeSet<String>>,
+}
+
+/// Each state of `deck` by its id, with the nodes it shows and those that leave in its cue:
+/// what a finding in that state can be about, or owe something to.
+fn nodes(deck: &Deck) -> BTreeMap<String, BTreeSet<String>> {
+    let states = resolve_states(deck).unwrap_or_default();
+    states.into_iter().map(|s| (s.state_id, s.nodes.into_keys().chain(s.exited).collect())).collect()
 }
 
 /// The files a page handed the session, by their paths in the bundle, as validation reads
@@ -140,7 +155,11 @@ impl Session {
     /// every format, laid out by the session's engine. With `only`, the layout rules lay out
     /// that state alone, the one being edited, so the answer comes at once (PLAN 2.3); the
     /// other states keep what the layout rules found the last time they ran on every state,
-    /// placed again in this source.
+    /// in the formats the deck still lists, placed again in this source. A state keeps it
+    /// while it has every node it had then: a state the deck no longer has, or one an edit
+    /// took a node out of, keeps nothing until they run on every state again, since what they
+    /// found there can be about that node, or owe something to it (a collision, or the
+    /// contrast of text over it).
     pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
@@ -155,16 +174,22 @@ impl Session {
             let found = layout_rules(engine, &deck, theme, data, store, only)?;
             fresh = Some(found.clone());
             let Some(only) = only else { return Ok(found) };
-            let kept = (laid.iter())
-                .filter(|f| f.state.as_deref() != Some(only))
-                .filter(|f| deck.states.iter().any(|s| f.state.as_ref() == Some(&s.id)));
-            Ok(found.into_iter().chain(kept.cloned()).collect())
+            let now = nodes(&deck);
+            let keeps = |f: &&Finding| {
+                let Some(state) = f.state.as_deref() else { return false };
+                let listed = f.format.as_ref().is_none_or(|format| deck.formats.contains(format));
+                match (laid.nodes.get(state), now.get(state)) {
+                    (Some(then), Some(now)) => state != only && listed && then.is_subset(now),
+                    _ => false,
+                }
+            };
+            Ok(found.into_iter().chain(laid.findings.iter().filter(keeps).cloned()).collect())
         })
         .map_err(|e| Error::Ops(e.message))?;
         match (fresh, only) {
-            (Some(found), None) => *laid = found,
+            (Some(findings), None) => *laid = Laid { findings, nodes: nodes(&deck) },
             // A deck the layout rules cannot run on has nothing laid out to keep.
-            (None, None) => laid.clear(),
+            (None, None) => *laid = Laid::default(),
             _ => {}
         }
         let edit = self.edit.as_mut().expect("checked above");
@@ -333,6 +358,78 @@ mod tests {
         assert!(s.compile(&s.source().replace(long, "Revenue doubled")).valid);
         let one = s.lint(Some("revenue")).unwrap();
         assert!(!said(&one, "revenue").iter().any(|f| f.starts_with("E100")), "{:?}", said(&one, "revenue"));
+    }
+
+    /// Each finding, as the page shows it.
+    fn shown(l: &Linting) -> Vec<String> {
+        let mut found: Vec<String> = l.findings.iter().map(|f| serde_json::to_string(&f.finding).unwrap()).collect();
+        found.sort();
+        found
+    }
+
+    /// The revenue example's `source` with a copy of its chart, `rev-2`, low on the slide in
+    /// `revenue`: `mix` keeps it, and so does `close`, over the shader it brings back.
+    fn with_a_copy(source: &str) -> String {
+        let (from, to) = (source.find("  rev chart:").unwrap(), source.find("  note text").unwrap());
+        let copy = (source[from..to].replacen("  rev ", "  rev-2 ", 1))
+            .replace("at:in(main)", "at:{rect: [600, 820, 1100, 600]}");
+        format!("{}{copy}{}", &source[..to], &source[to..])
+    }
+
+    /// A node an edit put in and an undo took out again, as a paste and its undo do: what the
+    /// lint of every state found while it was there goes with it, from every state it was in,
+    /// though the lint of one state lays out only that one. Some of that names the node only in
+    /// what it measures, and some not at all: a note it was over reads badly on its bars.
+    #[test]
+    fn a_lint_of_one_state_keeps_nothing_from_a_state_an_edit_took_a_node_out_of() {
+        let mut s = revenue();
+        let original = s.source();
+        assert!(s.compile(&with_a_copy(&original)).valid);
+        let whole = s.lint(None).unwrap();
+        let found = |code: &str, state: &str, node: &str| {
+            (whole.findings.iter())
+                .map(|f| &f.finding)
+                .any(|f| f.code == code && f.state.as_deref() == Some(state) && f.node.as_deref() == Some(node))
+        };
+        assert!(found("W311", "close", "bg"), "the shader behind the copy: {:#?}", shown(&whole));
+        assert!(found("E110", "revenue", "note"), "the note over the copy: {:#?}", shown(&whole));
+        // Undone, in `mix`: the lint of that state alone finds what the lint of every state does.
+        assert!(s.compile(&original).valid);
+        let one = s.lint(Some("mix")).unwrap();
+        assert!(!one.whole);
+        assert!(!shown(&one).iter().any(|f| f.contains("rev-2")), "{:#?}", shown(&one));
+        assert_eq!(shown(&one), shown(&s.lint(None).unwrap()));
+    }
+
+    /// A state an edit took out, with what the lint of every state found in it.
+    #[test]
+    fn a_lint_of_one_state_keeps_nothing_from_a_state_the_deck_no_longer_has() {
+        let mut s = revenue();
+        let original = s.source();
+        let long = "Thank you, every one of you, for coming tonight".repeat(4);
+        assert!(s.compile(&format!("{original}\nstate encore\n  title \"{long}\"\n")).valid);
+        let whole = s.lint(None).unwrap();
+        let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
+        let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
+        assert!(whole.findings.iter().any(overflow), "{:#?}", shown(&whole));
+        assert!(s.compile(&original).valid);
+        let one = s.lint(Some("revenue")).unwrap();
+        assert!(!encore(&one), "{:#?}", shown(&one));
+    }
+
+    /// A format an edit took out of the deck's list, with what the lint of every state found
+    /// laid out in it: every state keeps its nodes, and nothing found in that format stays.
+    #[test]
+    fn a_lint_of_one_state_keeps_nothing_from_a_format_the_deck_no_longer_lists() {
+        let mut s = revenue();
+        let copied = with_a_copy(&s.source());
+        assert!(s.compile(&copied).valid);
+        let whole = s.lint(None).unwrap();
+        let tall = |l: &Linting| l.findings.iter().any(|f| f.finding.format.as_deref() == Some("9:16"));
+        assert!(tall(&whole), "{:#?}", shown(&whole));
+        assert!(s.compile(&copied.replace("formats:[16:9, 9:16]", "formats:[16:9]")).valid);
+        let one = s.lint(Some("intro")).unwrap();
+        assert!(!tall(&one), "{:#?}", shown(&one));
     }
 
     #[test]
