@@ -62,6 +62,29 @@ export interface NodeBox {
   draws: boolean;
 }
 
+/** What is sought across the deck's texts (PLAN 2.47). */
+export interface Query {
+  find: string;
+  /** Upper and lower case apart. */
+  case?: boolean;
+  /** Whole words only. */
+  words?: boolean;
+}
+
+/** A text the deck shows that a query matches, once for each place it is written (PLAN 2.47):
+ * the node's own, a state's delta, or the deck's overrides (`lives`, a JSON pointer), with the
+ * states that show it from there. `matches` are `[from, to]` in characters (Unicode scalar
+ * values), as `replace_text` counts them. */
+export interface Found {
+  node: string;
+  /** The first state that shows it, where a replacement is made. */
+  state: string;
+  states: string[];
+  lives: string;
+  text: string;
+  matches: [number, number][];
+}
+
 /** A node that draws at a point, with the containers and groups it sits in, innermost first. */
 export interface Hit {
   node: string;
@@ -288,6 +311,11 @@ export type ToWorker =
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
+  /** Each text of the deck `source` compiles to that `query` matches (PLAN 2.47). */
+  | { type: "find"; id: number; source: string; query: Query }
+  /** The patch that replaces what `query` matches with `with`: every match, or with `one`,
+   * `[text, match]` into what `find` gives, that one (PLAN 2.47). */
+  | { type: "replacing"; id: number; source: string; query: Query; with: string; one?: [number, number] }
   /** The point of image `node` under `point` in `state` at rest, in fractions of its crop:
    * what a focal point picked there is (PLAN 2.45). */
   | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
@@ -653,6 +681,9 @@ export type FromWorker =
   | { type: "hits"; id: number; hits: Hit[] }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
+  | { type: "found"; id: number; found: Found[] }
+  /** The ops of a replacement, a `replace_text` for each match it replaces. */
+  | { type: "replacement"; id: number; ops: unknown[] }
   /** Where a focal point picked there would be; `null` off the image. */
   | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }

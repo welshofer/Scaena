@@ -12,8 +12,10 @@
 //! A patch applies as a whole or not at all: on any failure the document is left as it was.
 //! Lint's fixes are RFC 6902 patches (SPEC §7.4, [`apply`]).
 
+mod find;
 mod ops;
 
+pub use find::{Found, Query, find, replacing};
 pub use ops::{Written, written};
 
 use crate::document::{DataSource, Node, Props, State};

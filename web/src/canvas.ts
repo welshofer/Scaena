@@ -45,7 +45,7 @@
 import { CLIP } from "./protocol";
 import type { Arrange, Edited, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
-import { type Selected, typing } from "./typing";
+import { covered, type Selected, typing } from "./typing";
 
 /** What the canvas asks of the editor around it. */
 export interface Editor {
@@ -211,6 +211,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
   let panning: { from: Rect; client: [number, number]; pointer: number } | undefined;
   /** Whether Space is held: a drag then pans. */
   let spaced = false;
+  /** Characters marked in a text, as a find shows its match (PLAN 2.47): the node, and the
+   * rects they cover, canvas units, from the engine's carets. */
+  let marked: { node: string; rects: Rect[] } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -360,6 +363,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
 
   function select(node: string | undefined) {
     if (node === selected && also.length === 0) return;
+    if (marked && marked.node !== node) marked = undefined;
     if (text.node() !== undefined && text.node() !== node) text.leave();
     selected = node;
     also = [];
@@ -495,6 +499,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
       const [x, y] = [Math.min(marquee.from[0], marquee.at[0]), Math.min(marquee.from[1], marquee.at[1])];
       parts.push(rect([x, y, Math.abs(marquee.at[0] - marquee.from[0]), Math.abs(marquee.at[1] - marquee.from[1])], "marquee"));
     }
+    if (marked && box(marked.node)) for (const r of marked.rects) parts.push(rect(r, "found"));
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
   }
@@ -738,6 +743,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
         editor.say(`not grouped: ${said(e)}`);
       }
     });
+  }
+
+  /** Mark characters `from`..`to` of `node`'s text in the state shown, counted as the page counts
+   * a string (UTF-16), selecting the node; with none, take the mark away. */
+  async function mark(node?: string, from = 0, to = 0) {
+    marked = undefined;
+    const shown = editor.shown();
+    if (node !== undefined && shown) {
+      const carets = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+      if (carets) marked = { node, rects: covered(carets, from, to) };
+      if (selected !== node || also.length) select(node);
+    }
+    draw();
   }
 
   /** The image whose focal point the next press on it picks (PLAN 2.45). */
@@ -1328,6 +1346,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor) {
     select,
     /** Select `nodes` at once, children of one container, as Shift+click and a marquee do. */
     selectAll,
+    /** Mark characters of a text in the state shown, as a find shows its match, and select it;
+     * with no node, take the mark away (PLAN 2.47). */
+    mark,
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,

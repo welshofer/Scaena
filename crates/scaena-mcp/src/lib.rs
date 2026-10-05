@@ -23,6 +23,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use scaena_core::Finding;
+use scaena_core::patch::Query;
 use scaena_ops::OpsError;
 use scaena_ops::export::{Exported, Progress, Running};
 use schemars::JsonSchema;
@@ -309,6 +310,27 @@ pub struct DeckPatch {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeckFind {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// The characters sought, as typed.
+    pub find: String,
+    /// Upper and lower case apart; alike without it.
+    #[serde(default)]
+    pub case: bool,
+    /// Whole words only: a match that neither begins nor ends inside a word.
+    #[serde(default)]
+    pub words: bool,
+    /// Replace every match with this, in one patch: a `replace_text` where each text lives.
+    #[serde(default)]
+    pub replace: Option<String>,
+    /// With `replace`: say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// The least severity to report.
 #[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -528,6 +550,24 @@ impl Scaena {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
         let author = author(&context);
         blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
+    }
+
+    #[tool(description = "Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it, \
+        once for each place the text is written (the node's own, a state's delta, or the deck's overrides), with the \
+        states that show it from there and each match, in characters. With `replace`, every match is replaced in one \
+        patch, a `replace_text` where each text lives, reported as `deck_patch` reports a patch (`replaced`).")]
+    async fn deck_find(
+        &self,
+        Parameters(a): Parameters<DeckFind>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::find::Searched>, String> {
+        let query = Query { find: a.find, case: a.case, words: a.words };
+        let author = author(&context);
+        blocking(move || {
+            scaena_ops::find::search(&open_by(&a.bundle, author)?, &query, a.replace.as_deref(), a.dry_run)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, \

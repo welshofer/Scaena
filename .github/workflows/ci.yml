@@ -248,6 +248,8 @@ jobs:
       - run: node web/image.mjs
       # The preview zoomed and panned: painted at the size shown, every pointer read through the view (PLAN 2.46).
       - run: node web/zoom.mjs
+      # Find and replace across the deck's texts: each match shown, marked, and replaced where its text lives (PLAN 2.47).
+      - run: node web/find.mjs
       # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
       - run: node web/runs.mjs
       # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).

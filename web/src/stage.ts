@@ -8,6 +8,7 @@ import type {
   AssistantEvent,
   At,
   Edited,
+  Found,
   FromWorker,
   Grouped,
   Hit,
@@ -19,6 +20,7 @@ import type {
   Painter,
   Pasted,
   ProviderId,
+  Query,
   Rect,
   SaveTo,
   Slot,
@@ -57,6 +59,8 @@ type Reply = Extract<
       | "hits"
       | "viewed"
       | "focal"
+      | "found"
+      | "replacement"
       | "targets"
       | "dragged"
       | "arranged"
@@ -240,6 +244,19 @@ export class Stage {
    * what is shown is painted so. */
   view(view: [number, number, number, number] | undefined): Promise<void> {
     return this.request<"viewed">({ type: "view", id: ++this.asked, view: view ?? null }).then(() => {});
+  }
+
+  /** Each text of the deck `source` compiles to that `query` matches, once for each place it is
+   * written, with the states that show it from there (PLAN 2.47). */
+  find(source: string, query: Query): Promise<Found[]> {
+    return this.request<"found">({ type: "find", id: ++this.asked, source, query }).then(({ found }) => found);
+  }
+
+  /** The patch that replaces what `query` matches in the deck `source` compiles to with `with`:
+   * every match, a `replace_text` where each text lives, or with `one`, `[text, match]` into
+   * what `find` gives, that match alone (PLAN 2.47). */
+  replacing(source: string, query: Query, with_: string, one?: [number, number]): Promise<unknown[]> {
+    return this.request<"replacement">({ type: "replacing", id: ++this.asked, source, query, with: with_, one }).then(({ ops }) => ops);
   }
 
   /** The point of image `node` under `point` in `state` at rest, in the deck `source` compiles
@@ -552,6 +569,8 @@ export class Stage {
       case "hits":
       case "viewed":
       case "focal":
+      case "found":
+      case "replacement":
       case "targets":
       case "dragged":
       case "arranged":

@@ -223,6 +223,26 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
+    /// once for each place the text is written, and the states that show it. With `--replace`,
+    /// every match is replaced in one patch, a `replace_text` where each text lives.
+    Find {
+        bundle: PathBuf,
+        /// The characters sought.
+        text: String,
+        /// Upper and lower case apart.
+        #[arg(long)]
+        case: bool,
+        /// Whole words only.
+        #[arg(long)]
+        words: bool,
+        /// Replace every match with this, as `patch` applies a patch.
+        #[arg(long, value_name = "TEXT")]
+        replace: Option<String>,
+        /// With `--replace`: say what would change, and write nothing.
+        #[arg(long, requires = "replace")]
+        dry_run: bool,
+    },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
     /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
     /// is refused.
@@ -531,6 +551,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
+        Cmd::Find { bundle, text, case, words, replace, dry_run } => {
+            let query = scaena_core::patch::Query { find: text, case, words };
+            find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
+        }
         Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
@@ -801,6 +825,47 @@ fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCod
         print_delta(&p.added, &p.removed);
     }
     Ok(if p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena find` (PLAN 2.47): each text the query matches, once for each place it is written,
+/// with the states that show it and its matches; with `--replace`, every match replaced in
+/// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
+fn find(
+    bundle: &Path,
+    query: &scaena_core::patch::Query,
+    replace: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let searched = scaena_ops::find::search(&b, query, replace, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&searched)?);
+    } else {
+        let texts = searched.found.len();
+        println!(
+            "{} {} in {texts} {}",
+            searched.matches,
+            if searched.matches == 1 { "match" } else { "matches" },
+            if texts == 1 { "text" } else { "texts" }
+        );
+        for f in &searched.found {
+            let quoted: Vec<String> = f.matches.iter().map(|&[from, to]| format!("{from}..{to}")).collect();
+            println!("  {} in {} ({}): {:?} at {}", f.node, f.states.join(", "), f.lives, f.text, quoted.join(", "));
+        }
+        if let Some(p) = &searched.replaced {
+            match (p.refused, dry_run) {
+                (true, _) => println!("refused: replacing them would make the deck invalid; nothing was written"),
+                (false, true) => println!("would replace them, {} ops as JSON Patch", p.patch.len()),
+                (false, false) => println!("replaced them, {} ops as JSON Patch", p.patch.len()),
+            }
+            print_delta(&p.added, &p.removed);
+        }
+    }
+    Ok(match &searched.replaced {
+        Some(p) if p.errors > 0 => ExitCode::from(1),
+        _ => ExitCode::SUCCESS,
+    })
 }
 
 /// `scaena lint --fix`: apply every fix lint offers (each checked by laying its state out
