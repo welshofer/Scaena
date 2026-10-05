@@ -57,6 +57,8 @@ export interface Selected {
   state: string;
   from: number;
   to: number;
+  /** The characters themselves. */
+  text: string;
 }
 
 /** A change to a text: the UTF-16 range of what it read that `text` takes the place of. */
@@ -303,7 +305,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (!open || !carets) return undefined;
     const { from, to } = caret();
     if (from === to) return undefined;
-    return { node: open.node, state: open.state, from: points(carets.text, from), to: points(carets.text, to) };
+    return { node: open.node, state: open.state, from: points(carets.text, from), to: points(carets.text, to), text: carets.text.slice(from, to) };
   }
 
   /** What the inspector was last told is selected, so it is told again only of a change. */
@@ -601,6 +603,13 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (open && !keeping(e.target)) leave();
   };
   document.addEventListener("focusin", wander);
+  // The canvas focused while a text is typed in, by the keyboard or the page rather than a press
+  // on it (which puts the caret in the text, or ends typing): the text takes the focus, and the
+  // keys with it.
+  const onward = () => {
+    if (open && document.activeElement === overlay) area.focus({ preventScroll: true });
+  };
+  overlay.addEventListener("focus", onward);
   const selecting = () => {
     if (!open || document.activeElement !== area) return;
     around.draw();
@@ -699,6 +708,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       leave();
       document.removeEventListener("selectionchange", selecting);
       document.removeEventListener("focusin", wander);
+      overlay.removeEventListener("focus", onward);
       area.remove();
     },
   };

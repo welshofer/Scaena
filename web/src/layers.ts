@@ -304,6 +304,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
         all.map((l) => `${l.node}${l.shown ? "" : " (hidden)"}${l.children?.length ? ` [${say(l.children).join(", ")}]` : ""}`);
       return shown ? say(shown.layers) : [];
     },
+    /** `node`'s type, as the layers of `state` list it, where they are those listed. */
+    type: (node: string, state: string) => (shown?.state === state ? find(shown.layers, node)?.type : undefined),
     /** The changes made through the panel, for a test: once they are. */
     settled: () => making,
     toggle,

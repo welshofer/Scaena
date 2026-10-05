@@ -50,12 +50,13 @@ import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
 import { looks } from "./look";
-import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
+import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
 import { strip } from "./strip";
+import type { Selected } from "./typing";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -266,6 +267,11 @@ async function edit(source: Source) {
   /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
   let chosen: string | undefined;
   let beside: string[] = [];
+  /** The characters selected in the text typed in, if any are (PLAN 2.38). */
+  let characters: Selected | undefined;
+  /** What the assistant's question has changed so far, selected once the canvas stands in the
+   * source its edit made (PLAN 2.52). */
+  let touching: { source: string; nodes: string[] } | undefined;
 
   const view = new EditorView({
     parent: $("#code"),
@@ -409,8 +415,13 @@ async function edit(source: Source) {
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
     // focus there keeps the text typed in.
-    chose: (selected) => void look.characters(selected),
-    keeps: (to) => to instanceof Node && $("#look").contains(to),
+    chose: (selected) => {
+      characters = selected;
+      void look.characters(selected);
+    },
+    // Focus in the inspector, or in the assistant asked about them, keeps the text typed in and
+    // its characters selected (PLAN 2.38, 2.52).
+    keeps: (to) => to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to)),
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
@@ -590,7 +601,7 @@ async function edit(source: Source) {
       states.states(edited.slots, shown);
       void inspect();
       void layering.refresh();
-      void board.refresh().catch(failed);
+      void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
       void offerThemes();
@@ -697,6 +708,35 @@ async function edit(source: Source) {
         return li;
       }),
     );
+  }
+
+  /** What the editor shows (PLAN 2.52): the state, in the format shown, the nodes the canvas
+   * selects, each with its type, and the characters selected in the text typed in. */
+  function seeing(): Seeing | undefined {
+    const at = showing();
+    if (!at) return undefined;
+    const nodes = (chosen === undefined ? [] : [chosen, ...beside]).map((node) => ({ node, type: layering.type(node, at.state) }));
+    const c = characters && characters.state === at.state && board.typing() === characters.node ? characters : undefined;
+    return {
+      state: at.state,
+      format: format(),
+      nodes,
+      characters: c && { node: c.node, from: c.from, to: c.to, text: c.text },
+    };
+  }
+
+  /** Once the canvas stands in `source`, select what the assistant's question changed there
+   * (PLAN 2.52): those the state shown shows, held where the first is; nothing it shows, and the
+   * selection stays. */
+  function select(source: string) {
+    if (touching?.source !== source) return;
+    const { nodes } = touching;
+    touching = undefined;
+    const boxes = board.boxes() ?? [];
+    const holder = (node: string) => boxes.find((b) => b.node === node)?.parent ?? null;
+    const shown = nodes.filter((node) => boxes.some((b) => b.node === node));
+    if (!shown.length) return;
+    board.selectAll(shown.filter((node) => holder(node) === holder(shown[0])));
   }
 
   /** Show the state the cursor is in: the last whose declaration starts at or before it. */
@@ -854,10 +894,12 @@ async function edit(source: Source) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
-    apply: (source, edited) => {
+    apply: (source, edited, touched) => {
       taken = { source, edited };
+      touching = touched?.length ? { source, nodes: touched } : undefined;
       view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
     },
+    seeing,
     lock: (on) => {
       assisting = on;
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });

@@ -480,13 +480,26 @@ export type FromHelper =
 export type ProviderId = "anthropic" | "openai" | "gemini";
 
 /** A question for the assistant, and who answers it: the provider, at its own address or at
- * `base`, with the user's key, and the model they picked. */
+ * `base`, with the user's key, and the model they picked; and what the editor shows as it is
+ * asked (PLAN 2.52), which "this" and "shorter" mean. */
 export interface Asking {
   provider: ProviderId;
   model: string;
   key: string;
   base?: string;
   text: string;
+  seeing?: Seeing;
+}
+
+/** What the editor shows as a question is asked (PLAN 2.52): the state shown, in a format if not
+ * the deck's own, the nodes selected, the one selected first, and the characters selected in a
+ * text typed in, from `from` to `to` in Unicode scalar values, as `replace_text` and `style_text`
+ * count them, with the text they make. */
+export interface Seeing {
+  state: string;
+  format?: string;
+  nodes: { node: string; type?: string }[];
+  characters?: { node: string; from: number; to: number; text: string };
 }
 
 /** What the page hears as the assistant works. */
@@ -500,8 +513,10 @@ export type AssistantEvent =
   | { kind: "result"; id: string; name: string; error: boolean; summary: string; json: string; png?: string }
   /** The deck changed: its source now, which the editor takes, compiled, shown, and linted
    * as an edit of it would be: the worker does it as the change is made, so the editor asks
-   * nothing of a source the assistant has moved past. */
-  | { kind: "edited"; source: string; edited: Edited }
+   * nothing of a source the assistant has moved past. `touched` are the nodes the question has
+   * changed so far, in the deck's order: those whose own props, a state's delta for them, or
+   * the deck's overrides of them differ from before it was asked, and those it added. */
+  | { kind: "edited"; source: string; edited: Edited; touched?: string[] }
   /** Tokens in and out of one answer, as the provider counts them. */
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools

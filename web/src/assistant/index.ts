@@ -5,6 +5,7 @@
 // server's resources, `scaena-resources`) as a WASM module of its own: the editor's engine
 // carries neither.
 import initResources, { list, text } from "@scaena/resources";
+import type { Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
 import { type Listed, system } from "./prompt";
@@ -35,13 +36,15 @@ export interface Called {
   free(): void;
 }
 
-/** A question for the assistant, and who answers it. */
+/** A question for the assistant, and who answers it; and what the editor shows as it is asked
+ * (PLAN 2.52). */
 export interface Asking {
   provider: ProviderId;
   model: string;
   key: string;
   base?: string;
   text: string;
+  seeing?: Seeing;
 }
 
 /** The conversation, kept between questions until the page forgets it. */
@@ -69,7 +72,7 @@ export async function ask(
   const listed = JSON.parse(list()) as Listed[];
   const bundleSkills = session.files().flatMap((path) => /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1] ?? []);
   const prompt = system(facts(session), listed, bundleSkills, text("scaena://skills/author-deck") ?? "");
-  conversation.push({ role: "user", text: asking.text });
+  conversation.push({ role: "user", text: seen(asking.seeing) + asking.text });
   await converse({
     provider: providers[asking.provider],
     model: asking.model,
@@ -82,6 +85,20 @@ export async function ask(
     emit,
     signal,
   });
+}
+
+/** What the editor shows as a question is asked (PLAN 2.52), as the question's first line, in
+ * brackets: the system prompt says how to read it. The conversation keeps it with the question,
+ * so what was selected then stays said. */
+export function seen(seeing: Seeing | undefined): string {
+  if (!seeing) return "";
+  const format = seeing.format ? ` in ${seeing.format}` : "";
+  const nodes = seeing.nodes.length
+    ? `selected: ${seeing.nodes.map((n) => (n.type ? `${n.node} (${n.type})` : n.node)).join(", ")}`
+    : "nothing selected";
+  const c = seeing.characters;
+  const characters = c ? `; in ${c.node}, characters ${c.from} to ${c.to} selected: ${JSON.stringify(c.text)}` : "";
+  return `[In the editor: state ${seeing.state} shown${format}; ${nodes}${characters}.]\n\n`;
 }
 
 /** The open deck, in a few facts: its title, states, formats, and theme. */

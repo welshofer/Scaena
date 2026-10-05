@@ -111,6 +111,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         const slot = slots[data.index];
         if (!slot) throw new Error(`the deck has no slot ${data.index}: it has ${slots.length}`);
+        shown = { index: data.index, format: data.format };
         const t = data.t ?? slot.span;
         await paint(slot.state, t);
         return post({ type: "at", id: data.id, index: data.index, t, global: slot.start + t, playing: false });
@@ -611,7 +612,8 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
 
 /** The assistant's question being answered, to stop. */
 let asking: AbortController | undefined;
-/** Where the editor shows the deck: the slot and format of its last edit. */
+/** Where the editor shows the deck: the slot and format it last showed or edited, where the
+ * assistant's edits are shown. */
 let shown: { index: number; format?: string } = { index: 0 };
 
 /** Ask the assistant `question` about the deck `source` says (PLAN 2.6), which must compile
@@ -625,10 +627,13 @@ async function ask(id: number, source: string, question: Asking) {
   const emit = (event: AssistantEvent) => post({ type: "assistant", id, event });
   // Each edit the assistant makes is compiled, shown, and linted here, as the editor's edit of
   // its source would be, before its next call: the editor takes the source and what the edit
-  // came to, and sends nothing back that the assistant has moved past.
+  // came to, and sends nothing back that the assistant has moved past. With it go the nodes the
+  // question has changed so far, which the editor selects (PLAN 2.52).
+  const before = deckRead();
   const edited = async (source: string) => {
     latest++;
-    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format) });
+    const touched = changed(before, deckRead());
+    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched });
   };
   try {
     await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
@@ -637,6 +642,39 @@ async function ask(id: number, source: string, question: Asking) {
   } finally {
     if (asking === stop) asking = undefined;
   }
+}
+
+/** The deck, as the assistant's tools read it: what a question's edits are told apart by. */
+interface Read {
+  nodes?: Record<string, unknown>;
+  states?: { id: string; props?: Record<string, unknown> }[];
+  overrides?: Record<string, unknown>;
+}
+
+function deckRead(): Read | undefined {
+  const read = player.tool("deck_read", "{}");
+  try {
+    return read.error ? undefined : (JSON.parse(read.json) as { deck?: Read }).deck;
+  } catch {
+    return undefined;
+  } finally {
+    read.free();
+  }
+}
+
+/** The nodes `now` changes from `was` (PLAN 2.52), in its order: those it adds, and those whose
+ * own props, the deck's overrides of them, or a state's delta for them differ. A state is told
+ * apart by its id; one taken away changes nothing it showed. */
+function changed(was: Read | undefined, now: Read | undefined): string[] {
+  if (!was || !now) return [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const states = new Map((was.states ?? []).map((s) => [s.id, s.props ?? {}]));
+  return Object.keys(now.nodes ?? {}).filter(
+    (node) =>
+      !same(was.nodes?.[node], now.nodes?.[node]) ||
+      !same(was.overrides?.[node], now.overrides?.[node]) ||
+      (now.states ?? []).some((s) => !same(states.get(s.id)?.[node], s.props?.[node])),
+  );
 }
 
 /** The spine as a reader goes through it (SPEC §3.11–3.12): its sections in order, each

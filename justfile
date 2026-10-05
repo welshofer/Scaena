@@ -180,6 +180,7 @@ web-smoke: site
     node web/strip.mjs
     node web/storage.mjs
     node web/assistant.mjs
+    node web/seeing.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

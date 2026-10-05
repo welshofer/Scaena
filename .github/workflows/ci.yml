@@ -267,6 +267,8 @@ jobs:
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
+      # A question carries what the editor shows, and what its patch changes is selected after it (PLAN 2.52).
+      - run: node web/seeing.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

@@ -48,6 +48,10 @@ try {
     await page.locator("#overlay").focus();
     await page.keyboard.press("Control+z");
   };
+  /** Once the canvas draws the pennant upright again, as the source an undo left says: a turn
+   * pressed sooner starts from the angle the canvas still draws. */
+  const upright = () =>
+    page.waitForFunction(() => !window.scaena.canvas.boxes()?.find((b) => b.node === "tf-flag")?.transform, null, { timeout: 30000 }).catch(() => {});
   const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes()?.find((b) => b.node === n), node);
   /** Where the source declares `node`: its line and the lines that go on from it. */
   const declared = (text, node) => {
@@ -149,6 +153,7 @@ try {
   check(Array.isArray(now) && Math.abs(now[1] - 1) < 1e-4, `its box carries the quarter turn: ${JSON.stringify(now)}`);
   await undo();
   check(await back(original), "one undo takes it back");
+  await upright();
 
   // With Shift, by 15°: most of 50° is 45°.
   await click(pivot);
@@ -158,6 +163,7 @@ try {
   check((await source()).includes("transform:{rotate: 45}"), "and writes 45");
   await undo();
   check(await back(original), "one undo takes it back");
+  await upright();
 
   // Escape, mid-turn: as it was.
   await click(pivot);
@@ -185,6 +191,7 @@ try {
   check((await source()).includes("transform:{rotate: 30}"), "and writes 30");
   await undo();
   check(await back(original), "one undo takes it back");
+  await upright();
 
   // Typing in a turned text: the headline turned a quarter by the inspector, then a double click
   // on its words where they are drawn, a fifth of the way along them: the caret goes there, read

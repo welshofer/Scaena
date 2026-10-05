@@ -2,7 +2,7 @@
 // the user's key, a model the key can use), the conversation, and the question. The source is
 // read-only while the assistant works; each edit it makes comes into the source as it is made,
 // as a fix does, and undoes as one.
-import type { AssistantEvent, Edited, ProviderId } from "../protocol";
+import type { AssistantEvent, Edited, ProviderId, Seeing } from "../protocol";
 import type { Stage } from "../stage";
 import * as keys from "./keys";
 
@@ -11,8 +11,12 @@ export interface Editor {
   /** The source as it stands. */
   source(): string;
   /** Take `source`, which the assistant's edit made, and what the worker found compiling,
-   * showing, and linting it. */
-  apply(source: string, edited: Edited): void;
+   * showing, and linting it; and select what the question has changed so far, `touched`, once
+   * the canvas stands in it (PLAN 2.52). */
+  apply(source: string, edited: Edited, touched?: string[]): void;
+  /** What the editor shows: the state, what is selected there, and the characters selected in
+   * a text typed in, which a question is about (PLAN 2.52). */
+  seeing(): Seeing | undefined;
   /** Make the source read-only, or not. */
   lock(on: boolean): void;
 }
@@ -181,7 +185,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "edited":
-        return editor.apply(event.source, event.edited);
+        return editor.apply(event.source, event.edited, event.touched);
       case "usage":
         used.input += event.input;
         used.output += event.output;
@@ -203,12 +207,14 @@ export function panel(stage: Stage, editor: Editor): Panel {
     remember();
     entry("user", text);
     question.value = "";
+    // What the editor shows as it is asked: the source locks below, and shows nothing then.
+    const seeing = editor.seeing();
     working = true;
     editor.lock(true);
     askButton.disabled = true;
     stop.hidden = false;
     try {
-      return await stage.ask(editor.source(), { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text }, hear);
+      return await stage.ask(editor.source(), { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing }, hear);
     } catch (e) {
       return failure(e instanceof Error ? e.message : String(e));
     } finally {
