@@ -20,6 +20,7 @@ import type {
   Added,
   Asking,
   AssistantEvent,
+  Attached,
   Carets,
   Choices,
   DataEdited,
@@ -349,6 +350,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const path = Player.place(data.name, bytes);
         player.addFile(path, bytes);
         return post({ type: "dropped", id: data.id, path });
+      }
+      case "attaching": {
+        current(data.source);
+        const { attached, patch } = JSON.parse(player.attaching(data.path)) as { attached: Attached; patch: unknown[] };
+        return post({ type: "attached", id: data.id, attached, patch });
       }
       case "sheet":
         return post({ type: "sheet", id: data.id, ...sheet(data.source, data.name) });

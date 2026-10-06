@@ -7,9 +7,20 @@
 use crate::assistant::Caller;
 use crate::{Error, Session};
 use scaena_core::files::BundleFile;
+use scaena_ops::create::{Attach, Attached};
 use scaena_ops::data::{DataEdit, DataEdited, Sheet};
 use scaena_ops::lint::Why;
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+/// A data file the bundle holds, declared as a source (the first-deck walk): what `data_attach`
+/// says of it, and the patch that declares it, which the page applies as it applies any edit on
+/// the canvas, one change and one undo. The patch is empty where the declaration is refused.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Attaching {
+    pub attached: Attached,
+    pub patch: Vec<Value>,
+}
 
 /// A file an edit wrote, or took out: its path, its bytes before and after (none where the
 /// bundle did not hold it), and what the edit says it did.
@@ -45,6 +56,34 @@ impl Session {
         self.undone.clear();
         self.done.push(Written { path: path.to_string(), before, after: None, why: format!("take out {path}") });
         Ok(())
+    }
+
+    /// `path`, a data file the bundle holds (a CSV or JSON file dropped on the canvas), declared
+    /// as a source as `data_attach` declares it: under an id made from its name and new to the
+    /// deck's sources, each column typed as narrowly as its values allow. Nothing is written
+    /// here: the page applies the patch.
+    pub fn attaching(&self, path: &str) -> Result<Attaching, Error> {
+        let bytes =
+            (self.files.get(path).cloned()).ok_or_else(|| Error::Ops(format!("the bundle holds no `{path}`")))?;
+        let stem = std::path::Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("data");
+        let base = scaena_core::inserts::slug(stem, "data");
+        let id = (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
+            .find(|id| !self.deck.data.contains_key(id))
+            .expect("some number is free");
+        let req = Attach { id: id.clone(), file: path.into(), schema: None, parse: None };
+        let (attached, write) =
+            scaena_ops::create::attaching(&self.bundle(), &req, bytes).map_err(|e| Error::Ops(e.to_string()))?;
+        let declared = write.as_ref().and_then(|w| w.deck.data.get(&id));
+        let patch = match declared.map(serde_json::to_value).transpose().map_err(|e| Error::Ops(e.to_string()))? {
+            None => vec![],
+            // A deck with no data source has no `data` to add one to.
+            Some(source) if self.deck.data.is_empty() => {
+                vec![json!({ "op": "add", "path": "/data", "value": { id: source } })]
+            }
+            Some(source) => vec![json!({ "op": "add", "path": format!("/data/{id}"), "value": source })],
+        };
+        Ok(Attaching { attached, patch })
     }
 
     /// The deck's data sources, in its order, each with the file it is: none for rows written

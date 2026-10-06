@@ -333,6 +333,9 @@ jobs:
       - run: node web/live.mjs
       # The editor starts a deck from a theme that ships, and saves it somewhere new (PLAN 2.12).
       - run: node web/new.mjs
+      # A first deck as a person makes one, from New to a deck that plays, exports, and opens
+      # again, by the editor's buttons, menus, keys, and drops alone (PLAN 2.76).
+      - run: node web/first-deck.mjs
       # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
