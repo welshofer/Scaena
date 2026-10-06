@@ -56,7 +56,7 @@ use parley::{
     FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap,
     PositionedLayoutItem, StyleProperty, WordBreak,
 };
-use scaena_core::displaylist::{Color, FontRef, Glyph};
+use scaena_core::displaylist::{Color, FontRef, Glyph, LinkTarget};
 use scaena_core::model::theme::Case;
 use scaena_core::model::values::TextSplit;
 use std::borrow::Cow;
@@ -94,6 +94,8 @@ pub struct Span {
     /// Whether it asks for italic without its own `style.italic`: its own role's, or the
     /// node's look's. What taking that away leaves (⌘I, PLAN 2.40).
     pub base_italic: bool,
+    /// Where it goes when it is followed (PLAN 2.70): it is drawn underlined.
+    pub link: Option<LinkTarget>,
 }
 
 /// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
@@ -143,6 +145,22 @@ pub struct TextSpec {
     /// §3.4): each line sits a whole number of grid lines below the one before, its gap
     /// rounded up. Where the first line lands is placement's.
     pub line_grid: Option<f32>,
+    /// Its paragraphs as a list's items (ADR-0018), by paragraph: each item's level and the
+    /// marker it draws. Paragraphs past its end are no items.
+    pub items: Vec<Option<ListMark>>,
+    /// How far each level of items is indented from the one above, and the least room between
+    /// a marker and its words, in ems of the node's size (the theme's `type.lists`).
+    pub list_indent: f32,
+    pub list_gap: f32,
+}
+
+/// A paragraph as an item of a list (ADR-0018): its kind, its level, 0 the outermost, and its
+/// marker.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ListMark {
+    pub kind: scaena_core::model::values::ListKind,
+    pub level: u8,
+    pub marker: String,
 }
 
 /// How a paragraph's lines sit across its box, in the paragraph's direction (SPEC §3.4).
@@ -305,6 +323,26 @@ pub struct TextLayout {
     /// Its spans as written, in order, and the weight each is set in: what ⌘B reads
     /// (ADR-0013, PLAN 2.38).
     pub looks: Vec<SpanLook>,
+    /// Its paragraphs as a list's items (ADR-0018), by paragraph; none past the last.
+    pub items: Vec<Option<ListMark>>,
+    /// Its links' underlines (PLAN 2.70), one for each glyph run of a link, in order.
+    pub underlines: Vec<Underline>,
+}
+
+/// A link's underline under one glyph run (PLAN 2.70): at the font's underline, in the run's
+/// color, and the words' box on their line, where a pointer follows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Underline {
+    pub line: usize,
+    /// Relative to the text box, canvas units: `[x, y, width, thickness]`.
+    pub rect: [f32; 4],
+    /// The words' box, from the line's top to its bottom.
+    pub area: [f32; 4],
+    pub color: Color,
+    /// Where the first cluster it underlines starts in [`TextLayout::text`].
+    pub cluster: usize,
+    /// Where it goes: none until the span it underlines says.
+    pub target: Option<LinkTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -338,6 +376,8 @@ pub struct LineBox {
     /// From the line's first run (OS/2), when the font provides it.
     pub cap_height: Option<f32>,
     pub x_height: Option<f32>,
+    /// The paragraph it is in, 0 the first: a hard line break ends one.
+    pub paragraph: usize,
 }
 
 impl TextLayout {
@@ -441,6 +481,9 @@ pub struct GlyphRun {
     /// draws, though its clusters put it with the letter before, so it moves with that
     /// letter.
     pub hyphen: bool,
+    /// The marker of a list item it draws (ADR-0018), which it says: its clusters put it with
+    /// the item's first character, so it moves with it.
+    pub mark: Option<String>,
 }
 
 /// Reusable scratch for text layout (parley's layout context). One per thread.
@@ -474,6 +517,7 @@ impl TextSpec {
                 base_weight: role.weight,
                 base_italic: role.italic,
                 style: role.clone(),
+                link: None,
             }],
             role,
             features: BTreeMap::new(),
@@ -488,6 +532,9 @@ impl TextSpec {
             optical_margins: false,
             hyphenate: false,
             line_grid: None,
+            items: Vec::new(),
+            list_indent: 1.2,
+            list_gap: 0.4,
         }
     }
 }
@@ -542,6 +589,10 @@ impl TextEngine {
                         builder.push(prop, range.clone());
                     }
                 }
+                // A link is underlined (PLAN 2.70), at the font's own underline.
+                if span.link.is_some() {
+                    builder.push(StyleProperty::Underline(true), range.clone());
+                }
             }
             builder.build(&text)
         };
@@ -558,7 +609,14 @@ impl TextEngine {
 
         let rtl = layout.is_rtl();
         let hang = Hang { edge: Edge::from(spec.align), punctuation: spec.hanging_punctuation };
-        let room = Room { hang, hyphens: &hyphens };
+        // Each paragraph's indent as a list item (ADR-0018).
+        let em = spec.role.size;
+        let indents: Vec<f32> = spec
+            .items
+            .iter()
+            .map(|i| i.as_ref().map_or(0.0, |i| f32::from(i.level + 1) * spec.list_indent * em))
+            .collect();
+        let room = Room { hang, hyphens: &hyphens, indents: &indents };
         let segments = segments(&mut layout, &text, rtl, room);
         let min_words = spec.min_last_line_words.or(base.min_last_line_words).unwrap_or(1) as usize;
         let breaking = Breaking { text: &text, rtl, room, segments: &segments, min_words };
@@ -612,6 +670,7 @@ impl TextEngine {
             line_grid: spec.line_grid,
             weight: spec.role.weight,
             upright: upright(theme, spec),
+            indents: indents.clone(),
         };
         let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
         if empty {
@@ -621,6 +680,38 @@ impl TextEngine {
                 line.text = 0..0;
             }
         }
+        // Each item's marker, on its first line, its end the gap short of its indent.
+        let starts: Vec<usize> = cased
+            .iter()
+            .scan(0, |at, t| {
+                let s = *at;
+                *at += t.len();
+                Some(s)
+            })
+            .collect();
+        for (k, item) in spec.items.iter().enumerate() {
+            let (Some(item), Some(at)) = (item, read.lines.iter().position(|l| l.paragraph == k)) else { continue };
+            let start = read.lines[at].text.start;
+            let span = starts.iter().rposition(|&s| s <= start).unwrap_or(0);
+            let (mut run, advance) = self.shaped(fonts, theme, spec, &spec.spans[span].style, &item.marker)?;
+            let (indent, gap) = (indents[k], spec.list_gap * em);
+            let x = if read.rtl { width - indent + gap } else { indent - gap - advance };
+            let baseline = read.lines[at].baseline;
+            for g in &mut run.glyphs {
+                (g.x, g.y) = (g.x + x, g.y + baseline);
+            }
+            run.clusters = vec![start; run.glyphs.len()];
+            run.line = at;
+            run.mark = Some(item.marker.clone());
+            read.runs.push(run);
+        }
+        read.items = spec.items.clone();
+        // Each underline's link, from the span it underlines.
+        for u in &mut read.underlines {
+            let span = starts.iter().rposition(|&s| s <= u.cluster).unwrap_or(0);
+            u.target = spec.spans.get(span).and_then(|s| s.link.clone());
+        }
+        read.underlines.retain(|u| u.target.is_some());
         read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
         read.offsets = offsets(&spec.spans, &cased);
         let mut end = 0;
@@ -649,20 +740,41 @@ impl TextEngine {
         style: &TextRole,
         range: Range<usize>,
     ) -> Result<Hyphen, EngineError> {
-        let mut builder = self.lcx.ranged_builder(&mut fonts.cx, "-", 1.0, false);
+        let (run, advance) = self.shaped(fonts, theme, spec, style, "-")?;
+        Ok(Hyphen { range, advance, run })
+    }
+
+    /// `text`, a hyphen or a list item's marker, shaped on one line in `style`: its glyphs from
+    /// x = 0 on their own baseline, and its advance.
+    fn shaped(
+        &mut self,
+        fonts: &mut BundleFonts,
+        theme: &Theme,
+        spec: &TextSpec,
+        style: &TextRole,
+        text: &str,
+    ) -> Result<(GlyphRun, f32), EngineError> {
+        let mut builder = self.lcx.ranged_builder(&mut fonts.cx, text, 1.0, false);
         for prop in style_props(theme, style, spec)? {
             builder.push_default(prop);
         }
-        let mut layout = builder.build("-");
+        let mut layout = builder.build(text);
         layout.break_all_lines(None);
-        let read = read_layout(&layout, "-".into(), fonts, &[], Paragraph::plain())?;
+        let read = read_layout(&layout, text.into(), fonts, &[], Paragraph::plain())?;
         let baseline = read.lines.first().map_or(0.0, |l| l.baseline);
-        let mut run = read.runs.into_iter().next().ok_or_else(|| EngineError::Font("no glyph for a hyphen".into()))?;
+        let mut runs = read.runs.into_iter();
+        let mut run = runs.next().ok_or_else(|| EngineError::Font(format!("no glyph for `{text}`")))?;
+        // One run: a marker that falls back to another font part way draws what the first sets.
+        for more in runs.take_while(|r| r.font == run.font && r.size == run.size && r.color == run.color) {
+            run.glyphs.extend(more.glyphs);
+            run.advances.extend(more.advances);
+            run.clusters.extend(more.clusters);
+        }
         // From its own line's baseline: `read_layout` sets it on the line it ends.
         for g in &mut run.glyphs {
             g.y -= baseline;
         }
-        Ok(Hyphen { range, advance: read.width, run })
+        Ok((run, read.width))
     }
 
     /// `ch` in the node's look: the advance of `0` (CSS `ch`), which `measure` counts in.
@@ -970,7 +1082,7 @@ struct Breaking<'a> {
 /// fit, and parley is handed one width per line.
 fn greedy(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'static str> {
     let Breaking { text, rtl, room, segments, min_words } = b;
-    if room.hyphenated(text) {
+    if room.hyphenated(text) || room.indented() {
         let plan = hold(segments, first_fit(segments, max_width), min_words, max_width);
         if realize(layout, segments, &plan, max_width) {
             return None;
@@ -1041,12 +1153,19 @@ fn balance(layout: &mut Layout<Ink>, b: Breaking, max_width: f32) -> Option<&'st
 struct Room<'h> {
     hang: Hang,
     hyphens: &'h [Hyphen],
+    /// Each paragraph's indent as a list item (ADR-0018).
+    indents: &'h [f32],
 }
 
 impl<'h> Room<'h> {
     /// Whether `text` has soft hyphens a line could end with.
     fn hyphenated(self, text: &str) -> bool {
         !self.hyphens.is_empty() && text.contains(SHY)
+    }
+
+    /// Whether a paragraph is indented as a list item: its lines break at widths of their own.
+    fn indented(self) -> bool {
+        self.indents.iter().any(|&i| i > 0.0)
     }
 
     /// The hyphen a line ending at byte `end` draws: it broke at a soft hyphen.
@@ -1083,6 +1202,9 @@ struct Segment {
     /// A hard line break ends it, so a line ends with it.
     hard: bool,
     text: Range<usize>,
+    /// Its paragraph's indent as a list item (ADR-0018): what a line starting with it has less
+    /// room by.
+    indent: f32,
 }
 
 /// Every segment of the paragraph. At (almost) zero width parley breaks at every UAX #14
@@ -1092,9 +1214,14 @@ fn segments(layout: &mut Layout<Ink>, text: &str, rtl: bool, room: Room) -> Vec<
     layout.break_all_lines(Some(PROBE_WIDTH));
     let hang = room.hang;
     let mut joined = false;
+    let mut paragraph = 0;
     layout
         .lines()
         .map(|line| {
+            let indent = room.indents.get(paragraph).copied().unwrap_or(0.0);
+            if line.break_reason() == BreakReason::Explicit {
+                paragraph += 1;
+            }
             let m = line.metrics();
             let range = line.text_range();
             let soft = text[..range.end].ends_with(SHY);
@@ -1113,6 +1240,7 @@ fn segments(layout: &mut Layout<Ink>, text: &str, rtl: bool, room: Room) -> Vec<
                 word,
                 hard: line.break_reason() == BreakReason::Explicit,
                 text: range,
+                indent,
             }
         })
         .collect()
@@ -1241,7 +1369,7 @@ fn widowed(layout: &Layout<Ink>, segments: &[Segment], min_words: usize) -> bool
 fn line_fit(segments: &[Segment], line: &Range<usize>, max_width: f32) -> (f32, f32) {
     let last = &segments[line.end - 1];
     let width = segments[line.start..line.end - 1].iter().map(|s| s.full).sum::<f32>() + last.bare + last.hyphen;
-    (width, max_width + segments[line.start].hang + last.hang_end)
+    (width, max_width - segments[line.start].indent + segments[line.start].hang + last.hang_end)
 }
 
 /// Lines by first fit: each takes every segment that still fits, and at least one.
@@ -1324,7 +1452,7 @@ fn plan_pretty(segments: &[Segment], max_width: f32, min_words: usize) -> Option
             let width = leading + last.bare + last.hyphen;
             // The quotes a line hangs take no room. A segment hangs no more than its own
             // advance, so starting a line earlier still only widens it.
-            let room = max_width + segments[i].hang + last.hang_end;
+            let room = max_width - segments[i].indent + segments[i].hang + last.hang_end;
             if width > room && i < j - 1 {
                 break; // more segments only widen the line
             }
@@ -1431,6 +1559,8 @@ struct Paragraph {
     weight: f32,
     /// The theme families its spans ask italic of that have no italic face.
     upright: Vec<String>,
+    /// Each paragraph's indent as a list item, canvas units (ADR-0018).
+    indents: Vec<f32>,
 }
 
 impl Paragraph {
@@ -1451,6 +1581,7 @@ impl Paragraph {
             line_grid: None,
             weight: 400.0,
             upright: Vec::new(),
+            indents: Vec::new(),
         }
     }
 }
@@ -1477,9 +1608,11 @@ fn read_layout(
     let mut synthesized = false;
     let mut upright = p.upright;
     let mut top = 0.0_f32;
+    let mut underlines = Vec::new();
     // On a line grid, how far the lines so far have moved down: each gap between
     // baselines rounded up to whole grid lines, the room above the line that moved.
     let (mut moved, mut before) = (0.0_f32, None);
+    let mut paragraph = 0;
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
         let room = match (p.line_grid, before) {
@@ -1508,11 +1641,15 @@ fn read_layout(
         let width = ink + hyphen_width - hang - hang_end;
         // Where the part inside the measure starts. Hung marks sit outside it, at the
         // logical start or end: the left or the right of the line by its direction.
-        let x = match (p.align, p.rtl) {
-            (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
-            (TextAlign::Start, true) | (TextAlign::End, false) => p.width - width,
-            (TextAlign::Center, _) => 0.5 * (p.width - width),
-        };
+        // A list item's lines sit in the box less its indent, on the start side (ADR-0018).
+        let indent = p.indents.get(paragraph).copied().unwrap_or(0.0);
+        let across = p.width - indent;
+        let x = if p.rtl { 0.0 } else { indent }
+            + match (p.align, p.rtl) {
+                (TextAlign::Start, false) | (TextAlign::End, true) => 0.0,
+                (TextAlign::Start, true) | (TextAlign::End, false) => across - width,
+                (TextAlign::Center, _) => 0.5 * (across - width),
+            };
         let left_hang = if p.rtl { hang_end } else { hang };
         // Optical margins: what sits on the aligned edge, when nothing hangs there, moves
         // part of its width past it. Outward is left at a left edge, right at a right one.
@@ -1575,7 +1712,30 @@ fn read_layout(
                 line: index,
                 rtl: run.is_rtl(),
                 hyphen: false,
+                mark: None,
             });
+            // A link's underline (PLAN 2.70): under its glyphs, at the font's underline.
+            // The space a line ends with is not underlined.
+            let range = line.text_range();
+            let inked = range.start + text[range.clone()].trim_end().len();
+            let drawn: Vec<(f32, f32)> = runs.last().map_or_else(Vec::new, |r| {
+                (r.glyphs.iter().zip(&r.advances).zip(&r.clusters))
+                    .filter(|&(_, &c)| c < inked)
+                    .map(|((g, &a), _)| (g.x, g.x + a))
+                    .collect()
+            });
+            if glyph_run.style().underline.is_some()
+                && !drawn.is_empty()
+                && let Some(r) = runs.last()
+            {
+                let left = drawn.iter().map(|d| d.0).fold(f32::INFINITY, f32::min);
+                let right = drawn.iter().map(|d| d.1).fold(left, f32::max);
+                let metrics = run.metrics();
+                let rect = [left, baseline - metrics.underline_offset, right - left, metrics.underline_size.max(1.0)];
+                let area = [left, top, right - left, m.line_height + room];
+                let cluster = r.clusters.iter().copied().min().unwrap_or(0);
+                underlines.push(Underline { line: index, rect, area, color: r.color, cluster, target: None });
+            }
         }
         if let Some(h) = hyphen {
             let mut run = h.run.clone();
@@ -1608,8 +1768,12 @@ fn read_layout(
             text: line.text_range(),
             cap_height,
             x_height,
+            paragraph,
         });
         top += m.line_height + room;
+        if line.break_reason() == BreakReason::Explicit {
+            paragraph += 1;
+        }
     }
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     Ok(TextLayout {
@@ -1631,5 +1795,7 @@ fn read_layout(
         measure: p.measure,
         weight: p.weight,
         looks: Vec::new(),
+        items: Vec::new(),
+        underlines,
     })
 }

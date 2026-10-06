@@ -141,6 +141,28 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
             }
         }
     }
+    // A link to a state the deck does not have (PLAN 2.70), in any text's runs: a node's own, a
+    // state's, or the deck's overrides.
+    let texts =
+        (deck.nodes.iter().map(|(id, n)| (id, &n.props, format!("/nodes/{}", esc(id)))))
+            .chain(deck.states.iter().enumerate().flat_map(|(i, s)| {
+                s.props.iter().map(move |(id, p)| (id, p, format!("/states/{i}/props/{}", esc(id))))
+            }))
+            .chain(deck.overrides.iter().map(|(id, o)| (id, o, format!("/overrides/{}", esc(id)))));
+    for (id, props, path) in texts {
+        let Some(Value::Array(runs)) = props.get("runs") else { continue };
+        for (k, run) in runs.iter().enumerate() {
+            if let Some(Value::String(to)) = run.get("link").and_then(|l| l.get("state"))
+                && !state_ids.contains(to.as_str())
+            {
+                out.push(
+                    err("E102", format!("a link in `{id}` goes to unknown state `{to}`"))
+                        .at(format!("{path}/runs/{k}/link/state"))
+                        .node(id.clone()),
+                );
+            }
+        }
+    }
     if let Some(spine) = &deck.spine {
         let mut beat_ids = HashSet::new();
         for (si, sec) in spine.sections.iter().enumerate() {

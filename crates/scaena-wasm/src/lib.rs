@@ -527,6 +527,21 @@ impl Session {
         Ok(self.at_rest(state)?.callout_at(node, point))
     }
 
+    /// The layout `state` uses and its slots in the format shown (PLAN 2.71): what the canvas
+    /// draws to edit it. None for a state that names no layout.
+    pub fn layout(&mut self, state: &str) -> Result<Option<(String, Vec<scaena_engine::guides::SlotBox>)>, Error> {
+        Ok(scaena_engine::guides::layout(&self.deck, &self.theme, state, self.format.as_deref())?)
+    }
+
+    /// Shape `node`'s outline in `state` at rest, in the format shown (PLAN 2.68): its points,
+    /// a rect's corner radius, and the theme's radius steps. `None` for a node the state does
+    /// not draw, or one that is no shape.
+    pub fn outline(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::geometry::Outline>, Error> {
+        self.at_rest(state)?;
+        let scene = &self.rest.as_ref().expect("laid out above").1;
+        Ok(scene.outline(node, &self.theme))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -1105,6 +1120,16 @@ impl Session {
         self.write(write, assistant::Caller { author: "user", at })
     }
 
+    /// The link drawn at `point` (canvas units) in `state` at rest, in the format shown (PLAN
+    /// 2.70): where a click there goes. None off every link.
+    pub fn link_at(
+        &mut self,
+        state: &str,
+        point: [f32; 2],
+    ) -> Result<Option<scaena_core::displaylist::LinkTarget>, Error> {
+        Ok(self.frame(state, f64::INFINITY)?.link_at(point))
+    }
+
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
     /// shows a screen reader, unseen, in a live region (PLAN 2.8), and what a single-file
     /// export carries for each state it plays (PLAN 2.5).
@@ -1365,6 +1390,13 @@ impl Player {
         self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
     }
 
+    /// The link drawn at `x`, `y` (canvas units) in `state` at rest, in the format shown, as JSON
+    /// (PLAN 2.70): `{ "href" }` or `{ "state" }`, where a click there goes; `null` off every link.
+    #[wasm_bindgen(js_name = linkAt)]
+    pub fn link_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.link_at(state, [x, y]).map_err(js)?).map_err(js)
+    }
+
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
     /// shows that is read, in paint order, an element that names it (`data-node`).
     pub fn reading(&mut self, state: &str) -> Result<String, JsError> {
@@ -1621,6 +1653,24 @@ impl Player {
         serde_json::to_string(&self.0.callout_at(state, node, [x, y]).map_err(js)?).map_err(js)
     }
 
+    /// The layout `state` uses and its slots in the format shown, as JSON (PLAN 2.71): `{
+    /// "layout", "slots": [{ "name", "rect", "col"?, "row"?, "own" }] }`, each slot's box in
+    /// canvas units, its cells as the theme writes them, and whether the format shown writes it
+    /// itself; `null` for a state that names no layout.
+    pub fn layout(&mut self, state: &str) -> Result<String, JsError> {
+        let found = self.0.layout(state).map_err(js)?;
+        let out = found.map(|(layout, slots)| serde_json::json!({ "layout": layout, "slots": slots }));
+        serde_json::to_string(&out).map_err(js)
+    }
+
+    /// Shape `node`'s outline in `state` at rest, as JSON (PLAN 2.68): `{ "node", "kind",
+    /// "rect", "transform"?, "points", "fewest", "radius"?, "radii" }`, its points fractions of
+    /// its box, a rect's radius and the theme's radius steps in canvas units; `null` for a node
+    /// the state does not draw, or one that is no shape.
+    pub fn outline(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.outline(state, node).map_err(js)?).map_err(js)
+    }
+
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
     /// fractions of the part its crop keeps, which a focal point picked there names; `null` off
     /// the image (PLAN 2.45).
@@ -1776,7 +1826,8 @@ impl Player {
     /// Where a caret stands in `node`'s text in `state` at rest, in the format shown, as JSON
     /// (ADR-0013, PLAN 2.32), its offsets in UTF-16 code units, as the page counts a string:
     /// `{ "text", "lines": [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset,
-    /// lead, trail]] }] }`, canvas units; `null` for a node that is no text there.
+    /// lead, trail]] }], "items": [{ "kind", "level", "marker" } | null] }`, canvas units, `items`
+    /// each paragraph as a list's item (PLAN 2.69); `null` for a node that is no text there.
     pub fn carets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         let Some(c) = self.0.carets(state, node).map_err(js)? else { return Ok("null".into()) };
         let units = utf16(&c.text);
@@ -1790,7 +1841,8 @@ impl Player {
                 })
             })
             .collect();
-        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines })).map_err(js)
+        // Each paragraph as a list's item (ADR-0018): what Enter, Tab, and the list keys act on.
+        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines, "items": c.items })).map_err(js)
     }
 
     /// What an inspector offers for `node` as `state` shows it, as JSON (ADR-0013, PLAN 2.33):
@@ -2699,6 +2751,29 @@ mod tests {
         assert_eq!(held("card"), ["card-tag-label", "card-tag", "card-photo"]);
         assert!(layers.iter().all(|l| l.shown || l.node.starts_with("image-")), "{layers:?}");
         assert!(matches!(s.layers("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    /// A shape's outline is what a pointer edits it by (PLAN 2.68): a polygon's points, a
+    /// line's two where it gives none, a rect's radius among the theme's steps; in 9:16 too,
+    /// in the box that format gives it. What is no shape has none.
+    #[test]
+    fn a_shapes_outline_is_where_the_state_draws_it() {
+        let mut s = torture();
+        let tri = s.outline("shapes", "shape-tri").unwrap().unwrap();
+        assert_eq!((tri.kind, tri.points.len(), tri.fewest), ("polygon", 3, 3));
+        let rule = s.outline("shapes", "shape-rule").unwrap().unwrap();
+        assert_eq!(rule.points, [[0.0, 0.5], [1.0, 0.5]]);
+        let panel = s.outline("shapes", "shape-panel").unwrap().unwrap();
+        assert_eq!((panel.radius, panel.radii.len()), (Some(panel.radii[3]), 6));
+        let boxed =
+            |s: &mut Session, node: &str| s.boxes("shapes").unwrap().into_iter().find(|b| b.node == node).unwrap();
+        assert_eq!(tri.rect, boxed(&mut s, "shape-tri").rect);
+        assert!(s.outline("shapes", "nowhere").unwrap().is_none());
+        if let Some(format) = s.formats().first().cloned() {
+            s.set_format(Some(&format)).unwrap();
+            let there = s.outline("shapes", "shape-tri").unwrap().unwrap();
+            assert_eq!(there.rect, boxed(&mut s, "shape-tri").rect);
+        }
     }
 
     /// The point of an image under a press is the image's own, in fractions of its crop: what
@@ -3838,6 +3913,27 @@ mod tests {
         assert!(matches!(s.reading("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
     }
 
+    /// A click on a link at rest goes where it says (PLAN 2.70): the torture deck's `links`
+    /// case, its web address and its state; nothing off the link.
+    #[test]
+    fn a_link_is_found_where_it_is_drawn() {
+        use scaena_core::displaylist::LinkTarget;
+        let mut s = torture();
+        let links = s.frame("links", f64::INFINITY).unwrap().links();
+        assert_eq!(links.len(), 3);
+        let middle = |l: &scaena_core::displaylist::LinkArea| {
+            let [x, y, w, h] = l.bounds();
+            [x + w / 2.0, y + h / 2.0]
+        };
+        assert_eq!(
+            s.link_at("links", middle(&links[0])).unwrap(),
+            Some(LinkTarget::Href("https://example.com/scaena/method".into()))
+        );
+        assert_eq!(s.link_at("links", middle(&links[2])).unwrap(), Some(LinkTarget::State("shapes".into())));
+        assert_eq!(s.link_at("links", [5.0, 5.0]).unwrap(), None);
+        assert_eq!(serde_json::to_string(&LinkTarget::State("shapes".into())).unwrap(), r#"{"state":"shapes"}"#);
+    }
+
     #[test]
     fn a_deck_that_draws_with_other_files_builds_the_engine_again() {
         let mut s = torture();
@@ -3858,7 +3954,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 52);
+        assert_eq!(s.states().len(), 54);
     }
 
     /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is

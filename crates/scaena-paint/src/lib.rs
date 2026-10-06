@@ -827,6 +827,8 @@ pub mod cpu {
                             self.shader(bbox, pixels, *rect, xf);
                         }
                     }
+                    // A link's area draws nothing (PLAN 2.70).
+                    Op::Link { .. } => {}
                 }
             }
             Ok(())
@@ -1372,6 +1374,7 @@ pub mod gpu {
                         let brush = ImageBrush::new(image).with_quality(image_quality(*quality));
                         self.scene.fill(Fill::NonZero, xf, &brush, Some(src_to_dst(*src, *dst)), &rect(*dst));
                     }
+                    Op::Link { .. } => {}
                     Op::Shader { rect, .. } => {
                         let shader = self.shaders.next().ok_or_else(|| {
                             PaintError::Gpu("a shader op with no image: run `Shaders::prepare` on `shader_jobs`".into())
@@ -1416,6 +1419,7 @@ pub mod gpu {
                     }
                     Op::Image { dst, .. } => add(xf.transform_rect_bbox(rect(*dst))),
                     Op::Shader { rect: r, .. } => add(xf.transform_rect_bbox(rect(*r))),
+                    Op::Link { .. } => {}
                     Op::Layer { transform, clip, ops, .. } => {
                         let child = xf * affine(transform);
                         let inner = self.ink(ops, child)?;

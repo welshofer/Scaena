@@ -318,7 +318,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -458,7 +458,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -471,7 +471,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -519,7 +519,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -569,7 +569,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -785,7 +785,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -869,7 +869,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.11", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1477,4 +1477,94 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
         let message = refused(ops.clone());
         assert!(message.contains(why), "{ops}: {message}");
     }
+}
+
+#[test]
+fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
+    // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
+    let doc = json!({
+        "scaena": "0.12", "canvas": { "width": 1920, "height": 1080 },
+        "nodes": {
+            "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
+        },
+        "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b", "props": { "t": { "text": "Uno\nDos" } } }],
+    });
+    let run = |doc: &Value, op: Value| patch(doc, json!([op])).map(|c| c.doc);
+    // Bullets on the first two, from a range across them.
+    let c =
+        run(&doc, json!({ "op": "list", "node": "t", "state": "a", "from": 1, "to": 5, "kind": "bullet" })).unwrap();
+    assert_eq!(c["nodes"]["t"]["list"], json!([{ "kind": "bullet" }, { "kind": "bullet" }]));
+    assert_eq!(errors(&c), Vec::<String>::new());
+    // Tab on the second: a level deeper. Numbers on the third, at level 1.
+    let c = run(&c, json!({ "op": "list", "node": "t", "state": "a", "from": 5, "to": 5, "by": 1 })).unwrap();
+    let c =
+        run(&c, json!({ "op": "list", "node": "t", "state": "a", "from": 9, "to": 9, "kind": "number", "level": 1 }))
+            .unwrap();
+    assert_eq!(
+        c["nodes"]["t"]["list"],
+        json!([{ "kind": "bullet" }, { "kind": "bullet", "level": 1 }, { "kind": "number", "level": 1 }])
+    );
+    // Enter at the end of the first item: the new paragraph is an item like it.
+    let typed =
+        run(&c, json!({ "op": "replace_text", "node": "t", "state": "a", "from": 3, "to": 3, "text": "\n" })).unwrap();
+    assert_eq!(typed["nodes"]["t"]["text"], "One\n\nTwo\nThree");
+    assert_eq!(
+        typed["nodes"]["t"]["list"],
+        json!([{ "kind": "bullet" }, { "kind": "bullet" }, { "kind": "bullet", "level": 1 }, { "kind": "number", "level": 1 }])
+    );
+    // Words typed inside an item leave the list as it is.
+    let words =
+        run(&c, json!({ "op": "replace_text", "node": "t", "state": "a", "from": 2, "to": 2, "text": "ly" })).unwrap();
+    assert_eq!(words["nodes"]["t"]["list"], c["nodes"]["t"]["list"]);
+    // None takes the paragraphs out of the list.
+    let none =
+        run(&c, json!({ "op": "list", "node": "t", "state": "a", "from": 0, "to": 13, "kind": "none" })).unwrap();
+    assert_eq!(none["nodes"]["t"].get("list"), None, "no items left, `list` goes");
+    // In `b`, which sets text of its own, `fork` keeps the list there.
+    let b = run(
+        &doc,
+        json!({ "op": "list", "node": "t", "state": "b", "from": 0, "to": 7, "kind": "number", "fork": true }),
+    )
+    .unwrap();
+    assert_eq!(b["states"][1]["props"]["t"]["list"], json!([{ "kind": "number" }, { "kind": "number" }]));
+    assert_eq!(b["nodes"]["t"].get("list"), None);
+    // What it refuses.
+    for (op, says) in [
+        (json!({ "op": "list", "node": "t", "from": 0, "to": 1, "kind": "bullet", "by": 1 }), "not both"),
+        (json!({ "op": "list", "node": "t", "from": 0, "to": 1 }), "say how"),
+        (json!({ "op": "list", "node": "t", "from": 0, "to": 99, "kind": "bullet" }), "characters"),
+    ] {
+        let e = run(&doc, op).unwrap_err().to_string();
+        assert!(e.contains(says), "{e}");
+    }
+}
+
+#[test]
+fn style_text_links_characters_and_a_link_to_a_state_the_deck_lacks_is_e102() {
+    // PLAN 2.70: "doubled" links to the `mix` state, in `revenue`, where the title's text lives.
+    let link = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "link": { "state": "mix" } } });
+    let doc = patch(&example(), json!([link])).unwrap().doc;
+    assert_eq!(
+        doc["states"][1]["props"]["title"]["runs"],
+        json!([{ "text": "Revenue " }, { "text": "doubled", "link": { "state": "mix" } }])
+    );
+    assert_eq!(errors(&doc), Vec::<String>::new());
+    // Taken away, the title's text again.
+    let away = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "link": null } });
+    assert_eq!(patch(&doc, json!([away])).unwrap().doc, example());
+    // A web address; and a state the deck does not have, which the patch refuses (E102).
+    let web = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "href": "https://example.com/q3" } } });
+    assert!(patch(&example(), json!([web])).is_ok());
+    let nowhere = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "state": "nowhere" } } });
+    // A state renamed keeps its links; one removed takes them away and leaves the words.
+    let renamed = patch(&doc, json!([{ "op": "rename_state", "id": "mix", "to": "shift" }])).unwrap().doc;
+    assert_eq!(renamed["states"][1]["props"]["title"]["runs"][1]["link"], json!({ "state": "shift" }));
+    let removed = patch(&doc, json!([{ "op": "remove_state", "id": "mix" }])).unwrap().doc;
+    assert_eq!(removed["states"][1]["props"]["title"]["runs"][1], json!({ "text": "doubled" }));
+    assert_eq!(errors(&renamed), Vec::<String>::new());
+    let found = errors(&patch(&example(), json!([nowhere])).unwrap().doc);
+    assert!(found.iter().any(|e| e.starts_with("E102") && e.contains("unknown state `nowhere`")), "{found:?}");
+    let bad = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "href": "javascript:alert(1)" } } });
+    let found = errors(&patch(&example(), json!([bad])).unwrap().doc);
+    assert!(!found.is_empty(), "only a web address or mailto: {found:?}");
 }

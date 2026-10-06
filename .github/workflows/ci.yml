@@ -315,6 +315,18 @@ jobs:
       # value, or band from it to another; a callout dragged to another bar, reworded, and deleted
       # (PLAN 2.67).
       - run: node web/annotate.mjs
+      # A shape's points dragged, added at an edge's middle, and taken away with Delete, and a rect's
+      # corner rounded to the theme's radius steps (PLAN 2.68).
+      - run: node web/points.mjs
+      # Lists in a text: Enter, Tab, Shift+Tab, ⌘⇧8, and ⌘⇧7 as a word processor's, and the
+      # player reading the lists as lists (PLAN 2.69).
+      - run: node web/lists.mjs
+      # Links in a text: ⌘K links the characters selected, and the player follows a link to a
+      # state or opens a web address (PLAN 2.70).
+      - run: node web/links.mjs
+      # A theme's layouts on the canvas: a slot dragged and resized onto the grid is one theme
+      # edit, in each format; a layout copied for the state shown (PLAN 2.71).
+      - run: node web/layouts.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

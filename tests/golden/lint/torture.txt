@@ -158,6 +158,9 @@ W302 - photos photo-turned /nodes/photo-turned/at/col
 W302 - photos photo-restart /nodes/photo-restart/at/col
 W302 - photos photo-sampled /nodes/photo-sampled/at/col
 W302 - photos photo-large /nodes/photo-large/at/col
+W302 - lists list-points /nodes/list-points/at/col
+W302 - lists list-steps /nodes/list-steps/at/col
+W302 - links link-text /nodes/link-text/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

@@ -63,6 +63,30 @@ pub struct Hit {
     pub offset: Option<usize>,
 }
 
+/// A shape's outline as a pointer edits it (PLAN 2.68): the points of a line, an arrow, or a
+/// polygon, and a rect's corners, with the theme's radius steps they take.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Outline {
+    pub node: String,
+    /// `rect`, `ellipse`, `line`, `arrow`, `polygon`, or `path`.
+    pub kind: &'static str,
+    /// Its box at rest, canvas units: its points are fractions of it.
+    pub rect: Rect,
+    /// As [`NodeBox::transform`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
+    /// A line's, an arrow's, or a polygon's points as it draws them, fractions of its box.
+    pub points: Vec<[f32; 2]>,
+    /// The fewest points its kind takes: two for a line or an arrow, three for a polygon.
+    pub fewest: usize,
+    /// A rect's corner radius as it draws, canvas units: at most half its shorter side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f32>,
+    /// The theme's radius steps a rect's corners take (`radius.0`, `radius.1`, …), each in
+    /// canvas units as this rect would draw it.
+    pub radii: Vec<f32>,
+}
+
 impl Scene {
     /// Every visible node's box: those that draw, in paint order, then the containers and
     /// groups that only hold others, by id.
@@ -98,6 +122,28 @@ impl Scene {
             out.push(Hit { node: node.id.clone(), rect: place.rect, transform, containers, offset });
         }
         out
+    }
+
+    /// Shape `node`'s outline at rest (PLAN 2.68), its corners' steps from `theme`'s radius
+    /// scale. `None` for a node this state does not draw, or one that is no shape.
+    pub fn outline(&self, node: &str, theme: &Theme) -> Option<Outline> {
+        let drawn = self.nodes.iter().find(|n| n.id == node)?;
+        let Content::Shape(shape) = &drawn.content else { return None };
+        let rect = self.tree.get(node)?.rect;
+        let (kind, points, radius) = shape.outline();
+        let half = (rect[2].min(rect[3]) / 2.0).max(0.0);
+        let scale = theme.tokens.radius.as_ref().and_then(|r| r.scale.as_ref());
+        let radii = match (kind, scale) {
+            ("rect", Some(scale)) => scale.iter().map(|r| (r.0 as f32).clamp(0.0, half)).collect(),
+            _ => Vec::new(),
+        };
+        let fewest = match kind {
+            "line" | "arrow" => 2,
+            "polygon" => 3,
+            _ => 0,
+        };
+        let points = points.to_vec();
+        Some(Outline { node: node.to_string(), kind, rect, transform: self.drawn(node), points, fewest, radius, radii })
     }
 
     /// The map [`NodeBox::transform`] gives `node`: `None` where nothing moves it.

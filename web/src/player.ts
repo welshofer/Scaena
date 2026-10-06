@@ -202,8 +202,34 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     const [dx, dy] = [e.clientX - down.clientX, e.clientY - down.clientY];
     down = undefined;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) return dx < 0 ? on() : back();
-    if (e.button === 0) on();
+    if (e.button === 0) void follow(e).then((followed) => followed || on());
   };
+  /** A click on a link at rest follows it (PLAN 2.70): a state is shown, a web address opens in
+   * a window of its own. Whether there was one. */
+  const follow = async (e: PointerEvent): Promise<boolean> => {
+    const { index, t, playing } = stage.at;
+    if (playing && t < slots[index].span) return false;
+    const r = stage.canvas.getBoundingClientRect();
+    const at: [number, number] = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+    const link = await stage.linkAt(slots[index].state, at, format()).catch(() => undefined);
+    if (!link) return false;
+    if ("href" in link) {
+      open(link.href, "_blank", "noopener");
+      return true;
+    }
+    const to = slots.findIndex((s) => s.state === link.state);
+    if (to < 0) return false;
+    stage.run(to, 0, format(), still());
+    return true;
+  };
+  // A link in how a state reads goes there too.
+  region?.addEventListener("click", (e) => {
+    const a = (e.target as Element).closest?.("a[data-state]");
+    const to = a ? slots.findIndex((s) => s.state === a.getAttribute("data-state")) : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    stage.run(to, 0, format(), still());
+  });
   channel.onmessage = ({ data }: MessageEvent<Steer>) => {
     if (data.type === "on") on();
     else if (data.type === "back") back();
@@ -252,6 +278,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       show: stage.show.bind(stage),
       timeline: stage.timeline.bind(stage),
       seek: stage.seek.bind(stage),
+      /** Where a click at `at`, fractions of the canvas, in the state shown goes (PLAN 2.70). */
+      linkAt: (at: [number, number]) => stage.linkAt(slots[stage.at.index].state, at, format()),
       run: stage.run.bind(stage),
       at: () => stage.at,
       on,

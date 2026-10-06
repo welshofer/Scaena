@@ -2244,7 +2244,7 @@ fn cell_layer(dl: &mut DisplayList, cell: &Cell, origin: Point, opacity: f32) ->
 /// with the text).
 fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point, opacity: f32) -> Op {
     let Op::Layer { node, cell, transform, opacity, blend, ops, .. } =
-        layer(Some(id), origin, opacity, text_ops(dl, &placed.text))
+        layer(Some(id), origin, opacity, item_ops(dl, &placed.text))
     else {
         unreachable!("`layer` makes layers")
     };
@@ -2252,9 +2252,54 @@ fn text_layer(dl: &mut DisplayList, id: &str, placed: &PlacedText, origin: Point
     Op::Layer { node, cell, transform, opacity, blend, clip, ops }
 }
 
+/// A text's runs as glyph ops; in a list (ADR-0018), each paragraph's in layers of its own, as
+/// a table's cells are: its marker `[paragraph, 0]`, its words `[paragraph, 1]`. Exports that
+/// read a list as a list (a tagged PDF) take its items from them (SPEC §6).
+fn item_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
+    if !text.runs.iter().any(|r| r.mark.is_some()) {
+        return text_ops(dl, text);
+    }
+    let starts = text.cluster_starts();
+    let paragraph = |r: &GlyphRun| text.lines.get(r.line).map_or(0, |l| l.paragraph);
+    let last = text.runs.iter().map(paragraph).max().unwrap_or(0);
+    let mut out = Vec::new();
+    for k in 0..=last {
+        for part in [0u32, 1] {
+            let runs: Vec<GlyphRun> =
+                text.runs.iter().filter(|r| paragraph(r) == k && r.mark.is_some() == (part == 0)).cloned().collect();
+            if runs.is_empty() {
+                continue;
+            }
+            let mut ops = glyph_ops(dl, &text.text, &starts, &runs);
+            if part == 1 {
+                let underlines =
+                    text.underlines.iter().filter(|u| text.lines.get(u.line).map_or(0, |l| l.paragraph) == k);
+                ops.extend(underlines.flat_map(underline_ops));
+            }
+            let Op::Layer { node, transform, opacity, blend, clip, ops, .. } = layer(None, [0.0, 0.0], 1.0, ops) else {
+                unreachable!("`layer` makes layers")
+            };
+            out.push(Op::Layer { node, cell: Some([k as u32, part]), transform, opacity, blend, clip, ops });
+        }
+    }
+    out
+}
+
 /// A text's runs as glyph ops, each with the text it sets (SPEC §6).
 fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
-    glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs)
+    let mut ops = glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs);
+    ops.extend(text.underlines.iter().flat_map(underline_ops));
+    ops
+}
+
+/// A link's underline, filled in its words' color, and its area, where it is followed (PLAN
+/// 2.70).
+fn underline_ops(u: &crate::text::Underline) -> Vec<Op> {
+    let mut ops = vec![Op::Fill { path: Path::rect(u.rect), rule: FillRule::NonZero, paint: Paint::Solid(u.color) }];
+    if let Some(target) = &u.target {
+        ops.push(Op::Link { rect: u.area, target: target.clone() });
+    }
+    ops
 }
 
 /// `runs`, glyphs of `text` whose clusters start at `starts` (in order), as glyph ops.
@@ -2282,6 +2327,9 @@ fn said(text: &str, starts: &[usize], run: &GlyphRun) -> (String, Vec<u32>) {
     let clusters = &run.clusters;
     if run.hyphen {
         return ("\u{AD}".to_string(), vec![0; clusters.len()]);
+    }
+    if let Some(marker) = &run.mark {
+        return (marker.clone(), vec![0; clusters.len()]);
     }
     let (Some(&lo), Some(&last)) = (clusters.iter().min(), clusters.iter().max()) else {
         return (String::new(), Vec::new());

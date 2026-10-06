@@ -176,6 +176,11 @@ node! {
         pub min_last_line_words: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub split: Option<TextSplit>,
+        /// Its paragraphs as a list's items (SPEC §3.5, ADR-0018): one entry for each
+        /// paragraph a hard line break ends, in order, `null` for one that is no item.
+        /// Paragraphs past its end are no items.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub list: Option<Vec<Option<ListItem>>>,
     }
 }
 

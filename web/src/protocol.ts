@@ -176,6 +176,24 @@ export interface NoteMark {
   transform?: [number, number, number, number, number, number];
 }
 
+/** A shape's outline as a pointer edits it (PLAN 2.68): its kind, its box at rest, its points as
+ * fractions of the box, and a rect's corner radius with the theme's radius steps, canvas units. */
+export interface Outline {
+  node: string;
+  kind: "rect" | "ellipse" | "line" | "arrow" | "polygon" | "path";
+  rect: Rect;
+  transform?: Map6;
+  /** A line's, an arrow's, or a polygon's points as it draws them: a line or an arrow that gives
+   * none draws two across its box's middle. */
+  points: [number, number][];
+  /** The fewest points its kind takes: two for a line or an arrow, three for a polygon. */
+  fewest: number;
+  /** A rect's corner radius as it draws: at most half its shorter side. */
+  radius?: number;
+  /** The theme's radius steps, `radius.0` on, each as this rect would draw it. */
+  radii: number[];
+}
+
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
  * reader counts it, on its line, from the glyphs the engine set. Offsets are UTF-16 code units of
  * `text`, as the page counts a string; x and y are canvas units. */
@@ -183,6 +201,18 @@ export interface Carets {
   /** The text as written: the node's `text`, or its runs' texts end to end. */
   text: string;
   lines: CaretLine[];
+  /** Its paragraphs as a list's items (ADR-0018, PLAN 2.69), by paragraph; none past the last. */
+  items?: (ListMark | null)[];
+}
+
+/** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */
+export type LinkTarget = { href: string } | { state: string };
+
+/** A paragraph as a list's item (ADR-0018): its kind, its level, 0 the outermost, and its marker. */
+export interface ListMark {
+  kind: "bullet" | "number";
+  level: number;
+  marker: string;
 }
 
 export interface CaretLine {
@@ -310,6 +340,22 @@ export type Line = [number, number, number, number];
 /** The theme's grid in the format shown (PLAN 2.57), canvas units: its columns and rows, each
  * `[start, end]`, the gutters between them and the margins around them; and the baseline grid's
  * lines, each a `y`. */
+/** A slot of a theme's layout as the canvas shows it (PLAN 2.71): its name, its box in the format
+ * shown, canvas units, its cells as the theme writes them, and whether that format writes it. */
+export interface SlotBox {
+  name: string;
+  rect: Rect;
+  col?: number | [number, number];
+  row?: number | [number, number];
+  own: boolean;
+}
+
+/** The layout a state uses and its slots (PLAN 2.71). */
+export interface LayoutSlots {
+  layout: string;
+  slots: SlotBox[];
+}
+
 export interface Grid {
   canvas: [number, number];
   columns: [number, number][];
@@ -485,6 +531,8 @@ export type ToWorker =
   | { type: "timeline"; id: number; format?: string }
   /** How `state` reads at rest, as HTML (SPEC §3.12; PLAN 2.8). */
   | { type: "read"; id: number; state: string; format?: string }
+  /** The link drawn at `at`, fractions of the canvas, in `state` at rest (PLAN 2.70). */
+  | { type: "linkAt"; id: number; state: string; at: [number, number]; format?: string }
   /** Play the deck from slot `index`, `t` ms into its cue, a frame each time the display
    * takes one: each cue, then its state's hold, then the next state's cue. A state that does
    * not hold, and the last, comes to rest and waits there. `still`, for a reader who asks for
@@ -520,6 +568,10 @@ export type ToWorker =
   | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
   /** The chart annotation drawn at `point` in `state` at rest (PLAN 2.67). */
   | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** The layout `state` uses and its slots, in the format shown (PLAN 2.71). */
+  | { type: "layout"; id: number; state: string; format?: string }
+  /** Shape `node`'s outline in `state` at rest (PLAN 2.68). */
+  | { type: "outline"; id: number; state: string; node: string; format?: string }
   /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
   | { type: "calloutAt"; id: number; state: string; node: string; point: [number, number]; format?: string }
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
@@ -1042,6 +1094,10 @@ export type FromWorker =
   | { type: "marked"; id: number; marks: DataMark[] }
   | { type: "noted"; id: number; note: NoteMark | null }
   | { type: "calledOut"; id: number; at: AnnotationAt | null }
+  /** Where the link asked about goes, or none there. */
+  | { type: "linked"; id: number; link: LinkTarget | null }
+  | { type: "outlined"; id: number; outline: Outline | null }
+  | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }

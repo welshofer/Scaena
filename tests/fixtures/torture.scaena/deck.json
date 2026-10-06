@@ -1,5 +1,5 @@
 {
-  "scaena": "0.11",
+  "scaena": "0.12",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -3882,6 +3882,122 @@
           8
         ]
       }
+    },
+    "list-points": {
+      "type": "text",
+      "role": "body",
+      "text": "Bullets hang at the theme's indent, each wrapped line starting where the words do\nA second point\nA point under it, a level in, with the next level's bullet\nAnd one more level in\nBack out to the first level",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet",
+          "level": 1
+        },
+        {
+          "kind": "bullet",
+          "level": 2
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "list-steps": {
+      "type": "text",
+      "role": "body",
+      "text": "Numbers count by level\nThe count goes on\nA sub-step, lettered\nAnother\nAnd one in roman numerals\nThe outer count goes on where it was\nA plain paragraph starts it again\nOne\nTwo",
+      "list": [
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "number",
+          "level": 1
+        },
+        {
+          "kind": "number",
+          "level": 1
+        },
+        {
+          "kind": "number",
+          "level": 2
+        },
+        {
+          "kind": "number"
+        },
+        null,
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "number"
+        }
+      ],
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
+    },
+    "link-text": {
+      "type": "text",
+      "role": "body",
+      "runs": [
+        {
+          "text": "Read how the deck is "
+        },
+        {
+          "text": "set and checked on the web",
+          "link": {
+            "href": "https://example.com/scaena/method"
+          }
+        },
+        {
+          "text": ", or go back to "
+        },
+        {
+          "text": "the shapes case",
+          "link": {
+            "state": "shapes"
+          }
+        },
+        {
+          "text": " and look again."
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          5
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -4926,6 +5042,33 @@
         "photo-large": {}
       },
       "notes": "Pass: seven JPEGs, each read by another path of the one decoder (ADR-0017), each the same bytes in every painter natively and in the browser. Top row, each whole: baseline with its color sampled at half each way; progressive in ten scans with its color in full; gray, progressive; and the same picture stored on its side, turned upright by its EXIF orientation, so its yellow corner is at its top right. Bottom row, each covering its box: progressive with a restart marker every row of blocks; color sampled at a quarter across, each sample repeated; and a 300 × 200 progressive photo."
+    },
+    {
+      "id": "lists",
+      "name": "Lists",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "51 · Lists · recorded"
+        },
+        "list-points": {},
+        "list-steps": {}
+      },
+      "notes": "Pass: two texts as lists (ADR-0018). Left, bullets at three levels, each level's bullet the theme's and indented a step more; the first point wraps, its second line starting under its words, not under its bullet. Right, numbers counted by level: 1. 2., then a. b. a level in, i. a level further, the outer count going on at 3.; a paragraph that is no item sits at the box's edge, and the count starts again at 1. after it. Each marker's end sits the theme's gap short of its words, on its first line's baseline."
+    },
+    {
+      "id": "links",
+      "name": "Links",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "52 · Links · recorded"
+        },
+        "link-text": {}
+      },
+      "notes": "Pass: two links in one text (PLAN 2.70), each underlined at the font's own underline position and thickness, in its words' color. The first, to a web address, wraps: each line's part is underlined on its own line, and nothing between. The second goes to the `shapes` case. The display list carries a `link` op for each underlined stretch, its area the words' box on the line; the player follows a click there, and the PDF carries both as link annotations."
     }
   ],
   "overrides": {

@@ -299,7 +299,7 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
         let state = states[k].clone();
         let key = r.pick(&keys).to_string();
         let value = r.pick(&values[&key]).clone();
-        ops.push(match r.below(12) {
+        ops.push(match r.below(13) {
             0 => json!({ "op": "add_node", "id": "added", "node": { "type": "text", "text": text(r, &strings) }, "state": state }),
             1 => json!({ "op": "remove_node", "id": node }),
             2 => json!({ "op": "rename_node", "id": node, "to": r.pick(&nodes).clone() }),
@@ -315,6 +315,12 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
                 let look = *r.pick(&LOOKS);
                 json!({ "op": "style_text", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "look": { look: value } })
             }
+            // A text's paragraphs as a list (PLAN 2.69): a kind, none, or levels in and out.
+            11 => match r.below(3) {
+                0 => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "kind": *r.pick(&["bullet", "number", "none"]) }),
+                1 => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "by": r.below(5) as i64 - 2 }),
+                _ => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "kind": "number", "level": r.below(10) }),
+            },
             _ => json!({ "op": "replace", "path": r.pick(&pointers).clone(), "value": value }),
         });
     }
@@ -352,8 +358,18 @@ fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) 
 }
 
 /// What a look for characters names: a run's own keys, and keys it does not take.
-const LOOKS: [&str; 9] =
-    ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
+const LOOKS: [&str; 10] = [
+    "role",
+    "emphasis",
+    "lang",
+    "style/weight",
+    "style/italic",
+    "style/color",
+    "style/family",
+    "style/size",
+    "fit",
+    "link",
+];
 
 /// Values no tool takes where they are put.
 const JUNK: &[&str] = &["null", "[]", "{}", "-1", "1e308", "\"\"", "true", "18446744073709551615", "[[[[[[]]]]]]"];
@@ -573,6 +589,17 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
     for (source, _) in s.data_sources() {
         let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
     }
+    // The layout it uses, as its slots (PLAN 2.71).
+    let _ = s.layout(one);
+    // The link at points on and off the canvas (PLAN 2.70).
+    for _ in 0..2 {
+        let _ = s.link_at(one, [r.below(2400) as f32 - 200.0, r.below(1400) as f32 - 200.0]);
+    }
+    // Each shape's outline, and a node that is none (PLAN 2.68).
+    for b in s.boxes(one).unwrap_or_default().iter().take(8) {
+        let _ = s.outline(one, &b.node);
+    }
+    let _ = s.outline(one, "nowhere");
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);

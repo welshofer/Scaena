@@ -77,6 +77,8 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.
   - Each burst of typing is one ⌘Z. The text reflows as you type, and lint says at once if it no longer fits. Escape, or a click outside the text, stops typing.
+  - **Links.** Select some words and press ⌘K (Ctrl+K). Type a web address (`https://…`, or `mailto:…` for an email) or the id of one of your states, and press Enter: the words are underlined and go there when the deck is played, in the single file, and in a PDF. Press ⌘K and Enter on nothing to take the link away. Each is one ⌘Z.
+  - **Lists.** Press ⌘⇧8 (Ctrl+Shift+8) for bullets, or ⌘⇧7 for numbers, on the paragraphs your selection touches; press it again to take them out of the list. In a list, Enter starts the next item, and Enter in an empty item ends the list; Tab moves an item a level in, and Shift+Tab out. With a text selected and not typed in, the keys act on all of it. Your theme draws the markers and the indents. Each is one ⌘Z.
   - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not. ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
 - **Choose a look.** With an object selected, the inspector shows what your theme offers for it: a text's role, family, weight, color, and fit, a shape's fill and stroke, a chart's kind, an entrance and an exit, and more.
   - Each choice is one ⌘Z, and goes where the value is set: in the state that sets it, or in the object itself. The status says in how many states it shows. Tick "only in" to keep it to the state shown.
@@ -96,6 +98,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Drag an object up or down among those beside it to put it in front of or behind them; in a stack, to lay it out earlier or later. Alt with ↑ or ↓ moves the one focused a place.
   - Drag it beside an object another container holds, or out among the slide's own, and it goes there; drop it on a container's middle and it goes in, at the top. It keeps its place on the slide where it can: in the grid cells it stands in, inside a frame, at its spot in a stack's order, or after a grid's last cell. Alt with ← takes it out of its container, and Alt with → puts it into the container just above it.
   - Each is one ⌘Z.
+- **Layouts.** Press **Layout** above the preview to see the layout your slide uses as its slots, each named, on your theme's grid. Drag a slot to move it, or a handle to resize it: it lands on the grid, and every slide that uses the layout changes with it, because the change is to your theme. In another format (Formats, or the format menu), a slot you move moves in that format only. **New layout from this one…** in ⌘K copies the layout under a name you give it, and the slide shown takes the copy, so you can change it without changing the others. Escape leaves the layout. Each is one ⌘Z.
 - **Data.** The Data tab shows a data source your charts and tables read as a table: each column with its type, and each row as the file has it. A cell its column does not read, `n/a` in a column of numbers, is marked and listed under the table, with why. The deck does not check until it reads (E103), and setting the cell here is how you mend it.
   - Click a cell and type. Enter sets it and goes to the cell below, and Escape puts back what it held. A value its column does not read, or one that would leave the deck invalid, is refused, and the status says why. Every chart and table that reads the source shows the change.
   - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
@@ -109,6 +112,12 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - A donut's slice offers its highlight alone.
   - Click a callout, a rule, or a band to select it. Drag a callout to another bar, double-click it to change what it says, or press Delete to take it away.
   - Each is one edit, written where the chart's annotations are: on the chart, or in the state that changes them. Check **only in** in the inspector, or hold Alt as you drag, to keep it to this state. In the source, they are the chart's `annotations`.
+- **A shape's points and corners.** Select a line, an arrow, or a polygon, and each of its points has a handle, with a smaller one at each edge's middle. A line that gives no points shows the two it draws, across its box.
+  - Drag a point to move it. It stays inside the shape's box, at a hundredth of the box.
+  - Click an edge's middle to add a point there, or drag from it to put the new point where you let go.
+  - Click a point to pick it, and press Delete to take it away. A line or an arrow keeps two points, and a polygon three; the status says so.
+  - A rectangle has a handle inside its top-left corner. Drag it in to round the corners, or out to square them. It snaps to the theme's radius steps, `radius.0`, `radius.1`, and so on, and the status names the step.
+  - Each is one edit, written where the shape's `points` or `radius` are: on the shape, or in the state that changes them. Hold Alt as you drag, or check **only in**, to keep it to this state. Escape leaves the shape as it was.
 - **Files.** The Files tab lists what your bundle holds besides the deck: its images, fonts, and data files, each with its size, what in the deck names it, and the objects drawn from it, slide by slide. Click an object there to go to the first slide that shows it, selected.
   - Drag an image from the list onto an image on the slide to show it there instead, or onto an empty spot to add it there. **Insert** adds it where you last clicked the slide. Drop it on the source and its path goes there. Each is one ⌘Z.
   - A file nothing names says so. **Remove** takes it out of the bundle, and the deck looks the same. Undo puts it back, and the next save takes it out where the bundle is kept. A file something names stays, and the status says what names it.
@@ -425,6 +434,23 @@ state ridge layout:art-right
   title "The ridge trail, rebuilt" at:in(header)
   photo image "assets/trails-ridge.png" alt:"The rebuilt ridge trail at dawn." semantic:evidence
     at:in(art)
+```
+
+**A link.** A run's `link` goes to a web address or to a state of the deck. The words are underlined, and a click on them while the deck plays goes there; renaming the state keeps the link (SPEC §3.5):
+
+```scn
+state sources slide:revenue
+  title runs:[{text: "Revenue "}, {text: "doubled", link: {href: "https://example.com/method"}}, {text: " "}, {text: "again", link: {state: cover}}]
+```
+
+**A list.** A text's paragraphs are its lines, each ended by a line break (`\n`). `list` makes them a list's items, one entry for each: `{kind: bullet}` or `{kind: number}`, deeper with `level`, or `null` for a paragraph that is no item. The theme draws the markers, a bullet or a number for each level, and indents each level its own step, the item's wrapped lines starting under its words (SPEC §3.5):
+
+```scn
+state plan layout:statement
+  -title
+  -rev
+  steps text role:body "Hire two engineers\nShip the API\nThe docs first\nThen the SDK" semantic:claim
+    list:[{kind: number}, {kind: number}, {kind: bullet, level: 1}, {kind: bullet, level: 1}] at:in(statement)
 ```
 
 For tables, stats, rows of cards, other chart kinds, and shader backgrounds, see SPEC §3.3 and the trails example.

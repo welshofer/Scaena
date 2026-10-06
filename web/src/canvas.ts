@@ -61,11 +61,12 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
+import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
-import { covered, type Selected, typing } from "./typing";
+import { covered, paragraphs, type Selected, typing } from "./typing";
 
 /** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
  * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
@@ -84,6 +85,11 @@ export const canvasKeys = (): Key[] => [
   { keys: "Drag the round handle", label: "Turn it", group: "Move and resize" },
   { keys: `${SHIFT}Drag the round handle`, label: "Turn it by 15°", group: "Move and resize" },
   { keys: "Escape", label: "Cancel the drag, the turn, or the drawing under way", group: "Move and resize" },
+  { keys: "Drag a point of the shape selected", label: "Move it within the shape's box: a line's, an arrow's, or a polygon's", group: "Points and corners" },
+  { keys: `${ALT}Drag a point`, label: "Keep the move to the state shown", group: "Points and corners" },
+  { keys: "Click an edge's middle", label: "Add a point there; a drag from it places the point", group: "Points and corners" },
+  { keys: "Click a point, then Delete", label: "Take it away, though never below the two or three its kind keeps", group: "Points and corners" },
+  { keys: "Drag a rect's corner", label: "Round its corners to the theme's radius steps", group: "Points and corners" },
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
   { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
@@ -96,6 +102,9 @@ export const canvasKeys = (): Key[] => [
   { keys: `${ALT}Drag a callout`, label: "Keep the move to the state shown", group: "Annotate" },
   { keys: "Double-click an annotation", label: "Change what it says", group: "Annotate" },
   { keys: "Escape", label: "Let go of the mark picked, or the band begun", group: "Annotate" },
+  { keys: "Drag a slot, the layout shown", label: "Move it onto the theme's grid: every state that uses the layout shows it moved", group: "Layouts" },
+  { keys: "Drag a slot's handle", label: "Resize it onto the grid", group: "Layouts" },
+  { keys: "Escape", label: "Leave the layout, or the drag under way as it was", group: "Layouts" },
 ];
 
 /** What the canvas asks of the editor around it. */
@@ -146,6 +155,11 @@ export interface Editor {
   /** Whether a change is kept to the state shown, as the inspector's "Only in this state" says
    * (PLAN 2.67): an annotation made from a mark is. */
   keeping?(): boolean;
+  /** Edit the theme by `ops`, RFC 6902 operations, as the Theme tab does (PLAN 2.71, ADR-0016):
+   * one change, one step to undo; whether it was made (the editor says why not). */
+  themeEdit?(ops: unknown[], what: string): Promise<boolean>;
+  /** The canvas shows the layout's slots to edit, or stops (PLAN 2.71). */
+  layouting?(on: boolean): void;
 }
 
 /** A node's `at`, resolved. */
@@ -228,6 +242,32 @@ interface Press {
   within?: boolean;
   /** On an annotation of the chart selected: a drag moves a callout. */
   note?: NoteMark;
+}
+
+/** A shape's point, or a rect's corner, dragged by its handle (PLAN 2.68): the shape's outline when
+ * the press began, where it pressed (canvas units and client px), whether it has moved past the
+ * slop, and Alt. A point dragged is `index` among `points`, as they will be written (`added`: put
+ * there by the press, at an edge's middle); a corner dragged, the theme's radius step it rounds to,
+ * `step`. */
+interface Reshape {
+  state: string;
+  outline: Outline;
+  from: Point;
+  client: Point;
+  moved: boolean;
+  alt: boolean;
+  version: number;
+  points: Point[];
+  index?: number;
+  added?: boolean;
+  step?: number;
+}
+
+/** Where a slot dragged lands on the grid (PLAN 2.71): its cells, from 1, and its box. */
+interface Landing {
+  col: [number, number];
+  row: [number, number];
+  rect: Rect;
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -390,6 +430,18 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let banding: { state: string; from: DataMark } | undefined;
   /** A callout dragged (PLAN 2.67): where it was pressed and where the pointer is, canvas units. */
   let carrying: { state: string; note: NoteMark; from: Point; at: Point; alt: boolean } | undefined;
+  /** The outline of the shape selected (PLAN 2.68): its points' handles, and a rect's corner's. */
+  let shaped: { state: string; outline: Outline } | undefined;
+  /** A point of the shape selected, picked by a click: what Delete takes away. */
+  let pointPicked: number | undefined;
+  /** A point, or a rect's corner, dragged by its handle. */
+  let reshaping: Reshape | undefined;
+  /** The layout of the state shown, as its slots, while the canvas edits it (PLAN 2.71): the
+   * state and the format it was asked in, and the grid its slots snap to. */
+  let slotting: { state: string; format?: string; layout: LayoutSlots; grid?: Grid } | undefined;
+  /** A slot dragged, or resized by a handle (`edge`): where the pointer pressed and is, the box
+   * it leaves, and where that lands on the grid. */
+  let slotDrag: { slot: SlotBox; edge?: Edge; from: Point; rect: Rect; landed?: Landing; version: number } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -542,6 +594,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     else if (selected !== undefined) aimAt(selected);
     hold();
     draw();
+    if (slotting) void relayout();
     void stage.inserts().then((i) => (offered = i), () => {});
     await text.sync();
   }
@@ -596,6 +649,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     selected = node;
     also = [];
     aim = undefined;
+    [shaped, pointPicked] = [undefined, undefined];
     editor.selected(node, []);
     if (node !== undefined) {
       editor.say(`${node} selected: drag it, or move it with the arrow keys`);
@@ -612,6 +666,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     letGo(undefined);
     [selected, also] = [nodes[0], nodes.slice(1)];
     aim = undefined;
+    [shaped, pointPicked] = [undefined, undefined];
     editor.selected(selected, also);
     editor.say(`${nodes.length} selected, ${nodes.join(", ")}: drag them, move them with the arrow keys, or align them in the inspector`);
     hold();
@@ -670,6 +725,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         draw();
       })
       .catch(() => (aim = undefined));
+    // A shape's points and corners (PLAN 2.68).
+    stage
+      .outline(shown.state, node, editor.format())
+      .then((o) => {
+        if (selected !== node) return;
+        shaped = o && { state: shown.state, outline: o };
+        if (pointPicked !== undefined && pointPicked >= (o?.points.length ?? 0)) pointPicked = undefined;
+        draw();
+      })
+      .catch(() => (shaped = undefined));
   }
 
   /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
@@ -759,7 +824,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         return [x + by[0], y + by[1]];
       };
       const [x, y, w, h] = first.rect;
-      const still = !drag && !typed && !turning && also.length === 0;
+      const still = !drag && !typed && !turning && !reshaping && also.length === 0;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -781,9 +846,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         parts.push(line(tx, ty, hx, hy, "turn-arm"));
         parts.push(`<circle class="handle turn" data-turn="1" cx="${hx}" cy="${hy}" r="${5 * u}"><title>Turn ${first.node}; Shift by 15°</title></circle>`);
       }
+      // A shape's points and corners (PLAN 2.68), over its box's handles.
+      const o = shaped?.state === boxed && shaped?.outline.node === first.node ? shaped?.outline : undefined;
+      if (o && still && !marquee && !armed) parts.push(...shapeHandles(o, u));
     }
+    if (reshaping && reshaping.state === boxed) parts.push(reshaped(reshaping));
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning) parts.push(shape(over, [0, 0], "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -812,10 +881,390 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     } else if (noted && noted.state === boxed && !drag) {
       parts.push(`<path class="noted" data-index="${noted.note.index}" d="${noted.note.outline}"${matrix(noted.note.transform)}/>`);
     }
+    // A layout's slots (PLAN 2.71): each named, with handles to resize it, and where a drag lands.
+    if (slotting && slotting.state === boxed) {
+      const g = slotting.grid;
+      if (g) {
+        const [left, right] = [g.columns[0]?.[0] ?? 0, g.columns.at(-1)?.[1] ?? size[0]];
+        const [top, bottom] = [g.rows[0]?.[0] ?? 0, g.rows.at(-1)?.[1] ?? size[1]];
+        for (const [a, b] of g.columns) parts.push(rect([a, top, b - a, bottom - top], "grid-track"));
+        for (const [a, b] of g.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
+      }
+      for (const slot of slotting.layout.slots) {
+        const r = slotDrag?.slot.name === slot.name ? slotDrag.rect : slot.rect;
+        parts.push(rect(r, slot.own ? "layout-slot own" : "layout-slot", ` data-slot="${slot.name}"`));
+        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${slot.name}</text>`);
+        if (slotDrag) continue;
+        const [x, y, w, h] = r;
+        const s = 7 * u;
+        const spot: Record<Edge, [number, number]> = {
+          nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2],
+          se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2],
+        };
+        for (const edge of EDGES) {
+          const [cx, cy] = spot[edge];
+          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${slot.name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
+        }
+      }
+      if (slotDrag?.landed) parts.push(rect(slotDrag.landed.rect, "landing"));
+    }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
     pins.aside(Boolean(drag || sketch || marquee));
     pins.draw();
+  }
+
+  /** A shape's points and corners (PLAN 2.68). A line's, an arrow's, or a polygon's points have
+   * handles of their own: one dragged moves within the shape's box, and one clicked is picked, which
+   * Delete takes away; a handle at an edge's middle adds a point there. A rect's corner handle rounds
+   * it to the theme's radius steps. Each is one `choose` of `points` or `radius`, written where it
+   * lives, or kept to the state shown with Alt or the inspector's "Only in this state". */
+  /** Point `f`, fractions of outline `o`'s box, where it is drawn on the canvas. */
+  const onOutline = (o: Outline, [fx, fy]: Point): Point => {
+    const [x, y, w, h] = o.rect;
+    const p: Point = [x + fx * w, y + fy * h];
+    return o.transform ? apply(o.transform, p) : p;
+  };
+  /** Canvas point `at` as `o`'s box lays it out, through its transform. */
+  const inOutline = (o: Outline, at: Point): Point | undefined => {
+    if (!o.transform) return at;
+    const m = invert(o.transform);
+    return m && apply(m, at);
+  };
+  /** A fraction to a hundredth, as a person would write it, kept to the box. */
+  const hundredth = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+  /** The edges a shape's points make: a polygon's closes. */
+  const edgesOf = (o: Outline) => (o.kind === "polygon" ? o.points.length : Math.max(0, o.points.length - 1));
+  /** How far in from its top-left corner a rect's corner handle stands, canvas units: at its radius,
+   * clear of the corner's resize handle, inside its box. */
+  const cornerAt = (o: Outline, u: number) => Math.min(Math.max(o.radius ?? 0, 12 * u), Math.min(o.rect[2], o.rect[3]) / 2);
+  /** The radius step nearest `r`: the first of those as near. */
+  const nearest = (radii: number[], r: number) => radii.reduce((best, v, i) => (Math.abs(v - r) < Math.abs(radii[best] - r) - 1e-3 ? i : best), 0);
+
+  function shapeHandles(o: Outline, u: number): string[] {
+    const parts: string[] = [];
+    const n = o.points.length;
+    if (o.kind === "line" || o.kind === "arrow" || o.kind === "polygon") {
+      for (let i = 0; i < edgesOf(o); i++) {
+        const [a, b] = [o.points[i], o.points[(i + 1) % n]];
+        const [cx, cy] = onOutline(o, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+        parts.push(`<circle class="handle add" data-add="${i}" cx="${cx}" cy="${cy}" r="${3.5 * u}"><title>Add a point to ${o.node} here</title></circle>`);
+      }
+      o.points.forEach((p, i) => {
+        const [cx, cy] = onOutline(o, p);
+        const cls = i === pointPicked ? "handle point picked" : "handle point";
+        parts.push(`<circle class="${cls}" data-point="${i}" cx="${cx}" cy="${cy}" r="${5 * u}"><title>Point ${i + 1} of ${o.node}: drag it, or click it and press Delete</title></circle>`);
+      });
+    }
+    if (o.kind === "rect" && o.radii.length) {
+      const [x, y] = o.rect;
+      const d = cornerAt(o, u);
+      const [cx, cy] = o.transform ? apply(o.transform, [x + d, y + d]) : [x + d, y + d];
+      parts.push(`<circle class="handle corner" data-radius="1" cx="${cx}" cy="${cy}" r="${4.5 * u}"><title>Round ${o.node}'s corners to the theme's radius steps</title></circle>`);
+    }
+    return parts;
+  }
+
+  /** The outline `r` leaves, drawn as it is dragged: its points joined, or the rect rounded. */
+  function reshaped(r: Reshape): string {
+    const o = r.outline;
+    const map = o.transform ? ` transform="matrix(${o.transform.join(" ")})"` : "";
+    if (r.index === undefined) {
+      const [x, y, w, h] = o.rect;
+      const radius = o.radii[r.step ?? 0] ?? 0;
+      return `<rect class="reshape" x="${x}" y="${y}" width="${w}" height="${h}" rx="${radius}" ry="${radius}"${map}/>`;
+    }
+    const [x, y, w, h] = o.rect;
+    const points = r.points.map(([fx, fy]) => `${x + fx * w},${y + fy * h}`).join(" ");
+    return `<${o.kind === "polygon" ? "polygon" : "polyline"} class="reshape" points="${points}"${map}/>`;
+  }
+
+  /** A press on handle `handle` of the shape selected, at `from`: a point or a corner dragged, or a
+   * point added at an edge's middle. */
+  function reshape(handle: Element, from: Point, client: Point, alt: boolean) {
+    const s = shaped!;
+    const o = s.outline;
+    const points = o.points.map(([x, y]) => [x, y] as Point);
+    const r: Reshape = { state: s.state, outline: o, from, client, moved: false, alt, version: editor.version(), points };
+    const [point, add] = [handle.getAttribute("data-point"), handle.getAttribute("data-add")];
+    if (point !== null) r.index = Number(point);
+    else if (add !== null) {
+      const i = Number(add);
+      const [a, b] = [points[i], points[(i + 1) % points.length]];
+      points.splice(i + 1, 0, [hundredth((a[0] + b[0]) / 2), hundredth((a[1] + b[1]) / 2)]);
+      [r.index, r.added] = [i + 1, true];
+    } else r.step = nearest(o.radii, o.radius ?? 0);
+    reshaping = r;
+    pointPicked = undefined;
+    draw();
+  }
+
+  /** The pointer at `at` in reshape `r`: the point goes there, kept to the box, or the corner's
+   * radius goes as far as the pointer went along its diagonal, to the nearest step. */
+  function reshapeTo(r: Reshape, at: Point, client: Point, alt: boolean) {
+    r.alt = alt;
+    if (!r.moved && Math.hypot(client[0] - r.client[0], client[1] - r.client[1]) < SLOP) return;
+    r.moved = true;
+    const o = r.outline;
+    const kept = keeping(alt) ? ` · kept to ${r.state}` : "";
+    const p = inOutline(o, at);
+    if (!p) return;
+    const [x, y, w, h] = o.rect;
+    if (r.index !== undefined) {
+      const f: Point = [w > 0 ? hundredth((p[0] - x) / w) : 0, h > 0 ? hundredth((p[1] - y) / h) : 0];
+      r.points[r.index] = f;
+      editor.say(`${o.node}'s point ${r.index + 1} → ${f.join(", ")}${kept}`);
+    } else {
+      const from = inOutline(o, r.from) ?? r.from;
+      const half = Math.min(w, h) / 2;
+      const radius = Math.min(half, Math.max(0, (o.radius ?? 0) + (p[0] - from[0] + p[1] - from[1]) / 2));
+      r.step = nearest(o.radii, radius);
+      editor.say(`${o.node}'s corners round to radius.${r.step}${kept}`);
+    }
+    draw();
+  }
+
+  /** Reshape `r` let go: one `choose` of the shape's `points` or `radius`; a point pressed and let
+   * go where it was is picked. */
+  async function reshapeEnd(r: Reshape) {
+    const shown = editor.shown();
+    const o = r.outline;
+    if (!shown || shown.state !== r.state) return draw();
+    if (editor.version() !== r.version) {
+      draw();
+      return editor.say("the source changed under the drag: nothing is changed");
+    }
+    const fork = keeping(r.alt);
+    const kept = fork ? ` · kept to ${r.state}` : "";
+    const choose = (prop: string, value: unknown) => ({ op: "choose", node: o.node, prop, value, state: r.state, ...(fork ? { fork } : {}) });
+    if (r.index === undefined) {
+      const step = r.step ?? 0;
+      if (!r.moved || Math.abs((o.radius ?? 0) - (o.radii[step] ?? 0)) < 0.01) {
+        draw();
+        return editor.say(r.moved ? `${o.node}'s corners stay as they are` : `drag ${o.node}'s corner handle to round it to the theme's radius steps`);
+      }
+      return change([choose("radius", `radius.${step}`)], "rounding…", `${o.node}'s corners round to radius.${step}${kept}`, o.node);
+    }
+    if (!r.moved && !r.added) {
+      pointPicked = r.index;
+      draw();
+      return editor.say(`${o.node}'s point ${r.index + 1} picked: Delete takes it away, a drag moves it`);
+    }
+    if (!r.added && r.points.every(([px, py], i) => px === o.points[i][0] && py === o.points[i][1])) {
+      draw();
+      return editor.say(`${o.node}'s point ${r.index + 1} stays where it is`);
+    }
+    const done = r.added ? `${o.node} has a point added${kept}` : `${o.node}'s point ${r.index + 1} moved${kept}`;
+    await change([choose("points", r.points)], r.added ? "adding a point…" : "moving the point…", done, o.node);
+  }
+
+  /** Bullets or numbers on a text (ADR-0018, PLAN 2.69), as ⌘⇧8 and ⌘⇧7 do: typed in, on the
+   * paragraphs its selection touches; selected, on all of its paragraphs. Paragraphs all of that
+   * kind already leave the list. One `list` patch, one step to undo. */
+  function listing(kind: "bullet" | "number") {
+    if (text.node() !== undefined) return void text.toggle(kind);
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const node = selected;
+      if (!shown || node === undefined || also.length) return editor.say("select a text to make it a list");
+      const carets = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+      if (!carets) return editor.say(`${node} is no text: only a text is a list`);
+      const count = paragraphs(carets.text).length;
+      const all = Array.from({ length: count }, (_, k) => carets.items?.[k]?.kind).every((k) => k === kind);
+      const fork = keeping();
+      const op = { op: "list", node, state: shown.state, from: 0, to: [...carets.text].length, kind: all ? "none" : kind, ...(fork ? { fork } : {}) };
+      const what = all ? "out of the list" : kind === "bullet" ? "bulleted" : "numbered";
+      await change([op], "listing…", `${node}: ${what}${fork ? ` · kept to ${shown.state}` : ""}`, node);
+    });
+  }
+
+  /** Take the point picked away, unless the shape keeps no fewer: a line or an arrow two, a polygon three. */
+  function unpoint() {
+    return inTurn(async () => {
+      const [shown, s, i] = [editor.shown(), shaped, pointPicked];
+      if (!shown || !s || i === undefined) return;
+      const o = s.outline;
+      if (o.points.length <= o.fewest) {
+        const kind = o.kind === "arrow" ? "an arrow" : `a ${o.kind}`;
+        return editor.say(`${kind} keeps ${o.fewest === 2 ? "two" : "three"} points: ${o.node}'s point ${i + 1} stays`);
+      }
+      pointPicked = undefined;
+      const fork = keeping();
+      const op = { op: "choose", node: o.node, prop: "points", value: o.points.filter((_, k) => k !== i), state: shown.state, ...(fork ? { fork } : {}) };
+      await change([op], "taking the point away…", `${o.node}'s point ${i + 1} taken away${fork ? ` · kept to ${shown.state}` : ""}`, o.node);
+    });
+  }
+
+  /** A theme's layout on the canvas (PLAN 2.71, ADR-0016). The layout the state shown uses is
+   * drawn as its slots, each named, on the theme's grid in the format shown. A slot dragged, or
+   * resized by a handle, lands on the grid's tracks, and is one `theme_edit`: its `col` and `row`
+   * where the layout writes them on the deck's own canvas, or in the format shown's own slots
+   * (`layouts.L.formats.F.slots`), which take the layout's others with them. Every state that
+   * uses the layout shows it moved. Escape leaves it. */
+  async function layoutMode(on = slotting === undefined) {
+    if (!on) {
+      slotting = slotDrag = undefined;
+      editor.layouting?.(false);
+      draw();
+      return editor.say("the layout is left as it is");
+    }
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    const format = editor.format();
+    const [layout, g] = await Promise.all([
+      stage.layout(shown.state, format).catch(() => undefined),
+      stage.grid(format).catch(() => undefined),
+    ]);
+    if (!layout) return editor.say(`${shown.state} uses no layout of the theme's: choose one in the inspector`);
+    if (text.node() !== undefined) text.leave();
+    select(undefined);
+    slotting = { state: shown.state, format, layout, grid: g };
+    editor.layouting?.(true);
+    draw();
+    editor.say(`the layout ${layout.layout}${format ? `, in ${format}` : ""}: drag a slot onto the grid, or a handle to resize it · Escape leaves it`);
+  }
+  /** The layout asked again: the deck, the theme, the state, or the format changed. */
+  async function relayout() {
+    if (!slotting) return;
+    const shown = editor.shown();
+    if (!shown) return;
+    const format = editor.format();
+    const [layout, g] = await Promise.all([stage.layout(shown.state, format).catch(() => undefined), stage.grid(format).catch(() => undefined)]);
+    if (!slotting) return;
+    if (!layout) return void layoutMode(false);
+    slotting = { state: shown.state, format, layout, grid: g };
+    draw();
+  }
+
+  /** Where box `r` lands on the grid: the tracks nearest its edges, `span` cells (columns, rows)
+   * kept where a slot is moved, not resized. */
+  function slotLanding(r: Rect, span?: [number, number]): Landing | undefined {
+    const g = slotting?.grid;
+    if (!g?.columns.length || !g.rows.length) return undefined;
+    const nearest = (tracks: [number, number][], v: number, end: 0 | 1) =>
+      tracks.reduce((best, t, i) => (Math.abs(t[end] - v) < Math.abs(tracks[best][end] - v) ? i : best), 0);
+    const axis = (tracks: [number, number][], from: number, to: number, n?: number): [number, number] => {
+      if (n === undefined) {
+        const a = nearest(tracks, from, 0);
+        return [a, Math.max(a, nearest(tracks, to, 1))];
+      }
+      const a = Math.min(nearest(tracks, from, 0), tracks.length - n);
+      return [Math.max(0, a), Math.max(0, a) + n - 1];
+    };
+    const [c0, c1] = axis(g.columns, r[0], r[0] + r[2], span?.[0]);
+    const [r0, r1] = axis(g.rows, r[1], r[1] + r[3], span?.[1]);
+    const box: Rect = [g.columns[c0][0], g.rows[r0][0], g.columns[c1][1] - g.columns[c0][0], g.rows[r1][1] - g.rows[r0][0]];
+    return { col: [c0 + 1, c1 + 1], row: [r0 + 1, r1 + 1], rect: box };
+  }
+  /** A slot's cells as written, `[from, to]`: one number is one track. */
+  const cellsOf = (v: number | [number, number] | undefined, all: number): [number, number] =>
+    v === undefined ? [1, all] : typeof v === "number" ? [v, v] : v;
+
+  /** A press on a slot, or on one of its handles. */
+  function slotPress(e: PointerEvent) {
+    if (!slotting) return;
+    const at = point(e);
+    const target = (e.target as Element).closest?.("[data-slot-edge]");
+    let slot: SlotBox | undefined;
+    let edge: Edge | undefined;
+    if (target) {
+      slot = slotting.layout.slots.find((s) => s.name === target.getAttribute("data-slot"));
+      edge = target.getAttribute("data-slot-edge") as Edge;
+    } else {
+      // The smallest slot under the pointer: one inside another is the one meant.
+      const under = slotting.layout.slots.filter((s) => inside(s.rect, at));
+      slot = under.sort((a, b) => a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3])[0];
+    }
+    if (!slot) return editor.say("press on a slot to move it, or on its handle to resize it");
+    slotDrag = { slot, edge, from: at, rect: slot.rect, version: editor.version() };
+    editor.say(`slot ${slot.name} of ${slotting.layout.layout}: drag it onto the grid`);
+    draw();
+  }
+  /** The pointer at `at` in a slot's drag: its box follows, and lands on the grid. */
+  function slotMove(at: Point) {
+    const d = slotDrag;
+    const g = slotting?.grid;
+    if (!d || !slotting || !g) return;
+    const by: [number, number] = [at[0] - d.from[0], at[1] - d.from[1]];
+    d.rect = d.edge ? resized(d.slot.rect, d.edge, by) : moved(d.slot.rect, by);
+    const [c, r] = [cellsOf(d.slot.col, g.columns.length), cellsOf(d.slot.row, g.rows.length)];
+    d.landed = slotLanding(d.rect, d.edge ? undefined : [c[1] - c[0] + 1, r[1] - r[0] + 1]);
+    if (d.landed) editor.say(`slot ${d.slot.name} → ${placed({ col: d.landed.col, row: d.landed.row })}`);
+    draw();
+  }
+  /** A slot let go: one `theme_edit` that puts it where it landed. */
+  async function slotDrop() {
+    const d = slotDrag;
+    slotDrag = undefined;
+    const now = slotting;
+    if (!d || !now || !d.landed || !now.grid) return draw();
+    if (editor.version() !== d.version) {
+      draw();
+      return editor.say("the source changed under the drag: the layout is as it was");
+    }
+    const was = [cellsOf(d.slot.col, now.grid.columns.length), cellsOf(d.slot.row, now.grid.rows.length)];
+    const { col, row } = d.landed;
+    if (was[0][0] === col[0] && was[0][1] === col[1] && was[1][0] === row[0] && was[1][1] === row[1]) {
+      draw();
+      return editor.say(`slot ${d.slot.name} stays where it is`);
+    }
+    let ops: unknown[];
+    try {
+      ops = await slotOps(now, d.slot, col, row);
+    } catch (e) {
+      draw();
+      return editor.say(`the layout is as it was: ${said(e)}`);
+    }
+    const where = placed({ col, row });
+    const what = `slot ${d.slot.name} of ${now.layout.layout}${now.format ? ` in ${now.format}` : ""} → ${where}`;
+    const done = await editor.themeEdit?.(ops, what);
+    await relayout();
+    if (done) editor.say(`${what} · every state that uses it shows it moved · ⌘Z undoes it`);
+  }
+  /** The operations that put `slot` on cells `col` and `row`: where the layout writes it on the
+   * deck's own canvas; in a format, in that format's own slots, the layout's others carried along. */
+  async function slotOps(now: NonNullable<typeof slotting>, slot: SlotBox, col: [number, number], row: [number, number]) {
+    const text = await stage.themeText();
+    if (!text) throw new Error("the deck names no theme to edit");
+    const theme = JSON.parse(text.text);
+    const name = now.layout.layout;
+    const layout = theme.layouts?.[name];
+    if (!layout) throw new Error(`the theme has no layout ${name}`);
+    const cells = (v: [number, number]) => (v[0] === v[1] ? v[0] : v);
+    if (!now.format) {
+      return [
+        { op: "add", path: pointer("layouts", name, "slots", slot.name, "col"), value: cells(col) },
+        { op: "add", path: pointer("layouts", name, "slots", slot.name, "row"), value: cells(row) },
+      ];
+    }
+    const base = layout.slots?.[slot.name] ?? {};
+    const own = layout.formats?.[now.format]?.slots?.[slot.name];
+    const value = { ...base, ...(own ?? {}), col: cells(col), row: cells(row) };
+    if (!layout.formats) return [{ op: "add", path: pointer("layouts", name, "formats"), value: { [now.format]: { slots: { [slot.name]: value } } } }];
+    if (!layout.formats[now.format]) return [{ op: "add", path: pointer("layouts", name, "formats", now.format), value: { slots: { [slot.name]: value } } }];
+    if (!layout.formats[now.format].slots) return [{ op: "add", path: pointer("layouts", name, "formats", now.format, "slots"), value: { [slot.name]: value } }];
+    return [{ op: "add", path: pointer("layouts", name, "formats", now.format, "slots", slot.name), value }];
+  }
+  /** A layout added from the one shown, by a name asked for (PLAN 2.71): one `theme_edit` that
+   * copies it, then the state shown takes it, kept to that state, so it is the one edited. */
+  async function newLayout() {
+    if (!slotting) await layoutMode(true);
+    const now = slotting;
+    const shown = editor.shown();
+    if (!now || !shown) return;
+    const r = overlay.getBoundingClientRect();
+    const from = now.layout.layout;
+    const name = (await askWords([r.left + r.width / 2, r.top + 48], `${from}-2`, `The new layout's name: a copy of ${from}`))?.trim();
+    if (!name) return editor.say("no layout added");
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) return editor.say(`${name} is no layout's name: lower-case letters, digits, - and _`);
+    const text = await stage.themeText();
+    const theme = text && JSON.parse(text.text);
+    if (!theme?.layouts?.[from]) return editor.say(`the theme has no layout ${from}`);
+    if (theme.layouts[name]) return editor.say(`the theme has a layout ${name} already`);
+    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: theme.layouts[from] }], `layout ${name} added, a copy of ${from}`);
+    if (!done) return;
+    await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "choosing it…", `layout ${name} added, a copy of ${from}; ${shown.state} uses it`, null);
+    await relayout();
   }
 
   /** Say where the drag lands, and which states that changes. */
@@ -1644,6 +2093,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     righted = e.button === 2;
     if (e.button !== 0) return;
+    // A layout shown (PLAN 2.71): a press moves or resizes a slot, and nothing else.
+    if (slotting) {
+      e.preventDefault();
+      overlay.focus();
+      overlay.setPointerCapture(e.pointerId);
+      return slotPress(e);
+    }
     // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
     if (armed) {
       e.preventDefault();
@@ -1686,6 +2142,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown || drag) return editor.say(shown ? "" : "the canvas waits for a source that compiles");
     overlay.setPointerCapture(e.pointerId);
     const client: [number, number] = [e.clientX, e.clientY];
+    // A shape's point, an edge's middle, or a rect's corner (PLAN 2.68).
+    const handle = (e.target as Element).closest?.("[data-point],[data-add],[data-radius]");
+    if (handle && selected !== undefined && shaped?.outline.node === selected) {
+      e.preventDefault();
+      return reshape(handle, from, client, e.altKey);
+    }
     const edge = (e.target as Element).closest?.("[data-edge]")?.getAttribute("data-edge") as Edge | null;
     if (edge && selected !== undefined) {
       press = { node: selected, edge, from, client };
@@ -1894,6 +2356,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (turning) return turned(turning, at, e.shiftKey);
+    if (slotDrag) return slotMove(at);
+    if (reshaping) return reshapeTo(reshaping, at, [e.clientX, e.clientY], e.altKey);
     if (carrying) {
       [carrying.at, carrying.alt] = [at, e.altKey];
       return draw();
@@ -1963,6 +2427,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       turning = undefined;
       return void inTurn(() => turnTo(t));
     }
+    if (slotDrag) {
+      slotMove(point(e));
+      return void inTurn(slotDrop);
+    }
+    if (reshaping) {
+      const r = reshaping;
+      reshapeTo(r, point(e), [e.clientX, e.clientY], e.altKey);
+      reshaping = undefined;
+      return void inTurn(() => reshapeEnd(r));
+    }
     if (marquee) {
       marquee.at = point(e);
       return finish();
@@ -1990,6 +2464,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   overlay.onpointercancel = () => {
     press = starting = marquee = undefined;
+    if (reshaping) {
+      reshaping = undefined;
+      draw();
+    }
     if (sketch) disarm("not drawn: the drag was cancelled");
     if (drag) void still("the drag was cancelled");
   };
@@ -2016,6 +2494,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
+    // A layout shown takes Escape, and leaves the rest alone (PLAN 2.71).
+    if (slotting && !(mod && ["z", "y"].includes(key))) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (slotDrag) {
+        slotDrag = undefined;
+        draw();
+        return editor.say("the slot stays where it was");
+      }
+      return void layoutMode(false);
+    }
     if (picking !== undefined && e.key === "Escape") {
       e.preventDefault();
       unpick();
@@ -2060,13 +2549,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
-        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67).
+        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67); so does a point
+        // of the shape selected (PLAN 2.68).
         if (noted?.note.node === selected && !also.length) return void unnote();
+        if (pointPicked !== undefined && shaped?.outline.node === selected && !also.length) return void unpoint();
         return void (also.length ? removeAll(chosen(), e.shiftKey) : remove(selected, e.shiftKey));
       }
       if (mod && key === "d" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         return void (also.length ? duplicateAll(chosen()) : duplicate(selected));
+      }
+      // ⌘⇧8 bullets a text, ⌘⇧7 numbers it (PLAN 2.69), by the keys' places.
+      if (mod && e.shiftKey && !e.altKey && (e.code === "Digit8" || e.code === "Digit7")) {
+        e.preventDefault();
+        return void listing(e.code === "Digit8" ? "bullet" : "number");
       }
       // ⌘G groups what is selected, and ⌘⇧G takes the group selected apart (PLAN 2.43).
       if (mod && key === "g" && !e.altKey) {
@@ -2087,6 +2583,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         carrying = undefined;
         draw();
         return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      // A point or a corner dragged is left as it was, and a point picked is let go before the shape
+      // is (PLAN 2.68).
+      if (reshaping) {
+        e.preventDefault();
+        const r = reshaping;
+        reshaping = undefined;
+        draw();
+        return editor.say(`${r.outline.node} stays as it is`);
+      }
+      if (pointPicked !== undefined) {
+        e.preventDefault();
+        pointPicked = undefined;
+        draw();
+        return editor.say(`${selected ?? "nothing"} selected`);
       }
       // A mark picked, or an annotation selected, is let go before the chart is (PLAN 2.67).
       if (picked || noted) {
@@ -2211,6 +2722,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     picked: () => picked?.mark,
     noted: () => noted?.note,
     banding: () => banding?.from,
+    /** The layout of the state shown as its slots, to edit, or not, as the Layout button does; a
+     * layout added from it, as the command does; and the layout shown (PLAN 2.71). */
+    layoutMode: (on?: boolean) => layoutMode(on),
+    newLayout,
+    slotting: () => slotting?.layout,
+    /** The outline of the shape selected, and the point of it picked (PLAN 2.68). */
+    outlined: () => shaped?.outline,
+    pointPicked: () => pointPicked,
     /** Pick what is at `at` of the chart selected, as a click there does. */
     pickAt: (at: Point) => pickAt(at),
     /** What `rows` of data source `source` draw in the state shown, and the annotation drawn at
@@ -2260,6 +2779,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     style: (look: Record<string, unknown>) => text.style(look),
     /** Make the characters selected bold, or not, as ⌘B does. */
     bold: () => text.bold(),
+    /** Bullets or numbers on the text selected, or the paragraphs selected in it, as ⌘⇧8 and ⌘⇧7
+     * do (PLAN 2.69). */
+    list: listing,
     /** What the clipboard would hold of the node selected, once it is at hand: what a test
      * waits for before ⌘C. */
     held: () => held?.clip,
@@ -2278,7 +2800,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return shown ? stage.targets(shown.state, node, editor.format()) : Promise.reject(new Error("nothing is shown"));
     },
     /** Whether a drag is under way, or its request with the worker. */
-    busy: () => busy || drag !== undefined || starting !== undefined,
+    busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined,
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** What is typed in it, for a test. */

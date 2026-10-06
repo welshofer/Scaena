@@ -254,11 +254,13 @@ try {
   await page.keyboard.press("Shift+F10");
   check(await menuOpen(), "Shift+F10 opens the node's menu");
   const keyed = await menu();
-  check(keyed[0] === "Type in it" && keyed[1] === "Duplicate", `the node's commands: ${keyed.slice(0, 3).join(", ")}…`);
-  await page.keyboard.press("ArrowDown");
+  // A text's own commands (Type in it, then its lists, PLAN 2.69) come before what is done to any node.
+  const duplicate = keyed.indexOf("Duplicate");
+  check(keyed[0] === "Type in it" && duplicate > 0, `the node's commands: ${keyed.slice(0, duplicate + 1).join(", ")}…`);
+  for (let i = 0; i < duplicate; i++) await page.keyboard.press("ArrowDown");
   check(
     await page.evaluate(() => document.activeElement?.textContent.startsWith("Duplicate")),
-    "↓ moves to the next item",
+    "↓ moves item by item, to Duplicate",
   );
   await page.keyboard.press("Enter");
   check(await says("title copied as"), `Enter runs it: ${await status()}`);

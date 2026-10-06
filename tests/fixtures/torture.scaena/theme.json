@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.9",
+  "scaena-theme": "0.10",
   "name": "Torture",
   "description": "Fixture theme for the typography torture deck (PLAN 0.2). Every case-specific typographic setting lives here as a role, so the deck itself references roles only.",
   "tokens": {

@@ -119,6 +119,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "read":
         layOut(data.format);
         return post({ type: "reading", id: data.id, html: player.reading(data.state) });
+      case "linkAt": {
+        layOut(data.format);
+        const [w, h] = player.canvasSize();
+        return post({ type: "linked", id: data.id, link: JSON.parse(player.linkAt(data.state, data.at[0] * w, data.at[1] * h)) });
+      }
       case "run":
         layOut(data.format);
         return run(data.index, data.t, ++latest, data.still, data.alone);
@@ -170,6 +175,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "noteAt":
         layOut(data.format);
         return post({ type: "noted", id: data.id, note: JSON.parse(player.noteAt(data.state, ...data.point)) });
+      case "layout":
+        layOut(data.format);
+        return post({ type: "laidOut", id: data.id, layout: JSON.parse(player.layout(data.state)) });
+      case "outline":
+        layOut(data.format);
+        return post({ type: "outlined", id: data.id, outline: JSON.parse(player.outline(data.state, data.node)) });
       case "calloutAt":
         layOut(data.format);
         return post({ type: "calledOut", id: data.id, at: JSON.parse(player.calloutAt(data.state, data.node, ...data.point)) });

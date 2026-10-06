@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.9.json",
+  "$id": "https://scaena.dev/schema/theme-0.10.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.9(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.10(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -211,6 +211,10 @@
           "type": "object",
           "required": ["display", "headline", "body", "caption", "label", "numeral"],
           "additionalProperties": { "$ref": "#/$defs/Role" }
+        },
+        "lists": {
+          "description": "How a text's list items are marked and indented (SPEC §3.5, ADR-0018).",
+          "$ref": "#/$defs/Lists"
         }
       }
     },
@@ -318,6 +322,17 @@
     "Numeric": {
       "type": "string",
       "enum": ["tabular-lining", "tabular-oldstyle", "proportional-lining", "proportional-oldstyle"]
+    },
+    "Lists": {
+      "description": "A theme's lists (ADR-0018): how far each level's words start from the one above, and the least room between a marker and its words, both in ems of the text's size; a bullet for each level, and a pattern for each level's numbers, whose first `1`, `a`, `A`, `i`, or `I` is the item's number in digits, letters, or roman numerals. A level past a list's end takes its last.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "indent": { "type": "number", "exclusiveMinimum": 0 },
+        "gap": { "type": "number", "minimum": 0 },
+        "bullets": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "numbers": { "type": "array", "items": { "type": "string", "pattern": "[1aAiI]" }, "minItems": 1 }
+      }
     },
     "Grid": {
       "type": "object",

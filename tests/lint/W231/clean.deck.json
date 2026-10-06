@@ -1,5 +1,5 @@
 {
-  "scaena": "0.11",
+  "scaena": "0.12",
   "_comment": "W231 clean: the same text, upright as it asks to be.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

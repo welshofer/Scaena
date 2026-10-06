@@ -1,5 +1,5 @@
 {
-  "scaena": "0.11",
+  "scaena": "0.12",
   "_comment": "E102 clean: every node, state, data source, file, theme name, container, and grid area it references exists (tests/lint/theme.json).",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",

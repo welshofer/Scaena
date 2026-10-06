@@ -431,6 +431,24 @@ pub struct Run {
     pub style: Option<TextStyle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state
+    /// of the deck. It is drawn underlined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Link>,
+}
+
+/// Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the
+/// player opens in a new window, or a state of the deck, which it shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("oneOf" = [{"required": ["href"]}, {"required": ["state"]}]))]
+pub struct Link {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(regex(pattern = "^(https?://[^\\s]+|mailto:[^\\s]+)$"))]
+    pub href: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<Id>")]
+    pub state: Option<String>,
 }
 
 /// What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own
@@ -466,6 +484,31 @@ pub struct TextStyle {
     pub case: Option<super::theme::Case>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
+}
+
+/// A paragraph of a text as an item of a list (SPEC §3.5, ADR-0018): bulleted or numbered, at
+/// a level, 0 the outermost. Its marker and indent are the theme's (`type.lists`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListItem {
+    pub kind: ListKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 8))]
+    pub level: Option<u8>,
+}
+
+impl ListItem {
+    /// Its level, 0 where it gives none.
+    pub fn depth(&self) -> u8 {
+        self.level.unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ListKind {
+    Bullet,
+    Number,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

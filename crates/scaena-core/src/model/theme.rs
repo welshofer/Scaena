@@ -182,6 +182,49 @@ pub struct Typography {
     pub scale: Option<TypeScale>,
     #[schemars(extend("required" = ["display", "headline", "body", "caption", "label", "numeral"]))]
     pub roles: IndexMap<String, Role>,
+    /// How a text's list items are marked and indented (SPEC §3.5, ADR-0018).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lists: Option<Lists>,
+}
+
+/// A theme's lists (ADR-0018): how far each level's words start from the one above, and the
+/// least room between a marker and its words, both in ems of the text's size; a bullet for
+/// each level, and a pattern for each level's numbers, whose first `1`, `a`, `A`, `i`, or `I`
+/// is the item's number in digits, letters, or roman numerals. A level past a list's end
+/// takes its last.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Lists {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("exclusiveMinimum" = 0))]
+    pub indent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0))]
+    pub gap: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1))]
+    pub bullets: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1), inner(regex(pattern = "[1aAiI]")))]
+    pub numbers: Option<Vec<String>>,
+}
+
+impl Lists {
+    /// A level's indent and the gap, in ems, and its bullet and number pattern: the theme's,
+    /// else 1.2 em, 0.4 em, `• – ·`, and `1. a. i.`.
+    pub fn at(&self, level: u8) -> (f64, f64, &str, &str) {
+        const BULLETS: [&str; 3] = ["\u{2022}", "\u{2013}", "\u{B7}"];
+        const NUMBERS: [&str; 3] = ["1.", "a.", "i."];
+        fn pick<'a>(list: Option<&'a Vec<String>>, default: &'static [&'static str; 3], level: u8) -> &'a str {
+            match list.filter(|l| !l.is_empty()) {
+                Some(l) => l[(level as usize).min(l.len() - 1)].as_str(),
+                None => default[(level as usize).min(2)],
+            }
+        }
+        let bullet = pick(self.bullets.as_ref(), &BULLETS, level);
+        let number = pick(self.numbers.as_ref(), &NUMBERS, level);
+        (self.indent.unwrap_or(1.2), self.gap.unwrap_or(0.4), bullet, number)
+    }
 }
 
 /// A font family: its file in the bundle and how it may vary.

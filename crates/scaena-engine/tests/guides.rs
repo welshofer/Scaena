@@ -120,3 +120,35 @@ fn a_box_moved_meets_what_else_draws_but_not_what_moves_with_it() {
             && down[3] >= (photo[1] + photo[3]).max(aligned[1] + aligned[3]) - 1e-3
     );
 }
+
+/// A layout's slots as the canvas shows them (PLAN 2.71), on the torture deck's `formats`
+/// case: its four slots on the grid of the format shown, each as the theme writes it; in 9:16
+/// the halves stack, written by the format itself, and the rest are the layout's own.
+#[test]
+fn a_layout_is_its_slots_in_the_format_shown() {
+    let (deck, theme) = (deck(), theme(|_| {}));
+    let (name, wide) = guides::layout(&deck, &theme, "formats", None).unwrap().unwrap();
+    assert_eq!(name, "specimen");
+    let names: Vec<&str> = wide.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["case", "main", "left", "right"]);
+    let grid = guides::grid(&deck, &theme, None).unwrap();
+    let slot = |slots: &[guides::SlotBox], n: &str| slots.iter().find(|s| s.name == n).unwrap().clone();
+    // `left` is columns 1–6 and rows 2–8 of the wide grid.
+    let left = slot(&wide, "left");
+    assert_eq!(left.col, Some(json!([1, 6])));
+    assert!(
+        near(left.rect[0], grid.columns[0][0]) && near(left.rect[0] + left.rect[2], grid.columns[5][1]),
+        "{left:?}"
+    );
+    assert!(near(left.rect[1], grid.rows[1][0]) && near(left.rect[1] + left.rect[3], grid.rows[7][1]), "{left:?}");
+    assert!(wide.iter().all(|s| !s.own), "on the deck's own canvas, nothing is a format's own");
+    // In 9:16: `left` spans the grid's width on rows 2–4, written by the format.
+    let (_, tall) = guides::layout(&deck, &theme, "formats", Some("9:16")).unwrap().unwrap();
+    let tall_grid = guides::grid(&deck, &theme, Some("9:16")).unwrap();
+    let left = slot(&tall, "left");
+    assert!(left.own && !slot(&tall, "main").own);
+    assert_eq!((left.col, left.row), (Some(json!([1, 12])), Some(json!([2, 4]))));
+    assert!(near(left.rect[2], tall_grid.columns[11][1] - tall_grid.columns[0][0]));
+    // A state with no layout has none; one that is not there is an error.
+    assert!(guides::layout(&deck, &theme, "nowhere", None).is_err());
+}

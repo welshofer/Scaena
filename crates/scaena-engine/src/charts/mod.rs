@@ -635,6 +635,7 @@ impl Numerals {
                     line: 0,
                     rtl: false,
                     hyphen: false,
+                    mark: None,
                 }),
             }
             x += f.advance;

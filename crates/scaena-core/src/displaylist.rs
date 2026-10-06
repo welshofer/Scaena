@@ -33,6 +33,13 @@ pub type Rect = [f32; 4];
 pub type Affine = [f32; 6];
 pub const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
+/// `inner` drawn inside `outer`: a point goes through `inner`, then `outer`.
+pub fn then(outer: Affine, inner: Affine) -> Affine {
+    let [a, b, c, d, e, f] = outer;
+    let [p, q, r, s, t, u] = inner;
+    [a * p + c * q, b * p + d * q, a * r + c * s, b * r + d * s, a * t + c * u + e, b * t + d * u + f]
+}
+
 #[derive(Debug, Error)]
 pub enum DlError {
     #[error("display list json: {0}")]
@@ -150,6 +157,51 @@ pub enum Op {
         /// the encoding stable.
         params: BTreeMap<String, f32>,
     },
+    /// Where a link in a text is (PLAN 2.70), in its layer's space: its words' box on a line.
+    /// It draws nothing. Exports that carry links (a PDF) and a player that follows them read
+    /// it, as [`DisplayList::links`] gives them.
+    Link {
+        rect: Rect,
+        target: LinkTarget,
+    },
+}
+
+/// Where a link goes (PLAN 2.70): a web address, or a state of the deck.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", deny_unknown_fields)]
+pub enum LinkTarget {
+    Href(String),
+    State(String),
+}
+
+/// A link's area on the canvas (PLAN 2.70): its box, drawn through every layer's transform
+/// that holds it, as the four corners it lands on, and where it goes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkArea {
+    pub corners: [[f32; 2]; 4],
+    pub target: LinkTarget,
+}
+
+impl LinkArea {
+    /// The box around its corners, canvas units: what a PDF's link annotation covers.
+    pub fn bounds(&self) -> Rect {
+        let xs = self.corners.map(|c| c[0]);
+        let ys = self.corners.map(|c| c[1]);
+        let (x0, x1) =
+            (xs.iter().copied().fold(f32::INFINITY, f32::min), xs.iter().copied().fold(f32::NEG_INFINITY, f32::max));
+        let (y0, y1) =
+            (ys.iter().copied().fold(f32::INFINITY, f32::min), ys.iter().copied().fold(f32::NEG_INFINITY, f32::max));
+        [x0, y0, x1 - x0, y1 - y0]
+    }
+
+    /// Whether `point`, canvas units, is inside it.
+    pub fn contains(&self, [px, py]: [f32; 2]) -> bool {
+        // Inside a convex quad: on the same side of each edge.
+        let c = &self.corners;
+        let side = |a: [f32; 2], b: [f32; 2]| (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+        let sides = [side(c[0], c[1]), side(c[1], c[2]), side(c[2], c[3]), side(c[3], c[0])];
+        sides.iter().all(|&s| s >= 0.0) || sides.iter().all(|&s| s <= 0.0)
+    }
 }
 
 /// One positioned glyph: id plus position (canvas units, in its layer's coordinate space;
@@ -464,6 +516,33 @@ impl DisplayList {
         Self { dl: DL_VERSION, viewport, fonts: Vec::new(), ops: Vec::new() }
     }
 
+    /// Every link's area on the canvas (PLAN 2.70), in paint order: each [`Op::Link`] drawn
+    /// through the transforms of the layers that hold it. A layer drawn at no opacity holds
+    /// none that can be followed.
+    pub fn links(&self) -> Vec<LinkArea> {
+        fn walk(ops: &[Op], m: Affine, out: &mut Vec<LinkArea>) {
+            for op in ops {
+                match op {
+                    Op::Layer { transform, opacity, ops, .. } if *opacity > 0.0 => walk(ops, then(m, *transform), out),
+                    Op::Link { rect: [x, y, w, h], target } => {
+                        let at = |px: f32, py: f32| [m[0] * px + m[2] * py + m[4], m[1] * px + m[3] * py + m[5]];
+                        let corners = [at(*x, *y), at(x + w, *y), at(x + w, y + h), at(*x, y + h)];
+                        out.push(LinkArea { corners, target: target.clone() });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.ops, IDENTITY, &mut out);
+        out
+    }
+
+    /// The link drawn at `point` (canvas units), topmost first: the last painted that holds it.
+    pub fn link_at(&self, point: [f32; 2]) -> Option<LinkTarget> {
+        self.links().into_iter().rev().find(|l| l.contains(point)).map(|l| l.target)
+    }
+
     /// This frame seen through `view`, `[x, y, w, h]` in canvas units: what an editor zoomed
     /// in shows (PLAN 2.46). The viewport is the view's size, and the frame is drawn moved
     /// so that the view's corner is its origin, under one layer that only moves it. A painter
@@ -607,6 +686,7 @@ fn visit_ops(ops: &mut [Op], f: &mut dyn FnMut(Num, &mut f32)) {
                 lengths(f, rect);
                 params.values_mut().for_each(|v| f(Num::Other, v));
             }
+            Op::Link { rect, .. } => lengths(f, rect),
         }
     }
 }

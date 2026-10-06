@@ -1,5 +1,5 @@
 {
-  "scaena": "0.11",
+  "scaena": "0.12",
   "_comment": "W323 trigger: a deck that runs on its own, its states held, and `b`, which cuts in, moves nothing, and has no hold: it shows for 0 ms. Its seven words and photograph read in about 4 s.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
