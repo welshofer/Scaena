@@ -53,6 +53,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(space::W313ChartSquashed),
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
+        Box::new(motion::W323Skipped),
     ]
 }
 
@@ -158,9 +159,9 @@ fn lint_in(
             let states = lay_out(engine, &d, &t, data, only)?;
             let cx = Cx { deck: &d, theme: &t, format, states: &states };
             for rule in rules() {
-                // Motion is the same in every format but for what layout counts; it is
-                // judged once, in the deck's own.
-                if format.is_some() && matches!(rule.code(), "W320" | "W321") {
+                // Motion is the same in every format but for what layout counts, and so is
+                // the timeline; they are judged once, in the deck's own.
+                if format.is_some() && matches!(rule.code(), "W320" | "W321" | "W323") {
                     continue;
                 }
                 out.extend(rule.check(&cx));

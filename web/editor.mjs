@@ -12,6 +12,8 @@
 // - The preview and the inspector follow the cursor from state to state.
 // - Once typing stops, every state is linted, and what that finds replaces what the edit's
 //   lint of the state shown left standing.
+// - A node put in one state and taken out by an undo: before every state is linted again, no
+//   finding names it, from any state it was in, and the status says what that lint will.
 // - On B1, each edit's round trip (compile, the frame, lint of the state shown) is recorded;
 //   gate 2 asks for under 200 ms (PLAN §2). So is the lint of every state that follows.
 // Exits 1 on any failure.
@@ -114,6 +116,38 @@ try {
     .catch(() => {});
   const inspector = await page.evaluate(() => window.scaena.inspector());
   check(inspector.includes("headline") && inspector.includes("transition"), `the inspector shows the title's look and the cue: ${inspector.slice(0, 120)}`);
+
+  // A copy of the chart put in `revenue`, low on the slide, as a paste puts one: `mix` and
+  // `close` keep it, and once every state is linted, findings name it there.
+  const names = (f) => JSON.stringify(f).includes("rev-2");
+  const [from, to] = [fixed.indexOf("  rev chart:"), fixed.indexOf("  note text")];
+  const copy = fixed.slice(from, to).replace("  rev ", "  rev-2 ").replace("at:in(main)", "at:{rect: [600, 820, 1100, 600]}");
+  const wholesBefore = await page.evaluate(() => window.scaena.wholes().length);
+  await type(page, fixed.slice(0, to) + copy + fixed.slice(to));
+  await page.waitForFunction((n) => window.scaena.wholes().length > n, wholesBefore, { timeout: 30000 }).catch(() => {});
+  const pasted = await page.evaluate(() => window.scaena.last());
+  const elsewhere = pasted.findings.filter((f) => names(f) && f.state === "close");
+  check(pasted.whole && elsewhere.length > 0, `once every state is linted, findings in \`close\` name the copy: ${elsewhere.map((f) => f.code)}`);
+  // Undone in the source, the copy is gone from what the edit's lint answers at once, which
+  // keeps nothing from the states it was in until every state is linted again.
+  const tripsBefore = await page.evaluate(() => window.scaena.trips().length);
+  const wholesThen = await page.evaluate(() => window.scaena.wholes().length);
+  await page.focus(".cm-content");
+  await page.keyboard.press("Control+z");
+  const undone = await page
+    .waitForFunction(
+      (n) => window.scaena.trips().length > n && { last: window.scaena.last(), status: document.querySelector("#status").textContent, source: window.scaena.source() },
+      tripsBefore,
+      { timeout: 60000, polling: 50 },
+    )
+    .then((h) => h.jsonValue());
+  check(undone.source === fixed, "one undo takes the copy out");
+  const named = undone.last.findings.filter(names);
+  check(!undone.last.whole && named.length === 0, `before every state is linted again, no finding names the copy: ${named.map((f) => `${f.code} ${f.state}`)}`);
+  await page.waitForFunction((n) => window.scaena.wholes().length > n, wholesThen, { timeout: 30000 }).catch(() => {});
+  const counts = (status) => status.split(" · ")[0];
+  const settledStatus = await page.evaluate(() => document.querySelector("#status").textContent);
+  check(counts(undone.status) === counts(settledStatus), `the status says at once what every state's lint does: "${counts(undone.status)}", then "${counts(settledStatus)}"`);
   await page.close();
 
   // B1: the round trip, timed.
