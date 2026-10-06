@@ -618,8 +618,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *The test runs PLAN 1.19's agent loop through the editor against a scripted server for each provider's wire format. It checks what the browser sends and what the editor ends with, then Stop and the key's storage. `just web-smoke` and CI's wasm job run it.*
     - *On B1, in headless Chromium, a patch takes 2.5 s (it lints before and after), a lint 1.2 s, and a render 1.3 s after an edit.*
     - *Gate 2's fourth criterion asks for the user's own key: a run with a real one closes it, in the gate log.)*
-- [ ] 2.7 Static deploy (existing hosting) with a demo deck.
-  *(Built and tested; the deploy itself is open. SPEC §9.2 says what the site is and what a host must do. `web/site.mjs` checks it in headless Chromium.*
+- [x] 2.7 Static deploy (existing hosting) with a demo deck.
+  *(Done: the site is on GitHub Pages at https://welshofer.github.io/Scaena/, published by the `site` workflow from `main` at 4aa7d45 on 2026-10-06 (run 37418400407). A run with "deploy" ticked publishes `main` as it then is. SPEC §9.2 says what the site is and what a host must do. `web/site.mjs` checks it in headless Chromium.*
     - *`just site` builds the player and the editor into `target/site`, with a demo deck in `decks/NAME/`: the trails example by default, saved as `scaena save` saves it, fonts whole. The pages open it when the address names no bundle, as the build says (`VITE_BUNDLE`). The player's Edit opens the editor on its bundle, and the editor's Play opens the player on the bundle as last saved.*
     - *Its paths are relative, so any static host serves it, at its root or under any path. The host must serve it over HTTPS, with `.wasm` as `application/wasm`; it needs no code on the server, no rewrites, and no other headers. The site is 13 MB: the engine is 7.7 MB of it (2.7 MB gzipped), the history's module, since 2.9, 2.9 MB (1.0 MB gzipped, loaded only to save), and the trails example 0.85 MB.*
     - *The `site` workflow builds it by hand from the branch chosen, keeps it as the run's artifact, and publishes it to GitHub Pages only when asked.*
