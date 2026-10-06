@@ -356,6 +356,8 @@ export interface Grouped {
 export const CLIP = "application/x-scaena+json";
 /** What a drag from the Files panel carries (PLAN 2.59): an image's path in the bundle. */
 export const BUNDLE_PATH = "application/x-scaena-path";
+/** A file an image node can show, by its name: a PNG or a JPEG (SPEC §3.3, PLAN 2.66). */
+export const PICTURE = /\.(png|jpe?g)$/i;
 
 /** A version of the deck (PLAN 2.60, SPEC §8): as it was just after one change its history
  * keeps, numbered from the oldest, and named by its change's id for as long as the history lasts. */

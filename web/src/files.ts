@@ -10,7 +10,7 @@
 // - A file nothing names says so, and Remove takes it out of the bundle: the deck draws and reads
 //   the same. Undo puts it back and Redo takes it out again, as the Data panel's undo does a data
 //   file's edits; the next save takes it out where the bundle is kept.
-import { BUNDLE_PATH, type BundleFile, type Edited, type Named } from "./protocol";
+import { BUNDLE_PATH, type BundleFile, type Edited, type Named, PICTURE } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the panel asks of the editor around it. */
@@ -109,7 +109,7 @@ export function filesPanel(stage: Stage, into: HTMLElement, editor: FilesEditor)
   /** One file: its path and size, what names it, and the nodes drawn from it. */
   function row(f: BundleFile): string {
     const path = html(f.path);
-    const drags = f.type === "image" && /\.png$/i.test(f.path);
+    const drags = f.type === "image" && PICTURE.test(f.path);
     const named = f.named.length
       ? `<p class="named">named by ${html(f.named.map(naming).join(", "))}</p>`
       : `<p class="unnamed">Nothing names it. <button type="button" data-remove aria-label="Remove ${path}">Remove</button></p>`;

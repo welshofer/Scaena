@@ -60,7 +60,7 @@
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
-import { BUNDLE_PATH, CLIP } from "./protocol";
+import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
 import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
@@ -1193,8 +1193,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
       if (!top || choices?.type !== "image") return editor.say("drop an image on an image to put it in its place; on the source, its path goes where it is dropped");
-      // An image shows a PNG, in v1 (SPEC §3.3): anything else stays out of the bundle.
-      if (!/\.png$/i.test(file.name)) return editor.say(`${file.name} is not a PNG: ${top.node} shows a PNG, and is as it was`);
+      // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
+      if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a PNG nor a JPEG: ${top.node} is as it was`);
       try {
         const path = await stage.drop(file.name, await file.arrayBuffer());
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
@@ -1218,7 +1218,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         return change([op], "replacing…", `${top.node} shows ${path}`, top.node);
       }
       const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
-      if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG in the bundle`);
+      if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
       pointed = at;
       await inserting(n, path);
     });

@@ -494,7 +494,7 @@ fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
 
     // For a person: each with what names it and where it draws, and what nothing names.
     let text = String::from_utf8(scaena(&["files", TORTURE]).stdout).unwrap();
-    assert!(text.starts_with("images\n  assets/test-card.png  "), "{text}");
+    assert!(text.starts_with("images\n  assets/") && text.contains("\n  assets/test-card.png  "), "{text}");
     assert!(text.contains("    image-cover in images\n"), "{text}");
 }
 

@@ -640,7 +640,7 @@
       }
     },
     "ImageNode": {
-      "description": "An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.",
+      "description": "An image from the bundle, a PNG or a JPEG, placed in its box (SPEC §3.3).",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type", "src"],

@@ -14,6 +14,7 @@
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
 //! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
+//! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target (ADR-0017).
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
@@ -38,6 +39,7 @@ pub mod files;
 pub mod format;
 pub mod ids;
 pub mod inserts;
+pub mod jpeg;
 pub mod layers;
 pub mod lint;
 pub mod looks;

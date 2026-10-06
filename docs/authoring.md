@@ -409,7 +409,7 @@ state turn layout:statement transition:slow hold:4s
   choreo point enter:rise delay:240ms
 ```
 
-**A picture.** A PNG in the bundle's `assets/` folder, with `alt` text for a reader (W410 without it):
+**A picture.** A PNG or a JPEG in the bundle's `assets/` folder, with `alt` text for a reader (W410 without it). A photo goes in as the camera wrote it: one stored on its side shows upright, as its EXIF orientation says. A JPEG in CMYK or at 12 bits a sample is refused, saying why; save it as RGB at 8 bits first (SPEC §3.3):
 
 ```scn
 state ridge layout:art-right

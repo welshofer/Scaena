@@ -14,6 +14,8 @@
 
 pub mod html;
 pub mod pdf;
+#[cfg(test)]
+mod photos;
 pub mod svg;
 pub mod video;
 

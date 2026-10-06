@@ -3798,7 +3798,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 51);
+        assert_eq!(s.states().len(), 52);
     }
 
     /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is

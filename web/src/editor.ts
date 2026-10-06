@@ -618,7 +618,7 @@ async function edit(source: Source) {
     insert: async (path) => {
       const inserts = await stage.inserts().catch(() => []);
       const n = inserts.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
-      if (n < 0) return say(`${path} is not an image the deck can insert: a PNG in the bundle`);
+      if (n < 0) return say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
       await board.insert(n, path);
     },
     say,

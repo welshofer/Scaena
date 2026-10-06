@@ -241,7 +241,7 @@ pub enum ShapeKind {
 }
 
 node! {
-    /// An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.
+    /// An image from the bundle, a PNG or a JPEG, placed in its box (SPEC §3.3).
     ImageNode {
         /// The image file's path in the bundle; `assets/<sha256>.<ext>` once saved.
         pub src: String,

@@ -78,6 +78,25 @@ fn a_pdf_draws_each_slide_at_its_last_state_and_shaders_at_twice_the_canvas() {
     assert!(err.to_string().contains("nope"), "{err}");
 }
 
+/// A photo goes into a PDF as its own JPEG, what it says beyond its picture left out (ADR-0017):
+/// the file's coded data as it is, and nothing of the camera, the time, the comment, or the color
+/// profile. That the page draws it turned as the CPU painter does, the test above says.
+#[test]
+fn a_photo_goes_in_as_its_own_jpeg_without_what_it_says() {
+    let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
+    let photos = vec!["photos".to_string()];
+    let (bytes, _) = exported(&bundle, Some(&photos), "photos");
+    let has = |s: &[u8]| bytes.windows(s.len()).any(|w| w == s);
+    assert!(has(b"/DCTDecode"));
+    let file = std::fs::read(format!("{TORTURE}/assets/orientation-6.jpg")).unwrap();
+    let bare = scaena_core::jpeg::stripped(&file).unwrap();
+    assert!(has(&bare[bare.len() - 512..]), "the photo's coded data, as the file has it");
+    for said in [&b"Scaena Test Camera"[..], b"2026:10:06 12:00:00", b"taken somewhere", b"ICC_PROFILE"] {
+        assert!(file.windows(said.len()).any(|w| w == said), "the file says {}", String::from_utf8_lossy(said));
+        assert!(!has(said), "the PDF says {}", String::from_utf8_lossy(said));
+    }
+}
+
 /// The PDF's structure, an element a line, indented by depth: its type, then its alt
 /// text in brackets and its language in braces, if it has them.
 fn structure(pdf: &[u8]) -> Vec<String> {

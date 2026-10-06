@@ -204,6 +204,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let snapshots = scaena_core::resolve_states(deck).map_err(|e| ExportError::Pdf(e.to_string()))?;
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();
+    let mut photos = HashMap::new();
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
     for page in pages {
         let dl = &page.list;
@@ -228,6 +229,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             quality: settings.shader_quality,
             readings: &readings,
             page: KRect::from_xywh(0.0, 0.0, w, h),
+            photos: &mut photos,
             error: None,
         };
         let nodes = cx.read(&dl.ops, Affine::scale(f64::from(scale)));
@@ -321,6 +323,8 @@ struct Cx<'a, 's> {
     readings: &'a HashMap<String, Reading>,
     /// The page, in points: what its background covers.
     page: Option<KRect>,
+    /// Each photo as the document carries it, by its id and whether it is filtered: made once.
+    photos: &'a mut HashMap<(String, bool), Image>,
     /// The first thing that did not draw. Drawing goes on past it, so that every push
     /// is popped and every tagged section ended.
     error: Option<ExportError>,
@@ -593,14 +597,35 @@ impl Cx<'_, '_> {
         self.fonts.get(self.assets, font, coords)
     }
 
-    /// The `src` part of image `asset` drawn into `dst`, clipped to it.
+    /// The `src` part of image `asset` drawn into `dst`, clipped to it. A photo goes in as its
+    /// own JPEG, what it says beyond its picture left out, turned as it is seen (ADR-0017); any
+    /// other image, as its pixels.
     fn image(&mut self, asset: &str, src: [f32; 4], dst: [f32; 4], quality: Quality) -> Result<(), ExportError> {
         let picture = self.assets.image(asset).map_err(|e| ExportError::Pdf(e.to_string()))?;
-        let image = Image::from_custom(Pixels::of_picture(asset, picture), quality == Quality::High)
-            .map_err(ExportError::Pdf)?;
-        let (Some(clip), Some(size)) =
-            (path(&Path::rect(dst)), Size::from_wh(picture.width as f32, picture.height as f32))
-        else {
+        let filtered = quality == Quality::High;
+        let (image, size, turn) = match &picture.jpeg {
+            Some(jpeg) => {
+                let key = (asset.to_string(), filtered);
+                let image = match self.photos.get(&key) {
+                    Some(image) => image.clone(),
+                    None => {
+                        let bare = scaena_core::jpeg::stripped(jpeg.bytes.data())
+                            .map_err(|e| ExportError::Pdf(format!("{asset}: {e}")))?;
+                        let image = Image::from_jpeg(bare.into(), filtered).map_err(ExportError::Pdf)?;
+                        self.photos.insert(key, image.clone());
+                        image
+                    }
+                };
+                let (w, h) = (jpeg.width as f32, jpeg.height as f32);
+                (image, Size::from_wh(w, h), turned(jpeg.orientation, w, h))
+            }
+            None => {
+                let image =
+                    Image::from_custom(Pixels::of_picture(asset, picture), filtered).map_err(ExportError::Pdf)?;
+                (image, Size::from_wh(picture.width as f32, picture.height as f32), Transform::identity())
+            }
+        };
+        let (Some(clip), Some(size)) = (path(&Path::rect(dst)), size) else {
             return Ok(());
         };
         let [sx, sy, sw, sh] = src;
@@ -608,7 +633,9 @@ impl Cx<'_, '_> {
         let (kx, ky) = (dw / sw, dh / sh);
         self.surface.push_clip_path(&clip, &KRule::NonZero);
         self.surface.push_transform(&Transform::from_row(kx, 0.0, 0.0, ky, dx - sx * kx, dy - sy * ky));
+        self.surface.push_transform(&turn);
         self.surface.draw_image(image, size);
+        self.surface.pop();
         self.surface.pop();
         self.surface.pop();
         Ok(())
@@ -634,6 +661,21 @@ impl Cx<'_, '_> {
         self.surface.pop();
         self.surface.pop();
         Ok(())
+    }
+}
+
+/// What turns a JPEG stored `w` × `h` to be seen by EXIF orientation `o`: the stored picture's
+/// space onto the space of the picture as seen, which is `h` × `w` where `o` turns it a quarter.
+fn turned(o: u8, w: f32, h: f32) -> Transform {
+    match o {
+        2 => Transform::from_row(-1.0, 0.0, 0.0, 1.0, w, 0.0),
+        3 => Transform::from_row(-1.0, 0.0, 0.0, -1.0, w, h),
+        4 => Transform::from_row(1.0, 0.0, 0.0, -1.0, 0.0, h),
+        5 => Transform::from_row(0.0, 1.0, 1.0, 0.0, 0.0, 0.0),
+        6 => Transform::from_row(0.0, 1.0, -1.0, 0.0, h, 0.0),
+        7 => Transform::from_row(0.0, -1.0, -1.0, 0.0, h, w),
+        8 => Transform::from_row(0.0, -1.0, 1.0, 0.0, 0.0, w),
+        _ => Transform::identity(),
     }
 }
 
