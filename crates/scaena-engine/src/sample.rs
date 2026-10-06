@@ -2270,7 +2270,12 @@ fn item_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
             if runs.is_empty() {
                 continue;
             }
-            let ops = glyph_ops(dl, &text.text, &starts, &runs);
+            let mut ops = glyph_ops(dl, &text.text, &starts, &runs);
+            if part == 1 {
+                let underlines =
+                    text.underlines.iter().filter(|u| text.lines.get(u.line).map_or(0, |l| l.paragraph) == k);
+                ops.extend(underlines.flat_map(underline_ops));
+            }
             let Op::Layer { node, transform, opacity, blend, clip, ops, .. } = layer(None, [0.0, 0.0], 1.0, ops) else {
                 unreachable!("`layer` makes layers")
             };
@@ -2282,7 +2287,19 @@ fn item_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
 
 /// A text's runs as glyph ops, each with the text it sets (SPEC §6).
 fn text_ops(dl: &mut DisplayList, text: &TextLayout) -> Vec<Op> {
-    glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs)
+    let mut ops = glyph_ops(dl, &text.text, &text.cluster_starts(), &text.runs);
+    ops.extend(text.underlines.iter().flat_map(underline_ops));
+    ops
+}
+
+/// A link's underline, filled in its words' color, and its area, where it is followed (PLAN
+/// 2.70).
+fn underline_ops(u: &crate::text::Underline) -> Vec<Op> {
+    let mut ops = vec![Op::Fill { path: Path::rect(u.rect), rule: FillRule::NonZero, paint: Paint::Solid(u.color) }];
+    if let Some(target) = &u.target {
+        ops.push(Op::Link { rect: u.area, target: target.clone() });
+    }
+    ops
 }
 
 /// `runs`, glyphs of `text` whose clusters start at `starts` (in order), as glyph ops.

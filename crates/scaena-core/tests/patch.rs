@@ -1538,3 +1538,33 @@ fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
         assert!(e.contains(says), "{e}");
     }
 }
+
+#[test]
+fn style_text_links_characters_and_a_link_to_a_state_the_deck_lacks_is_e102() {
+    // PLAN 2.70: "doubled" links to the `mix` state, in `revenue`, where the title's text lives.
+    let link = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "link": { "state": "mix" } } });
+    let doc = patch(&example(), json!([link])).unwrap().doc;
+    assert_eq!(
+        doc["states"][1]["props"]["title"]["runs"],
+        json!([{ "text": "Revenue " }, { "text": "doubled", "link": { "state": "mix" } }])
+    );
+    assert_eq!(errors(&doc), Vec::<String>::new());
+    // Taken away, the title's text again.
+    let away = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "link": null } });
+    assert_eq!(patch(&doc, json!([away])).unwrap().doc, example());
+    // A web address; and a state the deck does not have, which the patch refuses (E102).
+    let web = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "href": "https://example.com/q3" } } });
+    assert!(patch(&example(), json!([web])).is_ok());
+    let nowhere = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "state": "nowhere" } } });
+    // A state renamed keeps its links; one removed takes them away and leaves the words.
+    let renamed = patch(&doc, json!([{ "op": "rename_state", "id": "mix", "to": "shift" }])).unwrap().doc;
+    assert_eq!(renamed["states"][1]["props"]["title"]["runs"][1]["link"], json!({ "state": "shift" }));
+    let removed = patch(&doc, json!([{ "op": "remove_state", "id": "mix" }])).unwrap().doc;
+    assert_eq!(removed["states"][1]["props"]["title"]["runs"][1], json!({ "text": "doubled" }));
+    assert_eq!(errors(&renamed), Vec::<String>::new());
+    let found = errors(&patch(&example(), json!([nowhere])).unwrap().doc);
+    assert!(found.iter().any(|e| e.starts_with("E102") && e.contains("unknown state `nowhere`")), "{found:?}");
+    let bad = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 0, "to": 7, "look": { "link": { "href": "javascript:alert(1)" } } });
+    let found = errors(&patch(&example(), json!([bad])).unwrap().doc);
+    assert!(!found.is_empty(), "only a web address or mailto: {found:?}");
+}

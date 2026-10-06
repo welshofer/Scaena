@@ -20,6 +20,8 @@
 //!   is an artifact. The spine's sections are the document's outline.
 
 use crate::ExportError;
+use krilla::action::LinkAction;
+use krilla::annotation::{Annotation, LinkAnnotation, Target};
 use krilla::color::rgb;
 use krilla::destination::XyzDestination;
 use krilla::geom::{Path as KPath, PathBuilder, Point, Rect as KRect, Size, Transform};
@@ -42,7 +44,7 @@ use krilla::{Document, SerializeSettings};
 use kurbo::Affine;
 use scaena_core::Deck;
 use scaena_core::displaylist::{
-    Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, Op, Paint, Path, PathEl, Quality,
+    Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, LinkTarget, Op, Paint, Path, PathEl, Quality,
 };
 use scaena_core::document::Section;
 use scaena_core::model::values::ListKind;
@@ -238,6 +240,20 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
         let error = cx.error.take();
         surface.pop();
         surface.finish();
+        // Its links (PLAN 2.70): a web address opens, and a state goes to the page of its slide.
+        for link in dl.links() {
+            let [x, y, w, h] = link.bounds().map(|v| v * POINTS_PER_UNIT);
+            let Some(rect) = KRect::from_xywh(x, y, w, h) else { continue };
+            let (target, alt) = match &link.target {
+                LinkTarget::Href(href) => (Target::Action(LinkAction::new(href.clone()).into()), href.clone()),
+                LinkTarget::State(state) => {
+                    let Some(at) = page_of(deck, pages, state) else { continue };
+                    let destination = XyzDestination::new(at, Point::from_xy(0.0, 0.0));
+                    (Target::Destination(destination.into()), format!("To page {}", at + 1))
+                }
+            };
+            kpage.add_annotation(Annotation::new_link(LinkAnnotation::new(rect, target), Some(alt)));
+        }
         kpage.finish();
         if let Some(e) = error {
             return Err(e);
@@ -277,6 +293,12 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     }
     document.set_metadata(metadata);
     document.finish().map_err(|e| ExportError::Pdf(format!("{e:?}")))
+}
+
+/// The page that shows `state`: its slide's (PLAN 2.70). None where no page shows that slide.
+fn page_of(deck: &Deck, pages: &[Page], state: &str) -> Option<usize> {
+    let slide = deck.slide_of(deck.states.iter().find(|s| s.id == state)?);
+    pages.iter().position(|p| deck.states.iter().find(|s| s.id == p.state).is_some_and(|s| deck.slide_of(s) == slide))
 }
 
 /// The pages in reading order (SPEC §3.12): each spine section with the pages of its
@@ -595,6 +617,8 @@ impl Cx<'_, '_> {
                         self.fail(e);
                     }
                 }
+                // A link's area draws nothing (PLAN 2.70): its annotation is the page's.
+                Op::Link { .. } => {}
                 Op::Shader { rect, .. } => {
                     let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
                     if let Some(job) = job

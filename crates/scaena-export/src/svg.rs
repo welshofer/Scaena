@@ -224,6 +224,8 @@ impl Cx<'_> {
                 }
                 Op::Glyphs { .. } => self.glyphs(op, xf)?,
                 Op::Image { asset, src, dst, quality } => self.image(asset, *src, *dst, *quality)?,
+                // A link's area draws nothing (PLAN 2.70).
+                Op::Link { .. } => {}
                 Op::Shader { rect, .. } => {
                     let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
                     if let Some(job) = job {

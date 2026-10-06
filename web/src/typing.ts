@@ -19,6 +19,7 @@
 //   where the text lives, one step to undo.
 import { type Key, MOD, SHIFT } from "./commands";
 import type { CaretLine, Carets, Edited, ListMark, Map6, Rect } from "./protocol";
+import { askWords } from "./notes";
 import type { Stage } from "./stage";
 
 /** What a text typed in answers that no command runs by name (PLAN 2.65), as the keys sheet lists
@@ -29,6 +30,7 @@ export const typingKeys = (): Key[] => [
   { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
   { keys: "Enter", label: "In a list: a new item like it; in an empty item, the list ends", group: "Type" },
   { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out", group: "Type" },
+  { keys: `${MOD}K`, label: "In a text typed in: link the characters selected to a web address or a state", group: "Type" },
   { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
 ];
 
@@ -487,6 +489,39 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     return list({ kind: all ? "none" : kind }, all ? "out of the list" : kind === "bullet" ? "bulleted" : "numbered");
   }
 
+  /** Whether a field over the text asks for a link: focus there keeps typing on. */
+  let asking = false;
+  /** ⌘K: link the characters selected (PLAN 2.70), to what is asked for in a field over them: a
+   * web address (`https://`, `http://`, `mailto:`), or a state's id (`#` before it, or not).
+   * Nothing takes the link away. One `style_text` of `link`, one step to undo. */
+  async function link(): Promise<boolean> {
+    await idle();
+    const now = open;
+    const chosen = selection();
+    if (!now || !chosen) {
+      around.say("select characters to link them");
+      return false;
+    }
+    const r = area.getBoundingClientRect();
+    asking = true;
+    const words = await askWords([r.left, r.top], "", `Where ${chosen.text} links to: a web address, or a state's id`).finally(
+      () => (asking = false),
+    );
+    if (open !== now) return false;
+    area.focus({ preventScroll: true });
+    if (words === undefined) {
+      around.say("no link made");
+      return false;
+    }
+    const to = words.trim();
+    if (!to) return style({ link: null }, "the link taken away");
+    if (/^(https?:\/\/|mailto:)\S+$/.test(to)) return style({ link: { href: to } }, `linked to ${to}`);
+    const state = to.replace(/^#/, "");
+    if (/^[a-z][a-z0-9_-]{0,63}$/.test(state)) return style({ link: { state } }, `linked to the state ${state}`);
+    around.say(`${to} is no link: a web address (https://…, mailto:…) or a state's id`);
+    return false;
+  }
+
   /** Stop typing: the node stays selected. */
   function leave() {
     if (!open) return;
@@ -670,6 +705,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       e.preventDefault();
       return void italic();
     }
+    // ⌘K links the characters selected (PLAN 2.70); outside a text, it is the palette's.
+    if (mod && key === "k" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      return void link();
+    }
     // ⌘⇧8 bullets, ⌘⇧7 numbers, by the keys' places, as Shift makes them other characters.
     if (mod && e.shiftKey && !e.altKey && (e.code === "Digit8" || e.code === "Digit7")) {
       e.preventDefault();
@@ -700,7 +740,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   });
   area.addEventListener("keyup", () => around.draw());
   /** Whether focus at `at` keeps typing on: the text, the canvas, or the inspector. */
-  const keeping = (at: EventTarget | null) => at === area || at === overlay || around.keeps(at);
+  const keeping = (at: EventTarget | null) => asking || at === area || at === overlay || around.keeps(at);
   area.addEventListener("blur", () => {
     // Focus gone elsewhere (the source, another control) ends typing. On the canvas itself, its
     // pointer says: in the text, typing goes on; outside it, it ends.
@@ -736,6 +776,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     italic,
     /** Bullets or numbers on the paragraphs the selection touches, as ⌘⇧8 and ⌘⇧7 do. */
     toggle,
+    /** Link the characters selected, as ⌘K does (PLAN 2.70). */
+    link,
     /** The characters selected in the text typed in, if any are. */
     selection,
     /** Whether a text is typed in, and which. */

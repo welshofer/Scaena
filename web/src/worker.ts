@@ -119,6 +119,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "read":
         layOut(data.format);
         return post({ type: "reading", id: data.id, html: player.reading(data.state) });
+      case "linkAt": {
+        layOut(data.format);
+        const [w, h] = player.canvasSize();
+        return post({ type: "linked", id: data.id, link: JSON.parse(player.linkAt(data.state, data.at[0] * w, data.at[1] * h)) });
+      }
       case "run":
         layOut(data.format);
         return run(data.index, data.t, ++latest, data.still, data.alone);

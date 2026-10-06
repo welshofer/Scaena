@@ -1114,6 +1114,16 @@ impl Session {
         self.write(write, assistant::Caller { author: "user", at })
     }
 
+    /// The link drawn at `point` (canvas units) in `state` at rest, in the format shown (PLAN
+    /// 2.70): where a click there goes. None off every link.
+    pub fn link_at(
+        &mut self,
+        state: &str,
+        point: [f32; 2],
+    ) -> Result<Option<scaena_core::displaylist::LinkTarget>, Error> {
+        Ok(self.frame(state, f64::INFINITY)?.link_at(point))
+    }
+
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): what the page
     /// shows a screen reader, unseen, in a live region (PLAN 2.8), and what a single-file
     /// export carries for each state it plays (PLAN 2.5).
@@ -1372,6 +1382,13 @@ impl Player {
     /// drawing, so a thumbnail painted from it stands until it changes (PLAN 2.35).
     pub fn digest(&mut self, state: &str) -> Result<String, JsError> {
         self.0.frame(state, f64::INFINITY).map_err(js)?.digest().map_err(js)
+    }
+
+    /// The link drawn at `x`, `y` (canvas units) in `state` at rest, in the format shown, as JSON
+    /// (PLAN 2.70): `{ "href" }` or `{ "state" }`, where a click there goes; `null` off every link.
+    #[wasm_bindgen(js_name = linkAt)]
+    pub fn link_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.link_at(state, [x, y]).map_err(js)?).map_err(js)
     }
 
     /// How `state` reads at rest, in the format shown, as HTML (SPEC §3.12): each node it
@@ -3879,6 +3896,27 @@ mod tests {
         assert!(matches!(s.reading("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
     }
 
+    /// A click on a link at rest goes where it says (PLAN 2.70): the torture deck's `links`
+    /// case, its web address and its state; nothing off the link.
+    #[test]
+    fn a_link_is_found_where_it_is_drawn() {
+        use scaena_core::displaylist::LinkTarget;
+        let mut s = torture();
+        let links = s.frame("links", f64::INFINITY).unwrap().links();
+        assert_eq!(links.len(), 3);
+        let middle = |l: &scaena_core::displaylist::LinkArea| {
+            let [x, y, w, h] = l.bounds();
+            [x + w / 2.0, y + h / 2.0]
+        };
+        assert_eq!(
+            s.link_at("links", middle(&links[0])).unwrap(),
+            Some(LinkTarget::Href("https://example.com/scaena/method".into()))
+        );
+        assert_eq!(s.link_at("links", middle(&links[2])).unwrap(), Some(LinkTarget::State("shapes".into())));
+        assert_eq!(s.link_at("links", [5.0, 5.0]).unwrap(), None);
+        assert_eq!(serde_json::to_string(&LinkTarget::State("shapes".into())).unwrap(), r#"{"state":"shapes"}"#);
+    }
+
     #[test]
     fn a_deck_that_draws_with_other_files_builds_the_engine_again() {
         let mut s = torture();
@@ -3899,7 +3937,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 53);
+        assert_eq!(s.states().len(), 54);
     }
 
     /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is

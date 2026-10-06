@@ -358,8 +358,18 @@ fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) 
 }
 
 /// What a look for characters names: a run's own keys, and keys it does not take.
-const LOOKS: [&str; 9] =
-    ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
+const LOOKS: [&str; 10] = [
+    "role",
+    "emphasis",
+    "lang",
+    "style/weight",
+    "style/italic",
+    "style/color",
+    "style/family",
+    "style/size",
+    "fit",
+    "link",
+];
 
 /// Values no tool takes where they are put.
 const JUNK: &[&str] = &["null", "[]", "{}", "-1", "1e308", "\"\"", "true", "18446744073709551615", "[[[[[[]]]]]]"];
@@ -578,6 +588,10 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
     }
     for (source, _) in s.data_sources() {
         let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
+    }
+    // The link at points on and off the canvas (PLAN 2.70).
+    for _ in 0..2 {
+        let _ = s.link_at(one, [r.below(2400) as f32 - 200.0, r.below(1400) as f32 - 200.0]);
     }
     // Each shape's outline, and a node that is none (PLAN 2.68).
     for b in s.boxes(one).unwrap_or_default().iter().take(8) {

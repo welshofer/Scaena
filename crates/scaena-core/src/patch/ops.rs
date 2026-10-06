@@ -642,12 +642,14 @@ fn style_text(
     fork: bool,
 ) -> Result<Vec<JsonOp>, String> {
     if look.is_empty() {
-        return Err("`look` names nothing to set: a run's `role`, `emphasis`, `lang`, or one key of its `style`".into());
+        return Err(
+            "`look` names nothing to set: a run's `role`, `emphasis`, `lang`, `link`, or one key of its `style`".into(),
+        );
     }
     for (key, value) in look {
         let (name, sub) = key.split_once('/').map_or((key.as_str(), None), |(n, k)| (n, Some(k)));
         match (name, sub) {
-            ("role" | "emphasis" | "lang", None) => {}
+            ("role" | "emphasis" | "lang" | "link", None) => {}
             ("style", Some("size")) => {
                 return Err("a run's size comes with a role: choose a role for the characters".into());
             }
@@ -659,7 +661,7 @@ fn style_text(
             ("style", Some(k)) if STYLE_KEYS.contains(&k) => {}
             _ => {
                 return Err(format!(
-                    "a run's look is its `role`, `emphasis`, `lang`, or one key of its `style` ({}), not `{key}`",
+                    "a run's look is its `role`, `emphasis`, `lang`, `link`, or one key of its `style` ({}), not `{key}`",
                     STYLE_KEYS.iter().map(|k| format!("`style/{k}`")).collect::<Vec<_>>().join(", ")
                 ));
             }
@@ -1675,8 +1677,33 @@ fn remove_state(d: &Doc, id: &str) -> Result<Vec<JsonOp>, String> {
             });
         }
     }
+    // A link to it goes, and its words stay (PLAN 2.70).
+    for path in links_to(d, id) {
+        ops.push(JsonOp::Remove { path });
+    }
     ops.push(JsonOp::Remove { path: format!("/states/{i}") });
     Ok(ops)
+}
+
+/// The pointers of every link to state `id` in a text's runs (PLAN 2.70): in a node's own, a
+/// state's, or the deck's overrides.
+fn links_to(d: &Doc, id: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut scan = |props: Option<&Value>, at: String| {
+        for (node, p) in props.and_then(Value::as_object).into_iter().flatten() {
+            for (k, run) in p.get("runs").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                if run.get("link").and_then(|l| l.get("state")).and_then(Value::as_str) == Some(id) {
+                    out.push(format!("{at}/{}/runs/{k}/link", esc(node)));
+                }
+            }
+        }
+    };
+    scan(d.0.get("nodes"), "/nodes".into());
+    for (i, state) in d.states().iter().enumerate() {
+        scan(state.get("props"), format!("/states/{i}/props"));
+    }
+    scan(d.0.get("overrides"), "/overrides".into());
+    out
 }
 
 /// The keys of a state's transition (SPEC §3.9).
@@ -2095,6 +2122,10 @@ fn rename_state(d: &Doc, id: &str, to: &str) -> Result<Vec<JsonOp>, String> {
                 });
             }
         }
+    }
+    // A link to it goes to it by its new name (PLAN 2.70).
+    for path in links_to(d, id) {
+        ops.push(JsonOp::Replace { path: format!("{path}/state"), value: to_value() });
     }
     Ok(ops)
 }

@@ -3961,6 +3961,43 @@
           8
         ]
       }
+    },
+    "link-text": {
+      "type": "text",
+      "role": "body",
+      "runs": [
+        {
+          "text": "Read how the deck is "
+        },
+        {
+          "text": "set and checked on the web",
+          "link": {
+            "href": "https://example.com/scaena/method"
+          }
+        },
+        {
+          "text": ", or go back to "
+        },
+        {
+          "text": "the shapes case",
+          "link": {
+            "state": "shapes"
+          }
+        },
+        {
+          "text": " and look again."
+        }
+      ],
+      "at": {
+        "col": [
+          1,
+          5
+        ],
+        "row": [
+          2,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -5019,6 +5056,19 @@
         "list-steps": {}
       },
       "notes": "Pass: two texts as lists (ADR-0018). Left, bullets at three levels, each level's bullet the theme's and indented a step more; the first point wraps, its second line starting under its words, not under its bullet. Right, numbers counted by level: 1. 2., then a. b. a level in, i. a level further, the outer count going on at 3.; a paragraph that is no item sits at the box's edge, and the count starts again at 1. after it. Each marker's end sits the theme's gap short of its words, on its first line's baseline."
+    },
+    {
+      "id": "links",
+      "name": "Links",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "52 · Links · recorded"
+        },
+        "link-text": {}
+      },
+      "notes": "Pass: two links in one text (PLAN 2.70), each underlined at the font's own underline position and thickness, in its words' color. The first, to a web address, wraps: each line's part is underlined on its own line, and nothing between. The second goes to the `shapes` case. The display list carries a `link` op for each underlined stretch, its area the words' box on the line; the player follows a click there, and the PDF carries both as link annotations."
     }
   ],
   "overrides": {

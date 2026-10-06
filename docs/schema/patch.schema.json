@@ -1187,10 +1187,24 @@
           "description": "What this run changes about its role's look, after the node's `style` when the run is set in the node's role (SPEC §3.6).",
           "$ref": "#/$defs/TextStyle"
         },
-        "lang": { "type": "string" }
+        "lang": { "type": "string" },
+        "link": {
+          "description": "Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state of the deck. It is drawn underlined.",
+          "$ref": "#/$defs/Link"
+        }
       }
     },
     "Emphasis": { "type": "string", "enum": ["high", "low"] },
+    "Link": {
+      "description": "Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the player opens in a new window, or a state of the deck, which it shows.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "href": { "type": "string", "pattern": "^(https?://[^\\s]+|mailto:[^\\s]+)$" },
+        "state": { "$ref": "#/$defs/Id" }
+      },
+      "oneOf": [{ "required": ["href"] }, { "required": ["state"] }]
+    },
     "TextFit": {
       "description": "What a text node does when its text does not fit (SPEC §3.4).",
       "type": "string",

@@ -431,6 +431,24 @@ pub struct Run {
     pub style: Option<TextStyle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    /// Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state
+    /// of the deck. It is drawn underlined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Link>,
+}
+
+/// Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the
+/// player opens in a new window, or a state of the deck, which it shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("oneOf" = [{"required": ["href"]}, {"required": ["state"]}]))]
+pub struct Link {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(regex(pattern = "^(https?://[^\\s]+|mailto:[^\\s]+)$"))]
+    pub href: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<Id>")]
+    pub state: Option<String>,
 }
 
 /// What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own

@@ -324,3 +324,31 @@ fn a_list_reads_as_a_list() {
 fn depth_of(l: &str) -> usize {
     l.len() - l.trim_start().len()
 }
+
+/// Links in a text are the PDF's links (PLAN 2.70): on the torture deck's `links` page, the web
+/// address opens (a URI action, an annotation for each line it is on) and the state goes to the
+/// page of the `shapes` case.
+#[test]
+fn a_link_is_a_link_in_the_pdf() {
+    use hayro::hayro_syntax::object::{Array, Dict, Name, Object};
+    let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
+    let asked = ["shapes".to_string(), "links".to_string()];
+    let (bytes, pages) = exported(&bundle, Some(&asked), &format!("{}", line!()));
+    assert_eq!(pages, asked);
+    let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes)).expect("the PDF parses");
+    let page = &pdf.pages()[1];
+    let annots: Array = page.raw().get(b"Annots").expect("the links page has annotations");
+    let (mut uris, mut dests) = (Vec::new(), 0);
+    for a in annots.iter::<Dict>() {
+        assert_eq!(a.get::<Name>(b"Subtype").map(|n| n.as_str().to_string()).as_deref(), Some("Link"));
+        if let Some(action) = a.get::<Dict>(b"A") {
+            let uri: hayro::hayro_syntax::object::String = action.get(b"URI").expect("a URI");
+            uris.push(String::from_utf8_lossy(uri.as_bytes()).into_owned());
+        }
+        if a.get::<Object>(b"Dest").is_some() {
+            dests += 1;
+        }
+    }
+    assert_eq!(uris, ["https://example.com/scaena/method"; 2], "one for each line the link is on");
+    assert_eq!(dests, 1, "the state's link goes to a page");
+}

@@ -205,6 +205,9 @@ export interface Carets {
   items?: (ListMark | null)[];
 }
 
+/** Where a link goes (PLAN 2.70): a web address, or a state of the deck. */
+export type LinkTarget = { href: string } | { state: string };
+
 /** A paragraph as a list's item (ADR-0018): its kind, its level, 0 the outermost, and its marker. */
 export interface ListMark {
   kind: "bullet" | "number";
@@ -512,6 +515,8 @@ export type ToWorker =
   | { type: "timeline"; id: number; format?: string }
   /** How `state` reads at rest, as HTML (SPEC §3.12; PLAN 2.8). */
   | { type: "read"; id: number; state: string; format?: string }
+  /** The link drawn at `at`, fractions of the canvas, in `state` at rest (PLAN 2.70). */
+  | { type: "linkAt"; id: number; state: string; at: [number, number]; format?: string }
   /** Play the deck from slot `index`, `t` ms into its cue, a frame each time the display
    * takes one: each cue, then its state's hold, then the next state's cue. A state that does
    * not hold, and the last, comes to rest and waits there. `still`, for a reader who asks for
@@ -1070,6 +1075,8 @@ export type FromWorker =
   | { type: "marked"; id: number; marks: DataMark[] }
   | { type: "noted"; id: number; note: NoteMark | null }
   | { type: "calledOut"; id: number; at: AnnotationAt | null }
+  /** Where the link asked about goes, or none there. */
+  | { type: "linked"; id: number; link: LinkTarget | null }
   | { type: "outlined"; id: number; outline: Outline | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }

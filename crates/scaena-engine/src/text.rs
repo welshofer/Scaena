@@ -56,7 +56,7 @@ use parley::{
     FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap,
     PositionedLayoutItem, StyleProperty, WordBreak,
 };
-use scaena_core::displaylist::{Color, FontRef, Glyph};
+use scaena_core::displaylist::{Color, FontRef, Glyph, LinkTarget};
 use scaena_core::model::theme::Case;
 use scaena_core::model::values::TextSplit;
 use std::borrow::Cow;
@@ -94,6 +94,8 @@ pub struct Span {
     /// Whether it asks for italic without its own `style.italic`: its own role's, or the
     /// node's look's. What taking that away leaves (⌘I, PLAN 2.40).
     pub base_italic: bool,
+    /// Where it goes when it is followed (PLAN 2.70): it is drawn underlined.
+    pub link: Option<LinkTarget>,
 }
 
 /// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
@@ -323,6 +325,24 @@ pub struct TextLayout {
     pub looks: Vec<SpanLook>,
     /// Its paragraphs as a list's items (ADR-0018), by paragraph; none past the last.
     pub items: Vec<Option<ListMark>>,
+    /// Its links' underlines (PLAN 2.70), one for each glyph run of a link, in order.
+    pub underlines: Vec<Underline>,
+}
+
+/// A link's underline under one glyph run (PLAN 2.70): at the font's underline, in the run's
+/// color, and the words' box on their line, where a pointer follows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Underline {
+    pub line: usize,
+    /// Relative to the text box, canvas units: `[x, y, width, thickness]`.
+    pub rect: [f32; 4],
+    /// The words' box, from the line's top to its bottom.
+    pub area: [f32; 4],
+    pub color: Color,
+    /// Where the first cluster it underlines starts in [`TextLayout::text`].
+    pub cluster: usize,
+    /// Where it goes: none until the span it underlines says.
+    pub target: Option<LinkTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -497,6 +517,7 @@ impl TextSpec {
                 base_weight: role.weight,
                 base_italic: role.italic,
                 style: role.clone(),
+                link: None,
             }],
             role,
             features: BTreeMap::new(),
@@ -567,6 +588,10 @@ impl TextEngine {
                     for prop in style_props(theme, &span.style, spec)? {
                         builder.push(prop, range.clone());
                     }
+                }
+                // A link is underlined (PLAN 2.70), at the font's own underline.
+                if span.link.is_some() {
+                    builder.push(StyleProperty::Underline(true), range.clone());
                 }
             }
             builder.build(&text)
@@ -681,6 +706,12 @@ impl TextEngine {
             read.runs.push(run);
         }
         read.items = spec.items.clone();
+        // Each underline's link, from the span it underlines.
+        for u in &mut read.underlines {
+            let span = starts.iter().rposition(|&s| s <= u.cluster).unwrap_or(0);
+            u.target = spec.spans.get(span).and_then(|s| s.link.clone());
+        }
+        read.underlines.retain(|u| u.target.is_some());
         read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
         read.offsets = offsets(&spec.spans, &cased);
         let mut end = 0;
@@ -1577,6 +1608,7 @@ fn read_layout(
     let mut synthesized = false;
     let mut upright = p.upright;
     let mut top = 0.0_f32;
+    let mut underlines = Vec::new();
     // On a line grid, how far the lines so far have moved down: each gap between
     // baselines rounded up to whole grid lines, the room above the line that moved.
     let (mut moved, mut before) = (0.0_f32, None);
@@ -1682,6 +1714,28 @@ fn read_layout(
                 hyphen: false,
                 mark: None,
             });
+            // A link's underline (PLAN 2.70): under its glyphs, at the font's underline.
+            // The space a line ends with is not underlined.
+            let range = line.text_range();
+            let inked = range.start + text[range.clone()].trim_end().len();
+            let drawn: Vec<(f32, f32)> = runs.last().map_or_else(Vec::new, |r| {
+                (r.glyphs.iter().zip(&r.advances).zip(&r.clusters))
+                    .filter(|&(_, &c)| c < inked)
+                    .map(|((g, &a), _)| (g.x, g.x + a))
+                    .collect()
+            });
+            if glyph_run.style().underline.is_some()
+                && !drawn.is_empty()
+                && let Some(r) = runs.last()
+            {
+                let left = drawn.iter().map(|d| d.0).fold(f32::INFINITY, f32::min);
+                let right = drawn.iter().map(|d| d.1).fold(left, f32::max);
+                let metrics = run.metrics();
+                let rect = [left, baseline - metrics.underline_offset, right - left, metrics.underline_size.max(1.0)];
+                let area = [left, top, right - left, m.line_height + room];
+                let cluster = r.clusters.iter().copied().min().unwrap_or(0);
+                underlines.push(Underline { line: index, rect, area, color: r.color, cluster, target: None });
+            }
         }
         if let Some(h) = hyphen {
             let mut run = h.run.clone();
@@ -1742,5 +1796,6 @@ fn read_layout(
         weight: p.weight,
         looks: Vec::new(),
         items: Vec::new(),
+        underlines,
     })
 }

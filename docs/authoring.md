@@ -77,6 +77,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.
   - Each burst of typing is one ⌘Z. The text reflows as you type, and lint says at once if it no longer fits. Escape, or a click outside the text, stops typing.
+  - **Links.** Select some words and press ⌘K (Ctrl+K). Type a web address (`https://…`, or `mailto:…` for an email) or the id of one of your states, and press Enter: the words are underlined and go there when the deck is played, in the single file, and in a PDF. Press ⌘K and Enter on nothing to take the link away. Each is one ⌘Z.
   - **Lists.** Press ⌘⇧8 (Ctrl+Shift+8) for bullets, or ⌘⇧7 for numbers, on the paragraphs your selection touches; press it again to take them out of the list. In a list, Enter starts the next item, and Enter in an empty item ends the list; Tab moves an item a level in, and Shift+Tab out. With a text selected and not typed in, the keys act on all of it. Your theme draws the markers and the indents. Each is one ⌘Z.
   - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not. ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
 - **Choose a look.** With an object selected, the inspector shows what your theme offers for it: a text's role, family, weight, color, and fit, a shape's fill and stroke, a chart's kind, an entrance and an exit, and more.
@@ -432,6 +433,13 @@ state ridge layout:art-right
   title "The ridge trail, rebuilt" at:in(header)
   photo image "assets/trails-ridge.png" alt:"The rebuilt ridge trail at dawn." semantic:evidence
     at:in(art)
+```
+
+**A link.** A run's `link` goes to a web address or to a state of the deck. The words are underlined, and a click on them while the deck plays goes there; renaming the state keeps the link (SPEC §3.5):
+
+```scn
+state sources slide:revenue
+  title runs:[{text: "Revenue "}, {text: "doubled", link: {href: "https://example.com/method"}}, {text: " "}, {text: "again", link: {state: cover}}]
 ```
 
 **A list.** A text's paragraphs are its lines, each ended by a line break (`\n`). `list` makes them a list's items, one entry for each: `{kind: bullet}` or `{kind: number}`, deeper with `level`, or `null` for a paragraph that is no item. The theme draws the markers, a bullet or a number for each level, and indents each level its own step, the item's wrapped lines starting under its words (SPEC §3.5):

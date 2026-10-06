@@ -21,6 +21,7 @@ import type {
   Insert,
   Inspected,
   Layer,
+  LinkTarget,
   Linted,
   NodeBox,
   NoteMark,
@@ -84,6 +85,7 @@ type Reply = Extract<
       | "noted"
       | "calledOut"
       | "outlined"
+      | "linked"
       | "viewed"
       | "focal"
       | "found"
@@ -210,6 +212,12 @@ export class Stage {
   }
 
   /** How `state` reads at rest in `format`, as HTML (SPEC §3.12). */
+  /** The link drawn at `at`, fractions of the canvas, in `state` at rest: where a click there goes
+   * (PLAN 2.70); none off every link. */
+  linkAt(state: string, at: [number, number], format?: string): Promise<LinkTarget | undefined> {
+    return this.request<"linked">({ type: "linkAt", id: ++this.asked, state, at, format }).then(({ link }) => link ?? undefined);
+  }
+
   reading(state: string, format?: string): Promise<string> {
     return this.request<"reading">({ type: "read", id: ++this.asked, state, format }).then(({ html }) => html);
   }
@@ -800,6 +808,7 @@ export class Stage {
       case "noted":
       case "calledOut":
       case "outlined":
+      case "linked":
       case "viewed":
       case "focal":
       case "found":

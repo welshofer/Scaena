@@ -321,6 +321,9 @@ jobs:
       # Lists in a text: Enter, Tab, Shift+Tab, ⌘⇧8, and ⌘⇧7 as a word processor's, and the
       # player reading the lists as lists (PLAN 2.69).
       - run: node web/lists.mjs
+      # Links in a text: ⌘K links the characters selected, and the player follows a link to a
+      # state or opens a web address (PLAN 2.70).
+      - run: node web/links.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
