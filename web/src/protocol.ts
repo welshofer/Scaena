@@ -585,6 +585,8 @@ export type ToWorker =
   | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
   /** The layout `state` uses and its slots, in the format shown (PLAN 2.71). */
   | { type: "layout"; id: number; state: string; format?: string }
+  /** Chart `node`'s marks and annotations in `state` at rest (PLAN 2.75). */
+  | { type: "marksIn"; id: number; state: string; node: string; format?: string }
   /** Image `node`'s framing in `state` at rest (PLAN 2.74). */
   | { type: "framing"; id: number; state: string; node: string; format?: string }
   /** Shape `node`'s outline in `state` at rest (PLAN 2.68). */
@@ -1125,6 +1127,7 @@ export type FromWorker =
   | { type: "linked"; id: number; link: LinkTarget | null }
   | { type: "outlined"; id: number; outline: Outline | null }
   | { type: "framed"; id: number; framing: Framing | null }
+  | { type: "markedIn"; id: number; found: { marks: DataMark[]; notes: NoteMark[] } | null }
   | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }

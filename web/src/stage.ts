@@ -88,6 +88,7 @@ type Reply = Extract<
       | "calledOut"
       | "outlined"
       | "framed"
+      | "markedIn"
       | "linked"
       | "laidOut"
       | "viewed"
@@ -327,6 +328,12 @@ export class Stage {
    * that names no layout. */
   layout(state: string, format?: string): Promise<LayoutSlots | undefined> {
     return this.request<"laidOut">({ type: "layout", id: ++this.asked, state, format }).then(({ layout }) => layout ?? undefined);
+  }
+
+  /** Chart `node`'s marks, in data order, and its annotations, in the order it writes them, in
+   * `state` at rest; none for a node that is no chart (PLAN 2.75). */
+  marksIn(state: string, node: string, format?: string): Promise<{ marks: DataMark[]; notes: NoteMark[] } | undefined> {
+    return this.request<"markedIn">({ type: "marksIn", id: ++this.asked, state, node, format }).then(({ found }) => found ?? undefined);
   }
 
   /** Image `node`'s framing in `state` at rest: where its whole and the part that shows are drawn,
@@ -825,6 +832,7 @@ export class Stage {
       case "calledOut":
       case "outlined":
       case "framed":
+      case "markedIn":
       case "linked":
       case "laidOut":
       case "viewed":

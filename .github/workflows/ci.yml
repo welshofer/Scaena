@@ -320,6 +320,9 @@ jobs:
       - run: node web/points.mjs
       # An image's crop and focal point dragged on the canvas, the whole image outlined (PLAN 2.74).
       - run: node web/crop.mjs
+      # The canvas by keys alone: Tab in reading order, Enter into a container or onto a node's
+      # handles, the arrows moving each, [ and ] turning, and a layout's slots (PLAN 2.75).
+      - run: node web/bykeys.mjs
       # Lists in a text: Enter, Tab, Shift+Tab, ⌘⇧8, and ⌘⇧7 as a word processor's, and the
       # player reading the lists as lists (PLAN 2.69).
       - run: node web/lists.mjs

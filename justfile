@@ -202,6 +202,7 @@ web-smoke: site
     node web/annotate.mjs
     node web/points.mjs
     node web/crop.mjs
+    node web/bykeys.mjs
     node web/lists.mjs
     node web/links.mjs
     node web/layouts.mjs

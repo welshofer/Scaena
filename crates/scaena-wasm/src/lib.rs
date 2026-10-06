@@ -514,6 +514,18 @@ impl Session {
         Ok(self.at_rest(state)?.note_at(point))
     }
 
+    /// Chart `node`'s marks and annotations in `state` at rest, in the format shown (PLAN 2.75):
+    /// what the keys step through. `None` for a node the state does not draw, or one that is no
+    /// chart.
+    #[allow(clippy::type_complexity)]
+    pub fn marks_in(
+        &mut self,
+        state: &str,
+        node: &str,
+    ) -> Result<Option<(Vec<scaena_engine::marks::DataMark>, Vec<scaena_engine::marks::NoteMark>)>, Error> {
+        Ok(self.at_rest(state)?.marks_in(node))
+    }
+
     /// Where a callout of chart `node` dropped at `point` (canvas units) in `state` at rest
     /// would stand, in the format shown (PLAN 2.67): on the mark there, or at the category or
     /// the x nearest across and the value there. `None` for a node that is no chart, or a
@@ -1648,6 +1660,20 @@ impl Player {
     pub fn note_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
         let found = self.0.note_at(state, [x, y]).map_err(js)?;
         serde_json::to_string(&found.map(note_json)).map_err(js)
+    }
+
+    /// Chart `node`'s marks and annotations in `state` at rest, as JSON (PLAN 2.75): `{ marks,
+    /// notes }`, each as `markAt` and `noteAt` give one, its marks in data order and its
+    /// annotations in the order it writes them; `null` for a node that is no chart.
+    #[wasm_bindgen(js_name = marksIn)]
+    pub fn marks_in(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        let found = self.0.marks_in(state, node).map_err(js)?.map(|(marks, notes)| {
+            serde_json::json!({
+                "marks": marks.into_iter().map(mark_json).collect::<Vec<_>>(),
+                "notes": notes.into_iter().map(note_json).collect::<Vec<_>>(),
+            })
+        });
+        serde_json::to_string(&found).map_err(js)
     }
 
     /// Where a callout of chart `node` dropped at `x`, `y` (canvas units) in `state` at rest

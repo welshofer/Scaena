@@ -605,6 +605,10 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
         let _ = s.framing(one, &b.node);
     }
     let _ = s.framing(one, "nowhere");
+    // Each chart's marks and annotations, and a node that is none (PLAN 2.75).
+    for b in s.boxes(one).unwrap_or_default().iter().take(8) {
+        let _ = s.marks_in(one, &b.node);
+    }
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);

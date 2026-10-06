@@ -186,6 +186,22 @@ impl Scene {
         let Content::Chart { cell, chart } = &node.content else { return None };
         let at = self.laid_out(&node.id, point)?;
         let note = note_at(chart, [at[0] - cell[0], at[1] - cell[1]])?;
+        Some(self.note_mark(&node.id, *cell, note))
+    }
+
+    /// Chart `node`'s marks and annotations, as a pointer finds each (PLAN 2.75): its marks in data
+    /// order, then its annotations in the order it writes them. `None` for a node this state does
+    /// not draw, or one that is no chart.
+    pub fn marks_in(&self, node: &str) -> Option<(Vec<DataMark>, Vec<NoteMark>)> {
+        let drawn = self.nodes.iter().find(|n| n.id == node)?;
+        let Content::Chart { cell, chart } = &drawn.content else { return None };
+        let marks = chart.marks.iter().map(|m| self.chart_mark(node, *cell, chart, &m.key, m.shape)).collect();
+        let mut notes: Vec<&Note> = chart.notes.iter().collect();
+        scaena_core::sort::by(&mut notes, |a, b| a.index.cmp(&b.index));
+        Some((marks, notes.into_iter().map(|n| self.note_mark(node, *cell, n)).collect()))
+    }
+
+    fn note_mark(&self, node: &str, cell: Rect, note: &Note) -> NoteMark {
         let [x, y] = [cell[0], cell[1]];
         let mut els = Vec::new();
         if let Some(([bx, by, bw, bh], _)) = note.band {
@@ -199,15 +215,15 @@ impl Scene {
             els.extend(Path::rect([x + lx, y + ly, lw, lh]).0);
         }
         let outline = Path(els);
-        Some(NoteMark {
-            node: node.id.clone(),
+        NoteMark {
+            node: node.to_string(),
             index: note.index,
             kind: note.kind,
             text: note.text.clone(),
             rect: bounds(&outline),
             outline: outline.to_svg(),
-            transform: self.drawn(&node.id),
-        })
+            transform: self.drawn(node),
+        }
     }
 
     /// Where a callout of chart `node` dropped at `point` (canvas units) would stand (PLAN
