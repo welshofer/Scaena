@@ -507,6 +507,26 @@ impl Session {
         Ok(self.at_rest(state)?.marks_of(source, rows))
     }
 
+    /// The chart annotation drawn at `point` (canvas units) in `state` at rest, in the format
+    /// shown (PLAN 2.67): its chart and its place among the chart's `annotations`. `None`
+    /// where the topmost node there is no chart, or the point is on none of its annotations.
+    pub fn note_at(&mut self, state: &str, point: [f32; 2]) -> Result<Option<scaena_engine::marks::NoteMark>, Error> {
+        Ok(self.at_rest(state)?.note_at(point))
+    }
+
+    /// Where a callout of chart `node` dropped at `point` (canvas units) in `state` at rest
+    /// would stand, in the format shown (PLAN 2.67): on the mark there, or at the category or
+    /// the x nearest across and the value there. `None` for a node that is no chart, or a
+    /// donut.
+    pub fn callout_at(
+        &mut self,
+        state: &str,
+        node: &str,
+        point: [f32; 2],
+    ) -> Result<Option<scaena_core::model::values::AnnotationAt>, Error> {
+        Ok(self.at_rest(state)?.callout_at(node, point))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -1228,13 +1248,32 @@ fn with_guides(mut out: serde_json::Value, guides: &[[f32; 4]]) -> serde_json::V
     out
 }
 
-/// A chart mark or table row as `Player.markAt` gives it (PLAN 2.64).
+/// A chart mark or table row as `Player.markAt` gives it (PLAN 2.64), with a chart mark's
+/// annotations (PLAN 2.67).
 #[cfg(feature = "editor")]
 fn mark_json(m: scaena_engine::marks::DataMark) -> serde_json::Value {
     let mut out = serde_json::json!({
         "node": m.node, "source": m.source, "key": m.key, "rows": m.rows, "outline": m.outline, "rect": m.rect,
     });
     if let Some(map) = m.transform {
+        out["transform"] = serde_json::json!(map);
+    }
+    if let Some(n) = m.notes {
+        out["notes"] = serde_json::json!({
+            "x": n.x, "value": n.value, "series": n.series, "axes": n.axes, "callout": n.callout,
+            "highlight": n.highlight, "highlighted": n.highlighted,
+        });
+    }
+    out
+}
+
+/// A chart annotation as `Player.noteAt` gives it (PLAN 2.67).
+#[cfg(feature = "editor")]
+fn note_json(n: scaena_engine::marks::NoteMark) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "node": n.node, "index": n.index, "kind": n.kind, "text": n.text, "outline": n.outline, "rect": n.rect,
+    });
+    if let Some(map) = n.transform {
         out["transform"] = serde_json::json!(map);
     }
     out
@@ -1559,6 +1598,26 @@ impl Player {
         let marks: Vec<serde_json::Value> =
             self.0.marks_of(state, source, &rows).map_err(js)?.into_iter().map(mark_json).collect();
         serde_json::to_string(&marks).map_err(js)
+    }
+
+    /// The chart annotation drawn at `x`, `y` (canvas units) in `state` at rest, in the format
+    /// shown, as JSON (PLAN 2.67): `{ "node", "index", "kind", "text", "outline", "rect",
+    /// "transform"? }`, `index` its place among the chart's `annotations`; or `null` where the
+    /// topmost node there is no chart, or the point is on none of its annotations. A highlight
+    /// draws nothing of its own: a mark it picks out names it (`markAt`'s `notes.highlighted`).
+    #[wasm_bindgen(js_name = noteAt)]
+    pub fn note_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let found = self.0.note_at(state, [x, y]).map_err(js)?;
+        serde_json::to_string(&found.map(note_json)).map_err(js)
+    }
+
+    /// Where a callout of chart `node` dropped at `x`, `y` (canvas units) in `state` at rest
+    /// would stand, as JSON (PLAN 2.67): an annotation's `at`, on the mark there or at the
+    /// category or x nearest across and the value there; `null` for a node that is no chart,
+    /// or a donut.
+    #[wasm_bindgen(js_name = calloutAt)]
+    pub fn callout_at(&mut self, state: &str, node: &str, x: f32, y: f32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.callout_at(state, node, [x, y]).map_err(js)?).map_err(js)
     }
 
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,

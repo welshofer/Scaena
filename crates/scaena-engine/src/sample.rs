@@ -2571,6 +2571,9 @@ mod tests {
             covers: Vec::new(),
             source: String::new(),
             rows: Default::default(),
+            places: Default::default(),
+            categories: Vec::new(),
+            highlights: Vec::new(),
         }
     }
 

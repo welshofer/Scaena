@@ -2,6 +2,7 @@
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
 import type {
   Added,
+  AnnotationAt,
   Arrange,
   Arranged,
   Asking,
@@ -22,6 +23,7 @@ import type {
   Layer,
   Linted,
   NodeBox,
+  NoteMark,
   Opened,
   Painter,
   Pasted,
@@ -78,6 +80,8 @@ type Reply = Extract<
       | "boxes"
       | "hits"
       | "marked"
+      | "noted"
+      | "calledOut"
       | "viewed"
       | "focal"
       | "found"
@@ -297,6 +301,18 @@ export class Stage {
    * made from any of them, in paint order (PLAN 2.64). */
   marksOf(state: string, source: string, rows: number[], format?: string): Promise<DataMark[]> {
     return this.request<"marked">({ type: "marksOf", id: ++this.asked, state, source, rows, format }).then(({ marks }) => marks);
+  }
+
+  /** The chart annotation drawn at `point` in `state` at rest, by its place among the chart's
+   * `annotations`; none where the topmost node there is no chart, or off its annotations (PLAN 2.67). */
+  noteAt(state: string, point: [number, number], format?: string): Promise<NoteMark | undefined> {
+    return this.request<"noted">({ type: "noteAt", id: ++this.asked, state, point, format }).then(({ note }) => note ?? undefined);
+  }
+
+  /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand: on the mark
+   * there, or at the category or x nearest across and the value there (PLAN 2.67). */
+  calloutAt(state: string, node: string, point: [number, number], format?: string): Promise<AnnotationAt | undefined> {
+    return this.request<"calledOut">({ type: "calloutAt", id: ++this.asked, state, node, point, format }).then(({ at }) => at ?? undefined);
   }
 
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units: the part of the canvas a
@@ -773,6 +789,8 @@ export class Stage {
       case "boxes":
       case "hits":
       case "marked":
+      case "noted":
+      case "calledOut":
       case "viewed":
       case "focal":
       case "found":

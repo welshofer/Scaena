@@ -9,12 +9,19 @@
 //! area in the column of it nearest across, and on a line within [`REACH`] of a point the line
 //! runs through; on a value label, it is on the label's mark. A point is on a table's row in
 //! the band its cells stand in across the table.
+//!
+//! A chart's marks and its annotations name each other (PLAN 2.67): a mark says where a
+//! callout on it, a highlight of it, a rule at its value, or a band from it stands, and an
+//! annotation drawn at a point says which of the chart's `annotations` it is, for the editor
+//! to annotate a chart from its marks, move a callout, and take an annotation away.
 
-use crate::charts::{ChartLayout, Label, Shape};
+use crate::charts::{ChartKind, ChartLayout, Label, MarkPlace, Note, Rule, Shape};
 use crate::geometry::{SLOP, reaches};
 use crate::sample::{Content, Scene};
+use crate::scale;
 use crate::tables::TableLayout;
 use scaena_core::displaylist::{Path, PathEl, Rect};
+use scaena_core::model::values::{AnnotationAt, AnnotationKind, Place, Scalar};
 
 /// How near a point must come to a point a line runs through, canvas units.
 pub const REACH: f32 = 2.0 * SLOP;
@@ -37,6 +44,52 @@ pub struct DataMark {
     pub rect: Rect,
     /// Where the node's transform, and those of what holds it, draw it from where it is laid
     /// out, as [`crate::geometry::NodeBox::transform`].
+    pub transform: Option<[f32; 6]>,
+    /// A chart's mark's annotations (PLAN 2.67); none for a table's row.
+    pub notes: Option<MarkNotes>,
+}
+
+/// What a chart's mark is to the chart's annotations (SPEC §3.7, PLAN 2.67): where each kind
+/// made from it stands, and the highlights that pick it out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkNotes {
+    /// Its x as an annotation names it: a category as its datum reads, a number, or a date in
+    /// ISO 8601.
+    pub x: Scalar,
+    /// Its value on the value axis: where a rule at its value stands.
+    pub value: f64,
+    pub series: Option<String>,
+    /// Whether the chart has axes for a callout, a rule, or a band to stand on: a donut has
+    /// none, and takes highlights alone.
+    pub axes: bool,
+    /// Where a callout on it stands: at its x, on its series' mark there where the chart has
+    /// series; at its x and its value where those do not pick it out alone.
+    pub callout: AnnotationAt,
+    /// What a highlight of it picks out: its x, and its series where the chart has series.
+    pub highlight: AnnotationAt,
+    /// The chart's highlights that pick it out, by their places among its `annotations`.
+    pub highlighted: Vec<usize>,
+}
+
+/// One of a chart's annotations as drawn in a state at rest (PLAN 2.67): what the editor
+/// selects, moves, and takes away. A highlight draws nothing of its own, so none is one; a
+/// mark it picks out names it ([`MarkNotes::highlighted`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteMark {
+    /// The chart.
+    pub node: String,
+    /// Its place among the chart's `annotations`.
+    pub index: usize,
+    pub kind: AnnotationKind,
+    /// What it says, as written.
+    pub text: Option<String>,
+    /// Its outline as laid out, canvas units, as SVG path data: its band's box, its rule's or
+    /// leader's line, and its text's box.
+    pub outline: String,
+    /// The box around its outline, `[x, y, w, h]`, canvas units.
+    pub rect: Rect,
+    /// Where the chart's transform, and those of what holds it, draw it from where it is laid
+    /// out.
     pub transform: Option<[f32; 6]>,
 }
 
@@ -105,6 +158,7 @@ impl Scene {
             rect: bounds(&outline),
             outline: outline.to_svg(),
             transform: self.drawn(node),
+            notes: mark_notes(chart, key),
         }
     }
 
@@ -118,8 +172,143 @@ impl Scene {
             outline: Path::rect(rect).to_svg(),
             rect,
             transform: self.drawn(node),
+            notes: None,
         }
     }
+
+    /// The chart annotation drawn at `point` (canvas units) in what draws topmost there, read
+    /// through its transform (PLAN 2.67): its text first, then a rule or a leader within
+    /// [`SLOP`] of the point, then a band where no mark is. `None` where that is no chart, or
+    /// the point is on none of its annotations.
+    pub fn note_at(&self, point: [f32; 2]) -> Option<NoteMark> {
+        let top = self.hit(point).into_iter().next()?;
+        let node = self.nodes.iter().find(|n| n.id == top.node)?;
+        let Content::Chart { cell, chart } = &node.content else { return None };
+        let at = self.laid_out(&node.id, point)?;
+        let note = note_at(chart, [at[0] - cell[0], at[1] - cell[1]])?;
+        let [x, y] = [cell[0], cell[1]];
+        let mut els = Vec::new();
+        if let Some(([bx, by, bw, bh], _)) = note.band {
+            els.extend(Path::rect([x + bx, y + by, bw, bh]).0);
+        }
+        if let Some(r) = &note.rule {
+            els.extend([PathEl::MoveTo([x + r.from[0], y + r.from[1]]), PathEl::LineTo([x + r.to[0], y + r.to[1]])]);
+        }
+        if let Some(l) = &note.label {
+            let [lx, ly, lw, lh] = label_box(l);
+            els.extend(Path::rect([x + lx, y + ly, lw, lh]).0);
+        }
+        let outline = Path(els);
+        Some(NoteMark {
+            node: node.id.clone(),
+            index: note.index,
+            kind: note.kind,
+            text: note.text.clone(),
+            rect: bounds(&outline),
+            outline: outline.to_svg(),
+            transform: self.drawn(&node.id),
+        })
+    }
+
+    /// Where a callout of chart `node` dropped at `point` (canvas units) would stand (PLAN
+    /// 2.67), read through the chart's transform: on the mark there, as the mark's own
+    /// callout stands ([`MarkNotes::callout`]); elsewhere, at the category or the x of a mark
+    /// nearest across, and the value at the point, to a tenth of the value axis's step and
+    /// within its domain. `None` for a node that is no chart, or a donut, which takes no
+    /// callouts.
+    pub fn callout_at(&self, node: &str, point: [f32; 2]) -> Option<AnnotationAt> {
+        let scene = self.nodes.iter().find(|n| n.id == node)?;
+        let Content::Chart { cell, chart } = &scene.content else { return None };
+        if chart.kind == ChartKind::Donut {
+            return None;
+        }
+        let at = self.laid_out(node, point)?;
+        let p = [at[0] - cell[0], at[1] - cell[1]];
+        if let Some(key) = chart_key(chart, p) {
+            return mark_notes(chart, key).map(|m| m.callout);
+        }
+        let middle = |[a, b]: [f32; 2]| (a + b) / 2.0;
+        let x = match chart.categories.is_empty() {
+            false => (chart.categories.iter())
+                .min_by(|a, b| (middle(a.1) - p[0]).abs().total_cmp(&(middle(b.1) - p[0]).abs()))
+                .map(|(x, _)| x.clone())?,
+            true => (chart.marks.iter())
+                .filter_map(|m| Some(((m.shape.center_x() - p[0]).abs(), &chart.places.get(&m.key)?.x)))
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, x)| x.clone())?,
+        };
+        let [d0, d1] = chart.y_scale.domain;
+        if !(d0.is_finite() && d1.is_finite()) {
+            return None;
+        }
+        let step = scale::tick_step(d0.min(d1), d0.max(d1), 5) / 10.0;
+        let value = chart.y_scale.invert(p[1]).clamp(d0.min(d1), d0.max(d1));
+        Some(AnnotationAt { x: one(x), y: one(Scalar::Number(round_to(value, step))), series: None })
+    }
+}
+
+/// `Some` of one value.
+fn one(v: Scalar) -> Option<Place> {
+    Some(Place::One(v))
+}
+
+/// `v` to the nearest multiple of `step`, as a person writes it: with the decimals the step
+/// has, so a tenth of 2 is 0.2, never 0.20000000000000001.
+fn round_to(v: f64, step: f64) -> f64 {
+    if !(step.is_finite() && step > 0.0) {
+        return v;
+    }
+    let places = (-step.log10().floor()).max(0.0) as i32;
+    let scale = 10f64.powi(places);
+    ((v / step).round() * step * scale).round() / scale
+}
+
+/// The annotations `chart`'s mark `key` makes: see [`MarkNotes`].
+fn mark_notes(chart: &ChartLayout, key: &str) -> Option<MarkNotes> {
+    let p: &MarkPlace = chart.places.get(key)?;
+    let axes = chart.kind != ChartKind::Donut;
+    let series = p.series.clone().filter(|_| axes).map(Scalar::Text);
+    let alone =
+        chart.places.values().filter(|q| q.x == p.x && (p.series.is_none() || q.series == p.series)).count() == 1;
+    let callout = match alone {
+        true => AnnotationAt { x: one(p.x.clone()), y: None, series: series.clone().and_then(one) },
+        false => AnnotationAt { x: one(p.x.clone()), y: one(Scalar::Number(p.value)), series: None },
+    };
+    Some(MarkNotes {
+        x: p.x.clone(),
+        value: p.value,
+        series: p.series.clone(),
+        axes,
+        callout,
+        highlight: AnnotationAt { x: one(p.x.clone()), y: None, series: series.and_then(one) },
+        highlighted: (chart.highlights.iter())
+            .filter(|(_, keys)| keys.iter().any(|k| k == key))
+            .map(|(i, _)| *i)
+            .collect(),
+    })
+}
+
+/// `chart`'s annotation at `p`, relative to the chart: the last drawn whose text holds it;
+/// else whose rule or leader passes within [`SLOP`] of it; else whose band holds it, where no
+/// mark is.
+fn note_at(chart: &ChartLayout, p: [f32; 2]) -> Option<&Note> {
+    let notes = || chart.notes.iter().rev();
+    (notes().find(|n| n.label.as_ref().is_some_and(|l| inside(label_box(l), p))))
+        .or_else(|| notes().find(|n| n.rule.as_ref().is_some_and(|r| near(r, p))))
+        .or_else(|| match chart_key(chart, p) {
+            Some(_) => None,
+            None => notes().find(|n| n.band.is_some_and(|(b, _)| inside(b, p))),
+        })
+}
+
+/// Whether `p` is within [`SLOP`] of `rule`, or within its width.
+fn near(rule: &Rule, p: [f32; 2]) -> bool {
+    let ([ax, ay], [bx, by]) = (rule.from, rule.to);
+    let (dx, dy) = (bx - ax, by - ay);
+    let length = dx * dx + dy * dy;
+    let t = if length > 0.0 { (((p[0] - ax) * dx + (p[1] - ay) * dy) / length).clamp(0.0, 1.0) } else { 0.0 };
+    let (cx, cy) = (ax + t * dx, ay + t * dy);
+    (p[0] - cx).hypot(p[1] - cy) <= SLOP.max(rule.width / 2.0)
 }
 
 /// The key of `chart`'s mark at `p`, relative to the chart: the topmost bar, dot, or slice that
@@ -231,6 +420,15 @@ mod tests {
         // A slice that wraps past twelve.
         let wraps = Shape::Arc { cx: 0.0, cy: 0.0, inner: 0.0, outer: 100.0, start: 0.875, end: 1.125 };
         assert!(holds(wraps, [-10.0, -50.0]) && holds(wraps, [10.0, -50.0]) && !holds(wraps, [0.0, 50.0]));
+    }
+
+    #[test]
+    fn a_value_rounds_to_its_step_as_a_person_writes_it() {
+        assert_eq!(round_to(3123.4, 100.0), 3100.0);
+        assert_eq!(round_to(0.234, 0.02), 0.24);
+        assert_eq!(round_to(0.3, 0.1), 0.3, "not 0.30000000000000004");
+        assert_eq!(round_to(-47.0, 5.0), -45.0);
+        assert_eq!(round_to(5.0, 0.0), 5.0, "no step, no rounding");
     }
 
     #[test]

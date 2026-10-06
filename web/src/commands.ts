@@ -23,6 +23,7 @@ export const GROUPS = [
   "The cue",
   "Find and replace",
   "The data",
+  "Annotate",
   "Rehearse",
   "The source",
   "The editor",

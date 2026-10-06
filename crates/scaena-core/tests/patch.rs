@@ -1378,3 +1378,103 @@ fn written_finds_a_motion_where_time_motion_writes_it() {
     assert_eq!(at(&timed, "mix", "title", Timed::Anim), item("/states/2/props/title/anim", 100.0));
     assert!(written(&doc, "mix", "title", Timed::Exit).unwrap_err().contains("is not there to time"));
 }
+
+#[test]
+fn annotate_writes_a_charts_annotations_where_they_live() {
+    let original = example();
+    let callout = json!({ "kind": "callout", "at": { "x": "2026-Q3", "series": "Pro" }, "text": "Pro nearly doubled" });
+    // No state sets the chart's annotations: one made in `revenue` goes on the chart, and `mix`
+    // shows it too.
+    let c = patch(&original, json!([{ "op": "annotate", "node": "rev", "state": "revenue", "annotation": callout }]))
+        .unwrap();
+    assert_eq!(c.doc["nodes"]["rev"]["annotations"], json!([callout]));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // A rule after it; then the callout moved and its text changed, and the rule's text taken
+    // away, each merged into the one at its index.
+    let c = patch(
+        &c.doc,
+        json!([
+            { "op": "annotate", "node": "rev", "state": "revenue", "annotation": { "kind": "rule", "at": { "y": 20 }, "text": "Target" } },
+            { "op": "annotate", "node": "rev", "state": "revenue", "index": 0, "annotation": { "at": { "x": "2026-Q2", "series": "Pro" }, "text": "Pro took off" } },
+            { "op": "annotate", "node": "rev", "state": "revenue", "index": 1, "annotation": { "text": null } }
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        c.doc["nodes"]["rev"]["annotations"],
+        json!([
+            { "kind": "callout", "at": { "x": "2026-Q2", "series": "Pro" }, "text": "Pro took off" },
+            { "kind": "rule", "at": { "y": 20 } }
+        ])
+    );
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+
+    // Kept to `mix`, they are its own: `revenue` shows the chart's two.
+    let kept = patch(
+        &c.doc,
+        json!([{ "op": "annotate", "node": "rev", "state": "mix", "fork": true, "annotation": { "kind": "highlight", "at": { "series": "Enterprise" } } }]),
+    )
+    .unwrap();
+    assert_eq!(kept.doc["states"][2]["props"]["rev"]["annotations"].as_array().unwrap().len(), 3);
+    assert_eq!(kept.doc["nodes"]["rev"]["annotations"], c.doc["nodes"]["rev"]["annotations"]);
+    assert_eq!(errors(&kept.doc), Vec::<String>::new());
+    // There, each change goes where they now live, and emptied, `mix` keeps an empty list, so
+    // the chart's do not show again.
+    let away = json!({ "op": "annotate", "node": "rev", "state": "mix", "index": 0, "annotation": null });
+    let emptied = patch(&kept.doc, json!([away, away, away])).unwrap();
+    assert_eq!(emptied.doc["states"][2]["props"]["rev"]["annotations"], json!([]));
+    assert_eq!(emptied.doc["nodes"]["rev"]["annotations"], c.doc["nodes"]["rev"]["annotations"]);
+
+    // On the chart itself, emptied, the list goes.
+    let gone = patch(
+        &c.doc,
+        json!([
+            { "op": "annotate", "node": "rev", "index": 1, "annotation": null },
+            { "op": "annotate", "node": "rev", "index": 0, "annotation": null }
+        ]),
+    )
+    .unwrap();
+    assert!(gone.doc["nodes"]["rev"].get("annotations").is_none(), "{}", gone.doc["nodes"]["rev"]);
+
+    // Where the deck's overrides set them, they are written there, over every state, and an
+    // index counts them as the overrides have them.
+    let mut over = c.doc.clone();
+    over["overrides"] = json!({ "rev": { "annotations": [{ "kind": "highlight", "at": { "series": "Pro" } }] } });
+    let o = patch(
+        &over,
+        json!([
+            { "op": "annotate", "node": "rev", "state": "revenue", "annotation": callout },
+            { "op": "annotate", "node": "rev", "state": "revenue", "index": 0, "annotation": null }
+        ]),
+    )
+    .unwrap();
+    assert_eq!(o.doc["overrides"]["rev"]["annotations"], json!([callout]));
+    assert_eq!(o.doc["nodes"]["rev"]["annotations"], c.doc["nodes"]["rev"]["annotations"]);
+    assert_eq!(errors(&o.doc), Vec::<String>::new());
+
+    // What it cannot do, it refuses, saying why.
+    let refused = |ops: Value| patch(&c.doc, ops).unwrap_err().message;
+    for (ops, why) in [
+        (json!([{ "op": "annotate", "node": "title", "annotation": callout }]), "a chart takes annotations"),
+        (
+            json!([{ "op": "annotate", "node": "rev", "index": 5, "annotation": null }]),
+            "2 annotations, at `index` 0 to 1",
+        ),
+        (json!([{ "op": "annotate", "node": "rev", "annotation": { "kind": "rule" } }]), "a `kind` and an `at`"),
+        (
+            json!([{ "op": "annotate", "node": "rev", "annotation": { "kind": "callout", "at": { "x": "2026-Q2" } } }]),
+            "give it `text`",
+        ),
+        (json!([{ "op": "annotate", "node": "rev", "annotation": null }]), "say which by its `index`"),
+        (json!([{ "op": "annotate", "node": "rev", "index": 0 }]), "give `annotation`"),
+        (
+            json!([{ "op": "annotate", "node": "rev", "index": 1, "annotation": { "at": { "y": [1, 2] } } }]),
+            "one value",
+        ),
+        (json!([{ "op": "annotate", "node": "rev", "fork": true, "annotation": callout }]), "name it (`state`)"),
+    ] {
+        let message = refused(ops.clone());
+        assert!(message.contains(why), "{ops}: {message}");
+    }
+}

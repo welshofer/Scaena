@@ -128,6 +128,52 @@ export interface DataMark {
   rect: Rect;
   /** Where the node's transform, and those of what holds it, draw it from where it is laid out. */
   transform?: [number, number, number, number, number, number];
+  /** A chart's mark's annotations (PLAN 2.67); none for a table's row. */
+  notes?: MarkNotes;
+}
+
+/** A value an annotation names: a number, or text (a category, a series, a date in ISO 8601). */
+export type Scalar = number | string;
+
+/** Where a chart's annotation stands (SPEC §3.7): a category or an x, a value, a series, each one
+ * or, for a band or a highlight, several. */
+export interface AnnotationAt {
+  x?: Scalar | Scalar[];
+  y?: number | number[];
+  series?: Scalar | Scalar[];
+}
+
+/** What a chart's mark is to the chart's annotations (PLAN 2.67). */
+export interface MarkNotes {
+  /** Its x as an annotation names it. */
+  x: Scalar;
+  /** Its value: where a rule at it stands. */
+  value: number;
+  series: string | null;
+  /** Whether the chart has axes for a callout, a rule, or a band: a donut takes highlights alone. */
+  axes: boolean;
+  /** Where a callout on it stands. */
+  callout: AnnotationAt;
+  /** What a highlight of it picks out. */
+  highlight: AnnotationAt;
+  /** The chart's highlights that pick it out, by their places among its `annotations`. */
+  highlighted: number[];
+}
+
+/** One of a chart's annotations as drawn in a state at rest (PLAN 2.67): what the canvas selects,
+ * moves, and takes away. A highlight draws nothing of its own. */
+export interface NoteMark {
+  /** The chart. */
+  node: string;
+  /** Its place among the chart's `annotations`. */
+  index: number;
+  kind: "callout" | "rule" | "band";
+  /** What it says, as written. */
+  text: string | null;
+  /** Its band, its rule or leader, and its text's box, as laid out: SVG path data, canvas units. */
+  outline: string;
+  rect: Rect;
+  transform?: [number, number, number, number, number, number];
 }
 
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
@@ -472,6 +518,10 @@ export type ToWorker =
   | { type: "markAt"; id: number; state: string; point: [number, number]; format?: string }
   /** What `rows` of data source `source` draw in `state` at rest (PLAN 2.64). */
   | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
+  /** The chart annotation drawn at `point` in `state` at rest (PLAN 2.67). */
+  | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
+  | { type: "calloutAt"; id: number; state: string; node: string; point: [number, number]; format?: string }
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
@@ -989,6 +1039,8 @@ export type FromWorker =
   | { type: "hits"; id: number; hits: Hit[] }
   /** The marks asked for: the one at a point, or none; or what rows draw. */
   | { type: "marked"; id: number; marks: DataMark[] }
+  | { type: "noted"; id: number; note: NoteMark | null }
+  | { type: "calledOut"; id: number; at: AnnotationAt | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }

@@ -4,8 +4,8 @@
 //! the kind; lines and areas are paths through their series' marks.
 
 use super::{
-    AxisTick, CategoryFormat, ChartLayout, Ctx, Gap, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule,
-    SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
+    AxisTick, CategoryFormat, ChartLayout, Ctx, Gap, Label, LegendEntry, Mark, MarkPlace, Note, Numerals, RoundRect,
+    Rule, SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
 use crate::data::{self, ColumnType, Datum};
@@ -68,6 +68,9 @@ struct Row {
     projected: bool,
     /// The rows of the source it was made from (PLAN 2.64).
     from: Vec<usize>,
+    /// Its x as an annotation names it (PLAN 2.67): a number as a number, anything else as it
+    /// reads, a date in ISO 8601.
+    place: Scalar,
 }
 
 type Encoding<'a> = Option<&'a Map<String, Value>>;
@@ -301,6 +304,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             _ => row[xc].label(),
         };
         let category = row[xc].label();
+        let place = match &row[xc] {
+            Datum::Number(n) => Scalar::Number(*n),
+            d => Scalar::Text(d.label()),
+        };
         let series = group_col.map(|c| row[c].label());
         let base = key_col.map_or_else(|| category.clone(), |c| row[c].label());
         let key = match (&series, donut) {
@@ -327,6 +334,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             key,
             projected: projected_col.is_some_and(|c| marks_projected(&row[c], projected_value)),
             from: came.clone(),
+            place,
         });
     }
     if rows.is_empty() {
@@ -984,6 +992,23 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         notes: Vec::new(),
         source: source.to_string(),
         rows: rows.iter().map(|r| (r.key.clone(), r.from.clone())).collect(),
+        places: (rows.iter())
+            .map(|r| (r.key.clone(), MarkPlace { x: r.place.clone(), value: r.y, series: r.series.clone() }))
+            .collect(),
+        // Each category's band, where an annotation dragged there stands.
+        categories: match x_scale.is_some() || donut {
+            true => Vec::new(),
+            false => (categories.iter().enumerate())
+                .map(|(i, (k, _))| {
+                    let place = rows
+                        .iter()
+                        .find(|r| r.category == *k)
+                        .map_or_else(|| Scalar::Text(k.clone()), |r| r.place.clone());
+                    (place, [left + i as f32 * band, left + (i + 1) as f32 * band])
+                })
+                .collect(),
+        },
+        highlights: Vec::new(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);
@@ -1592,7 +1617,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         .map(|p| to_y(p.values()[0].position(false).expect("checked: y is a number")))
         .collect();
     let mut seen: Vec<(AnnotationKind, &str)> = Vec::new();
-    for (note, text) in notes.iter().zip(note_texts) {
+    for (index, (note, text)) in notes.iter().zip(note_texts).enumerate() {
         if note.kind == AnnotationKind::Highlight {
             continue;
         }
@@ -1605,8 +1630,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             AnnotationKind::Band => "band",
             _ => "callout",
         };
-        let mut out_note =
-            Note { key: format!("{name}\u{1f}{axis}\u{1f}{n}"), band: None, rule: None, gaps: Vec::new(), label: None };
+        let mut out_note = Note {
+            key: format!("{name}\u{1f}{axis}\u{1f}{n}"),
+            index,
+            kind: note.kind,
+            text: note.text.clone(),
+            band: None,
+            rule: None,
+            gaps: Vec::new(),
+            label: None,
+        };
         let first_y = |p: &Place| p.values()[0].position(false).expect("checked: y is a number");
         // Where its text goes: its top-left corner.
         let origin: Option<[f32; 2]> = match note.kind {
@@ -1788,6 +1821,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // picked, and a legend entry whose marks are none of them. Words dim half as far as
     // marks, so the context stays legible.
     let highlights: Vec<&Annotation> = notes.iter().filter(|n| n.kind == AnnotationKind::Highlight).collect();
+    out.highlights = (notes.iter().enumerate())
+        .filter(|(_, n)| n.kind == AnnotationKind::Highlight)
+        .map(|(i, h)| (i, rows.iter().filter(|r| picks(h, r)).map(|r| r.key.clone()).collect()))
+        .collect();
     if !highlights.is_empty() {
         let signal = theme.color(charts.and_then(|c| c.signal.as_deref()).unwrap_or("accent"))?;
         let lit: Vec<&str> =

@@ -199,6 +199,7 @@ web-smoke: site
     node web/rehearse.mjs
     node web/rows.mjs
     node web/keys.mjs
+    node web/annotate.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

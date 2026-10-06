@@ -101,6 +101,14 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
   - The file keeps every byte you did not change, its quoting and line endings included, as `scaena data` writes it. Undo and Redo, or ⌘Z in a cell you have not changed, put it back as it was. A save records each version in the bundle's history.
   - Click a row's cell and the slide outlines what that row draws: its bar, its point, its slice, its row of a table. The line under the table says which, or that nothing on this slide draws it. With the Data tab open, click a bar on the slide and its row is chosen; double-click a bar to open the Data tab on it. A bar your `dataTransform` sums from several rows chooses them all.
+- **Annotate a chart.** Select a chart, then click one of its bars, points, or slices, and it is outlined. Right-click it to:
+  - highlight it, or its whole series;
+  - call it out, with words you type over it;
+  - rule a line at its value;
+  - band from it to the next bar you click.
+  - A donut's slice offers its highlight alone.
+  - Click a callout, a rule, or a band to select it. Drag a callout to another bar, double-click it to change what it says, or press Delete to take it away.
+  - Each is one edit, written where the chart's annotations are: on the chart, or in the state that changes them. Check **only in** in the inspector, or hold Alt as you drag, to keep it to this state. In the source, they are the chart's `annotations`.
 - **Files.** The Files tab lists what your bundle holds besides the deck: its images, fonts, and data files, each with its size, what in the deck names it, and the objects drawn from it, slide by slide. Click an object there to go to the first slide that shows it, selected.
   - Drag an image from the list onto an image on the slide to show it there instead, or onto an empty spot to add it there. **Insert** adds it where you last clicked the slide. Drop it on the source and its path goes there. Each is one ⌘Z.
   - A file nothing names says so. **Remove** takes it out of the bundle, and the deck looks the same. Undo puts it back, and the next save takes it out where the bundle is kept. A file something names stays, and the status says what names it.

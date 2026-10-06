@@ -311,6 +311,10 @@ jobs:
       - run: node web/rows.mjs
       # ? shows every key the editor answers, by what it does, from the commands' own list (PLAN 2.65).
       - run: node web/keys.mjs
+      # A chart annotated from its marks: a bar picked offers to highlight it, call it out, rule its
+      # value, or band from it to another; a callout dragged to another bar, reworded, and deleted
+      # (PLAN 2.67).
+      - run: node web/annotate.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

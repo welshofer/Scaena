@@ -56,6 +56,7 @@ import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
+import { markName, noteName } from "./notes";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
@@ -532,6 +533,8 @@ async function edit(source: Source) {
       void menu(x, y, on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true), $("#overlay")),
     // A chart's mark, or a table's row (PLAN 2.64): a click chooses its rows where the data is
     // shown, and a double click opens the Data tab on them.
+    // An annotation made from a mark keeps to the state shown as the inspector's choices do (PLAN 2.67).
+    keeping: () => look.keeping(),
     pointedAt: async (at, open) => {
       if (!open && $("#data").hidden) return false;
       const now = showing();
@@ -1342,6 +1345,7 @@ async function edit(source: Source) {
       run: () => board.arrange(how),
     });
     return [
+      ...annotationCommands(),
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
       pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
@@ -1374,6 +1378,33 @@ async function edit(source: Source) {
       },
       pressing("Delete", "Delete", "Delete", {}, "Edit"),
       pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }, "Edit"),
+    ];
+  }
+
+  /** What annotates the chart selected (PLAN 2.67): the mark picked, highlighted, called out, ruled
+   * at its value, or banded from; the annotation selected, reworded or taken away. Each is one
+   * `annotate` patch, kept to the state shown where the inspector's "Only in this state" is. */
+  function annotationCommands(): Command[] {
+    const mark = () => board.picked();
+    const notes = () => mark()?.notes;
+    const name = mark() ? markName(mark()!) : "the mark";
+    const noted = board.noted();
+    const said = noted ? `${noteName(noted)}` : "the annotation";
+    const run = (how: Parameters<typeof board.annotate>[0]) => () => void board.annotate(how);
+    return [
+      { label: `Highlight ${name}`, where: ["node"], applies: () => notes() !== undefined, run: run("highlight") },
+      {
+        label: `Highlight ${notes()?.series ?? "its series"}`,
+        where: ["node"],
+        applies: () => notes()?.axes === true && (notes()?.series ?? null) !== null,
+        run: run("series"),
+      },
+      { label: `Take the highlight off ${name}`, where: ["node"], applies: () => (notes()?.highlighted.length ?? 0) > 0, run: run("unhighlight") },
+      { label: `Call out ${name}…`, where: ["node"], applies: () => notes()?.axes === true, run: run("callout") },
+      { label: `Rule ${name}'s value`, where: ["node"], applies: () => notes()?.axes === true, run: run("rule") },
+      { label: `Band from ${name} to…`, where: ["node"], applies: () => notes()?.axes === true, run: run("band") },
+      { label: `Change what ${said} says…`, where: ["node"], applies: () => board.noted() !== undefined, run: () => void board.reword() },
+      { label: `Take ${said} away`, keys: "Delete", group: "Annotate", where: ["node"], applies: () => board.noted() !== undefined, run: () => void board.unnote() },
     ];
   }
 

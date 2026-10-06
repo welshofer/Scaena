@@ -61,7 +61,9 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import * as notes from "./notes";
+import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -88,6 +90,12 @@ export const canvasKeys = (): Key[] => [
   { keys: `${MOD}Wheel, Pinch`, label: "Zoom about the pointer", group: "See" },
   { keys: "Click a chart's mark", label: "With the Data tab shown, choose the rows it was made from", group: "The data" },
   { keys: "Double-click a chart's mark", label: "Open the Data tab on its rows", group: "The data" },
+  { keys: "Click a mark of the chart selected", label: "Pick it: its menu highlights it, calls it out, rules its value, or bands from it", group: "Annotate" },
+  { keys: "Click an annotation of the chart selected", label: "Select it; Delete takes it away", group: "Annotate" },
+  { keys: "Drag a callout", label: "Move it onto the mark there, or to the value there", group: "Annotate" },
+  { keys: `${ALT}Drag a callout`, label: "Keep the move to the state shown", group: "Annotate" },
+  { keys: "Double-click an annotation", label: "Change what it says", group: "Annotate" },
+  { keys: "Escape", label: "Let go of the mark picked, or the band begun", group: "Annotate" },
 ];
 
 /** What the canvas asks of the editor around it. */
@@ -135,6 +143,9 @@ export interface Editor {
    * rows chosen in the data, the Data tab `open`ed on them, else only where it is shown. Whether
    * the press was on one. */
   pointedAt?(at: [number, number], open: boolean): Promise<boolean>;
+  /** Whether a change is kept to the state shown, as the inspector's "Only in this state" says
+   * (PLAN 2.67): an annotation made from a mark is. */
+  keeping?(): boolean;
 }
 
 /** A node's `at`, resolved. */
@@ -213,6 +224,10 @@ interface Press {
   released?: boolean;
   asking?: boolean;
   moved?: Starting & { client: [number, number] };
+  /** On the one node selected already: a click there picks a chart's mark or annotation (PLAN 2.67). */
+  within?: boolean;
+  /** On an annotation of the chart selected: a drag moves a callout. */
+  note?: NoteMark;
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -366,6 +381,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let marked: { node: string; rects: Rect[] } | undefined;
   /** What the rows chosen in the data draw in a state, outlined while it is shown (PLAN 2.64). */
   let rowMarks: { state: string; marks: DataMark[] } | undefined;
+  /** A mark of the chart selected, picked (PLAN 2.67): what its menu's Highlight, Call out, Rule,
+   * and Band annotate. */
+  let picked: { state: string; mark: DataMark } | undefined;
+  /** An annotation of the chart selected (PLAN 2.67): what Delete takes away. */
+  let noted: { state: string; note: NoteMark } | undefined;
+  /** A band begun at a mark (PLAN 2.67): the next press on a mark of its chart ends it there. */
+  let banding: { state: string; from: DataMark } | undefined;
+  /** A callout dragged (PLAN 2.67): where it was pressed and where the pointer is, canvas units. */
+  let carrying: { state: string; note: NoteMark; from: Point; at: Point; alt: boolean } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -567,6 +591,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function select(node: string | undefined) {
     if (node === selected && also.length === 0) return;
     if (marked && marked.node !== node) marked = undefined;
+    letGo(node);
     if (text.node() !== undefined && text.node() !== node) text.leave();
     selected = node;
     also = [];
@@ -584,6 +609,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function selectAll(nodes: string[]) {
     if (nodes.length <= 1) return select(nodes[0]);
     if (text.node() !== undefined) text.leave();
+    letGo(undefined);
     [selected, also] = [nodes[0], nodes.slice(1)];
     aim = undefined;
     editor.selected(selected, also);
@@ -774,6 +800,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const map = m.transform ? ` transform="matrix(${m.transform.join(" ")})"` : "";
         parts.push(`<path class="row-mark" data-node="${m.node}" data-key="${m.key.replace(/[\u001f"&<>]/g, " ")}" d="${m.outline}"${map}/>`);
       }
+    }
+    // A mark picked, a band begun, and an annotation selected or carried (PLAN 2.67).
+    const matrix = (t?: Map6, by: Point = [0, 0]) =>
+      t || by[0] || by[1] ? ` transform="translate(${by[0]} ${by[1]})${t ? ` matrix(${t.join(" ")})` : ""}"` : "";
+    if (picked && picked.state === boxed && !drag) parts.push(`<path class="picked-mark" d="${picked.mark.outline}"${matrix(picked.mark.transform)}/>`);
+    if (banding && banding.state === boxed) parts.push(`<path class="band-from" d="${banding.from.outline}"${matrix(banding.from.transform)}/>`);
+    if (carrying && carrying.state === boxed) {
+      const by: Point = [carrying.at[0] - carrying.from[0], carrying.at[1] - carrying.from[1]];
+      parts.push(`<path class="note-carried" d="${carrying.note.outline}"${matrix(carrying.note.transform, by)}/>`);
+    } else if (noted && noted.state === boxed && !drag) {
+      parts.push(`<path class="noted" data-index="${noted.note.index}" d="${noted.note.outline}"${matrix(noted.note.transform)}/>`);
     }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
@@ -1183,6 +1220,154 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** A chart annotated from its marks (PLAN 2.67). A click on a mark of the chart selected picks
+   * it, and its menu annotates it; a click on one of the chart's annotations selects it, Delete
+   * takes it away, a double click changes what it says, and a callout dragged moves onto the mark
+   * there or to the value there. Each is one `annotate` op, written where the chart's annotations
+   * live, or kept to the state shown with Alt or the inspector's "Only in this state". */
+  /** Let go of the mark picked and the annotation selected, unless they are `node`'s. */
+  function letGo(node: string | undefined) {
+    if (picked && picked.mark.node !== node) picked = undefined;
+    if (noted && noted.note.node !== node) noted = undefined;
+    if (banding && banding.from.node !== node) banding = undefined;
+  }
+  /** What is at `at` of the chart selected: an annotation, selected; else a mark, picked; else
+   * neither. Whether one was. */
+  async function pickAt(at: Point): Promise<boolean> {
+    const shown = editor.shown();
+    if (!shown || selected === undefined || also.length) return false;
+    const chart = selected;
+    const note = await stage.noteAt(shown.state, at, editor.format()).catch(() => undefined);
+    if (note?.node === chart) {
+      [noted, picked] = [{ state: shown.state, note }, undefined];
+      draw();
+      editor.say(`${noteName(note)} of ${chart} selected: Delete takes it away${note.kind === "callout" ? ", a drag moves it" : ""}, a double click changes what it says`);
+      return true;
+    }
+    const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
+    if (mark?.node === chart && mark.notes) {
+      [picked, noted] = [{ state: shown.state, mark }, undefined];
+      draw();
+      const what = mark.notes.axes ? "highlight it, call it out, rule its value, or band from it" : "highlight it";
+      editor.say(`${markName(mark)} of ${chart} picked: its menu will ${what}`);
+      return true;
+    }
+    if (picked || noted) [picked, noted] = [undefined, undefined];
+    draw();
+    return false;
+  }
+  /** Whether a change is kept to the state shown. */
+  const keeping = (alt = false) => alt || (editor.keeping?.() ?? false);
+  /** `ops`, annotations of the chart selected, as one patch; the mark picked asked for again, so
+   * it says what the change made of it. */
+  async function annotating(ops: unknown[], doing: string, done: string) {
+    const was = picked;
+    noted = undefined;
+    await change(ops, doing, done);
+    const shown = editor.shown();
+    if (!was || !shown || was.state !== shown.state) return;
+    const [x, y, w, h] = was.mark.rect;
+    const middle: Point = was.mark.transform ? apply(was.mark.transform, [x + w / 2, y + h / 2]) : [x + w / 2, y + h / 2];
+    const mark = await stage.markAt(shown.state, middle, editor.format()).catch(() => undefined);
+    picked = mark?.node === was.mark.node && mark.key === was.mark.key ? { state: shown.state, mark } : undefined;
+    draw();
+  }
+  /** Annotate the mark picked: highlight it, or its series; call it out, with words asked for over
+   * it; rule its value; begin a band at it; or take away the highlights that pick it out. */
+  function annotateMark(how: "highlight" | "series" | "callout" | "rule" | "band" | "unhighlight") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const p = picked;
+      if (!shown || !p || p.state !== shown.state || !p.mark.notes) return editor.say("pick a mark of a chart first: select the chart, then click the mark");
+      const [node, n, name, fork] = [p.mark.node, p.mark.notes, markName(p.mark), keeping()];
+      const one = (annotation: Record<string, unknown>) => [annotate(node, shown.state, annotation, undefined, fork)];
+      const kept = fork ? ` · kept to ${shown.state}` : "";
+      switch (how) {
+        case "highlight":
+          return annotating(one(notes.highlight(n)), "highlighting…", `${name} highlighted in ${node}${kept}`);
+        case "series":
+          if (n.series === null) return editor.say(`${node} has no series to highlight`);
+          return annotating(one(notes.highlightSeries(n)), "highlighting…", `${n.series} highlighted in ${node}${kept}`);
+        case "unhighlight":
+          if (!n.highlighted.length) return editor.say(`no highlight picks out ${name}`);
+          return annotating(notes.unhighlight(node, shown.state, n, fork), "taking the highlight away…", `${name} is no longer highlighted${kept}`);
+        case "rule":
+          if (!n.axes) return editor.say(`${node} has no axes to rule`);
+          return annotating(one(notes.rule(n)), "ruling…", `${node} ruled at ${name}'s value, ${n.value}${kept}`);
+        case "band":
+          if (!n.axes) return editor.say(`${node} has no axes to band`);
+          banding = { state: shown.state, from: p.mark };
+          draw();
+          return editor.say(`click the mark of ${node} the band from ${name} ends at · Escape stops`);
+        case "callout": {
+          if (!n.axes) return editor.say(`${node} takes highlights alone`);
+          const r = overlay.getBoundingClientRect();
+          const [x, y, w] = p.mark.rect;
+          const top = onScreen(p.mark.transform ? apply(p.mark.transform, [x + w / 2, y]) : [x + w / 2, y]);
+          const words = (await askWords([top[0], Math.max(top[1], r.top + 32)], "", `What the callout on ${name} says`))?.trim();
+          if (!words) return editor.say(`${name} is not called out`);
+          return annotating(one(notes.callout(n, words)), "calling out…", `${name} called out: “${words}”${kept}`);
+        }
+      }
+    });
+  }
+  /** The band begun ends at the mark of its chart at `at`: one band from the one to the other. */
+  function endBand(at: Point) {
+    return inTurn(async () => {
+      const b = banding;
+      const shown = editor.shown();
+      if (!b || !shown || b.state !== shown.state || !b.from.notes) return;
+      const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
+      if (!mark?.notes || mark.node !== b.from.node) return editor.say(`click a mark of ${b.from.node} the band ends at · Escape stops`);
+      if (mark.key === b.from.key) return editor.say(`the band from ${markName(mark)} ends at another mark · Escape stops`);
+      banding = undefined;
+      const op = annotate(b.from.node, shown.state, notes.band(b.from.notes, mark.notes), undefined, keeping());
+      await annotating([op], "banding…", `${b.from.node} banded from ${markName(b.from)} to ${markName(mark)}`);
+    });
+  }
+  /** The callout carried, let go at `at`: on the mark there, or at the value there. */
+  function dropNote(c: NonNullable<typeof carrying>) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown || shown.state !== c.state) return;
+      const moved = Math.hypot(c.at[0] - c.from[0], c.at[1] - c.from[1]) > 0;
+      const at = moved ? await stage.calloutAt(shown.state, c.note.node, c.at, editor.format()).catch(() => undefined) : undefined;
+      if (!at) {
+        noted = { state: c.state, note: c.note };
+        draw();
+        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      const op = annotate(c.note.node, shown.state, { at }, c.note.index, keeping(c.alt));
+      await annotating([op], "moving the callout…", `${noteName(c.note)} of ${c.note.node} moved${keeping(c.alt) ? ` · kept to ${shown.state}` : ""}`);
+    });
+  }
+  /** Change what the annotation selected says, in words asked for over it; none takes a rule's or a
+   * band's words away. */
+  const reword = () => inTurn(rewording);
+  async function rewording() {
+    const shown = editor.shown();
+    const n = noted;
+    if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+    const [x, y, w] = n.note.rect;
+    const top = onScreen(n.note.transform ? apply(n.note.transform, [x + w / 2, y]) : [x + w / 2, y]);
+    const words = await askWords(top, n.note.text ?? "", `What ${noteName(n.note)} of ${n.note.node} says`);
+    if (words === undefined || words.trim() === (n.note.text ?? "")) return editor.say(`${noteName(n.note)} says what it said`);
+    const text = words.trim();
+    if (!text && n.note.kind === "callout") return editor.say("a callout says something: Delete takes it away");
+    const op = annotate(n.note.node, shown.state, { text: text || null }, n.note.index, keeping());
+    await annotating([op], "rewording…", text ? `${noteName(n.note)} of ${n.note.node} says “${text}”` : `${noteName(n.note)} of ${n.note.node} says nothing`);
+  }
+  /** Take the annotation selected away. */
+  function unnote() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const n = noted;
+      if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+      const op = annotate(n.note.node, shown.state, null, n.note.index, keeping());
+      await annotating([op], "taking it away…", `${noteName(n.note)} of ${n.note.node} taken away`);
+    });
+  }
+
   /** An image file dropped on an image takes its place (PLAN 2.45): the file joins the bundle,
    * named by its SHA-256 as one dropped on the source is, and the image's `src` is its path, one
    * `choose` written where `src` lives. */
@@ -1477,6 +1662,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       unpick();
       return void focus(node, point(e));
     }
+    // A band begun ends at the mark pressed, and the press does nothing else (PLAN 2.67).
+    if (banding) {
+      e.preventDefault();
+      overlay.focus();
+      return void endBand(point(e));
+    }
     const count = clicks(e);
     const from = point(e);
     const shift = e.shiftKey;
@@ -1508,7 +1699,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const mine: Press = { from, client, asking: true, shift };
     press = mine;
-    const hits = await stage.hit(shown.state, from, editor.format()).catch(() => []);
+    // With one node selected, what annotation of a chart is there too (PLAN 2.67).
+    const one = selected !== undefined && also.length === 0;
+    const [hits, note] = await Promise.all([
+      stage.hit(shown.state, from, editor.format()).catch(() => []),
+      one ? stage.noteAt(shown.state, from, editor.format()).catch(() => undefined) : Promise.resolve(undefined),
+    ]);
     mine.asking = false;
     const top = hits[0];
     const chain = top ? [top.node, ...top.containers] : [];
@@ -1518,6 +1714,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const keeps = selected !== undefined && chain.some((n) => all.includes(n));
     const node = keeps ? selected : top?.node;
     if (keeps) mine.with = also.slice();
+    // On the chart selected itself, a click picks a mark or selects an annotation, and a callout
+    // pressed is dragged where it goes (PLAN 2.67).
+    mine.within = keeps && also.length === 0 && top?.node === selected;
+    if (mine.within && note?.node === selected) mine.note = note;
     // With Shift, a click puts what was clicked in the selection, or takes it out of it: in what
     // holds the selection, the child of it the click is in.
     if (shift && selected !== undefined) {
@@ -1537,14 +1737,27 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (mine.released) return finish();
       return draw();
     }
+    if (far && mine.note?.kind === "callout" && (press === mine || mine.released)) {
+      if (press === mine) press = undefined;
+      const c = { state: shown.state, note: mine.note, from, at: moved.at, alt: moved.alt };
+      if (mine.released) return void dropNote(c);
+      carrying = c;
+      return draw();
+    }
     if (far && node !== undefined && mine.toggle === undefined && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       early++;
       if (!keeps) select(node);
       return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, loose: moved.loose, up: mine.released });
     }
-    // A click let go before the engine answered selects what is topmost.
-    if (mine.released) return mine.toggle !== undefined ? toggle(mine.toggle) : select(top?.node);
+    // A click let go before the engine answered selects what is topmost; in the chart selected, it
+    // picks a mark or selects an annotation there (PLAN 2.67).
+    if (mine.released) {
+      if (mine.toggle !== undefined) return toggle(mine.toggle);
+      select(top?.node);
+      if (mine.within && !shift) await pickAt(from);
+      return;
+    }
     if (press !== mine) return;
     if (keeps) [mine.node, mine.click] = [selected, top?.node];
     else if (mine.toggle !== undefined || mine.marquee) mine.click = top?.node;
@@ -1610,6 +1823,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const shown = editor.shown();
       const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       if (!top) return;
+      // On an annotation of the chart selected, what it says, changed (PLAN 2.67).
+      if (top.node === selected && also.length === 0) {
+        const note = await stage.noteAt(shown.state, at, editor.format()).catch(() => undefined);
+        if (note?.node === top.node) {
+          [noted, picked] = [{ state: shown.state, note }, undefined];
+          draw();
+          return rewording();
+        }
+      }
       // On a chart's mark, or a table's row, the Data tab opens on its rows (PLAN 2.64).
       if (await editor.pointedAt?.(at, true)) return;
       await type(top.node, at, alt);
@@ -1643,6 +1865,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       const chain = top ? [top.node, ...top.containers] : [];
       if (!chain.some((n) => chosen().includes(n))) select(top?.node);
+      // On a chart's mark, or one of its annotations, the menu offers what annotates it (PLAN 2.67).
+      if (top && top.node === selected && also.length === 0) await pickAt(at);
       editor.menu(client[0], client[1], selected === undefined ? "canvas" : "node");
     });
   };
@@ -1670,6 +1894,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (turning) return turned(turning, at, e.shiftKey);
+    if (carrying) {
+      [carrying.at, carrying.alt] = [at, e.altKey];
+      return draw();
+    }
     if (marquee) {
       marquee.at = at;
       return draw();
@@ -1690,6 +1918,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
     if (far && press.marquee) {
       marquee = { from: press.from, at, adding: press.shift === true };
+      press = undefined;
+      return draw();
+    }
+    if (far && press.note?.kind === "callout") {
+      const state = editor.shown()?.state;
+      if (state) carrying = { state, note: press.note, from: press.from, at, alt: e.altKey };
       press = undefined;
       return draw();
     }
@@ -1733,6 +1967,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       marquee.at = point(e);
       return finish();
     }
+    if (carrying) {
+      const c = carrying;
+      carrying = undefined;
+      [c.at, c.alt] = [point(e), e.altKey];
+      return void dropNote(c);
+    }
     const clicked = press;
     press = undefined;
     if (!clicked) return;
@@ -1744,6 +1984,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
     else if (clicked.click !== undefined) select(clicked.click);
+    // In the chart selected, a click picks a mark or selects an annotation (PLAN 2.67).
+    if (!clicked.asking && clicked.within && !clicked.shift) void pickAt(clicked.from);
   };
 
   overlay.onpointercancel = () => {
@@ -1779,6 +2021,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       unpick();
       return editor.say("the focal point is as it was");
     }
+    if (banding && e.key === "Escape") {
+      e.preventDefault();
+      banding = undefined;
+      draw();
+      return editor.say("no band made");
+    }
     if (armed && e.key === "Escape") {
       e.preventDefault();
       return disarm(sketch ? "not drawn" : "not drawing");
@@ -1812,6 +2060,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
+        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67).
+        if (noted?.note.node === selected && !also.length) return void unnote();
         return void (also.length ? removeAll(chosen(), e.shiftKey) : remove(selected, e.shiftKey));
       }
       if (mod && key === "d" && !e.shiftKey && !e.altKey) {
@@ -1831,6 +2081,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     }
     if (e.key === "Escape") {
+      if (carrying) {
+        e.preventDefault();
+        const c = carrying;
+        carrying = undefined;
+        draw();
+        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      // A mark picked, or an annotation selected, is let go before the chart is (PLAN 2.67).
+      if (picked || noted) {
+        e.preventDefault();
+        [picked, noted] = [undefined, undefined];
+        draw();
+        return editor.say(`${selected ?? "nothing"} selected`);
+      }
       if (turning) {
         e.preventDefault();
         const t = turning;
@@ -1942,6 +2206,28 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     },
     /** The marks outlined, for a test. */
     rowMarks: () => rowMarks,
+    /** The mark of the chart selected picked, the annotation selected, and the mark a band begun
+     * starts at (PLAN 2.67). */
+    picked: () => picked?.mark,
+    noted: () => noted?.note,
+    banding: () => banding?.from,
+    /** Pick what is at `at` of the chart selected, as a click there does. */
+    pickAt: (at: Point) => pickAt(at),
+    /** What `rows` of data source `source` draw in the state shown, and the annotation drawn at
+     * `at`, for a test. */
+    marksOf: (source: string, rows: number[]) => {
+      const shown = editor.shown();
+      return shown ? stage.marksOf(shown.state, source, rows, editor.format()) : Promise.resolve([]);
+    },
+    noteAt: (at: Point) => {
+      const shown = editor.shown();
+      return shown ? stage.noteAt(shown.state, at, editor.format()) : Promise.resolve(undefined);
+    },
+    /** Annotate the mark picked, as its menu does; change what the annotation selected says, as a
+     * double click does; take it away, as Delete does. */
+    annotate: annotateMark,
+    reword,
+    unnote,
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,

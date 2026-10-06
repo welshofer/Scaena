@@ -296,6 +296,15 @@ impl LinearScale {
         let ([d0, d1], [r0, r1]) = (self.domain, self.range);
         (f64::from(r0) - (v - d0) / (d1 - d0) * f64::from(r0 - r1)) as f32
     }
+
+    /// The value `map` places at `p`: its inverse, beyond the range too (PLAN 2.67).
+    pub fn invert(&self, p: f32) -> f64 {
+        let ([d0, d1], [r0, r1]) = (self.domain, self.range);
+        if r0 == r1 {
+            return d0;
+        }
+        d0 + (f64::from(r0) - f64::from(p)) / f64::from(r0 - r1) * (d1 - d0)
+    }
 }
 
 #[cfg(test)]

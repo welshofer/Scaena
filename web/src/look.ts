@@ -480,5 +480,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     offered: () => offered,
     /** Choices made so far are made: what a test waits for. */
     settled: () => queue,
+    /** Whether "Only in this state" is checked: what keeps an annotation made on the canvas to
+     * the state shown too (PLAN 2.67). */
+    keeping: () => keep,
   };
 }
