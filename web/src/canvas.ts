@@ -44,11 +44,59 @@
 //   so what is selected is copied when it is selected.
 // - Lint's findings stand on what they are about, a mark at each box's corner, and a mark opened
 //   offers each finding's fix (PLAN 2.49, `marks.ts`).
+// - Guides (PLAN 2.57): ⌘' (Ctrl+'), the Grid button, or the command draws the theme's grid of the
+//   format shown over the canvas, its columns and rows, the gutters and margins between them, and
+//   the baseline grid. As a node moves or is resized, a line shows wherever one of its edges, or
+//   its middle, meets another's or the canvas's; off the grid (Shift), a box within a few pixels
+//   of one goes onto it, unless ⌘ (Ctrl) is held. The engine says where they meet; the page draws
+//   what it says.
+// - ⌥⌘C (Ctrl+Alt+C) copies the look of the node selected, as the state shown shows it: a text's
+//   role and style, a shape's fill, stroke, and corners, an image's corners, a shader's preset and
+//   palette, a chart's labels, a stack's or a grid's gap. ⌥⌘V (Ctrl+Alt+V) pastes it on each node
+//   selected that takes it, one patch of `choose`s, each written where that node's own value lives,
+//   as the inspector writes one; where the look's value is the theme's, the node's own is taken
+//   away. A node of another type takes what its look shares with it (PLAN 2.58).
+// - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
+//   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
+import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
-import { CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Finding, Insert, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import * as notes from "./notes";
+import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
+
+/** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
+ * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
+ * commands' keys. */
+export const canvasKeys = (): Key[] => [
+  { keys: "Click", label: "Select what is topmost there", group: "Select" },
+  { keys: `${SHIFT}Click`, label: "Put it in the selection, or take it out", group: "Select" },
+  { keys: "Drag across nothing", label: "Select what the drag encloses", group: "Select" },
+  { keys: `${SHIFT}Drag across nothing`, label: "Select what it encloses too", group: "Select" },
+  { keys: "Drag", label: "Move what is selected onto the grid; a handle resizes it", group: "Move and resize" },
+  { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it", group: "Move and resize" },
+  { keys: `${MOD}Drag`, label: "Off the grid, go where the pointer says, not onto an edge it meets", group: "Move and resize" },
+  { keys: "← ↑ → ↓", label: "Move what is selected a track, a place along its stack, or a unit off the grid", group: "Move and resize" },
+  { keys: `${SHIFT}← ↑ → ↓`, label: "Resize it the same", group: "Move and resize" },
+  { keys: `${ALT}Drag, ${ALT}← ↑ → ↓`, label: "Keep the move to the state shown", group: "Move and resize" },
+  { keys: "Drag the round handle", label: "Turn it", group: "Move and resize" },
+  { keys: `${SHIFT}Drag the round handle`, label: "Turn it by 15°", group: "Move and resize" },
+  { keys: "Escape", label: "Cancel the drag, the turn, or the drawing under way", group: "Move and resize" },
+  { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
+  { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
+  { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
+  { keys: `${MOD}Wheel, Pinch`, label: "Zoom about the pointer", group: "See" },
+  { keys: "Click a chart's mark", label: "With the Data tab shown, choose the rows it was made from", group: "The data" },
+  { keys: "Double-click a chart's mark", label: "Open the Data tab on its rows", group: "The data" },
+  { keys: "Click a mark of the chart selected", label: "Pick it: its menu highlights it, calls it out, rules its value, or bands from it", group: "Annotate" },
+  { keys: "Click an annotation of the chart selected", label: "Select it; Delete takes it away", group: "Annotate" },
+  { keys: "Drag a callout", label: "Move it onto the mark there, or to the value there", group: "Annotate" },
+  { keys: `${ALT}Drag a callout`, label: "Keep the move to the state shown", group: "Annotate" },
+  { keys: "Double-click an annotation", label: "Change what it says", group: "Annotate" },
+  { keys: "Escape", label: "Let go of the mark picked, or the band begun", group: "Annotate" },
+];
 
 /** What the canvas asks of the editor around it. */
 export interface Editor {
@@ -62,6 +110,8 @@ export interface Editor {
   version(): number;
   /** How `node` is placed in the state shown, resolved: its `at`. */
   at(node: string): Placement | undefined;
+  /** `node`'s `transform` in the state shown, resolved (PLAN 2.51): what its rotate handle turns. */
+  transform(node: string): { rotate?: number; anchor?: [number, number] } | undefined;
   /** Take `source`, a patch's, as one change: one step to undo. */
   apply(source: string, edited: Edited): void;
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
@@ -78,10 +128,24 @@ export interface Editor {
   keeps(to: EventTarget | null): boolean;
   /** The preview is zoomed to `zoom`: 1 shows the whole canvas (PLAN 2.46). */
   zoomed(zoom: number): void;
+  /** The theme's grid is drawn over the canvas, or not (PLAN 2.57). */
+  ruled(on: boolean): void;
   /** Take `f`'s fix: one patch, one step to undo (PLAN 2.49). */
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
   go(f: Finding): void;
+  /** Open the inspector on the node `f` is about, its field for `prop` in focus (PLAN 2.56). */
+  edit(f: Finding, prop: string): void;
+  /** A right click, or the menu key (PLAN 2.53): offer, at `x`, `y` (client pixels), what can be
+   * done to what is selected, `on` a node, or to the canvas where nothing is. */
+  menu(x: number, y: number, on: "node" | "canvas"): void;
+  /** A press at `at`, canvas units, on what may be a chart's mark or a table's row (PLAN 2.64): its
+   * rows chosen in the data, the Data tab `open`ed on them, else only where it is shown. Whether
+   * the press was on one. */
+  pointedAt?(at: [number, number], open: boolean): Promise<boolean>;
+  /** Whether a change is kept to the state shown, as the inspector's "Only in this state" says
+   * (PLAN 2.67): an annotation made from a mark is. */
+  keeping?(): boolean;
 }
 
 /** A node's `at`, resolved. */
@@ -108,6 +172,8 @@ interface Drag {
   at: [number, number];
   shift: boolean;
   alt: boolean;
+  /** ⌘ or Ctrl held: off the grid, it goes where the pointer says, onto no guide (PLAN 2.57). */
+  loose: boolean;
   /** The source's version when it began. */
   version: number;
   targets: Targets;
@@ -118,6 +184,24 @@ interface Drag {
   asked?: string;
   /** A resize's preview, once the pointer pauses. */
   pause?: ReturnType<typeof setTimeout>;
+}
+
+/** A node turned by its rotate handle (PLAN 2.51): about `pivot`, where its anchor is drawn, from
+ * `start` degrees to `now`, as the pointer goes round from where it pressed. */
+interface Turn {
+  node: string;
+  pivot: Point;
+  /** The pointer's last angle about the pivot, radians, and how far it has gone round since the
+   * press, degrees: past a half turn it keeps going. */
+  last: number;
+  round: number;
+  start: number;
+  now: number;
+  /** -1 where what holds the node mirrors it, so that its own clockwise turn goes the other way
+   * on the canvas; else 1. */
+  way: number;
+  /** The source's version when it began. */
+  version: number;
 }
 
 /** The pointer down, not yet moved far enough to drag: on `node` (by a handle, `edge`), and what a
@@ -140,6 +224,10 @@ interface Press {
   released?: boolean;
   asking?: boolean;
   moved?: Starting & { client: [number, number] };
+  /** On the one node selected already: a click there picks a chart's mark or annotation (PLAN 2.67). */
+  within?: boolean;
+  /** On an annotation of the chart selected: a drag moves a callout. */
+  note?: NoteMark;
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -148,6 +236,7 @@ interface Starting {
   at: [number, number];
   shift: boolean;
   alt: boolean;
+  loose?: boolean;
   up?: boolean;
 }
 
@@ -179,6 +268,8 @@ interface Sketch {
 const AGAIN = 450;
 /** How long a resize pauses before the preview shows it laid out, ms. */
 const PAUSE = 300;
+/** How near, CSS pixels, an edge or a middle moved off the grid goes onto another's (PLAN 2.57). */
+const REACH = 6;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const has = (at: Placement | undefined, key: string) => at?.[key] !== undefined && at?.[key] !== null;
@@ -218,6 +309,50 @@ export function placed(at: Placement, by?: Targets["by"]): string {
 
 const moved = ([x, y, w, h]: Rect, [dx, dy]: [number, number]): Rect => [x + dx, y + dy, w, h];
 
+type Point = [number, number];
+
+/** `p` through the map `m` (PLAN 2.51). */
+const apply = (m: Map6, [x, y]: Point): Point => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** The map that undoes `m`, where one does: none for one that flattens the plane. */
+function invert(m: Map6): Map6 | undefined {
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return undefined;
+  const [a, b, c, d] = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det];
+  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
+}
+
+/** `by`, a move on the canvas, in the units `m` draws in: what moves a box it maps that far. */
+function across(m: Map6 | undefined, by: Point): Point {
+  const back = m && invert(m);
+  return back ? [back[0] * by[0] + back[2] * by[1], back[1] * by[0] + back[3] * by[1]] : by;
+}
+
+/** A box's corners, clockwise from its top left. */
+const corners = ([x, y, w, h]: Rect): Point[] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+
+/** Where `b` is drawn: its corners through its map. */
+const outline = (b: NodeBox): Point[] => corners(b.rect).map((p) => (b.transform ? apply(b.transform, p) : p));
+
+/** The box around `points`. */
+function around(points: Point[]): Rect {
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const [x, y] = [Math.min(...xs), Math.min(...ys)];
+  return [x, y, Math.max(...xs) - x, Math.max(...ys) - y];
+}
+
+/** The box around where `b` is drawn: its own, where nothing moves it. */
+const drawnBox = (b: NodeBox): Rect => (b.transform ? around(outline(b)) : b.rect);
+
+/** `at`, a point on the canvas, read back into `b`'s box as laid out: none where its map
+ * flattens it. */
+function laidOut(b: NodeBox, at: Point): Point | undefined {
+  if (!b.transform) return at;
+  const back = invert(b.transform);
+  return back && apply(back, at);
+}
+
 function resized([x, y, w, h]: Rect, edge: Edge, [dx, dy]: [number, number]): Rect {
   if (edge.includes("e")) w += dx;
   if (edge.includes("w")) [x, w] = [x + Math.min(dx, w - 1), w - Math.min(dx, w - 1)];
@@ -244,6 +379,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Characters marked in a text, as a find shows its match (PLAN 2.47): the node, and the
    * rects they cover, canvas units, from the engine's carets. */
   let marked: { node: string; rects: Rect[] } | undefined;
+  /** What the rows chosen in the data draw in a state, outlined while it is shown (PLAN 2.64). */
+  let rowMarks: { state: string; marks: DataMark[] } | undefined;
+  /** A mark of the chart selected, picked (PLAN 2.67): what its menu's Highlight, Call out, Rule,
+   * and Band annotate. */
+  let picked: { state: string; mark: DataMark } | undefined;
+  /** An annotation of the chart selected (PLAN 2.67): what Delete takes away. */
+  let noted: { state: string; note: NoteMark } | undefined;
+  /** A band begun at a mark (PLAN 2.67): the next press on a mark of its chart ends it there. */
+  let banding: { state: string; from: DataMark } | undefined;
+  /** A callout dragged (PLAN 2.67): where it was pressed and where the pointer is, canvas units. */
+  let carrying: { state: string; note: NoteMark; from: Point; at: Point; alt: boolean } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -257,6 +403,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let marquee: { from: [number, number]; at: [number, number]; adding: boolean } | undefined;
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
+  /** Whether the theme's grid is drawn over the canvas (PLAN 2.57), and the grid: the format
+   * shown's, asked again whenever what stands where is. */
+  let ruled = false;
+  let grid: Grid | undefined;
   let hovered: string | undefined;
   /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
   let pointed: [number, number] | undefined;
@@ -266,6 +416,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let press: Press | undefined;
   let starting: Starting | undefined;
   let drag: Drag | undefined;
+  /** A turn by the rotate handle, under way (PLAN 2.51). */
+  let turning: Turn | undefined;
   /** What a drag on the canvas draws, armed by its key (PLAN 2.48): what the deck offers `n`th,
    * named `label`; and the drag drawing it. */
   let armed: { key: string; n: number; label: string; text: boolean; line: boolean } | undefined;
@@ -289,7 +441,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The last press: when, and where (CSS pixels), and how many clicks it counted. A key between
    * two presses makes the next a first click. */
   let pressed: { at: number; client: [number, number]; clicks: number } | undefined;
-  const unpress = () => (pressed = undefined);
+  /** Whether the menu asked for next is a right click's, at the pointer, rather than the keyboard's,
+   * at what is selected (PLAN 2.53). */
+  let righted = false;
+  const unpress = () => {
+    pressed = undefined;
+    righted = false;
+  };
   document.addEventListener("keydown", unpress, true);
   const clicks = (e: PointerEvent) => {
     const again =
@@ -303,9 +461,22 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const r = overlay.getBoundingClientRect();
     return [view[0] + ((e.clientX - r.left) / r.width) * view[2], view[1] + ((e.clientY - r.top) / r.height) * view[3]];
   };
+  /** `p`, a point on the canvas, in client pixels. */
+  const onScreen = ([px, py]: Point): Point => {
+    const r = overlay.getBoundingClientRect();
+    return [r.left + ((px - view[0]) / view[2]) * r.width, r.top + ((py - view[1]) / view[3]) * r.height];
+  };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
+  /** How near, canvas units, an edge `d` moves off the grid goes onto another's: a few pixels;
+   * none with ⌘ or Ctrl held. */
+  const reach = (d: Drag) => (d.loose ? 0 : REACH * unit());
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
+  /** Whether `at` is over `b` where it is drawn (PLAN 2.51). */
+  const over = (b: NodeBox, at: Point) => {
+    const p = laidOut(b, at);
+    return p !== undefined && inside(b.rect, p);
+  };
   /** Every node selected: the one selected, then those beside it. */
   const chosen = () => (selected === undefined ? [] : [selected, ...also]);
   /** What holds `node` in the state shown: `null` at the root. */
@@ -326,6 +497,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     unit,
     origin: () => [view[0], view[1]],
     box: (node) => box(node)?.rect,
+    map: (node) => box(node)?.transform,
     chose: (selected) => editor.chose(selected),
     keeps: (to) => editor.keeps(to),
   });
@@ -338,6 +510,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     select: (node) => select(node),
     fix: (f) => editor.fix(f),
     go: (f) => editor.go(f),
+    edit: (f, prop) => {
+      if (f.node !== undefined && (selected !== f.node || also.length)) select(f.node);
+      editor.edit(f, prop);
+    },
     say: (words) => editor.say(words),
   });
 
@@ -353,7 +529,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return;
     const [was, format] = [size, editor.format()];
+    const ruling = ruled ? stage.grid(format).catch(() => undefined) : undefined;
     ({ boxes, size } = await stage.boxes(shown.state, format));
+    if (ruling) grid = await ruling;
     boxed = shown.state;
     // Another format, laid out again, or another canvas: the preview shows all of it again.
     if (size[0] !== was[0] || size[1] !== was[1] || format !== framed) void look([0, 0, size[0], size[1]]);
@@ -413,6 +591,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function select(node: string | undefined) {
     if (node === selected && also.length === 0) return;
     if (marked && marked.node !== node) marked = undefined;
+    letGo(node);
     if (text.node() !== undefined && text.node() !== node) text.leave();
     selected = node;
     also = [];
@@ -430,6 +609,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function selectAll(nodes: string[]) {
     if (nodes.length <= 1) return select(nodes[0]);
     if (text.node() !== undefined) text.leave();
+    letGo(undefined);
     [selected, also] = [nodes[0], nodes.slice(1)];
     aim = undefined;
     editor.selected(selected, also);
@@ -452,7 +632,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [x, y] = [Math.min(m.from[0], m.at[0]), Math.min(m.from[1], m.at[1])];
     const area: Rect = [x, y, Math.abs(m.at[0] - m.from[0]), Math.abs(m.at[1] - m.from[1])];
     const within = (r: Rect) => r[0] >= area[0] && r[1] >= area[1] && r[0] + r[2] <= area[0] + area[2] && r[1] + r[3] <= area[1] + area[3];
-    const found = boxes.filter((b) => (b.parent ?? null) === null && within(b.rect)).map((b) => b.node);
+    const found = boxes.filter((b) => (b.parent ?? null) === null && within(drawnBox(b))).map((b) => b.node);
     const kept = m.adding && selected !== undefined && holder(selected) === null ? chosen() : [];
     return [...kept, ...found.filter((n) => !kept.includes(n))];
   }
@@ -492,6 +672,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       .catch(() => (aim = undefined));
   }
 
+  /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
+   * the other way from now. Resolves once it is drawn so. */
+  async function rule(on = !ruled) {
+    ruled = on;
+    if (on) {
+      try {
+        grid = await stage.grid(editor.format());
+      } catch (e) {
+        ruled = false;
+        editor.ruled(false);
+        return editor.say(`no grid: ${said(e)}`);
+      }
+    }
+    if (ruled !== on) return;
+    draw();
+    editor.ruled(on);
+    const where = grid?.baselines.length ? ", and the baseline grid" : "";
+    editor.say(on ? `the theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "the grid is hidden");
+  }
+
   function draw() {
     const u = unit();
     const parts: string[] = [];
@@ -499,6 +699,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       `<rect class="${cls}" x="${x}" y="${y}" width="${Math.max(0, w)}" height="${Math.max(0, h)}"${extra}/>`;
     const line = (x1: number, y1: number, x2: number, y2: number, cls: string) =>
       `<line class="${cls}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+    // The theme's grid (PLAN 2.57), under all else: the columns and rows as bands, the gutters
+    // between them, the margins around them, and the baseline grid's lines.
+    if (ruled && grid && grid.canvas[0] === size[0] && grid.canvas[1] === size[1]) {
+      const [left, right] = [grid.columns[0]?.[0] ?? 0, grid.columns.at(-1)?.[1] ?? size[0]];
+      const [top, bottom] = [grid.rows[0]?.[0] ?? 0, grid.rows.at(-1)?.[1] ?? size[1]];
+      for (const [a, b] of grid.columns) parts.push(rect([a, top, b - a, bottom - top], "grid-track"));
+      for (const [a, b] of grid.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
+      for (const y of grid.baselines) parts.push(line(left, y, right, y, "baseline"));
+      parts.push(rect([left, top, right - left, bottom - top], "grid-margin"));
+    }
     if (drag) {
       const t = drag.targets;
       const cols = t.columns ?? [];
@@ -515,35 +725,65 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (drag.how === "order") for (const id of t.flow ?? []) if (id !== drag.node && box(id)) parts.push(rect(box(id)!.rect, "flow"));
       if (drag.how === "free") parts.push(rect(t.within, "slot"));
       const land = drag.snapped?.cell;
+      // Where its edges, or its middle, meet another's or the canvas's (PLAN 2.57).
+      for (const [x1, y1, x2, y2] of drag.snapped?.guides ?? []) parts.push(line(x1, y1, x2, y2, "guide"));
       if (drag.snapped?.landed) for (const l of drag.snapped.landed) parts.push(rect(l.cell, "landing"));
       else if (land && drag.how === "order") parts.push(line(land[0], land[1], land[0] + land[2], land[1] + land[3], "landing-line"));
       else if (land) parts.push(rect(land, "landing"));
     }
     const typed = text.node() !== undefined;
     const by: [number, number] = drag?.kind === "move" ? [drag.at[0] - drag.from[0], drag.at[1] - drag.from[1]] : [0, 0];
+    // A box drawn where its transform draws it (PLAN 2.51), moved `shift` on the canvas.
+    const shape = (b: NodeBox, shift: Point, cls: string, turn = 0) => {
+      if (!b.transform && turn === 0) return rect(moved(b.rect, shift), cls);
+      const [sin, cos] = [Math.sin((turn * Math.PI) / 180), Math.cos((turn * Math.PI) / 180)];
+      const [px, py] = turning?.pivot ?? [0, 0];
+      const points = outline(b).map(([x, y]) => {
+        const [dx, dy] = [x - px, y - py];
+        const [tx, ty] = turn === 0 ? [x, y] : [px + dx * cos - dy * sin, py + dx * sin + dy * cos];
+        return `${tx + shift[0]},${ty + shift[1]}`;
+      });
+      return `<polygon class="${cls}" points="${points.join(" ")}"/>`;
+    };
     for (const node of also) {
       const other = box(node);
-      if (other) parts.push(rect(moved(other.rect, by), "selected"));
+      if (other) parts.push(shape(other, by, "selected"));
     }
     const first = box(selected);
     if (first) {
-      const r = drag?.kind === "move" ? moved(first.rect, by) : first.rect;
-      parts.push(rect(r, typed ? "selected typed" : "selected"));
-      if (!drag && !typed && also.length === 0 && aim && snapOf(aim, editor.at(first.node), true, false)) {
+      const turn = turning?.node === first.node ? (turning.now - turning.start) * turning.way : 0;
+      parts.push(shape(first, by, typed ? "selected typed" : "selected", turn));
+      // A point of its box, as laid out, where it is drawn.
+      const place = (p: Point): Point => {
+        const [x, y] = first.transform ? apply(first.transform, p) : p;
+        return [x + by[0], y + by[1]];
+      };
+      const [x, y, w, h] = first.rect;
+      const still = !drag && !typed && !turning && also.length === 0;
+      if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
-        const [x, y, w, h] = r;
         const spot: Record<Edge, [number, number]> = {
           nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2],
           se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2],
         };
         for (const edge of EDGES) {
-          const [cx, cy] = spot[edge];
+          const [cx, cy] = place(spot[edge]);
           parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle", ` data-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
         }
       }
+      // The rotate handle, above the box's top edge as it is drawn: a drag turns it.
+      if (still && !marquee && !armed) {
+        const [tx, ty] = place([x + w / 2, y]);
+        const [cx, cy] = place([x + w / 2, y + h / 2]);
+        const length = Math.hypot(tx - cx, ty - cy);
+        const [ux, uy] = length > 1e-6 ? [(tx - cx) / length, (ty - cy) / length] : [0, -1];
+        const [hx, hy] = [tx + ux * 24 * u, ty + uy * 24 * u];
+        parts.push(line(tx, ty, hx, hy, "turn-arm"));
+        parts.push(`<circle class="handle turn" data-turn="1" cx="${hx}" cy="${hy}" r="${5 * u}"><title>Turn ${first.node}; Shift by 15°</title></circle>`);
+      }
     }
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed) parts.push(rect(over.rect, "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -555,6 +795,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       parts.push(rect([x, y, Math.abs(marquee.at[0] - marquee.from[0]), Math.abs(marquee.at[1] - marquee.from[1])], "marquee"));
     }
     if (marked && box(marked.node)) for (const r of marked.rects) parts.push(rect(r, "found"));
+    if (rowMarks && rowMarks.state === boxed && !drag && !marquee) {
+      for (const m of rowMarks.marks) {
+        const map = m.transform ? ` transform="matrix(${m.transform.join(" ")})"` : "";
+        parts.push(`<path class="row-mark" data-node="${m.node}" data-key="${m.key.replace(/[\u001f"&<>]/g, " ")}" d="${m.outline}"${map}/>`);
+      }
+    }
+    // A mark picked, a band begun, and an annotation selected or carried (PLAN 2.67).
+    const matrix = (t?: Map6, by: Point = [0, 0]) =>
+      t || by[0] || by[1] ? ` transform="translate(${by[0]} ${by[1]})${t ? ` matrix(${t.join(" ")})` : ""}"` : "";
+    if (picked && picked.state === boxed && !drag) parts.push(`<path class="picked-mark" d="${picked.mark.outline}"${matrix(picked.mark.transform)}/>`);
+    if (banding && banding.state === boxed) parts.push(`<path class="band-from" d="${banding.from.outline}"${matrix(banding.from.transform)}/>`);
+    if (carrying && carrying.state === boxed) {
+      const by: Point = [carrying.at[0] - carrying.from[0], carrying.at[1] - carrying.from[1]];
+      parts.push(`<path class="note-carried" d="${carrying.note.outline}"${matrix(carrying.note.transform, by)}/>`);
+    } else if (noted && noted.state === boxed && !drag) {
+      parts.push(`<path class="noted" data-index="${noted.note.index}" d="${noted.note.outline}"${matrix(noted.note.transform)}/>`);
+    }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
     pins.aside(Boolean(drag || sketch || marquee));
@@ -579,13 +836,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     editor.say(`${d.node} → ${placed(op.at ?? {}, d.targets.by)} · ${where}${keep}`);
   }
 
-  /** The box `d` leaves, and how it snaps, with the pointer where it is now. */
-  function aimed(d: Drag): { how?: SnapMode; to: Rect; by: [number, number] } {
+  /** The box `d` leaves, and how it snaps, with the pointer where it is now: `by` on the canvas,
+   * and `held` as what holds it lays it out, through whatever turns or scales that (PLAN 2.51). A
+   * resize goes by the node's own axes. */
+  function aimed(d: Drag): { how?: SnapMode; to: Rect; by: [number, number]; held: [number, number] } {
     const by: [number, number] = [d.at[0] - d.from[0], d.at[1] - d.from[1]];
+    const parent = holder(d.node);
+    const held = across(parent === null ? undefined : box(parent)?.transform, by);
     // Several move as the first does: on the grid, by its tracks, or with Shift off it.
     const how = d.with.length ? (d.shift ? "free" : "move") : snapOf(d.targets, editor.at(d.node), d.kind === "resize", d.shift);
-    const to = d.kind === "move" ? moved(d.targets.cell, by) : resized(d.targets.cell, d.edge!, by);
-    return { how, to, by };
+    const to = d.kind === "move" ? moved(d.targets.cell, held) : resized(d.targets.cell, d.edge!, across(box(d.node)?.transform, by));
+    return { how, to, by, held };
   }
 
   /** Ask where the drag lands now, and paint its node there: one request at a time, the latest
@@ -593,16 +854,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   async function pump(d: Drag) {
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
-    const { how, to, by } = aimed(d);
-    const asked = JSON.stringify([by, how, d.alt]);
+    const { how, to, by, held } = aimed(d);
+    const asked = JSON.stringify([by, how, d.alt, d.loose]);
     if (asked === d.asked) return;
     d.asked = asked;
     d.how = how;
     busy = true;
     try {
       const move = d.with.length
-        ? { by, with: d.with, together: { by, free: d.shift, fork: d.alt } }
-        : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt } : undefined };
+        ? { by, with: d.with, together: { by: held, free: d.shift, fork: d.alt, reach: reach(d) } }
+        : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt, reach: reach(d) } : undefined };
       const reply = await stage.drag(shown.state, d.node, move, editor.format());
       if (drag !== d) return;
       d.snapped = how ? reply.snapped : null;
@@ -628,7 +889,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     busy = true;
     try {
       const { how, to } = aimed(d);
-      if (how) await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt }, preview: true }, editor.format());
+      if (how) await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) }, preview: true }, editor.format());
     } catch (e) {
       editor.say(`error: ${said(e)}`);
     } finally {
@@ -643,17 +904,69 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     clearTimeout(d.pause);
     const shown = editor.shown();
     if (!shown || editor.version() !== d.version) return still("the source changed under the drag: nothing is placed");
-    const { how, to, by } = aimed(d);
+    const { how, to, held } = aimed(d);
     let snapped: Snapped | null | undefined;
     try {
-      const together = { with: d.with, together: { by, free: d.shift, fork: d.alt } };
+      const together = { with: d.with, together: { by: held, free: d.shift, fork: d.alt, reach: reach(d) } };
       if (d.with.length) snapped = (await stage.drag(shown.state, d.node, together, editor.format())).snapped;
-      else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt } }, editor.format())).snapped;
+      else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) } }, editor.format())).snapped;
     } catch (e) {
       return still(`not placed: ${said(e)}`);
     }
     if (!snapped?.patch.length) return still(d.with.length ? `${d.with.length + 1} selected stay where they are` : `${d.node} stays where it is`);
     await commit(snapped.patch, d.with.length ? `${d.with.length + 1} selected moved together` : undefined);
+  }
+
+  /** A turn of `node` begun on its rotate handle at `from` (PLAN 2.51): it turns about where its
+   * anchor is drawn as the pointer goes round it, from the angle the state shows. */
+  function turn(node: string, from: Point) {
+    const b = box(node);
+    if (!b) return;
+    const t = editor.transform(node);
+    const [ax, ay] = t?.anchor ?? [0.5, 0.5];
+    const [x, y, w, h] = b.rect;
+    const anchor: Point = [x + ax * w, y + ay * h];
+    const pivot = b.transform ? apply(b.transform, anchor) : anchor;
+    const start = typeof t?.rotate === "number" ? t.rotate : 0;
+    const last = Math.atan2(from[1] - pivot[1], from[0] - pivot[0]);
+    // What holds it, mirrored, draws its own clockwise turn anticlockwise.
+    const parent = holder(node);
+    const m = parent === null ? undefined : box(parent)?.transform;
+    const way = m && m[0] * m[3] - m[1] * m[2] < 0 ? -1 : 1;
+    turning = { node, pivot, last, round: 0, start, now: start, way, version: editor.version() };
+    editor.say(`turning ${node} about its anchor · Shift by 15° · Escape leaves it as it is`);
+    draw();
+  }
+
+  /** The pointer at `at` in turn `t`: the node's angle follows it, in whole degrees, or with Shift
+   * in fifteens. */
+  function turned(t: Turn, at: Point, shift: boolean) {
+    const angle = Math.atan2(at[1] - t.pivot[1], at[0] - t.pivot[0]);
+    let step = angle - t.last;
+    if (step > Math.PI) step -= 2 * Math.PI;
+    if (step < -Math.PI) step += 2 * Math.PI;
+    t.last = angle;
+    t.round += (step * 180) / Math.PI;
+    const now = t.start + t.round * t.way;
+    t.now = shift ? Math.round(now / 15) * 15 : Math.round(now);
+    editor.say(`${t.node} turns to ${t.now}°`);
+    draw();
+  }
+
+  /** Turn `t` let go: one `choose` of its angle, written where it lives. */
+  async function turnTo(t: Turn) {
+    const shown = editor.shown();
+    if (!shown) return draw();
+    if (editor.version() !== t.version) {
+      draw();
+      return editor.say("the source changed under the turn: nothing is turned");
+    }
+    if (t.now === t.start) {
+      draw();
+      return editor.say(`${t.node} stays as it is`);
+    }
+    const op = { op: "choose", node: t.node, prop: "transform/rotate", value: t.now, state: shown.state };
+    await change([op], "turning…", `${t.node} turned to ${t.now}°`, t.node);
   }
 
   /** The state shown as it stands, after a drag that places nothing. */
@@ -709,16 +1022,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Insert what the deck offers `n`th (`Stage.inserts`) where the pointer last pressed, or in the
    * middle of the canvas: it enters in the state shown, selected. */
   function insert(n: number, label = "it") {
-    return inTurn(async () => {
-      const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
-      try {
-        const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
-        await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
-      } catch (e) {
-        editor.say(`not inserted: ${said(e)}`);
-      }
-    });
+    return inTurn(() => inserting(n, label));
+  }
+  async function inserting(n: number, label: string) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    try {
+      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
+      await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
+    } catch (e) {
+      editor.say(`not inserted: ${said(e)}`);
+    }
   }
 
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
@@ -906,6 +1220,154 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** A chart annotated from its marks (PLAN 2.67). A click on a mark of the chart selected picks
+   * it, and its menu annotates it; a click on one of the chart's annotations selects it, Delete
+   * takes it away, a double click changes what it says, and a callout dragged moves onto the mark
+   * there or to the value there. Each is one `annotate` op, written where the chart's annotations
+   * live, or kept to the state shown with Alt or the inspector's "Only in this state". */
+  /** Let go of the mark picked and the annotation selected, unless they are `node`'s. */
+  function letGo(node: string | undefined) {
+    if (picked && picked.mark.node !== node) picked = undefined;
+    if (noted && noted.note.node !== node) noted = undefined;
+    if (banding && banding.from.node !== node) banding = undefined;
+  }
+  /** What is at `at` of the chart selected: an annotation, selected; else a mark, picked; else
+   * neither. Whether one was. */
+  async function pickAt(at: Point): Promise<boolean> {
+    const shown = editor.shown();
+    if (!shown || selected === undefined || also.length) return false;
+    const chart = selected;
+    const note = await stage.noteAt(shown.state, at, editor.format()).catch(() => undefined);
+    if (note?.node === chart) {
+      [noted, picked] = [{ state: shown.state, note }, undefined];
+      draw();
+      editor.say(`${noteName(note)} of ${chart} selected: Delete takes it away${note.kind === "callout" ? ", a drag moves it" : ""}, a double click changes what it says`);
+      return true;
+    }
+    const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
+    if (mark?.node === chart && mark.notes) {
+      [picked, noted] = [{ state: shown.state, mark }, undefined];
+      draw();
+      const what = mark.notes.axes ? "highlight it, call it out, rule its value, or band from it" : "highlight it";
+      editor.say(`${markName(mark)} of ${chart} picked: its menu will ${what}`);
+      return true;
+    }
+    if (picked || noted) [picked, noted] = [undefined, undefined];
+    draw();
+    return false;
+  }
+  /** Whether a change is kept to the state shown. */
+  const keeping = (alt = false) => alt || (editor.keeping?.() ?? false);
+  /** `ops`, annotations of the chart selected, as one patch; the mark picked asked for again, so
+   * it says what the change made of it. */
+  async function annotating(ops: unknown[], doing: string, done: string) {
+    const was = picked;
+    noted = undefined;
+    await change(ops, doing, done);
+    const shown = editor.shown();
+    if (!was || !shown || was.state !== shown.state) return;
+    const [x, y, w, h] = was.mark.rect;
+    const middle: Point = was.mark.transform ? apply(was.mark.transform, [x + w / 2, y + h / 2]) : [x + w / 2, y + h / 2];
+    const mark = await stage.markAt(shown.state, middle, editor.format()).catch(() => undefined);
+    picked = mark?.node === was.mark.node && mark.key === was.mark.key ? { state: shown.state, mark } : undefined;
+    draw();
+  }
+  /** Annotate the mark picked: highlight it, or its series; call it out, with words asked for over
+   * it; rule its value; begin a band at it; or take away the highlights that pick it out. */
+  function annotateMark(how: "highlight" | "series" | "callout" | "rule" | "band" | "unhighlight") {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const p = picked;
+      if (!shown || !p || p.state !== shown.state || !p.mark.notes) return editor.say("pick a mark of a chart first: select the chart, then click the mark");
+      const [node, n, name, fork] = [p.mark.node, p.mark.notes, markName(p.mark), keeping()];
+      const one = (annotation: Record<string, unknown>) => [annotate(node, shown.state, annotation, undefined, fork)];
+      const kept = fork ? ` · kept to ${shown.state}` : "";
+      switch (how) {
+        case "highlight":
+          return annotating(one(notes.highlight(n)), "highlighting…", `${name} highlighted in ${node}${kept}`);
+        case "series":
+          if (n.series === null) return editor.say(`${node} has no series to highlight`);
+          return annotating(one(notes.highlightSeries(n)), "highlighting…", `${n.series} highlighted in ${node}${kept}`);
+        case "unhighlight":
+          if (!n.highlighted.length) return editor.say(`no highlight picks out ${name}`);
+          return annotating(notes.unhighlight(node, shown.state, n, fork), "taking the highlight away…", `${name} is no longer highlighted${kept}`);
+        case "rule":
+          if (!n.axes) return editor.say(`${node} has no axes to rule`);
+          return annotating(one(notes.rule(n)), "ruling…", `${node} ruled at ${name}'s value, ${n.value}${kept}`);
+        case "band":
+          if (!n.axes) return editor.say(`${node} has no axes to band`);
+          banding = { state: shown.state, from: p.mark };
+          draw();
+          return editor.say(`click the mark of ${node} the band from ${name} ends at · Escape stops`);
+        case "callout": {
+          if (!n.axes) return editor.say(`${node} takes highlights alone`);
+          const r = overlay.getBoundingClientRect();
+          const [x, y, w] = p.mark.rect;
+          const top = onScreen(p.mark.transform ? apply(p.mark.transform, [x + w / 2, y]) : [x + w / 2, y]);
+          const words = (await askWords([top[0], Math.max(top[1], r.top + 32)], "", `What the callout on ${name} says`))?.trim();
+          if (!words) return editor.say(`${name} is not called out`);
+          return annotating(one(notes.callout(n, words)), "calling out…", `${name} called out: “${words}”${kept}`);
+        }
+      }
+    });
+  }
+  /** The band begun ends at the mark of its chart at `at`: one band from the one to the other. */
+  function endBand(at: Point) {
+    return inTurn(async () => {
+      const b = banding;
+      const shown = editor.shown();
+      if (!b || !shown || b.state !== shown.state || !b.from.notes) return;
+      const mark = await stage.markAt(shown.state, at, editor.format()).catch(() => undefined);
+      if (!mark?.notes || mark.node !== b.from.node) return editor.say(`click a mark of ${b.from.node} the band ends at · Escape stops`);
+      if (mark.key === b.from.key) return editor.say(`the band from ${markName(mark)} ends at another mark · Escape stops`);
+      banding = undefined;
+      const op = annotate(b.from.node, shown.state, notes.band(b.from.notes, mark.notes), undefined, keeping());
+      await annotating([op], "banding…", `${b.from.node} banded from ${markName(b.from)} to ${markName(mark)}`);
+    });
+  }
+  /** The callout carried, let go at `at`: on the mark there, or at the value there. */
+  function dropNote(c: NonNullable<typeof carrying>) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown || shown.state !== c.state) return;
+      const moved = Math.hypot(c.at[0] - c.from[0], c.at[1] - c.from[1]) > 0;
+      const at = moved ? await stage.calloutAt(shown.state, c.note.node, c.at, editor.format()).catch(() => undefined) : undefined;
+      if (!at) {
+        noted = { state: c.state, note: c.note };
+        draw();
+        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      const op = annotate(c.note.node, shown.state, { at }, c.note.index, keeping(c.alt));
+      await annotating([op], "moving the callout…", `${noteName(c.note)} of ${c.note.node} moved${keeping(c.alt) ? ` · kept to ${shown.state}` : ""}`);
+    });
+  }
+  /** Change what the annotation selected says, in words asked for over it; none takes a rule's or a
+   * band's words away. */
+  const reword = () => inTurn(rewording);
+  async function rewording() {
+    const shown = editor.shown();
+    const n = noted;
+    if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+    const [x, y, w] = n.note.rect;
+    const top = onScreen(n.note.transform ? apply(n.note.transform, [x + w / 2, y]) : [x + w / 2, y]);
+    const words = await askWords(top, n.note.text ?? "", `What ${noteName(n.note)} of ${n.note.node} says`);
+    if (words === undefined || words.trim() === (n.note.text ?? "")) return editor.say(`${noteName(n.note)} says what it said`);
+    const text = words.trim();
+    if (!text && n.note.kind === "callout") return editor.say("a callout says something: Delete takes it away");
+    const op = annotate(n.note.node, shown.state, { text: text || null }, n.note.index, keeping());
+    await annotating([op], "rewording…", text ? `${noteName(n.note)} of ${n.note.node} says “${text}”` : `${noteName(n.note)} of ${n.note.node} says nothing`);
+  }
+  /** Take the annotation selected away. */
+  function unnote() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const n = noted;
+      if (!shown || !n || n.state !== shown.state) return editor.say("select an annotation of a chart first");
+      const op = annotate(n.note.node, shown.state, null, n.note.index, keeping());
+      await annotating([op], "taking it away…", `${noteName(n.note)} of ${n.note.node} taken away`);
+    });
+  }
+
   /** An image file dropped on an image takes its place (PLAN 2.45): the file joins the bundle,
    * named by its SHA-256 as one dropped on the source is, and the image's `src` is its path, one
    * `choose` written where `src` lives. */
@@ -916,8 +1378,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
       if (!top || choices?.type !== "image") return editor.say("drop an image on an image to put it in its place; on the source, its path goes where it is dropped");
-      // An image shows a PNG, in v1 (SPEC §3.3): anything else stays out of the bundle.
-      if (!/\.png$/i.test(file.name)) return editor.say(`${file.name} is not a PNG: ${top.node} shows a PNG, and is as it was`);
+      // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
+      if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a PNG nor a JPEG: ${top.node} is as it was`);
       try {
         const path = await stage.drop(file.name, await file.arrayBuffer());
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
@@ -927,10 +1389,35 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
+  /** An image of the bundle dragged from the Files panel (PLAN 2.59): over an image node, it takes
+   * that image's place, one `choose` of `src` written where it lives; anywhere else, it is inserted
+   * there, as Insert inserts it. */
+  function place(at: [number, number], path: string) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
+      if (top && choices?.type === "image") {
+        const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
+        return change([op], "replacing…", `${top.node} shows ${path}`, top.node);
+      }
+      const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
+      if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
+      pointed = at;
+      await inserting(n, path);
+    });
+  }
   overlay.addEventListener("dragover", (e) => {
-    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    const types = e.dataTransfer?.types ?? [];
+    if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
   });
   overlay.addEventListener("drop", (e) => {
+    const path = e.dataTransfer?.getData(BUNDLE_PATH);
+    if (path) {
+      e.preventDefault();
+      return void place(point(e), path);
+    }
     const file = e.dataTransfer?.files[0];
     if (!file) return;
     e.preventDefault();
@@ -1013,6 +1500,54 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         await change(pasted.patch, "pasting…", done, ids.length > 1 ? ids : pasted.id);
       } catch (e) {
         editor.say(`not pasted: ${said(e)}`);
+      }
+    });
+  }
+
+  /** The look ⌥⌘C copied last (PLAN 2.58): what ⌥⌘V pastes, until another is copied. */
+  let copiedLook: Look | undefined;
+  /** What a look sets, as the status says it: each value the deck sets, else the theme's. */
+  const lookSaid = (look: Look) => {
+    const set = look.props.flatMap((p) => (p.value === undefined ? [] : [`${p.prop} ${typeof p.value === "string" ? p.value : JSON.stringify(p.value)}`]));
+    return set.length ? set.join(", ") : "the theme's";
+  };
+
+  /** ⌥⌘C: the look of the node selected, as the state shown shows it, copied for ⌥⌘V. */
+  function copyLook() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      if (!shown || nodes.length !== 1) return editor.say("select one node to copy its look");
+      try {
+        const look = await stage.look(editor.source(), shown.state, nodes[0]);
+        if (!look.props.length) return editor.say(`a ${look.type} has no look of its own to copy`);
+        copiedLook = look;
+        editor.say(`${look.node}'s look copied (${lookSaid(look)}): ⌥⌘V pastes it on what is selected`);
+      } catch (e) {
+        editor.say(`no look copied: ${said(e)}`);
+      }
+    });
+  }
+
+  /** ⌥⌘V: the look copied pasted on each node selected that takes it, in the state shown, one
+   * patch: one step to undo. What is selected stays so; the status says which nodes looked so
+   * already and which take none of it. */
+  function pasteLook() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      const look = copiedLook;
+      if (!look) return editor.say("no look is copied: ⌥⌘C copies the look of the node selected");
+      if (!shown || !nodes.length) return editor.say(`select what takes ${look.node}'s look`);
+      try {
+        const put = await stage.putting(editor.source(), shown.state, look, nodes);
+        const same = put.same.length ? [`${put.same.join(", ")} ${put.same.length > 1 ? "look" : "looks"} so already`] : [];
+        const others = [...same, ...put.refused.map((r) => `${r.node}: ${r.why}`)];
+        if (!put.patch.length) return editor.say(others.join("; ") || `nothing takes ${look.node}'s look`);
+        const done = [`${look.node}'s look pasted on ${put.took.join(", ")}`, ...others].join("; ");
+        await change(put.patch, "pasting the look…", done);
+      } catch (e) {
+        editor.say(`no look pasted: ${said(e)}`);
       }
     });
   }
@@ -1107,6 +1642,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       overlay.classList.add("panning");
       return;
     }
+    righted = e.button === 2;
     if (e.button !== 0) return;
     // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
     if (armed) {
@@ -1125,6 +1661,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const node = picking;
       unpick();
       return void focus(node, point(e));
+    }
+    // A band begun ends at the mark pressed, and the press does nothing else (PLAN 2.67).
+    if (banding) {
+      e.preventDefault();
+      overlay.focus();
+      return void endBand(point(e));
     }
     const count = clicks(e);
     const from = point(e);
@@ -1149,9 +1691,20 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       press = { node: selected, edge, from, client };
       return;
     }
+    // The rotate handle (PLAN 2.51). The turn draws the handle anew under the press, so the press
+    // does not move focus itself: the canvas keeps it, and Escape reaches it.
+    if ((e.target as Element).closest?.("[data-turn]") && selected !== undefined) {
+      e.preventDefault();
+      return turn(selected, from);
+    }
     const mine: Press = { from, client, asking: true, shift };
     press = mine;
-    const hits = await stage.hit(shown.state, from, editor.format()).catch(() => []);
+    // With one node selected, what annotation of a chart is there too (PLAN 2.67).
+    const one = selected !== undefined && also.length === 0;
+    const [hits, note] = await Promise.all([
+      stage.hit(shown.state, from, editor.format()).catch(() => []),
+      one ? stage.noteAt(shown.state, from, editor.format()).catch(() => undefined) : Promise.resolve(undefined),
+    ]);
     mine.asking = false;
     const top = hits[0];
     const chain = top ? [top.node, ...top.containers] : [];
@@ -1161,6 +1714,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const keeps = selected !== undefined && chain.some((n) => all.includes(n));
     const node = keeps ? selected : top?.node;
     if (keeps) mine.with = also.slice();
+    // On the chart selected itself, a click picks a mark or selects an annotation, and a callout
+    // pressed is dragged where it goes (PLAN 2.67).
+    mine.within = keeps && also.length === 0 && top?.node === selected;
+    if (mine.within && note?.node === selected) mine.note = note;
     // With Shift, a click puts what was clicked in the selection, or takes it out of it: in what
     // holds the selection, the child of it the click is in.
     if (shift && selected !== undefined) {
@@ -1168,7 +1725,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       mine.toggle = chain.find((n) => all.includes(n)) ?? chain.find((n) => holder(n) === holds) ?? top?.node;
     }
     // On nothing, or on what fills the canvas behind all, a drag draws a marquee.
-    if (!keeps && (!top || covers(box(top.node)?.rect))) mine.marquee = true;
+    const below = top && box(top.node);
+    if (!keeps && (!top || covers(below && drawnBox(below)))) mine.marquee = true;
     // Moved past the slop before the engine answered, as a drag made while the worker paints is:
     // the press was a drag all along, from where the pointer is now, dropped there if let go.
     const moved = mine.moved;
@@ -1179,14 +1737,27 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (mine.released) return finish();
       return draw();
     }
+    if (far && mine.note?.kind === "callout" && (press === mine || mine.released)) {
+      if (press === mine) press = undefined;
+      const c = { state: shown.state, note: mine.note, from, at: moved.at, alt: moved.alt };
+      if (mine.released) return void dropNote(c);
+      carrying = c;
+      return draw();
+    }
     if (far && node !== undefined && mine.toggle === undefined && (press === mine || mine.released)) {
       if (press === mine) press = undefined;
       early++;
       if (!keeps) select(node);
-      return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, up: mine.released });
+      return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, loose: moved.loose, up: mine.released });
     }
-    // A click let go before the engine answered selects what is topmost.
-    if (mine.released) return mine.toggle !== undefined ? toggle(mine.toggle) : select(top?.node);
+    // A click let go before the engine answered selects what is topmost; in the chart selected, it
+    // picks a mark or selects an annotation there (PLAN 2.67).
+    if (mine.released) {
+      if (mine.toggle !== undefined) return toggle(mine.toggle);
+      select(top?.node);
+      if (mine.within && !shift) await pickAt(from);
+      return;
+    }
     if (press !== mine) return;
     if (keeps) [mine.node, mine.click] = [selected, top?.node];
     else if (mine.toggle !== undefined || mine.marquee) mine.click = top?.node;
@@ -1228,6 +1799,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
           at: now.at,
           shift: now.shift,
           alt: now.alt,
+          loose: now.loose === true,
           version,
           targets,
         };
@@ -1250,7 +1822,52 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     void inTurn(async () => {
       const shown = editor.shown();
       const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
-      if (top) await type(top.node, at, alt);
+      if (!top) return;
+      // On an annotation of the chart selected, what it says, changed (PLAN 2.67).
+      if (top.node === selected && also.length === 0) {
+        const note = await stage.noteAt(shown.state, at, editor.format()).catch(() => undefined);
+        if (note?.node === top.node) {
+          [noted, picked] = [{ state: shown.state, note }, undefined];
+          draw();
+          return rewording();
+        }
+      }
+      // On a chart's mark, or a table's row, the Data tab opens on its rows (PLAN 2.64).
+      if (await editor.pointedAt?.(at, true)) return;
+      await type(top.node, at, alt);
+    });
+  };
+
+  // A right click (PLAN 2.53): what is topmost there is selected, as a click selects it, unless it
+  // is in what is selected already; then the editor offers what can be done to it, or to the canvas
+  // where nothing is, and what is pasted or inserted from there lands there. From the keyboard (the
+  // menu key, Shift+F10), what is selected is offered, beside it.
+  overlay.oncontextmenu = (e) => {
+    e.preventDefault();
+    const pointer = righted;
+    righted = false;
+    if (drag || starting || sketch || turning || panning) return;
+    if (text.node() !== undefined) text.leave();
+    if (!pointer) {
+      const b = box(selected);
+      const r = overlay.getBoundingClientRect();
+      const [x, y, , h] = b ? drawnBox(b) : [0, 0, 0, 0];
+      const [cx, cy] = b ? onScreen([x, y + h]) : [r.left + r.width / 2, r.top + r.height / 2];
+      return editor.menu(cx, cy, selected === undefined ? "canvas" : "node");
+    }
+    const at = point(e);
+    const client: Point = [e.clientX, e.clientY];
+    pointed = at;
+    overlay.focus();
+    void inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const chain = top ? [top.node, ...top.containers] : [];
+      if (!chain.some((n) => chosen().includes(n))) select(top?.node);
+      // On a chart's mark, or one of its annotations, the menu offers what annotates it (PLAN 2.67).
+      if (top && top.node === selected && also.length === 0) await pickAt(at);
+      editor.menu(client[0], client[1], selected === undefined ? "canvas" : "node");
     });
   };
 
@@ -1267,14 +1884,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const at = point(e);
     if (text.drag(at)) return;
     if (starting) {
-      [starting.at, starting.shift, starting.alt] = [at, e.shiftKey, e.altKey];
+      [starting.at, starting.shift, starting.alt, starting.loose] = [at, e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       return;
     }
     if (drag) {
-      [drag.at, drag.shift, drag.alt] = [at, e.shiftKey, e.altKey];
+      [drag.at, drag.shift, drag.alt, drag.loose] = [at, e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       if (drag.kind === "move") draw();
       void pump(drag);
       return;
+    }
+    if (turning) return turned(turning, at, e.shiftKey);
+    if (carrying) {
+      [carrying.at, carrying.alt] = [at, e.altKey];
+      return draw();
     }
     if (marquee) {
       marquee.at = at;
@@ -1282,7 +1904,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (!press) {
       // What a click would select, from the boxes the engine gave: nothing is asked.
-      const under = boxes.filter((b) => b.draws && inside(b.rect, at)).at(-1)?.node;
+      const under = boxes.filter((b) => b.draws && over(b, at)).at(-1)?.node;
       if (under !== hovered) {
         hovered = under;
         draw();
@@ -1290,7 +1912,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (press.asking) {
-      press.moved = { at, shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
       return;
     }
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
@@ -1299,10 +1921,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       press = undefined;
       return draw();
     }
+    if (far && press.note?.kind === "callout") {
+      const state = editor.shown()?.state;
+      if (state) carrying = { state, note: press.note, from: press.from, at, alt: e.altKey };
+      press = undefined;
+      return draw();
+    }
     if (!press.node || !far) return;
     const begun = press;
     press = undefined;
-    begin(begun, { at, shift: e.shiftKey, alt: e.altKey });
+    begin(begun, { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey });
   };
 
   overlay.onpointerup = (e) => {
@@ -1319,29 +1947,45 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (text.up()) return;
     if (starting) {
-      [starting.at, starting.shift, starting.alt, starting.up] = [point(e), e.shiftKey, e.altKey, true];
+      [starting.at, starting.shift, starting.alt, starting.loose, starting.up] = [point(e), e.shiftKey, e.altKey, e.metaKey || e.ctrlKey, true];
       return;
     }
     if (drag) {
       const d = drag;
       drag = undefined;
-      [d.at, d.shift, d.alt] = [point(e), e.shiftKey, e.altKey];
+      [d.at, d.shift, d.alt, d.loose] = [point(e), e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       void inTurn(() => drop(d));
       return;
+    }
+    if (turning) {
+      const t = turning;
+      turned(t, point(e), e.shiftKey);
+      turning = undefined;
+      return void inTurn(() => turnTo(t));
     }
     if (marquee) {
       marquee.at = point(e);
       return finish();
     }
+    if (carrying) {
+      const c = carrying;
+      carrying = undefined;
+      [c.at, c.alt] = [point(e), e.altKey];
+      return void dropNote(c);
+    }
     const clicked = press;
     press = undefined;
     if (!clicked) return;
+    // A click on a chart's mark, or a table's row, chooses its rows where the data is shown (PLAN 2.64).
+    if (!clicked.shift) void editor.pointedAt?.(clicked.from, false);
     if (clicked.asking) {
-      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
       clicked.released = true;
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
     else if (clicked.click !== undefined) select(clicked.click);
+    // In the chart selected, a click picks a mark or selects an annotation (PLAN 2.67).
+    if (!clicked.asking && clicked.within && !clicked.shift) void pickAt(clicked.from);
   };
 
   overlay.onpointercancel = () => {
@@ -1365,12 +2009,23 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       e.preventDefault();
       return void (key === "0" ? fit() : zoomStep(key === "-" || key === "_" ? -1 : 1));
     }
+    // The theme's grid, drawn or not (PLAN 2.57); while typing too.
+    if (mod && !e.altKey && !e.shiftKey && key === "'" && !drag) {
+      e.preventDefault();
+      return void rule();
+    }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
     if (picking !== undefined && e.key === "Escape") {
       e.preventDefault();
       unpick();
       return editor.say("the focal point is as it was");
+    }
+    if (banding && e.key === "Escape") {
+      e.preventDefault();
+      banding = undefined;
+      draw();
+      return editor.say("no band made");
     }
     if (armed && e.key === "Escape") {
       e.preventDefault();
@@ -1396,9 +2051,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       e.preventDefault();
       return key === "y" || e.shiftKey ? editor.redo() : editor.undo();
     }
+    // ⌥⌘C copies the look of the node selected, and ⌥⌘V pastes it on what is selected (PLAN 2.58):
+    // by the key's place, as Option makes ⌥C a character of its own.
+    if (mod && e.altKey && !e.shiftKey && (e.code === "KeyC" || e.code === "KeyV") && !drag && !starting) {
+      e.preventDefault();
+      return void (e.code === "KeyC" ? copyLook() : pasteLook());
+    }
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
+        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67).
+        if (noted?.note.node === selected && !also.length) return void unnote();
         return void (also.length ? removeAll(chosen(), e.shiftKey) : remove(selected, e.shiftKey));
       }
       if (mod && key === "d" && !e.shiftKey && !e.altKey) {
@@ -1418,6 +2081,27 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     }
     if (e.key === "Escape") {
+      if (carrying) {
+        e.preventDefault();
+        const c = carrying;
+        carrying = undefined;
+        draw();
+        return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      // A mark picked, or an annotation selected, is let go before the chart is (PLAN 2.67).
+      if (picked || noted) {
+        e.preventDefault();
+        [picked, noted] = [undefined, undefined];
+        draw();
+        return editor.say(`${selected ?? "nothing"} selected`);
+      }
+      if (turning) {
+        e.preventDefault();
+        const t = turning;
+        turning = undefined;
+        draw();
+        return editor.say(`${t.node} stays as it is`);
+      }
       if (starting) {
         e.preventDefault();
         starting = undefined;
@@ -1495,6 +2179,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       svg.replaceChildren();
       pins.found([]);
     },
+    /** Draw the theme's grid over the canvas, or stop, as ⌘' does (PLAN 2.57); and whether it is
+     * drawn, and what. */
+    rule,
+    ruled: () => ruled,
+    grid: () => (ruled ? grid : undefined),
+    /** The guides the drag under way shows: where its box meets others (PLAN 2.57). */
+    guides: () => drag?.snapped?.guides ?? [],
     /** What lint found, every finding: those about the state shown, in the format shown, stand on
      * it (PLAN 2.49). */
     found: (findings: Finding[]) => pins.found(findings),
@@ -1507,6 +2198,36 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Mark characters of a text in the state shown, as a find shows its match, and select it;
      * with no node, take the mark away (PLAN 2.47). */
     mark,
+    /** Outline `marks`, what the rows chosen in the data draw in `state`, while it is shown; none
+     * with none (PLAN 2.64). */
+    markRows: (state: string | undefined, marks: DataMark[]) => {
+      rowMarks = state === undefined || !marks.length ? undefined : { state, marks };
+      draw();
+    },
+    /** The marks outlined, for a test. */
+    rowMarks: () => rowMarks,
+    /** The mark of the chart selected picked, the annotation selected, and the mark a band begun
+     * starts at (PLAN 2.67). */
+    picked: () => picked?.mark,
+    noted: () => noted?.note,
+    banding: () => banding?.from,
+    /** Pick what is at `at` of the chart selected, as a click there does. */
+    pickAt: (at: Point) => pickAt(at),
+    /** What `rows` of data source `source` draw in the state shown, and the annotation drawn at
+     * `at`, for a test. */
+    marksOf: (source: string, rows: number[]) => {
+      const shown = editor.shown();
+      return shown ? stage.marksOf(shown.state, source, rows, editor.format()) : Promise.resolve([]);
+    },
+    noteAt: (at: Point) => {
+      const shown = editor.shown();
+      return shown ? stage.noteAt(shown.state, at, editor.format()) : Promise.resolve(undefined);
+    },
+    /** Annotate the mark picked, as its menu does; change what the annotation selected says, as a
+     * double click does; take it away, as Delete does. */
+    annotate: annotateMark,
+    reword,
+    unnote,
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,
@@ -1530,6 +2251,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     remove,
     /** Paste `clip`, the clipboard's text, as ⌘V does. */
     paste,
+    /** Copy the look of the node selected, as ⌥⌘C does, and paste it on what is selected, as ⌥⌘V
+     * does (PLAN 2.58); and the look copied, if any. */
+    copyLook,
+    pasteLook,
+    copiedLook: () => copiedLook,
     /** Give the characters selected in the text typed in `look`, as the inspector does (PLAN 2.38). */
     style: (look: Record<string, unknown>) => text.style(look),
     /** Make the characters selected bold, or not, as ⌘B does. */

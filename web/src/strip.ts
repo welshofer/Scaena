@@ -13,9 +13,19 @@
 //   list), once every state is laid out after an edit.
 // - Each state with findings in the format shown says how many, in the color of the worst (PLAN
 //   2.49).
+import { ALT, type Key } from "./commands";
 import { counted, worst } from "./marks";
 import type { Edited, Finding, Slot, Thumb } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What a state in the strip answers, focused (PLAN 2.65), as the keys sheet lists it. */
+export const stripKeys = (): Key[] => [
+  { keys: "← → Home End", label: "In the strip: show the state before or after, the first, or the last", group: "States" },
+  { keys: `${ALT}← ${ALT}→`, label: "Move the state before or after the one beside it", group: "States" },
+  { keys: "F2", label: "Rename the state", group: "States" },
+  { keys: "Delete", label: "Delete the state", group: "States" },
+  { keys: "Enter Space", label: "Show the state", group: "States" },
+];
 
 /** What the strip asks of the editor around it. */
 export interface StripEditor {

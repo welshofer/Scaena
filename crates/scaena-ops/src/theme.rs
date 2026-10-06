@@ -1,15 +1,19 @@
 //! Re-theme a deck (PLAN 1.6, SPEC §3.6): point it at another theme, copied into the bundle,
 //! and say what that changes in what `validate` and `lint` find. A theme that would leave
 //! the deck invalid is refused, unless forced (PLAN 1.35).
+//!
+//! Or edit the theme the deck names (PLAN 2.61, ADR-0016): RFC 6902 operations on its JSON,
+//! checked as a re-theme is, and written in canonical form, as `save` writes it.
 
-use crate::lint::{View, Why, Write, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write, write_deck};
 use crate::{Bundle, Context, OpsError};
-use scaena_core::Finding;
 use scaena_core::document::FontRef;
 use scaena_core::lint::{Delta, delta};
 use scaena_core::validate::{BundleFiles, validate_bundle};
+use scaena_core::{Deck, Finding};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -128,20 +132,7 @@ pub fn theming(
     let before = lint(b)?.findings;
     let mut deck = b.deck.clone();
     deck.theme = Some(serde_json::Value::String(rel.to_string()));
-    let mut listed = Vec::new();
-    for (key, family) in parsed.pointer("/type/families").and_then(|f| f.as_object()).into_iter().flatten() {
-        let Some(name) = family["family"].as_str() else { continue };
-        for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
-            let Some(file) = face["file"].as_str() else { continue };
-            if held(file) && !deck.fonts.iter().any(|f| f.file == file) {
-                let what = if style.is_some() { " italic" } else { "" };
-                listed.push(format!("family `{key}`{what}: {file}"));
-                let axes = serde_json::from_value(face["axes"].clone()).ok();
-                let style = style.map(String::from);
-                deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style, axes });
-            }
-        }
-    }
+    let listed = list_fonts(&mut deck, &parsed, held);
     let mut view = View::of(b).with(rel, text.clone().into_bytes());
     for (path, bytes) in &added {
         view = view.with(path.clone(), bytes.clone());
@@ -171,4 +162,145 @@ pub fn theming(
     };
     let deck = if refused { b.deck.clone() } else { deck };
     Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
+}
+
+/// Each of `theme`'s families, and its italic, whose file `held` says the bundle holds and
+/// `deck`'s `fonts` does not list, listed there, as rendering needs it to be (E102): what was
+/// listed, `family `key`: file`.
+fn list_fonts(deck: &mut Deck, theme: &Value, held: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut listed = Vec::new();
+    for (key, family) in theme.pointer("/type/families").and_then(|f| f.as_object()).into_iter().flatten() {
+        let Some(name) = family["family"].as_str() else { continue };
+        for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
+            let Some(file) = face["file"].as_str() else { continue };
+            if held(file) && !deck.fonts.iter().any(|f| f.file == file) {
+                let what = if style.is_some() { " italic" } else { "" };
+                listed.push(format!("family `{key}`{what}: {file}"));
+                let axes = serde_json::from_value(face["axes"].clone()).ok();
+                let style = style.map(String::from);
+                deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style, axes });
+            }
+        }
+    }
+    listed
+}
+
+/// What a theme edit asks (ADR-0016): what `scaena theme --edit` reads and `theme_edit` takes.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ThemeEdit {
+    /// RFC 6902 operations on the theme the deck names, applied in order, all or none: each
+    /// path a JSON Pointer into the theme's JSON (`/tokens/color/accent`,
+    /// `/type/roles/body/size`, `/grid/gutter`), for a theme file and an inline theme alike.
+    pub ops: Vec<Value>,
+}
+
+/// What a theme edit did, or would do.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ThemeEdited {
+    /// The theme edited: its path in the bundle, or `(inline)` for one written in the deck.
+    pub theme: String,
+    /// Where in the theme the edit writes: each operation's path, once, in order.
+    pub paths: Vec<String>,
+    /// Whether the edit stands: not under a dry run, nor when it was refused.
+    pub applied: bool,
+    /// The theme's families the deck's `fonts` now lists, as rendering needs them to be:
+    /// `family `key`: file`. Each is a file the bundle holds that the deck did not list.
+    pub listed: Vec<String>,
+    /// What `validate` and `lint` find in the theme as edited that they did not before.
+    pub added: Vec<Finding>,
+    /// What they found before that they do not after.
+    pub removed: Vec<Finding>,
+    /// The findings that are errors, after.
+    pub errors: usize,
+    /// Whether the edit was refused: it would have added a validation error (in `added`). The
+    /// theme stays as it was.
+    pub refused: bool,
+}
+
+/// Edit the theme the deck names by `ops` (PLAN 2.61, ADR-0016): a theme file, written in
+/// canonical form as `save` writes it, or an inline theme, written into the deck; a theme that
+/// ships, in the bundle's copy. Refused, as a re-theme is, where the deck would not validate
+/// in the theme it leaves: a name the deck uses taken out of it, or a theme its schema refuses.
+/// Recorded in the bundle's history, if it keeps one, with the theme's bytes. A dry run writes
+/// nothing.
+pub fn theme_edit(b: &Bundle, edit: &ThemeEdit, dry_run: bool) -> Result<ThemeEdited, OpsError> {
+    let (edited, write_it) = theme_editing(b, edit)?;
+    if let Some(w) = write_it.filter(|_| !dry_run) {
+        write(b, w)?;
+    }
+    Ok(ThemeEdited { applied: edited.applied && !dry_run, ..edited })
+}
+
+/// [`theme_edit`] with nothing written: what the edit does, and what to write, if it changes
+/// the theme and is not refused. A client that keeps its bundle in memory, as the web editor
+/// does, writes it there.
+pub fn theme_editing(b: &Bundle, edit: &ThemeEdit) -> Result<(ThemeEdited, Option<Write>), OpsError> {
+    if edit.ops.is_empty() {
+        return Err(OpsError::new("no operations: a theme edit is a list of JSON Patch operations (RFC 6902)"));
+    }
+    let failed = |e: scaena_core::patch::PatchError| OpsError { message: e.to_string(), plan: None, op: Some(e.index) };
+    let mut paths: Vec<String> = Vec::new();
+    for path in edit.ops.iter().filter_map(|op| op.get("path").and_then(Value::as_str)) {
+        if !paths.iter().any(|p| p == path) {
+            paths.push(path.to_string());
+        }
+    }
+    let shown: Vec<&str> = paths.iter().map(|p| p.strip_prefix('/').unwrap_or(p)).collect();
+    let why = Why::new(format!("theme_edit: {}", shown.join(", ")));
+    match &b.deck.theme {
+        Some(Value::String(rel)) => {
+            let bytes = b.read(rel).with_context(|| format!("reading the theme, {rel}"))?;
+            let was: Value = serde_json::from_slice(&bytes).with_context(|| format!("{rel} is not JSON"))?;
+            let mut theme = was.clone();
+            scaena_core::patch::apply(&mut theme, &edit.ops).map_err(failed)?;
+            let text = serde_json::to_string_pretty(&theme)? + "\n";
+            let (themed, mut w) = theming(b, rel, &text, &BTreeMap::new(), true, false)?;
+            // The deck changes only where it lists a font the theme now names.
+            let changes = theme != was || !themed.listed.is_empty();
+            let edited = ThemeEdited {
+                theme: rel.clone(),
+                paths,
+                applied: !themed.refused,
+                listed: themed.listed,
+                added: themed.added,
+                removed: themed.removed,
+                errors: themed.errors,
+                refused: themed.refused,
+            };
+            w.why = why;
+            let write_it = (!edited.refused && changes).then_some(w);
+            Ok((edited, write_it))
+        }
+        Some(Value::Object(inline)) => {
+            let was = Value::Object(inline.clone());
+            let mut theme = was.clone();
+            scaena_core::patch::apply(&mut theme, &edit.ops).map_err(failed)?;
+            let mut deck = b.deck.clone();
+            let listed = list_fonts(&mut deck, &theme, |file| b.files.exists(file));
+            deck.theme = Some(theme.clone());
+            let states: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
+            let invalid = validate_bundle(&b.deck.to_json()?, &b.files)?;
+            let invalid_after = validate_bundle(&deck.to_json()?, &b.files)?;
+            let refused = !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
+            let (before, after) = match refused {
+                true => (invalid, invalid_after),
+                false => (lint(b)?.findings, lint_in(&deck, &View::of(b))?.findings),
+            };
+            let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
+            let edited = ThemeEdited {
+                theme: "(inline)".into(),
+                paths,
+                applied: !refused,
+                listed,
+                added: added.into_iter().cloned().collect(),
+                removed: removed.into_iter().cloned().collect(),
+                errors: errors(&after),
+                refused,
+            };
+            let changes = theme != was || !edited.listed.is_empty();
+            let write_it = (!refused && changes).then(|| Write::new(deck, why));
+            Ok((edited, write_it))
+        }
+        _ => Err(OpsError::new("the deck names no theme to edit: `theme --apply` gives it one")),
+    }
 }

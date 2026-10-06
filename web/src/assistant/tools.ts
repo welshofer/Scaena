@@ -15,13 +15,14 @@ const mcp = import.meta.glob("../../../docs/schema/mcp/*.json", { eager: true, i
 /** What a page's tool does not take: the session is the bundle, and the CPU painter draws. */
 const DROPPED = ["bundle", "out", "painter"];
 
-/** `resource_read`: the MCP server's resources, and the skills a bundle carries. */
+/** `resource_read`: the MCP server's resources, the skills a bundle carries, and its theme. */
 export const resourceRead: Tool = {
   name: "resource_read",
   description:
     "Read a resource, as the MCP server serves it: the schemas (scaena://schema/deck, scaena://schema/patch, …), " +
     "the lint catalog (scaena://lint/catalog), the specification by section (scaena://spec is its index), " +
-    "the skills (scaena://skills/author-deck, …), and examples; and a skill the bundle carries (bundle://skills/NAME).",
+    "the skills (scaena://skills/author-deck, …), and examples; a skill the bundle carries (bundle://skills/NAME); " +
+    "and the theme the deck is drawn in, as theme_edit edits it (bundle://theme).",
   schema: {
     type: "object",
     properties: { uri: { type: "string", description: "The resource's uri." } },
@@ -78,6 +79,16 @@ export function summary(name: string, json: string, error: boolean): string {
     }
     case "data_attach":
       return (r.attached ? `attached ${r.source}: ${r.rows} rows` : "refused") + delta();
+    case "data_edit": {
+      const rows = r.sheet?.rows?.length ?? 0;
+      const sheet = `${r.source}, ${rows} row${rows === 1 ? "" : "s"}`;
+      if (r.edited) return `edited ${sheet}${delta()}`;
+      if (r.refused) return `refused${delta()}`;
+      return r.added?.length || r.removed?.length ? `not written (a dry run)${delta()}` : `read ${sheet}`;
+    }
+    case "theme_edit":
+      if (r.refused) return `refused${delta()}`;
+      return `${r.applied ? "edited" : "not written (a dry run)"} ${r.theme}: ${(r.paths ?? []).join(", ")}${delta()}`;
     case "deck_lint": {
       const fixed = r.fixed?.length ? `fixed ${codes(r.fixed)}; ` : "";
       const counts = ["error", "warning", "info"].map((s) => [s, (r.findings ?? []).filter((f: { severity: string }) => f.severity === s).length] as const);

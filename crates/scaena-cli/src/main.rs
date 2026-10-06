@@ -158,6 +158,15 @@ enum Cmd {
         /// slide shows, hidden. Needs `--state`.
         #[arg(long, requires = "state")]
         layers: bool,
+        /// NODE's look in the state (PLAN 2.58): each property of its type's look and the
+        /// value the state shows, as the editor's ⌥⌘C picks it up. Needs `--state`.
+        #[arg(long, value_name = "NODE", requires = "state")]
+        look: Option<String>,
+        /// Put `--look`'s look on these nodes: a `choose` for each property a node shows
+        /// otherwise, written where that node's own value lives (`scaena patch` takes them),
+        /// and the nodes that look so already or take none of it, with why.
+        #[arg(long, value_name = "NODES", value_delimiter = ',', requires = "look")]
+        onto: Option<Vec<String>>,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -242,6 +251,60 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// A data source's rows (PLAN 2.55, SPEC §3.10): without `--edits`, the source as a table,
+    /// each cell as written; with them, cells set and rows added and taken away, all or none, in
+    /// one write of its file that keeps every other byte, and what that changes in what
+    /// `validate` and `lint` find. A value its column refuses stops them; edits that would make
+    /// the deck invalid are refused.
+    Data {
+        bundle: PathBuf,
+        /// The source's id: what a chart or a table names as `@id`.
+        source: String,
+        /// The edits: a JSON array of `{"op": "set", "row", "column", "value"}`, `{"op": "add",
+        /// "row"?, "values"}`, and `{"op": "remove", "row"}`, rows from 0, or `-` for stdin
+        /// (`docs/schema/mcp/data_edit.json`).
+        #[arg(long)]
+        edits: Option<PathBuf>,
+        /// Say what would change, and write nothing.
+        #[arg(long, requires = "edits")]
+        dry_run: bool,
+    },
+    /// A bundle's versions (PLAN 2.60, SPEC §8): each change its history keeps, by author and
+    /// time, oldest first. `--at` prints the deck as it was just after one; `--diff` says what
+    /// changed from one to another, or to the deck as it is now; `--restore` makes one the deck
+    /// again, with its data files as they were, one change, refused as a patch is where the deck
+    /// would not validate in the bundle as it is.
+    History {
+        bundle: PathBuf,
+        /// The deck as it was in this version: its number as listed, or its id.
+        #[arg(long, value_name = "VERSION", conflicts_with_all = ["diff", "restore"])]
+        at: Option<String>,
+        /// With `--at`, the deck as `.scn`.
+        #[arg(long, requires = "at")]
+        scn: bool,
+        /// What changed from one version to another, or, with one, to the deck as it is now.
+        #[arg(long, value_name = "FROM[,TO]", value_delimiter = ',', conflicts_with = "restore")]
+        diff: Option<Vec<String>>,
+        /// Make this version the deck again: its number as listed, or its id.
+        #[arg(long, value_name = "VERSION")]
+        restore: Option<String>,
+        /// Say what restoring would change, and write nothing.
+        #[arg(long, requires = "restore")]
+        dry_run: bool,
+    },
+    /// The bundle's images, fonts, and data (PLAN 2.59): each with what in the deck or its theme
+    /// names it, and the nodes drawn from it in the states that show them so; a file nothing
+    /// names says so. With `--remove`, those files taken out of the bundle, all or none: each
+    /// must be one of its images, fonts, or data that nothing names.
+    Files {
+        bundle: PathBuf,
+        /// Files to take out, by their paths in the bundle, comma-separated.
+        #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+        remove: Option<Vec<String>>,
+        /// Say what would be taken out, and write nothing.
+        #[arg(long, requires = "remove")]
+        dry_run: bool,
+    },
     /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
     /// once for each place the text is written, and the states that show it. With `--replace`,
     /// every match is replaced in one patch, a `replace_text` where each text lives.
@@ -264,18 +327,24 @@ enum Cmd {
     },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
     /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
-    /// is refused.
+    /// is refused. Or edit the theme the deck names (`--edit`, ADR-0016): its colors, type,
+    /// and spacing, refused as a re-theme is where the deck would not validate in it.
     Theme {
         bundle: PathBuf,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
-        #[arg(long)]
-        apply: PathBuf,
+        #[arg(long, required_unless_present = "edit")]
+        apply: Option<PathBuf>,
+        /// The edit: a JSON array of RFC 6902 operations on the theme the deck names, each
+        /// path a JSON Pointer into it (`/tokens/color/accent`), or `-` for stdin. The theme
+        /// file is written in canonical form; an inline theme, in the deck.
+        #[arg(long, value_name = "OPS", conflicts_with = "apply")]
+        edit: Option<PathBuf>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
         /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme,
         /// and the new one is copied in for a patch with the `retheme` op and the fixes.
-        #[arg(long)]
+        #[arg(long, requires = "apply")]
         force: bool,
     },
     /// The web player and editor on a bundle's folder, on this machine only (PLAN 2.11): a
@@ -480,6 +549,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             state_choices,
             inserts,
             layers,
+            look,
+            onto,
         } => {
             let views = Views {
                 resolved,
@@ -505,6 +576,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 state_choices,
                 inserts,
                 layers,
+                look,
+                onto,
             };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
@@ -578,11 +651,21 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
+        Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
+        Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
+        Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
+            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            history(&bundle, &ask, cli.json)
+        }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
         }
-        Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+        Cmd::Theme { bundle, apply, edit, dry_run, force } => match (apply, edit) {
+            (Some(apply), _) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+            (None, Some(edit)) => theme_edit(&bundle, &edit, dry_run, cli.json),
+            (None, None) => unreachable!("clap asks for --apply or --edit"),
+        },
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
@@ -802,6 +885,40 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
+/// `scaena theme --edit` (PLAN 2.61, ADR-0016): the theme the deck names, edited by RFC 6902
+/// operations, written in canonical form unless that adds a validation error to the deck.
+/// Reports where it wrote and the delta in what `validate` and `lint` find. An operation that
+/// does not apply exits 2 with its index, as a patch's op does; an edit that would make the deck
+/// invalid exits 1, refused. Either way, and under `--dry-run`, nothing is written.
+fn theme_edit(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let text = if ops == Path::new("-") {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).context("reading the ops from stdin")?;
+        text
+    } else {
+        std::fs::read_to_string(ops).with_context(|| format!("reading {}", ops.display()))?
+    };
+    let ops: Vec<serde_json::Value> = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a JSON array of JSON Patch operations (RFC 6902)", ops.display()))?;
+    let t = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops }, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&t)?);
+        return Ok(if t.refused || t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS });
+    }
+    let paths = t.paths.join(", ");
+    match (t.refused, dry_run) {
+        (true, _) => println!("refused: the edit would leave the deck invalid in {}; nothing was written", t.theme),
+        (false, true) => println!("would edit {} at {paths}", t.theme),
+        (false, false) => println!("edited {} at {paths}", t.theme),
+    }
+    for l in &t.listed {
+        println!("  fonts lists {l}");
+    }
+    print_delta(&t.added, &t.removed);
+    Ok(if t.refused || t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 /// A lint delta, a line a finding: `+` added, `-` removed.
 fn print_delta(added: &[Finding], removed: &[Finding]) {
     if added.is_empty() && removed.is_empty() {
@@ -852,6 +969,214 @@ fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCod
         print_delta(&p.added, &p.removed);
     }
     Ok(if p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena data` (PLAN 2.55, ADR-0014): a data source as a table, each cell as written and the
+/// cells its column does not read; or edited in place, reported as `patch` reports a patch. An
+/// edit that does not apply exits 2 with its index, as a patch's op does; edits that would make
+/// the deck invalid exit 1, refused. Either way, and under `--dry-run`, nothing is written.
+fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let edits = match edits {
+        None => Vec::new(),
+        Some(path) => {
+            let text = if path == Path::new("-") {
+                let mut text = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+                    .context("reading the edits from stdin")?;
+                text
+            } else {
+                std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+            };
+            serde_json::from_str(&text).with_context(|| {
+                format!("{} is not a JSON array of edits (docs/schema/mcp/data_edit.json)", path.display())
+            })?
+        }
+    };
+    let req = scaena_ops::data::DataEdit { source: source.to_string(), edits };
+    let d = scaena_ops::data::data_edit(&b, &req, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&d)?);
+        return Ok(if d.refused || d.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS });
+    }
+    let what = d.file.as_deref().map_or_else(|| "the deck's inline rows".to_string(), String::from);
+    let n = req.edits.len();
+    let edits = if n == 1 { "1 edit".to_string() } else { format!("{n} edits") };
+    match (n, d.refused, dry_run) {
+        (0, ..) => {
+            let rows = d.sheet.rows.len();
+            println!("@{source}  {what}  {}", if rows == 1 { "1 row".to_string() } else { format!("{rows} rows") });
+            print_sheet(&d.sheet);
+            return Ok(ExitCode::SUCCESS);
+        }
+        (_, true, _) => println!("refused: the edits would make the deck invalid; nothing was written"),
+        (_, false, true) => println!("would make {edits} in {what}"),
+        (_, false, false) => println!("made {edits} in {what}"),
+    }
+    print_delta(&d.added, &d.removed);
+    Ok(if d.refused || d.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
+/// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
+fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    use scaena_core::files::Kind;
+    let b = open(bundle)?;
+    if let Some(paths) = remove {
+        let r = scaena_ops::files::remove(&b, paths, dry_run)?;
+        let code = if r.refused.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
+        if json {
+            println!("{}", serde_json::to_string_pretty(&r)?);
+            return Ok(code);
+        }
+        for refusal in &r.refused {
+            println!("refused: {}: {}", refusal.path, refusal.why);
+        }
+        match (r.refused.is_empty(), dry_run) {
+            (false, _) => println!("nothing was taken out"),
+            (true, true) => println!("would take out {}", r.removed.join(", ")),
+            (true, false) => println!("took out {}", r.removed.join(", ")),
+        }
+        return Ok(code);
+    }
+    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&listed)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    for (kind, heading) in [(Kind::Image, "images"), (Kind::Font, "fonts"), (Kind::Data, "data")] {
+        let of: Vec<_> = listed.files.iter().filter(|f| f.kind == kind).collect();
+        if of.is_empty() {
+            continue;
+        }
+        println!("{heading}");
+        for f in of {
+            println!("  {}  {}", f.path, size(f.bytes));
+            if f.named.is_empty() {
+                println!("    nothing names it: --remove {} takes it out", f.path);
+                continue;
+            }
+            let names: Vec<String> = f.named.iter().map(scaena_ops::files::said).collect();
+            println!("    named by {}", names.join(", "));
+            for used in &f.used {
+                println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<ExitCode> {
+    use scaena_ops::history::StateChange;
+    use scaena_ops::inspect::Change;
+    let h = scaena_ops::history::history(&open(bundle)?, ask)?;
+    let refused = h.restored.as_ref().is_some_and(|r| r.refused || r.errors > 0);
+    let code = if refused { ExitCode::from(1) } else { ExitCode::SUCCESS };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&h)?);
+        return Ok(code);
+    }
+    let shown = |v: &serde_json::Value| {
+        let text = v.to_string();
+        if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
+    };
+    for v in h.versions.iter().flatten() {
+        let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
+        println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+    }
+    if let Some(seen) = &h.seen {
+        match (&seen.scn, &seen.deck) {
+            (Some(scn), _) => print!("{scn}"),
+            (_, Some(deck)) => println!("{}", serde_json::to_string_pretty(deck)?),
+            _ => {}
+        }
+    }
+    if let Some(c) = &h.compared {
+        let later = c.to.as_ref().map_or_else(|| "the deck as it is now".to_string(), |v| format!("version {}", v.n));
+        println!("from version {} to {later}", c.from.n);
+        if c.states.is_empty() && c.deck.is_empty() && c.files.is_empty() {
+            println!("  nothing changed");
+        }
+        for (id, change) in &c.states {
+            match change {
+                StateChange::Added(_) => println!("  state {id}: added"),
+                StateChange::Removed(_) => println!("  state {id}: removed"),
+                StateChange::Changed(changed) => {
+                    println!("  state {id}:");
+                    for (field, value) in &changed.fields {
+                        println!("    {field}: {}", shown(value));
+                    }
+                    for (node, change) in &changed.nodes {
+                        match change {
+                            Change::Enter(_) => println!("    {node} enters"),
+                            Change::Exit(_) => println!("    {node} exits"),
+                            Change::Change(props) => {
+                                let props: Vec<String> =
+                                    props.iter().map(|(k, v)| format!("{k} {}", shown(v))).collect();
+                                println!("    {node}: {}", props.join(", "));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (field, value) in &c.deck {
+            println!("  deck {field}: {}", shown(value));
+        }
+        for file in &c.files {
+            println!("  {file} changed");
+        }
+    }
+    if let Some(r) = &h.restored {
+        let n = r.version.n;
+        match (r.refused, ask.dry_run) {
+            (true, _) => {
+                println!("refused: version {n} would make the deck invalid in the bundle as it is; nothing was written")
+            }
+            (false, true) => println!("would make version {n} the deck again"),
+            (false, false) => println!("made version {n} the deck again"),
+        }
+        for file in &r.files {
+            println!("  {file} as it was then");
+        }
+        print_delta(&r.added, &r.removed);
+    }
+    Ok(code)
+}
+
+/// A size in bytes, as a person reads it.
+fn size(bytes: u64) -> String {
+    match bytes {
+        b if b < 1024 => format!("{b} B"),
+        b if b < 1024 * 1024 => format!("{:.0} KB", b as f64 / 1024.0),
+        b => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
+    }
+}
+
+/// A data source's sheet as a table: each column's name and type over its cells, each row by
+/// its index, then the cells a column does not read.
+fn print_sheet(sheet: &scaena_ops::data::Sheet) {
+    let index = |i: usize| i.to_string();
+    let mut widths: Vec<usize> =
+        sheet.columns.iter().map(|c| c.name.chars().count().max(c.kind.name().len())).collect();
+    for row in &sheet.rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let first = index(sheet.rows.len().saturating_sub(1)).len().max(3);
+    let line = |lead: &str, cells: Vec<&str>| {
+        let cells: Vec<String> = cells.iter().zip(&widths).map(|(c, w)| format!("{c:<w$}")).collect();
+        println!("{lead:<first$}  {}", cells.join("  ").trim_end());
+    };
+    line("row", sheet.columns.iter().map(|c| c.name.as_str()).collect());
+    line("", sheet.columns.iter().map(|c| c.kind.name()).collect());
+    for (i, row) in sheet.rows.iter().enumerate() {
+        line(&index(i), row.iter().map(String::as_str).collect());
+    }
+    for p in &sheet.problems {
+        println!("! row {}, {}: {}", p.row, p.column, p.why);
+    }
 }
 
 /// `scaena find` (PLAN 2.47): each text the query matches, once for each place it is written,
@@ -1038,6 +1363,25 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(layers) = &i.layers {
             println!("  layers, topmost first:");
             print_layers(layers, 2);
+        }
+        if let Some(look) = &i.look {
+            println!("  the look of {}:", look.node);
+            for part in &look.props {
+                let value = part.value.as_ref().map_or_else(|| "the theme's".to_string(), |v| v.to_string());
+                println!("    {}: {value}", part.prop);
+            }
+        }
+        if let Some(put) = &i.put {
+            match put.patch.is_empty() {
+                true => println!("  put down: nothing to patch"),
+                false => println!("  put on {}: {}", put.took.join(", "), serde_json::to_string(&put.patch)?),
+            }
+            if !put.same.is_empty() {
+                println!("    {} look so already", put.same.join(", "));
+            }
+            for refused in &put.refused {
+                println!("    {}: {}", refused.node, refused.why);
+            }
         }
     }
     Ok(ExitCode::SUCCESS)

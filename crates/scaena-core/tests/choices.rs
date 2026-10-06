@@ -58,8 +58,11 @@ fn a_text_offers_its_role_style_and_props_from_the_theme_and_the_schema() {
             "wrap",
             "maxLines",
             "opacity",
+            "transform/rotate",
             "enter",
-            "exit"
+            "exit",
+            "alt",
+            "semantic"
         ]
     );
     let role = field(&c, "role");
@@ -153,8 +156,11 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
             "labels/show",
             "labels/role",
             "opacity",
+            "transform/rotate",
             "enter",
-            "exit"
+            "exit",
+            "alt",
+            "semantic"
         ]
     );
     let words = |prop: &str| match &field(&rev, prop).takes {
@@ -283,6 +289,93 @@ fn a_value_written_out_lives_in_the_overrides_and_says_so() {
         assert!(color.literal, "{state}");
     }
     assert!(!field(&offered(&doc, "revenue", "title"), "role").literal);
+}
+
+/// How far a node is turned (PLAN 2.51) is its `transform`'s `rotate`: a number of degrees,
+/// never an override, written where the transform lives, its other keys kept. `null` takes
+/// the turn away there, and the transform with it when nothing else is left.
+#[test]
+fn a_turn_is_written_where_the_transform_lives() {
+    let turn = |doc: &Value, state: &str, value: Value, fork: bool| {
+        let ops = json!([{ "op": "choose", "node": "title", "prop": "transform/rotate", "value": value, "state": state, "fork": fork }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).unwrap().doc
+    };
+    let angle = field(&offered(&example(), "revenue", "title"), "transform/rotate").clone();
+    assert_eq!(angle.takes, Takes::Number { min: None, above: None, max: None, whole: false, overrides: false });
+    assert_eq!(shown(&angle), (None, None), "upright: nothing sets it");
+
+    // Nothing sets it: the node's own, in every state.
+    let doc = turn(&example(), "revenue", json!(90), false);
+    assert_eq!(doc["nodes"]["title"]["transform"], json!({ "rotate": 90 }));
+    for state in ["intro", "revenue", "mix", "close"] {
+        let angle = field(&offered(&doc, state, "title"), "transform/rotate").clone();
+        assert_eq!(shown(&angle), (Some(json!(90)), Some(Where::Node)), "{state}");
+        assert!(!angle.literal, "{state}");
+    }
+
+    // Kept to `revenue`: its own, and `mix`, which tracks from it, shows it too.
+    let doc = turn(&example(), "revenue", json!(-6), true);
+    assert!(doc["nodes"]["title"].get("transform").is_none());
+    assert_eq!(doc["states"][1]["props"]["title"]["transform"], json!({ "rotate": -6 }));
+    let mix = field(&offered(&doc, "mix", "title"), "transform/rotate").clone();
+    assert_eq!(shown(&mix), (Some(json!(-6)), Some(Where::State("revenue".into()))));
+    assert_eq!(shown(field(&offered(&doc, "intro", "title"), "transform/rotate")), (None, None));
+
+    // Turned again from `mix`: where it lives, `revenue`, its other keys kept.
+    let mut scaled = doc.clone();
+    scaled["states"][1]["props"]["title"]["transform"]["scale"] = json!(2);
+    let doc = turn(&scaled, "mix", json!(30), false);
+    assert_eq!(doc["states"][1]["props"]["title"]["transform"], json!({ "rotate": 30, "scale": 2 }));
+    assert!(doc["states"][2]["props"]["title"].get("transform").is_none());
+
+    // Taken away where it lives: the scale stays; with nothing else, the transform goes.
+    let doc = turn(&doc, "mix", Value::Null, false);
+    assert_eq!(doc["states"][1]["props"]["title"]["transform"], json!({ "scale": 2 }));
+    let upright = turn(&turn(&example(), "revenue", json!(90), false), "revenue", Value::Null, false);
+    assert_eq!(upright["nodes"]["title"], example()["nodes"]["title"]);
+}
+
+/// What a reader hears of a node (PLAN 2.56, SPEC §3.12): its description (`alt`), words for
+/// people, and its part in the story (`semantic`), one of the schema's words, `decoration`
+/// among them. Each is written where it lives, as any choice is, and taken away there.
+#[test]
+fn what_a_reader_hears_is_chosen_where_it_lives() {
+    let choose = |doc: &Value, prop: &str, state: &str, value: Value| {
+        let ops = json!([{ "op": "choose", "node": "title", "prop": prop, "value": value, "state": state }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).unwrap().doc
+    };
+    let title = offered(&example(), "mix", "title");
+    let alt = field(&title, "alt");
+    assert_eq!((&alt.takes, shown(alt)), (&Takes::Text, (None, None)), "the title says its words");
+    assert!(!alt.literal);
+    let part = field(&title, "semantic");
+    let Takes::Word { words } = &part.takes else { panic!("{part:?}") };
+    assert_eq!(
+        words,
+        &["claim", "evidence", "annotation", "context", "comparison", "takeaway", "source", "navigation", "decoration"]
+    );
+    // `revenue` makes the title the claim, and `mix` tracks it from there; `intro` shows its own.
+    assert_eq!(shown(part), (Some(json!("claim")), Some(Where::State("revenue".into()))));
+    assert_eq!(
+        shown(field(&offered(&example(), "intro", "title"), "semantic")),
+        (Some(json!("navigation")), Some(Where::Node))
+    );
+    let rev = field(&offered(&example(), "mix", "rev"), "alt").clone();
+    assert_eq!(shown(&rev), (Some(json!("Quarterly revenue by product, Q4 2025 through Q3 2026.")), Some(Where::Node)));
+
+    // A description nothing sets goes on the node, in every state; a part, where it lives.
+    let doc = choose(&example(), "alt", "mix", json!("Revenue, quarter by quarter"));
+    assert_eq!(doc["nodes"]["title"]["alt"], json!("Revenue, quarter by quarter"));
+    let doc = choose(&doc, "semantic", "mix", json!("takeaway"));
+    assert_eq!(doc["states"][1]["props"]["title"]["semantic"], json!("takeaway"));
+    assert_eq!(doc["nodes"]["title"]["semantic"], json!("navigation"), "the node's own is kept");
+    for (state, part) in [("intro", "navigation"), ("revenue", "takeaway"), ("mix", "takeaway")] {
+        assert_eq!(field(&offered(&doc, state, "title"), "semantic").value, Some(json!(part)), "{state}");
+    }
+
+    // Taken away where it lives: the node's own description goes, and `intro`'s part with it.
+    let doc = choose(&choose(&doc, "alt", "close", Value::Null), "semantic", "intro", Value::Null);
+    assert!(doc["nodes"]["title"].get("alt").is_none() && doc["nodes"]["title"].get("semantic").is_none());
 }
 
 fn state(doc: &Value, state: &str) -> StateChoices {

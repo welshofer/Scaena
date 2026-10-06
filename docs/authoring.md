@@ -61,6 +61,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - It snaps to the theme's grid and the layout's slots, and the move becomes a change to your source: one ⌘Z undoes it, in the preview or the source.
   - Before you let go, the status says in how many states the move shows. Hold Alt to keep it to the state shown, and Shift to place it freely, off the grid, which lint flags as an override (W301).
   - Handles resize it by the grid's tracks. The arrow keys move it a track at a time, and Shift with an arrow resizes it. Escape selects what holds it.
+  - Press ⌘' (Ctrl+'), or Grid beside the zoom, to see the theme's grid over the slide: its columns and rows, the gutters and margins between them, and the baseline grid its text sits on. Press it again to hide it. As you drag or resize, a line shows wherever an edge or the middle of what you move meets another object's, or the slide's; with Shift, off the grid, it snaps onto one within a few pixels. Hold ⌘ (Ctrl) as well to place it exactly where you drag.
 - **Several at once.** Shift-click to add an object beside the one selected, or take it away; they must sit in the same place, side by side on the slide or in the same container. Or drag across an empty part of the slide to select what the box encloses.
   - Drag them, or press an arrow key, and they move together, keeping where they stand about each other. Delete, ⌘D, ⌘C, and ⌘X act on all of them, and a paste puts them down as they stood.
   - The inspector aligns them by their left, right, top, or bottom edges or their middles, on the grid's tracks, and spreads three or more evenly. It offers what all of them have, and what you choose there is theirs.
@@ -82,10 +83,12 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - A color or a length you write out yourself, and any text size, is an override: it goes in the deck's `overrides`, holds in every state, and a new theme does not change it. The inspector marks it so. The × beside a value takes it away where it is set, so what is under it shows.
   - A chart shows what it reads: its data, the column on each axis (offered from the columns its data has, numbers for a value), the series, and how it reads them. Choose another source and the chart reads it: where that source lacks an axis's column, the axis reads another of the same kind, a name for a name and a number for a number, and the chart drops whatever else the source has no column for (a series, say). "Only in" makes it a data update: this state reads the new numbers, and the chart moves to them from the state before.
   - An image shows its fit, its focal point, and its crop. Press Pick, then click the image where its subject is: that point stays in view however the box is shaped, as cover crops it. Escape leaves it as it was. A crop is a part of the image, as fractions of it: x, y, width, and height. Drag an image file from your computer onto an image in the preview to put it in that image's place: it joins the bundle, and one ⌘Z puts the old one back.
+  - Every object offers its description and its part in the story: what a reader hears. A description is what a screen reader says for it: what an image or a chart shows, or, for a text, what to say in place of its words (left empty, its words are read). An object marked decoration is not read at all. Under the choices, the inspector says how the object reads, as the player says it to a screen reader; with nothing selected, it reads the state shown part by part, in order, and a part selects its object. An image with no description is W410: its mark offers Describe it, which opens the inspector on the image, its description ready to type.
 - **Add, copy, delete.** The Insert menu under the preview offers what your theme and bundle have: a text in each of the theme's roles, a rectangle, an ellipse, a line, an arrow, each image in the bundle, a chart and a table of each data source, and each of the theme's shader backgrounds. The chart is made from the columns the data has: a line over dates, bars over names, grouped where a name repeats.
   - Or draw it: press T (a text), R (a rectangle), O (an ellipse), L (a line), or A (an arrow) on the preview, and drag where it goes. It lands on the grid's cells you covered, or with Shift exactly where you dragged; a line runs the way you dragged. A click puts it where you clicked, a text you draw is ready to type into, and Escape stops drawing.
   - What you choose goes where you last clicked in the preview, or in its middle, snapped to the grid. A text or an image clicked into an empty slot of the layout fills the slot, so it follows the deck into its other formats. A shader fills the canvas, behind everything. It appears from the state shown on, selected, ready to drag or type in.
   - Delete (or Backspace) takes the object selected, and what it holds, out of the state shown and the states after it. Something that no state shows any more leaves the deck, so adding and deleting leaves nothing behind. Shift+Delete takes it out of the deck. ⌘D (Ctrl+D) puts a copy beside it, with copies of what it holds.
+  - ⌥⌘C (Ctrl+Alt+C) copies the look of the object selected, as the state shows it: a text's role and style, a shape's fill, outline, and corners, an image's corners, a shader's preset and palette, a chart's labels, a stack's or a grid's gap. ⌥⌘V (Ctrl+Alt+V) gives that look to each object selected, written where each one's own look is set, as a choice in the inspector is: on the object, so it holds in every state, or in the step that sets it. Where the look takes the theme's value, the object's own setting goes, so the theme's shows. An object of another kind takes what it shares with the look, an image a shape's corners; the status says what took nothing, and why. `scaena inspect --state S --look NODE --onto A,B` gives the same patch on the command line.
   - ⌘C (Ctrl+C) copies the object selected, with what it holds, and ⌘X cuts it. ⌘V pastes it where you last clicked, in this deck or another, bringing the data and images it reads. What the other deck's theme lacks, a color or a role, is left out, and the status says what; a text in a role the theme lacks takes the nearest role it has. Text copied from anywhere else comes in as body text.
   - Each is one ⌘Z.
 - **Layers.** The Layers tab beside the inspector lists the objects of the state shown, topmost first, inside what holds them. Click one to select it, even one under the rest. Those dimmed are not shown here: they leave in this state, another step of the slide shows them, or no state shows them any more.
@@ -93,7 +96,29 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Drag an object up or down among those beside it to put it in front of or behind them; in a stack, to lay it out earlier or later. Alt with ↑ or ↓ moves the one focused a place.
   - Drag it beside an object another container holds, or out among the slide's own, and it goes there; drop it on a container's middle and it goes in, at the top. It keeps its place on the slide where it can: in the grid cells it stands in, inside a frame, at its spot in a stack's order, or after a grid's last cell. Alt with ← takes it out of its container, and Alt with → puts it into the container just above it.
   - Each is one ⌘Z.
+- **Data.** The Data tab shows a data source your charts and tables read as a table: each column with its type, and each row as the file has it. A cell its column does not read, `n/a` in a column of numbers, is marked and listed under the table, with why. The deck does not check until it reads (E103), and setting the cell here is how you mend it.
+  - Click a cell and type. Enter sets it and goes to the cell below, and Escape puts back what it held. A value its column does not read, or one that would leave the deck invalid, is refused, and the status says why. Every chart and table that reads the source shows the change.
+  - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
+  - The file keeps every byte you did not change, its quoting and line endings included, as `scaena data` writes it. Undo and Redo, or ⌘Z in a cell you have not changed, put it back as it was. A save records each version in the bundle's history.
+  - Click a row's cell and the slide outlines what that row draws: its bar, its point, its slice, its row of a table. The line under the table says which, or that nothing on this slide draws it. With the Data tab open, click a bar on the slide and its row is chosen; double-click a bar to open the Data tab on it. A bar your `dataTransform` sums from several rows chooses them all.
+- **Annotate a chart.** Select a chart, then click one of its bars, points, or slices, and it is outlined. Right-click it to:
+  - highlight it, or its whole series;
+  - call it out, with words you type over it;
+  - rule a line at its value;
+  - band from it to the next bar you click.
+  - A donut's slice offers its highlight alone.
+  - Click a callout, a rule, or a band to select it. Drag a callout to another bar, double-click it to change what it says, or press Delete to take it away.
+  - Each is one edit, written where the chart's annotations are: on the chart, or in the state that changes them. Check **only in** in the inspector, or hold Alt as you drag, to keep it to this state. In the source, they are the chart's `annotations`.
+- **Files.** The Files tab lists what your bundle holds besides the deck: its images, fonts, and data files, each with its size, what in the deck names it, and the objects drawn from it, slide by slide. Click an object there to go to the first slide that shows it, selected.
+  - Drag an image from the list onto an image on the slide to show it there instead, or onto an empty spot to add it there. **Insert** adds it where you last clicked the slide. Drop it on the source and its path goes there. Each is one ⌘Z.
+  - A file nothing names says so. **Remove** takes it out of the bundle, and the deck looks the same. Undo puts it back, and the next save takes it out where the bundle is kept. A file something names stays, and the status says what names it.
+- **Versions.** A bundle that keeps a history (`scaena save --history` begins one) lists its versions in the Versions tab, the newest first, each by who made it and when; each save adds the edits since the last. Click one to see a slide of it as it was, and what changed since, or since another version. Restore makes it the deck again, with its data, as one edit: ⌘Z takes it back.
+- **Rehearse.** **Rehearse** plays the deck from the start as you would present it: → or a click goes on, ← goes back, Escape stops. It counts how long you spend on each slide, then shows each one's time and the hold it would keep, its time less its animation. **Keep as holds** writes them all as one edit, so the deck plays by itself at your pace; ⌘Z takes them back.
+- **Keys.** Press ? anywhere but the source or a field, or click **Keys**, to see every key the editor answers, grouped by what it does, as your machine writes them: ⌘, ⌥, and ⇧ on a Mac, Ctrl, Alt, and Shift elsewhere. ⌘K lists the same commands by name, and runs them.
+- **Formats.** If your deck lists other formats (`formats:[9:16]`), **Formats** beside the format menu shows the slide in each of them side by side under the preview, its own canvas first, and plays them as the preview plays. Each says how many findings it has on the slide shown: a headline that fits the wide slide and runs long in the tall one says so on the tall one. Click one to edit the deck in that format.
 - **Theme.** The theme menu beside the format menu lists the themes your bundle holds, the deck's own chosen, and the themes that ship. Choose one to see the deck in it: one ⌘Z takes it back. A theme that lacks a role or a color your deck uses is refused, and the status says which.
+  - The Theme tab edits the theme itself: its colors, each with the roles that use it; its type roles, each one's family, size, weight, leading, and tracking; and its spacing. Change a value and press Enter, and every slide that uses it shows the change. A value the theme cannot read is refused, and the status says why. Each change is one ⌘Z, and a save records it in the bundle's history.
+  - Your bundle holds its own copy of a theme that ships, and your edits change that copy, never the theme that ships. Choose the theme that ships again from the menu, and it comes in beside your edited copy (`dusk-2.theme.json`) rather than over it.
 - **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.
   - **+ Step** adds a state after the one shown that shows what it shows: change it, and the deck builds from one to the other. **+ Slide** adds an empty slide after the shown one's, in its layout, ready to fill from the Insert menu.
   - Drag a state to move it, or hold Alt and press an arrow key. F2, or a double click on its name, renames it, and Delete removes it. A state another builds on stays; the status says which.
@@ -171,6 +196,10 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
   - `scaena inspect talk --state revenue --resolved` shows what a state holds after the theme.
   - `scaena diff talk --from revenue --to mix` shows what a click changes.
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
+  - `scaena data talk q3` shows a data source's rows as written, each by its index, and any value its column does not read. `--edits` sets cells, adds rows, and takes them away, in one write of the file that keeps every other byte (SPEC §3.10).
+  - `scaena files talk` lists the bundle's images, fonts, and data, what names each, and the objects drawn from each, in which states. `--remove` takes out files nothing names, and refuses the rest.
+  - `scaena theme talk --edit ops.json` edits the theme the deck names by JSON Patch operations on it (`/tokens/color/accent`, `/type/roles/body/size`), refused where the deck would not check in the theme it leaves; `--apply theme.json` swaps in another theme (SPEC §3.6).
+  - `scaena history talk` lists the versions its history keeps. `--at 3` prints version 3's deck, `--diff 3` says what changed from it to the deck now (`--diff 3,5` from one version to another), and `--restore 3` makes it the deck again, with its data files, as one change.
 
 **Pick one place to write.** If you keep `deck.scn`, it is your source: `scaena serve` compiles it as you save, or `compile` does when you ask. The editor on a served folder opens and saves that same `deck.scn`. The editor anywhere else writes `deck.json` alone, and leaves a `deck.scn` behind. If you edit only in the editor, `deck.json` is the source, and `scaena decompile` gives you its `.scn` whenever you want it.
 
@@ -361,6 +390,16 @@ state faster slide:revenue
   title "Pro grew three times faster"
 ```
 
+**A tilt, and a turn on the next click.** `transform` draws an object turned (`rotate`, degrees clockwise), scaled, leaning (`skew`), or moved (`translate`), about its middle or its `anchor`, without laying it out again. Between two states it turns from one to the other.
+
+```scn
+state tilted slide:revenue
+  title transform:{rotate: -4}
+
+state level slide:revenue
+  title transform:{rotate: 0}
+```
+
 **A line too long for its slot.** Lint says E100, with how much it overflows. Shorten it first. Otherwise, let it shrink to the role's smallest size; its fix offers this:
 
 ```scn
@@ -378,7 +417,7 @@ state turn layout:statement transition:slow hold:4s
   choreo point enter:rise delay:240ms
 ```
 
-**A picture.** A PNG in the bundle's `assets/` folder, with `alt` text for a reader (W410 without it):
+**A picture.** A PNG or a JPEG in the bundle's `assets/` folder, with `alt` text for a reader (W410 without it). A photo goes in as the camera wrote it: one stored on its side shows upright, as its EXIF orientation says. A JPEG in CMYK or at 12 bits a sample is refused, saying why; save it as RGB at 8 bits first (SPEC §3.3):
 
 ```scn
 state ridge layout:art-right

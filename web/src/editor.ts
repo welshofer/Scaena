@@ -29,10 +29,21 @@
 // that is the source the editor shows and saves. A change on disk, from a text editor or
 // another page, comes into the editor when it has no changes of its own not saved; over such
 // changes, the editor offers to take it.
-import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  invertedEffects,
+  isolateHistory,
+  redo,
+  redoDepth,
+  undo,
+  undoDepth,
+} from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
-import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState } from "@codemirror/state";
+import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
+import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -44,18 +55,42 @@ import {
 import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
-import { canvas, placed } from "./canvas";
-import { cue } from "./cue";
-import { finder } from "./find";
+import { canvas, canvasKeys, placed } from "./canvas";
+import { markName, noteName } from "./notes";
+import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, palette, SHIFT, sheet } from "./commands";
+import { cue, cueKeys } from "./cue";
+import { dataKeys, sheets } from "./data";
+import { filesPanel } from "./files";
+import { finder, findKeys } from "./find";
 import { keptNames } from "./folders";
-import { layers } from "./layers";
+import { formatsRow } from "./formats";
+import { layerKeys, layers } from "./layers";
 import { looks } from "./look";
-import type { Edited, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Source, Where } from "./protocol";
+import type {
+  Arrange,
+  DataMark,
+  Edited,
+  Export,
+  Finding,
+  FromWorker,
+  Inspected,
+  Linted,
+  Painter,
+  Rewritten,
+  SaveTo,
+  Seeing,
+  Source,
+  Where,
+} from "./protocol";
+import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
-import { strip } from "./strip";
+import { strip, stripKeys } from "./strip";
+import { type Selected, typingKeys } from "./typing";
+import { themePanel } from "./theme-panel";
+import { versionsPanel } from "./versions";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -64,7 +99,35 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
+const rowsSaid = (rows: number[]) =>
+  rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
+
+/** The source's keys for its findings: CodeMirror's, and Shift-F8 back to the one before. */
+const findingKeys = [...lintKeymap, { key: "Shift-F8", run: previousDiagnostic }];
+/** What the source answers beyond typing (PLAN 2.65), as the keys sheet lists it: its findings'
+ * keys as the keymap binds them, then Tab and the way out. */
+const sourceKeys = (): Key[] => {
+  const does = new Map<unknown, string>([
+    [nextDiagnostic, "In the source: go to the next finding"],
+    [previousDiagnostic, "Go to the finding before"],
+    [openLintPanel, "List the findings"],
+  ]);
+  return [
+    ...[...does].flatMap(([run, label]): Key[] => {
+      const bound = findingKeys.find((b) => b.run === run)?.key;
+      return bound ? [{ keys: keyOf(bound), label, group: "The source" }] : [];
+    }),
+    { keys: "Tab", label: "Indent", group: "The source" },
+    { keys: "Escape, then Tab", label: "Leave the source", group: "The source" },
+  ];
+};
+/** What the editor answers anywhere beyond its commands' keys (PLAN 2.65). */
+const editorKeys = (): Key[] => [{ keys: `${MOD}K`, label: "Commands by name, and words for the assistant", group: "The editor" }];
+/** Whether `at` takes what is typed: a field, or the source. */
+const typingIn = (at: EventTarget | null) =>
+  at instanceof Element && Boolean(at.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), .cm-editor"));
 
 /** The one change that turns `from` into `to`: what lies between their common start and
  * their common end. A fix rewrites the deck as canonical source, so most of it is unchanged. */
@@ -192,6 +255,15 @@ const failed = (e: unknown) => {
   console.error(e);
 };
 
+/** The files an edit wrote beside the deck, carried by its change to the source: the data files a
+ * restore wrote (PLAN 2.60), or the theme a theme edit did (PLAN 2.61). The undo of that change
+ * writes each back as it was, and its redo as the edit left it. */
+const filesWritten = StateEffect.define<Rewritten[]>();
+/** A change that carries files written is undone with each file's texts swapped. */
+const rewrites = invertedEffects.of((tr) =>
+  tr.effects.filter((e) => e.is(filesWritten)).map((e) => filesWritten.of(e.value.map(({ path, before, after }) => ({ path, before: after, after: before })))),
+);
+
 async function edit(source: Source) {
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
@@ -211,6 +283,17 @@ async function edit(source: Source) {
   formatPicker.replaceChildren(new Option("own canvas", ""));
   for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
+  /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
+   * follow. A format the deck no longer lists gives way to its own canvas, as the worker's does. */
+  function reformats(formats: string[]) {
+    const listed = [...formatPicker.options].slice(1).map((o) => o.value);
+    if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
+      const chosen = formatPicker.value;
+      formatPicker.replaceChildren(new Option("own canvas", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.value = formats.includes(chosen) ? chosen : "";
+    }
+    formatting.formats(formats);
+  }
   /** The bundle's name, and where it is kept. */
   let { name, where } = stage.opened;
   /** Changes typed, fixed, or dropped, and how many of them the last save holds. */
@@ -250,6 +333,9 @@ async function edit(source: Source) {
   const wholes: Linted[] = [];
   /** The state the preview and the inspector show, by index. */
   let shown = 0;
+  /** The states shown so far, counted: a compile asked for before the last answers with the state the
+   * worker showed then, and the one shown since stays. */
+  let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
   /** A lint of every state, waiting for typing to stop. */
@@ -266,6 +352,11 @@ async function edit(source: Source) {
   /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
   let chosen: string | undefined;
   let beside: string[] = [];
+  /** The characters selected in the text typed in, if any are (PLAN 2.38). */
+  let characters: Selected | undefined;
+  /** What the assistant's question has changed so far, selected once the canvas stands in the
+   * source its edit made (PLAN 2.52). */
+  let touching: { source: string; nodes: string[] } | undefined;
 
   const view = new EditorView({
     parent: $("#code"),
@@ -275,9 +366,10 @@ async function edit(source: Source) {
         lineNumbers(),
         highlightActiveLineGutter(),
         history(),
+        rewrites,
         drawSelection(),
         highlightActiveLine(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...lintKeymap, indentWithTab]),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
         // Named for a screen reader, and in the tab order by its own attribute: Tab indents,
         // so Escape then Tab leaves it.
         EditorView.contentAttributes.of({ "aria-label": "The deck's source", tabindex: "0" }),
@@ -298,6 +390,12 @@ async function edit(source: Source) {
               tell();
             }
           }
+          // An undo or a redo of a restore or a theme edit writes its files back, before the deck
+          // is compiled again (PLAN 2.60, 2.61).
+          const written = update.transactions.flatMap((tr) =>
+            tr.isUserEvent("undo") || tr.isUserEvent("redo") ? tr.effects.filter((e) => e.is(filesWritten)).flatMap((e) => e.value) : [],
+          );
+          if (written.length) rewrite(written, update.docChanged ? undefined : update.state.doc.toString());
           if (update.selectionSet) follow();
         }),
         // A file dropped on the source joins the bundle; its path goes where it was dropped.
@@ -362,6 +460,7 @@ async function edit(source: Source) {
     group: () => board.group(),
     ungroup: () => board.ungroup(),
     pick: () => board.pick(),
+    select: (node) => board.select(node),
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
@@ -377,6 +476,7 @@ async function edit(source: Source) {
     source: () => view.state.doc.toString(),
     version: () => version,
     at: (node) => inspected?.nodes[node]?.at as Record<string, unknown> | undefined,
+    transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     typed: (source, edited, joins) => {
       taken = { source, edited };
@@ -408,14 +508,44 @@ async function edit(source: Source) {
     },
     // Characters selected in a text typed in: the inspector gives them a look (PLAN 2.38), and
     // focus there keeps the text typed in.
-    chose: (selected) => void look.characters(selected),
-    keeps: (to) => to instanceof Node && $("#look").contains(to),
+    chose: (selected) => {
+      characters = selected;
+      void look.characters(selected);
+    },
+    // Focus in the inspector, or in the assistant asked about them, keeps the text typed in and
+    // its characters selected (PLAN 2.38, 2.52).
+    keeps: (to) => to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to)),
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
+    ruled: (on) => $("#grid").setAttribute("aria-pressed", String(on)),
     // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
     fix: (f) => fix(f),
     go: (f) => go(f),
+    // A finding no fix can make, about what the inspector sets (PLAN 2.56): its field in focus.
+    edit: (f, prop) => {
+      tab("inspector");
+      if (f.node !== undefined) look.focus(f.node, prop);
+    },
+    // A right click, or the menu key (PLAN 2.53): what is done to the nodes selected, or on the
+    // canvas where nothing is.
+    menu: (x, y, on) =>
+      void menu(x, y, on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true), $("#overlay")),
+    // A chart's mark, or a table's row (PLAN 2.64): a click chooses its rows where the data is
+    // shown, and a double click opens the Data tab on them.
+    // An annotation made from a mark keeps to the state shown as the inspector's choices do (PLAN 2.67).
+    keeping: () => look.keeping(),
+    pointedAt: async (at, open) => {
+      if (!open && $("#data").hidden) return false;
+      const now = showing();
+      if (!now) return false;
+      const mark = await stage.markAt(now.state, at, format()).catch(() => undefined);
+      if (!mark) return false;
+      if (open) tab("data");
+      await data.select(mark.source, mark.rows);
+      say(`${mark.node} is drawn from ${rowsSaid(mark.rows)} of ${mark.source}`);
+      return true;
+    },
   }, $("#marks"), $("#marked"));
   /** The layers of the state shown (PLAN 2.50): a tab beside the inspector, each change a patch. */
   const layering = layers(stage, $("#layers"), {
@@ -426,11 +556,194 @@ async function edit(source: Source) {
     apply: made,
     say,
   });
+  /** A data file written, the source as it stands (PLAN 2.55): its deck shown and linted again, as
+   * `edited` says, and a change to save. */
+  const wrote = (edited: Edited) => {
+    const source = view.state.doc.toString();
+    taken = { source, edited };
+    edits++;
+    tell();
+    // The source is as it was, so CodeMirror lints nothing: the edit is shown here.
+    const findings = take(edited, source, version);
+    view.dispatch(setDiagnostics(view.state, findings.map((f) => diagnostic(f, view.state.doc.length))));
+  };
+  /** The deck's data (PLAN 2.55): a source as a table in a tab of its own, each change one write of
+   * its file, or one patch of rows written inline. */
+  const data = sheets(stage, $("#data"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    apply: made,
+    took: wrote,
+    undo: () => void undo(view),
+    redo: () => void redo(view),
+    say,
+    chose: (source, rows) => {
+      rowsChosen = rows.length ? { source, rows } : undefined;
+      void outlineRows();
+    },
+  });
+  /** The rows chosen in the data, and what they draw in the state shown: outlined on the canvas,
+   * and said under the table, while the Data tab is shown (PLAN 2.64). */
+  let rowsChosen: { source: string; rows: number[] } | undefined;
+  let outlining = 0;
+  async function outlineRows() {
+    const asked = ++outlining;
+    const now = showing();
+    const chosen = rowsChosen;
+    if (!now || !chosen || $("#data").hidden) {
+      board.markRows(undefined, []);
+      return data.drawn("");
+    }
+    const marks = await stage.marksOf(now.state, chosen.source, chosen.rows, format()).catch((): DataMark[] => []);
+    if (asked !== outlining) return;
+    board.markRows(now.state, marks);
+    const what = marks.map((m) => `${m.node} (${m.key.replaceAll("\u001f", " · ")})`);
+    data.drawn(what.length ? `In this state, ${rowsSaid(chosen.rows)} ${chosen.rows.length === 1 ? "draws" : "draw"} ${what.join(", ")}.` : `In this state, nothing draws ${rowsSaid(chosen.rows)}.`);
+  }
+  new MutationObserver(() => void outlineRows()).observe($("#data"), { attributes: true, attributeFilter: ["hidden"] });
+  /** The bundle's files (PLAN 2.59): its images, fonts, and data, what uses each in which states,
+   * and those nothing names taken out, each one change the panel's undo takes back. */
+  const filing = filesPanel(stage, $("#files"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    took: wrote,
+    // The cursor goes into the state, as the strip puts it there: the preview stays on it.
+    show: async (state, node) => {
+      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+      const start = last?.states[index]?.[1];
+      if (start === undefined) return;
+      view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+      await show(index);
+      board.select(node);
+    },
+    insert: async (path) => {
+      const inserts = await stage.inserts().catch(() => []);
+      const n = inserts.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
+      if (n < 0) return say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
+      await board.insert(n, path);
+    },
+    say,
+  });
+  /** The deck's versions (PLAN 2.60): what the bundle's history keeps, each shown as it was,
+   * compared, and made the deck again as one change, which ⌘Z undoes with its data files. */
+  const versioning = versionsPanel(stage, $("#versions"), {
+    shown: showing,
+    source: () => view.state.doc.toString(),
+    restore: async (version) => {
+      if (assisting) return void say("not restored: the assistant is at work on the deck");
+      try {
+        const done = await stage.restoreVersion(view.state.doc.toString(), version, shown, format());
+        const r = done.restored;
+        if (!r.applied || done.source === undefined || !done.edited) {
+          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+          say(`version ${version.n} not restored: ${why.join("; ") || "the deck would not validate in the bundle as it is"}`);
+          return r;
+        }
+        // One change, which carries the data files the restore wrote for its undo.
+        const effects = filesWritten.of(done.files);
+        if (done.source === view.state.doc.toString()) {
+          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          wrote(done.edited);
+        } else {
+          taken = { source: done.source, edited: done.edited };
+          const changes = change(view.state.doc.toString(), done.source);
+          view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
+        }
+        const files = r.files.length ? `, with ${r.files.join(", ")}` : "";
+        say(`version ${version.n} restored${files} · ⌘Z undoes it`);
+        return r;
+      } catch (e) {
+        say(`not restored: ${said(e)}`);
+      }
+    },
+    say,
+  });
+  /** The state shown in each of the deck's formats, side by side under the canvas (PLAN 2.62): a
+   * click opens the canvas in one, as the format menu does. */
+  const formatting = formatsRow(stage, $("#formats"), $<HTMLButtonElement>("#formats-open"), {
+    state: () => last?.states[shown]?.[0] ?? stage.opened.states[shown],
+    format: () => formatPicker.value,
+    open: (name) => {
+      if (formatPicker.value === name) return;
+      formatPicker.value = name;
+      formatPicker.dispatchEvent(new Event("change"));
+    },
+  });
+  formatting.formats(stage.opened.formats);
+  /** The deck played as presented, each state's time kept, and kept as its hold on request: one
+   * patch, one step to undo (PLAN 2.63). */
+  const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
+    slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
+    format,
+    show: (index) => void show(index),
+    keep: async (ops, what) => {
+      try {
+        const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
+        made(source, edited);
+        say(`kept ${what} · ⌘Z undoes them`);
+        return true;
+      } catch (e) {
+        say(`not kept: ${said(e)}`);
+        return false;
+      }
+    },
+    say,
+  });
+  $("#rehearse-open").addEventListener("click", () => void rehearsing.start());
+  /** The deck's theme, edited (PLAN 2.61, ADR-0016): its colors, type roles, and spacing, each
+   * change one edit of the theme the deck names, the deck drawn in it. Refused, it says why; else
+   * the source's history takes it as a change that carries the theme's text before and after, so
+   * ⌘Z writes the theme back, as with a restore's data files. An inline theme is the deck's own:
+   * its edit is a change of the source. */
+  const theming = themePanel(stage, $("#theming"), {
+    edit: async (ops, what) => {
+      if (assisting) return void say("theme not edited: the assistant is at work on the deck");
+      if (!showing()) return void say("theme not edited while the source does not compile");
+      try {
+        const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format());
+        const r = done.result;
+        if (r.refused || done.source === undefined || !done.edited) {
+          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+          say(`theme not edited: ${why.join("; ") || "the deck would not validate in it"}`);
+          return r;
+        }
+        const effects = done.files.length ? [filesWritten.of(done.files)] : [];
+        if (done.source === view.state.doc.toString()) {
+          if (!effects.length) return void say(`theme: ${what}, as it was`);
+          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          wrote(done.edited);
+        } else {
+          taken = { source: done.source, edited: done.edited };
+          const changes = change(view.state.doc.toString(), done.source);
+          view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
+        }
+        const lint = r.added.length || r.removed.length ? ` · lint finds ${r.added.length} new, ${r.removed.length} gone` : "";
+        say(`theme: ${what}${lint} · ⌘Z undoes it`);
+        return r;
+      } catch (e) {
+        say(`theme not edited: ${said(e)}`);
+      }
+    },
+  });
+  /** Files an undo or a redo of a restore or a theme edit writes back (PLAN 2.60, 2.61), each to
+   * its text after. Where the source did not change, it is `source`, which nothing compiles
+   * again: the deck is shown and linted again here, as after a data file's edit. */
+  function rewrite(files: Rewritten[], source?: string) {
+    const written = files.map(({ path, after }) => ({ path, text: after }));
+    const edit = source === undefined ? undefined : { source, index: shown, format: format() };
+    void stage.writeFiles(written, edit).then((edited) => {
+      if (edited) wrote(edited);
+    }, failed);
+  }
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
     if (how === "in" || how === "out" || how === "fit") void board.zoom(how);
   };
+  // The theme's grid over the canvas (PLAN 2.57), as ⌘' draws it.
+  $("#grid").onclick = () => void board.rule();
   /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
    * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
   cueing = cue(stage, $("#cue"), $("#preview"), {
@@ -479,11 +792,14 @@ async function edit(source: Source) {
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");
   let offered = "";
+  /** What may be inserted, by label, as the deck last offered it: what the palette lists. */
+  let insertable: string[] = [];
   async function offer() {
     const inserts = await stage.inserts().catch(() => undefined);
     const key = JSON.stringify(inserts?.map((i) => i.label));
     if (!inserts || key === offered) return;
     offered = key;
+    insertable = inserts.map((i) => i.label);
     const groups = new Map<string, HTMLOptGroupElement>();
     for (const [n, insert] of inserts.entries()) {
       const [kind, name] = insert.label.includes(" · ") ? insert.label.split(" · ", 2) : [insert.node.type, insert.label];
@@ -565,6 +881,7 @@ async function edit(source: Source) {
     const source = view.state.doc.toString();
     const read = version;
     const sent = performance.now();
+    const asked = showings;
     let edited: Edited;
     if (taken?.source !== source) told = undefined;
     try {
@@ -581,15 +898,28 @@ async function edit(source: Source) {
       return [];
     }
     trips.push({ ms: performance.now() - sent, ...edited.ms });
+    return take(edited, source, read, asked !== showings).map((f) => diagnostic(f, view.state.doc.length));
+  }
+
+  /** Show `edited`, what the worker made of `source`, version `read` of it: the deck shown and
+   * linted, its findings listed, and every state linted once typing stops; the state shown as it
+   * says, unless another was `moved` to since it was asked for. The findings, to mark in the
+   * source. */
+  function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
     last = edited;
     if (edited.valid) {
       statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
-      if (edited.at) shown = edited.at.index;
+      reformats(edited.formats);
+      if (edited.at && !moved) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
       void inspect();
       void layering.refresh();
-      void board.refresh().catch(failed);
+      void data.refresh();
+      void filing.refresh();
+      void versioning.edited();
+      void theming.edited();
+      void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
       void offerThemes();
@@ -600,7 +930,7 @@ async function edit(source: Source) {
       clearTimeout(pending);
       pending = setTimeout(() => void lintAll(read), pause);
     }
-    return findings.map((f) => diagnostic(f, view.state.doc.length));
+    return findings;
   }
 
   /** Lint every state of the deck compiled from version `read`, and show what it finds if
@@ -630,6 +960,7 @@ async function edit(source: Source) {
     // Those about each state stand on the canvas and count in the strip (PLAN 2.49).
     board.found(findings);
     states.found(findings);
+    formatting.found(findings);
     if (edited.error) {
       status.textContent = "does not compile";
       return;
@@ -698,6 +1029,35 @@ async function edit(source: Source) {
     );
   }
 
+  /** What the editor shows (PLAN 2.52): the state, in the format shown, the nodes the canvas
+   * selects, each with its type, and the characters selected in the text typed in. */
+  function seeing(): Seeing | undefined {
+    const at = showing();
+    if (!at) return undefined;
+    const nodes = (chosen === undefined ? [] : [chosen, ...beside]).map((node) => ({ node, type: layering.type(node, at.state) }));
+    const c = characters && characters.state === at.state && board.typing() === characters.node ? characters : undefined;
+    return {
+      state: at.state,
+      format: format(),
+      nodes,
+      characters: c && { node: c.node, from: c.from, to: c.to, text: c.text },
+    };
+  }
+
+  /** Once the canvas stands in `source`, select what the assistant's question changed there
+   * (PLAN 2.52): those the state shown shows, held where the first is; nothing it shows, and the
+   * selection stays. */
+  function select(source: string) {
+    if (touching?.source !== source) return;
+    const { nodes } = touching;
+    touching = undefined;
+    const boxes = board.boxes() ?? [];
+    const holder = (node: string) => boxes.find((b) => b.node === node)?.parent ?? null;
+    const shown = nodes.filter((node) => boxes.some((b) => b.node === node));
+    if (!shown.length) return;
+    board.selectAll(shown.filter((node) => holder(node) === holder(shown[0])));
+  }
+
   /** Show the state the cursor is in: the last whose declaration starts at or before it. */
   function follow() {
     if (!last?.valid) return;
@@ -712,12 +1072,15 @@ async function edit(source: Source) {
 
   async function show(index: number) {
     shown = index;
+    showings++;
     statesPicker.selectedIndex = index;
     states.select(index);
+    formatting.shown();
     await stage.seek(index, undefined, format());
     await inspect();
     void layering.refresh();
     await board.refresh();
+    void outlineRows();
   }
 
   /** The inspector: the state's cue, then each node, its look if it sets text, and how
@@ -813,6 +1176,8 @@ async function edit(source: Source) {
     address(where);
     tell();
     void listKept();
+    // The save recorded the edits since the last: they are versions now.
+    void versioning.refresh();
     const named = done.renamed.length ? `, ${done.renamed.length} named by their content` : "";
     status.textContent = `saved ${done.files} files${named}${done.recorded ? ", and recorded in its history" : ""}`;
     return done;
@@ -837,6 +1202,51 @@ async function edit(source: Source) {
     return zipped;
   }
 
+  /** Export (PLAN 2.54) the deck the source compiles to, as `scaena export` writes it, and
+   * download it: `png`, the state shown at rest in the format shown, `width` pixels wide; `pdf`,
+   * each slide at its last state; `html`, the deck as one file that plays offline, the
+   * single-file player's page beside this one filled in. Each is made in the worker: nothing is
+   * sent anywhere. */
+  async function exportAs(as: "png" | "pdf" | "html", width?: number): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
+    let what: Export;
+    let file: string;
+    if (as === "png") {
+      const now = showing();
+      if (!now) {
+        say("not exported: no state is shown");
+        return;
+      }
+      const shownIn = format();
+      what = { kind: "png", state: now.state, width: width ?? board.size()[0], format: shownIn };
+      file = `${now.state}${shownIn ? `-${shownIn.replace(/[^\w.-]+/g, "x")}` : ""}.png`;
+    } else if (as === "pdf") {
+      what = { kind: "pdf" };
+      file = `${name}.pdf`;
+    } else {
+      const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
+      if (!page?.ok) {
+        say("not exported: this build of the editor carries no single-file page (build it with `just web`)");
+        return;
+      }
+      what = { kind: "html", page: await page.text(), name };
+      file = `${name}.html`;
+    }
+    say(`exporting ${file}…`);
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await stage.export(view.state.doc.toString(), what);
+    } catch (e) {
+      say(`not exported: ${said(e)}`);
+      return;
+    }
+    const type = { png: "image/png", pdf: "application/pdf", html: "text/html" }[as];
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    Object.assign(document.createElement("a"), { href: url, download: file }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    say(`downloaded ${file}, ${Math.max(1, Math.round(bytes.byteLength / 1024))} KB`);
+    return { file, bytes };
+  }
+
   /** Files dropped at `at` in the source: each joins the bundle, and its path, quoted, goes
    * there. A `.scaena` file opens instead. */
   async function drop(files: File[], at: number) {
@@ -853,14 +1263,321 @@ async function edit(source: Source) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
-    apply: (source, edited) => {
+    apply: (source, edited, touched, files = []) => {
+      touching = touched?.length ? { source, nodes: touched } : undefined;
+      // A theme it edited goes in the source's history with the theme's text before and after,
+      // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
+      const effects = files.length ? [filesWritten.of(files)] : [];
+      // An edit that leaves the source as it is wrote a file beside it: a data file (`data_edit`),
+      // or the theme (`theme_edit`).
+      if (source === view.state.doc.toString()) {
+        if (effects.length) view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        return wrote(edited);
+      }
       taken = { source, edited };
-      view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
+      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
     },
+    seeing,
     lock: (on) => {
       assisting = on;
       view.dispatch({ effects: locked.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
     },
+  });
+
+  /** Every command the editor has, by name (PLAN 2.53): what its key or its button does, nothing
+   * else, so each edit is the patch that gesture makes. ⌘K lists those that apply, narrowed by
+   * the words typed; a right click offers those for what is under the pointer. */
+  const overlay = $("#overlay");
+  /** Press `key` on the canvas, as the keyboard does there. */
+  const press = (key: string, keys: KeyboardEventInit = {}) => {
+    overlay.focus();
+    overlay.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...keys }));
+  };
+  const mod = (keys: KeyboardEventInit = {}): KeyboardEventInit => ({ ...keys, [MOD === "⌘" ? "metaKey" : "ctrlKey"]: true });
+  /** The browser's own copy or cut, which the canvas takes while it has the focus. */
+  const clip = (how: "copy" | "cut") => {
+    overlay.focus();
+    if (!document.execCommand(how)) say(`not ${how === "copy" ? "copied" : "cut"}: the browser keeps its clipboard from this page; ${MOD}${how === "copy" ? "C" : "X"} does it`);
+  };
+  /** The clipboard's text, pasted on the canvas as ⌘V pastes it. */
+  const pasted = async () => {
+    overlay.focus();
+    const text = await navigator.clipboard.readText().catch((e) => void say(`not pasted: ${said(e)}; ${MOD}V pastes`));
+    if (text === undefined) return;
+    if (!text) return say("the clipboard holds nothing to paste");
+    await board.paste(text);
+  };
+  /** Whether the canvas takes a gesture: the source compiles, the assistant is not at work, and no
+   * text is typed in. */
+  const ready = () => showing() !== undefined && board.typing() === undefined;
+  /** What the canvas has selected, where it takes a gesture. */
+  const picked = () => (ready() ? board.chosen() : []);
+  const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
+  /** Show the tab `id` under the preview, as a click on it does. */
+  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "assistant") => {
+    const button = $<HTMLButtonElement>(`#tab-${id}`);
+    button.click();
+    return button;
+  };
+  /** Show the state at `index`, its declaration at the cursor, as the strip does. */
+  const goTo = (index: number) => {
+    const start = last?.states[index]?.[1];
+    if (start !== undefined) view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+    void show(index);
+  };
+
+  /** What is done to the nodes selected: each its key on the canvas. */
+  function nodeCommands(): Command[] {
+    const any = () => picked().length > 0;
+    const one = () => picked().length === 1;
+    const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, group: Group, applies = any): Command => ({
+      label,
+      keys,
+      group,
+      where: ["node", "layer"],
+      applies,
+      run: () => press(key, init),
+    });
+    const arranging = (label: string, how: Arrange, least: number): Command => ({
+      label,
+      where: ["node"],
+      applies: () => picked().length >= least,
+      run: () => board.arrange(how),
+    });
+    return [
+      ...annotationCommands(),
+      { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
+      pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
+      { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
+      { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
+      // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
+      pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
+      pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
+      pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
+      pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), "Arrange", () => one() && typeOf(picked()[0]) === "group"),
+      pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" }), "Arrange"),
+      pressing("Send backward", `${MOD}[`, "[", mod({ code: "BracketLeft" }), "Arrange"),
+      pressing("Bring to front", `${MOD}${SHIFT}]`, "}", mod({ code: "BracketRight", shiftKey: true }), "Arrange"),
+      pressing("Send to back", `${MOD}${SHIFT}[`, "{", mod({ code: "BracketLeft", shiftKey: true }), "Arrange"),
+      // Aligning takes two, spreading three, as in the inspector (PLAN 2.42).
+      arranging("Align left", { align: "left" }, 2),
+      arranging("Align center", { align: "center" }, 2),
+      arranging("Align right", { align: "right" }, 2),
+      arranging("Align top", { align: "top" }, 2),
+      arranging("Align middle", { align: "middle" }, 2),
+      arranging("Align bottom", { align: "bottom" }, 2),
+      arranging("Spread across", { spread: "across" }, 3),
+      arranging("Spread down", { spread: "down" }, 3),
+      {
+        label: "Select what holds it",
+        keys: "Escape",
+        group: "Select",
+        where: ["node"],
+        applies: () => one() && board.boxes().some((b) => b.node === picked()[0] && b.parent !== null),
+        run: () => press("Escape"),
+      },
+      pressing("Delete", "Delete", "Delete", {}, "Edit"),
+      pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }, "Edit"),
+    ];
+  }
+
+  /** What annotates the chart selected (PLAN 2.67): the mark picked, highlighted, called out, ruled
+   * at its value, or banded from; the annotation selected, reworded or taken away. Each is one
+   * `annotate` patch, kept to the state shown where the inspector's "Only in this state" is. */
+  function annotationCommands(): Command[] {
+    const mark = () => board.picked();
+    const notes = () => mark()?.notes;
+    const name = mark() ? markName(mark()!) : "the mark";
+    const noted = board.noted();
+    const said = noted ? `${noteName(noted)}` : "the annotation";
+    const run = (how: Parameters<typeof board.annotate>[0]) => () => void board.annotate(how);
+    return [
+      { label: `Highlight ${name}`, where: ["node"], applies: () => notes() !== undefined, run: run("highlight") },
+      {
+        label: `Highlight ${notes()?.series ?? "its series"}`,
+        where: ["node"],
+        applies: () => notes()?.axes === true && (notes()?.series ?? null) !== null,
+        run: run("series"),
+      },
+      { label: `Take the highlight off ${name}`, where: ["node"], applies: () => (notes()?.highlighted.length ?? 0) > 0, run: run("unhighlight") },
+      { label: `Call out ${name}…`, where: ["node"], applies: () => notes()?.axes === true, run: run("callout") },
+      { label: `Rule ${name}'s value`, where: ["node"], applies: () => notes()?.axes === true, run: run("rule") },
+      { label: `Band from ${name} to…`, where: ["node"], applies: () => notes()?.axes === true, run: run("band") },
+      { label: `Change what ${said} says…`, where: ["node"], applies: () => board.noted() !== undefined, run: () => void board.reword() },
+      { label: `Take ${said} away`, keys: "Delete", group: "Annotate", where: ["node"], applies: () => board.noted() !== undefined, run: () => void board.unnote() },
+    ];
+  }
+
+  /** What is done to `node` in the layers: shown or hidden in the state shown, and renamed. */
+  function layerCommands(node: () => string | undefined, hidden: () => boolean): Command[] {
+    return [
+      {
+        label: hidden() ? "Show it in this state" : "Hide it in this state",
+        where: ["layer"],
+        applies: () => node() !== undefined && showing() !== undefined,
+        run: () => layering.toggle(node()!),
+      },
+      {
+        label: "Rename it",
+        keys: "F2",
+        group: "Layers",
+        where: ["layer"],
+        applies: () => node() !== undefined && showing() !== undefined,
+        run: () => {
+          tab("layers");
+          layering.rename(node()!);
+        },
+      },
+    ];
+  }
+
+  /** What is done on the canvas where nothing is: what goes there, and how close it is shown. In a
+   * menu, Insert opens the palette on what may be inserted; the palette lists each. */
+  function canvasCommands(inMenu: boolean): Command[] {
+    const draws: [string, string][] = [
+      ["t", "Draw a text"],
+      ["r", "Draw a rectangle"],
+      ["o", "Draw an ellipse"],
+      ["l", "Draw a line"],
+      ["a", "Draw an arrow"],
+    ];
+    const inserts: Command[] = inMenu
+      ? [{ label: "Insert…", where: ["canvas"], applies: () => ready() && insertable.length > 0, run: () => commanding.open("insert ") }]
+      : insertable.map((label, n) => ({ label: `Insert ${label}`, applies: ready, run: () => board.insert(n, label.split(" · ").at(-1)) }));
+    return [
+      { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
+      ...inserts,
+      ...draws.map(
+        ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
+      ),
+      { label: "Zoom in", keys: `${MOD}+`, group: "See", where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
+      { label: "Zoom out", keys: `${MOD}−`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
+      { label: "Zoom to fit", keys: `${MOD}0`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
+      { label: board.ruled() ? "Hide the grid" : "Show the grid", keys: `${MOD}'`, group: "See", where: ["canvas"], run: () => board.rule() },
+    ];
+  }
+
+  /** What is done to the state shown, as the strip does it, and which state is shown. */
+  function stateCommands(): Command[] {
+    const now = () => showing()?.state;
+    const count = () => last?.states.length ?? 0;
+    return [
+      { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
+      { label: "Add a slide", where: ["state"], applies: () => now() !== undefined, run: () => states.add("slide") },
+      { label: "Rename the state", where: ["state"], applies: () => now() !== undefined, run: () => states.rename(now()!) },
+      { label: "Delete the state", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
+      { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
+      { label: "Show the next state", applies: () => last?.valid === true && shown < count() - 1, run: () => goTo(shown + 1) },
+      { label: "Show the state before", applies: () => last?.valid === true && shown > 0, run: () => goTo(shown - 1) },
+    ];
+  }
+
+  /** What is done to the deck and the bundle, and where the page looks. */
+  function deckCommands(): Command[] {
+    const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
+    return [
+      { label: "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
+      { label: "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
+      { label: "Find in the deck's texts", keys: `${MOD}F`, group: "Find and replace", run: () => finding?.open() },
+      ...rethemes.map(
+        (o): Command => ({
+          label: `Re-theme in ${o.textContent}`,
+          applies: () => showing() !== undefined,
+          run: () => {
+            themePicker.value = o.value;
+            themePicker.dispatchEvent(new Event("change"));
+          },
+        }),
+      ),
+      { label: "Save", keys: `${MOD}S`, group: "The editor", run: () => save().catch(failed) },
+      { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
+      { label: "Download .scaena", run: () => download().catch(failed) },
+      { label: "Export the state shown as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
+      { label: "Export the deck as a PDF", applies: () => last?.valid === true, run: () => exportAs("pdf").catch(failed) },
+      { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
+      { label: "Play", applies: () => !play.hidden, run: () => play.click() },
+      { label: "New deck…", run: () => $("#new-deck").click() },
+      { label: "Open a .scaena file…", run: () => $("#open-file").click() },
+      { label: "Open a folder…", applies: () => !$("#open-folder").hidden, run: () => $("#open-folder").click() },
+      { label: "Show the inspector", run: () => tab("inspector").focus() },
+      { label: "Show the layers", run: () => tab("layers").focus() },
+      { label: "Show the data", run: () => tab("data").focus() },
+      { label: "Edit the theme", run: () => tab("theming").focus() },
+      {
+        label: formatting.open() ? "Hide the formats side by side" : "Show every format side by side",
+        run: () => formatting.show(!formatting.open()),
+      },
+      { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
+      { label: "Show the bundle's files", run: () => tab("files").focus() },
+      { label: "Show the versions", run: () => tab("versions").focus() },
+      { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
+      { label: "Show the keys", keys: "?", group: "The editor", run: () => keying.open() },
+    ];
+  }
+
+  /** Words for the assistant, asked from the palette: the Assistant tab shows them asked, with what
+   * is selected (PLAN 2.52), or, where it has no key yet, in its question box, the key's field
+   * focused. */
+  function ask(words: string) {
+    tab("assistant");
+    const question = $<HTMLTextAreaElement>("#question");
+    question.value = words;
+    question.focus();
+    void assistant.ask(words).then((answer) => {
+      const key = $<HTMLInputElement>("#key");
+      if (answer.kind === "failed" && !key.value) key.focus();
+    });
+  }
+
+  /** Every command the editor has, as the palette lists them. */
+  const commandsNow = () => {
+    const node = () => (picked().length === 1 ? picked()[0] : undefined);
+    return [...nodeCommands(), ...layerCommands(node, () => false), ...canvasCommands(false), ...stateCommands(), ...deckCommands()];
+  };
+  const commanding = palette($<HTMLDialogElement>("#palette"), commandsNow, ask);
+  $("#commands-open").onclick = () => commanding.open();
+  /** The keys (PLAN 2.65): every key the editor answers, by what it does, from the commands' own
+   * list and from what each part of the page declares it answers. */
+  const keying = sheet($<HTMLDialogElement>("#keys"), commandsNow, () => [
+    ...canvasKeys(),
+    ...typingKeys(),
+    ...stripKeys(),
+    ...layerKeys(),
+    ...cueKeys(),
+    ...findKeys(),
+    ...dataKeys(),
+    ...rehearsalKeys(),
+    ...sourceKeys(),
+    ...editorKeys(),
+  ]);
+  $("#keys-open").onclick = () => keying.open();
+  /** Where a menu opens for `e`: at the pointer, or, from the keyboard, under `el`. */
+  const near = (e: MouseEvent, el: Element): [number, number] => {
+    const r = el.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    return inside ? [e.clientX, e.clientY] : [r.left, r.bottom];
+  };
+  // A right click on a state in the strip shows it, then offers what is done to it.
+  $("#strip ol").addEventListener("contextmenu", (e) => {
+    const li = (e.target as Element).closest<HTMLElement>("li[data-state]");
+    if (!li) return;
+    e.preventDefault();
+    const index = last?.states.findIndex(([id]) => id === li.dataset.state) ?? -1;
+    if (index >= 0 && index !== shown) goTo(index);
+    const [x, y] = near(e, li);
+    menu(x, y, stateCommands().filter((c) => c.where?.includes("state")), li);
+  });
+  // A right click on a layer selects its node where it is shown, then offers what is done to it.
+  $("#layers ul").addEventListener("contextmenu", (e) => {
+    const li = (e.target as Element).closest<HTMLElement>("li[data-layer]");
+    if (!li) return;
+    e.preventDefault();
+    const node = li.dataset.layer!;
+    const hidden = li.classList.contains("hidden");
+    if (!hidden && !board.chosen().includes(node)) board.select(node);
+    const items = [...layerCommands(() => node, () => hidden), ...(hidden ? [] : nodeCommands().filter((c) => c.where?.includes("layer")))];
+    const [x, y] = near(e, li.querySelector(".row") ?? li);
+    menu(x, y, items, li.querySelector<HTMLElement>("[data-pick]"));
   });
 
   /** Served (PLAN 2.11): what changed on disk comes in, when nothing here is changed and not
@@ -917,10 +1634,61 @@ async function edit(source: Source) {
     await saveAs({ folder }).catch(failed);
   };
   $<HTMLButtonElement>("#download").onclick = () => void download().catch(failed);
+  // Export…: the state shown as a PNG at a width asked, or the deck as a PDF or one HTML file.
+  const exporting = $<HTMLDialogElement>("#exporting");
+  const exportWidth = $<HTMLInputElement>("#exporting-width");
+  const exportNote = $("#exporting-note");
+  const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as "png" | "pdf" | "html";
+  /** What the export chosen makes, said under the choices. */
+  const noteExport = () => {
+    const as = chosenExport();
+    $("#exporting-size").hidden = as !== "png";
+    exportWidth.disabled = as !== "png";
+    const [w, h] = board.size();
+    const width = Number(exportWidth.value);
+    const now = showing()?.state;
+    exportNote.textContent = {
+      png: Number.isInteger(width) && width > 0
+        ? `${now ?? "The state shown"} at rest${format() ? ` in ${format()}` : ""}: ${width} × ${Math.round((h * width) / w)} pixels, painted by the CPU painter.`
+        : "A width in whole pixels: the height keeps the canvas's aspect.",
+      pdf: "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      html: "The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws.",
+    }[as];
+  };
+  exporting.oninput = noteExport;
+  /** Open Export…, `as` chosen. */
+  const openExport = (as: "png" | "pdf" | "html" = "png") => {
+    exporting.querySelector<HTMLInputElement>(`input[name=as][value=${as}]`)!.checked = true;
+    exportWidth.value = String(Math.round(board.size()[0]));
+    noteExport();
+    exporting.returnValue = "";
+    exporting.showModal();
+    (as === "png" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
+  };
+  $<HTMLButtonElement>("#export").onclick = () => openExport();
+  exporting.onclose = () => {
+    if (exporting.returnValue !== "export") return;
+    const as = chosenExport();
+    void exportAs(as, as === "png" ? Number(exportWidth.value) : undefined).catch(failed);
+  };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       void save().catch(failed);
+    }
+    // ⌘K: every command, by name (PLAN 2.53); again, it closes.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k" && !e.defaultPrevented) {
+      e.preventDefault();
+      if ($<HTMLDialogElement>("#palette").open) commanding.close();
+      else commanding.open();
+    }
+    // ?: the keys (PLAN 2.65), outside what takes typing, and over no other dialog; again, it closes.
+    if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.defaultPrevented && !typingIn(e.target)) {
+      const over = document.querySelector("dialog[open]");
+      if (!over || over.id === "keys") {
+        e.preventDefault();
+        keying.toggle();
+      }
     }
     // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
@@ -950,6 +1718,7 @@ async function edit(source: Source) {
   formatPicker.onchange = () => {
     void show(shown);
     states.reformat();
+    formatting.shown();
     // Which findings hold in the format shown is lint's to say again (PLAN 2.49): CodeMirror lints
     // again only once the source changes.
     taken = undefined;
@@ -968,6 +1737,9 @@ async function edit(source: Source) {
       /** Save as: `{ opfs: name }`, or `{ folder }` (any directory handle). */
       saveAs,
       download,
+      /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `pdf`, or `html`, as the
+       * Export dialog does; the file's name and bytes, also downloaded. */
+      exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),
       where: () => ({ name, where, dirty: dirty() }),
@@ -980,6 +1752,8 @@ async function edit(source: Source) {
       },
       /** Put the cursor at `offset`. */
       cursor: (offset: number) => view.dispatch({ selection: { anchor: offset } }),
+      /** Where the cursor is, an offset in the source. */
+      head: () => view.state.selection.main.head,
       /** Apply the fix of the first finding with `code`. */
       fix: async (code: string) => {
         const f = last?.findings.find((g) => g.code === code && g.fix);
@@ -998,6 +1772,19 @@ async function edit(source: Source) {
       canvas: board,
       /** The layers panel: what it lists, and the patches it makes. */
       layers: layering,
+      /** The data panel (PLAN 2.55): the source shown and its sheet. */
+      data,
+      /** The files panel (PLAN 2.59): the bundle's files as it lists them, and its changes. */
+      files: filing,
+      /** The versions panel (PLAN 2.60): the versions as it lists them, one shown, compared, and
+       * restored. */
+      versions: versioning,
+      /** The theme panel (PLAN 2.61): the theme as it shows it, and an edit made there. */
+      theme: theming,
+      /** The formats side by side (PLAN 2.62): shown or hidden, and what they last painted. */
+      formats: formatting,
+      /** The rehearsal (PLAN 2.63): started, stopped, and what each state took. */
+      rehearsal: rehearsing,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
@@ -1006,11 +1793,18 @@ async function edit(source: Source) {
       cue: cueing,
       /** Find and replace: what it finds, and the match shown. */
       find: finding,
+      /** Commands by name (PLAN 2.53): the palette, and what it lists. */
+      commands: commanding,
+      /** The keys (PLAN 2.65): the sheet and what it lists, and each command's key and group. */
+      keys: {
+        ...keying,
+        commands: () => commandsNow().flatMap((c) => (c.keys ? [{ label: c.label, keys: c.keys, group: c.group }] : [])),
+      },
     },
   });
 }
 
-/** The tabs under the preview: the inspector, the layers, and the assistant. The arrow keys, Home, and
+/** The tabs under the preview: the inspector, the layers, the data, and the assistant. The arrow keys, Home, and
  * End move between them, and only the one shown is in the tab order. */
 function tabs() {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('#tabs [role="tab"]')];

@@ -2,14 +2,20 @@
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
 import type {
   Added,
+  AnnotationAt,
   Arrange,
   Arranged,
   Asking,
   AssistantEvent,
   At,
+  DataEdited,
+  DataMark,
+  DataSource,
   Edited,
+  Export,
   Found,
   FromWorker,
+  Grid,
   Grouped,
   Hit,
   Insert,
@@ -17,25 +23,36 @@ import type {
   Layer,
   Linted,
   NodeBox,
+  NoteMark,
   Opened,
   Painter,
   Pasted,
   ProviderId,
   Query,
   Rect,
+  RowEdit,
   SaveTo,
+  Sheet,
   Slot,
   Snapped,
   SnapMode,
   Source,
   Targets,
   Themed,
+  ThemeEdited,
+  ThemeText,
   Themes,
   Thumb,
+  Rewritten,
   ToWorker,
   Carets,
   Choices,
   StateChoices,
+  Look,
+  Put,
+  BundleFile,
+  Compared,
+  Version,
 } from "./protocol";
 
 type Reply = Extract<
@@ -53,22 +70,41 @@ type Reply = Extract<
       | "inspected"
       | "saved"
       | "zipped"
+      | "exported"
+      | "sheet"
+      | "dataEdited"
+      | "dataUndone"
       | "dropped"
       | "models"
       | "reloaded"
       | "boxes"
       | "hits"
+      | "marked"
+      | "noted"
+      | "calledOut"
       | "viewed"
       | "focal"
       | "found"
       | "replacement"
       | "targets"
+      | "grid"
       | "dragged"
       | "arranged"
       | "grouped"
       | "made"
       | "choices"
       | "stateChoices"
+      | "look"
+      | "put"
+      | "bundleFiles"
+      | "removed"
+      | "versions"
+      | "version"
+      | "compared"
+      | "restored"
+      | "filesWritten"
+      | "themeText"
+      | "themeEdited"
       | "carets"
       | "characterChoices"
       | "bolding"
@@ -109,6 +145,8 @@ export class Stage {
   onAt: (at: At) => void = () => {};
   /** Called when the worker fails outside a request. */
   onError: (error: Error) => void = () => {};
+  /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
+  onBesides: (state: string, t: number) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -191,6 +229,17 @@ export class Stage {
     this.send({ type: "pause" });
   }
 
+  /** Paint the state shown in each of `besides`' formats on its canvas, `height` pixels high,
+   * after each of the canvas's frames, as it plays (PLAN 2.62); none stops it. Each canvas is
+   * handed to the worker, which paints it from then on. */
+  besides(besides: { format?: string; canvas: HTMLCanvasElement }[], height: number) {
+    const offscreen = besides.map(({ format, canvas }) => ({ format, canvas: canvas.transferControlToOffscreen() }));
+    this.worker.postMessage(
+      { type: "besides", besides: offscreen, height } satisfies ToWorker,
+      offscreen.map(({ canvas }) => canvas),
+    );
+  }
+
   /** Read the bundle again from its URL, on the same canvas (PLAN 2.11). */
   async reload(): Promise<Opened> {
     const { type: _, id: __, ...opened } = await this.request<"reloaded">({ type: "reload", id: ++this.asked });
@@ -241,6 +290,31 @@ export class Stage {
     return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
   }
 
+  /** The chart mark or table row drawn at `point` in `state` at rest, with the rows of its source
+   * it was made from; none where the topmost node there is no chart or table, or between its marks
+   * (PLAN 2.64). */
+  markAt(state: string, point: [number, number], format?: string): Promise<DataMark | undefined> {
+    return this.request<"marked">({ type: "markAt", id: ++this.asked, state, point, format }).then(({ marks }) => marks[0]);
+  }
+
+  /** What `rows` of data source `source` draw in `state` at rest: each chart mark and table row
+   * made from any of them, in paint order (PLAN 2.64). */
+  marksOf(state: string, source: string, rows: number[], format?: string): Promise<DataMark[]> {
+    return this.request<"marked">({ type: "marksOf", id: ++this.asked, state, source, rows, format }).then(({ marks }) => marks);
+  }
+
+  /** The chart annotation drawn at `point` in `state` at rest, by its place among the chart's
+   * `annotations`; none where the topmost node there is no chart, or off its annotations (PLAN 2.67). */
+  noteAt(state: string, point: [number, number], format?: string): Promise<NoteMark | undefined> {
+    return this.request<"noted">({ type: "noteAt", id: ++this.asked, state, point, format }).then(({ note }) => note ?? undefined);
+  }
+
+  /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand: on the mark
+   * there, or at the category or x nearest across and the value there (PLAN 2.67). */
+  calloutAt(state: string, node: string, point: [number, number], format?: string): Promise<AnnotationAt | undefined> {
+    return this.request<"calledOut">({ type: "calloutAt", id: ++this.asked, state, node, point, format }).then(({ at }) => at ?? undefined);
+  }
+
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units: the part of the canvas a
    * zoomed editor shows, at the size shown; the whole canvas with none (PLAN 2.46). Resolves once
    * what is shown is painted so. */
@@ -272,6 +346,11 @@ export class Stage {
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
   }
+  /** The theme's grid in `format`, as the canvas's guides draw it (PLAN 2.57). */
+  grid(format?: string): Promise<Grid> {
+    return this.request<"grid">({ type: "grid", id: ++this.asked, format }).then(({ grid }) => grid);
+  }
+
 
   /** A drag's move: `node` painted `by` from where it stands, where its box would land `snap`ped,
    * and the states that patch changes; or, to `preview`, the state as the patch would make it. */
@@ -280,9 +359,9 @@ export class Stage {
     node: string,
     move: {
       by?: [number, number];
-      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      snap?: { how: SnapMode; to: Rect; fork: boolean; reach?: number };
       with?: string[];
-      together?: { by: [number, number]; free: boolean; fork: boolean };
+      together?: { by: [number, number]; free: boolean; fork: boolean; reach?: number };
       preview?: boolean;
     },
     format?: string,
@@ -312,6 +391,113 @@ export class Stage {
       }
       return { source, edited };
     });
+  }
+
+  /** The deck's data sources, and source `name` as a sheet (PLAN 2.55): the first source without
+   * it; or why it does not read as one. */
+  sheet(source: string, name?: string): Promise<{ sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }> {
+    return this.request<"sheet">({ type: "sheet", id: ++this.asked, source, name }).then(({ type: _, id: __, ...got }) => got);
+  }
+
+  /** `edits` of data source `name`, by the user (PLAN 2.55): what they did, and where they wrote,
+   * the deck's source after and what the edit of it came to. */
+  dataEdit(
+    source: string,
+    name: string,
+    edits: RowEdit[],
+    index: number,
+    format?: string,
+  ): Promise<{ result: DataEdited; source?: string; edited?: Edited }> {
+    return this.request<"dataEdited">({ type: "dataEdit", id: ++this.asked, source, name, edits, index, format }).then(
+      ({ result, source, edited }) => {
+        this.moved(edited);
+        return { result, source, edited };
+      },
+    );
+  }
+
+  /** The bundle's images, fonts, and data, in the deck `source` compiles to (PLAN 2.59): each with
+   * what names it, and the nodes drawn from it in the states that show them so. */
+  bundleFiles(source: string): Promise<BundleFile[]> {
+    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source }).then(({ files }) => files);
+  }
+
+  /** `path` taken out of the bundle, by the user (PLAN 2.59): one nothing names. `dataUndo` puts it
+   * back. What the deck came to, shown and linted as an edit is. */
+  removeFile(source: string, path: string, index: number, format?: string): Promise<Edited> {
+    return this.request<"removed">({ type: "removeFile", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
+      this.moved(edited);
+      return edited;
+    });
+  }
+
+  /** The bundle's versions, oldest first (PLAN 2.60); none where it keeps no history. */
+  versions(): Promise<Version[] | null> {
+    return this.request<"versions">({ type: "versions", id: ++this.asked }).then(({ versions }) => versions);
+  }
+
+  /** Version `version` shown read-only: its states, and `state` of it at rest as a PNG `width`
+   * pixels wide. */
+  version(version: string, state: string | undefined, width: number) {
+    return this.request<"version">({ type: "version", id: ++this.asked, version, state, width });
+  }
+
+  /** What changed from version `from` to version `to`, or without it to the deck now. */
+  compareVersions(source: string, from: string, to?: string): Promise<Compared> {
+    return this.request<"compared">({ type: "compareVersions", id: ++this.asked, source, from, to }).then(({ compared }) => compared);
+  }
+
+  /** `version` made the deck again, with its data files, as one change by the user. */
+  restoreVersion(source: string, version: Version, index: number, format?: string) {
+    return this.request<"restored">({ type: "restoreVersion", id: ++this.asked, source, version, index, format }).then((done) => {
+      if (done.edited) this.moved(done.edited);
+      return done;
+    });
+  }
+
+  /** The theme frames are drawn in, as its text (PLAN 2.61); null where the deck names none. */
+  themeText(): Promise<ThemeText | null> {
+    return this.request<"themeText">({ type: "themeText", id: ++this.asked }).then(({ theme }) => theme);
+  }
+
+  /** The theme the deck names edited by `ops` (RFC 6902) as one change by the user, the deck
+   * `source` compiles to drawn in it at slot `index` (PLAN 2.61, ADR-0016): what it did, the theme
+   * file it wrote, before and after, the source after, and what the edit came to. */
+  themeEdit(
+    source: string,
+    ops: unknown[],
+    index: number,
+    format?: string,
+  ): Promise<{ result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }> {
+    return this.request<"themeEdited">({ type: "themeEdit", id: ++this.asked, source, ops, index, format }).then((done) => {
+      if (done.edited) this.moved(done.edited);
+      return done;
+    });
+  }
+
+  /** Files written back, as an undo or a redo of a restore or a theme edit has them; with `edit`,
+   * the deck its source compiles to shown and linted again, as an edit is. */
+  writeFiles(files: { path: string; text: string | null }[], edit?: { source: string; index: number; format?: string }): Promise<Edited | undefined> {
+    return this.request<"filesWritten">({ type: "writeFiles", id: ++this.asked, files, edit }).then(({ edited }) => {
+      if (edited) this.moved(edited);
+      return edited;
+    });
+  }
+
+  /** The last edit of a data file undone, or with `redo` made again (PLAN 2.55): the source whose
+   * file it wrote, and what the edit came to; nothing where there was nothing to do. */
+  dataUndo(source: string, redo: boolean, index: number, format?: string): Promise<{ name?: string; edited?: Edited }> {
+    return this.request<"dataUndone">({ type: "dataUndo", id: ++this.asked, source, redo, index, format }).then(({ name, edited }) => {
+      this.moved(edited);
+      return { name, edited };
+    });
+  }
+
+  /** Where an edit left the deck shown, if it says. */
+  private moved(edited: Edited | undefined) {
+    if (!edited?.at) return;
+    this.at = edited.at;
+    this.onAt(edited.at);
   }
 
   /** Where a caret stands in `node`'s text in `state` at rest, in the deck `source` compiles to;
@@ -376,6 +562,19 @@ export class Stage {
    * transition, its hold, and its notes, each with its value and where it lives. */
   stateChoices(state: string): Promise<StateChoices> {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
+  }
+
+  /** `node`'s look as `state` shows it, in the deck `source` compiles to (PLAN 2.58): what ⌥⌘C
+   * picks up. */
+  look(source: string, state: string, node: string): Promise<Look> {
+    return this.request<"look">({ type: "look", id: ++this.asked, source, state, node }).then(({ look }) => look);
+  }
+
+  /** The patch that puts `look` on `nodes` in `state`, in the deck `source` compiles to (PLAN
+   * 2.58): one `choose` for each property a node shows otherwise, written where its own value
+   * lives; and which nodes it changes, which look so already, and which take none of it. */
+  putting(source: string, state: string, look: Look, nodes: string[]): Promise<Put> {
+    return this.request<"put">({ type: "putting", id: ++this.asked, source, state, look, nodes }).then(({ put }) => put);
   }
 
   /** The states `ops` (a patch) would change, by id, with nothing made. */
@@ -487,6 +686,11 @@ export class Stage {
     return this.request<"zipped">({ type: "zip", id: ++this.asked, source });
   }
 
+  /** The deck `source` compiles to, exported `as` asks (PLAN 2.54): the file's bytes. */
+  export(source: string, as: Export): Promise<ArrayBuffer> {
+    return this.request<"exported">({ type: "export", id: ++this.asked, source, as }).then(({ bytes }) => bytes);
+  }
+
   /** Add a file dropped on the page to the bundle; resolves to its path there. */
   drop(name: string, bytes: ArrayBuffer): Promise<string> {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
@@ -578,22 +782,38 @@ export class Stage {
       case "inspected":
       case "saved":
       case "zipped":
+      case "exported":
       case "dropped":
       case "models":
       case "reloaded":
       case "boxes":
       case "hits":
+      case "marked":
+      case "noted":
+      case "calledOut":
       case "viewed":
       case "focal":
       case "found":
       case "replacement":
       case "targets":
+      case "grid":
       case "dragged":
       case "arranged":
       case "grouped":
       case "made":
       case "choices":
       case "stateChoices":
+      case "look":
+      case "put":
+      case "bundleFiles":
+      case "removed":
+      case "versions":
+      case "version":
+      case "compared":
+      case "restored":
+      case "filesWritten":
+      case "themeText":
+      case "themeEdited":
       case "carets":
       case "characterChoices":
       case "bolding":
@@ -610,6 +830,9 @@ export class Stage {
       case "pasted":
       case "thumbnails":
       case "addingState":
+      case "sheet":
+      case "dataEdited":
+      case "dataUndone":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;
@@ -636,6 +859,8 @@ export class Stage {
       }
       case "helpers":
         return this.help(data.count);
+      case "besides":
+        return this.onBesides(data.state, data.t);
       case "ready":
         return;
       default: {

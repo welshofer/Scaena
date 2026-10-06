@@ -29,6 +29,18 @@ export type Source =
  * browser's storage under a name (`name-2`, … where that is taken). */
 export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
 
+/** What the editor exports (PLAN 2.54, SPEC §10), each as `scaena export` writes it:
+ * - `png`: `state` at rest in `format` (the deck's canvas without one), `width` pixels wide, the
+ *   height keeping the canvas's aspect, painted by the CPU painter;
+ * - `pdf`: the deck, each slide at its last state, drawn by the PDF's own module, which the
+ *   worker loads the first time a PDF is asked for;
+ * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
+ *   player's page, filled in with the bundle, its fonts subset. */
+export type Export =
+  | { kind: "png"; state: string; width: number; format?: string }
+  | { kind: "pdf" }
+  | { kind: "html"; page: string; name: string };
+
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
  * kept nowhere until it is saved. */
@@ -60,7 +72,14 @@ export interface NodeBox {
   rect: Rect;
   parent: string | null;
   draws: boolean;
+  /** Where its `transform` and those of what holds it draw `rect` (SPEC §3.3, PLAN 2.51): the
+   * map `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`), where something turns, scales, leans, or
+   * moves it. */
+  transform?: Map6;
 }
+
+/** A map of canvas points, `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`. */
+export type Map6 = [number, number, number, number, number, number];
 
 /** What is sought across the deck's texts (PLAN 2.47). */
 export interface Query {
@@ -90,6 +109,71 @@ export interface Hit {
   node: string;
   rect: Rect;
   containers: string[];
+}
+
+/** What a row of a data source draws in a state at rest (PLAN 2.64): a chart's mark, or a table's
+ * row, with the rows of its source it was made from. */
+export interface DataMark {
+  /** The chart or table that draws it. */
+  node: string;
+  /** The source it reads, as the deck names it. */
+  source: string;
+  /** The mark's key, or the table row's. */
+  key: string;
+  /** The rows of the source it draws, from 0, as the source's sheet numbers them. */
+  rows: number[];
+  /** Its outline as laid out, canvas units: SVG path data. */
+  outline: string;
+  /** The box around it as laid out, canvas units. */
+  rect: Rect;
+  /** Where the node's transform, and those of what holds it, draw it from where it is laid out. */
+  transform?: [number, number, number, number, number, number];
+  /** A chart's mark's annotations (PLAN 2.67); none for a table's row. */
+  notes?: MarkNotes;
+}
+
+/** A value an annotation names: a number, or text (a category, a series, a date in ISO 8601). */
+export type Scalar = number | string;
+
+/** Where a chart's annotation stands (SPEC §3.7): a category or an x, a value, a series, each one
+ * or, for a band or a highlight, several. */
+export interface AnnotationAt {
+  x?: Scalar | Scalar[];
+  y?: number | number[];
+  series?: Scalar | Scalar[];
+}
+
+/** What a chart's mark is to the chart's annotations (PLAN 2.67). */
+export interface MarkNotes {
+  /** Its x as an annotation names it. */
+  x: Scalar;
+  /** Its value: where a rule at it stands. */
+  value: number;
+  series: string | null;
+  /** Whether the chart has axes for a callout, a rule, or a band: a donut takes highlights alone. */
+  axes: boolean;
+  /** Where a callout on it stands. */
+  callout: AnnotationAt;
+  /** What a highlight of it picks out. */
+  highlight: AnnotationAt;
+  /** The chart's highlights that pick it out, by their places among its `annotations`. */
+  highlighted: number[];
+}
+
+/** One of a chart's annotations as drawn in a state at rest (PLAN 2.67): what the canvas selects,
+ * moves, and takes away. A highlight draws nothing of its own. */
+export interface NoteMark {
+  /** The chart. */
+  node: string;
+  /** Its place among the chart's `annotations`. */
+  index: number;
+  kind: "callout" | "rule" | "band";
+  /** What it says, as written. */
+  text: string | null;
+  /** Its band, its rule or leader, and its text's box, as laid out: SVG path data, canvas units. */
+  outline: string;
+  rect: Rect;
+  transform?: [number, number, number, number, number, number];
 }
 
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
@@ -125,6 +209,25 @@ export interface Choices {
   state: string;
   /** Each property the inspector edits: the node type's own, then those every node has. */
   fields: Field[];
+}
+
+/** A node's look as a state shows it (PLAN 2.58), as `scaena inspect --look` says it: each
+ * property of its type's look (a text's role and style, a shape's fill, stroke, and corners, …)
+ * with the value shown, absent where the theme's shows. What ⌥⌘C picks up. */
+export interface Look {
+  node: string;
+  type: string;
+  props: { prop: string; value?: unknown }[];
+}
+
+/** A look put down on nodes (PLAN 2.58), as `scaena inspect --look --onto` says it: one patch of
+ * `choose`s, each written where that node's own value lives; the nodes it changes, those that
+ * look so already, and those that take none of it, with why. */
+export interface Put {
+  patch: unknown[];
+  took: string[];
+  same: string[];
+  refused: { node: string; why: string }[];
 }
 
 /** What an inspector offers for a state itself (PLAN 2.36), as `scaena inspect --state-choices`
@@ -197,6 +300,21 @@ export interface Snapped {
   patch: unknown[];
   /** With several nodes moved together (PLAN 2.42): where each lands. */
   landed?: Landed[];
+  /** Where the box's edges, or its middle, meet another box's or the canvas's (PLAN 2.57). */
+  guides?: Line[];
+}
+
+/** A guide: `[x1, y1, x2, y2]`, canvas units, a line down or across the canvas. */
+export type Line = [number, number, number, number];
+
+/** The theme's grid in the format shown (PLAN 2.57), canvas units: its columns and rows, each
+ * `[start, end]`, the gutters between them and the margins around them; and the baseline grid's
+ * lines, each a `y`. */
+export interface Grid {
+  canvas: [number, number];
+  columns: [number, number][];
+  rows: [number, number][];
+  baselines: number[];
 }
 
 /** Where a node arranged with others lands (PLAN 2.42). */
@@ -282,6 +400,78 @@ export interface Grouped {
 
 /** The media type a clip goes on the clipboard as, beside its text (PLAN 2.37). */
 export const CLIP = "application/x-scaena+json";
+/** What a drag from the Files panel carries (PLAN 2.59): an image's path in the bundle. */
+export const BUNDLE_PATH = "application/x-scaena-path";
+/** A file an image node can show, by its name: a PNG or a JPEG (SPEC §3.3, PLAN 2.66). */
+export const PICTURE = /\.(png|jpe?g)$/i;
+
+/** A version of the deck (PLAN 2.60, SPEC §8): as it was just after one change its history
+ * keeps, numbered from the oldest, and named by its change's id for as long as the history lasts. */
+export interface Version {
+  n: number;
+  id: string;
+  author?: string | null;
+  message?: string | null;
+  /** When the change was made, in ISO 8601, UTC. */
+  at?: string | null;
+  ops: number;
+}
+
+/** How a node changes from one version to another, as `deck_diff` says it: a prop gone is null. */
+export type NodeChange = { enter: Record<string, unknown> } | { exit: true } | { change: Record<string, unknown> };
+
+/** How a state changes from one version to another. */
+export type StateChange =
+  | { added: true }
+  | { removed: true }
+  | { changed: { fields?: Record<string, unknown>; nodes?: Record<string, NodeChange> } };
+
+/** What changed from one version to another, as `scaena history --diff` says it. */
+export interface Compared {
+  states: Record<string, StateChange>;
+  /** The deck's own fields that changed, each as the later version has it. */
+  deck: Record<string, unknown>;
+  /** The data files whose bytes changed. */
+  files: string[];
+}
+
+/** What restoring a version did, as `scaena history --restore` says it. */
+export interface Restored {
+  version: Version;
+  applied: boolean;
+  files: string[];
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+  states: string[];
+}
+
+/** A file an edit wrote beside the deck, a data file a restore wrote or the theme a theme edit
+ * did: its text before and after, null where the bundle did not hold it. */
+export interface Rewritten {
+  path: string;
+  before: string | null;
+  after: string | null;
+}
+
+/** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
+ * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
+ * drawn from it, each with the states that show it so. */
+export interface BundleFile {
+  path: string;
+  type: "image" | "font" | "data";
+  bytes: number;
+  named: Named[];
+  used: { node: string; states: string[] }[];
+}
+
+/** What names a file of the bundle. */
+export type Named =
+  | { by: "node"; node: string }
+  | { by: "evidence"; beat: string }
+  | { by: "font"; family: string; style?: string }
+  | { by: "theme"; family: string }
+  | { by: "source"; source: string };
 
 /** The page to the worker. */
 export type ToWorker =
@@ -324,6 +514,14 @@ export type ToWorker =
   | { type: "boxes"; id: number; state: string; format?: string }
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** The chart mark or table row at `point` in `state` at rest (PLAN 2.64). */
+  | { type: "markAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** What `rows` of data source `source` draw in `state` at rest (PLAN 2.64). */
+  | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
+  /** The chart annotation drawn at `point` in `state` at rest (PLAN 2.67). */
+  | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
+  | { type: "calloutAt"; id: number; state: string; node: string; point: [number, number]; format?: string }
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
@@ -337,6 +535,8 @@ export type ToWorker =
   | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
   /** Where `node` may go in `state` at rest. */
   | { type: "targets"; id: number; state: string; node: string; format?: string }
+  /** The theme's grid in `format` (PLAN 2.57). */
+  | { type: "grid"; id: number; format?: string }
   /** A drag's move (ADR-0013). With `by`, `state` painted at rest with `node`, and what it holds,
    * that far from where it stands, laying nothing out. With `snap`, where its cell would land,
    * `snap.to` snapped `snap.how`, and the states the patch changes; `fork` keeps the patch to
@@ -350,9 +550,11 @@ export type ToWorker =
       /** The nodes moved with it, children of what holds it (PLAN 2.42). */
       with?: string[];
       by?: [number, number];
-      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      /** `reach`: off the grid, how near, canvas units, an edge or the middle goes onto
+       * another's (PLAN 2.57). */
+      snap?: { how: SnapMode; to: Rect; fork: boolean; reach?: number };
       /** With `with`: where they all land, moved `by` together, `free` off the grid. */
-      together?: { by: [number, number]; free: boolean; fork: boolean };
+      together?: { by: [number, number]; free: boolean; fork: boolean; reach?: number };
       preview?: boolean;
       format?: string;
     }
@@ -368,6 +570,11 @@ export type ToWorker =
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
   | { type: "stateChoices"; id: number; state: string }
+  /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
+  | { type: "look"; id: number; source: string; state: string; node: string }
+  /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
+   * to (PLAN 2.58). */
+  | { type: "putting"; id: number; source: string; state: string; look: Look; nodes: string[] }
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
@@ -434,9 +641,58 @@ export type ToWorker =
   /** The bundle with the deck `source` compiles to, saved as a `.scaena` zip, fonts subset to
    * what the deck draws. */
   | { type: "zip"; id: number; source: string }
+  /** Export the deck `source` compiles to (PLAN 2.54), made here for the page to download:
+   * nothing is sent anywhere. A source that does not compile, or a deck that does not validate,
+   * is not exported. */
+  | { type: "export"; id: number; source: string; as: Export }
   /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
    * is named by its SHA-256 (`Player.place`). */
   | { type: "drop"; id: number; name: string; bytes: ArrayBuffer }
+  /** The deck's data sources, and source `name` as a sheet (PLAN 2.55, `data_edit` with no
+   * edits): the first source without it. The deck `source` compiles to names them; it need not
+   * validate, since a cell its column does not read is what the sheet shows, to fix. */
+  | { type: "sheet"; id: number; source: string; name?: string }
+  /** Edits of data source `name`, by the user (PLAN 2.55, `data_edit`): all or none, one write of
+   * its file or one patch of rows written inline, refused where a value does not read or the deck
+   * would be invalid. The deck's source after is compiled, shown at slot `index`, and linted, as
+   * an edit of it is. */
+  | { type: "dataEdit"; id: number; source: string; name: string; edits: RowEdit[]; index: number; format?: string }
+  /** The last edit of a data file undone, or with `redo` the last undone made again (PLAN 2.55):
+   * the file as it was, written, then shown and linted as an edit is. */
+  | { type: "dataUndo"; id: number; source: string; redo: boolean; index: number; format?: string }
+  /** The bundle's images, fonts, and data, and what uses each, in the deck `source` compiles to
+   * (PLAN 2.59). */
+  | { type: "bundleFiles"; id: number; source: string }
+  /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
+  | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
+  /** The bundle's versions (PLAN 2.60), read from its history by the history's own module: none
+   * where it keeps no history. */
+  | { type: "versions"; id: number }
+  /** Version `version` (its id) shown read-only: its states, and `state` of it, or its first
+   * where it has none such, at rest as a PNG `width` pixels wide. */
+  | { type: "version"; id: number; version: string; state?: string; width: number }
+  /** What changed from version `from` to version `to`, or without it to the deck `source`
+   * compiles to, and its data files as they are now. */
+  | { type: "compareVersions"; id: number; source: string; from: string; to?: string }
+  /** `version` made the deck again, with its data files, as one change by the user; refused
+   * where the deck would not validate in the bundle as it is. A source that does not compile
+   * is no bar: restoring a version is a way back from one. */
+  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
+  /** The theme frames are drawn in, as its text (PLAN 2.61). */
+  | { type: "themeText"; id: number }
+  /** The theme the deck names edited by `ops`, RFC 6902 operations on it, as one change by the
+   * user, the deck `source` compiles to drawn in it; refused where the deck would not validate in
+   * it (ADR-0016). */
+  | { type: "themeEdit"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** Files written back, as an undo or a redo of a restore or a theme edit has them: `text` null
+   * to take one out. With `edit`, the deck its source compiles to shown and linted again after,
+   * as an edit is: the source did not change, so nothing else compiles it. */
+  | {
+      type: "writeFiles";
+      id: number;
+      files: { path: string; text: string | null }[];
+      edit?: { source: string; index: number; format?: string };
+    }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -449,6 +705,10 @@ export type ToWorker =
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** The workers `helpers` asked for: a port to each (PLAN 2.28). */
   | { type: "helpers"; ports: MessagePort[] }
+  /** Paint the state shown in each of `besides`' formats beside the canvas, on its own canvas,
+   * `height` pixels high, after each frame of the canvas's, as it plays (PLAN 2.62): each a
+   * format of the deck's, or its own canvas (`format` unset). None stops it. */
+  | { type: "besides"; besides: { format?: string; canvas: OffscreenCanvas }[]; height: number }
   /** Be a helper: work out shaders' rows for the engine's worker at the other end of `port`,
    * which hands over the engine's module first (PLAN 2.28). A helper holds no deck. */
   | { type: "help"; port: MessagePort };
@@ -473,13 +733,26 @@ export type FromHelper =
 export type ProviderId = "anthropic" | "openai" | "gemini";
 
 /** A question for the assistant, and who answers it: the provider, at its own address or at
- * `base`, with the user's key, and the model they picked. */
+ * `base`, with the user's key, and the model they picked; and what the editor shows as it is
+ * asked (PLAN 2.52), which "this" and "shorter" mean. */
 export interface Asking {
   provider: ProviderId;
   model: string;
   key: string;
   base?: string;
   text: string;
+  seeing?: Seeing;
+}
+
+/** What the editor shows as a question is asked (PLAN 2.52): the state shown, in a format if not
+ * the deck's own, the nodes selected, the one selected first, and the characters selected in a
+ * text typed in, from `from` to `to` in Unicode scalar values, as `replace_text` and `style_text`
+ * count them, with the text they make. */
+export interface Seeing {
+  state: string;
+  format?: string;
+  nodes: { node: string; type?: string }[];
+  characters?: { node: string; from: number; to: number; text: string };
 }
 
 /** What the page hears as the assistant works. */
@@ -493,8 +766,10 @@ export type AssistantEvent =
   | { kind: "result"; id: string; name: string; error: boolean; summary: string; json: string; png?: string }
   /** The deck changed: its source now, which the editor takes, compiled, shown, and linted
    * as an edit of it would be: the worker does it as the change is made, so the editor asks
-   * nothing of a source the assistant has moved past. */
-  | { kind: "edited"; source: string; edited: Edited }
+   * nothing of a source the assistant has moved past. `touched` are the nodes the question has
+   * changed so far, in the deck's order: those whose own props, a state's delta for them, or
+   * the deck's overrides of them differ from before it was asked, and those it added. */
+  | { kind: "edited"; source: string; edited: Edited; touched?: string[]; files?: Rewritten[] }
   /** Tokens in and out of one answer, as the provider counts them. */
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
@@ -528,6 +803,28 @@ export interface Opened {
 export interface Themes {
   current: string | null;
   files: string[];
+}
+
+/** The theme frames are drawn in (PLAN 2.61): the file the deck names, or `(inline)`, and its
+ * JSON as text. */
+export interface ThemeText {
+  theme: string;
+  text: string;
+}
+
+/** What a theme edit did, as `scaena theme --edit` says it (PLAN 2.61, ADR-0016). */
+export interface ThemeEdited {
+  /** The theme edited: its path in the bundle, or `(inline)`. */
+  theme: string;
+  /** Where in the theme the edit wrote: each operation's path, once. */
+  paths: string[];
+  applied: boolean;
+  /** Refused: the deck would not validate in the theme it leaves (in `added`). */
+  refused: boolean;
+  listed: string[];
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
 }
 
 /** What a re-theme did, as `scaena theme --apply` says it (PLAN 1.6, 2.39). */
@@ -598,6 +895,41 @@ export interface Finding {
   /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds
    * there, and the rest in every format. */
   shown: boolean;
+  /** The formats it holds in, as the format menu names them: `""` for the deck's own canvas,
+   * then each of the deck's `formats` (PLAN 2.62). */
+  formats: string[];
+}
+
+/** A data source's rows as the Data panel shows them (PLAN 2.55, SPEC §3.10): its columns, each
+ * one's type, each row's cells as written, and each cell its column does not read, with why. */
+export interface Sheet {
+  columns: { name: string; type: "number" | "string" | "boolean" | "date" }[];
+  rows: string[][];
+  problems?: { row: number; column: string; why: string }[];
+}
+
+/** A data source the deck declares: the file it is, or none for rows written inline. */
+export interface DataSource {
+  name: string;
+  file?: string;
+}
+
+/** An edit of a data source's rows, row 0 the first after the header (`data_edit`). */
+export type RowEdit =
+  | { op: "set"; row: number; column: string; value: string }
+  | { op: "add"; row?: number; values?: Record<string, string> }
+  | { op: "remove"; row: number };
+
+/** What `data_edit` did (SPEC §7.2). */
+export interface DataEdited {
+  edited: boolean;
+  source: string;
+  file?: string;
+  sheet: Sheet;
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+  refused: boolean;
 }
 
 /** What an edit came to (PLAN 2.3). */
@@ -617,6 +949,8 @@ export interface Edited {
   whole: boolean;
   /** The deck's timeline now. */
   slots: Slot[];
+  /** The formats the deck lists now, besides its own canvas (PLAN 2.62). */
+  formats: string[];
   /** Where the deck is: the slot repainted at rest. */
   at?: At;
   /** How long each step took in the worker, ms. */
@@ -703,6 +1037,10 @@ export type FromWorker =
   /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
   | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
   | { type: "hits"; id: number; hits: Hit[] }
+  /** The marks asked for: the one at a point, or none; or what rows draw. */
+  | { type: "marked"; id: number; marks: DataMark[] }
+  | { type: "noted"; id: number; note: NoteMark | null }
+  | { type: "calledOut"; id: number; at: AnnotationAt | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }
@@ -711,6 +1049,7 @@ export type FromWorker =
   /** Where a focal point picked there would be; `null` off the image. */
   | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }
+  | { type: "grid"; id: number; grid: Grid }
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
   | { type: "arranged"; id: number; arranged: Arranged | null }
@@ -718,6 +1057,8 @@ export type FromWorker =
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
+  | { type: "look"; id: number; look: Look }
+  | { type: "put"; id: number; put: Put }
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }
@@ -748,14 +1089,42 @@ export type FromWorker =
   /** The bundle as a `.scaena` zip, and each font subset: its path, and its size before and
    * after, bytes. */
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
+  /** What `export` made: a PNG, a PDF, or an HTML file's bytes. */
+  | { type: "exported"; id: number; bytes: ArrayBuffer }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
+  /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
+  | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
+  | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  /** A file taken out: what the deck came to, shown and linted as an edit is. */
+  | { type: "removed"; id: number; edited: Edited }
+  /** The bundle's versions, oldest first; none where it keeps no history. */
+  | { type: "versions"; id: number; versions: Version[] | null }
+  /** A version shown: its states, and the one drawn, as a PNG; or why it is not drawn (a file
+   * it names the bundle no longer holds). */
+  | { type: "version"; id: number; states: string[]; state: string; png?: ArrayBuffer; why?: string }
+  | { type: "compared"; id: number; compared: Compared }
+  /** What restoring a version did; where it did, each data file it wrote, before and after, the
+   * deck's source after, and what the edit came to. */
+  | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
+  | { type: "filesWritten"; id: number; edited?: Edited }
+  | { type: "themeText"; id: number; theme: ThemeText | null }
+  /** What a theme edit did; where it wrote, the theme file before and after (none for an inline
+   * theme), the deck's source after, and what the edit came to. */
+  | { type: "themeEdited"; id: number; result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }
+  /** What `dataEdit` did; where it wrote, the deck's source after and what the edit of it came to. */
+  | { type: "dataEdited"; id: number; result: DataEdited; source?: string; edited?: Edited }
+  /** The source whose file an undo or redo wrote, and what the edit came to; none where there was
+   * nothing to undo or redo. */
+  | { type: "dataUndone"; id: number; name?: string; edited?: Edited }
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }
+  /** The formats beside the canvas show `state` `t` ms into its cue (PLAN 2.62). */
+  | { type: "besides"; state: string; t: number }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean };

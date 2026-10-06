@@ -76,7 +76,8 @@ try {
   const pixels = await page.evaluate(() => [document.querySelector("#stage").width, document.querySelector("#stage").height]);
 
   /** Drag `node` from its middle `dx` page pixels across and half that down, off the grid (Shift),
-   * by whole canvas units; and say where it lands; then undo it. */
+   * by whole canvas units where the pointer says, onto no guide (Control: a guide's reach is in
+   * pixels, so it differs with the zoom, PLAN 2.57); and say where it lands; then undo it. */
   const dragged = async (node, dx) => {
     const [x, y, w, h] = await box(node);
     const [sx, sy] = await client([x + w / 2, y + h / 2]);
@@ -85,12 +86,14 @@ try {
     await page.mouse.move(sx, sy);
     await page.mouse.down();
     await page.keyboard.down("Shift");
+    await page.keyboard.down("Control");
     await page.mouse.move(sx + 8, sy + 8, { steps: 2 });
     await page.mouse.move(sx + dx, sy + dx / 2, { steps: 8 });
     // Where it lands, as the status says once the last move is answered.
     await page.waitForFunction(() => document.querySelector("#status").textContent.includes("rect"), null, { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(150);
     await page.mouse.up();
+    await page.keyboard.up("Control");
     await page.keyboard.up("Shift");
     await settled(n);
     const landed = await box(node);

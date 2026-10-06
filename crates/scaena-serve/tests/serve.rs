@@ -197,6 +197,13 @@ fn the_bundle_is_the_folders_and_nothing_outside_it() {
     } else {
         assert_eq!(page.status, 404);
     }
+    // The page a single-file export fills in, which the editor fills in to export one (PLAN 2.54):
+    // the one `export --format html` fills in.
+    let single = get(addr, "/standalone.html");
+    match scaena_ops::export::single_file_page() {
+        Some(html) => assert_eq!((single.status, single.body.as_slice()), (200, html.as_bytes())),
+        None => assert_eq!(single.status, 404),
+    }
 }
 
 #[test]

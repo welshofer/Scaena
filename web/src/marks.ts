@@ -3,11 +3,15 @@
 // the source writes it, and whether it holds in the format shown (`Finding.shown`).
 //
 // - Findings about a node stand on its box: one mark at its top right corner, which counts them
-//   and takes the color of the worst. Findings about the state, or about a node it does not
+//   and takes the color of the worst. A document rule's finding about a node, in no state, stands
+//   on it in every state that shows it. Findings about the state, or about a node it does not
 //   show, stand on the state: a mark at the canvas's top left corner.
 // - A mark opened says each finding, its hint, and where the source writes it, with its fix where
 //   lint has one. Lint keeps a fix only once laying the state out again with it took the finding
 //   away (SPEC §7.4); one taken is one patch, one step to undo. A node's mark selects it too.
+// - A finding no fix can make, about a property the inspector offers, takes the person there:
+//   W410's image without alt text opens the inspector on the image, its description in focus
+//   (PLAN 2.56).
 // - The marks step aside while a drag, a marquee, or a drawing goes, and while the cue plays.
 import type { Finding, NodeBox, Rect } from "./protocol";
 
@@ -25,8 +29,14 @@ export interface MarksHost {
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
   go(f: Finding): void;
+  /** Open the inspector on `f`'s node, its field for `prop` in focus (PLAN 2.56). */
+  edit(f: Finding, prop: string): void;
   say(text: string): void;
 }
+
+/** What a finding no fix can make asks a person to set, by its code: the property, and the button
+ * that takes them there. */
+const EDITS: Record<string, [prop: string, label: string]> = { W410: ["alt", "Describe it"] };
 
 const SEVERITIES = ["error", "warning", "info"] as const;
 type Severity = (typeof SEVERITIES)[number];
@@ -83,8 +93,12 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
     const shown = host.shown();
     const boxes = host.boxes();
     if (!shown || !boxes) return [];
-    const here = findings.filter((f) => f.shown && f.state === shown.state);
     const boxed = new Set(boxes.map((b) => b.node));
+    // A document rule's finding about a node, in no state (W410's image without alt text), stands on
+    // the node wherever it is shown.
+    const here = findings.filter(
+      (f) => f.shown && (f.state === shown.state || (f.state === undefined && f.node !== undefined && boxed.has(f.node))),
+    );
     const by = new Map<string | undefined, Finding[]>();
     for (const f of here) {
       const node = f.node !== undefined && boxed.has(f.node) ? f.node : undefined;
@@ -162,11 +176,20 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
           f.fix && f.fixable
             ? `<button type="button" data-fix="${i}" aria-label="Fix ${html(f.code)}: ${html(fixing(f.fix))}">Fix</button><span class="change">${html(fixing(f.fix))}</span>`
             : ""
-        }${f.at ? `<button type="button" data-go="${i}">In the source</button>` : ""}</p></li>`,
+        }${f.node && EDITS[f.code] ? `<button type="button" data-edit="${i}">${html(EDITS[f.code][1])}</button>` : ""}${
+          f.at ? `<button type="button" data-go="${i}">In the source</button>` : ""
+        }</p></li>`,
       )
       .join("")}</ol>`;
     pop.querySelectorAll<HTMLButtonElement>("[data-fix]").forEach((b) => {
       b.onclick = () => void take(mark.findings[Number(b.dataset.fix)]);
+    });
+    pop.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((b) => {
+      b.onclick = () => {
+        pop.hidePopover();
+        const f = mark.findings[Number(b.dataset.edit)];
+        host.edit(f, EDITS[f.code][0]);
+      };
     });
     pop.querySelectorAll<HTMLButtonElement>("[data-go]").forEach((b) => {
       b.onclick = () => {

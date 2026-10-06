@@ -154,8 +154,9 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
-      # The player's engine alone, as a single-file export carries it (PLAN 2.5).
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
+      # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
@@ -193,15 +194,18 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
       # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
       - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
       # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
       - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
-      # The player's engine alone, which a single-file export carries (PLAN 2.5).
-      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+      # The PDF painter, which the editor loads the first time it exports a PDF (PLAN 2.54).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+      # The player's engine alone, which a single-file export carries (PLAN 2.5), with every
+      # language's hyphenation patterns, since its page plays offline (ADR-0015).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.
@@ -218,6 +222,8 @@ jobs:
           echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
           read=crates/scaena-resources/pkg/scaena_resources_bg.wasm
           echo "What the assistant reads: $(wc -c < "$read") bytes, $(gzip -9 -c "$read" | wc -c) gzipped, loaded to ask" | tee -a "$GITHUB_STEP_SUMMARY"
+          pdf=crates/scaena-pdf/pkg/scaena_pdf_bg.wasm
+          echo "The PDF painter: $(wc -c < "$pdf") bytes, $(gzip -9 -c "$pdf" | wc -c) gzipped, loaded to export a PDF" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
       # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
@@ -240,6 +246,8 @@ jobs:
       - run: node web/findings.mjs
       # The layers: listed topmost first, a node selected, shown or hidden, and renamed (PLAN 2.50).
       - run: node web/layers.mjs
+      # A node turned on the canvas: its outline and handles drawn through its transform, the rotate handle, the inspector's angle, and typing in a turned text (PLAN 2.51).
+      - run: node web/rotate.mjs
       # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
       - run: node web/clipboard.mjs
       # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
@@ -265,6 +273,48 @@ jobs:
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs
+      # A question carries what the editor shows, and what its patch changes is selected after it (PLAN 2.52).
+      - run: node web/seeing.mjs
+      - run: node web/commands.mjs
+      # The state shown as a PNG, the deck as a PDF by its own module, and as one HTML file, each what
+      # `scaena export` writes (PLAN 2.54).
+      - run: node web/export.mjs
+      # A data source as a table: a cell set, rows added and taken away, undone, and saved as
+      # `scaena data` writes the file (PLAN 2.55).
+      - run: node web/data.mjs
+      # What a reader hears: a node's description and part chosen in the inspector, the state's
+      # reading in order, and W410's mark opening the inspector on the image (PLAN 2.56).
+      - run: node web/reader.mjs
+      # Guides: the theme's grid of the format shown on request, and a line where a dragged box
+      # meets another, which a move off the grid snaps to (PLAN 2.57).
+      - run: node web/guides.mjs
+      # A look copied from one node (⌥⌘C) and pasted on others (⌥⌘V), each written where its own
+      # lives (PLAN 2.58).
+      - run: node web/looks.mjs
+      # The bundle's files, what uses each, an image dragged onto the canvas, and one nothing names
+      # taken out and put back (PLAN 2.59).
+      - run: node web/files.mjs
+      # The deck's versions from its history: one shown as it was, compared, and restored with its
+      # data file as one change, which undoes and records as any other (PLAN 2.60).
+      - run: node web/versions.mjs
+      # The deck's theme edited in its tab: colors, a role's size, each one edit undone with the
+      # theme written back, and recorded by the user (PLAN 2.61).
+      - run: node web/theme-edit.mjs
+      # The state shown in every format side by side, painted as a cue plays, each counting its
+      # findings and opening the canvas in it (PLAN 2.62).
+      - run: node web/formats.mjs
+      # A rehearsal: each state's time kept, and kept as its hold in one patch, one step to undo
+      # (PLAN 2.63).
+      - run: node web/rehearse.mjs
+      # A chart's marks and the rows of its data: a click on a bar chooses its row in the Data tab,
+      # and a row chosen is outlined where it draws (PLAN 2.64).
+      - run: node web/rows.mjs
+      # ? shows every key the editor answers, by what it does, from the commands' own list (PLAN 2.65).
+      - run: node web/keys.mjs
+      # A chart annotated from its marks: a bar picked offers to highlight it, call it out, rule its
+      # value, or band from it to another; a callout dragged to another bar, reworded, and deleted
+      # (PLAN 2.67).
+      - run: node web/annotate.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

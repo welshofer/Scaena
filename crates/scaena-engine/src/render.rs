@@ -27,7 +27,8 @@ use scaena_core::document::{NodeType, Props};
 use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::Snap;
-use scaena_core::model::values::SplitUnit;
+use scaena_core::model::values::{SplitUnit, Transform};
+use scaena_core::pose::Pose;
 use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
 use serde_json::Value;
@@ -303,7 +304,7 @@ impl Engine {
         let grid = Grid::from_theme(theme, canvas)?;
         let snap = &cascade::with_overrides(deck, snap);
         let placement = self.place(deck, theme, data, &grid, snap)?;
-        let tree = tree(deck, snap, &placement);
+        let tree = tree(deck, snap, &placement)?;
         let mut nodes = Vec::with_capacity(snap.nodes.len());
         // Every state's props, read once, for what each chart colors across the deck.
         let mut every: Option<Vec<Snapshot>> = None;
@@ -702,15 +703,17 @@ fn children<'a>(deck: &Deck, snap: &'a Snapshot, id: &str) -> Vec<&'a str> {
 }
 
 /// Every visible node's place: its container, its box (a group's, its children's
-/// together), and its children in flow order.
-fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> HashMap<String, Place> {
+/// together), its children in flow order, and its transform.
+fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> Result<HashMap<String, Place>, EngineError> {
     let mut tree: HashMap<String, Place> = HashMap::new();
     for (id, _) in &placement.order {
         let rect = placement.boxes.get(id).copied().unwrap_or([0.0; 4]);
         let parent = placement.parents.get(id).cloned();
         let children = children(deck, snap, id).into_iter().map(String::from).collect();
         let composite = placement.is_group(id).then(|| placement.opacity(snap, id));
-        tree.insert(id.clone(), Place { parent, rect, children, composite });
+        let transform = typed_prop::<Transform>(&snap.nodes[id], "transform").map_err(|e| in_node(id, e))?;
+        let pose = transform.map(|t| Pose::from(&t)).filter(|p| !p.is_rest());
+        tree.insert(id.clone(), Place { parent, rect, children, composite, pose });
     }
     // A group's box spans what its members draw, nested groups included.
     for (id, _) in placement.order.iter().rev() {
@@ -725,7 +728,7 @@ fn tree(deck: &Deck, snap: &Snapshot, placement: &Placement) -> HashMap<String, 
         });
         tree.get_mut(id).expect("every visible node has a place").rect = union.unwrap_or([0.0; 4]);
     }
-    tree
+    Ok(tree)
 }
 
 /// A hash of everything the global timeline is worked out from.

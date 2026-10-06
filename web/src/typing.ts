@@ -17,8 +17,18 @@
 //   the weight each is set in; ⌘I sets them in italic, or not, as each asks for it (PLAN 2.40); and
 //   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
 //   where the text lives, one step to undo.
-import type { CaretLine, Carets, Edited, Rect } from "./protocol";
+import { type Key, MOD } from "./commands";
+import type { CaretLine, Carets, Edited, Map6, Rect } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What a text typed in answers that no command runs by name (PLAN 2.65), as the keys sheet lists
+ * it; the rest are the keys of any field typed in. */
+export const typingKeys = (): Key[] => [
+  { keys: `${MOD}B`, label: "In a text typed in: the characters selected bold, or not", group: "Type" },
+  { keys: `${MOD}I`, label: "In italic, or not", group: "Type" },
+  { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
+  { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
+];
 
 /** What typing asks of the canvas and the editor around it. */
 export interface Around {
@@ -41,6 +51,8 @@ export interface Around {
   origin(): [number, number];
   /** Where `node` stands in the state shown: its box. */
   box(node: string): Rect | undefined;
+  /** Where its `transform` draws it (PLAN 2.51): the map from its box to the canvas. */
+  map(node: string): Map6 | undefined;
   /** The characters selected in the text typed in are now `selected`, or none are. */
   chose(selected: Selected | undefined): void;
   /** Whether focus gone to `to` keeps typing on: the inspector, which gives the characters
@@ -55,6 +67,8 @@ export interface Selected {
   state: string;
   from: number;
   to: number;
+  /** The characters themselves. */
+  text: string;
 }
 
 /** A change to a text: the UTF-16 range of what it read that `text` takes the place of. */
@@ -65,6 +79,18 @@ interface Change {
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** `p` through `m`. */
+const through = (m: Map6, [x, y]: [number, number]): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** `p`, a point on the canvas, read back through `m`: where it is in the text as laid out. */
+function back(m: Map6 | undefined, p: [number, number]): [number, number] {
+  if (!m) return p;
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return p;
+  const [x, y] = [p[0] - m[4], p[1] - m[5]];
+  return [(m[3] * x - m[2] * y) / det, (m[0] * y - m[1] * x) / det];
+}
 
 /** How long a pause between two keys ends a burst of typing, ms: one step to undo each. */
 const BURST = 1000;
@@ -265,7 +291,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     area.setAttribute("aria-label", `The text of ${node}, typed where it stands`);
     area.focus({ preventScroll: true });
     if (point) {
-      const [at, line] = caretNear(found, point);
+      const [at, line] = caretNear(found, back(around.map(node), point));
       put(at, at, line);
     } else put(all ? 0 : found.text.length, found.text.length);
     void tellWhere();
@@ -289,7 +315,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (!open || !carets) return undefined;
     const { from, to } = caret();
     if (from === to) return undefined;
-    return { node: open.node, state: open.state, from: points(carets.text, from), to: points(carets.text, to) };
+    return { node: open.node, state: open.state, from: points(carets.text, from), to: points(carets.text, to), text: carets.text.slice(from, to) };
   }
 
   /** What the inspector was last told is selected, so it is told again only of a change. */
@@ -587,6 +613,13 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (open && !keeping(e.target)) leave();
   };
   document.addEventListener("focusin", wander);
+  // The canvas focused while a text is typed in, by the keyboard or the page rather than a press
+  // on it (which puts the caret in the text, or ends typing): the text takes the focus, and the
+  // keys with it.
+  const onward = () => {
+    if (open && document.activeElement === overlay) area.focus({ preventScroll: true });
+  };
+  overlay.addEventListener("focus", onward);
   const selecting = () => {
     if (!open || document.activeElement !== area) return;
     around.draw();
@@ -619,9 +652,10 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       },
     /** A press at `point`, in the text typed in: the caret goes there, or with `extend` the
      * selection reaches it, and a drag from there selects. False outside the text. */
-    down(point: [number, number], extend: boolean, clicks: number): boolean {
+    down(given: [number, number], extend: boolean, clicks: number): boolean {
       const box = open && around.box(open.node);
       if (!open || !carets || !box) return false;
+      const point = back(around.map(open.node), given);
       const [x, y, w, h] = box;
       const slop = 4 * around.unit();
       if (point[0] < x - slop || point[0] > x + w + slop || point[1] < y - slop || point[1] > y + h + slop) return false;
@@ -646,9 +680,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       return true;
     },
     /** The pointer moved with a press held: the selection reaches it. False unless selecting. */
-    drag(point: [number, number]): boolean {
-      if (!carets || anchor === undefined) return false;
-      const [at, line] = caretNear(carets, point);
+    drag(given: [number, number]): boolean {
+      if (!carets || anchor === undefined || !open) return false;
+      const [at, line] = caretNear(carets, back(around.map(open.node), given));
       put(Math.min(anchor, at), Math.max(anchor, at), line, at < anchor);
       return true;
     },
@@ -667,19 +701,24 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const line = carets.lines[here.line];
       const r = overlay.getBoundingClientRect();
       const [ox, oy] = around.origin();
-      area.style.left = `${Math.max(0, Math.min(r.width - 1, (here.x - ox) / u))}px`;
-      area.style.top = `${Math.max(0, Math.min(r.height - 1, (line.bottom - oy) / u))}px`;
+      // A text its transform turns or scales is drawn through it, and so is its caret (PLAN 2.51).
+      const m = around.map(open.node);
+      const [cx, cy] = m ? through(m, [here.x, line.bottom]) : [here.x, line.bottom];
+      area.style.left = `${Math.max(0, Math.min(r.width - 1, (cx - ox) / u))}px`;
+      area.style.top = `${Math.max(0, Math.min(r.height - 1, (cy - oy) / u))}px`;
+      const drawn = (parts: string[]) => (m ? [`<g transform="matrix(${m.join(" ")})">${parts.join("")}</g>`] : parts);
       if (from !== to) {
-        return covered(carets, from, to).map(([x, y, w, h]) => `<rect class="text-selection" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+        return drawn(covered(carets, from, to).map(([x, y, w, h]) => `<rect class="text-selection" x="${x}" y="${y}" width="${w}" height="${h}"/>`));
       }
       const width = 2 * u;
-      return [`<rect class="caret" x="${here.x - width / 2}" y="${line.top}" width="${width}" height="${line.bottom - line.top}"/>`];
+      return drawn([`<rect class="caret" x="${here.x - width / 2}" y="${line.top}" width="${width}" height="${line.bottom - line.top}"/>`]);
     },
     /** Let the textarea go: the canvas is closed. */
     close() {
       leave();
       document.removeEventListener("selectionchange", selecting);
       document.removeEventListener("focusin", wander);
+      overlay.removeEventListener("focus", onward);
       area.remove();
     },
   };

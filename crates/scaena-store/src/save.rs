@@ -77,7 +77,7 @@ impl Bundle {
         let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
             subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
         };
-        self.saving_with(opts, |deck| self.recorded(deck, opts.history), subset)
+        self.saving_with(opts, |deck, written| self.recorded(deck, written, opts.history), subset)
     }
 
     /// What a save subsets (SPEC §3.1): every character the deck can draw, and each font
@@ -93,23 +93,30 @@ impl Bundle {
         Ok((self.drawable_chars()?, fonts))
     }
 
-    /// The bundle's history with `deck` saved in it, by the bundle's author; begun if
-    /// `begin`, where the bundle keeps none.
-    fn recorded(&self, deck: &Deck, begin: bool) -> Result<Option<Vec<u8>>, StoreError> {
+    /// The bundle's history with `deck` saved in it, by the bundle's author, with the files
+    /// the save rewrote (`written`: its theme); begun if `begin`, where the bundle keeps none.
+    fn recorded(
+        &self,
+        deck: &Deck,
+        written: &BTreeMap<String, Vec<u8>>,
+        begin: bool,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let edit = Edit { message: Some("save"), ..Edit::by(&self.author) };
-        match self.record(deck, &edit)? {
+        match self.record(deck, written, &edit)? {
             Some(bytes) => Ok(Some(bytes)),
             None if begin => {
+                // The deck, and the data and the theme it is drawn from (ADR-0014, ADR-0016).
                 let begun = Edit { message: Some("history begins"), ..Edit::by(&self.author) };
-                Ok(Some(DeckDoc::from_deck(deck, &begun)?.save()?))
+                Ok(Some(DeckDoc::begin(deck, &self.kept_files(deck, written), &begun)?.save()?))
             }
             None => Ok(None),
         }
     }
 
     /// [`Bundle::saving`], with the history the save writes made by `history` from the deck
-    /// as saved, and each font subset by `subset` (its path, its bytes, and the characters
-    /// to keep) where `opts` subsets them.
+    /// as saved and the files the save rewrites beside it (its theme, ADR-0016), and each font
+    /// subset by `subset` (its path, its bytes, and the characters to keep) where `opts`
+    /// subsets them.
     ///
     /// `history` gives the history's bytes, or `None` to carry the bundle's history as it
     /// is. A caller that keeps no CRDT, as a page does (PLAN 2.4), carries it: the next save
@@ -118,7 +125,7 @@ impl Bundle {
     pub fn saving_with(
         &self,
         opts: &SaveOptions,
-        history: impl FnOnce(&Deck) -> Result<Option<Vec<u8>>, StoreError>,
+        history: impl FnOnce(&Deck, &BTreeMap<String, Vec<u8>>) -> Result<Option<Vec<u8>>, StoreError>,
         mut subset: impl FnMut(&str, &[u8], &BTreeSet<char>) -> Result<Vec<u8>, StoreError>,
     ) -> Result<Saving, StoreError> {
         let mut deck = self.deck.clone();
@@ -201,17 +208,22 @@ impl Bundle {
         }
         renamed.extend(names.iter().filter(|(old, new)| old != new).map(|(o, n)| (o.clone(), n.clone())));
 
-        // The history, with this save in it: files renamed are a change to the deck.
-        if let Some(bytes) = history(&deck)? {
+        // The theme file, in canonical form.
+        let mut rewritten = BTreeMap::new();
+        if let Some((path, value)) = &theme {
+            rewritten.insert(path.clone(), (serde_json::to_string_pretty(value)? + "\n").into_bytes());
+            replaced.insert(path.clone());
+        }
+
+        // The history, with this save in it: files renamed are a change to the deck, and the
+        // theme as it is written is the history's (ADR-0016).
+        if let Some(bytes) = history(&deck, &rewritten)? {
             replaced.insert(HISTORY.into());
             out.insert(HISTORY.into(), bytes);
         }
 
-        // The theme file, and everything else as it is.
-        if let Some((path, value)) = &theme {
-            out.insert(path.clone(), (serde_json::to_string_pretty(value)? + "\n").into_bytes());
-            replaced.insert(path.clone());
-        }
+        // Everything else as it is.
+        out.extend(rewritten);
         for rel in self.carried()? {
             if !replaced.contains(&rel) && !out.contains_key(&rel) {
                 out.insert(rel.clone(), self.read(&rel)?);
@@ -308,6 +320,44 @@ impl Bundle {
                 let mut all = (**entries).clone();
                 for (rel, bytes) in files {
                     all.insert(crate::normal(rel)?, bytes.clone());
+                }
+                std::fs::write(&self.root, zip(&all)?)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Bundle {
+    /// Take `paths` out of the bundle (PLAN 2.59): out of its directory, or its zip written
+    /// again without them; and out of its manifest's list of files, where it keeps one, so the
+    /// manifest names no file the bundle lacks.
+    pub fn remove(&self, paths: &[String]) -> Result<(), StoreError> {
+        let manifest = match self.files.read("manifest.json") {
+            Ok(bytes) => {
+                let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
+                manifest.files.retain(|path, _| !paths.contains(path));
+                Some((serde_json::to_string_pretty(&manifest)? + "\n").into_bytes())
+            }
+            Err(_) => None,
+        };
+        match &self.files {
+            Files::Dir(root) => {
+                for rel in paths {
+                    std::fs::remove_file(crate::inside(root, rel)?)?;
+                }
+                if let Some(bytes) = manifest {
+                    std::fs::write(crate::inside(root, "manifest.json")?, bytes)?;
+                }
+                Ok(())
+            }
+            Files::Zip(entries) => {
+                let mut all = (**entries).clone();
+                for rel in paths {
+                    all.remove(&crate::normal(rel)?);
+                }
+                if let Some(bytes) = manifest {
+                    all.insert("manifest.json".into(), bytes);
                 }
                 std::fs::write(&self.root, zip(&all)?)?;
                 Ok(())

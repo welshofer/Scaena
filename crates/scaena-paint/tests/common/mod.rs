@@ -33,7 +33,7 @@ pub fn assets(dls: &[(String, DisplayList)]) -> Assets {
     }
     for entry in std::fs::read_dir(format!("{BUNDLE}/assets")).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "png") {
+        if path.extension().is_some_and(|e| e == "png" || e == "jpg") {
             let bytes = std::fs::read(&path).unwrap();
             let hex: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
             store.insert_image(&format!("sha256:{hex}"), &bytes).unwrap();

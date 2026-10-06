@@ -17,6 +17,7 @@ use scaena_core::displaylist::{Color, Point};
 use scaena_core::document::Props;
 use scaena_core::format::{Locale, MINUS};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// A table laid out for one snapshot, relative to its cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +33,14 @@ pub struct TableLayout {
     /// Why its rows do not fit its cell, when lint laid it out anyway (E100); a frame
     /// refuses such a table.
     pub overflow: Option<String>,
+    /// The data source it reads, as the deck names it.
+    pub source: String,
+    /// Each body row's rows of its source, by the row's key: what it was made from through
+    /// the table's `dataTransform`, from 0 as the source's sheet numbers them (PLAN 2.64).
+    pub rows: BTreeMap<String, Vec<usize>>,
+    /// Each body row's band across the table, `[x, y, w, h]` relative to it, by the row's
+    /// key, top to bottom: what a pointer on the row points at.
+    pub bands: Vec<(String, [f32; 4])>,
 }
 
 /// One cell's text, where it stands.
@@ -67,9 +76,13 @@ struct Column {
 /// its rules. Its size as content ([`Typeset::width`], [`Typeset::height`]) is what it
 /// asks a container for (SPEC §3.4).
 pub struct Typeset {
+    /// The data source it reads, as the deck names it.
+    source: String,
     columns: Vec<Column>,
     /// Each body row's key.
     keys: Vec<String>,
+    /// Each body row's rows of its source, through the table's `dataTransform`.
+    from: Vec<Vec<usize>>,
     /// The header row's text by column; none without a header.
     header: Option<Vec<Option<TextLayout>>>,
     /// Each body row's text by column; a null or empty cell has none.
@@ -96,7 +109,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
 pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("table has no `data`".into()))?;
-    let table = data::transform(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
     let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
 
@@ -227,7 +240,20 @@ pub fn set(cx: &mut Ctx, props: &Props) -> Result<Typeset, EngineError> {
         }
     }
     let stretch = styles.and_then(|t| t.stretch).unwrap_or(false);
-    Ok(Typeset { columns, keys, header, body, widths, column_gap, row_gap, stretch, header_rule, row_rule })
+    Ok(Typeset {
+        source: source.to_string(),
+        columns,
+        keys,
+        from,
+        header,
+        body,
+        widths,
+        column_gap,
+        row_gap,
+        stretch,
+        header_rule,
+        row_rule,
+    })
 }
 
 /// How far a row reaches down: its tallest text, with `row_gap` above and below.
@@ -260,8 +286,20 @@ impl Typeset {
     /// are laid out anyway, and why kept for lint (E100).
     pub fn place(self, size: [f32; 2], lenient: bool) -> Result<TableLayout, EngineError> {
         let need = self.width();
-        let Typeset { columns, keys, header, body, mut widths, column_gap, row_gap, stretch, header_rule, row_rule } =
-            self;
+        let Typeset {
+            source,
+            columns,
+            keys,
+            from,
+            header,
+            body,
+            mut widths,
+            column_gap,
+            row_gap,
+            stretch,
+            header_rule,
+            row_rule,
+        } = self;
         if need > size[0] {
             return Err(EngineError::Layout(format!(
                 "table needs {need:.0} cu across for its {} columns, and its cell is {:.0}: show fewer columns, or give it more room",
@@ -286,8 +324,16 @@ impl Typeset {
 
         // Rows: each its tallest text with `row_gap` above and below, the cells' first
         // baselines on one line.
-        let mut out =
-            TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
+        let mut out = TableLayout {
+            header: Vec::new(),
+            cells: Vec::new(),
+            rule: None,
+            row_rules: Vec::new(),
+            overflow: None,
+            source,
+            rows: keys.iter().cloned().zip(from).collect(),
+            bands: Vec::with_capacity(keys.len()),
+        };
         let mut y = 0.0_f32;
         let place = |cells: Vec<Option<TextLayout>>, row: &str, index: u32, y: &mut f32| -> Vec<Cell> {
             let baseline =
@@ -312,7 +358,9 @@ impl Typeset {
         }
         let rows = body.len();
         for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
+            let top = y;
             out.cells.extend(place(cells, key, r as u32 + 1, &mut y));
+            out.bands.push((key.clone(), [0.0, top, span, y - top]));
             if let Some(rule) = &row_rule
                 && r + 1 < rows
             {

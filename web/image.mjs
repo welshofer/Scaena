@@ -8,7 +8,8 @@
 //   one `choose`, and one undo. Escape leaves it as it was.
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
 // - A PNG dropped on the image takes its place: the file joins the bundle, named by its SHA-256,
-//   and the image's `src` is its path. Dropped on a text, or not a PNG, nothing changes.
+//   and the image's `src` is its path. So does a JPEG, as it is (PLAN 2.66), drawn as its EXIF
+//   orientation turns it. Dropped on a text, or neither a PNG nor a JPEG, nothing changes.
 // - Undone, the deck is as it was, and it validates.
 // Exits 1 on any failure.
 import { readFileSync } from "node:fs";
@@ -155,13 +156,15 @@ try {
   check((await source()) === original, "one undo takes it back");
 
   // A PNG dropped on the image takes its place.
-  const bytes = [...readFileSync("docs/examples/assets/trails-ridge.png")];
-  /** A drop of `bytes` as file `name` on canvas point `at`. */
-  const drop = async (name, at) => {
+  const png = [...readFileSync("docs/examples/assets/trails-ridge.png")];
+  const jpeg = [...readFileSync("tests/fixtures/jpeg/orientation-6.jpg")];
+  /** A drop of `bytes` (the PNG's by default) as file `name` on canvas point `at`. */
+  const drop = async (name, at, bytes = png) => {
     const transfer = await page.evaluateHandle(
       ([b, file]) => {
+        const type = file.endsWith(".png") ? "image/png" : file.endsWith(".jpg") ? "image/jpeg" : "text/plain";
         const dt = new DataTransfer();
-        dt.items.add(new File([new Uint8Array(b)], file, { type: file.endsWith(".png") ? "image/png" : "text/plain" }));
+        dt.items.add(new File([new Uint8Array(b)], file, { type }));
         return dt;
       },
       [bytes, name],
@@ -169,12 +172,12 @@ try {
     const [px, py] = await client(at);
     await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: px, clientY: py });
   };
-  // Not on an image, or not a PNG: nothing changes, and the status says why.
+  // Not on an image, or neither a PNG nor a JPEG: nothing changes, and the status says why.
   const label = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "case").rect);
   await drop("ridge.png", [label[0] + label[2] / 2, label[1] + label[3] / 2]);
   check(await says("drop an image on an image"), `a PNG dropped on a text: ${await status()}`);
   await drop("ridge.txt", [x + w / 2, y + h / 2]);
-  check(await says("ridge.txt is not a PNG"), `a file that is not a PNG, on the image: ${await status()}`);
+  check(await says("ridge.txt is neither a PNG nor a JPEG"), `a file that is neither, on the image: ${await status()}`);
   check((await source()) === original, "and neither changes the deck");
   n = await trips();
   await drop("ridge.png", [x + w / 2, y + h / 2]);
@@ -186,6 +189,18 @@ try {
   await undo();
   check((await source()) === original, "one undo puts the test card back");
   check(await page.evaluate(() => window.scaena.last().valid), "and the deck still validates");
+
+  // A photo dropped on it takes its place as it is: a JPEG, named by its SHA-256. (How the browser
+  // draws it, turned upright, the web smoke holds to torture case 50's golden.)
+  n = await trips();
+  await drop("turned.jpg", [x + w / 2, y + h / 2], jpeg);
+  check(await says("image-cover shows turned.jpg, kept as assets/"), `a JPEG dropped on it takes its place: ${await status()}`);
+  await settled(n);
+  const photo = declared(await source(), "image-cover").match(/\bimage "([^"]+)"/)?.[1] ?? "";
+  check(/^assets\/[0-9a-f]{64}\.jpg$/.test(photo), `named by its SHA-256, a JPEG still: ${photo}`);
+  check(await page.evaluate(() => window.scaena.last().valid), "the deck validates with it");
+  await undo();
+  check((await source()) === original, "one undo puts the test card back again");
 } catch (e) {
   failures.push(`error: ${e.message}`);
 } finally {

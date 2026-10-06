@@ -16,13 +16,19 @@ pub struct Read {
     /// The deck as canonical `.scn` (SPEC §4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scn: Option<String>,
+    /// With `files`, the bundle's images, fonts, and data, each with what in the deck names it
+    /// and the nodes drawn from it, as `scaena files` lists them (PLAN 2.59).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<scaena_core::files::BundleFile>>,
 }
 
-/// The bundle's deck: as JSON, or with `scn`, as `.scn`.
-pub fn read(b: &Bundle, scn: bool) -> Result<Read, OpsError> {
+/// The bundle's deck: as JSON, or with `scn`, as `.scn`; with `files`, the bundle's images,
+/// fonts, and data too.
+pub fn read(b: &Bundle, scn: bool, files: bool) -> Result<Read, OpsError> {
+    let files = if files { Some(crate::files::files(b)?) } else { None };
     Ok(match scn {
-        true => Read { deck: None, scn: Some(scaena_core::dsl::decompile(&b.deck)) },
-        false => Read { deck: Some(b.deck.to_value()?), scn: None },
+        true => Read { deck: None, scn: Some(scaena_core::dsl::decompile(&b.deck)), files },
+        false => Read { deck: Some(b.deck.to_value()?), scn: None, files },
     })
 }
 

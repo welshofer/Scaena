@@ -28,3 +28,7 @@ flate2.workspace = true
 # Video painted by vello on the GPU (PLAN 2.22). Off by default so the everyday build does
 # not compile wgpu.
 gpu = ["scaena-paint/gpu"]
+
+[dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }

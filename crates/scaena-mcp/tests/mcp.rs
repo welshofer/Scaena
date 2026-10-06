@@ -89,10 +89,12 @@ async fn the_tools_and_resources_are_listed() {
         tools,
         [
             "data_attach",
+            "data_edit",
             "deck_create",
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_history",
             "deck_inspect",
             "deck_lint",
             "deck_patch",
@@ -100,7 +102,8 @@ async fn the_tools_and_resources_are_listed() {
             "deck_render",
             "spine_read",
             "spine_update",
-            "theme_apply"
+            "theme_apply",
+            "theme_edit"
         ]
     );
     let resources: Vec<String> = client.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
@@ -228,6 +231,43 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert!(read["scn"].as_str().unwrap().contains("Revenue grew"), "{}", read["scn"]);
     let spine = ok(&client, "spine_read", json!({ "bundle": bundle })).await;
     assert_eq!(spine["spine"]["sections"][0]["beats"][1]["claim"], "Revenue doubled.");
+
+    // The data, edited in place (PLAN 2.55): the source read as a sheet, a cell set, and the
+    // chart reads it so: 2025-Q4's sum is 20.2 + 6.1 + 4.4.
+    let read = ok(&client, "data_edit", json!({ "bundle": bundle, "source": "q3" })).await;
+    assert_eq!(read["sheet"]["rows"][0], json!(["2025-Q4", "Core", "18.2", "1210"]), "{read:#}");
+    let edits = json!([{ "op": "set", "row": 0, "column": "revenue", "value": 20.2 }]);
+    let set = ok(&client, "data_edit", json!({ "bundle": bundle, "source": "q3", "edits": edits })).await;
+    assert_eq!((set["edited"].clone(), set["file"].clone()), (json!(true), json!("data/q3-revenue.csv")), "{set:#}");
+    let inspected = ok(&client, "deck_inspect", json!({ "bundle": bundle, "state": "revenue", "data": true })).await;
+    let sum = inspected["states"][0]["data"]["rev"]["rows"][0][1].as_f64().unwrap();
+    assert!((sum - 30.7).abs() < 1e-9, "{inspected:#}");
+
+    // The theme, edited (ADR-0016): the bundle's copy of Dusk, its paper and its body size, and
+    // the slide drawn in it; a role the deck uses taken out is refused, and nothing is written.
+    let before = call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue" })).await;
+    let before: Value = serde_json::from_str(&text(&before)).unwrap();
+    let ops = json!([
+        { "op": "replace", "path": "/tokens/color/paper", "value": "#0B0B10" },
+        { "op": "replace", "path": "/type/roles/body/size", "value": 30 },
+    ]);
+    let edited = ok(&client, "theme_edit", json!({ "bundle": bundle, "ops": ops })).await;
+    assert_eq!(edited["theme"], "themes/dusk.theme.json", "{edited:#}");
+    assert_eq!(edited["paths"], json!(["/tokens/color/paper", "/type/roles/body/size"]), "{edited:#}");
+    assert_eq!((edited["applied"].clone(), edited["refused"].clone()), (json!(true), json!(false)), "{edited:#}");
+    let held = || std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
+    let theme: Value = serde_json::from_str(&held()).unwrap();
+    assert_eq!(theme["tokens"]["color"]["paper"], "#0B0B10");
+    assert_eq!(theme["type"]["roles"]["body"]["size"], 30);
+    let after = call(&client, "deck_render", json!({ "bundle": bundle, "state": "revenue" })).await;
+    let after: Value = serde_json::from_str(&text(&after)).unwrap();
+    assert_ne!(after["digest"], before["digest"], "the deck is drawn in the theme as edited");
+    let kept = held();
+    let gone = json!([{ "op": "remove", "path": "/type/roles/headline" }]);
+    let refused = ok(&client, "theme_edit", json!({ "bundle": bundle, "ops": gone })).await;
+    assert_eq!((refused["refused"].clone(), refused["applied"].clone()), (json!(true), json!(false)), "{refused:#}");
+    assert!(refused["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{refused:#}");
+    assert_eq!(held(), kept, "a refused edit writes nothing");
     client.cancel().await.unwrap();
 }
 
@@ -248,11 +288,24 @@ async fn a_tool_that_stops_says_why() {
             json!({ "op": 0 }),
         ),
         ("deck_lint", json!({ "bundle": "no/such/bundle" }), json!({})),
+        // A theme edit whose op does not apply says which.
+        (
+            "theme_edit",
+            json!({ "bundle": example, "dry_run": true, "ops": [{ "op": "replace", "path": "/no/such", "value": 1 }] }),
+            json!({ "op": 0 }),
+        ),
+        // A bundle that keeps no history, and one thing asked of a history at a time.
+        ("deck_history", json!({ "bundle": example }), json!({})),
+        ("deck_history", json!({ "bundle": example, "at": "1", "restore": "1" }), json!({})),
     ] {
         let result = call(&client, tool, args).await;
         assert_eq!(result.is_error, Some(true), "{tool}");
         let failure: Value = serde_json::from_str(&text(&result)).unwrap();
         assert!(failure["message"].as_str().is_some_and(|m| !m.is_empty()), "{failure:#}");
+        if tool == "deck_history" {
+            let message = failure["message"].as_str().unwrap();
+            assert!(message.contains("`scaena save --history` begins one") || message.contains("one of"), "{message}");
+        }
         for (k, v) in says.as_object().unwrap() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
         }

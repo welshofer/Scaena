@@ -9,8 +9,18 @@
 // - Replace replaces the match shown, then goes on to the next after what it put in; Replace All
 //   replaces every match in one patch, one step to undo, and says how many, in how many texts.
 // - Match case and Whole words, as asked. Escape, or ×, closes the bar.
+import { type Key, MOD, SHIFT } from "./commands";
 import type { Edited, Found, Query } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What the find bar answers (PLAN 2.65), as the keys sheet lists it. */
+export const findKeys = (): Key[] => [
+  { keys: "Enter, ↓", label: "In the find bar: the next match", group: "Find and replace" },
+  { keys: `${SHIFT}Enter, ↑`, label: "The match before", group: "Find and replace" },
+  { keys: "Enter in Replace", label: "Replace the match shown", group: "Find and replace" },
+  { keys: `${MOD}Enter in Replace`, label: "Replace every match", group: "Find and replace" },
+  { keys: "Escape", label: "Close the find bar", group: "Find and replace" },
+];
 
 /** What the find bar asks of the editor around it. */
 export interface FindEditor {

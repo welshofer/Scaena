@@ -18,6 +18,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 |---|---|---|
 | attach a file | copy it to `data/`, then declare it: `bind_data` with a `source` as you bind the chart, or a JSON Patch `add` at `/data/<id>` | `data_attach`, with `id`, `file`, and optionally `schema` and `parse` |
 | see the rows a chart reads | `scaena inspect <bundle> --data` | `deck_inspect` with `data` |
+| see a source's rows as written, or fix a value, add a row, take one away | `scaena data <bundle> <id>`, then `--edits edits.json --dry-run`: one write of the file, every other byte kept | `data_edit`, with no `edits` to read, then with them and `dry_run` first |
 | add or change the chart | `scaena patch <bundle> --ops ops.json --dry-run`, then without `--dry-run` | `deck_patch`, with `dry_run` first |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out chart.png` | `deck_render` |
@@ -27,7 +28,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
 1. **Read the data: columns, types, rows.**
    - Dates in ISO 8601 read as they are. Any other date needs a `parse` format for its column (`"parse": { "month": "%b %Y" }`, `docs/spec/format.md`).
    - Periods without a year (`Jan`, `Q3`) are not dates: keep them as text on an `ordinal` axis, in the data's order. A `parse` format with no year reads every date in 1900.
-   - A value that does not fit its column's type is E103 when the deck validates, before any render.
+   - A value that does not fit its column's type is E103 when the deck validates, before any render. `scaena data` (`data_edit`) lists each such cell with why, and a `set` of it fixes it in the file.
 2. **Say the one thing.**
    - Write the point the chart supports as a headline sentence first ("June to September beat the plan").
    - The headline is the claim, and the chart is its evidence (`semantic: evidence`).

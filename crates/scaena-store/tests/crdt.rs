@@ -282,6 +282,43 @@ fn undo_undoes_ones_own_change_and_leaves_the_files_be() {
     assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("user"), Some("redo")));
 }
 
+/// A data file's history is its versions (ADR-0014): an edit holds its bytes in the change
+/// that makes it, by its author, bytes as they were are no change, and an undo sets the file
+/// back to what it was, from the history, leaving a file's change by `fs` be.
+#[test]
+fn a_data_file_is_kept_by_its_versions_and_undone_as_ones_own() {
+    let csv = |rows: &str| ("data/q3.csv".to_string(), format!("quarter,revenue\n{rows}").into_bytes());
+    let doc = DeckDoc::begin(&deck(base()), &[csv("Q1,1\n")], &user()).unwrap();
+    assert_eq!(doc.files(), [csv("Q1,1\n")].into());
+    let mut undo = doc.undo_manager();
+    let edit = Edit { message: Some("data_edit q3: revenue of row 0"), ..Edit::by("user") };
+    assert!(doc.apply_with(&deck(base()), &[csv("Q1,2\n")], &edit).unwrap());
+    assert!(!doc.apply_with(&deck(base()), &[csv("Q1,2\n")], &edit).unwrap(), "the same bytes are no change");
+    let last = doc.changes().pop().unwrap();
+    assert_eq!((last.author.as_deref(), last.message.as_deref()), (Some("user"), edit.message));
+    // Another file changes on disk, by `fs`.
+    let other = ("data/plan.csv".to_string(), b"quarter,target\nQ1,3\n".to_vec());
+    doc.apply_with(&deck(base()), std::slice::from_ref(&other), &Edit::by(FS)).unwrap();
+    assert!(undo.undo(&doc, "user").unwrap());
+    assert_eq!(doc.files(), [csv("Q1,1\n"), other.clone()].into(), "mine is undone, the file's stays");
+    assert!(undo.redo(&doc, "user").unwrap());
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,2\n").1);
+    // A history saved and loaded holds them, and so does one merged into.
+    let loaded = DeckDoc::load(&doc.save().unwrap()).unwrap();
+    assert_eq!(loaded.files(), doc.files());
+    let fork = doc.fork();
+    fork.apply_with(&deck(base()), &[csv("Q1,5\n")], &Edit::by("agent:test")).unwrap();
+    doc.merge(&fork).unwrap();
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,5\n").1);
+    // As a module hands it over: the file as text.
+    let recorded = Recorded {
+        files: [("data/q3.csv".to_string(), "quarter,revenue\nQ1,8\n".to_string())].into(),
+        ..Recorded { deck: deck(base()).to_json().unwrap(), author: "user".into(), ..at(4_000) }
+    };
+    assert_eq!(doc.record(&[recorded]).unwrap(), 1);
+    assert_eq!(doc.files()["data/q3.csv"], csv("Q1,8\n").1);
+}
+
 #[test]
 fn a_key_the_crdt_keeps_for_itself_is_refused() {
     let mut v = base();
@@ -389,10 +426,73 @@ fn recorded_changes_go_in_one_by_one_by_their_authors() {
 fn at(timestamp: i64) -> Recorded {
     Recorded {
         deck: String::new(),
+        files: Default::default(),
         author: String::new(),
         message: None,
         timestamp: Some(timestamp),
         renamed_nodes: Vec::new(),
         renamed_states: Vec::new(),
     }
+}
+
+/// Each change names a version (PLAN 2.60): the deck and its data files as they were just after
+/// it, with the history up to there. The document goes on as it was.
+#[test]
+fn a_version_is_the_deck_and_its_files_as_they_were_after_a_change() {
+    let csv = |rows: &str| ("data/q3.csv".to_string(), format!("quarter,revenue\n{rows}").into_bytes());
+    let doc = DeckDoc::begin(&deck(base()), &[csv("Q1,1\n")], &user()).unwrap();
+    let mut second = base();
+    second["nodes"]["title"]["text"] = json!("Revenue tripled");
+    doc.apply_with(&deck(second.clone()), &[csv("Q1,3\n")], &Edit { message: Some("triple"), ..user() }).unwrap();
+    let mut third = second.clone();
+    third["states"][0]["notes"] = json!("Breathe.");
+    doc.apply(&deck(third.clone()), &user()).unwrap();
+    let changes = doc.changes();
+    assert_eq!(changes.len(), 3);
+    let version = |i: usize| doc.at(&changes[i].id).unwrap().unwrap();
+    assert_eq!(json_of(&version(0).deck().unwrap()), json_of(&deck(base())));
+    assert_eq!(version(0).files(), [csv("Q1,1\n")].into());
+    assert_eq!(json_of(&version(1).deck().unwrap()), json_of(&deck(second)));
+    assert_eq!(version(1).files(), [csv("Q1,3\n")].into());
+    assert_eq!(json_of(&version(2).deck().unwrap()), json_of(&deck(third.clone())));
+    assert_eq!(version(1).changes(), &changes[..2], "a version keeps the history up to it");
+    assert_eq!(json_of(&doc.deck().unwrap()), json_of(&deck(third)), "and the document goes on as it was");
+    // An id the history does not hold names no version.
+    assert!(doc.at("7@1").unwrap().is_none() && doc.at("not an id").unwrap().is_none());
+    // A history saved and loaded names the same versions.
+    let loaded = DeckDoc::load(&doc.save().unwrap()).unwrap();
+    let again = loaded.at(&changes[1].id).unwrap().unwrap();
+    assert_eq!(json_of(&again.deck().unwrap()), json_of(&version(1).deck().unwrap()));
+}
+
+/// After a merge, a version is what its change's editor had seen: the changes before it, not
+/// those made beside it.
+#[test]
+fn after_a_merge_a_version_is_what_its_editor_had_seen() {
+    let a = DeckDoc::from_deck(&deck(base()), &user()).unwrap();
+    let b = a.fork();
+    let mut mine = base();
+    mine["nodes"]["title"]["text"] = json!("Mine");
+    let mut theirs = base();
+    theirs["states"][0]["notes"] = json!("Theirs.");
+    a.apply(&deck(mine), &user()).unwrap();
+    b.apply(&deck(theirs), &Edit::by("agent:test")).unwrap();
+    merged(&a, &b);
+    let change = a.changes().into_iter().find(|c| c.author.as_deref() == Some("agent:test")).unwrap();
+    let seen = json_of(&a.at(&change.id).unwrap().unwrap().deck().unwrap());
+    assert_eq!(seen["nodes"]["title"]["text"], "Revenue doubled", "not the edit made beside it");
+    assert_eq!(seen["states"][0]["notes"], "Theirs.");
+}
+
+/// A commit the history keeps in pieces, as the first of a long deck is once saved, is one
+/// change, and its version is the whole deck it made.
+#[test]
+fn a_long_commit_is_one_change_and_one_version() {
+    let text = std::fs::read_to_string("../../tests/fixtures/torture.scaena/deck.json").unwrap();
+    let torture = Deck::from_json(&text).unwrap();
+    let loaded = DeckDoc::load(&DeckDoc::from_deck(&torture, &user()).unwrap().save().unwrap()).unwrap();
+    let changes = loaded.changes();
+    assert_eq!(changes.len(), 1, "{:?}", changes.iter().map(|c| c.ops).collect::<Vec<_>>());
+    let version = loaded.at(&changes[0].id).unwrap().unwrap();
+    assert_eq!(version.deck().unwrap().to_json().unwrap(), torture.to_json().unwrap());
 }

@@ -33,9 +33,11 @@ bless:
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     rm -rf tests/golden/torture/actual
 
-# The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
+# The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
+# with every feature, and as the player's engine alone, without the hyphenation patterns the
+# editor's module leaves out (ADR-0015).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
@@ -99,19 +101,22 @@ spike: wasm-smoke
 # subsetter, which a page loads to download a bundle, into crates/scaena-subset/pkg (PLAN 2.4),
 # the CRDT, which a page loads to save a bundle that keeps a history, into
 # crates/scaena-history/pkg (PLAN 2.9), what the assistant reads (the resources MCP serves)
-# into crates/scaena-resources/pkg (PLAN 2.6),
+# into crates/scaena-resources/pkg (PLAN 2.6), the PDF painter, which a page loads to export a
+# PDF, into crates/scaena-pdf/pkg (PLAN 2.54),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
-# what a single-file HTML export carries (PLAN 2.5). Cargo keeps each feature set's build, so
+# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns,
+# which the editor's module leaves out and its page fetches as a text needs them (ADR-0015). Cargo keeps each feature set's build, so
 # building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
 # release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
     wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
     wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
     wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
-    cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+    wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
     wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and
@@ -166,6 +171,7 @@ web-smoke: site
     node web/draw.mjs
     node web/findings.mjs
     node web/layers.mjs
+    node web/rotate.mjs
     node web/clipboard.mjs
     node web/charts.mjs
     node web/several.mjs
@@ -179,13 +185,29 @@ web-smoke: site
     node web/strip.mjs
     node web/storage.mjs
     node web/assistant.mjs
+    node web/seeing.mjs
+    node web/commands.mjs
+    node web/export.mjs
+    node web/data.mjs
+    node web/reader.mjs
+    node web/guides.mjs
+    node web/looks.mjs
+    node web/files.mjs
+    node web/versions.mjs
+    node web/theme-edit.mjs
+    node web/formats.mjs
+    node web/rehearse.mjs
+    node web/rows.mjs
+    node web/keys.mjs
+    node web/annotate.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs
     node web/site.mjs
     node web/a11y.mjs
 
-# Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
+# Print the Cargo.lock-resolved versions behind ADR-0004's table (`hypher` is a dev-dependency,
+# ADR-0015), then any duplicated crates.
 versions:
-    cargo tree --workspace --all-features -e normal --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|hypher|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
+    cargo tree --workspace --all-features -e normal,dev --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|hypher|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
     cargo tree --workspace --all-features -e normal -d --depth 0

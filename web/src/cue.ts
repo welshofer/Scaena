@@ -16,6 +16,7 @@
 //   rest again when it is pressed, and an edit shows it at rest.
 // - Each change is one patch, by the user, one step to undo. What the deck refuses, the status
 //   says why.
+import { type Key, SHIFT } from "./commands";
 import type { At, Cue, Edited, Inspected, Motion } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -40,6 +41,12 @@ const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&
 /** A drag moves a time in whole tens of ms. */
 const STEP = 10;
 const snap = (ms: number) => Math.round(ms / STEP) * STEP;
+
+/** What a bar of the cue answers, focused (PLAN 2.65), as the keys sheet lists it. */
+export const cueKeys = (): Key[] => [
+  { keys: "← →", label: `In the cue: move a motion's start, or its end, ${STEP} ms`, group: "The cue" },
+  { keys: `${SHIFT}← ${SHIFT}→`, label: "Move it 100 ms", group: "The cue" },
+];
 
 /** One bar: the transition, or a motion. */
 interface Bar {

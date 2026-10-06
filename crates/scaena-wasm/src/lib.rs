@@ -42,9 +42,17 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "editor")]
 pub mod assistant;
 #[cfg(feature = "editor")]
+mod data;
+#[cfg(feature = "editor")]
 pub mod editor;
 #[cfg(feature = "editor")]
+mod formats;
+#[cfg(feature = "editor")]
 mod store;
+#[cfg(feature = "editor")]
+mod theme;
+#[cfg(feature = "editor")]
+mod versions;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -105,6 +113,9 @@ pub struct Session {
     previewing: Option<Deck>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
+    /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
+    #[cfg(feature = "editor")]
+    besides: BTreeMap<Option<String>, formats::Beside>,
     /// The fonts and images the engine was built from, as painters read them.
     store: Assets,
     /// The frame held while its shaders' rows are worked out (PLAN 2.28).
@@ -132,6 +143,23 @@ pub struct Session {
     /// before it (PLAN 2.9).
     #[cfg(feature = "editor")]
     recorded: Vec<scaena_store::crdt::Recorded>,
+    /// The data files edits wrote, each as it was before and after (PLAN 2.55): the Data panel
+    /// undoes the last, and redoes the last undone.
+    #[cfg(feature = "editor")]
+    done: Vec<data::Written>,
+    #[cfg(feature = "editor")]
+    undone: Vec<data::Written>,
+    /// Each data file an edit wrote, as the bundle held it when it was opened or last saved:
+    /// what the next save records as the bundle's own, before the edits (PLAN 2.55).
+    #[cfg(feature = "editor")]
+    held: BTreeMap<String, Vec<u8>>,
+    /// The files taken out of the bundle since it was opened or last saved (PLAN 2.59): what the
+    /// next save takes out where the bundle is kept.
+    #[cfg(feature = "editor")]
+    removed: std::collections::BTreeSet<String>,
+    /// A version from the bundle's history, shown read-only (PLAN 2.60): a session of its own.
+    #[cfg(feature = "editor")]
+    viewing: Option<Box<Session>>,
 }
 
 /// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
@@ -191,6 +219,8 @@ impl Session {
             #[cfg(feature = "editor")]
             previewing: None,
             format: None,
+            #[cfg(feature = "editor")]
+            besides: BTreeMap::new(),
             store: Assets::new(),
             #[cfg(feature = "cpu")]
             shading: None,
@@ -206,6 +236,16 @@ impl Session {
             subsets: BTreeMap::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
+            #[cfg(feature = "editor")]
+            done: Vec::new(),
+            #[cfg(feature = "editor")]
+            undone: Vec::new(),
+            #[cfg(feature = "editor")]
+            held: BTreeMap::new(),
+            #[cfg(feature = "editor")]
+            removed: Default::default(),
+            #[cfg(feature = "editor")]
+            viewing: None,
         })
     }
 
@@ -269,6 +309,11 @@ impl Session {
             self.forget();
         }
         Arc::make_mut(&mut self.files).insert(path.to_string(), bytes);
+        // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
+        if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
+            self.follow_theme(&self.deck.clone());
+            self.forget();
+        }
     }
 
     /// The image files the deck names: each to hand over with [`Session::add_file`].
@@ -286,9 +331,17 @@ impl Session {
         self.files.get(path).map(Vec::as_slice)
     }
 
-    /// Let go of what was laid out: the deck, its files, or its format changed. A drag, or a
-    /// patch previewed, ends with it.
+    /// Let go of what was laid out: the deck or its files changed. A drag, or a patch
+    /// previewed, ends with it.
     fn forget(&mut self) {
+        self.forget_shown();
+        #[cfg(feature = "editor")]
+        self.besides.clear();
+    }
+
+    /// Let go of what the canvas laid out: the format it shows changed, or the deck did. What
+    /// each format beside it laid out stands (PLAN 2.62).
+    fn forget_shown(&mut self) {
         self.transition = None;
         self.rest = None;
         self.targets.clear();
@@ -338,7 +391,7 @@ impl Session {
         project(&self.deck, &self.theme, format)?;
         if self.format.as_deref() != format {
             self.format = format.map(str::to_string);
-            self.forget();
+            self.forget_shown();
         }
         Ok(())
     }
@@ -436,6 +489,44 @@ impl Session {
         Ok(self.at_rest(state)?.hit(point))
     }
 
+    /// The chart mark or table row drawn at `point` (canvas units) in `state` at rest, in the
+    /// format shown, with the rows of its source it was made from (PLAN 2.64). `None` where the
+    /// topmost node there is no chart or table, or the point falls between its marks.
+    pub fn mark_at(&mut self, state: &str, point: [f32; 2]) -> Result<Option<scaena_engine::marks::DataMark>, Error> {
+        Ok(self.at_rest(state)?.mark_at(point))
+    }
+
+    /// What `rows` of data source `source` draw in `state` at rest, in the format shown: each
+    /// chart mark and table row made from any of them, in paint order (PLAN 2.64).
+    pub fn marks_of(
+        &mut self,
+        state: &str,
+        source: &str,
+        rows: &[usize],
+    ) -> Result<Vec<scaena_engine::marks::DataMark>, Error> {
+        Ok(self.at_rest(state)?.marks_of(source, rows))
+    }
+
+    /// The chart annotation drawn at `point` (canvas units) in `state` at rest, in the format
+    /// shown (PLAN 2.67): its chart and its place among the chart's `annotations`. `None`
+    /// where the topmost node there is no chart, or the point is on none of its annotations.
+    pub fn note_at(&mut self, state: &str, point: [f32; 2]) -> Result<Option<scaena_engine::marks::NoteMark>, Error> {
+        Ok(self.at_rest(state)?.note_at(point))
+    }
+
+    /// Where a callout of chart `node` dropped at `point` (canvas units) in `state` at rest
+    /// would stand, in the format shown (PLAN 2.67): on the mark there, or at the category or
+    /// the x nearest across and the value there. `None` for a node that is no chart, or a
+    /// donut.
+    pub fn callout_at(
+        &mut self,
+        state: &str,
+        node: &str,
+        point: [f32; 2],
+    ) -> Result<Option<scaena_core::model::values::AnnotationAt>, Error> {
+        Ok(self.at_rest(state)?.callout_at(node, point))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -484,6 +575,91 @@ impl Session {
     ) -> Result<Option<scaena_ops::inspect::Snapped>, Error> {
         let found = self.targets(state, node)?.clone();
         scaena_ops::inspect::snap(&found, how, to, state, fork).map_err(|e| Error::Deck(e.to_string()))
+    }
+
+    /// The theme's grid in the format shown, as the editor's guides draw it (PLAN 2.57).
+    #[cfg(feature = "editor")]
+    pub fn grid(&self) -> Result<scaena_engine::guides::Guides, Error> {
+        Ok(scaena_engine::guides::grid(&self.deck, &self.theme, self.format.as_deref())?)
+    }
+
+    /// What a box `moving` move in `state` at rest, in the format shown, may meet (PLAN 2.57):
+    /// what else draws, and the canvas, as [`scaena_engine::guides::around`] says. Nothing where
+    /// one of them is drawn elsewhere than its placement puts it, by its transform or what holds
+    /// it: a drag of it shows no guides.
+    #[cfg(feature = "editor")]
+    fn around(&mut self, state: &str, moving: &[&str]) -> Result<Vec<[f32; 4]>, Error> {
+        let scene = self.at_rest(state)?;
+        let boxes = scene.boxes();
+        let plain = moving.iter().all(|n| boxes.iter().any(|b| b.node == *n && b.transform.is_none()));
+        Ok(match plain {
+            true => scaena_engine::guides::around(&boxes, scene.canvas, moving),
+            false => Vec::new(),
+        })
+    }
+
+    /// Where the box `to` lands, as [`Session::snap`] says, and the guides it meets there (PLAN
+    /// 2.57): a line wherever one of its edges, or its middle, meets another box's or the
+    /// canvas's. Off the grid (`free`), it goes first the least way that brings one onto another
+    /// within `reach` canvas units. Into a slot or among a stack's children, it meets none.
+    #[cfg(feature = "editor")]
+    #[allow(clippy::type_complexity)]
+    pub fn guided(
+        &mut self,
+        state: &str,
+        node: &str,
+        how: scaena_ops::inspect::SnapMode,
+        to: [f32; 4],
+        fork: bool,
+        reach: f32,
+    ) -> Result<Option<(scaena_ops::inspect::Snapped, Vec<[f32; 4]>)>, Error> {
+        use scaena_engine::guides;
+        use scaena_ops::inspect::SnapMode;
+        let cell = self.targets(state, node)?.cell;
+        let around = self.around(state, &[node])?;
+        let to = match how {
+            SnapMode::Free => guides::align(to, cell, &around, reach),
+            _ => to,
+        };
+        let Some(snapped) = self.snap(state, node, how, to, fork)? else { return Ok(None) };
+        let lines = match how {
+            SnapMode::Move | SnapMode::Resize | SnapMode::Free => guides::meets(snapped.cell, &around),
+            SnapMode::Slot | SnapMode::Order => Vec::new(),
+        };
+        Ok(Some((snapped, lines)))
+    }
+
+    /// `nodes`, children of one container, moved together `by` (PLAN 2.42) as
+    /// [`Session::arranging`] moves them, and the guides the box around them meets where they
+    /// land (PLAN 2.57). Off the grid (`free`), that box goes first the least way that brings an
+    /// edge, or its middle, onto another's within `reach` canvas units.
+    #[cfg(feature = "editor")]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    pub fn together(
+        &mut self,
+        state: &str,
+        nodes: &[String],
+        by: [f32; 2],
+        free: bool,
+        fork: bool,
+        reach: f32,
+    ) -> Result<Option<(scaena_ops::arrange::Arranged, Vec<[f32; 4]>)>, Error> {
+        use scaena_engine::guides;
+        let cells = nodes.iter().map(|n| self.targets(state, n).map(|t| t.cell)).collect::<Result<Vec<_>, _>>()?;
+        let moving: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        let around = self.around(state, &moving)?;
+        let by = match (free, guides::union(&cells)) {
+            (true, Some(from)) => {
+                let to = guides::align([from[0] + by[0], from[1] + by[1], from[2], from[3]], from, &around, reach);
+                [to[0] - from[0], to[1] - from[1]]
+            }
+            _ => by,
+        };
+        let how = scaena_ops::arrange::How::Together { by, free };
+        let Some(arranged) = self.arranging(state, nodes, how, fork)? else { return Ok(None) };
+        let landed: Vec<[f32; 4]> = arranged.landed.iter().map(|l| l.cell).collect();
+        let lines = guides::union(&landed).map_or_else(Vec::new, |cell| guides::meets(cell, &around));
+        Ok(Some((arranged, lines)))
     }
 
     /// Draw nodes, and what they hold, `by` canvas units from where they stand in the frames at
@@ -633,6 +809,24 @@ impl Session {
     /// table's fields are the columns of the data handed over (PLAN 2.41).
     pub fn choices(&self, state: &str, node: &str) -> Result<scaena_core::choices::Choices, Error> {
         scaena_core::choices::choices(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
+    }
+
+    /// `node`'s look as `state` shows it (PLAN 2.58): each property of its type's look and the
+    /// value shown, which ⌥⌘C picks up.
+    pub fn look(&self, state: &str, node: &str) -> Result<scaena_core::looks::Look, Error> {
+        scaena_core::looks::look(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
+    }
+
+    /// `look` put on `nodes` in `state` (PLAN 2.58): the patch of `choose`s that ⌥⌘V makes, each
+    /// written where that node's own value lives, and the nodes that look so already or take
+    /// none of it, with why.
+    pub fn putting(
+        &self,
+        state: &str,
+        look: &scaena_core::looks::Look,
+        nodes: &[String],
+    ) -> Result<scaena_core::looks::Put, Error> {
+        scaena_core::looks::putting(&self.deck, &self.theme, state, look, nodes, &*self.files).map_err(Error::Ops)
     }
 
     /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
@@ -937,6 +1131,22 @@ impl Session {
         Ok(self.painter.paint(&dl, &self.store, scale)?)
     }
 
+    /// `state` at rest in the format shown, as a PNG `width` pixels wide, painted by the CPU
+    /// painter, the height keeping the canvas's aspect (PLAN 2.54): what
+    /// `scaena export --format png --size` writes for it on the deck's canvas. Neither a drag
+    /// nor a preview shown draws in it.
+    #[cfg(feature = "editor")]
+    pub fn png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, Error> {
+        use scaena_paint::Painter;
+        let timeline = self.timeline()?;
+        let slot = timeline.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        // Its shaders at the time it comes to rest, as `frame` draws them there.
+        let time = (slot.start + slot.span) / 1000.0;
+        let dl = self.at_rest(state)?.draw_at(time);
+        let scale = width as f32 / dl.viewport[0];
+        Ok(self.painter.paint(&dl, &self.store, scale)?.to_png()?)
+    }
+
     /// Hold [`Session::pixels`]' frame until its shaders' pixels are in, and say how many
     /// shaders it draws: each one's rows are worked out in bands, here ([`Session::shade`])
     /// or on another worker from its spec ([`Session::shader_spec`], [`shader_rows`]), then
@@ -1027,6 +1237,46 @@ pub fn shader_rows(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, Error>
     let mut out = vec![0; rows as usize * w as usize * 4];
     job.render_rows(first, &mut out);
     Ok(out)
+}
+
+/// `out` with `guides` as its `guides`, where there are any (PLAN 2.57).
+#[cfg(feature = "editor")]
+fn with_guides(mut out: serde_json::Value, guides: &[[f32; 4]]) -> serde_json::Value {
+    if !guides.is_empty() {
+        out["guides"] = serde_json::json!(guides);
+    }
+    out
+}
+
+/// A chart mark or table row as `Player.markAt` gives it (PLAN 2.64), with a chart mark's
+/// annotations (PLAN 2.67).
+#[cfg(feature = "editor")]
+fn mark_json(m: scaena_engine::marks::DataMark) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "node": m.node, "source": m.source, "key": m.key, "rows": m.rows, "outline": m.outline, "rect": m.rect,
+    });
+    if let Some(map) = m.transform {
+        out["transform"] = serde_json::json!(map);
+    }
+    if let Some(n) = m.notes {
+        out["notes"] = serde_json::json!({
+            "x": n.x, "value": n.value, "series": n.series, "axes": n.axes, "callout": n.callout,
+            "highlight": n.highlight, "highlighted": n.highlighted,
+        });
+    }
+    out
+}
+
+/// A chart annotation as `Player.noteAt` gives it (PLAN 2.67).
+#[cfg(feature = "editor")]
+fn note_json(n: scaena_engine::marks::NoteMark) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "node": n.node, "index": n.index, "kind": n.kind, "text": n.text, "outline": n.outline, "rect": n.rect,
+    });
+    if let Some(map) = n.transform {
+        out["transform"] = serde_json::json!(map);
+    }
+    out
 }
 
 fn js(e: impl std::fmt::Display) -> JsError {
@@ -1128,6 +1378,23 @@ impl Player {
     pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
         Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
     }
+
+    /// `state` at `t_ms` in `format`, one of the deck's formats or its own canvas
+    /// (`undefined`), painted `height` pixels high as `pixels` paints the canvas, whichever
+    /// format it shows, the width keeping the format's aspect (`pixels.length / 4 / height`):
+    /// what the editor paints beside the canvas, a format at a time, as it plays (PLAN 2.62).
+    /// Each format lays each state out once.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = pixelsIn)]
+    pub fn pixels_in(
+        &mut self,
+        format: Option<String>,
+        state: &str,
+        t_ms: f64,
+        height: u32,
+    ) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        Ok(wasm_bindgen::Clamped(self.0.pixels_in(format.as_deref(), state, t_ms, height).map_err(js)?.rgba))
+    }
 }
 
 /// A frame whose shaders' rows are worked out on other workers (PLAN 2.28). The module has no
@@ -1207,6 +1474,21 @@ pub fn shader_rows_js(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, JsE
     shader_rows(spec, first, rows).map_err(js)
 }
 
+/// Where this thread's engine gets a language's hyphenation patterns that its module leaves out
+/// (ADR-0015): `loader`, given the language's code (`de`), returns the bytes of its file
+/// (`hyphenation/de.bin`) as a `Uint8Array`, or anything else where it has none. It is asked the
+/// first time a text hyphenates in that language, in the middle of a layout, so it answers at
+/// once. What it returns is held to the file's SHA-256. The player's module has every language
+/// compiled in, and never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setHyphenation)]
+pub fn set_hyphenation(loader: js_sys::Function) {
+    scaena_engine::hyphen::set_loader(move |code| {
+        let bytes = loader.call1(&JsValue::NULL, &JsValue::from_str(code)).ok()?;
+        bytes.dyn_into::<js_sys::Uint8Array>().ok().map(|bytes| bytes.to_vec())
+    });
+}
+
 /// The module this is, compiled: a page hands it to the workers it starts beside the
 /// engine's, which instantiate it rather than fetch and compile it again (PLAN 2.28).
 #[wasm_bindgen(js_name = engineModule)]
@@ -1261,23 +1543,81 @@ impl Player {
 #[wasm_bindgen]
 impl Player {
     /// Each visible node's box in `state` at rest, in the format shown, as JSON (ADR-0013):
-    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws" }]`, canvas units, those that draw
-    /// in paint order, then the containers and groups that only hold others.
+    /// `[{ "node", "rect": [x, y, w, h], "parent"?, "draws", "transform"? }]`, canvas units,
+    /// those that draw in paint order, then the containers and groups that only hold others.
+    /// `transform` is where its own and its containers' draw it from `rect` (SPEC §3.3), `[a,
+    /// b, c, d, e, f]`, where something moves it.
     pub fn boxes(&mut self, state: &str) -> Result<String, JsError> {
         let boxes: Vec<serde_json::Value> = (self.0.boxes(state).map_err(js)?.into_iter())
-            .map(|b| serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws }))
+            .map(|b| {
+                let mut out =
+                    serde_json::json!({ "node": b.node, "rect": b.rect, "parent": b.parent, "draws": b.draws });
+                if let Some(map) = b.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                out
+            })
             .collect();
         serde_json::to_string(&boxes).map_err(js)
     }
 
     /// The nodes that draw at `x`, `y` (canvas units) in `state` at rest, in the format shown,
-    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers" }]`, each node's
-    /// containers innermost first.
+    /// topmost first, as JSON (ADR-0013): `[{ "node", "rect", "containers", "transform"? }]`,
+    /// each node's containers innermost first, read through its transform as a box's is.
     pub fn hit(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
         let hits: Vec<serde_json::Value> = (self.0.hit(state, [x, y]).map_err(js)?.into_iter())
-            .map(|h| serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers }))
+            .map(|h| {
+                let mut out = serde_json::json!({ "node": h.node, "rect": h.rect, "containers": h.containers });
+                if let Some(map) = h.transform {
+                    out["transform"] = serde_json::json!(map);
+                }
+                out
+            })
             .collect();
         serde_json::to_string(&hits).map_err(js)
+    }
+
+    /// The chart mark or table row drawn at `x`, `y` (canvas units) in `state` at rest, in the
+    /// format shown, as JSON (PLAN 2.64): `{ "node", "source", "key", "rows", "outline", "rect",
+    /// "transform"? }`, or `null` where the topmost node there is no chart or table, or the
+    /// point falls between its marks. `rows` are the rows of `source` it was made from, from 0,
+    /// as the source's sheet numbers them; `outline` is SVG path data, canvas units, as laid
+    /// out, and `transform` where it is drawn from there, as a box's.
+    #[wasm_bindgen(js_name = markAt)]
+    pub fn mark_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let found = self.0.mark_at(state, [x, y]).map_err(js)?;
+        serde_json::to_string(&found.map(mark_json)).map_err(js)
+    }
+
+    /// What `rows` of data source `source` draw in `state` at rest, in the format shown, as
+    /// JSON (PLAN 2.64): each chart mark and table row made from any of them, in paint order,
+    /// as `markAt` gives one.
+    #[wasm_bindgen(js_name = marksOf)]
+    pub fn marks_of(&mut self, state: &str, source: &str, rows: Vec<u32>) -> Result<String, JsError> {
+        let rows: Vec<usize> = rows.into_iter().map(|r| r as usize).collect();
+        let marks: Vec<serde_json::Value> =
+            self.0.marks_of(state, source, &rows).map_err(js)?.into_iter().map(mark_json).collect();
+        serde_json::to_string(&marks).map_err(js)
+    }
+
+    /// The chart annotation drawn at `x`, `y` (canvas units) in `state` at rest, in the format
+    /// shown, as JSON (PLAN 2.67): `{ "node", "index", "kind", "text", "outline", "rect",
+    /// "transform"? }`, `index` its place among the chart's `annotations`; or `null` where the
+    /// topmost node there is no chart, or the point is on none of its annotations. A highlight
+    /// draws nothing of its own: a mark it picks out names it (`markAt`'s `notes.highlighted`).
+    #[wasm_bindgen(js_name = noteAt)]
+    pub fn note_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let found = self.0.note_at(state, [x, y]).map_err(js)?;
+        serde_json::to_string(&found.map(note_json)).map_err(js)
+    }
+
+    /// Where a callout of chart `node` dropped at `x`, `y` (canvas units) in `state` at rest
+    /// would stand, as JSON (PLAN 2.67): an annotation's `at`, on the mark there or at the
+    /// category or x nearest across and the value there; `null` for a node that is no chart,
+    /// or a donut.
+    #[wasm_bindgen(js_name = calloutAt)]
+    pub fn callout_at(&mut self, state: &str, node: &str, x: f32, y: f32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.callout_at(state, node, [x, y]).map_err(js)?).map_err(js)
     }
 
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
@@ -1300,9 +1640,12 @@ impl Player {
 
     /// Where the box `x`, `y`, `w`, `h` (`node`'s cell as a drag left it) lands in `state`
     /// when it snaps `how` (`move`, `resize`, `slot`, `free`, `order`), as JSON: `{ "cell",
-    /// "patch" }`, the patch the place ops that put the node there, kept to `state` when they
-    /// `fork`; `null` where nothing places the node that way. Asked with each move of a drag,
-    /// it lays nothing out.
+    /// "patch", "guides"? }`, the patch the place ops that put the node there, kept to `state`
+    /// when they `fork`; `null` where nothing places the node that way. `guides`, each `[x1,
+    /// y1, x2, y2]`, are where the box's edges or its middle meet another box's or the
+    /// canvas's (PLAN 2.57); off the grid (`free`), the box goes first the least way that
+    /// brings one onto another within `reach` canvas units. Asked with each move of a drag, it
+    /// lays nothing out.
     #[allow(clippy::too_many_arguments)]
     pub fn snap(
         &mut self,
@@ -1314,10 +1657,51 @@ impl Player {
         w: f32,
         h: f32,
         fork: bool,
+        reach: f32,
     ) -> Result<String, JsError> {
         let how: scaena_ops::inspect::SnapMode = how.parse().map_err(|e: String| JsError::new(&e))?;
-        let snapped = self.0.snap(state, node, how, [x, y, w, h], fork).map_err(js)?;
-        serde_json::to_string(&snapped).map_err(js)
+        let guided = self.0.guided(state, node, how, [x, y, w, h], fork, reach).map_err(js)?;
+        let out = match guided {
+            None => serde_json::Value::Null,
+            Some((snapped, guides)) => with_guides(serde_json::to_value(snapped).map_err(js)?, &guides),
+        };
+        serde_json::to_string(&out).map_err(js)
+    }
+
+    /// `nodes`, children of one container, moved together `dx`, `dy` canvas units in `state`
+    /// at rest (PLAN 2.42), as a drag of the first snaps it, `free` off the grid; as JSON: `{
+    /// "landed": [{ "node", "cell" }], "patch", "guides"? }`, the patch made in `state` or kept
+    /// there to `fork` it, or `null` where nothing moves them. `guides` are where the box around
+    /// them meets another's or the canvas's (PLAN 2.57); `free`, it goes first the least way
+    /// that brings an edge, or its middle, onto another's within `reach`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn together(
+        &mut self,
+        state: &str,
+        nodes: Vec<String>,
+        dx: f32,
+        dy: f32,
+        free: bool,
+        fork: bool,
+        reach: f32,
+    ) -> Result<String, JsError> {
+        let moved = self.0.together(state, &nodes, [dx, dy], free, fork, reach).map_err(js)?;
+        let out = match moved {
+            None => serde_json::Value::Null,
+            Some((arranged, guides)) => with_guides(serde_json::to_value(arranged).map_err(js)?, &guides),
+        };
+        serde_json::to_string(&out).map_err(js)
+    }
+
+    /// The theme's grid in the format shown, as the editor's guides draw it (PLAN 2.57), as
+    /// JSON: `{ "canvas": [w, h], "columns": [[start, end]], "rows": [[start, end]],
+    /// "baselines": [y] }`, canvas units: the gutters between the tracks, the margins around
+    /// them, and a line every pitch of the baseline grid from the top margin.
+    pub fn grid(&self) -> Result<String, JsError> {
+        let g = self.0.grid().map_err(js)?;
+        let out =
+            serde_json::json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines });
+        serde_json::to_string(&out).map_err(js)
     }
 
     /// `nodes`, children of one container, arranged in `state` at rest, in the format shown
@@ -1414,6 +1798,20 @@ impl Player {
         serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
     }
 
+    /// `node`'s look as `state` shows it, as JSON (PLAN 2.58): `{ node, type, props: [{ prop,
+    /// value? }] }`, as `scaena inspect --look` says it; what ⌥⌘C picks up.
+    pub fn look(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.look(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `look` (JSON, as `look` gives it) put on `nodes` in `state`, as JSON (PLAN 2.58): `{
+    /// patch, took, same, refused: [{ node, why }] }`, as `scaena inspect --look --onto` says
+    /// it; what ⌥⌘V makes.
+    pub fn putting(&self, state: &str, look: &str, nodes: Vec<String>) -> Result<String, JsError> {
+        let look: scaena_core::looks::Look = serde_json::from_str(look).map_err(js)?;
+        serde_json::to_string(&self.0.putting(state, &look, &nodes).map_err(js)?).map_err(js)
+    }
+
     /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
     /// `node`'s text in `state`, as JSON (PLAN 2.38): `{ node, type, state, fields }`, each
     /// field a look a run takes, which `style_text` sets.
@@ -1439,6 +1837,15 @@ impl Player {
     pub fn themes(&self) -> Result<String, JsError> {
         let (current, files) = self.0.themes();
         serde_json::to_string(&serde_json::json!({ "current": current, "files": files })).map_err(js)
+    }
+
+    /// The theme frames are drawn in, as JSON `{ theme, text }` (PLAN 2.61): the theme file the deck
+    /// names, by its path, or `(inline)` for one written in the deck, and its JSON as text; none
+    /// where the deck names no theme.
+    #[wasm_bindgen(js_name = themeText)]
+    pub fn theme_text(&self) -> Option<String> {
+        let (current, _) = self.0.themes();
+        Some(serde_json::json!({ "theme": current?, "text": self.0.theme_json }).to_string())
     }
 
     /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
@@ -1630,6 +2037,26 @@ impl Player {
         self.0.adopt(&saved.0).map_err(js)
     }
 
+    /// `state` at rest in the format shown, as a PNG `width` pixels wide, painted by the CPU
+    /// painter (PLAN 2.54): what `scaena export --format png --size` writes for it.
+    pub fn png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {
+        self.0.png(state, width).map_err(js)
+    }
+
+    /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
+    /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54).
+    #[wasm_bindgen(js_name = pdfLaidOut)]
+    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, JsError> {
+        self.0.pdf_laid_out().map_err(js)
+    }
+
+    /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file
+    /// player's page, filled in with the bundle as `scaena export --format html` fills it, and
+    /// named `name`. Its fonts are subset first, as for a save (`subsetting`, `addSubset`).
+    pub fn standalone(&self, page: &str, name: &str) -> Result<String, JsError> {
+        self.0.standalone(page, name).map_err(js)
+    }
+
     /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a
     /// data file under `data/`, by its name; anything else, an image above all, under
     /// `assets/`, named by its SHA-256, as a save names it.
@@ -1663,12 +2090,167 @@ impl Player {
             Err(e) => Err(Error::Ops(format!("{name}: the arguments are not JSON: {e}"))),
         };
         match called {
-            Ok(c) => ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame },
+            Ok(c) => {
+                ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame, rewritten: c.rewritten }
+            }
             Err(e) => {
                 let json = assistant::failure(&e).to_string();
-                ToolResult { json, error: true, edited: false, frame: None }
+                ToolResult { json, error: true, edited: false, frame: None, rewritten: Vec::new() }
             }
         }
+    }
+}
+
+/// A data source from the editor (PLAN 2.55, SPEC §3.10): its sheet, its edits, and their undo.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The bundle's images, fonts, and data, as JSON (PLAN 2.59): `[{ path, type, bytes, named,
+    /// used }]`, as `scaena files --json` lists them, each with what in the deck names it, and
+    /// the nodes drawn from it in the states that show them so.
+    #[wasm_bindgen(js_name = bundleFiles)]
+    pub fn bundle_files(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.bundle_files().map_err(js)?).map_err(js)
+    }
+
+    /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing
+    /// names. `dataUndo` puts it back; the next save takes it out where the bundle is kept. An
+    /// error says why, where something names it.
+    #[wasm_bindgen(js_name = removeFile)]
+    pub fn remove_file(&mut self, path: &str) -> Result<(), JsError> {
+        self.0.remove_file(path).map_err(js)
+    }
+
+    /// The deck's data sources, as JSON: `[{ name, file? }]`, in its order, `file` the file each
+    /// is (none for rows written inline).
+    #[wasm_bindgen(js_name = dataSources)]
+    pub fn data_sources(&self) -> String {
+        let sources = self.0.data_sources().into_iter().map(|(name, file)| match file {
+            Some(file) => serde_json::json!({ "name": name, "file": file }),
+            None => serde_json::json!({ "name": name }),
+        });
+        serde_json::Value::Array(sources.collect()).to_string()
+    }
+
+    /// Data source `name` as a sheet, as `scaena data` reads it: as JSON, `{ sheet, file? }`.
+    #[wasm_bindgen(js_name = dataSheet)]
+    pub fn data_sheet(&self, name: &str) -> Result<String, JsError> {
+        let (sheet, file) = self.0.data_sheet(name).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "sheet": sheet, "file": file })).map_err(js)
+    }
+
+    /// `req` (JSON: `{ source, edits }`, as `data_edit` takes them) made by `author` (`user`
+    /// without one) at `at` (RFC 3339): validated, as a patch is, but not linted, as for a value
+    /// typed in a cell. As JSON, `{ result, wrote }`: what `data_edit` says it did, and whether it
+    /// wrote the file or the deck.
+    #[wasm_bindgen(js_name = dataEdit)]
+    pub fn data_edit(&mut self, req: &str, author: Option<String>, at: Option<String>) -> Result<String, JsError> {
+        let req: scaena_ops::data::DataEdit = serde_json::from_str(req).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (result, wrote) = self.0.data_edit(&req, false, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "result": result, "wrote": wrote })).map_err(js)
+    }
+
+    /// The file the last edit wrote, or the Files panel took out, put back as it was, by `author`
+    /// (`user` without one) at `at`: the source it is, by name, or its path; none where there was
+    /// nothing to undo.
+    #[wasm_bindgen(js_name = dataUndo)]
+    pub fn data_undo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        self.0.data_undo(false, by).map_err(js)
+    }
+
+    /// The file the last undo put back written, or taken out, again, as [`Player::data_undo`]
+    /// says.
+    #[wasm_bindgen(js_name = dataRedo)]
+    pub fn data_redo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        self.0.data_undo(true, by).map_err(js)
+    }
+
+    /// Show a version of the deck read-only (PLAN 2.60): `held`, JSON `{ deck, files }` as the
+    /// history's module reads it (`at`), in a session of its own. Its states' ids, as JSON.
+    #[wasm_bindgen(js_name = viewVersion)]
+    pub fn view_version(&mut self, held: &str) -> Result<String, JsError> {
+        let held: versions::Held = serde_json::from_str(held).map_err(js)?;
+        serde_json::to_string(&self.0.view_version(&held).map_err(js)?).map_err(js)
+    }
+
+    /// The version shown's `state` at rest, as a PNG `width` pixels wide.
+    #[wasm_bindgen(js_name = versionPng)]
+    pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {
+        self.0.version_png(state, width).map_err(js)
+    }
+
+    /// What changed from version `from` to version `to`, each `{ deck, files }`, or without `to`,
+    /// to the deck and its data files as they are now, as JSON `{ states, deck, files }`, as
+    /// `scaena history --diff` says it.
+    #[wasm_bindgen(js_name = compareVersions)]
+    pub fn compare_versions(&self, from: &str, to: Option<String>) -> Result<String, JsError> {
+        let from: versions::Held = serde_json::from_str(from).map_err(js)?;
+        let to: Option<versions::Held> = to.map(|to| serde_json::from_str(&to)).transpose().map_err(js)?;
+        serde_json::to_string(&self.0.compare_versions(&from, to.as_ref()).map_err(js)?).map_err(js)
+    }
+
+    /// Make version `held` (`{ deck, files }`), `version` as listed, the deck again, with its data
+    /// files, by `author` (`user` without one) at `at`: one change, refused as a patch is. JSON
+    /// `{ restored, files }`: what `scaena history --restore` says, and each data file written,
+    /// `{ path, before, after }`, for the editor's undo to write back.
+    #[wasm_bindgen(js_name = restoreVersion)]
+    pub fn restore_version(
+        &mut self,
+        held: &str,
+        version: &str,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> Result<String, JsError> {
+        let held: versions::Held = serde_json::from_str(held).map_err(js)?;
+        let version: scaena_ops::history::Version = serde_json::from_str(version).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (restored, files) = self.0.restore_version(&held, version, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "restored": restored, "files": files })).map_err(js)
+    }
+
+    /// Edit the theme the deck names by `edit` (JSON `{ ops }`, RFC 6902 operations on it,
+    /// ADR-0016), by `author` (`user` without one) at `at`, unless `dry_run`: refused as `scaena
+    /// theme --edit` refuses one. JSON `{ edited, files }`: what it did, and the theme file it
+    /// wrote, `{ path, before, after }`, for the editor's undo to write back.
+    #[wasm_bindgen(js_name = themeEdit)]
+    pub fn theme_edit(
+        &mut self,
+        edit: &str,
+        dry_run: bool,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> Result<String, JsError> {
+        let edit: scaena_ops::theme::ThemeEdit = serde_json::from_str(edit).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (edited, files) = self.0.theme_edit(&edit, dry_run, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "edited": edited, "files": files })).map_err(js)
+    }
+
+    /// Files written back, as an undo or a redo of a restore or a theme edit has them: JSON
+    /// `[{ path, text }]`, `text` null for a file to take out.
+    #[wasm_bindgen(js_name = writeFiles)]
+    pub fn write_files(&mut self, files: &str) -> Result<(), JsError> {
+        let files: Vec<versions::Written> = serde_json::from_str(files).map_err(js)?;
+        self.0.write_files(files);
+        Ok(())
     }
 }
 
@@ -1703,6 +2285,7 @@ pub struct ToolResult {
     error: bool,
     edited: bool,
     frame: Option<scaena_paint::Raster>,
+    rewritten: Vec<versions::Rewritten>,
 }
 
 #[cfg(feature = "editor")]
@@ -1724,6 +2307,13 @@ impl ToolResult {
     #[wasm_bindgen(getter)]
     pub fn edited(&self) -> bool {
         self.edited
+    }
+
+    /// The files it wrote beside the deck that the editor's undo writes back, as JSON `[{ path,
+    /// before, after }]`: the theme `theme_edit` edited (ADR-0016); empty from any other tool.
+    #[wasm_bindgen(getter)]
+    pub fn rewritten(&self) -> String {
+        serde_json::to_string(&self.rewritten).unwrap_or_else(|_| "[]".into())
     }
 
     /// `deck_render`'s frame, `[width, height]` pixels.
@@ -2205,6 +2795,61 @@ mod tests {
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// Guides (PLAN 2.57): the theme's grid in the format shown, and where a box a drag moves
+    /// meets what else draws. Off the grid, a box within reach of another's edge goes onto it,
+    /// and its patch puts it there; on the grid, it lands on the tracks alone. Several moved
+    /// together off the grid go as one box.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_meets_what_else_draws_and_off_the_grid_goes_onto_it() {
+        use scaena_ops::inspect::SnapMode;
+        let mut s = torture();
+        let wide = s.grid().unwrap();
+        assert_eq!(
+            (wide.canvas, wide.columns.len(), wide.rows.len(), wide.baselines.len()),
+            ([1920.0, 1080.0], 12, 8, 112)
+        );
+        s.set_format(Some("9:16")).unwrap();
+        assert_eq!(s.grid().unwrap().canvas, [1080.0, 1920.0], "the format shown's grid");
+        s.set_format(None).unwrap();
+
+        let boxes = s.boxes("containers").unwrap();
+        let rect = |node: &str| boxes.iter().find(|b| b.node == node).unwrap().rect;
+        let (card, photo) = (s.targets("containers", "card").unwrap().cell, rect("board-photo"));
+        // Off the grid, its left edge 3 units right of the photo's: onto it, in whole units.
+        let to = [photo[0] + 3.0, card[1] - 37.0, card[2], card[3]];
+        let (snapped, guides) = s.guided("containers", "card", SnapMode::Free, to, false, 6.0).unwrap().unwrap();
+        assert_eq!(snapped.cell[0], photo[0].round(), "{snapped:?}");
+        assert_eq!(snapped.patch[0]["at"]["rect"][0], serde_json::json!(photo[0].round()));
+        let down = guides.iter().find(|g| g[0] == g[2] && (g[0] - photo[0]).abs() <= 0.5);
+        assert!(down.is_some_and(|g| g[1] <= photo[1] && g[3] >= snapped.cell[1] + snapped.cell[3]), "{guides:?}");
+        // No reach: it stays where the drag left it.
+        let (left, _) = s.guided("containers", "card", SnapMode::Free, to, false, 0.0).unwrap().unwrap();
+        assert_eq!(left.cell[0], (photo[0] + 3.0).round());
+        // On the grid, the tracks alone place it: a box 3 units off its cells lands in them, and
+        // its edges meet the grid's other boxes where they stand on the same tracks.
+        let nudged = [card[0] + 3.0, card[1], card[2], card[3]];
+        let (moved, lines) = s.guided("containers", "card", SnapMode::Move, nudged, false, 6.0).unwrap().unwrap();
+        assert_eq!(moved.cell, card, "{moved:?}");
+        assert_eq!(moved.patch[0]["at"], serde_json::json!({ "col": [9, 12], "row": [6, 8] }));
+        assert!(lines.iter().any(|g| g[1] == g[3] && g[1] == card[1]), "its top meets the board's: {lines:?}");
+        // Into a slot or a stack's order, no guides.
+        let flow = s.targets("containers", "stat-b").unwrap().cell;
+        let (_, none) = s.guided("containers", "stat-b", SnapMode::Order, flow, false, 6.0).unwrap().unwrap();
+        assert!(none.is_empty());
+
+        // The card and the board moved together off the grid, 2 units right of where they stand:
+        // the box around them goes back onto the canvas's middle and its left margin's edges.
+        let both = ["board".to_string(), "card".to_string()];
+        let (arranged, lines) = s.together("containers", &both, [2.0, 0.0], true, false, 6.0).unwrap().unwrap();
+        let board = s.targets("containers", "board").unwrap().cell;
+        assert_eq!(arranged.landed[0].cell[0], board[0], "{arranged:?}");
+        assert!(lines.iter().any(|g| g[0] == g[2]), "{lines:?}");
+        // Not off the grid, they go by the tracks, and nothing aligns them.
+        let (on_grid, _) = s.together("containers", &both, [2.0, 0.0], false, false, 6.0).unwrap().unwrap();
+        assert!(on_grid.patch.is_empty(), "two units is no track: {on_grid:?}");
     }
 
     /// A drag shows its node moved in the frames at rest, from the layout the session keeps,
@@ -3212,6 +3857,40 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 49);
+        assert_eq!(s.states().len(), 52);
+    }
+
+    /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is
+    /// the row of `q3` its sheet shows as that quarter and product; a row marks its bar, and a
+    /// point on the bar names the row, in the format shown.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn each_mark_is_the_row_of_its_source_it_was_made_from() {
+        let mut s = revenue();
+        let sheet = s.data_sheet("q3").unwrap().0;
+        let mut rects = Vec::new();
+        for (row, cells) in sheet.rows.iter().enumerate() {
+            let marks = s.marks_of("revenue", "q3", &[row]).unwrap();
+            let [mark] = &marks[..] else { panic!("row {row}: {marks:?}") };
+            assert_eq!((mark.node.as_str(), mark.rows.as_slice()), ("rev", [row].as_slice()));
+            assert_eq!(mark.key, format!("{}\u{1f}{}", cells[0], cells[1]), "quarter and product");
+            let [x, y, w, h] = mark.rect;
+            let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap();
+            assert_eq!(found.as_ref(), Some(mark), "the bar's middle names its row");
+            rects.push(mark.rect);
+        }
+        // Nothing reads `q3` in the intro, and no row is past its last.
+        assert!(s.marks_of("intro", "q3", &[0]).unwrap().is_empty());
+        assert!(s.marks_of("revenue", "q3", &[sheet.rows.len()]).unwrap().is_empty());
+        // In 9:16 the chart is laid out again: each row's bar stands elsewhere, made from the same row.
+        s.set_format(Some("9:16")).unwrap();
+        for (row, rect) in rects.iter().enumerate() {
+            let marks = s.marks_of("revenue", "q3", &[row]).unwrap();
+            assert_eq!(marks.len(), 1);
+            assert_ne!(&marks[0].rect, rect, "row {row}");
+            let [x, y, w, h] = marks[0].rect;
+            let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap().unwrap();
+            assert_eq!(found.rows, [row]);
+        }
     }
 }

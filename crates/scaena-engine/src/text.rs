@@ -22,7 +22,7 @@
 //! word hyphenation splits is one, so no paragraph ends on a word's tail alone.
 //!
 //! Hyphenation (`hyphenate`, by `lang`) puts soft hyphens at the hyphenation points of
-//! the language's TeX patterns (`hypher`). A line that ends at one draws `-` in its look,
+//! the language's TeX patterns (`hyphen`). A line that ends at one draws `-` in its look,
 //! and breaking counts it.
 //!
 //! Lines break at the box width, or at `measure` characters (`ch`, the advance of `0`)
@@ -47,6 +47,7 @@
 
 use crate::EngineError;
 use crate::fonts::BundleFonts;
+use crate::hyphen;
 use crate::theme::{Numeric, TextBox, TextRole, Theme, Wrap};
 use parley::layout::BreakReason;
 use parley::setting::Tag;
@@ -182,17 +183,10 @@ struct Hyphen {
     run: GlyphRun,
 }
 
-/// The hyphenation patterns for a BCP 47 tag, by its language subtag: the seventeen the
-/// engine carries (`hypher`, TeX patterns), or none.
-fn hyphenation_lang(tag: &str) -> Option<hypher::Lang> {
-    let code = tag.split(['-', '_']).next()?.to_ascii_lowercase();
-    let code: [u8; 2] = code.as_bytes().try_into().ok()?;
-    hypher::Lang::from_iso(code)
-}
-
-/// `text` with a soft hyphen at each hyphenation point of its words (runs of letters), or
-/// `None` when no word has one. A word with a soft hyphen of its own keeps only those.
-fn hyphenate(text: &str, lang: hypher::Lang) -> Option<String> {
+/// `text` with a soft hyphen at each hyphenation point of its words (runs of letters) in
+/// `lang`, by its patterns, `trie` (`hyphen`), or `None` when no word has one. A word with a
+/// soft hyphen of its own keeps only those.
+fn hyphenate(text: &str, lang: &hyphen::Language, trie: &hyphen::Trie) -> Option<String> {
     let mut out = String::with_capacity(text.len() + text.len() / 4);
     let mut changed = false;
     let mut rest = text;
@@ -204,15 +198,14 @@ fn hyphenate(text: &str, lang: hypher::Lang) -> Option<String> {
         let word = &rest[..end];
         // The author's soft hyphens, on either side, mean the word is hyphenated already.
         if !word.is_empty() && !out.ends_with(SHY) && !rest[end..].starts_with(SHY) {
-            let mut syllables = hypher::hyphenate(word, lang);
-            if let Some(first) = syllables.next() {
-                out.push_str(first);
-                for syllable in syllables {
-                    out.push(SHY);
-                    out.push_str(syllable);
-                    changed = true;
-                }
+            let mut last = 0;
+            for at in trie.breaks(word, lang) {
+                out.push_str(&word[last..at]);
+                out.push(SHY);
+                last = at;
+                changed = true;
             }
+            out.push_str(&word[last..]);
         } else {
             out.push_str(word);
         }
@@ -516,10 +509,11 @@ impl TextEngine {
         let base = &spec.role;
         let mut cased: Vec<Cow<str>> = spec.spans.iter().map(|s| set_case(&s.text, s.style.case)).collect();
         if spec.hyphenate
-            && let Some(lang) = spec.lang.as_deref().and_then(hyphenation_lang)
+            && let Some(lang) = spec.lang.as_deref().and_then(hyphen::language)
         {
+            let trie = hyphen::trie(lang)?;
             for t in &mut cased {
-                if let Some(hyphenated) = hyphenate(t, lang) {
+                if let Some(hyphenated) = hyphenate(t, lang, &trie) {
                     *t = Cow::Owned(hyphenated);
                 }
             }

@@ -13,9 +13,12 @@
 //! - [`color`] — a theme's color literals, hex and Oklab, to the bytes a display list holds.
 //! - [`data`] — data sources read and typed (SPEC §3.10), from bytes the caller hands over.
 //! - [`format`] — number and date formats, d3's grammar (`docs/spec/format.md`).
+//! - [`files`] — a bundle's images, fonts, and data, and what in the deck uses each (PLAN 2.59).
+//! - [`jpeg`] — photos: a JPEG decoder in integers alone, the same pixels on every target (ADR-0017).
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
+//! - [`looks`] — a node's look, picked up and put down on others as `choose`s (PLAN 2.58).
 //! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
 //! - [`reading`] — how a deck reads to someone who hears it: each node's part, and a state as
 //!   HTML (SPEC §3.12), for a tagged PDF, a single file, and the web player.
@@ -32,13 +35,17 @@ pub mod displaylist;
 pub mod document;
 pub mod dsl;
 pub mod expr;
+pub mod files;
 pub mod format;
 pub mod ids;
 pub mod inserts;
+pub mod jpeg;
 pub mod layers;
 pub mod lint;
+pub mod looks;
 pub mod model;
 pub mod patch;
+pub mod pose;
 pub mod reading;
 pub mod shader;
 pub mod sort;

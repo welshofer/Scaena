@@ -26,5 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }
 rmcp = { workspace = true, features = ["client"] }
 scaena-store.workspace = true
