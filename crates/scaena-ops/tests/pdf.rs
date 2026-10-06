@@ -1,13 +1,22 @@
 //! PDF export (PLAN 1.20): every page drawn by a PDF rasterizer (`hayro`) against the CPU
 //! painter's frame of the same state, by SPEC §13.5's metric.
 
-use scaena_ops::export::{Export, export, export_pdf};
+use scaena_ops::export::{PdfSettings, Request as Export, export, pdf_document};
 use scaena_ops::render::{Request, render};
 use scaena_paint::Raster;
 use std::path::Path;
 use std::sync::Arc;
 
 const TORTURE: &str = "../../tests/fixtures/torture.scaena";
+
+/// The PDF `export` writes for `states` (each slide without them), and its pages.
+fn exported(bundle: &scaena_ops::Bundle, states: Option<&[String]>, name: &str) -> (Vec<u8>, Vec<String>) {
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("export-{name}.pdf"));
+    let states = states.map(<[String]>::to_vec);
+    let req = Export { format: "pdf".into(), states, out: Some(out.clone()), ..Export::default() };
+    let pages = export(bundle, &req).unwrap().pages.expect("a pdf says its pages");
+    (std::fs::read(&out).unwrap(), pages)
+}
 
 /// Each page at 2 pixels to the point: the canvas at one pixel to the unit.
 fn rasterize(pdf: Vec<u8>) -> Vec<Raster> {
@@ -26,10 +35,11 @@ fn rasterize(pdf: Vec<u8>) -> Vec<Raster> {
 
 #[test]
 fn every_page_draws_its_slide_as_the_cpu_painter_does() {
-    // Shaders at one pixel to the unit, so a page has the same pixels as the CPU
-    // painter's frame: grain is per device pixel (SPEC §3.8).
+    // Shaders at one pixel to the unit and kept whole, so a page has the same pixels as
+    // the CPU painter's frame: grain is per device pixel (SPEC §3.8).
     let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
-    let Export::Pdf { bytes, pages: states } = export_pdf(&bundle, None, 1.0).unwrap() else { panic!("a pdf") };
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, states) = pdf_document(&bundle, None, &whole).unwrap();
     let pages = rasterize(bytes);
     assert_eq!(pages.len(), states.len());
     let mut failed = Vec::new();
@@ -47,17 +57,24 @@ fn every_page_draws_its_slide_as_the_cpu_painter_does() {
 #[test]
 fn a_pdf_draws_each_slide_at_its_last_state_and_shaders_at_twice_the_canvas() {
     let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
-    let Export::Pdf { pages, .. } = export(&bundle, "pdf", None).unwrap() else { panic!("a pdf") };
+    let (_, pages) = exported(&bundle, None, "slides");
     let slides: Vec<&str> = pages.iter().map(String::as_str).collect();
     // The chart slide's three states make one page, its last.
     assert!(slides.contains(&"chart-next") && !slides.contains(&"chart-intro") && !slides.contains(&"chart"));
     let mesh = vec!["mesh".to_string()];
-    let Export::Pdf { bytes, pages } = export(&bundle, "pdf", Some(&mesh)).unwrap() else { panic!("a pdf") };
+    let (bytes, pages) = exported(&bundle, Some(&mesh), "mesh");
     assert_eq!(pages, mesh);
-    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels.
+    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels: opaque, so as a
+    // JPEG, a few hundred kilobytes where its pixels kept whole are megabytes.
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("/Width 3840") && text.contains("/Height 2160"));
-    let err = export(&bundle, "pdf", Some(&["nope".to_string()])).unwrap_err();
+    assert!(text.contains("/DCTDecode") && bytes.len() < 2_000_000, "{} bytes", bytes.len());
+    let whole = PdfSettings { shader_quality: None, ..PdfSettings::default() };
+    let (kept, _) = pdf_document(&bundle, Some(&mesh), &whole).unwrap();
+    assert!(!String::from_utf8_lossy(&kept).contains("/DCTDecode") && kept.len() > 2 * bytes.len());
+    let out = Some(Path::new(env!("CARGO_TARGET_TMPDIR")).join("export-nope.pdf"));
+    let req = Export { format: "pdf".into(), states: Some(vec!["nope".into()]), out, ..Export::default() };
+    let err = export(&bundle, &req).unwrap_err();
     assert!(err.to_string().contains("nope"), "{err}");
 }
 
@@ -138,7 +155,7 @@ fn outline(pdf: &[u8]) -> Vec<String> {
 #[test]
 fn a_pdf_reads_by_the_spine() {
     let bundle = scaena_ops::open(Path::new("../../docs/examples/trails.deck.json")).unwrap();
-    let Export::Pdf { bytes, .. } = export(&bundle, "pdf", None).unwrap() else { panic!("a pdf") };
+    let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
     let lines = structure(&bytes);
     assert_eq!(lines[0], "Document {en-US}");
     // A section per spine section, holding its beats' pages.
@@ -192,7 +209,7 @@ fn a_table_reads_a_cell_for_every_column_of_every_row() {
     let made = create(&dir.join("deck"), &Create { theme, deck: Some(deck), data, ..Create::default() }).unwrap();
     assert!(made.created, "{made:#?}");
     let bundle = scaena_ops::open(&dir.join("deck")).unwrap();
-    let Export::Pdf { bytes, .. } = export(&bundle, "pdf", None).unwrap() else { panic!("a pdf") };
+    let (bytes, _) = exported(&bundle, None, &format!("{}", line!()));
     let lines = structure(&bytes);
     let table = lines.iter().position(|l| l.trim() == "Table").unwrap();
     let rows = children(&lines, table);
@@ -218,7 +235,8 @@ fn text_at_a_layers_opacity_keeps_its_last_glyph() {
     std::fs::write(dir.join("deck.json"), serde_json::to_vec(&deck).unwrap()).unwrap();
     let bundle = scaena_ops::open(&dir).unwrap();
     let motion = vec!["motion".to_string()];
-    let Export::Pdf { bytes, .. } = export_pdf(&bundle, Some(&motion), 1.0).unwrap() else { panic!("a pdf") };
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, _) = pdf_document(&bundle, Some(&motion), &whole).unwrap();
     let page = rasterize(bytes).remove(0);
     let cpu = render(&dir, &Request { state: "motion".to_string(), ..Request::default() }).unwrap();
     let d = scaena_paint::diff::compare(&Raster::from_png(&cpu.png).unwrap(), &page).unwrap();
@@ -237,4 +255,24 @@ fn copy_dir(from: &Path, to: &Path) {
             }
         }
     }
+}
+
+/// krilla reads each font with a reader of its own and subsets it as the document finishes,
+/// and neither expects a damaged font: a PDF of a deck whose font has an empty `hhea` table,
+/// which the engine draws, is an error that says so, not a panic (PLAN 2.25).
+#[test]
+fn a_damaged_font_stops_a_pdf_with_an_error() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("damaged.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    let font = dir.join("fonts/RobotoSerif-VF.ttf");
+    let mut bytes = std::fs::read(&font).unwrap();
+    let tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    let record = (0..tables).map(|i| 12 + 16 * i).find(|&r| &bytes[r..r + 4] == b"hhea").unwrap();
+    bytes[record + 12..record + 16].copy_from_slice(&0u32.to_be_bytes());
+    std::fs::write(&font, bytes).unwrap();
+    let bundle = scaena_ops::open(&dir).unwrap();
+    let first = vec![bundle.deck.states[0].id.clone()];
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let error = pdf_document(&bundle, Some(&first), &whole).expect_err("no PDF of a damaged font").to_string();
+    assert!(error.contains("damaged"), "{error}");
 }

@@ -33,8 +33,11 @@ fn a_bundle_from_a_theme_then_data_then_a_chart() {
         made.files,
         [
             "deck.json",
+            "fonts/Fraunces-Italic-VF.ttf",
             "fonts/Fraunces-VF.ttf",
+            "fonts/Inter-Italic-VF.ttf",
             "fonts/Inter-VF.ttf",
+            "fonts/JetBrainsMono-Italic-VF.ttf",
             "fonts/JetBrainsMono-VF.ttf",
             "themes/dusk.theme.json"
         ]
@@ -42,8 +45,20 @@ fn a_bundle_from_a_theme_then_data_then_a_chart() {
     assert_eq!(made.errors, 0, "{:#?}", made.findings);
     let b = scaena_ops::open(&dir).unwrap();
     assert_eq!(b.deck.meta.as_ref().and_then(|m| m.title.as_deref()), Some("Q3"));
-    let families: Vec<&str> = b.deck.fonts.iter().map(|f| f.family.as_str()).collect();
-    assert_eq!(families, ["Fraunces", "Inter", "JetBrains Mono"]);
+    // Each family's font, then its italic (PLAN 2.40).
+    let families: Vec<(&str, Option<&str>)> =
+        b.deck.fonts.iter().map(|f| (f.family.as_str(), f.style.as_deref())).collect();
+    assert_eq!(
+        families,
+        [
+            ("Fraunces", None),
+            ("Fraunces", Some("italic")),
+            ("Inter", None),
+            ("Inter", Some("italic")),
+            ("JetBrains Mono", None),
+            ("JetBrains Mono", Some("italic"))
+        ]
+    );
 
     // The data file, typed by its values: the quarter reads `2025-Q4`, which is no date.
     let attached = attach(&b, &q3()).unwrap();
@@ -79,7 +94,7 @@ fn a_bundle_from_a_theme_then_data_then_a_chart() {
     let updated = scaena_ops::read::spine_update(&b, spine, false).unwrap();
     assert!(updated.applied, "{updated:#?}");
     let b = scaena_ops::open(&dir).unwrap();
-    assert_eq!(scaena_ops::read::spine(&b)["spine"]["sections"][0]["beats"][0]["id"], "growth");
+    assert_eq!(scaena_ops::read::spine(&b).spine.unwrap().sections[0].beats[0].id, "growth");
 }
 
 #[test]

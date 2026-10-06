@@ -5,11 +5,11 @@ description: Author a Scaena deck from a brief and, optionally, a data file. Int
 
 # author-deck
 
-You are writing a Scaena document. It is either `deck.json` (schema `docs/schema/deck.schema.json`, or `scaena://schema/deck` over MCP) or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier.
+You are writing a Scaena document. It is either `deck.json` (schema `docs/schema/deck.schema.json`; over MCP, `scaena://schema/deck` and the parts it names) or the same document as `.scn` source (SPEC §4; `docs/examples/revenue.deck.scn` is a whole deck). Write whichever is easier.
 
 `docs/examples/trails.deck.json` (`scaena://examples/trails.deck.json`) is fifteen slides that use most of what a deck can hold: a spine, a stat, a photograph, five kinds of chart, a table, rows of cards, a quote, and motion. Read it before you write your first deck.
 
-Read SPEC §2–§4 once per session (`scaena://spec` over MCP). The model:
+Read SPEC §2–§4 once per session. Over MCP, `scaena://spec` is its index and each section a resource: `scaena://spec/2`, `scaena://spec/4`, and §3's parts as you need them (`scaena://spec/3.3` for nodes, `scaena://spec/3.7` for charts). The model:
 - Nodes exist for the whole deck.
 - States are cues, and unchanged properties track forward.
 - The theme owns typography and layout. You name roles, slots, and presets, never pixels.
@@ -20,7 +20,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 
 | To | CLI | MCP |
 |---|---|---|
-| start a bundle from a theme | write `deck.json`, with the theme's fonts in the bundle | `deck_create`: copies the theme, its fonts, and data files in, and writes only if the deck validates |
+| start a bundle from a theme | `scaena new <bundle> --theme dusk --title "…"`: a theme that ships (`dusk`, `daybreak`, `ember`) or a theme file, with its fonts | `deck_create`: the same, by name or file, with data files too; writes only if the deck validates |
 | add a data file | copy it to `data/` and declare it under `data`: a JSON Patch `add` at `/data/<id>`, or `bind_data` with a `source` | `data_attach`: types its columns by inference |
 | turn `.scn` into a deck | `scaena compile deck.scn -o <bundle>/deck.json` | `deck_create` with `scn` |
 | check | `scaena validate <bundle>`, then `scaena lint <bundle> --json` | `deck_lint`, which validates first |
@@ -46,7 +46,7 @@ Errors:
    - For anything beyond a plain chart, follow the `chart-from-data` skill.
 3. **Nodes.**
    - Create each object once, with a meaningful id, a `type`, a `role` (text), and a `semantic` (`claim | evidence | annotation | context | comparison | takeaway | source | navigation | decoration`).
-   - Place a node in a slot of the theme's layout templates with `at: { in: <slot> }` (the theme's `layouts`), or on its grid with `at: { col, row }`.
+   - Place a node in a slot of the theme's layout templates with `at: { in: <slot> }` (the theme's `layouts`), or on its grid with `at: { col, row }`. The shipped themes share their layouts, slots, and 12 × 12 grid (SPEC §3.6), so either kind of placement survives a swap between them.
    - For rows of cards, stat blocks, and photo grids, place a container (`stack`, `grid`, `frame`) like any node, then put each child in it with `at: { parent: <container> }`. The child goes nowhere else, and `at.index` reorders.
    - In a stack, text, tables, and images size to their content, and shapes and charts share the rest (`size: { w: "fill" }` gives equal shares). A table takes its rows, so a total band after it sits a `gap` under its last row.
    - A container with `fill` draws a panel with its `radius`. SPEC §3.4 has the rules.
@@ -68,6 +68,7 @@ Errors:
    - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result is the patch as JSON Patch and what lint finds differently (`added`, `removed`).
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
+     - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.
      - `show_node` and `hide_node` make a node enter or leave.
      - `add_state` with `beat` adds a build to its beat.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
@@ -86,12 +87,16 @@ Lint lays every state out, so these come back as findings. Expect them, and fix 
 - **Density counts every word on screen in a state** (W210, the theme's `density.maxWordsPerState`). Cut words, or split the slide into builds.
 - **Containers fill their box.** A grid's rows and a stack's children stretch to it.
   - Give a row of panels a box about as tall as their text needs, two grid rows rather than four.
+  - Or give the container an alignment of its own (`at: { col: …, row: …, align: { y: "center" } }`): it takes its content's height and sits there in its box.
   - Otherwise the panels show empty space under their text.
+- **Nodes in containers collide with the nodes around them** (E101). A note placed over a row of cards collides with the cards' text unless one of them, or the container it is in, has a higher `z`.
 - **A stat's figure can fill its slot.** `fit: grow` with `box: cap` sets it as large as fits, from its cap height to its baseline.
   - E101 counts ink, so a comma's tail below the baseline can reach the line under it.
   - Align that line to the end of its slot (`at: { in: …, align: { y: "end" } }`).
-- **Text over a picture or a shader is judged against what is painted behind it** (E110, E111). A muted color that passes on the page can fail on a mesh gradient; use the ink color there.
+- **Text over a picture or a shader is judged against what is painted behind it** (E110, E111). A muted color that passes on the page can fail on a mesh gradient; use the ink color there. A chart's labels are judged the same way, over its own marks.
+- **Shaders stay off data** (W311). A mesh or noise is a backdrop for title and section slides. A chart or a table reads on the plain surface, so drop the shader from its states (`remove`).
 - **One claim on screen at a time** (W424), and a slide's last state shows one (W421).
+- **The spine runs in the order the states play** (W426). The PDF reads a deck in spine order and the video in state order, so a beat goes where its first state plays.
   - A container around a claim needs no `semantic` of its own.
   - A quotation that carries the slide is its claim.
 

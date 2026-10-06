@@ -32,8 +32,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath, Shape,
-    ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Gap, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath,
+    Shape, ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -61,6 +61,8 @@ pub struct Scene {
     /// Every visible node's place, containers and groups included: what cues on a
     /// container, or on its children one by one, move.
     pub tree: HashMap<String, Place>,
+    /// Each grid container's tracks, by its id: where its cells are (ADR-0013).
+    pub tracks: HashMap<String, crate::containers::Tracks>,
 }
 
 /// A visible node's place in its scene.
@@ -187,9 +189,11 @@ impl SceneNode {
                     ops.push(rule_op(rule, 1.0));
                 }
                 let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
-                let mut plot: Vec<Op> = chart.paths.iter().filter_map(|s| path_op(s, &shapes, s.color, 1.0)).collect();
+                let mut plot: Vec<Op> = chart.paths.iter().flat_map(|s| path_ops(s, &shapes, s.color, 1.0)).collect();
                 plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
-                plot.extend(chart.notes.iter().filter_map(|n| n.rule.as_ref()).map(|r| rule_op(r, 1.0)));
+                for note in &chart.notes {
+                    plot.extend(note.rule.as_ref().and_then(|r| broken_rule_op(r, &spans(&note.gaps), 1.0)));
+                }
                 let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
                 for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
                     plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
@@ -600,7 +604,7 @@ impl Transition {
             tracks.push((b.paint.clone(), track));
         }
         // Stable: within one paint position, an exiting node draws under its successor.
-        tracks.sort_by(|a, b| a.0.cmp(&b.0));
+        scaena_core::sort::by(&mut tracks, |a, b| a.0.cmp(&b.0));
         let tracks: Vec<Track> = tracks.into_iter().map(|(_, t)| t).collect();
 
         // What each split cue's targets split into: an exit's in the state left, any
@@ -998,6 +1002,12 @@ impl Transition {
     }
 }
 
+/// The most cells the table that pairs two texts' words may hold, about one for each pair
+/// of their words: two texts of 2000 words, far past a slide's, in 16 MB. A morph between
+/// longer ones, a chapter pasted and edited, pairs what they share at their ends
+/// (`WordPlan::by_ends`).
+const MAX_CELLS: usize = 4_000_000;
+
 /// How a text node's words get from one layout to the next (SPEC §2.3). Words match in
 /// order by their text (a longest common subsequence, spaces and soft hyphens aside, and
 /// the punctuation around a word a word of its own). A shared word that draws the same
@@ -1062,13 +1072,26 @@ impl WordPlan {
             }
             out
         };
-        let (wa, wb) = (words(a), words(b));
-        // The longest common subsequence of the two word lists, by their text.
+        WordPlan::of(words(a), words(b))
+    }
+
+    /// The plan for two lists of words, each by its text.
+    fn of(wa: Vec<(String, Word)>, wb: Vec<(String, Word)>) -> WordPlan {
         let (n, m) = (wa.len(), wb.len());
-        let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+        let w = m + 1;
+        if (n + 1).saturating_mul(w) > MAX_CELLS {
+            return WordPlan::by_ends(&wa, &wb);
+        }
+        // The longest common subsequence of the two word lists, by their text: at
+        // `i * w + j`, its length from word `i` of one and word `j` of the other on.
+        let mut lcs = vec![0u32; (n + 1) * w];
         for i in (0..n).rev() {
             for j in (0..m).rev() {
-                lcs[i][j] = if wa[i].0 == wb[j].0 { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+                lcs[i * w + j] = if wa[i].0 == wb[j].0 {
+                    lcs[(i + 1) * w + j + 1] + 1
+                } else {
+                    lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+                };
             }
         }
         let (mut plan, mut i, mut j) = (WordPlan { pairs: Vec::new(), gone: Vec::new(), came: Vec::new() }, 0, 0);
@@ -1077,7 +1100,7 @@ impl WordPlan {
                 let (a, b) = (wa[i].1.clone(), wb[j].1.clone());
                 plan.pairs.push(WordPair { same: same_glyphs(&a, &b), a, b });
                 (i, j) = (i + 1, j + 1);
-            } else if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            } else if j < m && (i == n || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j]) {
                 plan.came.push(wb[j].1.clone());
                 j += 1;
             } else {
@@ -1086,6 +1109,29 @@ impl WordPlan {
             }
         }
         plan
+    }
+
+    /// The plan for two texts too long to pair word by word: a table for every pair of
+    /// their words would hold more than `MAX_CELLS`. The words they share at their start
+    /// and at their end pair, as an edit inside a long text leaves them; the rest leave and
+    /// arrive.
+    fn by_ends(wa: &[(String, Word)], wb: &[(String, Word)]) -> WordPlan {
+        let head = wa.iter().zip(wb).take_while(|(x, y)| x.0 == y.0).count();
+        let tail = (wa[head..].iter().rev()).zip(wb[head..].iter().rev()).take_while(|(x, y)| x.0 == y.0).count();
+        let pair = |(x, y): (&(String, Word), &(String, Word))| WordPair {
+            same: same_glyphs(&x.1, &y.1),
+            a: x.1.clone(),
+            b: y.1.clone(),
+        };
+        let (n, m) = (wa.len(), wb.len());
+        WordPlan {
+            pairs: (wa[..head].iter().zip(&wb[..head]))
+                .chain(wa[n - tail..].iter().zip(&wb[m - tail..]))
+                .map(pair)
+                .collect(),
+            gone: wa[head..n - tail].iter().map(|w| w.1.clone()).collect(),
+            came: wb[head..m - tail].iter().map(|w| w.1.clone()).collect(),
+        }
     }
 
     /// The words `p` of the way across (`geo` for where they stand, which a spring may
@@ -1535,11 +1581,23 @@ impl ChartPlan {
                         (Some(w), Some(v)) => Some(lerp(w, v, p)),
                         (_, v) => v,
                     };
-                    path_op(&merged, &at, mix(x.color, y.color, p), 1.0)
+                    // A forecast that turns actual, or the other way, does so halfway; a
+                    // point on one side only is what it is there.
+                    merged.projected = (merged.marks.iter())
+                        .filter(|k| match (x.marks.contains(k), y.marks.contains(k)) {
+                            (true, true) if p < 0.5 => x.projected.contains(k),
+                            (true, false) => x.projected.contains(k),
+                            _ => y.projected.contains(k),
+                        })
+                        .cloned()
+                        .collect();
+                    merged.dash = [lerp(x.dash[0], y.dash[0], p), lerp(x.dash[1], y.dash[1], p)];
+                    merged.fade = lerp(x.fade, y.fade, p);
+                    path_ops(&merged, &at, mix(x.color, y.color, p), 1.0)
                 }
-                (Some(x), None) => path_op(x, &at, x.color, 1.0 - p),
-                (None, Some(y)) => path_op(y, &at, y.color, p),
-                (None, None) => None,
+                (Some(x), None) => path_ops(x, &at, x.color, 1.0 - p),
+                (None, Some(y)) => path_ops(y, &at, y.color, p),
+                (None, None) => Vec::new(),
             };
             plot.extend(path);
         }
@@ -1549,12 +1607,17 @@ impl ChartPlan {
             drawn.push(shape);
         }
         for &(x, y) in &notes {
-            match (x.and_then(|n| n.rule.as_ref()), y.and_then(|n| n.rule.as_ref())) {
-                (Some(r), Some(s)) => plot.push(rule_op(&lerp_rule(r, s, p), 1.0)),
-                (Some(r), None) => plot.push(rule_op(r, 1.0 - p)),
-                (None, Some(s)) => plot.push(rule_op(s, p)),
-                (None, None) => {}
-            }
+            let (ga, gb) = (x.map_or(&[][..], |n| &n.gaps), y.map_or(&[][..], |n| &n.gaps));
+            let rule = match (x.and_then(|n| n.rule.as_ref()), y.and_then(|n| n.rule.as_ref())) {
+                (Some(r), Some(s)) => {
+                    let rule = lerp_rule(r, s, p);
+                    broken_rule_op(&rule, &lerp_gaps(ga, gb, p, &rule), 1.0)
+                }
+                (Some(r), None) => broken_rule_op(r, &spans(ga), 1.0 - p),
+                (None, Some(s)) => broken_rule_op(s, &spans(gb), p),
+                (None, None) => None,
+            };
+            plot.extend(rule);
         }
         // A value label rides its mark: the target's when the kind changed.
         let mut sampled = Vec::with_capacity(self.marks.len());
@@ -1618,10 +1681,16 @@ impl ChartPlan {
         for &(i, j) in &self.titles {
             text_between(dl, &mut ops, i.map(|i| &ta[i]), j.map(|j| &tb[j]), p);
         }
-        // Legend entries move and change color; one on one side only fades.
+        // Legend entries move and change color; one on one side only fades, and so does
+        // one that turns from a key's entry to a direct name or back, where it is.
         let (ea, eb) = (legend_of(a), legend_of(b));
+        let named = |e: &LegendEntry| !(e.swatch.w > 0.0 && e.swatch.h > 0.0);
         for &(i, j) in &self.legend {
             match (i.map(|i| &ea[i]), j.map(|j| &eb[j])) {
+                (Some(x), Some(y)) if named(x) != named(y) => {
+                    ops.extend(legend_ops(dl, x.swatch, x.color, &x.label, x.label.origin, 1.0 - p, x.label.opacity));
+                    ops.extend(legend_ops(dl, y.swatch, y.color, &y.label, y.label.origin, p, y.label.opacity));
+                }
                 (Some(x), Some(y)) => {
                     let swatch = RoundRect::lerp(x.swatch, y.swatch, p);
                     let at = lerp2(x.label.origin, y.label.origin, p);
@@ -1859,7 +1928,9 @@ fn value_label(
     }
     let start = x.map(|l| ride(l).value).or(marks.0.is_none().then_some(0.0));
     let end = y.map(|l| ride(l).value).or(marks.1.is_none().then_some(0.0));
-    if let (Some(start), Some(end), Some(numerals), Some(label)) = (start, end, numerals, y.or(x))
+    // A value that says it is an estimate cross-fades: the figures alone count.
+    let noted = x.is_some_and(|l| l.noted) || y.is_some_and(|l| l.noted);
+    if let (Some(start), Some(end), Some(numerals), Some(label), false) = (start, end, numerals, y.or(x), noted)
         && let count = numerals.count(start, end, p)
         && let Some((runs, width)) = numerals.compose(&count)
     {
@@ -1978,7 +2049,7 @@ fn entry(m: &Mark, a: Option<&ChartLayout>, b: Option<&ChartLayout>, entering: b
     {
         let mut points: Vec<Shape> =
             path.marks.iter().filter_map(|k| o.marks.iter().find(|x| x.key == *k)).map(|x| x.shape).collect();
-        points.sort_by(|p, q| p.center_x().total_cmp(&q.center_x()));
+        scaena_core::sort::by(&mut points, |p, q| p.center_x().total_cmp(&q.center_x()));
         if !points.is_empty() {
             return on_path(m.shape, &points, m.shape.center_x() + dx);
         }
@@ -2187,30 +2258,84 @@ fn band_op(rect: [f32; 4], color: Color, alpha: f32) -> Op {
     Op::Fill { path: Path::rect(rect), rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
 }
 
-/// A series' line or area through its marks' `shapes` (by key) in `color`.
-fn path_op(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f32) -> Option<Op> {
-    let mine: Vec<Shape> =
-        shapes.iter().filter(|(k, _)| series.marks.iter().any(|m| m == k)).map(|&(_, s)| s).collect();
-    let path = series.path(&mine)?;
-    let paint = Paint::Solid(fade(color, alpha));
-    Some(match series.stroke {
+/// A series' line or area through its marks' `shapes` (by key) in `color`, a stretch at a
+/// time: what is projected (PLAN 1.28) runs dashed, or fills lighter.
+fn path_ops(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: f32) -> Vec<Op> {
+    let mine: Vec<(Shape, bool)> = (shapes.iter())
+        .filter(|(k, _)| series.marks.iter().any(|m| m == k))
+        .map(|&(k, s)| (s, series.projected.iter().any(|m| m == k)))
+        .collect();
+    let op = |(projected, path): (bool, Path)| match series.stroke {
         Some(width) => Op::Stroke {
             path,
-            paint,
+            paint: Paint::Solid(fade(color, alpha)),
             width,
-            cap: Cap::Round,
+            // A dash ends square, where a whole line ends round.
+            cap: if projected { Cap::Butt } else { Cap::Round },
             join: Join::Round,
             miter_limit: 4.0,
-            dash: Vec::new(),
+            dash: if projected { series.dash.to_vec() } else { Vec::new() },
             dash_offset: 0.0,
         },
-        None => Op::Fill { path, rule: FillRule::NonZero, paint },
-    })
+        None => {
+            let alpha = if projected { alpha * series.fade } else { alpha };
+            Op::Fill { path, rule: FillRule::NonZero, paint: Paint::Solid(fade(color, alpha)) }
+        }
+    };
+    series.stretches(&mine).into_iter().map(op).collect()
 }
 
 fn rule_op(rule: &Rule, alpha: f32) -> Op {
+    rule_path_op(rule, Path(vec![PathEl::MoveTo(rule.from), PathEl::LineTo(rule.to)]), alpha)
+}
+
+/// `rule` with `gaps` left out of it, stretches along its long axis (x across a level
+/// rule, y up an upright one); `None` where nothing of it is left.
+fn broken_rule_op(rule: &Rule, gaps: &[[f32; 2]], alpha: f32) -> Option<Op> {
+    let along = usize::from((rule.to[0] - rule.from[0]).abs() < (rule.to[1] - rule.from[1]).abs());
+    let (a, b) = (rule.from[along], rule.to[along]);
+    let (lo, hi) = (a.min(b), a.max(b));
+    let mut cuts: Vec<[f32; 2]> = gaps.iter().map(|g| [g[0].max(lo), g[1].min(hi)]).filter(|g| g[1] > g[0]).collect();
+    if cuts.is_empty() {
+        return Some(rule_op(rule, alpha));
+    }
+    scaena_core::sort::by(&mut cuts, |g, h| g[0].total_cmp(&h[0]));
+    let point = |at: f32| lerp2(rule.from, rule.to, (at - a) / (b - a));
+    let (mut els, mut at) = (Vec::new(), lo);
+    for [start, end] in cuts.into_iter().chain([[hi, hi]]) {
+        if start > at {
+            els.extend([PathEl::MoveTo(point(at)), PathEl::LineTo(point(start))]);
+        }
+        at = at.max(end);
+    }
+    (!els.is_empty()).then(|| rule_path_op(rule, Path(els), alpha))
+}
+
+/// The stretches `gaps` leave out of a rule.
+fn spans(gaps: &[Gap]) -> Vec<[f32; 2]> {
+    gaps.iter().map(|g| g.along).collect()
+}
+
+/// The stretches `rule`, `p` of the way across, leaves out between gaps `a` and `b`: the
+/// gap for the same text on both sides moves; one on one side only closes on its
+/// middle, or opens from it. A gap holds only while the rule crosses where its text
+/// stands.
+fn lerp_gaps(a: &[Gap], b: &[Gap], p: f32, rule: &Rule) -> Vec<[f32; 2]> {
+    let across = usize::from((rule.to[0] - rule.from[0]).abs() >= (rule.to[1] - rule.from[1]).abs());
+    let at = rule.from[across];
+    let mid = |g: [f32; 2]| [0.5 * (g[0] + g[1]); 2];
+    let from = a.iter().map(|g| match b.iter().find(|h| h.key == g.key) {
+        Some(h) => (lerp2(g.along, h.along, p), lerp2(g.across, h.across, p)),
+        None => (lerp2(g.along, mid(g.along), p), g.across),
+    });
+    let to =
+        (b.iter()).filter(|h| !a.iter().any(|g| g.key == h.key)).map(|h| (lerp2(mid(h.along), h.along, p), h.across));
+    from.chain(to).filter(|(_, [lo, hi])| at > *lo && at < *hi).map(|(along, _)| along).collect()
+}
+
+fn rule_path_op(rule: &Rule, path: Path, alpha: f32) -> Op {
     Op::Stroke {
-        path: Path(vec![PathEl::MoveTo(rule.from), PathEl::LineTo(rule.to)]),
+        path,
         paint: Paint::Solid(fade(rule.color, alpha)),
         width: rule.width,
         cap: Cap::Butt,
@@ -2288,6 +2413,31 @@ mod tests {
         assert_eq!(mix(black, white, 1.0), white);
     }
 
+    /// A chapter pasted into a text and edited in its middle: 50,000 words a side, whose
+    /// table would hold 2.5 billion cells, more than a browser's memory. The words the two
+    /// share at their ends pair, the changed one leaves and its new one arrives, and nothing
+    /// else.
+    #[test]
+    fn a_long_text_morphs_by_the_words_it_shares_at_its_ends() {
+        let word = |text: String, x: f32| (text, Word { runs: Vec::new(), said: Vec::new(), rect: [x, 0.0, 1.0, 1.0] });
+        let page = |changed: &str| -> Vec<(String, Word)> {
+            (0..50_000)
+                .map(|k| word(if k == 25_000 { changed.to_string() } else { format!("w{k}") }, k as f32))
+                .collect()
+        };
+        let plan = WordPlan::of(page("before"), page("after"));
+        assert_eq!(plan.pairs.len(), 49_999);
+        assert!(plan.pairs.iter().all(|p| p.a.rect == p.b.rect && p.same));
+        let [gone, came] = [&plan.gone, &plan.came].map(|w| w.iter().map(|w| w.rect[0]).collect::<Vec<_>>());
+        assert_eq!((gone, came), (vec![25_000.0], vec![25_000.0]));
+        // Short texts keep their longest common subsequence, words moved included.
+        let short = |words: &[&str]| -> Vec<(String, Word)> {
+            words.iter().enumerate().map(|(k, w)| word(w.to_string(), k as f32)).collect()
+        };
+        let plan = WordPlan::of(short(&["a", "b", "c"]), short(&["c", "a", "b"]));
+        assert_eq!((plan.pairs.len(), plan.gone.len(), plan.came.len()), (2, 1, 1));
+    }
+
     #[test]
     fn progress_is_exact_at_both_ends_and_eased_between() {
         let t = Timing { duration_ms: 400.0, curve: Curve::Ease(CubicBezier(0.2, 0.0, 0.0, 1.0)), matched: true };
@@ -2343,6 +2493,8 @@ mod tests {
             x_grid: Vec::new(),
             notes: Vec::new(),
             collisions: Vec::new(),
+            crowded: Vec::new(),
+            covers: Vec::new(),
         }
     }
 
@@ -2475,6 +2627,9 @@ mod tests {
             color: Color([0, 0, 0, 255]),
             stroke: Some(2.0),
             marks: keys.iter().map(|k| k.to_string()).collect(),
+            projected: Vec::new(),
+            dash: [6.0, 4.0],
+            fade: 0.5,
         };
         let before =
             chart(ChartKind::Line, vec![dot("q1", 0.0, 80.0), dot("q2", 100.0, 40.0)], vec![path(&["q1", "q2"])]);
@@ -2643,6 +2798,9 @@ mod tests {
             color: Color([0, 0, 0, 255]),
             stroke: Some(2.0),
             marks: marks.iter().map(|k| k.to_string()).collect(),
+            projected: Vec::new(),
+            dash: [6.0, 4.0],
+            fade: 0.5,
         };
         let lines = chart(
             ChartKind::Line,

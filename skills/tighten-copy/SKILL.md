@@ -16,6 +16,7 @@ Cut until each slide says its one thing.
 | find what to cut | `scaena lint <bundle> --json` | `deck_lint` |
 | read every word in context | `scaena decompile <bundle>` | `deck_read` with `scn` |
 | change text | `scaena patch <bundle> --ops ops.json --dry-run`, with `set_text` | `deck_patch`, with `dry_run` first |
+| change a word wherever it shows | `scaena find <bundle> WORD --replace NEW --dry-run`, then without `--dry-run` | `deck_find` with `replace`, `dry_run` first |
 | check a figure | `scaena inspect <bundle> --data` | `deck_inspect` with `data` |
 | see where text sets | `scaena render <bundle> --state <id> --out frame.png` | `deck_render` |
 
@@ -35,6 +36,7 @@ Cut until each slide says its one thing.
      - **W420, W421:** a beat or a slide with no claim.
      - **W424:** two claims at once.
      - **W425:** two beats in a row with the same claim.
+     - **W426:** a beat out of the order its states play in. Move the beat, or its states.
 3. **Headlines are sentences that claim.**
    - "Revenue doubled", not "Revenue".
    - Active verbs, concrete nouns, no hedges.
@@ -48,6 +50,11 @@ Cut until each slide says its one thing.
    ```json
    [{ "op": "set_text", "node": "miles-title", "state": "miles", "text": "Crews rebuilt 52 miles" }]
    ```
+   - A node set in `runs` (several looks in one text) would lose them to `set_text`. Change the words with `replace_text` instead: the characters from `from` to `to` of the text the state shows become `text`, and each run keeps its look.
+     ```json
+     [{ "op": "replace_text", "node": "miles-title", "state": "miles", "from": 0, "to": 12, "text": "Crews rebuilt" }]
+     ```
+   - A word that recurs across the deck ("revenue" in five headlines and a note) changes in one go: `scaena find <bundle> revenue --words` lists each text that holds it, once for each place it is written, and `--replace income` replaces every match in one patch, each where its text lives, runs keeping their looks (`deck_find`). Without `--case`, case is ignored, so check that each match is one you mean.
    - Run it with `--dry-run` first. The lint delta (`added`, `removed`) shows what changed. `errors` counts what remains, including a finding that only changed its figures, which the delta counts as the same.
    - `applied` says whether the deck was written. Exit 1 means it was refused, or errors remain.
 7. **Check.**

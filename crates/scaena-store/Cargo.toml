@@ -18,4 +18,4 @@ zip.workspace = true
 skera.workspace = true
 write-fonts.workspace = true
 sha2.workspace = true
-# Phase 1 (PLAN 1.23) adds: loro.
+loro.workspace = true

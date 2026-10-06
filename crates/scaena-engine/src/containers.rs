@@ -24,7 +24,7 @@ use crate::layout::{AlignX, AlignY, Grid};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
 use scaena_core::displaylist::Rect;
-use scaena_core::document::{Deck, NodeType, Props};
+use scaena_core::document::{Deck, MAX_NESTING, NodeType, Props};
 use scaena_core::model::values::{Size as SizeSpec, SizeValue};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -50,6 +50,16 @@ pub struct Placement {
     /// node from its root down to it. Keys sort in paint order: siblings by `z`, then
     /// `nodes` order, and a container under its children.
     pub order: Vec<(String, Vec<(i64, usize)>)>,
+    /// Each grid container's tracks as laid out: where its cells are (ADR-0013).
+    pub tracks: HashMap<String, Tracks>,
+}
+
+/// A grid's tracks, each `[start, end]` in canvas units: columns left to right, rows top to
+/// bottom. A placement by cells takes a range of them, 1-based.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Tracks {
+    pub columns: Vec<[f32; 2]>,
+    pub rows: Vec<[f32; 2]>,
 }
 
 impl Placement {
@@ -116,6 +126,10 @@ pub fn place(
             if steps > placement.parents.len() {
                 return Err(in_node(id, "containers nest in a loop".into()));
             }
+            // Each level lays out by recursion, on a stack a browser keeps small.
+            if steps > MAX_NESTING {
+                return Err(in_node(id, format!("containers nest more than {MAX_NESTING} deep")));
+            }
         }
     }
 
@@ -126,7 +140,7 @@ pub fn place(
     }
     let index = |id: &str| snap.nodes[id].get("at").and_then(|at| at.get("index")).and_then(Value::as_u64);
     for kids in children.values_mut() {
-        kids.sort_by_key(|id| (index(id).unwrap_or(0), order_of(id)));
+        scaena_core::sort::by_key(kids, |id| (index(id).unwrap_or(0), order_of(id)));
     }
     let z = |id: &str| snap.nodes[id].get("z").and_then(Value::as_i64).unwrap_or(0);
     let mut stack: Vec<(&str, Vec<(i64, usize)>)> = snap
@@ -136,7 +150,7 @@ pub fn place(
         .map(|id| (id.as_str(), vec![(z(id), order_of(id))]))
         .collect();
     // Depth first: popping from the end, so push in reverse paint order.
-    stack.sort_by(|a, b| b.1.cmp(&a.1));
+    scaena_core::sort::by(&mut stack, |a, b| b.1.cmp(&a.1));
     while let Some((id, key)) = stack.pop() {
         let mut kids: Vec<(&str, Vec<(i64, usize)>)> = children
             .get(id)
@@ -148,7 +162,7 @@ pub fn place(
                 (*kid, k)
             })
             .collect();
-        kids.sort_by(|a, b| b.1.cmp(&a.1));
+        scaena_core::sort::by(&mut kids, |a, b| b.1.cmp(&a.1));
         placement.order.push((id.to_string(), key));
         stack.extend(kids);
     }
@@ -226,7 +240,7 @@ pub fn place(
         if let Some(e) = failed {
             return Err(e);
         }
-        flow.read(node, [cell[0], cell[1]], &mut placement.boxes)?;
+        flow.read(node, [cell[0], cell[1]], &mut placement.boxes, &mut placement.tracks)?;
     }
     Ok(placement)
 }
@@ -369,7 +383,13 @@ impl Flow<'_> {
     /// Each laid-out node's box, from `node` down, canvas units; `origin` is the top-left
     /// corner of `node`'s parent. As on the slide, `at.offset` moves a node (and what is in
     /// it) after layout, and `at.inset` shrinks a node's own box on every side.
-    fn read(&self, node: NodeId, origin: [f32; 2], boxes: &mut HashMap<String, Rect>) -> Result<(), EngineError> {
+    fn read(
+        &self,
+        node: NodeId,
+        origin: [f32; 2],
+        boxes: &mut HashMap<String, Rect>,
+        tracks: &mut HashMap<String, Tracks>,
+    ) -> Result<(), EngineError> {
         let layout = self.tree.layout(node).map_err(taffy_error)?;
         let id = &self.ids[&node];
         let at = self.snap.nodes[id].get("at");
@@ -381,8 +401,14 @@ impl Flow<'_> {
         let (x, y) = (origin[0] + layout.location.x + dx, origin[1] + layout.location.y + dy);
         let (w, h) = (layout.size.width, layout.size.height);
         boxes.insert(id.clone(), [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset]);
+        // A grid's tracks stand from its box's corner, as its children do.
+        if let taffy::DetailedLayoutInfo::Grid(grid) = self.tree.detailed_layout_info(node) {
+            let along = |lines: &[Line<f32>], from: f32| lines.iter().map(|l| [from + l.start, from + l.end]).collect();
+            let found = Tracks { columns: along(&grid.columns.positions, x), rows: along(&grid.rows.positions, y) };
+            tracks.insert(id.clone(), found);
+        }
         for child in self.tree.children(node).map_err(taffy_error)? {
-            self.read(child, [x, y], boxes)?;
+            self.read(child, [x, y], boxes, tracks)?;
         }
         Ok(())
     }
@@ -401,6 +427,18 @@ fn natural_size(images: &BundleImages, props: &Props) -> Option<(f32, f32)> {
 /// A table has one, its rows and columns, as text does.
 fn grows(kind: NodeType) -> bool {
     matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Shader)
+}
+
+/// What the node's own alignment says for one axis, `x` or `y`, when it places the node
+/// rather than stretching it: `at.align` over the node's `align`, a keyword aligning both
+/// axes. The slot's alignment is for its text, and places nothing.
+fn own_align<'a>(props: &'a Props, axis: &str) -> Option<&'a str> {
+    let on = |v: Option<&'a Value>| match v? {
+        Value::String(k) => Some(k.as_str()),
+        Value::Object(o) => o.get(axis)?.as_str(),
+        _ => None,
+    };
+    on(props.get("at").and_then(|at| at.get("align"))).or_else(|| on(props.get("align"))).filter(|k| *k != "stretch")
 }
 
 /// A node's style as a child of `within`: its `size` and its alignment.
@@ -474,8 +512,12 @@ fn item_style(
         Within::Root | Within::Stack { .. } => {
             let row = matches!(within, Within::Stack { row: true });
             let (main, cross, cross_alignment) = if row { (&w, &h, y_align) } else { (&h, &w, x_align) };
-            // A root fills its cell; in a stack, a node with no size of its own shares the room.
-            let default_share = matches!(within, Within::Root) || grows(kind);
+            // A root fills its cell, but on an axis its own alignment names, a root with a size
+            // of its own (a container's content, an image's picture, a table's rows and
+            // columns) takes that size and aligns there. In a stack, a node with no size of its
+            // own shares the room.
+            let placed = |axis| matches!(within, Within::Root) && !grows(kind) && own_align(props, axis).is_some();
+            let default_share = (matches!(within, Within::Root) && !placed("y")) || grows(kind);
             match main {
                 Some(Axis::Fixed(d)) => {
                     set_main(&mut style, row, *d);
@@ -499,6 +541,7 @@ fn item_style(
                 }
                 Some(Axis::Fit) => style.align_self = cross_align(cross_alignment, true),
                 Some(Axis::Share(_)) => style.align_self = Some(AlignSelf::STRETCH),
+                None if placed("x") => style.align_self = cross_alignment.or(Some(AlignSelf::START)),
                 None => style.align_self = cross_align(cross_alignment, false),
             }
             // An image keeps its picture's shape as it stretches across a stack.
@@ -613,7 +656,7 @@ fn dimension(theme: &Theme, v: &Value) -> Result<Extent, String> {
 }
 
 /// `padding` as `[top, right, bottom, left]`, CSS shorthand.
-fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
+pub(crate) fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
     let Some(v) = props.get("padding") else { return Ok([0.0; 4]) };
     let one = |v: &Value| theme.length(v, 0.0).map_err(|e| e.to_string());
     let sides: Vec<f32> = match v {
@@ -660,7 +703,7 @@ fn tracks(theme: &Theme, v: Option<&Value>, from_areas: u16) -> Result<Vec<GridT
 
 /// A grid container's named areas: each name's `[first col, last col, first row, last row]`,
 /// 1-based, from rows of names as CSS `grid-template-areas` writes them.
-fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
+pub(crate) fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
     let Some(v) = props.get("areas") else { return Ok(BTreeMap::new()) };
     let rows: Vec<String> = serde_json::from_value(v.clone()).map_err(|_| format!("`areas` {v}: rows of names"))?;
     let cells: Vec<Vec<&str>> = rows.iter().map(|r| r.split_whitespace().collect()).collect();
@@ -833,11 +876,16 @@ mod tests {
         let b = boxes(json!({
             "t": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600] },
                    "size": { "w": "fit", "h": "fit" }, "align": "center" },
-            "short": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 120] }, "size": { "h": "fit" } }
+            "short": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 120] }, "size": { "h": "fit" } },
+            "sized": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600], "align": { "y": "end" } },
+                       "size": { "w": 500 } }
         }));
         assert_eq!(b["t"], [350.0, 200.0, 300.0, 200.0]);
         // Never taller than its cell: its rows that do not fit are lint's to report.
         assert_eq!(b["short"], [0.0, 0.0, 1000.0, 120.0]);
+        // Sized one way, it takes its rows on the axis its own alignment names, as an image
+        // takes its picture's.
+        assert_eq!(b["sized"], [0.0, 400.0, 500.0, 200.0]);
     }
 
     #[test]
@@ -927,6 +975,22 @@ mod tests {
         }));
         assert_eq!(b["photo"], [300.0, 200.0, 400.0, 200.0]);
         assert_eq!(b["plain"], [0.0, 0.0, 1000.0, 600.0], "no size: the cell, as before");
+    }
+
+    #[test]
+    fn a_root_container_that_aligns_takes_its_contents_size() {
+        let b = boxes(json!({
+            "cards": { "type": "grid", "cols": 2, "gap": 20, "at": { "rect": [0, 0, 1020, 600], "align": { "y": "center" } } },
+            "a": { "type": "text", "text": "Bike", "at": { "parent": "cards" } },
+            "b": { "type": "text", "text": "Bus", "at": { "parent": "cards" } },
+            "fills": { "type": "stack", "at": { "rect": [0, 0, 1020, 600] } },
+            "c": { "type": "text", "text": "Car", "at": { "parent": "fills" } }
+        }));
+        // One row of 50 cu lines, centered down the 600 cu cell, and across all of it.
+        assert_eq!(b["cards"], [0.0, 275.0, 1020.0, 50.0]);
+        assert_eq!(b["a"], [0.0, 275.0, 500.0, 50.0]);
+        // A root container with no alignment of its own fills its cell, as before.
+        assert_eq!(b["fills"], [0.0, 0.0, 1020.0, 600.0]);
     }
 
     #[test]

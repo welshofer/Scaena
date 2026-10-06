@@ -1,6 +1,6 @@
 {
-  "scaena": "0.9",
-  "_comment": "E102 trigger: E102/clean.deck.json with every kind of reference broken once.",
+  "scaena": "0.11",
+  "_comment": "E102 trigger: E102/clean.deck.json with every kind of reference broken once, and a node placed in rows 6–7 of a 6-row grid.",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",
   "fonts": [
@@ -17,7 +17,8 @@
     "figure": { "type": "text", "text": "42%", "at": { "parent": "stat" } },
     "note": { "type": "text", "text": "Up from 38%", "at": { "parent": "stats" } },
     "board": { "type": "grid", "areas": ["head head", "left right"], "at": { "in": "main" } },
-    "cell": { "type": "text", "text": "Q3", "at": { "parent": "board", "area": "side" } }
+    "cell": { "type": "text", "text": "Q3", "at": { "parent": "board", "area": "side" } },
+    "late": { "type": "text", "text": "Q4", "at": { "col": [1, 12], "row": [6, 7] } }
   },
   "states": [
     { "id": "intro", "layout": "titel", "props": { "bg": {}, "title": {} } },
@@ -28,7 +29,7 @@
       "props": { "title": { "at": { "in": "header" } }, "chart": { "at": { "in": "main" } }, "note": {} },
       "choreography": [ { "target": "chart", "enter": { "preset": "pop", "spring": "springy" } }, { "target": "ghost", "enter": "fade" } ]
     },
-    { "id": "photo", "slide": "numbrs", "layout": "full", "remove": ["chart", "note"], "props": { "photo": {}, "stats": {}, "figure": {}, "board": {}, "cell": {} } }
+    { "id": "photo", "slide": "numbrs", "layout": "full", "remove": ["chart", "note"], "props": { "photo": {}, "stats": {}, "figure": {}, "board": {}, "cell": {}, "late": {} } }
   ],
   "overrides": { "ghost": { "opacity": 0.5 }, "chart": { "labels": { "role": "figures" } } }
 }

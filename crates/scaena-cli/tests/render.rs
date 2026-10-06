@@ -155,9 +155,6 @@ fn edited_bundle(dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> PathB
 #[test]
 fn unimplemented_paths_exit_3_and_name_their_plan_task() {
     let dir = scratch("unimplemented");
-    let out = scaena(&["serve", BUNDLE]);
-    assert_eq!(code(&out), 3, "{}", stderr(&out));
-    assert!(stderr(&out).contains("2.x"), "{}", stderr(&out));
     // Without the `gpu` feature the GPU painter is not compiled in.
     if cfg!(not(feature = "gpu")) {
         let png = dir.join("x.png");

@@ -1,0 +1,1 @@
+`just web` copies the web player's and editor's build (`web/dist`) here as `dist/`, which is not committed. A `scaena` built after it carries the pages, and `scaena serve` serves them (PLAN 2.11, ADR-0012). A `scaena` built before it exits 3 on `serve` and says to run `just web`, then to build `scaena` again.

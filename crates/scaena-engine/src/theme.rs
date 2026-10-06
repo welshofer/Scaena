@@ -34,6 +34,8 @@ pub struct TextRole {
     pub family: String,
     pub size: f32,
     pub weight: f32,
+    /// Asks for the family's italic face (SPEC §3.5); a family without one sets it upright.
+    pub italic: bool,
     /// Line height as a multiple of `size`.
     pub leading: f32,
     /// Letter spacing in em; negative tightens.
@@ -44,6 +46,8 @@ pub struct TextRole {
     pub features: BTreeMap<String, u16>,
     pub wrap: Wrap,
     pub text_box: TextBox,
+    /// What of the text sits on the baseline grid, if anything (SPEC §3.4).
+    pub snap: Option<model::Snap>,
     pub measure: Option<f32>,
     pub max_lines: Option<u32>,
     pub min_size: Option<f32>,
@@ -64,6 +68,7 @@ impl TextRole {
             family: r.family.clone(),
             size: r.size as f32,
             weight: f32::from(r.weight),
+            italic: r.italic.unwrap_or(false),
             leading: r.leading as f32,
             tracking: r.tracking.unwrap_or(0.0) as f32,
             opsz: r.opsz.map(|v| v as f32),
@@ -71,6 +76,7 @@ impl TextRole {
             features: features(r.features.as_ref()).map_err(|e| EngineError::Theme(format!("role `{name}`: {e}")))?,
             wrap: r.wrap.map_or(Wrap::Greedy, Wrap::from),
             text_box: r.text_box.map_or(TextBox::Line, TextBox::from),
+            snap: r.snap,
             measure: r.measure.map(|v| v as f32),
             max_lines: r.max_lines,
             min_size: r.min_size.map(|v| v as f32),
@@ -179,7 +185,7 @@ impl Numeric {
 
 impl Theme {
     pub fn from_json(s: &str) -> Result<Theme, EngineError> {
-        serde_json::from_str(s).map(Theme).map_err(|e| EngineError::Theme(e.to_string()))
+        scaena_core::model::theme::Theme::from_json(s).map(Theme).map_err(|e| EngineError::Theme(e.to_string()))
     }
 
     /// The color a token or color role names, following role → token: as written, and
@@ -212,6 +218,12 @@ impl Theme {
     /// Every font family, in theme order.
     pub fn families(&self) -> &IndexMap<String, model::Family> {
         &self.typography.families
+    }
+
+    /// Whether the family keyed `key` has an italic face (PLAN 2.40): what text it sets in
+    /// italic takes. Without one, such text is set upright.
+    pub fn has_italic(&self, key: &str) -> bool {
+        self.families().get(key).is_some_and(|f| f.italic.is_some())
     }
 
     /// The font stack for a family key: the family, then its fallbacks in order, as
@@ -362,7 +374,7 @@ mod tests {
         assert_eq!(t.duration(&Value::String("standard".into())), Some(420.0));
         assert_eq!(t.spring("snappy").unwrap().stiffness, 420.0);
         assert_eq!(t.easing("standard").unwrap().0, 0.2);
-        assert!(t.slots("split").unwrap().contains_key("right"));
+        assert!(t.slots("split").unwrap().contains_key("main"));
     }
 
     #[test]

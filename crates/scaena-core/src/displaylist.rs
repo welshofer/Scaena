@@ -464,6 +464,24 @@ impl DisplayList {
         Self { dl: DL_VERSION, viewport, fonts: Vec::new(), ops: Vec::new() }
     }
 
+    /// This frame seen through `view`, `[x, y, w, h]` in canvas units: what an editor zoomed
+    /// in shows (PLAN 2.46). The viewport is the view's size, and the frame is drawn moved
+    /// so that the view's corner is its origin, under one layer that only moves it. A painter
+    /// scales it to its raster as it scales any frame, so the part shown is painted at the
+    /// size shown, as sharp as the whole, and a shader's work stops at the raster's edge.
+    pub fn viewed(self, [x, y, w, h]: [f32; 4]) -> DisplayList {
+        let ops = vec![Op::Layer {
+            node: None,
+            cell: None,
+            transform: [1.0, 0.0, 0.0, 1.0, -x, -y],
+            opacity: 1.0,
+            blend: Blend::Normal,
+            clip: None,
+            ops: self.ops,
+        }];
+        DisplayList { viewport: [w, h], ops, ..self }
+    }
+
     /// Index of `font` in the font table, appending it on first use, so the table
     /// order follows paint order.
     pub fn font(&mut self, font: FontRef) -> u32 {
@@ -636,7 +654,7 @@ pub fn paint_order(snapshot: &Snapshot) -> Vec<&str> {
         .iter()
         .map(|(id, props)| (props.get("z").and_then(Value::as_i64).unwrap_or(0), id.as_str()))
         .collect();
-    nodes.sort_by_key(|&(z, _)| z);
+    crate::sort::by_key(&mut nodes, |&(z, _)| z);
     nodes.into_iter().map(|(_, id)| id).collect()
 }
 

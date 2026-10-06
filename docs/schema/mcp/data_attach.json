@@ -69,7 +69,7 @@
         "type": "object",
         "additionalProperties": { "type": "string" }
       },
-      "rows": { "type": "integer", "format": "uint", "minimum": 0 },
+      "rows": { "type": "integer", "minimum": 0 },
       "added": {
         "description": "What `validate` and `lint` find after it that they did not before.",
         "type": "array",
@@ -80,12 +80,7 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Finding" }
       },
-      "errors": {
-        "description": "The findings that are errors, after.",
-        "type": "integer",
-        "format": "uint",
-        "minimum": 0
-      }
+      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 }
     }
   }
 }

@@ -23,7 +23,7 @@ pub mod diff;
 
 use peniko::{Blob, FontData};
 use scaena_core::displaylist::{DL_VERSION, DisplayList, FontRef};
-use scaena_core::shader::{Job, ShaderError};
+use scaena_core::shader::{Job, ShaderError, Spec};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -50,6 +50,9 @@ pub enum PaintError {
     Gpu(String),
     #[error("shader: {0}")]
     Shader(ShaderError),
+    /// Pixels handed to a painter for a frame's shaders that are not theirs.
+    #[error("shader pixels: {0}")]
+    Shaded(String),
 }
 
 impl From<ShaderError> for PaintError {
@@ -138,7 +141,8 @@ impl Picture {
         })
     }
 
-    /// Premultiplied, for `vello_cpu`.
+    /// Premultiplied, for `vello_cpu`, which knows whether it is opaque: an opaque image is
+    /// drawn without blending, and hides what is under it (the same pixels, sooner).
     #[cfg(feature = "cpu")]
     fn pixmap(&self) -> Arc<vello_cpu::Pixmap> {
         self.pixmap
@@ -152,7 +156,9 @@ impl Picture {
                         a,
                     }
                 });
-                Arc::new(vello_cpu::Pixmap::from_parts(pixels.collect(), self.width as u16, self.height as u16))
+                let opaque = self.rgba.data().as_chunks::<4>().0.iter().all(|[.., a]| *a == 255);
+                let (w, h) = (self.width as u16, self.height as u16);
+                Arc::new(vello_cpu::Pixmap::from_parts_with_opacity(pixels.collect(), w, h, !opaque))
             })
             .clone()
     }
@@ -249,20 +255,26 @@ impl Raster {
         Ok(out)
     }
 
-    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes).
+    /// Decode an 8-bit RGBA PNG (what [`Raster::to_png`] writes), or an 8-bit RGB one as
+    /// opaque (what a browser's screenshot is).
     pub fn from_png(bytes: &[u8]) -> Result<Raster, PaintError> {
         let png_error = |e: png::DecodingError| PaintError::Png(e.to_string());
         let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(png_error)?;
         let info = reader.info();
-        if (info.color_type, info.bit_depth) != (png::ColorType::Rgba, png::BitDepth::Eight) {
-            return Err(PaintError::Png(format!(
-                "expected 8-bit RGBA, got {:?} {:?}",
-                info.color_type, info.bit_depth
-            )));
-        }
+        let opaque = match (info.color_type, info.bit_depth) {
+            (png::ColorType::Rgba, png::BitDepth::Eight) => false,
+            (png::ColorType::Rgb, png::BitDepth::Eight) => true,
+            (color, depth) => {
+                return Err(PaintError::Png(format!("expected 8-bit RGBA or RGB, got {color:?} {depth:?}")));
+            }
+        };
         let (width, height) = (info.width, info.height);
-        let mut rgba = vec![0; reader.output_buffer_size().unwrap_or(0)];
-        reader.next_frame(&mut rgba).map_err(png_error)?;
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap_or(0)];
+        reader.next_frame(&mut pixels).map_err(png_error)?;
+        let rgba = match opaque {
+            true => pixels.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
+            false => pixels,
+        };
         Ok(Raster { width, height, rgba })
     }
 }
@@ -287,6 +299,12 @@ impl<P: Painter> scaena_core::lint::Backdrop for Backdrop<'_, P> {
     }
 }
 
+/// The most pixels a raster holds: 2^25, an 8K frame (7680 × 4320) and a little more. A
+/// painter keeps its raster in memory, and beside it an image of each shader the frame
+/// shows, as large as the frame for a background; in the browser an allocation that fails
+/// stops the worker. A larger raster is an error (SPEC §7.1).
+pub const MAX_PIXELS: u64 = 1 << 25;
+
 /// Output size in whole pixels for `dl` at `scale`.
 fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
     let (w, h) = ((dl.viewport[0] * scale).round(), (dl.viewport[1] * scale).round());
@@ -294,6 +312,16 @@ fn raster_size(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
         return Err(PaintError::Size(w, h));
     }
     Ok((w as u16, h as u16))
+}
+
+/// [`raster_size`] for a painter that keeps the raster: at most [`MAX_PIXELS`]. The PDF
+/// painter sizes its shaders' images by the raster it would make, and keeps none.
+fn raster(dl: &DisplayList, scale: f32) -> Result<(u16, u16), PaintError> {
+    let (w, h) = raster_size(dl, scale)?;
+    match u64::from(w) * u64::from(h) <= MAX_PIXELS {
+        true => Ok((w, h)),
+        false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+    }
 }
 
 fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
@@ -306,20 +334,39 @@ fn check_version(dl: &DisplayList) -> Result<(), PaintError> {
 /// [`Job::bbox`] says.
 #[cfg(any(feature = "cpu", feature = "gpu"))]
 pub fn shader_jobs(dl: &DisplayList, scale: f32) -> Result<Vec<Option<Job>>, PaintError> {
+    shader_ops(dl, scale)?.into_iter().map(|(op, device, size)| Ok(Job::new(op, device, size)?)).collect()
+}
+
+/// [`shader_jobs`]' jobs as what each is made from: its op, the transform to device pixels,
+/// and the raster's size, in the same order. Another worker makes the same job from one
+/// ([`Spec::job`]): the browser's helpers do (PLAN 2.28).
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+pub fn shader_specs(dl: &DisplayList, scale: f32) -> Result<Vec<Spec>, PaintError> {
+    let specs = shader_ops(dl, scale)?.into_iter();
+    Ok(specs.map(|(op, device, size)| Spec { op: op.clone(), device, size }).collect())
+}
+
+/// Every shader op in `dl` at `scale`, as [`shader_jobs`] meets them, with the transform from
+/// canvas units to device pixels it is drawn through and the raster's size.
+#[cfg(any(feature = "cpu", feature = "gpu"))]
+#[allow(clippy::type_complexity)]
+fn shader_ops(
+    dl: &DisplayList,
+    scale: f32,
+) -> Result<Vec<(&scaena_core::displaylist::Op, [f64; 6], [u32; 2])>, PaintError> {
     use scaena_core::displaylist::Op;
-    fn walk(ops: &[Op], xf: kurbo::Affine, size: [u32; 2], out: &mut Vec<Option<Job>>) -> Result<(), PaintError> {
+    fn walk<'a>(ops: &'a [Op], xf: kurbo::Affine, size: [u32; 2], out: &mut Vec<(&'a Op, [f64; 6], [u32; 2])>) {
         for op in ops {
             match op {
-                Op::Layer { transform, ops, .. } => walk(ops, xf * convert::affine(transform), size, out)?,
-                Op::Shader { .. } => out.push(Job::new(op, xf.as_coeffs(), size)?),
+                Op::Layer { transform, ops, .. } => walk(ops, xf * convert::affine(transform), size, out),
+                Op::Shader { .. } => out.push((op, xf.as_coeffs(), size)),
                 _ => {}
             }
         }
-        Ok(())
     }
     let (w, h) = raster_size(dl, scale)?;
     let mut out = Vec::new();
-    walk(&dl.ops, kurbo::Affine::scale(f64::from(scale)), [u32::from(w), u32::from(h)], &mut out)?;
+    walk(&dl.ops, kurbo::Affine::scale(f64::from(scale)), [u32::from(w), u32::from(h)], &mut out);
     Ok(out)
 }
 
@@ -478,7 +525,9 @@ pub mod cpu {
     use vello_cpu::kurbo::{Affine, Rect};
     use vello_cpu::peniko::color::PremulRgba8;
     use vello_cpu::peniko::{Fill, ImageQuality, ImageSampler};
-    use vello_cpu::{Image, ImageSource, Pixmap, RasterizerSettings, RenderContext, RenderSettings, Resources};
+    use vello_cpu::{
+        Image, ImageSource, Pixmap, PixmapMut, RasterizerSettings, RenderContext, RenderSettings, Resources,
+    };
     pub use vello_cpu::{Level, RenderMode};
 
     /// `vello_cpu`-backed painter (PLAN 0.6).
@@ -493,11 +542,49 @@ pub mod cpu {
         /// (ADR-0004 finding 2). vello_cpu honours `OptimizeQuality` only when built with
         /// its `f32_pipeline` feature; without it, it paints u8 whatever this says.
         pub mode: RenderMode,
+        /// The threads a shader's rows are worked out on ([`Job::render_on`]); the bytes do
+        /// not depend on it. [`scaena_core::shader::cores`] by default; 1 where frames are
+        /// already painted on every core, as video's are.
+        pub threads: usize,
+        /// What a frame leaves for the next ([`Kept`]).
+        pub kept: Kept,
     }
 
     impl Default for CpuPainter {
         fn default() -> Self {
-            Self { level: Level::new(), mode: RenderMode::OptimizeSpeed }
+            Self {
+                level: Level::new(),
+                mode: RenderMode::OptimizeSpeed,
+                threads: scaena_core::shader::cores(),
+                kept: Kept::default(),
+            }
+        }
+    }
+
+    /// What one frame of a [`CpuPainter`] leaves for the next: its render context, reset and
+    /// drawn into again while frames keep their size and SIMD level. A frame then allocates
+    /// little besides its pixels, where a new context allocated its tiles, strips, and
+    /// coverage each time, and grew them again as the frame filled them. A context reset
+    /// paints the same bytes as a new one.
+    #[derive(Default)]
+    pub struct Kept {
+        ctx: Option<RenderContext>,
+    }
+
+    impl Kept {
+        /// A context `width` × `height` at `level`, reset: the one kept, where it is that.
+        fn context(&mut self, width: u16, height: u16, level: Level) -> &mut RenderContext {
+            let fits = self.ctx.as_ref().is_some_and(|ctx| {
+                let same = std::mem::discriminant(&ctx.render_settings().level) == std::mem::discriminant(&level);
+                ctx.width() == width && ctx.height() == height && same
+            });
+            if !fits {
+                self.ctx = None;
+            }
+            let settings = RenderSettings { level, ..Default::default() };
+            let ctx = self.ctx.get_or_insert_with(|| RenderContext::new_with(width, height, settings));
+            ctx.reset();
+            ctx
         }
     }
 
@@ -508,22 +595,91 @@ pub mod cpu {
 
         fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
             check_version(dl)?;
-            let (width, height) = raster_size(dl, scale)?;
-            let jobs = shader_jobs(dl, scale)?.into_iter();
-            let mut ctx =
-                RenderContext::new_with(width, height, RenderSettings { level: self.level, ..Default::default() });
+            raster(dl, scale)?;
+            let jobs = shader_jobs(dl, scale)?;
+            let pixels = jobs.iter().flatten().map(|job| job.render_on(self.threads)).collect();
+            self.draw(dl, fonts, scale, jobs, pixels)
+        }
+    }
+
+    impl CpuPainter {
+        /// [`Painter::paint`], with the pixels of the frame's shaders worked out already,
+        /// elsewhere: `pixels` holds [`Job::render`]'s bytes for each of [`shader_jobs`]' jobs
+        /// that covers a pixel, in their order. The browser works them out on workers of its
+        /// own, each a band of rows (PLAN 2.28). Pixels that are not the jobs' size are an
+        /// error.
+        pub fn paint_shaded(
+            &mut self,
+            dl: &DisplayList,
+            fonts: &Assets,
+            scale: f32,
+            pixels: Vec<Vec<u8>>,
+        ) -> Result<Raster, PaintError> {
+            check_version(dl)?;
+            raster(dl, scale)?;
+            let jobs = shader_jobs(dl, scale)?;
+            let wanted = jobs.iter().flatten().count();
+            if pixels.len() != wanted {
+                let given = pixels.len();
+                return Err(PaintError::Shaded(format!("the frame draws {wanted} shaders; {given} were given")));
+            }
+            for (i, (job, given)) in jobs.iter().flatten().zip(&pixels).enumerate() {
+                let [_, _, w, h] = job.bbox();
+                if given.len() != w as usize * h as usize * 4 {
+                    let (bytes, given) = (w as usize * h as usize * 4, given.len());
+                    let why = format!("shader {i} draws {w} × {h} pixels, {bytes} bytes; {given} were given");
+                    return Err(PaintError::Shaded(why));
+                }
+            }
+            self.draw(dl, fonts, scale, jobs, pixels)
+        }
+
+        /// `dl` at `scale`, each shader job with its pixels, `pixels` one for each job that
+        /// covers a pixel.
+        fn draw(
+            &mut self,
+            dl: &DisplayList,
+            fonts: &Assets,
+            scale: f32,
+            jobs: Vec<Option<Job>>,
+            pixels: Vec<Vec<u8>>,
+        ) -> Result<Raster, PaintError> {
+            let (width, height) = raster(dl, scale)?;
+            let mut pixels = pixels.into_iter();
+            let shaded: Vec<_> = jobs.into_iter().map(|job| Some((job?.bbox(), pixels.next()?))).collect();
+            let ctx = self.kept.context(width, height, self.level);
             let mut resources = Resources::new();
-            let mut cx = Cx { ctx: &mut ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, jobs };
+            let shaded = shaded.into_iter();
+            let mut cx = Cx { ctx: &mut *ctx, resources: &mut resources, store: fonts, fonts: &dl.fonts, shaded };
             cx.ops(&dl.ops, Affine::scale(f64::from(scale)))?;
             ctx.flush();
-            let mut pixmap = Pixmap::new(width, height);
+            // The frame's pixels, zeroed as `Pixmap::new` zeroes them, but by the allocator:
+            // the frame covers the buffer, so packing draws every pixel over it.
+            let mut rgba = vec![0u8; usize::from(width) * usize::from(height) * 4];
+            let target = PixmapMut::new(width, height, &mut rgba).expect("a buffer of the frame's size");
             ctx.render_with(
-                &mut pixmap,
+                target,
                 &mut resources,
                 RasterizerSettings { render_mode: self.mode, ..Default::default() },
             );
-            let rgba = pixmap.take_unpremultiplied().into_iter().flat_map(|p| [p.r, p.g, p.b, p.a]).collect();
+            unpremultiply(&mut rgba);
             Ok(Raster { width: u32::from(width), height: u32::from(height), rgba })
+        }
+    }
+
+    /// Premultiplied RGBA made straight, as a PNG or an `ImageData` takes it, in place:
+    /// exactly what `Pixmap::take_unpremultiplied` computes, without its division for each
+    /// opaque pixel, which it leaves as it is (`c · 255/255 + 0.5` truncates to `c`). A slide
+    /// is opaque nearly everywhere, and in the browser that division was most of a frame's
+    /// paint.
+    fn unpremultiply(rgba: &mut [u8]) {
+        for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
+            if *a != 255 && *a != 0 {
+                let alpha = 255.0 / f32::from(*a);
+                for c in [r, g, b] {
+                    *c = (f32::from(*c) * alpha + 0.5) as u8;
+                }
+            }
         }
     }
 
@@ -532,8 +688,9 @@ pub mod cpu {
         resources: &'a mut Resources,
         store: &'a Assets,
         fonts: &'a [FontRef],
-        /// One per shader op, in the order the walk meets them.
-        jobs: std::vec::IntoIter<Option<Job>>,
+        /// One per shader op, in the order the walk meets them: where its job's pixels go,
+        /// and the pixels; `None` for one that covers no pixel.
+        shaded: std::vec::IntoIter<Option<([u32; 4], Vec<u8>)>>,
     }
 
     impl Cx<'_> {
@@ -601,9 +758,9 @@ pub mod cpu {
                         self.ctx.reset_paint_transform();
                     }
                     Op::Shader { rect, .. } => {
-                        let job = self.jobs.next().expect("shader_jobs makes one job per shader op");
-                        if let Some(job) = job {
-                            self.shader(&job, *rect, xf);
+                        let shaded = self.shaded.next().expect("shader_jobs makes one job per shader op");
+                        if let Some((bbox, pixels)) = shaded {
+                            self.shader(bbox, pixels, *rect, xf);
                         }
                     }
                 }
@@ -611,18 +768,26 @@ pub mod cpu {
             Ok(())
         }
 
-        /// The CPU reference's pixels for `job`, filling `rect` texel for device pixel.
-        fn shader(&mut self, job: &Job, rect: scaena_core::displaylist::Rect, xf: Affine) {
-            let [x, y, w, h] = job.bbox();
+        /// A shader job's pixels, the CPU reference's for the box `bbox`, filling `rect`
+        /// texel for device pixel.
+        fn shader(&mut self, bbox: [u32; 4], pixels: Vec<u8>, rect: scaena_core::displaylist::Rect, xf: Affine) {
+            let [x, y, w, h] = bbox;
             let premultiplied = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-            let pixels = job.render();
-            let pixels = pixels.as_chunks::<4>().0.iter().map(|&[r, g, b, a]| PremulRgba8 {
-                r: premultiplied(r, a),
-                g: premultiplied(g, a),
-                b: premultiplied(b, a),
-                a,
-            });
-            let pixmap = Pixmap::from_parts(pixels.collect(), w as u16, h as u16);
+            // The render's buffer becomes the pixmap's: RGBA8 is four bytes, as a pixel is.
+            let mut pixels = bytemuck::allocation::try_cast_vec::<u8, PremulRgba8>(pixels)
+                .unwrap_or_else(|(_, bytes)| bytemuck::cast_slice(&bytes).to_vec());
+            // An opaque pixel is its own premultiple, and a backdrop is opaque throughout: it
+            // takes no division.
+            let mut opaque = true;
+            for p in &mut pixels {
+                if p.a != 255 {
+                    (p.r, p.g, p.b) = (premultiplied(p.r, p.a), premultiplied(p.g, p.a), premultiplied(p.b, p.a));
+                    opaque = false;
+                }
+            }
+            // An opaque shader, as a backdrop is, is drawn without blending, and hides what is
+            // under it: the same pixels, sooner.
+            let pixmap = Pixmap::from_parts_with_opacity(pixels, w as u16, h as u16, !opaque);
             self.ctx.set_transform(xf);
             self.ctx.set_paint(Image {
                 image: ImageSource::Pixmap(Arc::new(pixmap)),
@@ -655,8 +820,7 @@ pub mod cpu {
                     rule: FillRule::NonZero,
                     paint: Paint::Solid(Color(ACCENT)),
                 });
-                let raster =
-                    CpuPainter { level, mode: RenderMode::OptimizeSpeed }.paint(&dl, &Assets::new(), 1.0).unwrap();
+                let raster = CpuPainter { level, ..CpuPainter::default() }.paint(&dl, &Assets::new(), 1.0).unwrap();
                 for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     assert_eq!(raster.pixel(x, y), ACCENT, "inside ({x},{y}) at {level:?}");
                 }
@@ -664,6 +828,25 @@ pub mod cpu {
                     assert_eq!(raster.pixel(x, y), [0; 4], "outside ({x},{y}) at {level:?}");
                 }
             }
+        }
+
+        /// The painter's unpremultiply is vello's own, byte for byte: every alpha against
+        /// every channel value, the impossible ones over alpha included.
+        #[test]
+        fn unpremultiplied_is_vellos_take_unpremultiplied_for_every_pixel() {
+            let pixels = || {
+                (0..=255u8)
+                    .flat_map(|a| (0..=255u8).map(move |c| PremulRgba8 { r: c, g: c / 2, b: 255 - c, a }))
+                    .collect::<Vec<_>>()
+            };
+            let mut ours: Vec<u8> = bytemuck::allocation::cast_vec(pixels());
+            unpremultiply(&mut ours);
+            let vellos: Vec<u8> = Pixmap::from_parts(pixels(), 256, 256)
+                .take_unpremultiplied()
+                .into_iter()
+                .flat_map(|p| [p.r, p.g, p.b, p.a])
+                .collect();
+            assert_eq!(ours, vellos);
         }
 
         #[test]
@@ -691,6 +874,23 @@ pub mod cpu {
             assert_eq!(raster.pixel(6, 6)[3], 0);
         }
 
+        /// A raster past [`MAX_PIXELS`] is an error before the painter asks for its memory: a
+        /// size at the canvas's ratio up to 65,535 pixels a side asked for gigabytes, and in the
+        /// browser an allocation that fails stops the worker (PLAN 2.26).
+        #[test]
+        fn a_raster_past_max_pixels_is_an_error() {
+            let dl = DisplayList::new([1920.0, 1080.0]);
+            // 7724 × 4345, the first frame at its ratio past 2^25; 65280 × 36720, each side a
+            // `u16`, 9.6 GB.
+            for scale in [7724.0 / 1920.0, 17.0, 34.0f32] {
+                let want = ((1920.0 * scale).round(), (1080.0 * scale).round());
+                match CpuPainter::default().paint(&dl, &Assets::new(), scale) {
+                    Err(PaintError::Size(w, h)) => assert_eq!((w, h), want),
+                    other => panic!("{want:?}: {:?}", other.map(|r| (r.width, r.height))),
+                }
+            }
+        }
+
         /// A three-color mesh op over `rect`.
         pub(crate) fn mesh_op(rect: [f32; 4]) -> Op {
             Op::Shader {
@@ -701,6 +901,65 @@ pub mod cpu {
                 palette: vec![Color([15, 118, 110, 255]), Color([194, 65, 12, 255]), Color([245, 196, 81, 255])],
                 params: BTreeMap::new(),
             }
+        }
+
+        /// A shader's rows worked out on many threads paint what they paint on one.
+        #[test]
+        fn shader_threads_change_no_pixel() {
+            let mut dl = DisplayList::new([200.0, 300.0]);
+            dl.ops.push(mesh_op([0.0, 0.0, 200.0, 300.0]));
+            let paint = |threads| {
+                let mut painter = CpuPainter { threads, ..CpuPainter::default() };
+                painter.paint(&dl, &Assets::new(), 1.0).unwrap().rgba
+            };
+            let one = paint(1);
+            for threads in [2, 3, 8] {
+                assert!(paint(threads) == one, "{threads} threads");
+            }
+        }
+
+        /// A frame's shader pixels worked out elsewhere, in bands from the jobs' specs, paint
+        /// what the painter paints working them out itself (PLAN 2.28); pixels that are not
+        /// the jobs' are an error, not a panic.
+        #[test]
+        fn shader_pixels_from_elsewhere_paint_the_same() {
+            let mut dl = DisplayList::new([200.0, 300.0]);
+            dl.ops.push(mesh_op([0.0, 0.0, 200.0, 300.0]));
+            dl.ops.push(Op::Layer {
+                node: None,
+                cell: None,
+                transform: [1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
+                opacity: 0.5,
+                blend: Blend::Normal,
+                clip: None,
+                ops: vec![mesh_op([0.0, 0.0, 50.0, 40.0]), mesh_op([400.0, 0.0, 10.0, 10.0])],
+            });
+            let scale = 1.5;
+            let want = CpuPainter::default().paint(&dl, &Assets::new(), scale).unwrap();
+            let specs = shader_specs(&dl, scale).unwrap();
+            assert_eq!(specs.len(), 3);
+            let mut pixels = Vec::new();
+            for spec in &specs {
+                let bytes = spec.to_bytes().unwrap();
+                let Some(job) = Spec::from_bytes(&bytes).unwrap().job().unwrap() else { continue };
+                let [_, _, w, h] = job.bbox();
+                let mut out = Vec::new();
+                for [first, rows] in scaena_core::shader::bands(h, 3) {
+                    let mut band = vec![0; rows as usize * w as usize * 4];
+                    job.render_rows(first, &mut band);
+                    out.extend(band);
+                }
+                pixels.push(out);
+            }
+            // The third op is past the raster: no job, no pixels.
+            assert_eq!(pixels.len(), 2);
+            let mut painter = CpuPainter::default();
+            assert!(painter.paint_shaded(&dl, &Assets::new(), scale, pixels.clone()).unwrap() == want);
+            let short = pixels[..1].to_vec();
+            assert!(matches!(painter.paint_shaded(&dl, &Assets::new(), scale, short), Err(PaintError::Shaded(_))));
+            let mut cut = pixels;
+            cut[1].pop();
+            assert!(matches!(painter.paint_shaded(&dl, &Assets::new(), scale, cut), Err(PaintError::Shaded(_))));
         }
 
         #[test]
@@ -739,6 +998,15 @@ pub mod cpu {
             }
             assert_eq!(raster.to_png().unwrap(), raster.to_png().unwrap(), "same pixels, same bytes");
             assert_eq!(raster.to_png_fast().unwrap(), raster.to_png_fast().unwrap(), "same pixels, same bytes");
+            // A browser's screenshot has no alpha: it reads as opaque.
+            let mut rgb = Vec::new();
+            let mut encoder = png::Encoder::new(&mut rgb, 2, 1);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[255, 0, 0, 0, 128, 255]).unwrap();
+            writer.finish().unwrap();
+            assert_eq!(Raster::from_png(&rgb).unwrap().rgba, [255, 0, 0, 255, 0, 128, 255, 255]);
         }
 
         #[test]
@@ -783,9 +1051,10 @@ pub mod gpu {
 
     use super::*;
     use crate::convert::{affine, bez, brush, image_quality, isolated, mix, rect, src_to_dst, stroke};
-    use scaena_core::displaylist::{FillRule, Op};
+    use scaena_core::displaylist::{FillRule, Glyph, Join, Op};
+    use std::f64::consts::SQRT_2;
     use vello::Scene;
-    use vello::kurbo::{Affine, Rect};
+    use vello::kurbo::{Affine, Rect, Shape};
     use vello::peniko::{Fill, ImageBrush, ImageData, ImageQuality};
     use vello::wgpu;
     use vello::wgpu::util::DeviceExt;
@@ -1004,13 +1273,22 @@ pub mod gpu {
                                 Some(clip) => {
                                     self.scene.push_layer(Fill::NonZero, mix(*blend), *opacity, child, &bez(clip))
                                 }
-                                None => self.scene.push_layer(
-                                    Fill::NonZero,
-                                    mix(*blend),
-                                    *opacity,
-                                    Affine::IDENTITY,
-                                    &self.output,
-                                ),
+                                // vello layers always clip, and blend every tile the clip
+                                // covers. A layer with no clip of its own clips to the pixels
+                                // its ops can ink, so a label fading in costs its own tiles,
+                                // not the frame's: on a software adapter, a chart's labels
+                                // mid-transition took seconds a frame. Ink it cannot bound (a
+                                // color glyph) clips to the whole output; none draws nothing.
+                                None => {
+                                    let clip = match self.ink(ops, child) {
+                                        Some(ink) => ink.inflate(1.0, 1.0).expand().intersect(self.output),
+                                        None => self.output,
+                                    };
+                                    if clip.width() <= 0.0 || clip.height() <= 0.0 {
+                                        continue;
+                                    }
+                                    self.scene.push_layer(Fill::NonZero, mix(*blend), *opacity, Affine::IDENTITY, &clip)
+                                }
                             }
                             self.ops(ops, child)?;
                             self.scene.pop_layer();
@@ -1047,6 +1325,84 @@ pub mod gpu {
             }
             Ok(())
         }
+
+        /// The device pixels `ops`, drawn with `xf`, can ink: a box around every path, stroke,
+        /// glyph outline, image, and shader they draw, an empty one if they draw nothing, or
+        /// `None` where a bound is not known: a glyph from a color font, whose layers and
+        /// bitmaps reach past its outline, or a font the display list does not name.
+        fn ink(&self, ops: &[Op], xf: Affine) -> Option<Rect> {
+            let mut ink: Option<Rect> = None;
+            let mut add = |r: Rect| ink = Some(ink.map_or(r, |i| i.union(r)));
+            for op in ops {
+                match op {
+                    Op::Fill { path, .. } => add(xf.transform_rect_bbox(bez(path).bounding_box())),
+                    Op::Stroke { path, width, join, miter_limit, .. } => {
+                        // A miter reaches `miter_limit` half widths out, a square cap √2.
+                        let half = f64::from(*width) / 2.0;
+                        let reach = match join {
+                            Join::Miter => half * f64::from(*miter_limit).max(SQRT_2),
+                            Join::Round | Join::Bevel => half * SQRT_2,
+                        };
+                        add(xf.transform_rect_bbox(bez(path).bounding_box().inflate(reach, reach)))
+                    }
+                    Op::Glyphs { font, size, coords, glyphs, .. } => {
+                        if let Some(r) = self.glyph_ink(*font, *size, coords, glyphs)? {
+                            add(xf.transform_rect_bbox(r));
+                        }
+                    }
+                    Op::Image { dst, .. } => add(xf.transform_rect_bbox(rect(*dst))),
+                    Op::Shader { rect: r, .. } => add(xf.transform_rect_bbox(rect(*r))),
+                    Op::Layer { transform, clip, ops, .. } => {
+                        let child = xf * affine(transform);
+                        let inner = self.ink(ops, child)?;
+                        let clipped = match clip {
+                            Some(clip) => inner.intersect(child.transform_rect_bbox(bez(clip).bounding_box())),
+                            None => inner,
+                        };
+                        if clipped.width() > 0.0 && clipped.height() > 0.0 {
+                            add(clipped);
+                        }
+                    }
+                }
+            }
+            Some(ink.unwrap_or(Rect::ZERO))
+        }
+
+        /// The box around `glyphs`' outlines in the run's space, from the font at `size` and
+        /// `coords` as vello draws it, unhinted: `Some(None)` for a run that inks nothing,
+        /// `None` for a color font or a font the display list does not name.
+        fn glyph_ink(&self, font: u32, size: f32, coords: &[i16], glyphs: &[Glyph]) -> Option<Option<Rect>> {
+            let data = self.store.font_data(self.fonts.get(font as usize)?).ok()?;
+            let face = skrifa::FontRef::from_index(data.data.as_ref(), data.index).ok()?;
+            let color = [b"COLR", b"CBDT", b"sbix", b"SVG "];
+            if color.iter().any(|tag| face.table_data(skrifa::Tag::new(tag)).is_some()) {
+                return None;
+            }
+            let location: Vec<skrifa::instance::NormalizedCoord> =
+                coords.iter().map(|&c| skrifa::instance::NormalizedCoord::from_bits(c)).collect();
+            let metrics = skrifa::metrics::GlyphMetrics::new(
+                &face,
+                skrifa::instance::Size::new(size),
+                skrifa::instance::LocationRef::new(&location),
+            );
+            let mut ink: Option<Rect> = None;
+            for g in glyphs {
+                let b = metrics.bounds(skrifa::GlyphId::new(g.id))?;
+                if b.x_max <= b.x_min || b.y_max <= b.y_min {
+                    continue;
+                }
+                // Font units point up, the canvas's down.
+                let (x, y) = (f64::from(g.x), f64::from(g.y));
+                let r = Rect::new(
+                    x + f64::from(b.x_min),
+                    y - f64::from(b.y_max),
+                    x + f64::from(b.x_max),
+                    y - f64::from(b.y_min),
+                );
+                ink = Some(ink.map_or(r, |i| i.union(r)));
+            }
+            Some(ink)
+        }
     }
 
     #[cfg(test)]
@@ -1069,6 +1425,82 @@ pub mod gpu {
             });
             assert!(scene(&dl, &Assets::new(), 1.0, &[]).is_ok());
         }
+
+        /// A layer with no clip of its own clips to the pixels its ops ink: around paths,
+        /// strokes as far as their joins reach, and glyph outlines, through every transform;
+        /// a color font's glyphs, which reach past their outlines, are not bounded.
+        #[test]
+        fn a_layer_clips_to_what_it_inks() {
+            use scaena_core::displaylist::{Cap, Color, Join, Path, PathEl};
+            let fonts = "../../tests/fixtures/torture.scaena/fonts";
+            let mut store = Assets::new();
+            for file in ["RobotoSerif-VF.ttf", "NotoColorEmoji-COLRv1.ttf"] {
+                store.insert_font(file, std::fs::read(format!("{fonts}/{file}")).unwrap());
+            }
+            let names = [
+                FontRef { id: "RobotoSerif-VF.ttf".into(), index: 0 },
+                FontRef { id: "NotoColorEmoji-COLRv1.ttf".into(), index: 0 },
+            ];
+            let cx = Cx {
+                scene: Scene::new(),
+                store: &store,
+                fonts: &names,
+                output: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                shaders: [].iter(),
+            };
+            let black = Paint::Solid(Color([0, 0, 0, 255]));
+            let fill =
+                Op::Fill { path: Path::rect([10.0, 20.0, 30.0, 40.0]), rule: FillRule::NonZero, paint: black.clone() };
+            let line = |join| Op::Stroke {
+                path: Path(vec![PathEl::MoveTo([0.0, 50.0]), PathEl::LineTo([100.0, 50.0])]),
+                paint: black.clone(),
+                width: 4.0,
+                cap: Cap::Butt,
+                join,
+                miter_limit: 4.0,
+                dash: vec![],
+                dash_offset: 0.0,
+            };
+            // `H` in each font, whose glyph ids are the subset's.
+            let h = |file: &str| {
+                let bytes = std::fs::read(format!("{fonts}/{file}")).unwrap();
+                let face = skrifa::FontRef::new(&bytes).unwrap();
+                use skrifa::MetadataProvider;
+                face.charmap().map('H').unwrap_or_default().to_u32()
+            };
+            let ids = [h("RobotoSerif-VF.ttf"), h("NotoColorEmoji-COLRv1.ttf")];
+            let glyphs = |font: u32| Op::Glyphs {
+                font,
+                size: 100.0,
+                coords: vec![],
+                paint: black.clone(),
+                text: String::new(),
+                glyphs: vec![Glyph { id: ids[font as usize], x: 200.0, y: 500.0 }],
+                clusters: vec![],
+            };
+            let scale = Affine::scale(2.0);
+            assert_eq!(cx.ink(std::slice::from_ref(&fill), scale), Some(Rect::new(20.0, 40.0, 80.0, 120.0)));
+            assert_eq!(cx.ink(&[line(Join::Miter)], Affine::IDENTITY), Some(Rect::new(-8.0, 42.0, 108.0, 58.0)));
+            let round = cx.ink(&[line(Join::Round)], Affine::IDENTITY).unwrap();
+            assert!((round.y1 - 50.0 - 2.0 * std::f64::consts::SQRT_2).abs() < 1e-9, "{round:?}");
+            // A Latin glyph's outline: above the baseline, right of the pen, under an em.
+            let text = cx.ink(&[glyphs(0)], Affine::IDENTITY).unwrap();
+            assert!(text.y0 < 500.0 && text.y1 <= 500.0 + 30.0 && text.y0 > 400.0 - 30.0, "{text:?}");
+            assert!(text.x0 >= 200.0 - 10.0 && text.x1 < 300.0 && text.width() > 10.0, "{text:?}");
+            assert_eq!(cx.ink(&[glyphs(1)], Affine::IDENTITY), None, "a color font is not bounded");
+            // A nested layer's clip and transform: only the part of the fill inside its clip.
+            let nested = Op::Layer {
+                node: None,
+                cell: None,
+                transform: [1.0, 0.0, 0.0, 1.0, 100.0, 0.0],
+                opacity: 1.0,
+                blend: scaena_core::displaylist::Blend::Normal,
+                clip: Some(Path::rect([0.0, 0.0, 25.0, 1000.0])),
+                ops: vec![fill],
+            };
+            assert_eq!(cx.ink(&[nested], Affine::IDENTITY), Some(Rect::new(110.0, 20.0, 125.0, 60.0)));
+            assert_eq!(cx.ink(&[], Affine::IDENTITY), Some(Rect::ZERO), "nothing inks nothing");
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1081,12 +1513,40 @@ pub mod gpu {
         /// Headless `vello` (PLAN 0.7): renders into an `Rgba8Unorm` texture and reads it
         /// back. vello writes straight alpha (it unpremultiplies before storing), which
         /// is what [`Raster`] holds.
+        ///
+        /// [`GpuPainter::paint`] waits for its frame. A run of frames, a video's (PLAN
+        /// 2.22), goes through [`GpuPainter::send`] and [`GpuPainter::receive`] instead,
+        /// so a frame is painted while the ones before it are read back.
         pub struct GpuPainter {
             device: wgpu::Device,
             queue: wgpu::Queue,
             renderer: vello::Renderer,
             adapter: wgpu::AdapterInfo,
             shaders: Shaders,
+            /// What frames are painted into, kept while they keep its size.
+            target: Option<Target>,
+            /// Frames sent and not yet received, oldest first.
+            flying: std::collections::VecDeque<Flight>,
+            /// Readback buffers no frame is using.
+            spare: Vec<wgpu::Buffer>,
+        }
+
+        struct Target {
+            size: wgpu::Extent3d,
+            texture: wgpu::Texture,
+            view: wgpu::TextureView,
+        }
+
+        /// A frame painted and on its way back: copied into `buffer`, which is mapped
+        /// once the GPU has done `submitted`.
+        struct Flight {
+            buffer: wgpu::Buffer,
+            width: u32,
+            height: u32,
+            /// Bytes from one row to the next in `buffer`.
+            padded: u32,
+            submitted: wgpu::SubmissionIndex,
+            mapped: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
         }
 
         impl GpuPainter {
@@ -1102,7 +1562,17 @@ pub mod gpu {
                 };
                 let adapter = ready(instance.request_adapter(&options))?
                     .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
-                let descriptor = wgpu::DeviceDescriptor { label: Some("scaena"), ..Default::default() };
+                // The largest textures and buffers the adapter holds, not wgpu's defaults (8192
+                // pixels a side, 128 MiB a shader's pixels): a raster the CPU painter makes, this
+                // one makes too, where the GPU can.
+                let most = adapter.limits();
+                let required_limits = wgpu::Limits {
+                    max_buffer_size: most.max_buffer_size,
+                    max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
+                    ..wgpu::Limits::default().using_resolution(most)
+                };
+                let descriptor =
+                    wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() };
                 let (device, queue) = ready(adapter.request_device(&descriptor))?.map_err(gpu)?;
                 Self::with_device(device, queue, adapter.get_info())
             }
@@ -1121,7 +1591,16 @@ pub mod gpu {
                     pipeline_cache: None,
                 };
                 let renderer = vello::Renderer::new(&device, options).map_err(gpu)?;
-                Ok(Self { device, queue, renderer, adapter, shaders: Shaders::new() })
+                Ok(Self {
+                    device,
+                    queue,
+                    renderer,
+                    adapter,
+                    shaders: Shaders::new(),
+                    target: None,
+                    flying: std::collections::VecDeque::new(),
+                    spare: Vec::new(),
+                })
             }
 
             /// Which adapter paints: name, backend, and device type (a CPU adapter such
@@ -1141,6 +1620,24 @@ pub mod gpu {
                 encoder.copy_buffer_to_buffer(&pixels, 0, &buffer, 0, size);
                 self.queue.submit([encoder.finish()]);
                 self.read(&buffer, w * 4, stride)
+            }
+
+            /// Paint `dl` and start reading it back, without waiting for either: the next
+            /// frame can be painted while this one comes back. Frames come back from
+            /// [`GpuPainter::receive`] in the order they were sent.
+            pub fn send(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<(), PaintError> {
+                let flight = self.start(dl, fonts, scale)?;
+                self.flying.push_back(flight);
+                Ok(())
+            }
+
+            /// The oldest frame [`GpuPainter::send`] painted that has not been received,
+            /// once it is back, or `None` when every frame sent has been.
+            pub fn receive(&mut self) -> Result<Option<Raster>, PaintError> {
+                match self.flying.pop_front() {
+                    Some(flight) => self.finish(flight).map(Some),
+                    None => Ok(None),
+                }
             }
 
             fn readback(&self, size: u64) -> wgpu::Buffer {
@@ -1179,52 +1676,94 @@ pub mod gpu {
             }
 
             fn paint(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Raster, PaintError> {
-                let jobs = shader_jobs(dl, scale)?;
-                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
-                let raster = self.render(dl, fonts, scale, &images);
-                Shaders::release(&mut self.renderer, images);
-                raster
+                let flight = self.start(dl, fonts, scale)?;
+                self.finish(flight)
             }
         }
 
         impl GpuPainter {
+            /// Run `dl`'s shaders, paint it, and queue its copy into a readback buffer:
+            /// a frame on its way back.
+            fn start(&mut self, dl: &DisplayList, fonts: &Assets, scale: f32) -> Result<Flight, PaintError> {
+                let jobs = shader_jobs(dl, scale)?;
+                self.holds(dl, scale, &jobs)?;
+                let images = self.shaders.prepare(&self.device, &self.queue, &mut self.renderer, &jobs);
+                let flight = self.render(dl, fonts, scale, &images);
+                Shaders::release(&mut self.renderer, images);
+                flight
+            }
+
+            /// Whether this GPU holds what painting `dl` at `scale` makes: its target and the
+            /// buffer it is read back through, and each shader's pixels, a storage buffer of
+            /// four bytes a pixel, and texture. A frame past one is an error here, as one past
+            /// [`MAX_PIXELS`] is: wgpu's default error handler panics on a texture or buffer
+            /// the device does not hold.
+            fn holds(&self, dl: &DisplayList, scale: f32, jobs: &[Option<Job>]) -> Result<(), PaintError> {
+                let limits = self.device.limits();
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+                let fits = |w: u32, h: u32, most: u64| {
+                    let bytes = u64::from((w * 4).div_ceil(align) * align) * u64::from(h);
+                    w <= limits.max_texture_dimension_2d && h <= limits.max_texture_dimension_2d && bytes <= most
+                };
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let (w, h) = raster(dl, scale)?;
+                let shaders_fit = jobs.iter().flatten().all(|job| {
+                    let [_, _, w, h] = job.bbox();
+                    fits(w, h, storage)
+                });
+                match fits(u32::from(w), u32::from(h), limits.max_buffer_size) && shaders_fit {
+                    true => Ok(()),
+                    false => Err(PaintError::Size(f32::from(w), f32::from(h))),
+                }
+            }
+
             fn render(
                 &mut self,
                 dl: &DisplayList,
                 fonts: &Assets,
                 scale: f32,
                 images: &[Option<ShaderImage>],
-            ) -> Result<Raster, PaintError> {
+            ) -> Result<Flight, PaintError> {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-                let target = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("scaena target"),
-                    size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                });
+                if self.target.as_ref().is_none_or(|t| t.size != size) {
+                    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("scaena target"),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    self.target = Some(Target { size, texture, view });
+                }
+                let target = self.target.as_ref().expect("made above");
                 let params = vello::RenderParams {
                     base_color: peniko::Color::TRANSPARENT,
                     width,
                     height,
                     antialiasing_method: vello::AaConfig::Area,
                 };
-                let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-                self.renderer.render_to_texture(&self.device, &self.queue, &scene, &view, &params).map_err(gpu)?;
+                self.renderer
+                    .render_to_texture(&self.device, &self.queue, &scene, &target.view, &params)
+                    .map_err(gpu)?;
 
-                // A texture-to-buffer copy pads each row to 256 bytes.
-                let row = width * 4;
+                // A texture-to-buffer copy pads each row to 256 bytes. The queue runs in
+                // order, so the next frame paints the target only once this copy is done.
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-                let padded = row.div_ceil(align) * align;
-                let buffer = self.readback(u64::from(padded) * u64::from(height));
+                let padded = (width * 4).div_ceil(align) * align;
+                let bytes = u64::from(padded) * u64::from(height);
+                let buffer = match self.spare.iter().position(|b| b.size() == bytes) {
+                    Some(i) => self.spare.swap_remove(i),
+                    None => self.readback(bytes),
+                };
                 let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
                 encoder.copy_texture_to_buffer(
-                    target.as_image_copy(),
+                    target.texture.as_image_copy(),
                     wgpu::TexelCopyBufferInfo {
                         buffer: &buffer,
                         layout: wgpu::TexelCopyBufferLayout {
@@ -1235,8 +1774,33 @@ pub mod gpu {
                     },
                     size,
                 );
-                self.queue.submit([encoder.finish()]);
-                let mut rgba = self.read(&buffer, row, padded)?;
+                let submitted = self.queue.submit([encoder.finish()]);
+                let (tx, mapped) = std::sync::mpsc::channel();
+                buffer.map_async(wgpu::MapMode::Read, .., move |done| {
+                    let _ = tx.send(done);
+                });
+                Ok(Flight { buffer, width, height, padded, submitted, mapped })
+            }
+
+            /// Wait for `flight` to be back, then its pixels.
+            fn finish(&mut self, flight: Flight) -> Result<Raster, PaintError> {
+                let Flight { buffer, width, height, padded, submitted, mapped } = flight;
+                // Bounded: a GPU that never finishes is an error to report, not a hang.
+                let wait = wgpu::PollType::Wait { submission_index: Some(submitted), timeout: Some(GPU_TIMEOUT) };
+                self.device.poll(wait).map_err(gpu)?;
+                mapped
+                    .recv_timeout(GPU_TIMEOUT)
+                    .map_err(|_| PaintError::Gpu(format!("readback not done after {GPU_TIMEOUT:?}")))?
+                    .map_err(gpu)?;
+                let row = width as usize * 4;
+                let mut rgba = Vec::with_capacity(row * height as usize);
+                for line in buffer.get_mapped_range(..).chunks_exact(padded as usize) {
+                    rgba.extend_from_slice(&line[..row]);
+                }
+                buffer.unmap();
+                // Kept for the frames after it, which are the same size, or dropped.
+                self.spare.retain(|b| b.size() == buffer.size());
+                self.spare.push(buffer);
                 // vello unpremultiplies as rgb / max(a, 1e-6), so a sliver of coverage below
                 // 1/255 reads back as alpha 0 with leftover colour (Metal leaves [2, 1, 1, 0]
                 // beside pixel-aligned edges). Fully transparent is fully transparent.
@@ -1308,6 +1872,36 @@ pub mod gpu {
             }
 
             #[test]
+            fn frames_sent_come_back_in_order_as_paint_paints_them() {
+                let Some(mut gpu) = painter() else { return };
+                let fill = |c: [u8; 4], w: f32| {
+                    let mut dl = DisplayList::new([w, 3.0]);
+                    dl.ops.push(Op::Fill {
+                        path: Path::rect([0.0, 0.0, w, 3.0]),
+                        rule: FillRule::NonZero,
+                        paint: Paint::Solid(Color(c)),
+                    });
+                    dl
+                };
+                // The last is wider: its rows are padded otherwise, and it needs a new target.
+                let frames = [fill([255, 0, 0, 255], 5.0), fill([0, 0, 255, 128], 5.0), fill([0, 200, 0, 255], 70.0)];
+                let painted: Vec<Raster> = frames.iter().map(|f| gpu.paint(f, &Assets::new(), 2.0).unwrap()).collect();
+                assert!(gpu.receive().unwrap().is_none(), "nothing was sent");
+                for f in &frames {
+                    gpu.send(f, &Assets::new(), 2.0).unwrap();
+                }
+                // A frame painted meanwhile is its own, and leaves the ones sent waiting.
+                let between = gpu.paint(&frames[1], &Assets::new(), 2.0).unwrap();
+                assert_eq!(between.rgba, painted[1].rgba);
+                for want in &painted {
+                    let got = gpu.receive().unwrap().expect("a frame sent and not received");
+                    assert_eq!((got.width, got.height), (want.width, want.height));
+                    assert!(got.rgba == want.rgba, "a frame differs from paint's on {:?}", gpu.adapter());
+                }
+                assert!(gpu.receive().unwrap().is_none(), "every frame sent came back once");
+            }
+
+            #[test]
             fn a_shader_op_paints_where_the_cpu_painter_paints_it() {
                 let Some(mut gpu) = painter() else { return };
                 let mut dl = DisplayList::new([50.0, 30.0]);
@@ -1327,6 +1921,45 @@ pub mod gpu {
                 let worst = cpu.rgba.iter().zip(&raster.rgba).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
                 assert!(worst <= 1, "max channel step {worst} on {:?}", gpu.adapter());
                 assert_eq!(raster.pixel(19, 10), [0; 4], "nothing left of the box");
+            }
+
+            /// A frame past what this GPU holds is an error, as one past [`MAX_PIXELS`] is: a
+            /// target wider than its textures, or a shader whose pixels outgrow a storage
+            /// buffer. wgpu's default error handler panics on either, which stopped `render
+            /// --painter gpu` past 8192 pixels a side (PLAN 2.26).
+            #[test]
+            fn a_frame_past_what_the_gpu_holds_is_an_error() {
+                let Some(mut gpu) = painter() else { return };
+                let limits = gpu.device.limits();
+                let side = limits.max_texture_dimension_2d as f32;
+                // A strip wider than a texture, with few pixels in all.
+                let strip = DisplayList::new([side + 64.0, 8.0]);
+                match gpu.paint(&strip, &Assets::new(), 1.0) {
+                    Err(PaintError::Size(w, _)) => assert_eq!(w, side + 64.0),
+                    other => panic!("a target {} pixels wide: {:?}", side + 64.0, other.map(|r| r.width)),
+                }
+                // A square of shader that a raster holds, whose pixels in rows of 256 bytes
+                // outgrow a storage buffer of wgpu's default size, 128 MiB: on a GPU whose
+                // buffers hold it, it paints.
+                let n = 5792u32;
+                let mut shaded = DisplayList::new([n as f32; 2]);
+                shaded.ops.push(crate::cpu::tests::mesh_op([0.0, 0.0, n as f32, n as f32]));
+                let storage = limits.max_buffer_size.min(limits.max_storage_buffer_binding_size);
+                let row = u64::from(
+                    (n * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT,
+                );
+                assert!(u64::from(n) * u64::from(n) <= MAX_PIXELS && row * u64::from(n) > 128 << 20);
+                let fits = row * u64::from(n) <= storage && n <= limits.max_texture_dimension_2d;
+                match (gpu.paint(&shaded, &Assets::new(), 1.0), fits) {
+                    (Ok(raster), true) => assert_eq!((raster.width, raster.height), (n, n)),
+                    (Err(PaintError::Size(..)), false) => {}
+                    (other, _) => {
+                        panic!("{n}² pixels of shader, {storage} bytes a buffer: {:?}", other.map(|r| r.width))
+                    }
+                }
+                // The painter paints on.
+                let small = gpu.paint(&DisplayList::new([4.0, 4.0]), &Assets::new(), 1.0).unwrap();
+                assert_eq!((small.width, small.height), (4, 4));
             }
 
             #[test]

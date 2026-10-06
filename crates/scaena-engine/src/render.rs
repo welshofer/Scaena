@@ -14,18 +14,19 @@ use crate::containers::{self, Placement};
 use crate::data::DataFiles;
 use crate::fonts::BundleFonts;
 use crate::images::{BundleImages, ImageNode};
-use crate::layout::{AlignX, AlignY, Grid};
+use crate::layout::{AlignX, AlignY, BaselineGrid, Grid};
 use crate::motion;
 use crate::sample::{Content, Place, Policy, Scene, SceneNode, Timing, Transition};
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::tables;
-use crate::text::{Span, TextAlign, TextEngine, TextLayout, TextSpec};
+use crate::text::{GRID_EPSILON, Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
+use scaena_core::model::theme::Snap;
 use scaena_core::model::values::SplitUnit;
 use scaena_core::timeline::{Motion, Timeline};
 use scaena_core::{Deck, Snapshot};
@@ -114,6 +115,11 @@ impl Engine {
     pub fn with_images(mut self, images: BundleImages) -> Self {
         self.images = images;
         self
+    }
+
+    /// The bundle's fonts, as registered.
+    pub fn fonts(&self) -> &BundleFonts {
+        &self.fonts
     }
 
     /// Render one frame. Deterministic: same inputs → identical display list (SPEC §13).
@@ -227,6 +233,64 @@ impl Engine {
         Ok(timeline)
     }
 
+    /// `req.state` at rest, laid out in `req.format` (`req.t_ms` aside): the scene its frames
+    /// at rest draw, which says what stands where for a client that edits by pointing
+    /// ([`crate::geometry`], ADR-0013).
+    pub fn at_rest(&mut self, req: &FrameRequest) -> Result<Scene, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        self.scene(deck, theme, req.data, snap)
+    }
+
+    /// Where `node` may go in `req.state` at rest, laid out in `req.format` (`req.t_ms`
+    /// aside): the theme's grid and slots there, or its container's cells, order, or box
+    /// ([`crate::geometry::Targets`], ADR-0013).
+    pub fn targets(&mut self, req: &FrameRequest, node: &str) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)
+    }
+
+    /// Where `node` may go in `req.state` at rest `into` another container, or onto the
+    /// canvas for `None` (PLAN 2.50): as [`Engine::targets`] says it for a node that container
+    /// holds, the node's cell the box it stands in now.
+    pub fn targets_into(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        into: Option<&str>,
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, Some(into))
+    }
+
+    /// Where a node new to `req.state`, named `node`, would go at the root, laid out in
+    /// `req.format` (PLAN 2.34): the theme's grid and the template's slots there, its cell
+    /// `share` of the canvas's width and height ([`crate::geometry::room`]).
+    pub fn room(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        share: [f32; 2],
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        let size = [share[0] * scene.canvas[0], share[1] * scene.canvas[1]];
+        crate::geometry::room(theme, &cascade::with_overrides(deck, snap), &scene, node, size)
+    }
+
     /// One snapshot, laid out: every visible node in paint order.
     pub fn scene(
         &mut self,
@@ -248,7 +312,7 @@ impl Engine {
             let props = &snap.nodes[id];
             let Some(&rect) = placement.boxes.get(id) else { continue };
             let content = match deck.nodes[id].node_type {
-                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, snap, id, rect)?),
+                NodeType::Text => Content::Text(self.layout_text_node(deck, theme, grid.baseline, snap, id, rect)?),
                 NodeType::Chart => {
                     let states = match &mut every {
                         Some(states) => states,
@@ -306,7 +370,8 @@ impl Engine {
                 content,
             });
         }
-        Ok(Scene { state: snap.state_id.clone(), canvas, surface: theme_color(theme, "surface")?, nodes, tree })
+        let surface = theme_color(theme, "surface")?;
+        Ok(Scene { state: snap.state_id.clone(), canvas, surface, nodes, tree, tracks: placement.tracks })
     }
 
     /// One text node of a state, laid out and placed: what `frame` draws, and what
@@ -321,7 +386,7 @@ impl Engine {
         }
         let grid = Grid::from_theme(theme, canvas(deck))?;
         let placement = self.place(deck, theme, req.data, &grid, snap)?;
-        self.layout_text_node(deck, theme, snap, node, placement.boxes[node])
+        self.layout_text_node(deck, theme, grid.baseline, snap, node, placement.boxes[node])
     }
 
     /// Every node's box in `snap` (overrides merged), its container, and paint order:
@@ -366,6 +431,7 @@ impl Engine {
         &mut self,
         deck: &Deck,
         theme: &Theme,
+        lines: Option<BaselineGrid>,
         snap: &Snapshot,
         id: &str,
         cell: Rect,
@@ -424,19 +490,40 @@ impl Engine {
         };
         if text.synthesized {
             return Err(EngineError::Font(format!(
-                "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
-                 use a weight or style the family provides"
+                "node `{id}`: a run needs faux bold, which the display list cannot express; \
+                 use a weight the family provides"
             )));
         }
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
-        let origin = [cell[0], text_top(cell, align_y, &text, trim)];
+        let top = text_top(cell, align_y, &text, trim);
+        let origin = [cell[0], top + to_grid(lines, spec.role.snap, align_y, top, &text)];
         Ok(PlacedText { cell, origin, text, scale, overflow, clip })
     }
 }
 
 /// Room for float error when text is held to its box, canvas units.
 const FIT_EPSILON: f32 = 1.0 / 64.0;
+
+/// How far a text whose role snaps moves onto the baseline grid (SPEC §3.4), from where
+/// its alignment put its top: its first baseline, or its first line's cap height (the line
+/// top in a font without one), to the next grid line down; or, aligned to the foot of its
+/// box (`end`, `baseline`), to the line above. Texts aligned to one line move together.
+/// Its lines are already whole grid lines apart.
+fn to_grid(lines: Option<BaselineGrid>, snap: Option<Snap>, align: AlignY, top: f32, text: &TextLayout) -> f32 {
+    let (Some(lines), Some(snap), Some(first)) = (lines, snap, text.lines.first()) else { return 0.0 };
+    let anchor = top
+        + match snap {
+            Snap::Baseline => first.baseline,
+            Snap::Cap => text.trimmed(TextBox::Cap).0,
+        };
+    let down = lines.next(anchor) - anchor;
+    let on = down.abs() <= GRID_EPSILON * lines.pitch;
+    match align {
+        AlignY::End | AlignY::Baseline if !on => down - lines.pitch,
+        _ => down,
+    }
+}
 
 /// Bisection steps for `fit: shrink` and `grow`: the scale is within `(hi - lo) / 2^12`
 /// of the largest that fits.
@@ -610,7 +697,7 @@ fn children<'a>(deck: &Deck, snap: &'a Snapshot, id: &str) -> Vec<&'a str> {
         .filter(|(_, props)| parent(props) == Some(id))
         .map(|(kid, props)| (index(props).unwrap_or(0), order(kid), kid.as_str()))
         .collect();
-    kids.sort();
+    scaena_core::sort::sort(&mut kids);
     kids.into_iter().map(|(_, _, kid)| kid).collect()
 }
 
@@ -672,15 +759,26 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
     let role = cascade::node_role(theme, props, slot_role)?;
     let (role_measure, hanging, optical, hyphenate) =
         (role.measure, role.hanging_punctuation, role.optical_margins, role.hyphenate);
+    let line_grid = theme.grid.baseline.filter(|_| role.snap == Some(Snap::Baseline)).map(|pitch| pitch as f32);
     let spans = match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs
             .iter()
             .map(|run| {
                 let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-                Ok(Span { text, style: cascade::run_role(theme, &role, run)? })
+                // What the run is set in without its own style: its role's, or the node's look.
+                let (base_weight, base_italic) = match run.get("role").and_then(Value::as_str) {
+                    Some(name) => theme.text_role(name).map(|r| (r.weight, r.italic))?,
+                    None => (role.weight, role.italic),
+                };
+                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight, base_italic })
             })
             .collect::<Result<_, EngineError>>()?,
-        None => vec![Span { text: str_prop("text").unwrap_or_default().to_string(), style: role.clone() }],
+        None => vec![Span {
+            text: str_prop("text").unwrap_or_default().to_string(),
+            style: role.clone(),
+            base_weight: role.weight,
+            base_italic: role.italic,
+        }],
     };
     let features = props
         .get("features")
@@ -714,6 +812,7 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         hanging_punctuation: props.get("hangingPunctuation").and_then(Value::as_bool).unwrap_or(hanging),
         optical_margins: props.get("opticalMargins").and_then(Value::as_bool).unwrap_or(optical),
         hyphenate: props.get("hyphenate").and_then(Value::as_bool).unwrap_or(hyphenate),
+        line_grid,
     })
 }
 

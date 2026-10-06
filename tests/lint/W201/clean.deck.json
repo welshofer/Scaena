@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "_comment": "W201 clean: words that break within the measure.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

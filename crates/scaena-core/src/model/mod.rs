@@ -132,6 +132,17 @@ pub fn manifest_schema() -> Value {
     v
 }
 
+/// `docs/schema/spine.schema.json`: the spine projection (`crate::spine`, SPEC §10), what
+/// `export --format spine` writes for the pipelines beyond the deck. Versioned with the
+/// deck format, which it carries in `scaena`.
+pub fn spine_schema() -> Value {
+    let generator = SchemaSettings::draft2020_12().into_generator();
+    let schema = generator.into_root_schema_for::<crate::spine::SpineProjection>();
+    let mut v = serde_json::to_value(schema).expect("a schema serializes");
+    finish(&mut v, "spine", Some("scaena"), crate::FORMAT_VERSION);
+    v
+}
+
 /// The node types as named definitions, `Node` one of them, with the properties every type
 /// has written once (`NodeProps`) rather than once per type. A definition only a type's
 /// `then` names (a shader kind's params) follows that type.
@@ -365,9 +376,10 @@ fn is_object(schema: &Value) -> bool {
 
 /// What schemars writes that the document format does not say: numeric `format`s, `null`
 /// on every optional property (a node's absent property is absent, not null; only a delta
-/// deletes with null, and `StateDelta` says so itself), and doc comments' line breaks and
-/// links. Then the root's `$id` and its version key's pattern (a document that has one), both
-/// from `version`, and every schema's keywords in one order.
+/// deletes with null, and `StateDelta` says so itself; a property whose `null` says
+/// something else is marked `x-null`, and keeps it), and doc comments' line breaks and links.
+/// Then the root's `$id` and its version key's pattern (a document that has one), both from
+/// `version`, and every schema's keywords in one order.
 fn finish(v: &mut Value, name: &str, version_key: Option<&str>, version: &str) {
     v["$id"] = json!(format!("https://scaena.dev/schema/{name}-{version}.json"));
     if let Some(key) = version_key {
@@ -386,7 +398,8 @@ fn finish(v: &mut Value, name: &str, version_key: Option<&str>, version: &str) {
         };
         if let Some(Value::Object(props)) = schema.get_mut("properties") {
             for (name, prop) in props.iter_mut() {
-                if !required.contains(name) {
+                let says = prop.as_object_mut().and_then(|p| p.remove("x-null")).is_some();
+                if !required.contains(name) && !says {
                     drop_null(prop);
                 }
             }
@@ -520,7 +533,7 @@ const KEYWORD_ORDER: &[&str] = &[
 fn order_keys(schema: &mut Map<String, Value>) {
     let rank = |key: &str| KEYWORD_ORDER.iter().position(|k| *k == key).unwrap_or(KEYWORD_ORDER.len());
     let mut entries: Vec<(String, Value)> = std::mem::take(schema).into_iter().collect();
-    entries.sort_by_key(|(key, _)| rank(key));
+    crate::sort::by_key(&mut entries, |(key, _)| rank(key));
     schema.extend(entries);
 }
 

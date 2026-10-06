@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/theme-0.6.json",
+  "$id": "https://scaena.dev/schema/theme-0.9.json",
   "title": "Scaena theme (design system)",
   "description": "Tokens, typographic roles, layout templates, motion, and palettes. Documents reference these by name; they never store resolved values. See docs/SPEC.md §3.6.",
   "type": "object",
   "required": ["scaena-theme", "name", "tokens", "type", "grid", "layouts", "motion"],
   "additionalProperties": false,
   "properties": {
-    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.6(\\.[0-9]+)?$" },
+    "scaena-theme": { "description": "Theme format version.", "type": "string", "pattern": "^0\\.9(\\.[0-9]+)?$" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "tokens": { "$ref": "#/$defs/Tokens" },
@@ -226,12 +226,29 @@
           "type": "object",
           "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         },
+        "italic": {
+          "description": "Its italic face (SPEC §3.5), which text set `italic` takes. A family without one sets such text upright: no italic is synthesized (lint W231).",
+          "$ref": "#/$defs/Face"
+        },
         "fallback": {
           "description": "Other families in this theme, in order. Bundle-only; system fonts are never consulted.",
           "type": "array",
           "items": { "type": "string" }
         },
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } }
+      }
+    },
+    "Face": {
+      "description": "Another face of a family, in a file of its own: its italic (PLAN 2.40). Its file names the family's name, as the family's own file does.",
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "pattern": "^fonts/" },
+        "axes": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        }
       }
     },
     "FeatureValue": { "anyOf": [{ "type": "boolean" }, { "type": "integer" }] },
@@ -252,6 +269,10 @@
         "family": { "description": "Key in `type.families`.", "type": "string" },
         "size": { "type": "number", "exclusiveMinimum": 0 },
         "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "italic": {
+          "description": "Set in its family's italic face (SPEC §3.5); upright when unset.",
+          "type": "boolean"
+        },
         "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
         "tracking": { "description": "Em units; negative tightens.", "type": "number" },
         "opsz": { "type": "number" },
@@ -259,6 +280,10 @@
         "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FeatureValue" } },
         "wrap": { "$ref": "#/$defs/Wrap" },
         "box": { "$ref": "#/$defs/TextBox" },
+        "snap": {
+          "description": "What of the text sits on the baseline grid (`grid.baseline`, SPEC §3.4): every baseline, or the first line's cap height. Nothing snaps when unset.",
+          "$ref": "#/$defs/Snap"
+        },
         "measure": { "description": "Max characters per line.", "type": "number", "exclusiveMinimum": 0 },
         "maxLines": { "type": "integer", "minimum": 1 },
         "minSize": { "type": "number", "exclusiveMinimum": 0 },
@@ -274,6 +299,21 @@
     },
     "Wrap": { "type": "string", "enum": ["greedy", "pretty", "balance"] },
     "TextBox": { "type": "string", "enum": ["cap", "line"] },
+    "Snap": {
+      "description": "What of a text role sits on the baseline grid (SPEC §3.4).",
+      "oneOf": [
+        {
+          "description": "Every line's baseline, the lines whole grid lines apart: body text.",
+          "type": "string",
+          "const": "baseline"
+        },
+        {
+          "description": "The first line's cap height, the lines below at the role's leading: display text.",
+          "type": "string",
+          "const": "cap"
+        }
+      ]
+    },
     "Case": { "type": "string", "enum": ["none", "upper", "lower", "title", "smallcaps"] },
     "Numeric": {
       "type": "string",
@@ -289,7 +329,7 @@
         "gutter": { "type": "number", "minimum": 0 },
         "margin": { "$ref": "#/$defs/Margin" },
         "baseline": {
-          "description": "Baseline grid in cu; text leading snaps to multiples.",
+          "description": "Baseline grid: the distance between its lines in cu, which run from the top margin. Text roles with `snap` sit on it.",
           "type": "number",
           "exclusiveMinimum": 0
         }
@@ -610,6 +650,10 @@
         "annotation": {
           "description": "Annotations: rules, bands, callouts, and highlights.",
           "$ref": "#/$defs/ChartAnnotation"
+        },
+        "projected": {
+          "description": "Forecasts and estimates (PLAN 1.28): how a line dashes through what is projected, how much lighter an area is under it, and what its value labels add.",
+          "$ref": "#/$defs/ChartProjected"
         }
       }
     },
@@ -677,6 +721,30 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        }
+      }
+    },
+    "ChartProjected": {
+      "description": "How a chart shows the rows its `projected` marks (SPEC §3.7).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dash": {
+          "description": "A line's dash and the gap after it, in widths of the line; [3, 2] when unset.",
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "opacity": {
+          "description": "An area's fill under projected rows, a fraction of its own; 0.5 when unset.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "note": {
+          "description": "What a projected value's label says after the value; `est.` when unset.",
+          "type": "string"
         }
       }
     },

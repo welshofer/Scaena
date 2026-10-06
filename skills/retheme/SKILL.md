@@ -11,6 +11,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 |---|---|---|
 | preview the swap | `scaena theme <bundle> --apply <theme.json> --dry-run --json` | `theme_apply` with `dry_run` |
 | swap | the same, without `--dry-run` | `theme_apply` |
+| swap with the fixes, all or none | `scaena patch <bundle> --ops ops.json` | `deck_patch` |
 | see each text node's new look | `scaena inspect <bundle> --state <id> --resolved` | `deck_inspect` with `resolved` |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render` |
@@ -18,16 +19,28 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 1. **Preview.**
    - The dry run checks the new theme against `docs/schema/theme.schema.json` (`scaena://schema/theme`). It reports the delta in what validation and lint find, as `added` and `removed`.
    - Every name the deck uses that the new theme lacks is a new E102: roles, layouts and slots, presets, durations, easings, springs, palettes, colors, and families.
+   - So is every cell past the new theme's grid, a node's `at.col` or `at.row` or a slot it stands in. Its message names the grid's size; place the node again, by slot where you can, since a slot moves with the theme.
+   - Each E102 for a name lists the names of that kind the new theme has ("layout `figure` is not in the theme, which has title, full, chart"). Choose from them; there is no need to guess.
 2. **Fix what the delta reports**, in the deck or by choosing another theme.
-   - Names are the swap contract.
+   - Names are the swap contract. The shipped themes, Dusk, Daybreak, and Ember, share one vocabulary (SPEC §3.6), so a deck moves between them with no E102, and the delta holds only what the new look breaks.
    - A palette or slot named for a theme (`dusk`) rather than its job (`ambient`) is the theme's problem, not the deck's.
 3. **Swap.**
    - Run it again without the dry run. It copies the theme into `themes/` and points the deck at it.
    - When a saved bundle names fonts by content, families are matched to them by name, and each mapping is reported (`mapped`).
+   - A theme that would leave the deck invalid, most often with E102s for names it lacks, is **refused**: `refused` is true, and the deck keeps its theme. The theme is still copied into `themes/`, so swap it and fix the names in one patch, all or none, and the deck is valid throughout:
+
+     ```json
+     [{ "op": "retheme", "theme": "themes/brand.theme.json" },
+      { "op": "replace", "path": "/states/3/layout", "value": "chart" }]
+     ```
+
+     A patch that still leaves an E102 is refused too, and says which. `--force` (`force`) applies a theme anyway, leaving the deck invalid until you fix it.
+   - Once the deck is valid with the new theme, lint lays it out, and the delta adds what the new type and colors break (step 4).
 4. **Read the layout findings in the delta.** Lint lays every state out in the new theme, so the delta also says what the new type and colors break:
    - **E100:** text that no longer fits. A larger type scale wants tighter copy (the `tighten-copy` skill) or `fit: shrink`, not overrides.
    - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. A palette with less contrast wants a different color *role*, not a literal.
    - **W210:** density, if the theme's `maxWordsPerState` is lower.
+   - **W221:** a role that snaps to the new theme's baseline grid at a leading off it. Its finding points into the theme file: the theme's to fix, not the deck's.
    - **W310:** chart labels that now collide.
    - **W320 and W321:** motion past the new theme's limits.
 5. **Look.**

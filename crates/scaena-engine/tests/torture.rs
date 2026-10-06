@@ -31,7 +31,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
 /// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
 /// build member on member, a ring that sweeps open, and lines that rise series by series.
-const MORPH: [(&str, f64); 17] = [
+/// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
+/// there from halfway.
+const MORPH: [(&str, f64); 18] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -49,6 +51,7 @@ const MORPH: [(&str, f64); 17] = [
     ("morph", 0.75),
     ("stagger", 0.3),
     ("stagger", 0.6),
+    ("forecast-next", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
@@ -847,12 +850,13 @@ fn counting_figures_spell_numbers_as_shaping_does() {
     let mut fonts = bundle_fonts(&fx.deck, false);
     let mut engine = TextEngine::new();
     // The chart has no `format`, so labels count in the default form: no grouping, and a
-    // hyphen-minus, since these fonts have no U+2212.
+    // hyphen-minus, since these fonts have no U+2212. They are set in the theme's chart
+    // label role, `value`.
     let samples = ["-7", "0.5", "12.25", "1024", "-0.75", "100.5", "-1000.25", "38.0"];
     for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
         let spec = TextSpec {
             numeric: Some(scaena_engine::theme::Numeric::TabularLining),
-            ..TextSpec::plain(fx.theme.text_role("label").unwrap(), text.clone())
+            ..TextSpec::plain(fx.theme.text_role("value").unwrap(), text.clone())
         };
         let shaped = engine.layout(&mut fonts, &fx.theme, &spec, f32::INFINITY).unwrap();
         let (runs, width) = numerals.compose(&text).unwrap();
@@ -928,6 +932,45 @@ fn box_cap_trims_to_the_cap_height_and_slots_align_by_it() {
     // The `case` slot aligns `y: cap`.
     let label = fx.placed("axes", "case");
     assert!((anchors(&label).0 - 96.0).abs() < 1e-3);
+}
+
+// --- baseline grid (PLAN 1.25) ------------------------------------------------------
+
+/// How far `y` is from the torture grid's nearest baseline-grid line (every 8 cu from the
+/// 96 cu top margin), in grid lines.
+fn off_grid(y: f32) -> f32 {
+    let lines = (y - 96.0) / 8.0;
+    (lines - lines.round()).abs()
+}
+
+fn baselines(p: &PlacedText) -> Vec<f32> {
+    p.text.lines.iter().map(|l| p.origin[1] + l.baseline).collect()
+}
+
+#[test]
+fn the_grid_roles_set_their_baselines_and_cap_heights_on_the_baseline_grid() {
+    let mut fx = fixture();
+    // Body (40 cu: five lines), the off-grid leading (43.2 cu, set at six), the caption (32).
+    for (node, apart) in [("grid-body", 40.0), ("grid-loose", 48.0), ("grid-foot", 32.0)] {
+        let on = baselines(&fx.placed("baseline-grid", node));
+        assert!(on.len() >= 2, "`{node}` sets one line: {on:?}");
+        assert!(on.iter().all(|y| off_grid(*y) < 1e-3), "`{node}`: {on:?}");
+        assert!(on.windows(2).all(|p| (p[1] - p[0] - apart).abs() < 1e-3), "`{node}`: {on:?}");
+    }
+    // Both paragraphs start on row 3, at 324 cu, off the grid: their first baselines meet.
+    let (body, loose) = (fx.placed("baseline-grid", "grid-body"), fx.placed("baseline-grid", "grid-loose"));
+    assert!((baselines(&body)[0] - baselines(&loose)[0]).abs() < 1e-3);
+    // The headline's cap top sits on a grid line.
+    let head = fx.placed("baseline-grid", "grid-head");
+    assert!(off_grid(anchors(&head).0) < 1e-3, "cap top at {}", anchors(&head).0);
+    // The caption aligned to its box's foot moved up, so it stays in the box.
+    let foot = fx.placed("baseline-grid", "grid-foot");
+    let (bottom, cell_bottom) = (foot.origin[1] + foot.text.height, foot.cell[1] + foot.cell[3]);
+    assert!(bottom <= cell_bottom + 1e-3 && cell_bottom - bottom < 8.0, "{bottom} {cell_bottom}");
+    // The row's body text and caption share one baseline, on the grid.
+    let figure = anchors(&fx.placed("baseline-grid", "grid-row-figure")).2;
+    let label = anchors(&fx.placed("baseline-grid", "grid-row-label")).2;
+    assert!((figure - label).abs() < 1e-3 && off_grid(figure) < 1e-3, "{figure} {label}");
 }
 
 // --- catalogue (characterized as observed) ----------------------------------------

@@ -51,9 +51,9 @@ use crate::theme::{Numeric, TextBox, TextRole, Theme, Wrap};
 use parley::layout::BreakReason;
 use parley::setting::Tag;
 use parley::{
-    Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontVariation,
-    FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap, PositionedLayoutItem,
-    StyleProperty, WordBreak,
+    Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontStyle,
+    FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap,
+    PositionedLayoutItem, StyleProperty, WordBreak,
 };
 use scaena_core::displaylist::{Color, FontRef, Glyph};
 use scaena_core::model::theme::Case;
@@ -87,6 +87,28 @@ const HYPHEN_PENALTY: f32 = 5.0;
 pub struct Span {
     pub text: String,
     pub style: TextRole,
+    /// The weight it is set in without its own `style.weight`: its own role's, or the
+    /// node's look's. What taking that weight away leaves (ADR-0013, ⌘B).
+    pub base_weight: f32,
+    /// Whether it asks for italic without its own `style.italic`: its own role's, or the
+    /// node's look's. What taking that away leaves (⌘I, PLAN 2.40).
+    pub base_italic: bool,
+}
+
+/// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct SpanLook {
+    /// Where it ends in the text as written, bytes; it starts where the one before ends.
+    pub end: usize,
+    /// The weight it is set in.
+    pub weight: f32,
+    /// The weight it is set in without its own `style.weight` ([`Span::base_weight`]).
+    pub base: f32,
+    /// Whether it asks for italic (PLAN 2.40), as its look says: a family without an
+    /// italic face sets it upright all the same.
+    pub italic: bool,
+    /// Whether it would without its own `style.italic` ([`Span::base_italic`]).
+    pub base_italic: bool,
 }
 
 /// A text node after the cascade, ready to lay out.
@@ -116,6 +138,10 @@ pub struct TextSpec {
     pub optical_margins: bool,
     /// `hyphenate`: words may break at the hyphenation points of `lang`.
     pub hyphenate: bool,
+    /// The baseline grid's pitch, when the text's role snaps its baselines to it (SPEC
+    /// §3.4): each line sits a whole number of grid lines below the one before, its gap
+    /// rounded up. Where the first line lands is placement's.
+    pub line_grid: Option<f32>,
 }
 
 /// How a paragraph's lines sit across its box, in the paragraph's direction (SPEC §3.4).
@@ -244,6 +270,14 @@ pub struct TextLayout {
     /// The text as laid out: its spans in their `case`, with the soft hyphens hyphenation
     /// inserted. Line ranges index into it.
     pub text: String,
+    /// The text as written: the node's `text`, or its runs' texts end to end. A caret
+    /// stands between its characters (ADR-0013, [`crate::carets`]).
+    pub written: String,
+    /// Where each character of `written` starts in `text`, as `(written, text)` byte
+    /// offsets in order, then both ends. Case can set a character longer than it is
+    /// written (ß in capitals is SS), and hyphenation inserts soft hyphens that are not
+    /// written at all.
+    pub offsets: Vec<(usize, usize)>,
     pub lines: Vec<LineBox>,
     pub runs: Vec<GlyphRun>,
     /// Widest line, trailing whitespace and hung quotes excluded.
@@ -261,13 +295,23 @@ pub struct TextLayout {
     /// the paragraph has that many, and breaking could not give it more (lint W200).
     pub widow: bool,
     pub rtl: bool,
-    /// Some run asked for faux bold or oblique, which the display list cannot express.
+    /// Some run asked for faux bold, which the display list cannot express.
     pub synthesized: bool,
+    /// What set text upright that asked for italic (PLAN 2.40, lint W231): each theme family,
+    /// by its key, that has no italic face, and each font a fallback took that has none, by
+    /// its file. No italic is synthesized.
+    pub upright: Vec<String>,
     /// How its lines align across the box.
     pub align: TextAlign,
     /// Where its lines break: the box's width, or its `measure` if that is narrower. A
     /// line wider than this holds a word that cannot break (lint W201).
     pub measure: f32,
+    /// The weight its look sets it in, before any span's own: what makes it bold text
+    /// for contrast (lint E110, E111).
+    pub weight: f32,
+    /// Its spans as written, in order, and the weight each is set in: what ⌘B reads
+    /// (ADR-0013, PLAN 2.38).
+    pub looks: Vec<SpanLook>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,7 +320,8 @@ pub struct LineBox {
     pub top: f32,
     /// Baseline, from the paragraph top.
     pub baseline: f32,
-    /// Line-box height (leading × size of the tallest run).
+    /// Line-box height: leading × size of the tallest run, and on a line grid the room
+    /// above the line that puts its baseline whole grid lines below the one before.
     pub height: f32,
     pub ascent: f32,
     pub descent: f32,
@@ -396,6 +441,9 @@ pub struct GlyphRun {
     /// Each glyph's advance: with its position, the box a split unit turns about.
     pub advances: Vec<f32>,
     pub line: usize,
+    /// Its glyphs set right-to-left text: its clusters run from the right, and a caret
+    /// before one stands at its right edge.
+    pub rtl: bool,
     /// A hyphen drawn where a line breaks inside a word. It says the soft hyphen it
     /// draws, though its clusters put it with the letter before, so it moves with that
     /// letter.
@@ -428,7 +476,12 @@ impl TextSpec {
     /// `text` in one look, with no node-level settings.
     pub fn plain(role: TextRole, text: impl Into<String>) -> TextSpec {
         TextSpec {
-            spans: vec![Span { text: text.into(), style: role.clone() }],
+            spans: vec![Span {
+                text: text.into(),
+                base_weight: role.weight,
+                base_italic: role.italic,
+                style: role.clone(),
+            }],
             role,
             features: BTreeMap::new(),
             axes: BTreeMap::new(),
@@ -441,6 +494,7 @@ impl TextSpec {
             hanging_punctuation: false,
             optical_margins: false,
             hyphenate: false,
+            line_grid: None,
         }
     }
 }
@@ -471,6 +525,11 @@ impl TextEngine {
             }
         }
         let text: String = cased.iter().map(|t| t.as_ref()).collect();
+        // An empty paragraph is one empty line in the node's look, as an editor shows it.
+        // parley lays out a space in its place, and its ranges count the space's byte, past
+        // the end of the text: the space is laid out here instead, and its glyph dropped.
+        let empty = text.is_empty();
+        let text = if empty { " ".to_string() } else { text };
         let max_width = match spec.measure {
             Some(chars) => width.min(chars * self.ch(fonts, theme, spec)?),
             None => width,
@@ -516,6 +575,12 @@ impl TextEngine {
             _ => None,
         };
         let wrap = match (requested, fallback) {
+            // Nothing to break, at any width: at none, parley would end the space's line
+            // and start an empty one after it.
+            _ if empty => {
+                layout.break_all_lines(None);
+                requested
+            }
             (_, Some(_)) | (Wrap::Greedy, _) => {
                 fallback = fallback.or(greedy(&mut layout, breaking, max_width));
                 Wrap::Greedy
@@ -550,8 +615,34 @@ impl TextEngine {
             measure: max_width,
             words,
             widow,
+            line_grid: spec.line_grid,
+            weight: spec.role.weight,
+            upright: upright(theme, spec),
         };
-        read_layout(&layout, text, fonts, &hyphens, paragraph)
+        let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
+        if empty {
+            read.text.clear();
+            read.runs.clear();
+            for line in &mut read.lines {
+                line.text = 0..0;
+            }
+        }
+        read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
+        read.offsets = offsets(&spec.spans, &cased);
+        let mut end = 0;
+        read.looks = (spec.spans.iter())
+            .map(|s| {
+                end += s.text.len();
+                SpanLook {
+                    end,
+                    weight: s.style.weight,
+                    base: s.base_weight,
+                    italic: s.style.italic,
+                    base_italic: s.base_italic,
+                }
+            })
+            .collect();
+        Ok(read)
     }
 
     /// The hyphen text in `style` draws at a line it breaks inside a word: `-` shaped in
@@ -601,24 +692,75 @@ fn set_case(text: &str, case: Option<Case>) -> Cow<'_, str> {
         Some(Case::Lower) => Cow::Owned(text.to_lowercase()),
         Some(Case::Title) => {
             let mut out = String::with_capacity(text.len());
-            let mut word_start = true;
-            for c in text.chars() {
-                if word_start && c.is_alphabetic() {
+            for (c, starts) in title_case(text) {
+                if starts {
                     out.extend(c.to_uppercase());
-                    word_start = false;
-                    continue;
+                } else {
+                    out.push(c);
                 }
-                if c.is_whitespace() {
-                    word_start = true;
-                } else if c.is_alphanumeric() {
-                    word_start = false;
-                }
-                out.push(c);
             }
             Cow::Owned(out)
         }
         Some(Case::None | Case::Smallcaps) | None => Cow::Borrowed(text),
     }
+}
+
+/// Each character of `text`, and whether title case capitalizes it: a letter that starts a
+/// word, after whitespace or at the start.
+fn title_case(text: &str) -> impl Iterator<Item = (char, bool)> + '_ {
+    let mut word_start = true;
+    text.chars().map(move |c| {
+        if word_start && c.is_alphabetic() {
+            word_start = false;
+            return (c, true);
+        }
+        if c.is_whitespace() {
+            word_start = true;
+        } else if c.is_alphanumeric() {
+            word_start = false;
+        }
+        (c, false)
+    })
+}
+
+/// How long each character of `text` is in `case`, in bytes, as [`set_case`] sets it. A
+/// final sigma in lower case is ς where a character alone would be σ: the same length.
+fn case_lengths(text: &str, case: Option<Case>) -> Vec<usize> {
+    let len = |chars: &mut dyn Iterator<Item = char>| chars.map(char::len_utf8).sum();
+    match case {
+        Some(Case::Upper) => text.chars().map(|c| len(&mut c.to_uppercase())).collect(),
+        Some(Case::Lower) => text.chars().map(|c| len(&mut c.to_lowercase())).collect(),
+        Some(Case::Title) => {
+            title_case(text).map(|(c, starts)| if starts { len(&mut c.to_uppercase()) } else { c.len_utf8() }).collect()
+        }
+        Some(Case::None | Case::Smallcaps) | None => text.chars().map(char::len_utf8).collect(),
+    }
+}
+
+/// Where each character of the spans' texts, end to end, starts in what is laid out: the
+/// spans as `laid` sets them, in their case and with the soft hyphens hyphenation inserted
+/// ([`TextLayout::offsets`]). An inserted soft hyphen sits between two letters of a word,
+/// never beside one that is written, so it is the one a written character does not start
+/// with.
+fn offsets(spans: &[Span], laid: &[Cow<str>]) -> Vec<(usize, usize)> {
+    let mut map = Vec::with_capacity(spans.iter().map(|s| s.text.len() + 1).sum());
+    let (mut from, mut to) = (0, 0);
+    for (span, laid) in spans.iter().zip(laid) {
+        let (start, mut rest) = (to, laid.as_ref());
+        for (c, len) in span.text.chars().zip(case_lengths(&span.text, span.style.case)) {
+            while c != SHY && rest.starts_with(SHY) {
+                (to, rest) = (to + SHY.len_utf8(), &rest[SHY.len_utf8()..]);
+            }
+            let len = len.min(rest.len());
+            map.push((from, to));
+            (from, to, rest) = (from + c.len_utf8(), to + len, &rest[len..]);
+        }
+        // Whatever is left (none, unless case set a character longer than it says) ends the
+        // span's last character.
+        to = start + laid.len();
+    }
+    map.push((from, to));
+    map
 }
 
 fn tag(name: &str) -> Result<Tag, EngineError> {
@@ -631,12 +773,34 @@ fn tag(name: &str) -> Result<Tag, EngineError> {
     Ok(Tag::from_bytes(bytes))
 }
 
+/// The theme families `spec`'s spans ask italic of that have no italic face: set upright
+/// (PLAN 2.40, lint W231), each once, in order.
+fn upright(theme: &Theme, spec: &TextSpec) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for span in spec.spans.iter().filter(|s| s.style.italic && !s.text.is_empty()) {
+        if !theme.has_italic(&span.style.family) && !out.contains(&span.style.family) {
+            out.push(span.style.family.clone());
+        }
+    }
+    out
+}
+
 /// parley style properties for text set in `role`, with the node's settings on top.
 fn style_props(
     theme: &Theme,
     role: &TextRole,
     spec: &TextSpec,
 ) -> Result<Vec<StyleProperty<'static, Ink>>, EngineError> {
+    // A size or line height past f32's range sets glyphs or lines an infinite length apart,
+    // which parley breaks into lines forever, and letter spacing past it sets glyphs
+    // nowhere: an error here, as a painter refuses a raster it cannot make.
+    let (size, line, spacing) = (role.size, role.size * role.leading, role.size * role.tracking);
+    if !(size.is_finite() && line.is_finite() && spacing.is_finite()) {
+        return Err(EngineError::Layout(format!(
+            "text at size {}, leading {}, tracking {} is too large to lay out",
+            role.size, role.leading, role.tracking
+        )));
+    }
     let stack = theme.family_stack(&role.family)?;
     let family =
         FontFamily::List(Cow::Owned(stack.into_iter().map(|n| FontFamilyName::Named(Cow::Owned(n))).collect()));
@@ -668,6 +832,12 @@ fn style_props(
     let variations: Vec<FontVariation> =
         axes.iter().map(|(k, v)| Ok(FontVariation::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
 
+    // Italic only where the family has an italic face: none is synthesized (PLAN 2.40).
+    let style = match role.italic && theme.has_italic(&role.family) {
+        true => FontStyle::Italic,
+        false => FontStyle::Normal,
+    };
+
     let color_name = role.color.as_deref().unwrap_or("onSurface");
     let ink = theme.color(color_name)?.0;
     let locale = match &spec.lang {
@@ -679,6 +849,7 @@ fn style_props(
         StyleProperty::FontFamily(family),
         StyleProperty::FontSize(role.size),
         StyleProperty::FontWeight(FontWeight::new(role.weight)),
+        StyleProperty::FontStyle(style),
         StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))),
         StyleProperty::FontVariations(FontVariations::List(Cow::Owned(variations))),
         StyleProperty::LetterSpacing(role.tracking * role.size),
@@ -956,7 +1127,7 @@ fn segments(layout: &mut Layout<Ink>, text: &str, rtl: bool, room: Room) -> Vec<
 /// Whether `c` draws something: not whitespace, and not one of the default-ignorable
 /// characters a font sets invisibly (soft hyphens, zero-width spaces and joiners, bidi
 /// controls, the word joiner, the byte order mark).
-fn sets_ink(c: char) -> bool {
+pub(crate) fn sets_ink(c: char) -> bool {
     !c.is_whitespace()
         && !matches!(
             c,
@@ -1260,6 +1431,12 @@ struct Paragraph {
     words: Vec<Range<usize>>,
     /// A last line shorter than `minLastLineWords` that breaking could not hold.
     widow: bool,
+    /// The baseline grid's pitch its lines are spaced on, if they are.
+    line_grid: Option<f32>,
+    /// Its look's weight.
+    weight: f32,
+    /// The theme families its spans ask italic of that have no italic face.
+    upright: Vec<String>,
 }
 
 impl Paragraph {
@@ -1277,14 +1454,26 @@ impl Paragraph {
             measure: 0.0,
             words: Vec::new(),
             widow: false,
+            line_grid: None,
+            weight: 400.0,
+            upright: Vec::new(),
         }
     }
+}
+
+/// How far a length may miss a whole number of grid lines and still count as whole, in
+/// grid lines: float error in `size × leading` (SPEC §3.4, lint W221).
+pub const GRID_EPSILON: f32 = 1.0e-3;
+
+/// `gap` rounded up to whole grid lines of `pitch`, and at least one.
+fn on_grid(gap: f32, pitch: f32) -> f32 {
+    (gap / pitch - GRID_EPSILON).ceil().max(1.0) * pitch
 }
 
 fn read_layout(
     layout: &Layout<Ink>,
     text: String,
-    fonts: &BundleFonts,
+    fonts: &mut BundleFonts,
     hyphens: &[Hyphen],
     p: Paragraph,
 ) -> Result<TextLayout, EngineError> {
@@ -1292,9 +1481,20 @@ fn read_layout(
     let mut lines = Vec::new();
     let mut runs = Vec::new();
     let mut synthesized = false;
+    let mut upright = p.upright;
     let mut top = 0.0_f32;
+    // On a line grid, how far the lines so far have moved down: each gap between
+    // baselines rounded up to whole grid lines, the room above the line that moved.
+    let (mut moved, mut before) = (0.0_f32, None);
     for (index, line) in layout.lines().enumerate() {
         let m = line.metrics();
+        let room = match (p.line_grid, before) {
+            (Some(pitch), Some(before)) => on_grid(m.baseline - before, pitch) - (m.baseline - before),
+            _ => 0.0,
+        };
+        before = Some(m.baseline);
+        moved += room;
+        let baseline = m.baseline + moved;
         let hung = p.hang.at(layout, text, line.text_range(), p.rtl);
         let (hang, mut hang_end) = match p.hang.edge {
             Edge::Start => (hung, 0.0),
@@ -1340,13 +1540,21 @@ fn read_layout(
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
             let run = glyph_run.run();
             let synthesis = run.synthesis();
-            synthesized |= synthesis.embolden() || synthesis.skew().is_some();
+            synthesized |= synthesis.embolden();
+            // A family asked for italic that has no italic face of its own: a fallback's. Its
+            // glyphs are drawn as they are, upright, and never slanted (PLAN 2.40).
+            if synthesis.skew().is_some() {
+                let font = fonts.font_ref(run.font())?.id;
+                if !upright.contains(&font) {
+                    upright.push(font);
+                }
+            }
             if cap_height.is_none() {
                 cap_height = run.metrics().cap_height;
                 x_height = run.metrics().x_height;
             }
             let glyphs: Vec<Glyph> =
-                glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y }).collect();
+                glyph_run.positioned_glyphs().map(|g| Glyph { id: g.id, x: g.x + shift, y: g.y + moved }).collect();
             let advances: Vec<f32> = glyph_run.positioned_glyphs().map(|g| g.advance).collect();
             if taken.0 != run.cluster_range() {
                 taken = (run.cluster_range(), 0);
@@ -1361,6 +1569,7 @@ fn read_layout(
                 .take(glyphs.len())
                 .collect();
             taken.1 += glyphs.len();
+            fonts.check_glyphs(run.font(), run.normalized_coords(), glyphs.iter().map(|g| g.id))?;
             runs.push(GlyphRun {
                 font: fonts.font_ref(run.font())?,
                 size: run.font_size(),
@@ -1370,13 +1579,14 @@ fn read_layout(
                 clusters,
                 advances,
                 line: index,
+                rtl: run.is_rtl(),
                 hyphen: false,
             });
         }
         if let Some(h) = hyphen {
             let mut run = h.run.clone();
             for g in &mut run.glyphs {
-                (g.x, g.y) = (g.x + ink + shift, g.y + m.baseline);
+                (g.x, g.y) = (g.x + ink + shift, g.y + baseline);
             }
             // It goes with the letter before the soft hyphen.
             let shy = line.text_range().end - SHY.len_utf8();
@@ -1391,8 +1601,8 @@ fn read_layout(
         // box itself starts where the previous one ended.
         lines.push(LineBox {
             top,
-            baseline: m.baseline,
-            height: m.line_height,
+            baseline,
+            height: m.line_height + room,
             ascent: m.ascent,
             descent: m.descent,
             width,
@@ -1405,22 +1615,27 @@ fn read_layout(
             cap_height,
             x_height,
         });
-        top += m.line_height;
+        top += m.line_height + room;
     }
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     Ok(TextLayout {
         text: text.to_string(),
+        written: text.to_string(),
+        offsets: text.char_indices().map(|(i, _)| (i, i)).chain([(text.len(), text.len())]).collect(),
         lines,
         runs,
         width,
-        height: layout.height(),
+        height: layout.height() + moved,
         wrap: p.wrap,
         fallback: p.fallback,
         words: p.words,
         widow: p.widow,
         rtl: p.rtl,
         synthesized,
+        upright,
         align: p.align,
         measure: p.measure,
+        weight: p.weight,
+        looks: Vec::new(),
     })
 }

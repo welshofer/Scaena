@@ -1,0 +1,631 @@
+{
+  "scaena": "0.11",
+  "meta": {
+    "title": "B2: six charts, each updated",
+    "lang": "en-US",
+    "description": "SPEC §15 benchmark B2: chart-heavy, 12 states, six charts with key morphs."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Source Serif 4",
+      "file": "fonts/SourceSerif4-VF.ttf",
+      "axes": {
+        "wght": [
+          200,
+          900
+        ],
+        "opsz": [
+          8,
+          60
+        ]
+      }
+    }
+  ],
+  "data": {
+    "revenue": {
+      "source": "data/revenue.csv",
+      "schema": {
+        "quarter": "string",
+        "revenue": "number"
+      }
+    },
+    "revenue-next": {
+      "source": "data/revenue-next.csv",
+      "schema": {
+        "quarter": "string",
+        "revenue": "number"
+      }
+    },
+    "mix": {
+      "source": "data/mix.csv",
+      "schema": {
+        "quarter": "string",
+        "product": "string",
+        "revenue": "number"
+      }
+    },
+    "mix-next": {
+      "source": "data/mix-next.csv",
+      "schema": {
+        "quarter": "string",
+        "product": "string",
+        "revenue": "number"
+      }
+    },
+    "users": {
+      "source": "data/users.csv",
+      "schema": {
+        "month": "string",
+        "segment": "string",
+        "users": "number"
+      }
+    },
+    "users-next": {
+      "source": "data/users-next.csv",
+      "schema": {
+        "month": "string",
+        "segment": "string",
+        "users": "number"
+      }
+    },
+    "share": {
+      "source": "data/share.csv",
+      "schema": {
+        "month": "string",
+        "brand": "string",
+        "share": "number"
+      }
+    },
+    "share-next": {
+      "source": "data/share-next.csv",
+      "schema": {
+        "month": "string",
+        "brand": "string",
+        "share": "number"
+      }
+    },
+    "regions": {
+      "source": "data/regions.csv",
+      "schema": {
+        "region": "string",
+        "revenue": "number"
+      }
+    },
+    "regions-next": {
+      "source": "data/regions-next.csv",
+      "schema": {
+        "region": "string",
+        "revenue": "number"
+      }
+    },
+    "accounts": {
+      "source": "data/accounts.csv",
+      "schema": {
+        "account": "string",
+        "growth": "number",
+        "margin": "number",
+        "revenue": "number"
+      }
+    },
+    "accounts-next": {
+      "source": "data/accounts-next.csv",
+      "schema": {
+        "account": "string",
+        "growth": "number",
+        "margin": "number",
+        "revenue": "number"
+      }
+    }
+  },
+  "nodes": {
+    "headline": {
+      "type": "text",
+      "role": "headline",
+      "text": "Revenue grew every quarter",
+      "fit": "shrink",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "revenue": {
+      "type": "chart",
+      "kind": "bar",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.0f",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "data": "@revenue",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "mix": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "x": {
+        "field": "quarter",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": "$,.0f",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "series": {
+        "field": "product"
+      },
+      "color": {
+        "field": "product",
+        "scale": "categorical"
+      },
+      "legend": "direct",
+      "data": "@mix",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "users": {
+      "type": "chart",
+      "kind": "line",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "users",
+        "type": "quantitative",
+        "format": ",.0f",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "series": {
+        "field": "segment"
+      },
+      "color": {
+        "field": "segment",
+        "scale": "categorical"
+      },
+      "legend": "direct",
+      "data": "@users",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "share": {
+      "type": "chart",
+      "kind": "area",
+      "x": {
+        "field": "month",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "format": ".0f",
+        "domain": [
+          0,
+          100
+        ]
+      },
+      "series": {
+        "field": "brand"
+      },
+      "color": {
+        "field": "brand",
+        "scale": "categorical"
+      },
+      "legend": "direct",
+      "data": "@share",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "regions": {
+      "type": "chart",
+      "kind": "donut",
+      "x": {
+        "field": "region",
+        "type": "nominal"
+      },
+      "y": {
+        "field": "revenue",
+        "type": "quantitative",
+        "format": ".0f"
+      },
+      "color": {
+        "field": "region",
+        "scale": "categorical"
+      },
+      "legend": "direct",
+      "data": "@regions",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "accounts": {
+      "type": "chart",
+      "kind": "scatter",
+      "x": {
+        "field": "growth",
+        "type": "quantitative",
+        "format": ".0f",
+        "title": "Growth, %"
+      },
+      "y": {
+        "field": "margin",
+        "type": "quantitative",
+        "format": ".0f",
+        "title": "Margin, %"
+      },
+      "sizeEncoding": {
+        "field": "revenue"
+      },
+      "key": "account",
+      "labels": {
+        "show": "all",
+        "collide": "hide"
+      },
+      "data": "@accounts",
+      "alt": "",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "caption": {
+      "type": "text",
+      "role": "caption",
+      "text": "Revenue, $M, by quarter.",
+      "semantic": "source",
+      "at": {
+        "in": "footer"
+      }
+    },
+    "source": {
+      "type": "text",
+      "role": "code",
+      "text": "data/revenue.csv",
+      "semantic": "source",
+      "at": {
+        "in": "source"
+      }
+    },
+    "quote": {
+      "type": "text",
+      "role": "quote",
+      "text": "“We stopped guessing.”",
+      "fit": "shrink",
+      "semantic": "context",
+      "at": {
+        "in": "aside"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "revenue",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Revenue grew every quarter"
+        },
+        "revenue": {
+          "alt": "Revenue, $M, by quarter. Revenue grew every quarter."
+        },
+        "caption": {
+          "text": "Revenue, $M, by quarter."
+        },
+        "source": {
+          "text": "data/revenue.csv"
+        },
+        "quote": {}
+      },
+      "hold": 3000
+    },
+    {
+      "id": "revenue-next",
+      "slide": "revenue",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "And the next quarter grew again"
+        },
+        "revenue": {
+          "data": "@revenue-next",
+          "alt": "Revenue, $M, by quarter. And the next quarter grew again."
+        },
+        "source": {
+          "text": "data/revenue-next.csv"
+        }
+      },
+      "hold": 3000
+    },
+    {
+      "id": "mix",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Pro took a bigger share"
+        },
+        "mix": {
+          "alt": "Revenue, $M, by product and quarter. Pro took a bigger share."
+        },
+        "caption": {
+          "text": "Revenue, $M, by product and quarter."
+        },
+        "source": {
+          "text": "data/mix.csv"
+        }
+      },
+      "hold": 3000,
+      "remove": [
+        "revenue",
+        "quote"
+      ]
+    },
+    {
+      "id": "mix-next",
+      "slide": "mix",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "The shift held into Q3"
+        },
+        "mix": {
+          "data": "@mix-next",
+          "alt": "Revenue, $M, by product and quarter. The shift held into Q3."
+        },
+        "source": {
+          "text": "data/mix-next.csv"
+        }
+      },
+      "hold": 3000
+    },
+    {
+      "id": "users",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Mobile caught up with the web"
+        },
+        "users": {
+          "alt": "Monthly active users, thousands. Mobile caught up with the web."
+        },
+        "caption": {
+          "text": "Monthly active users, thousands."
+        },
+        "source": {
+          "text": "data/users.csv"
+        }
+      },
+      "hold": 3000,
+      "remove": [
+        "mix"
+      ]
+    },
+    {
+      "id": "users-next",
+      "slide": "users",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Three months on, it passed it"
+        },
+        "users": {
+          "data": "@users-next",
+          "alt": "Monthly active users, thousands. Three months on, it passed it."
+        },
+        "source": {
+          "text": "data/users-next.csv"
+        }
+      },
+      "hold": 3000
+    },
+    {
+      "id": "share",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Our share rose a point a month"
+        },
+        "share": {
+          "alt": "Share of category sales, %. Our share rose a point a month."
+        },
+        "caption": {
+          "text": "Share of category sales, %."
+        },
+        "source": {
+          "text": "data/share.csv"
+        }
+      },
+      "hold": 3000,
+      "remove": [
+        "users"
+      ]
+    },
+    {
+      "id": "share-next",
+      "slide": "share",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "And kept rising"
+        },
+        "share": {
+          "data": "@share-next",
+          "alt": "Share of category sales, %. And kept rising."
+        },
+        "source": {
+          "text": "data/share-next.csv"
+        }
+      },
+      "hold": 3000
+    },
+    {
+      "id": "regions",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "The Americas are still most of it"
+        },
+        "regions": {
+          "alt": "Revenue by region, %. The Americas are still most of it."
+        },
+        "caption": {
+          "text": "Revenue by region, %."
+        },
+        "source": {
+          "text": "data/regions.csv"
+        }
+      },
+      "hold": 3000,
+      "remove": [
+        "share"
+      ]
+    },
+    {
+      "id": "regions-next",
+      "slide": "regions",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Asia Pacific is closing in"
+        },
+        "regions": {
+          "data": "@regions-next",
+          "alt": "Revenue by region, %. Asia Pacific is closing in."
+        },
+        "source": {
+          "text": "data/regions-next.csv"
+        }
+      },
+      "hold": 3000
+    },
+    {
+      "id": "accounts",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Growth and margin rose together"
+        },
+        "accounts": {
+          "alt": "Top ten accounts: growth against margin, sized by revenue. Growth and margin rose together."
+        },
+        "caption": {
+          "text": "Top ten accounts: growth against margin, sized by revenue."
+        },
+        "source": {
+          "text": "data/accounts.csv"
+        }
+      },
+      "hold": 3000,
+      "remove": [
+        "regions"
+      ]
+    },
+    {
+      "id": "accounts-next",
+      "slide": "accounts",
+      "transition": "standard",
+      "props": {
+        "headline": {
+          "text": "Next quarter, most moved up and right"
+        },
+        "accounts": {
+          "data": "@accounts-next",
+          "alt": "Top ten accounts: growth against margin, sized by revenue. Next quarter, most moved up and right."
+        },
+        "source": {
+          "text": "data/accounts-next.csv"
+        }
+      },
+      "hold": 3000
+    }
+  ]
+}

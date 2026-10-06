@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scaena editor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface: #1d1c1a;
+        --panel: #252421;
+        --line: #3a3833;
+        --ink: #ddd9d0;
+        --muted: #a29e95;
+        --error: #e88a7a;
+        --warning: #e8c46d;
+        --info: #9cc4e4;
+      }
+      body { margin: 0; background: var(--surface); color: var(--ink); font: 14px system-ui, sans-serif; }
+      main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); height: 100vh; }
+      #source { display: grid; grid-template-rows: minmax(0, 1fr) auto; border-right: 1px solid var(--line); min-height: 0; }
+      #code { min-height: 0; overflow: hidden; }
+      #code .cm-editor { height: 100%; }
+      #problems { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
+      #problems li { padding: 2px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #problems li:has(button) { padding: 0; }
+      #problems li button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 2px 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+      #problems li button:hover { background: var(--line); }
+      #problems li button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #problems .code { display: inline-block; width: 4.5em; font-variant-numeric: tabular-nums; }
+      #problems .error .code { color: var(--error); }
+      #problems .warning .code { color: var(--warning); }
+      #problems .info .code { color: var(--info); }
+      #problems .where { color: var(--muted); margin-left: 0.5em; }
+      aside { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+      button, select, .button { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+      button:hover, .button:hover { border-color: var(--muted); }
+      a.button { text-decoration: none; }
+      #bundle { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+      #where { color: var(--muted); }
+      #stage { display: block; width: 100%; height: auto; background: #000; }
+      #preview { position: relative; }
+      #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
+      #overlay:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #overlay svg { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #overlay rect, #overlay line { vector-effect: non-scaling-stroke; }
+      #overlay .selected { fill: none; stroke: var(--info); stroke-width: 1.5; }
+      #overlay .hover { fill: none; stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+      #overlay .handle { fill: var(--surface); stroke: var(--info); stroke-width: 1; pointer-events: all; }
+      #overlay .track { stroke: rgb(156 196 228 / 0.35); stroke-width: 1; }
+      #overlay .slot { fill: none; stroke: var(--warning); stroke-width: 1; stroke-dasharray: 6 4; }
+      #overlay .flow { fill: none; stroke: rgb(156 196 228 / 0.5); stroke-width: 1; stroke-dasharray: 2 3; }
+      #overlay .landing { fill: rgb(156 196 228 / 0.18); stroke: var(--info); stroke-width: 1.5; }
+      #overlay.picking, #overlay.drawing { cursor: crosshair; }
+      #overlay.panning { cursor: grab; }
+      #zoom output { display: inline-block; min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; }
+      #look .fraction { width: 4.2em; }
+      #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
+      #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
+      #overlay .sketch-line { stroke: var(--info); stroke-width: 2; stroke-dasharray: 4 3; }
+      #overlay .selected.typed { stroke-dasharray: 2 2; opacity: 0.6; }
+      #overlay .caret { fill: var(--info); animation: blink 1.06s steps(1) infinite; }
+      #overlay .text-selection { fill: rgb(156 196 228 / 0.38); }
+      #find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+      #find[hidden] { display: none; }
+      #find input[name="find"], #find input[name="replace"] { flex: 1 1 10em; min-width: 8em; }
+      #find output { min-width: 6em; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+      #overlay .found { fill: rgb(240 200 90 / 0.45); stroke: rgb(240 200 90 / 0.9); stroke-width: 1; }
+      @keyframes blink { 50% { opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) { #overlay .caret { animation: none; } }
+      /* What typing on the canvas types into (PLAN 2.32): unseen, under the caret, where an input
+         method shows what it composes. */
+      #overlay textarea.typing {
+        position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0;
+        resize: none; overflow: hidden; white-space: pre; pointer-events: none; caret-color: transparent;
+      }
+      aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* What a press on the cue's ruler shows is the state in its cue, not at rest: the canvas's
+         outlines, which are where things rest, step back. */
+      #preview.scrubbing #overlay svg, #preview.scrubbing #marks { visibility: hidden; }
+      /* Lint's findings on the canvas (PLAN 2.49): a mark at the top right corner of each box a
+         finding is about, in the color of its worst, and one for the state; opened, each finding
+         and its fix. */
+      #marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+      #marks .mark {
+        position: absolute; transform: translate(-50%, -50%); pointer-events: auto; box-sizing: border-box;
+        min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid rgb(0 0 0 / 0.45); border-radius: 10px;
+        font-size: 11px; font-weight: 600; line-height: 18px; color: #1d1c1a; box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+      }
+      #marks .mark.state { border-radius: 4px; }
+      #marks .error, #strip .found.error { background: var(--error); }
+      #marks .warning, #strip .found.warning { background: var(--warning); }
+      #marks .info, #strip .found.info { background: var(--info); }
+      #marks .mark:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+      #marked {
+        position: fixed; inset: auto; margin: 0; box-sizing: border-box; max-width: min(30em, calc(100vw - 16px)); max-height: 60vh;
+        overflow: auto; padding: 8px 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 6px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.5); font-size: 13px;
+      }
+      #marked h2 { display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px; font-size: 13px; }
+      #marked h2 span { color: var(--muted); font-weight: normal; }
+      #marked ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+      #marked li { padding-left: 8px; border-left: 3px solid var(--info); }
+      #marked li.error { border-color: var(--error); }
+      #marked li.warning { border-color: var(--warning); }
+      #marked p { margin: 0; }
+      #marked .code { margin-right: 0.5em; font-weight: 600; font-variant-numeric: tabular-nums; }
+      #marked .hint, #marked .where { color: var(--muted); }
+      #marked .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+      #marked .change { margin-right: 6px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      #marked .acts:empty { display: none; }
+      /* Read, not seen. */
+      .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+      /* The cue of the state shown (PLAN 2.44): its transition and each motion, a bar each, on the
+         cue's clock. */
+      #cue { padding: 0 12px; }
+      #cue[hidden] { display: none; }
+      #cue .cue-head { padding: 6px 0 2px; }
+      #cue .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+      #cue select { margin-left: auto; max-width: 16em; }
+      #cue .lanes { position: relative; display: grid; grid-template-columns: minmax(6em, 11em) minmax(0, 1fr); column-gap: 8px; row-gap: 2px; max-height: 26vh; overflow-y: auto; padding-bottom: 4px; }
+      #cue .label { grid-column: 1; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
+      #cue .ruler, #cue .track { grid-column: 2; position: relative; height: 16px; cursor: text; }
+      #cue .track { background: rgb(255 255 255 / 0.03); border-radius: 2px; }
+      #cue .ruler { border-bottom: 1px solid var(--line); }
+      #cue .tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+      #cue .tick:first-child { transform: none; }
+      #cue .bar { position: absolute; top: 2px; bottom: 2px; min-width: 2px; border-radius: 3px; background: var(--info); opacity: 0.85; cursor: grab; touch-action: none; }
+      #cue .bar.transition { background: var(--muted); opacity: 0.5; cursor: default; }
+      #cue .bar.exit { background: var(--warning); }
+      #cue .bar.emphasis { background: #c9a2e8; }
+      #cue .bar.anim { background: #9fd49a; }
+      #cue .end { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -4px; cursor: ew-resize; touch-action: none; border-radius: 2px; }
+      #cue .end::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 2px; background: var(--ink); opacity: 0.6; }
+      #cue .bar:focus-visible, #cue .end:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+      #cue .head { grid-column: 2; position: relative; pointer-events: none; }
+      #cue .head i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--error); }
+      /* The state strip (PLAN 2.35): each state at rest, small, with its cue's length. */
+      #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
+      #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
+      #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
+      /* How many findings a state has in the format shown, in the color of the worst (PLAN 2.49). */
+      #strip .found {
+        position: absolute; top: 6px; right: 6px; box-sizing: border-box; min-width: 16px; height: 16px; padding: 0 4px;
+        border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; color: #1d1c1a;
+      }
+      #strip li[aria-selected="true"] { border-color: var(--info); }
+      #strip li:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      #strip canvas { display: block; height: 54px; width: auto; background: #000; }
+      #strip .id { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #strip .cue { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #strip input { width: 90px; font: inherit; font-size: 11px; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
+      #strip .drop-before { box-shadow: -3px 0 0 var(--info); }
+      #strip .drop-after { box-shadow: 3px 0 0 var(--info); }
+      #strip .adds { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+      /* The status keeps one place, two lines tall, whatever it says, so a message never moves the
+         panels under it between two clicks; a longer one is clipped, whole in its title and to a
+         screen reader. */
+      #status { color: var(--muted); font-variant-numeric: tabular-nums; flex: 1 0 100%; min-height: 2lh; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+      #inspector { padding: 0 12px 12px; }
+      #inspector h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 4px; }
+      #inspector table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+      #inspector td, #inspector th { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+      #inspector th { color: var(--muted); font-weight: 500; }
+      #inspector tr[data-node] { cursor: pointer; }
+      #inspector tr[aria-selected="true"] td { background: var(--line); }
+      #inspector .flag { color: var(--warning); font-size: 12px; margin-left: 4px; }
+      /* The node selected, its look chosen from the theme (PLAN 2.33); with none, the state's (PLAN 2.36). */
+      #look:empty { display: none; }
+      #look .keep { padding: 0 0 6px; color: var(--muted); font-size: 13px; }
+      #look .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 4px 8px; align-items: center; }
+      #look .arrange { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 0 0 8px; }
+      #look .arrange-kind { color: var(--muted); font-size: 13px; }
+      #look .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+      #look .arrange-buttons button { font-size: 12px; padding: 2px 6px; }
+      #look .fields > label { color: var(--muted); font-size: 13px; }
+      #look .control { display: flex; gap: 4px; align-items: center; min-width: 0; }
+      #look select { min-width: 0; max-width: 100%; }
+      #look input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+      #look input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+      /* A state's notes (PLAN 2.36). */
+      #look textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
+      #look .lives { color: var(--muted); font-size: 12px; }
+      #look .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
+      .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+      #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+      /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;
+         those it does not show dimmed. */
+      #layers ul { margin: 0; padding: 0; list-style: none; }
+      #layers > ul { padding: 6px 12px; }
+      #layers .row { display: flex; align-items: center; gap: 6px; }
+      #layers .eye { border: none; background: none; padding: 0 4px; color: var(--muted); }
+      #layers .eye[aria-pressed="true"] { color: var(--ink); }
+      #layers .name { all: unset; flex: 1 1 auto; padding: 2px 4px; border-radius: 3px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #layers .name:hover { background: var(--line); }
+      #layers .name:focus-visible { outline: 2px solid var(--info); }
+      #layers li[aria-current="true"] > .row .name { background: rgb(156 196 228 / 0.22); }
+      #layers li.hidden > .row .name { color: var(--muted); font-style: italic; }
+      #layers .kind { color: var(--muted); font-size: 11px; }
+      #layers input { flex: 1 1 auto; font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--info); border-radius: 3px; }
+      #layers .row[draggable="true"] { cursor: grab; }
+      #layers li.drop-before > .row { box-shadow: inset 0 2px 0 var(--info); }
+      #layers li.drop-after > .row { box-shadow: inset 0 -2px 0 var(--info); }
+      #layers li.drop-into > .row { box-shadow: inset 0 0 0 2px var(--info); }
+      #tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 8px; color: var(--muted); }
+      #tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+      #assistant { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; min-height: 0; }
+      #assistant[hidden] { display: none; }
+      #assistant input, #assistant textarea { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+      #who { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+      #who #key { flex: 1 1 10em; min-width: 8em; }
+      #who #model { max-width: 16em; }
+      #who #base { width: 100%; }
+      .note { color: var(--muted); font-size: 12px; margin: 0; }
+      #transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+      #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
+      #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
+      #transcript .call { font-size: 12px; color: var(--muted); }
+      #transcript .call code { color: var(--ink); }
+      #transcript .call.stopped .outcome { color: var(--error); }
+      #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
+      #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
+      #transcript .failed { color: var(--error); }
+      #transcript .end { color: var(--muted); font-size: 12px; }
+      #asking { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+      #question { flex: 1 1 100%; resize: vertical; }
+      #usage { color: var(--muted); font-size: 12px; margin-left: auto; }
+      dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 16px; width: min(26em, 90vw); }
+      dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+      dialog h2 { font-size: 15px; margin: 0 0 12px; }
+      dialog form { display: flex; flex-direction: column; gap: 10px; }
+      dialog label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+      dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+      dialog menu { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="source">
+        <div id="code"></div>
+        <ul id="problems" aria-label="Problems"></ul>
+      </section>
+      <aside>
+        <nav id="bundle" aria-label="Bundle">
+          <button id="new-deck" title="A new deck from a theme that ships">New…</button>
+          <button id="open-folder" hidden>Open folder…</button>
+          <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
+          <select id="kept" aria-label="Kept in this browser"></select>
+          <button id="save" title="Save where the bundle is kept (⌘S, Ctrl+S)">Save</button>
+          <button id="save-as" title="Save the bundle somewhere new, and keep it there">Save as…</button>
+          <button id="download" title="The bundle as a .scaena file, its fonts subset">Download .scaena</button>
+          <a id="play" class="button" target="_blank" title="The player, on the bundle as last saved" hidden>Play</a>
+          <button id="again" hidden></button>
+          <span id="where"></span>
+        </nav>
+        <div id="find" role="search" aria-label="Find and replace in the deck's texts" hidden>
+          <input name="find" type="search" spellcheck="false" placeholder="Find in the deck's texts" aria-label="Find" />
+          <output aria-live="polite"></output>
+          <button type="button" data-find="prev" aria-label="The match before" title="The match before (⇧Enter, ↑)">↑</button>
+          <button type="button" data-find="next" aria-label="The next match" title="The next match (Enter, ↓)">↓</button>
+          <label title="Upper and lower case apart"><input type="checkbox" name="case" /> Aa</label>
+          <label title="Whole words only"><input type="checkbox" name="words" /> Words</label>
+          <input name="replace" spellcheck="false" placeholder="Replace with" aria-label="Replace with" />
+          <button type="button" data-find="replace" title="Replace the match shown, written where its text lives, then show the next (Enter)">Replace</button>
+          <button type="button" data-find="all" title="Replace every match, one step to undo (⌘Enter)">Replace All</button>
+          <button type="button" data-find="close" aria-label="Close" title="Close (Escape)">×</button>
+        </div>
+        <div id="preview">
+          <canvas id="stage"></canvas>
+          <div
+            id="overlay"
+            tabindex="0"
+            role="application"
+            aria-label="The state shown. Click a node to select it, then drag it, or move it with the arrow keys; Shift with an arrow resizes it, and Escape selects what holds it."
+          ><svg aria-hidden="true"></svg></div>
+          <div id="marks"></div>
+        </div>
+        <section id="cue" aria-label="The cue of the state shown" hidden>
+          <p class="cue-head">
+            <button type="button" data-play aria-label="Play the cue">▶</button>
+            <span class="clock"></span>
+            <select data-add aria-label="Add a motion" title="A motion from the theme's presets for the node selected, as it enters or for emphasis, or for a node that leaves"></select>
+          </p>
+          <div class="lanes"></div>
+        </section>
+        <div id="strip">
+          <ol role="listbox" aria-label="States" aria-orientation="horizontal"></ol>
+          <span class="adds">
+            <button type="button" data-add="step" title="A state after the one shown, in its slide, showing what it shows">+ Step</button>
+            <button type="button" data-add="slide" title="An empty slide after the shown state's slide">+ Slide</button>
+          </span>
+        </div>
+        <p>
+          <select id="state" aria-label="State"></select>
+          <select id="format" aria-label="Format"><option value="">own canvas</option></select>
+          <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
+          <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
+          <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
+          <span id="zoom" role="group" aria-label="Zoom">
+            <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (⌘−)">−</button>
+            <output title="How close the preview is. Zoomed in, the wheel or a drag with Space moves what it shows">100%</output>
+            <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (⌘+), or pinch">+</button>
+            <button type="button" data-zoom="fit" title="The whole canvas (⌘0)">Fit</button>
+          </span>
+          <span id="status" role="status">loading…</span>
+        </p>
+        <nav id="tabs" role="tablist">
+          <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
+          <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
+          <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
+        </nav>
+        <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
+          <section id="look" aria-label="The node selected"></section>
+          <div id="listing"></div>
+        </div>
+        <section id="layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
+          <ul aria-label="The state shown's nodes, topmost first"></ul>
+        </section>
+        <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
+          <div id="who">
+            <select id="provider" aria-label="Provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="your API key" aria-label="API key" />
+            <select id="model" aria-label="Model"></select>
+            <label class="note"><input id="keep-key" type="checkbox" /> keep on this device</label>
+            <button id="forget-key" type="button" title="Forget this provider's key">Forget key</button>
+            <input id="base" type="url" spellcheck="false" aria-label="The API's address" />
+          </div>
+          <p class="note" id="keynote"></p>
+          <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
+          <form id="asking">
+            <textarea id="question" rows="3" placeholder="Ask about the deck, or for a change to it (Enter to ask, Shift+Enter for a new line)" aria-label="Question"></textarea>
+            <button id="ask" type="submit">Ask</button>
+            <button id="stop" type="button" hidden>Stop</button>
+            <button id="new" type="button">New conversation</button>
+            <span id="usage"></span>
+          </form>
+        </section>
+      </aside>
+    </main>
+    <dialog id="making" aria-labelledby="making-title">
+      <form method="dialog">
+        <h2 id="making-title">New deck</h2>
+        <label>Title <input id="making-name" name="title" required autocomplete="off" value="Untitled" /></label>
+        <label>Theme <select id="making-theme" name="theme"></select></label>
+        <p class="note">One state with nothing on it yet, on a 16:9 canvas, with the theme and its fonts. It is kept nowhere until you save it.</p>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="create" id="making-create">Create</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="saving-as" aria-labelledby="saving-as-title">
+      <form method="dialog">
+        <h2 id="saving-as-title">Save as</h2>
+        <label>Name in this browser <input id="saving-as-name" name="name" required autocomplete="off" /></label>
+        <p class="note">Saved where you choose, and kept there from then on: Save writes there.</p>
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" id="saving-as-folder" hidden>A folder on disk…</button>
+          <button value="opfs" id="saving-as-opfs">Keep in this browser</button>
+        </menu>
+      </form>
+    </dialog>
+    <div id="marked" popover role="dialog" aria-label="Findings"></div>
+    <script type="module" src="/src/editor.ts"></script>
+  </body>
+</html>

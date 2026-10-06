@@ -1,0 +1,8092 @@
+{
+  "scaena": "0.11",
+  "meta": {
+    "title": "The State of Higher Education 2026",
+    "author": "Jeff Selingo",
+    "lang": "en-US",
+    "description": "Scaena's version of a 33-slide briefing on Jeff Selingo's report: the same argument, numbers, notes, and art, set on one grid with charts that make one point each."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "cu"
+  },
+  "theme": "themes/ember.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    }
+  ],
+  "data": {
+    "red-ink": {
+      "source": "data/hed-red-ink.csv",
+      "schema": {
+        "sector": "string",
+        "share": "number"
+      }
+    },
+    "intl-grad": {
+      "source": "data/hed-intl-grad.csv",
+      "schema": {
+        "period": "string",
+        "students": "number"
+      }
+    },
+    "rd-funding": {
+      "source": "data/hed-rd-funding.csv",
+      "schema": {
+        "source": "string",
+        "amount": "number"
+      }
+    },
+    "earnings-floor": {
+      "source": "data/hed-earnings-floor.csv",
+      "schema": {
+        "credential": "string",
+        "share": "number"
+      }
+    },
+    "athletics": {
+      "source": "data/hed-athletics.csv",
+      "schema": {
+        "item": "string",
+        "amount": "number"
+      }
+    },
+    "ai-models": {
+      "source": "data/hed-ai-models.csv",
+      "schema": {
+        "origin": "string",
+        "models": "number"
+      }
+    },
+    "masters-demand": {
+      "source": "data/hed-masters-demand.csv",
+      "schema": {
+        "program": "string",
+        "degrees": "number"
+      }
+    },
+    "tenure": {
+      "source": "data/hed-tenure.csv",
+      "schema": {
+        "year": "string",
+        "years": "number"
+      }
+    },
+    "confidence": {
+      "source": "data/hed-confidence.csv",
+      "schema": {
+        "group": "string",
+        "share": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "opening",
+        "title": "Opening",
+        "beats": [
+          {
+            "id": "cover",
+            "claim": "This report separates what is temporary in higher education from what is structural.",
+            "states": [
+              "cover"
+            ],
+            "notes": "This is Jeff Selingo's State of Higher Education, published September 2026.\nIt examines six areas: the business model, Washington, research, AI, athletics, governance.\nIts stated purpose: help leaders separate what's temporary from what's structural.\nSelingo calls it \"a snapshot in time\" — the facts may be overtaken.\nThe report was funded by Google; the author retained absolute editorial control.\nI'll walk the room through the argument, then the prescription.",
+            "duration": 45,
+            "evidence": [
+              "assets/hed-converging.png"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "thesis",
+        "title": "The thesis",
+        "beats": [
+          {
+            "id": "bigger",
+            "claim": "For sixty years, higher education's answer to every question was to get bigger.",
+            "states": [
+              "bigger"
+            ],
+            "notes": "Selingo's opening line: for nearly 60 years, higher ed had one answer to almost every strategic question — get bigger.\nAdd academic programs and schools, research labs, campuses, athletic teams, international students, online degrees.\nComprehensive was the aspiration, and the sector spent six decades pursuing it.\nThat instinct is now baked into strategy, budgets and facilities.\nHold this sentence in mind, because the next slide is where it breaks.",
+            "duration": 75
+          },
+          {
+            "id": "era",
+            "claim": "The era of growth is ending.",
+            "states": [
+              "era",
+              "era-2",
+              "era-3",
+              "era-4"
+            ],
+            "notes": "Three words from the report: that era is ending.\nOne in seven colleges lost money cumulatively over the past decade.\nInternational graduate enrollment fell 12% in fall 2025.\nGovernment-backed loans are tightening; so are federal grants.\nAnd technology threatens to reshape the very meaning of a degree.\nThe engines weaken just as institutions need them most.",
+            "duration": 75
+          },
+          {
+            "id": "strain",
+            "claim": "Scope kept widening while resources flattened; the gap is the strain.",
+            "states": [
+              "strain",
+              "strain-2",
+              "strain-3"
+            ],
+            "notes": "This is the report's core picture, 1965 to 2026.\nOne line is scope: programs, services, facilities.\nThe other is resources: enrollment and revenue.\nThe widening gap between them is what Selingo labels \"the strain.\"\nAnd note the dotted line: narrowing scope is the only line colleges really control.\nEverything else on our agenda today is someone else's decision.",
+            "duration": 75
+          },
+          {
+            "id": "risk",
+            "claim": "The risks arrive together and compound, so they are enterprise risk.",
+            "states": [
+              "risk"
+            ],
+            "notes": "Selingo's framing move: these risks arrive together and compound.\nFewer high school graduates intensify enrollment competition.\nGeopolitical shifts can drain tuition revenue and the supply of graduate researchers simultaneously.\nAI is reshaping entry-level work while campuses still debate how students may use it.\nSo a decision in one area can deepen exposure in another.\nThat makes this enterprise risk — a view across the whole institution, for presidents and trustees.",
+            "duration": 75
+          }
+        ]
+      },
+      {
+        "id": "pressures",
+        "title": "The pressures",
+        "beats": [
+          {
+            "id": "margin",
+            "claim": "One college in seven lost money over the past decade.",
+            "states": [
+              "margin"
+            ],
+            "notes": "Here is the number to take out of the room: 387 colleges — one in seven — lost money cumulatively over the past decade.\n135 of them lost money in at least eight of those ten years.\nThat's chronic, not cyclical.\nLabor and health insurance costs are pushing expenses up faster than revenue can grow.\nSelingo's line: mission runs on margin.\nPause here and let the room do the math on its own institution.",
+            "duration": 75
+          },
+          {
+            "id": "red-ink",
+            "claim": "Private colleges are posting losses at nearly twice the rate of public ones.",
+            "states": [
+              "red-ink"
+            ],
+            "notes": "The share of private colleges posting a loss in FY 2024 was almost double that of publics: 31% versus 17%.\nOperating margins at rated private colleges are the thinnest in the two decades Moody's has tracked.\nRevenue at more than half of Moody's-rated privates no longer outpaces inflation.\nGift revenue at small privates fell 13%, and they discount nearly 55 cents of every sticker dollar.\nInvestment returns and gifts used to paper over operating losses. Not anymore.\nMargin now has to be created — through cuts or new revenue.",
+            "duration": 75,
+            "evidence": [
+              "@red-ink"
+            ]
+          },
+          {
+            "id": "intl",
+            "claim": "International graduate enrollment, which drove the boom, has peaked and is falling.",
+            "states": [
+              "intl"
+            ],
+            "notes": "The post-pandemic graduate surge was substantially imported, driven heavily by master's students from India.\nForeign graduate enrollment rose 53% in three years to a record 502,000 in 2023-24.\nThen the first decline since the pandemic — and early fall 2025 data show another 12% drop.\nSelingo's judgment: the current dip is the beginning, not the bottom.\nExposure sits on both sides of the ledger: 59% self-funded, 36% financed by universities as TAs and RAs.\nNearly half of these students are in just two fields — computer science and engineering.",
+            "duration": 75,
+            "evidence": [
+              "@intl-grad"
+            ]
+          },
+          {
+            "id": "loans",
+            "claim": "Washington now caps borrowing and demands outcomes.",
+            "states": [
+              "loans"
+            ],
+            "notes": "Federal policy shifted from funding colleges to capping unbridled growth without evidence of outcomes.\nGrad PLUS loans are gone. Most graduate borrowing is now capped at $20,500 a year and $100,000 total.\nParent PLUS survived, capped at $20,000 a year and $65,000 per student — and new loans aren't eligible for income-driven repayment.\nThese caps hit affluent families: 79% of cap-constrained borrowers received no Pell.\nAnd exposure concentrates in privates, where 54% of those borrowers enroll.\nThose campuses now choose: lose the students, hope parents find private credit, or fund the gap themselves.",
+            "duration": 75
+          },
+          {
+            "id": "rd",
+            "claim": "Research spending hit a record just as federal rules changed.",
+            "states": [
+              "rd"
+            ],
+            "notes": "The research enterprise is at its largest just as the federal government pulls back.\nTotal university R&D grew 8.1% in FY 2024 to a record $117.7 billion.\nUniversities' own funds were $30.2 billion — more than a quarter of the total, and up $2.1 billion in one year.\nBusiness funding grew just $131.5 million; nonprofit funding $16 million. That's a reality check on backfill hopes.\nMeanwhile NIH had issued 66% fewer competitive grant awards by late February 2026, with award value down 54%.\nAnd because NSF measures spending, the first full-disruption data won't land until late 2027.",
+            "duration": 75,
+            "evidence": [
+              "@rd-funding"
+            ]
+          },
+          {
+            "id": "pell",
+            "claim": "Workforce Pell is open, but few programs clear its screens.",
+            "states": [
+              "pell"
+            ],
+            "notes": "Short-term training is the new hope. Pell can now fund it — as of July 1, 2026.\nBut the performance bar is the highest ever attached to Pell, and three approvals stand in the way: accreditor, governor, Department of Education.\nCredential Engine estimates tens of thousands of programs meet the length requirement.\nThe federal government says as few as several hundred nationwide currently qualify.\nOnly 22% of continuing education leaders agree they're prepared for the reporting requirements.\nYet 60% are planning on Workforce Pell revenue to offset other shortfalls. That's the gap.",
+            "duration": 75
+          },
+          {
+            "id": "floor",
+            "claim": "Every program now has an earnings floor, and certificates fail it most.",
+            "states": [
+              "floor"
+            ],
+            "notes": "Undergraduate programs whose graduates don't out-earn a high school diploma holder in the same state can lose federal loans.\nThe risk is concentrated: 45% of undergraduate certificates fail; bachelor's degrees almost all pass.\nNotice the irony — the exposure sits in short-term workforce credentials, the very category Workforce Pell is about to expand.\nNearly 2,000 of roughly 5,000 colleges have at least one failing program.\n644,000 students and $2.7 billion in loans flowed to failing programs in 2024-25.\nAnd Selingo's warning: passing the federal test doesn't mean the degree was worth its price.",
+            "duration": 75,
+            "evidence": [
+              "@earnings-floor"
+            ]
+          },
+          {
+            "id": "commerce",
+            "claim": "Licensing returns about 3% of the research enterprise; it cannot replace federal dollars.",
+            "states": [
+              "commerce"
+            ],
+            "notes": "Commercialization is being asked to replace federal dollars. It can't.\n2025 was a record year for activity: 1,095 startups, 761 new products, 13,729 patent applications.\nBut gross licensing income was about 3% of the sector's $117.7 billion research enterprise — three cents on the dollar.\nMost tech transfer offices still don't cover their own operating costs.\nAnd returns concentrate in a few blockbuster licenses.\nSelingo's bottom line: presidents who pitch this internally as the answer to federal retreat are setting up for disappointment.",
+            "duration": 75
+          },
+          {
+            "id": "athletics",
+            "claim": "Paying players makes athletics a new fixed cost on top of rising old ones.",
+            "states": [
+              "athletics"
+            ],
+            "notes": "Think of athletics as an itemized bill that keeps growing.\nIn 2024, FBS public institutions spent $13.06 billion against $13.02 billion in revenue — the first year underwater.\nScale offered no protection: the Big Ten and SEC, the two richest leagues, both finished negative.\nThen paying players became a fixed cost: $20.5 million per campus in year one, escalating 4% a year — $64 million over three years.\nThe old costs kept rising too: $1.02 billion in football coach severance since 2015, $224.7 million this season alone.\nMoody's expects expense growth to keep outpacing revenue — athletics becomes a standing claim on institutional resources.",
+            "duration": 75,
+            "evidence": [
+              "@athletics"
+            ]
+          },
+          {
+            "id": "aicost",
+            "claim": "Campuses are paying for AI without deciding to pay for it.",
+            "states": [
+              "aicost"
+            ],
+            "notes": "The marginal cost of AI is real — and the more money institutions have, the more agents they can build.\nRoughly two-thirds of AI spending goes into data, storage and compute, and consumption pricing means the successful pilot breaks the budget.\nYet most campuses are paying for AI by not really paying for it: no new money, no reallocation decision, no plan.\nOnly 29% of CTOs say AI investments met or exceeded ROI expectations; half say returns are unclear or below.\nBut 41% fear falling behind peers by 2030 — unclear returns plus FOMO is the classic condition for overspending.\nWhere returns are real, they're administrative. And those costs are people.",
+            "duration": 75,
+            "evidence": [
+              "assets/hed-burning.png"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hinge",
+        "title": "The hinge",
+        "beats": [
+          {
+            "id": "hinge",
+            "claim": "Every campus must now decide where to play and where to win.",
+            "states": [
+              "hinge"
+            ],
+            "notes": "This is the hinge of the report — and of this talk.\nGetting smaller or more focused, even in order to grow, need not mean decline or reduced ambitions.\nBut it requires a decision decades of growth allowed many campuses to postpone: where to play, and where to win.\nNot every institution can be comprehensive.\nChoosing where to concentrate resources, which students to serve, and when to partner will define the next era.\nEverything after this slide is about how leaders actually make that choice.",
+            "duration": 75,
+            "evidence": [
+              "assets/hed-crossroads.png"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "choices",
+        "title": "The choices",
+        "beats": [
+          {
+            "id": "payoff",
+            "claim": "Programs that pass a payoff test fund the mission-aligned ones that don't.",
+            "states": [
+              "payoff"
+            ],
+            "notes": "Selingo's first concrete instrument: a payoff test for every program.\nFour questions. Durable regional employer demand. Real earnings lift beyond what graduates would have earned anyway.\nMovement into new fields or roles. And — the honest one — can this institution credibly win in this market?\nNotice what the test is for: the certificates and degrees that pass create the margin needed to pursue mission-aligned programs that don't.\nThis is not a hit list. It's how you fund the things you refuse to cut.\nColleges also need their own test around what a program costs, what graduates borrowed, and what they earn.",
+            "duration": 75
+          },
+          {
+            "id": "gates",
+            "claim": "Strong research universities replaced waiting with rolling plans and decision gates.",
+            "states": [
+              "gates"
+            ],
+            "notes": "Many campuses froze hiring and building until the politics settle. The stronger research universities did something else.\nThey swapped five-year plans for rolling ones, with worst-case models and triggers set in advance.\nThe rule of thumb: delay the buildings, protect the people. A lab team that scatters doesn't come back when the grants do.\nLeaders at several top research universities now ask department chairs for explicit grow-or-shrink calls, instead of spreading cuts evenly.\nThe test is blunt: where can this institution be pre-eminent with the money it will realistically have?\nEverything else gets maintained, shared with a peer, or wound down.",
+            "duration": 75
+          },
+          {
+            "id": "assess",
+            "claim": "Move the AI effort from policing to designing.",
+            "states": [
+              "assess"
+            ],
+            "notes": "The last four years followed one pattern: fascination, then fear, then regulation.\nInstitutions wrote policies to police AI as an integrity problem while students adopted it as a work tool.\n57% of students use AI weekly or daily; 52% say the rules are unclear or uneven. Inconsistency has become inequity.\nAnd 47% of undergraduates say AI has made them consider changing their major.\nSelingo's prescription: decide which work students must still do themselves, then rebuild assessment — oral exams, visible reasoning, work built in stages.\nDetection hasn't closed the gap and won't. Set an AI floor every graduate clears, then let disciplines layer on top.",
+            "duration": 75
+          },
+          {
+            "id": "curriculum",
+            "claim": "Entry-level learning has to move into the degree.",
+            "states": [
+              "curriculum"
+            ],
+            "notes": "This chart is a curriculum map in disguise.\nThe fields most exposed to AI — management, business and finance, computer and math, legal, education, arts and media — are exactly the ones most colleges built enrollment on.\nLook at the gap between the two shapes: what AI can do is far larger than what it's actually doing.\nWhat is being automated first is entry-level task work — the same work that used to teach graduates how their profession functions.\nSo if graduates can't learn the ropes on the job, entry-level work has to move into the degree.\nReal projects, applied work, judgment under ambiguity — sequenced across four years, not saved for the capstone.",
+            "duration": 75,
+            "evidence": [
+              "assets/hed-exposure.png"
+            ]
+          },
+          {
+            "id": "duke",
+            "claim": "One working model governs AI through structures that already exist.",
+            "states": [
+              "duke"
+            ],
+            "notes": "AI is currently owned in silos — provost, CIO, faculty, and other offices. The gaps are where the risk sits.\nProcurement, employee use, data governance and vendor relationships belong to everyone and no one.\nFaculty read the vacuum as exclusion: only 31% say they're meaningfully involved in shaping AI policy.\nHere is one working model, from a report to the Duke provost.\nA small AI strategy office reporting to the provost. Oversight folded into committees that already exist. A named AI lead in every school.\nAnd AI responsibility elevated to a core university value, with an initiative on AI and human flourishing.",
+            "duration": 75
+          },
+          {
+            "id": "cyber",
+            "claim": "Cybersecurity has moved from the IT budget to the bond rating.",
+            "states": [
+              "cyber"
+            ],
+            "notes": "This is the proof that governance gaps have a price.\nMoody's cites universities' decentralized IT governance — academic units running their own systems — as why the sector leads all others in unpatched security flaws.\nBigger isn't safer: 97% of institutions above $5 billion in revenue had a known-exploited vulnerability unpatched for over a year.\nThe disruptions are operational, not hypothetical — Canvas went down in a May 2026 cyberattack.\nOnly 9% of institutions call their privacy and security policies adequate for AI-related risks.\nAnd the median education ransom demand is now $420,620, up 53% in six months.",
+            "duration": 75
+          },
+          {
+            "id": "compute",
+            "claim": "No university can build frontier compute alone; shared infrastructure lets it import some.",
+            "states": [
+              "compute"
+            ],
+            "notes": "The scarce asset in research is no longer lab space or researchers. It's computing power, data storage and staffing.\nHere's the proof of scale: just 2 of the 95 notable AI models released in 2025 came from academia.\nNo university can buy its way in alone.\nBut the shared infrastructure is growing. NAIRR has already supported research at institutions in all 50 states and doubles in size this year.\nThe Energy Department's Genesis Mission puts more than $5 billion behind using AI to speed up American science.\nFaculty will go where the compute is — so institutions that help researchers win access effectively import infrastructure they could never build.",
+            "duration": 75,
+            "evidence": [
+              "@ai-models"
+            ]
+          },
+          {
+            "id": "narrowing",
+            "claim": "Narrowing scope is already happening, and the decisions have held.",
+            "states": [
+              "narrowing"
+            ],
+            "notes": "Here is the evidence that narrowing scope is not theoretical.\nIndiana's public campuses have taken action on 1,279 programs since June 2025 — the enabling law passed in two days.\nWest Virginia cut 28 programs and 143 faculty lines; the board approved after a 797-to-100 no-confidence vote.\nUNC Greensboro removed 20 programs over roughly eight months, with no litigation.\nPenn State voted to close seven campuses, over senate objection, effective spring 2027.\nThe pattern: these decisions held. Program elimination has moved from crisis response into the annual budget process.",
+            "duration": 75
+          }
+        ]
+      },
+      {
+        "id": "governance",
+        "title": "Governance and demand",
+        "beats": [
+          {
+            "id": "boards",
+            "claim": "Smaller, engaged boards score highest on governance.",
+            "states": [
+              "boards"
+            ],
+            "notes": "The hardest calls in a generation are landing on boards assembled for a calmer era.\nTwo different currencies buy a seat — philanthropy at privates, political alignment at publics. Neither is governance.\nThe Commonfund-FGA study gives us a measurable contrast: the strongest quintile averages 19.7 members with 92.5% attendance.\nThe weakest-performing quintiles run boards up to 53 members with attendance in the low 80s.\nAnd dysfunction has consequences: in May 2026, Michigan State's president resigned citing severe board dysfunction, then reversed after trustees tightened their rules.\nDeficits, program elimination, athletics spending, AI and federal policy can't be delegated to management or waited out.",
+            "duration": 75
+          },
+          {
+            "id": "demand",
+            "claim": "Students have already chosen programs they can take online and part-time.",
+            "states": [
+              "demand"
+            ],
+            "notes": "If we're deciding where to play, the demand data is already in.\nPrograms available online award roughly 100,000 more master's degrees a year than classroom-only programs — and the gap widens every year.\nThe three biggest graduate fields are built around people who work while they study: Education 62% part-time, Business 49%.\nThese students weigh cost, time and return on investment more than full-time students do.\nSo pacing, price and online options are the battleground — not the campus experience.\nOn the undergraduate side, spring 2026 enrollment rose 1.3% to 15.5 million, but dual enrollment is propping up the number.",
+            "duration": 75,
+            "evidence": [
+              "@masters-demand"
+            ]
+          },
+          {
+            "id": "leaders",
+            "claim": "Presidents serve shorter terms, and few campuses have a successor ready.",
+            "states": [
+              "leaders"
+            ],
+            "notes": "The hardest decisions in a generation need people in the chair long enough to make them.\nAverage presidential tenure fell from 8.5 years in 2006 to 5.9 years.\nMore than half of sitting presidents plan to leave within five years; a quarter within the next year or two.\nAnd there is no bench: only about a quarter of institutions report a presidential succession plan.\nBoards are also hiring for a different job than the one on paper, increasingly from outside traditional academic ranks.\nSo the action item is blunt — grow the bench. Give three or four internal leaders real budget authority, a revenue line, and board exposure.",
+            "duration": 75,
+            "evidence": [
+              "@tenure"
+            ]
+          },
+          {
+            "id": "trust",
+            "claim": "Public confidence is falling while students' confidence holds.",
+            "states": [
+              "trust"
+            ],
+            "notes": "Leaders are making these decisions in a low-trust environment.\nAdult confidence in higher education has fallen to 38%, a decline almost entirely among Democrats.\nRepublicans at 23% and independents at 39% held roughly steady at already-low levels.\nMeanwhile, nine in ten enrolled students say they're confident their degree will equip them for the job they want.\nThat's the sector's widest gap between the people using it and the public judging it.\nBoards, presidents, faculty senates and the public are out of alignment — and these debates now play out publicly.",
+            "duration": 75,
+            "evidence": [
+              "@confidence"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "outlook",
+        "title": "Outlook",
+        "beats": [
+          {
+            "id": "unknowns",
+            "claim": "Four unknowns could overtake this snapshot.",
+            "states": [
+              "unknowns"
+            ],
+            "notes": "Selingo is explicit that this is a snapshot, so here are the things most likely to overtake it.\nLoan caps: nobody knows what fills the gap. Institutions won't know the enrollment picture until deposits come in.\nTax exemption turns conditional — after May 31, 2027, donors could lose the charitable deduction and institutions their investment-income exemption unless they comply.\nOPT may disappear, with a reported $100,000 fee instead — and about half of international graduate students and postdocs say they wouldn't have enrolled without it.\nThe athlete pay cap gets tested in the Senate; if the bill fails, the wealthiest programs keep spending past the cap.\nAnd a recession would push adults back to college — a cyclical bump that could mask the structural problem.",
+            "duration": 75
+          },
+          {
+            "id": "watch",
+            "claim": "In 2027 the pressures arrive together rather than as one shock.",
+            "states": [
+              "watch"
+            ],
+            "notes": "Six things to watch in 2027, straight from the report.\nMost colleges can absorb one bad year; 2027 brings no single shock but the long tail of everything at once.\nSome colleges started fixing structural deficits in 2026. Not enough of them did.\nInternational recruitment should finally deliver the predictability campuses actually want.\nResearch policy is largely set; the question is congressional intervention.\nIn sports, separation by the power conferences is the rational move. And on AI, 2027 is when student adoption and faculty division collide.",
+            "duration": 75
+          }
+        ]
+      },
+      {
+        "id": "ask",
+        "title": "The ask",
+        "beats": [
+          {
+            "id": "rebuild",
+            "claim": "Governance has to be rebuilt for the speed the model now demands.",
+            "states": [
+              "rebuild"
+            ],
+            "notes": "Here are the governance commitments the report asks boards and presidents to make.\nRebuild the board around expertise, not affiliation: smaller, recruited against an expertise matrix, with staggered terms.\nRedefine shared governance as consultation with a deadline. Faculty input should shape a decision, not ratify it.\nWrite down which decisions require a vote, which require consultation, which belong to administration — and attach a calendar.\nThen publish what the consultation actually changed, so speed doesn't read as exclusion.\nAnd align the president's annual scorecard with long-range goals set at hiring, evaluated as separate lines.",
+            "duration": 75
+          },
+          {
+            "id": "act",
+            "claim": "Act while there is still room to shape the future.",
+            "states": [
+              "act"
+            ],
+            "notes": "This is the ask the report makes of presidents and trustees.\nTest the assumptions behind your enrollment projections, your research ambitions, and your spending commitments.\nSee the connections between them before they arrive in the annual budget and the list of programs to close.\nDecide where to play and where to win. Getting smaller or more focused need not mean decline or reduced ambitions.\nCreate margin deliberately, because the old sources — overenrollment, investment returns, gifts, unfilled positions — no longer appear on their own.\nDo it now: waiting for each threat to become a crisis leaves fewer choices and less money to make them.",
+            "duration": 75
+          },
+          {
+            "id": "close",
+            "claim": "Not every institution can be comprehensive.",
+            "states": [
+              "close"
+            ],
+            "notes": "One sentence to leave with: not every institution can be comprehensive.\nChoosing where to concentrate resources, which students to serve, and when to partner will define the next era of higher education.\nNarrowing scope is the only line we really control — so it deserves the most deliberate decision on the agenda.\nThe report's purpose was to help us separate the temporary from the structural. Most of what we covered today is structural.\nThe full report is The State of Higher Education 2026, by Jeff Selingo, at jeffselingo.com.\nHappy to take questions from the room.",
+            "duration": 60,
+            "evidence": [
+              "assets/hed-acropolis.png"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "kicker": {
+      "type": "text",
+      "role": "kicker",
+      "text": "",
+      "semantic": "navigation",
+      "at": {
+        "in": "kicker"
+      }
+    },
+    "progress": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "in": "canvas"
+      },
+      "size": {
+        "w": "0%",
+        "h": "space.1"
+      },
+      "align": {
+        "x": "start",
+        "y": "end"
+      }
+    },
+    "cover-title": {
+      "type": "text",
+      "role": "display",
+      "semantic": "navigation",
+      "at": {
+        "in": "title"
+      },
+      "runs": [
+        {
+          "text": "The State of Higher Education "
+        },
+        {
+          "text": "2026",
+          "style": {
+            "color": "accent"
+          }
+        }
+      ],
+      "fit": "shrink",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "cover-sub": {
+      "type": "text",
+      "role": "lede",
+      "semantic": "claim",
+      "at": {
+        "in": "subtitle"
+      },
+      "text": "A snapshot in time, separating what is temporary from what is structural across six areas of the sector.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "cover-art": {
+      "type": "image",
+      "src": "assets/hed-converging.png",
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "art"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "bigger-statement": {
+      "type": "text",
+      "role": "display",
+      "semantic": "claim",
+      "at": {
+        "in": "statement"
+      },
+      "runs": [
+        {
+          "text": "For nearly 60 years, the answer was always: "
+        },
+        {
+          "text": "get bigger.",
+          "style": {
+            "color": "accent"
+          }
+        }
+      ],
+      "fit": "shrink",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "bigger-support": {
+      "type": "text",
+      "role": "lede",
+      "semantic": "context",
+      "at": {
+        "in": "support"
+      },
+      "text": "Comprehensive was the aspiration: more programs, labs, campuses, teams, international students, and online degrees. One answer to every question.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "era-list": {
+      "type": "grid",
+      "at": {
+        "in": "main"
+      },
+      "cols": [
+        "fraction(1)",
+        "fraction(3)"
+      ],
+      "rows": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "era-r1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "1 in 7",
+      "enter": "rise"
+    },
+    "era-r1-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 2,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "colleges lost money over the past decade",
+      "enter": "rise"
+    },
+    "era-r1-rule": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "era-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 1
+      }
+    },
+    "era-r2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "–12%",
+      "enter": "rise"
+    },
+    "era-r2-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 2,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "international graduate enrollment, fall 2025",
+      "enter": "rise"
+    },
+    "era-r2-rule": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "era-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 2
+      }
+    },
+    "era-r3-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Tightening",
+      "enter": "rise"
+    },
+    "era-r3-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 2,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "access to federal loans and grants",
+      "enter": "rise"
+    },
+    "era-r3-rule": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "era-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 3
+      }
+    },
+    "era-r4-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 1,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Technology",
+      "enter": "rise"
+    },
+    "era-r4-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "era-list",
+        "col": 2,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "is reshaping what a degree means",
+      "enter": "rise"
+    },
+    "era-r4-rule": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "era-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 4
+      }
+    },
+    "era-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "That era is ending.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "strain-diagram": {
+      "type": "frame",
+      "semantic": "evidence",
+      "alt": "A schematic from 1965 to 2026: the line for scope rises ever more steeply while the line for resources rises and flattens; the widening gap between them is the strain.",
+      "at": {
+        "in": "main"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "strain-axis": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0,
+          0.9
+        ],
+        [
+          0.78,
+          0.9
+        ]
+      ],
+      "stroke": {
+        "paint": "line",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "strain-diagram"
+      }
+    },
+    "strain-from": {
+      "type": "text",
+      "role": "axis",
+      "semantic": "context",
+      "at": {
+        "parent": "strain-diagram",
+        "rect": [
+          0,
+          640,
+          100,
+          30
+        ]
+      },
+      "text": "1965"
+    },
+    "strain-to": {
+      "type": "text",
+      "role": "axis",
+      "semantic": "context",
+      "at": {
+        "parent": "strain-diagram",
+        "rect": [
+          657,
+          640,
+          100,
+          30
+        ]
+      },
+      "text": "2026",
+      "align": {
+        "x": "end"
+      }
+    },
+    "strain-scope": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.02,
+          0.86
+        ],
+        [
+          0.058,
+          0.8371
+        ],
+        [
+          0.096,
+          0.8126
+        ],
+        [
+          0.134,
+          0.7867
+        ],
+        [
+          0.172,
+          0.7594
+        ],
+        [
+          0.21,
+          0.7305
+        ],
+        [
+          0.248,
+          0.7002
+        ],
+        [
+          0.286,
+          0.6683
+        ],
+        [
+          0.324,
+          0.635
+        ],
+        [
+          0.362,
+          0.6003
+        ],
+        [
+          0.4,
+          0.564
+        ],
+        [
+          0.438,
+          0.5263
+        ],
+        [
+          0.476,
+          0.487
+        ],
+        [
+          0.514,
+          0.4463
+        ],
+        [
+          0.552,
+          0.4042
+        ],
+        [
+          0.59,
+          0.3605
+        ],
+        [
+          0.628,
+          0.3154
+        ],
+        [
+          0.666,
+          0.2687
+        ],
+        [
+          0.704,
+          0.2206
+        ],
+        [
+          0.742,
+          0.1711
+        ],
+        [
+          0.78,
+          0.12
+        ]
+      ],
+      "semantic": "evidence",
+      "stroke": {
+        "paint": "onSurface",
+        "width": "thick",
+        "cap": "round",
+        "join": "round"
+      },
+      "at": {
+        "parent": "strain-diagram"
+      },
+      "enter": "draw"
+    },
+    "strain-scope-name": {
+      "type": "text",
+      "role": "value",
+      "semantic": "annotation",
+      "at": {
+        "parent": "strain-diagram",
+        "rect": [
+          786,
+          74,
+          160,
+          30
+        ]
+      },
+      "text": "Scope",
+      "enter": {
+        "preset": "fade",
+        "delay": 700
+      }
+    },
+    "strain-res": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.02,
+          0.86
+        ],
+        [
+          0.058,
+          0.8386
+        ],
+        [
+          0.096,
+          0.8182
+        ],
+        [
+          0.134,
+          0.7989
+        ],
+        [
+          0.172,
+          0.7808
+        ],
+        [
+          0.21,
+          0.7637
+        ],
+        [
+          0.248,
+          0.7478
+        ],
+        [
+          0.286,
+          0.7329
+        ],
+        [
+          0.324,
+          0.7192
+        ],
+        [
+          0.362,
+          0.7066
+        ],
+        [
+          0.4,
+          0.695
+        ],
+        [
+          0.438,
+          0.6845
+        ],
+        [
+          0.476,
+          0.6752
+        ],
+        [
+          0.514,
+          0.6669
+        ],
+        [
+          0.552,
+          0.6598
+        ],
+        [
+          0.59,
+          0.6537
+        ],
+        [
+          0.628,
+          0.6488
+        ],
+        [
+          0.666,
+          0.645
+        ],
+        [
+          0.704,
+          0.6422
+        ],
+        [
+          0.742,
+          0.6405
+        ],
+        [
+          0.78,
+          0.64
+        ]
+      ],
+      "semantic": "evidence",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thick",
+        "cap": "round",
+        "join": "round",
+        "dash": [
+          2,
+          14
+        ]
+      },
+      "at": {
+        "parent": "strain-diagram"
+      },
+      "enter": "draw"
+    },
+    "strain-res-name": {
+      "type": "text",
+      "role": "value",
+      "semantic": "annotation",
+      "at": {
+        "parent": "strain-diagram",
+        "rect": [
+          786,
+          436,
+          180,
+          30
+        ]
+      },
+      "text": "Resources",
+      "style": {
+        "color": "onSurfaceMuted"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 700
+      }
+    },
+    "strain-wedge": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0.02,
+          0.86
+        ],
+        [
+          0.058,
+          0.8371
+        ],
+        [
+          0.096,
+          0.8126
+        ],
+        [
+          0.134,
+          0.7867
+        ],
+        [
+          0.172,
+          0.7594
+        ],
+        [
+          0.21,
+          0.7305
+        ],
+        [
+          0.248,
+          0.7002
+        ],
+        [
+          0.286,
+          0.6683
+        ],
+        [
+          0.324,
+          0.635
+        ],
+        [
+          0.362,
+          0.6003
+        ],
+        [
+          0.4,
+          0.564
+        ],
+        [
+          0.438,
+          0.5263
+        ],
+        [
+          0.476,
+          0.487
+        ],
+        [
+          0.514,
+          0.4463
+        ],
+        [
+          0.552,
+          0.4042
+        ],
+        [
+          0.59,
+          0.3605
+        ],
+        [
+          0.628,
+          0.3154
+        ],
+        [
+          0.666,
+          0.2687
+        ],
+        [
+          0.704,
+          0.2206
+        ],
+        [
+          0.742,
+          0.1711
+        ],
+        [
+          0.78,
+          0.12
+        ],
+        [
+          0.78,
+          0.64
+        ],
+        [
+          0.742,
+          0.6405
+        ],
+        [
+          0.704,
+          0.6422
+        ],
+        [
+          0.666,
+          0.645
+        ],
+        [
+          0.628,
+          0.6488
+        ],
+        [
+          0.59,
+          0.6537
+        ],
+        [
+          0.552,
+          0.6598
+        ],
+        [
+          0.514,
+          0.6669
+        ],
+        [
+          0.476,
+          0.6752
+        ],
+        [
+          0.438,
+          0.6845
+        ],
+        [
+          0.4,
+          0.695
+        ],
+        [
+          0.362,
+          0.7066
+        ],
+        [
+          0.324,
+          0.7192
+        ],
+        [
+          0.286,
+          0.7329
+        ],
+        [
+          0.248,
+          0.7478
+        ],
+        [
+          0.21,
+          0.7637
+        ],
+        [
+          0.172,
+          0.7808
+        ],
+        [
+          0.134,
+          0.7989
+        ],
+        [
+          0.096,
+          0.8182
+        ],
+        [
+          0.058,
+          0.8386
+        ],
+        [
+          0.02,
+          0.86
+        ]
+      ],
+      "fill": "accent",
+      "opacity": 0.22,
+      "semantic": "decoration",
+      "at": {
+        "parent": "strain-diagram"
+      },
+      "enter": "fade"
+    },
+    "strain-up": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0.8250000000000001,
+          0.38
+        ],
+        [
+          0.8250000000000001,
+          0.16999999999999998
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "strain-diagram"
+      },
+      "enter": "fade"
+    },
+    "strain-down": {
+      "type": "shape",
+      "kind": "arrow",
+      "points": [
+        [
+          0.8250000000000001,
+          0.38
+        ],
+        [
+          0.8250000000000001,
+          0.59
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "strain-diagram"
+      },
+      "enter": "fade"
+    },
+    "strain-gap-name": {
+      "type": "text",
+      "role": "value",
+      "semantic": "annotation",
+      "at": {
+        "parent": "strain-diagram",
+        "rect": [
+          829,
+          255,
+          160,
+          30
+        ]
+      },
+      "text": "The strain",
+      "style": {
+        "color": "accent"
+      },
+      "enter": "fade"
+    },
+    "strain-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "strain-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "strain-facts"
+      },
+      "runs": [
+        {
+          "text": "Scope: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "programs, services, and facilities, expanding since 1965.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "strain-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "strain-facts"
+      },
+      "runs": [
+        {
+          "text": "Resources: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "enrollment and revenue no longer keep pace.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ],
+      "enter": "rise"
+    },
+    "strain-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "strain-facts"
+      },
+      "runs": [
+        {
+          "text": "Narrowing scope ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "is the one line colleges control.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ],
+      "enter": "rise"
+    },
+    "strain-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Scope kept widening while resources flattened",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "risk-cards": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          7
+        ]
+      },
+      "cols": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "risk-c1": {
+      "type": "stack",
+      "at": {
+        "parent": "risk-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "risk-c1-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c1"
+      },
+      "text": "Demographics",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "risk-c1-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c1"
+      },
+      "text": "Fewer high-school graduates, fiercer competition"
+    },
+    "risk-c2": {
+      "type": "stack",
+      "at": {
+        "parent": "risk-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "risk-c2-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c2"
+      },
+      "text": "Geopolitics",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "risk-c2-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c2"
+      },
+      "text": "Tuition and researchers drain at once"
+    },
+    "risk-c3": {
+      "type": "stack",
+      "at": {
+        "parent": "risk-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "risk-c3-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c3"
+      },
+      "text": "AI",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "risk-c3-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c3"
+      },
+      "text": "Entry-level work shifts while campuses debate"
+    },
+    "risk-c4": {
+      "type": "stack",
+      "at": {
+        "parent": "risk-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "risk-c4-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c4"
+      },
+      "text": "Exposure",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "risk-c4-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "risk-c4"
+      },
+      "text": "One decision deepens another's risk"
+    },
+    "risk-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "The risks arrive together, and they compound",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "margin-detail": {
+      "type": "stack",
+      "at": {
+        "in": "detail"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "margin-number": {
+      "type": "text",
+      "role": "numeral",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "text": "387",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "margin-claim": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "claim"
+      },
+      "text": "colleges, one in seven, lost money over the past decade.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "margin-chronic": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "margin-detail"
+      },
+      "runs": [
+        {
+          "text": "135",
+          "style": {
+            "color": "accent"
+          }
+        },
+        {
+          "text": " of them posted losses in 8 of 10 years."
+        }
+      ]
+    },
+    "margin-costs": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "margin-detail"
+      },
+      "text": "Labor and health-insurance costs outrun revenue.",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "margin-quote": {
+      "type": "text",
+      "role": "quote",
+      "semantic": "context",
+      "at": {
+        "parent": "margin-detail"
+      },
+      "text": "“Mission runs on margin.”"
+    },
+    "red-ink-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "A sea of red ink, worse at private colleges",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "red-ink-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@red-ink",
+      "x": {
+        "field": "sector",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "format": ".0%"
+      },
+      "alt": "Share of colleges posting a loss in fiscal 2024: public 17%, private nonprofit 31%.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Private nonprofit"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "red-ink-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "red-ink-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "red-ink-facts"
+      },
+      "runs": [
+        {
+          "text": "Over half ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "of Moody's-rated privates no longer beat inflation on revenue.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "red-ink-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "red-ink-facts"
+      },
+      "runs": [
+        {
+          "text": "Small privates: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "gifts down 13%, tuition discounts near 55%.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "intl-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "The graduate boom was imported, and it just peaked",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "intl-chart": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@intl-grad",
+      "x": {
+        "field": "period",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "students",
+        "type": "quantitative",
+        "format": ".3~k",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "labels": {
+        "show": "all"
+      },
+      "annotations": [
+        {
+          "kind": "callout",
+          "at": {
+            "x": "2023-24"
+          },
+          "text": "Record"
+        },
+        {
+          "kind": "callout",
+          "at": {
+            "x": "Fall 2025"
+          },
+          "text": "–12%"
+        }
+      ],
+      "alt": "International graduate students in the US: 329,000 in 2020-21, a record 502,000 in 2023-24, 488,000 in 2024-25, and 429,000 in fall 2025.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "intl-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "intl-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "intl-facts"
+      },
+      "runs": [
+        {
+          "text": "Up 53% ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "in three years to the 2023-24 record.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "intl-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "intl-facts"
+      },
+      "runs": [
+        {
+          "text": "59% self-funded; ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "universities fund another 36%.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "intl-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "intl-facts"
+      },
+      "runs": [
+        {
+          "text": "Nearly half: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "computer science and engineering.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "loans-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Washington now caps growth and demands outcomes",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "loans-tiles": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          7
+        ]
+      },
+      "cols": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "rows": [
+        "fraction(1)"
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "loans-t1": {
+      "type": "stack",
+      "at": {
+        "parent": "loans-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "loans-t1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t1"
+      },
+      "text": "$20,500"
+    },
+    "loans-t1-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t1"
+      },
+      "text": "yearly graduate loan cap; Grad PLUS gone"
+    },
+    "loans-t2": {
+      "type": "stack",
+      "at": {
+        "parent": "loans-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "loans-t2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t2"
+      },
+      "text": "$65,000"
+    },
+    "loans-t2-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t2"
+      },
+      "text": "Parent PLUS cap per student"
+    },
+    "loans-t3": {
+      "type": "stack",
+      "at": {
+        "parent": "loans-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "loans-t3-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t3"
+      },
+      "text": "79%"
+    },
+    "loans-t3-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t3"
+      },
+      "text": "of capped borrowers got no Pell"
+    },
+    "loans-t4": {
+      "type": "stack",
+      "at": {
+        "parent": "loans-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "loans-t4-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t4"
+      },
+      "text": "54%"
+    },
+    "loans-t4-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "loans-t4"
+      },
+      "text": "of capped borrowers are at privates"
+    },
+    "rd-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Research hit a record, then the rules changed",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "rd-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rd-funding",
+      "x": {
+        "field": "source",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "amount",
+        "type": "quantitative",
+        "format": "$.3~k"
+      },
+      "alt": "University R&D spending in fiscal 2024 by source: federal $64.7B, institutions' own funds $30.2B, other $22.8B.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Institution"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "rd-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "rd-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rd-facts"
+      },
+      "runs": [
+        {
+          "text": "$117.7B: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "total R&D, up 8.1% in FY24, a record.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "rd-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rd-facts"
+      },
+      "runs": [
+        {
+          "text": "Over a quarter ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "came from universities' own funds.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "rd-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rd-facts"
+      },
+      "runs": [
+        {
+          "text": "NIH: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "66% fewer competitive awards by February 2026.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "pell-funnel": {
+      "type": "stack",
+      "at": {
+        "in": "main"
+      },
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "pell-s1": {
+      "type": "stack",
+      "at": {
+        "parent": "pell-funnel"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "distribute": "center",
+      "padding": "space.6",
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "size": {
+        "w": "100%"
+      },
+      "align": {
+        "x": "center"
+      },
+      "semantic": "evidence",
+      "enter": "rise"
+    },
+    "pell-s1-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "Tens of thousands",
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "pell-s1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "qualify by length",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "pell-s2": {
+      "type": "stack",
+      "at": {
+        "parent": "pell-funnel"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "distribute": "center",
+      "padding": "space.6",
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "size": {
+        "w": "82%"
+      },
+      "align": {
+        "x": "center"
+      },
+      "semantic": "evidence",
+      "enter": "rise"
+    },
+    "pell-s2-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "Outcomes screen",
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "pell-s2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "70% completion and 70% placement",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "pell-s3": {
+      "type": "stack",
+      "at": {
+        "parent": "pell-funnel"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "distribute": "center",
+      "padding": "space.6",
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "size": {
+        "w": "64%"
+      },
+      "align": {
+        "x": "center"
+      },
+      "semantic": "evidence",
+      "enter": "rise"
+    },
+    "pell-s3-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s3",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "Earnings screen",
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "pell-s3-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s3",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "tuition can't exceed the earnings gain",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "pell-s4": {
+      "type": "stack",
+      "at": {
+        "parent": "pell-funnel"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "distribute": "center",
+      "padding": "space.6",
+      "fill": "accent",
+      "radius": "radius.1",
+      "size": {
+        "w": "46%"
+      },
+      "align": {
+        "x": "center"
+      },
+      "semantic": "evidence",
+      "enter": "rise"
+    },
+    "pell-s4-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s4",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "A few hundred",
+      "style": {
+        "color": "onAccent"
+      }
+    },
+    "pell-s4-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "pell-s4",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "qualify nationwide",
+      "style": {
+        "color": "onAccent"
+      }
+    },
+    "pell-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Workforce Pell is open; few programs clear its screens",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "floor-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Every academic program now has an earnings floor",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "floor-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@earnings-floor",
+      "x": {
+        "field": "credential",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "format": ".2~%"
+      },
+      "alt": "Share of programs below the earnings benchmark by credential: certificates 45%, associate 7%, master's 4%, bachelor's 1.2%.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Certificate"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "floor-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "floor-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "floor-facts"
+      },
+      "runs": [
+        {
+          "text": "45% ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "of undergraduate certificates fall below the benchmark.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "floor-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "floor-facts"
+      },
+      "runs": [
+        {
+          "text": "$2.7B in loans ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "flowed to failing programs in 2024-25.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "floor-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "floor-facts"
+      },
+      "runs": [
+        {
+          "text": "About 2,000 ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "of 5,000 colleges have at least one.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "commerce-ratio": {
+      "type": "stack",
+      "at": {
+        "in": "under"
+      },
+      "axis": "x",
+      "gap": "space.0",
+      "size": {
+        "h": "space.3"
+      },
+      "align": {
+        "y": "start"
+      },
+      "semantic": "evidence",
+      "alt": "Licensing income is 3% of research spending.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "commerce-number": {
+      "type": "text",
+      "role": "numeral",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "text": "3%",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "commerce-claim": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "claim"
+      },
+      "text": "of the $117.7B research enterprise returns as licensing income.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "commerce-detail": {
+      "type": "stack",
+      "at": {
+        "in": "detail"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "commerce-record": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "commerce-detail"
+      },
+      "runs": [
+        {
+          "text": "Record year: "
+        },
+        {
+          "text": "1,095 startups",
+          "style": {
+            "color": "accent"
+          }
+        },
+        {
+          "text": " and 13,729 patent filings."
+        }
+      ]
+    },
+    "commerce-costs": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "commerce-detail"
+      },
+      "text": "Most tech-transfer offices don't cover their costs. Returns concentrate in a few blockbuster licenses.",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "commerce-ratio-part": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "size": {
+        "w": "3%"
+      },
+      "semantic": "decoration",
+      "at": {
+        "parent": "commerce-ratio"
+      }
+    },
+    "commerce-ratio-rest": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "line",
+      "semantic": "decoration",
+      "at": {
+        "parent": "commerce-ratio"
+      }
+    },
+    "athletics-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Athletics: a new fixed cost on top of the old ones",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "athletics-table": {
+      "type": "table",
+      "data": "@athletics",
+      "header": false,
+      "columns": [
+        {
+          "field": "item"
+        },
+        {
+          "field": "amount",
+          "format": "$.4~k"
+        }
+      ],
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          4,
+          8
+        ]
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "athletics-total": {
+      "type": "stack",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": 9
+      },
+      "fill": "accent",
+      "padding": [
+        "space.3",
+        "space.5"
+      ],
+      "distribute": "center",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "athletics-total-text": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "athletics-total"
+      },
+      "text": "Total: a standing claim on institutional resources",
+      "style": {
+        "color": "onAccent"
+      }
+    },
+    "athletics-side": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "athletics-gap": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "athletics-side"
+      },
+      "text": "–$48.5M"
+    },
+    "athletics-gap-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "athletics-side"
+      },
+      "runs": [
+        {
+          "text": "FBS publics, 2024: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "the first year underwater. The Big Ten and SEC both finished negative.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "aicost-body": {
+      "type": "stack",
+      "at": {
+        "in": "body"
+      },
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "aicost-c1": {
+      "type": "stack",
+      "at": {
+        "parent": "aicost-body"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "semantic": "evidence"
+    },
+    "aicost-c1-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "aicost-c1"
+      },
+      "text": "The cost is real",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "aicost-c1-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "aicost-c1"
+      },
+      "text": "Two-thirds goes to data, storage, and compute."
+    },
+    "aicost-c2": {
+      "type": "stack",
+      "at": {
+        "parent": "aicost-body"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "semantic": "evidence"
+    },
+    "aicost-c2-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "aicost-c2"
+      },
+      "text": "No plan to pay",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "aicost-c2-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "aicost-c2"
+      },
+      "text": "Only 29% of tech chiefs saw the returns they expected."
+    },
+    "aicost-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Campuses pay for AI by not paying for it",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "aicost-art": {
+      "type": "image",
+      "src": "assets/hed-burning.png",
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "art"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "hinge-statement": {
+      "type": "text",
+      "role": "display",
+      "semantic": "claim",
+      "at": {
+        "in": "statement"
+      },
+      "runs": [
+        {
+          "text": "Where to play, "
+        },
+        {
+          "text": "and where to win",
+          "style": {
+            "color": "accent"
+          }
+        }
+      ],
+      "fit": "shrink",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "hinge-support": {
+      "type": "text",
+      "role": "lede",
+      "semantic": "context",
+      "at": {
+        "in": "support"
+      },
+      "text": "The decision decades of growth allowed campuses to postpone.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "hinge-art": {
+      "type": "image",
+      "src": "assets/hed-crossroads.png",
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "art"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "payoff-list": {
+      "type": "grid",
+      "at": {
+        "in": "main"
+      },
+      "cols": [
+        "space.8",
+        "fill"
+      ],
+      "rows": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "payoff-n1": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "1"
+    },
+    "payoff-q1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 2,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Durable regional employer demand?"
+    },
+    "payoff-r1": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "payoff-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 1
+      }
+    },
+    "payoff-n2": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "2"
+    },
+    "payoff-q2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 2,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Earnings lift beyond what graduates would earn anyway?"
+    },
+    "payoff-r2": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "payoff-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 2
+      }
+    },
+    "payoff-n3": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "3"
+    },
+    "payoff-q3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 2,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Movement into new fields or roles?"
+    },
+    "payoff-r3": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "payoff-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 3
+      }
+    },
+    "payoff-n4": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 1,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "4"
+    },
+    "payoff-q4": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "payoff-list",
+        "col": 2,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Can we credibly win this market?"
+    },
+    "payoff-r4": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "payoff-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 4
+      }
+    },
+    "payoff-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Programs that pass fund the ones that don't",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "gates-flow": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          8
+        ]
+      },
+      "cols": [
+        "fill",
+        "space.7",
+        "fill",
+        "space.7",
+        "fill",
+        "space.7",
+        "fill"
+      ],
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "gates-c1": {
+      "type": "stack",
+      "at": {
+        "parent": "gates-flow",
+        "col": 1
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "gates-c1-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c1"
+      },
+      "text": "Model",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "gates-c1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c1"
+      },
+      "text": "Rolling, worst-case plans"
+    },
+    "gates-a1": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "gates-flow",
+        "col": 2
+      }
+    },
+    "gates-c2": {
+      "type": "stack",
+      "at": {
+        "parent": "gates-flow",
+        "col": 3
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "gates-c2-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c2"
+      },
+      "text": "Trigger",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "gates-c2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c2"
+      },
+      "text": "Pre-set cuts and delays"
+    },
+    "gates-a2": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "gates-flow",
+        "col": 4
+      }
+    },
+    "gates-c3": {
+      "type": "stack",
+      "at": {
+        "parent": "gates-flow",
+        "col": 5
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "gates-c3-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c3"
+      },
+      "text": "Decide",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "gates-c3-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c3"
+      },
+      "text": "Grow-or-shrink calls"
+    },
+    "gates-a3": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "onSurfaceMuted",
+        "width": "thin"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.6"
+      },
+      "align": {
+        "y": "center"
+      },
+      "at": {
+        "parent": "gates-flow",
+        "col": 6
+      }
+    },
+    "gates-c4": {
+      "type": "stack",
+      "at": {
+        "parent": "gates-flow",
+        "col": 7
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "gates-c4-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c4"
+      },
+      "text": "Protect",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "gates-c4-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "gates-c4"
+      },
+      "text": "Delay buildings, keep teams"
+    },
+    "gates-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Replace waiting with decision gates",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "gates-quote": {
+      "type": "text",
+      "role": "quote",
+      "semantic": "context",
+      "at": {
+        "col": [
+          1,
+          9
+        ],
+        "row": [
+          10,
+          12
+        ]
+      },
+      "text": "“A lab team that scatters doesn’t come back when the grants do.”",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "assess-cols": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          10
+        ]
+      },
+      "cols": [
+        "fraction(2)",
+        "fraction(3)"
+      ],
+      "gap": "space.7",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "assess-reality": {
+      "type": "stack",
+      "at": {
+        "parent": "assess-cols",
+        "col": 1
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "assess-right": {
+      "type": "stack",
+      "at": {
+        "parent": "assess-cols",
+        "col": 2
+      },
+      "gap": "space.5",
+      "semantic": "evidence"
+    },
+    "assess-method-label": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-right"
+      },
+      "text": "The method",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "assess-method": {
+      "type": "grid",
+      "at": {
+        "parent": "assess-right"
+      },
+      "cols": 1,
+      "rows": 3,
+      "gap": "space.4",
+      "size": {
+        "h": "fill"
+      },
+      "semantic": "evidence"
+    },
+    "assess-reality-label": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-reality",
+        "index": 0
+      },
+      "text": "The reality",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "assess-s1": {
+      "type": "stack",
+      "at": {
+        "parent": "assess-reality",
+        "index": 1
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "evidence"
+    },
+    "assess-s1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "57%"
+    },
+    "assess-s1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "use AI weekly"
+    },
+    "assess-s2": {
+      "type": "stack",
+      "at": {
+        "parent": "assess-reality",
+        "index": 2
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "evidence"
+    },
+    "assess-s2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "52%"
+    },
+    "assess-s2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "find rules unclear"
+    },
+    "assess-s3": {
+      "type": "stack",
+      "at": {
+        "parent": "assess-reality",
+        "index": 3
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "evidence"
+    },
+    "assess-s3-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s3",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "47%"
+    },
+    "assess-s3-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-s3",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "rethought their major"
+    },
+    "assess-m1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Decide what students do themselves",
+      "enter": "rise"
+    },
+    "assess-mr1": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 1
+      }
+    },
+    "assess-m2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Make reasoning visible",
+      "enter": "rise"
+    },
+    "assess-mr2": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 2
+      }
+    },
+    "assess-m3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Set an AI floor",
+      "enter": "rise"
+    },
+    "assess-mr3": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "assess-method",
+        "col": 1,
+        "row": 3
+      }
+    },
+    "assess-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Design for AI; stop policing it",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "curriculum-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Move entry-level learning into the degree",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "curriculum-art": {
+      "type": "image",
+      "src": "assets/hed-exposure.png",
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "art"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "curriculum-facts": {
+      "type": "stack",
+      "at": {
+        "in": "body"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "curriculum-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "curriculum-facts"
+      },
+      "runs": [
+        {
+          "text": "The fields most exposed to AI ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "built most colleges' enrollment.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "curriculum-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "curriculum-facts"
+      },
+      "runs": [
+        {
+          "text": "Automation hits entry-level work first: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "a career's apprenticeship.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "curriculum-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "curriculum-facts"
+      },
+      "runs": [
+        {
+          "text": "Bring real projects ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "into all four years.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "duke-list": {
+      "type": "grid",
+      "at": {
+        "in": "main"
+      },
+      "cols": [
+        "fraction(1)",
+        "fraction(3)"
+      ],
+      "rows": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "duke-n1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Strategy",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "duke-w1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 2,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "A small AI office reporting to the provost"
+    },
+    "duke-r1": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "duke-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 1
+      }
+    },
+    "duke-n2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Oversight",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "duke-w2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 2,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Inside committees that already exist"
+    },
+    "duke-r2": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "duke-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 2
+      }
+    },
+    "duke-n3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Leads",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "duke-w3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 2,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "A named AI faculty lead per school"
+    },
+    "duke-r3": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "duke-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 3
+      }
+    },
+    "duke-n4": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 1,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Values",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "duke-w4": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "duke-list",
+        "col": 2,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Responsibility as a core value"
+    },
+    "duke-r4": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "duke-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 4
+      }
+    },
+    "duke-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Duke governs AI through structures it already has",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "cyber-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Cyber risk moved from IT budget to bond rating",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "cyber-tiles": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          7
+        ]
+      },
+      "cols": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "rows": [
+        "fraction(1)"
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "cyber-t1": {
+      "type": "stack",
+      "at": {
+        "parent": "cyber-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "cyber-t1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t1"
+      },
+      "text": "#1"
+    },
+    "cyber-t1-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t1"
+      },
+      "text": "sector for unpatched known flaws"
+    },
+    "cyber-t2": {
+      "type": "stack",
+      "at": {
+        "parent": "cyber-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "cyber-t2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t2"
+      },
+      "text": "97%"
+    },
+    "cyber-t2-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t2"
+      },
+      "text": "of $5B+ schools left a flaw a year"
+    },
+    "cyber-t3": {
+      "type": "stack",
+      "at": {
+        "parent": "cyber-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "cyber-t3-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t3"
+      },
+      "text": "9%"
+    },
+    "cyber-t3-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t3"
+      },
+      "text": "call their policies AI-ready"
+    },
+    "cyber-t4": {
+      "type": "stack",
+      "at": {
+        "parent": "cyber-tiles"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "cyber-t4-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t4"
+      },
+      "text": "$420,620"
+    },
+    "cyber-t4-label": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cyber-t4"
+      },
+      "text": "median ransom, up 53% in six months"
+    },
+    "compute-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Import the compute you can never afford to build",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "compute-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@ai-models",
+      "x": {
+        "field": "origin",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "models",
+        "type": "quantitative",
+        "format": "d"
+      },
+      "alt": "Notable AI models released in 2025 by origin: industry 93, industry–academia 5, other 2, academia 2.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Academia"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "compute-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "compute-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "compute-facts"
+      },
+      "runs": [
+        {
+          "text": "2 of 95 ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "notable 2025 AI models came from academia.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "compute-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "compute-facts"
+      },
+      "runs": [
+        {
+          "text": "NAIRR ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "reaches all 50 states and doubles this year.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "compute-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "compute-facts"
+      },
+      "runs": [
+        {
+          "text": "Genesis Mission: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "$5B+ for AI in science.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "narrow-cases": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          11
+        ]
+      },
+      "cols": 2,
+      "rows": 2,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "narrow-c1": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-cases"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c1-top": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-c1"
+      },
+      "axis": "x",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c1-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c1-top"
+      },
+      "text": "Indiana"
+    },
+    "narrow-c1-held": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.1,
+          0.55
+        ],
+        [
+          0.4,
+          0.85
+        ],
+        [
+          0.9,
+          0.15
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "regular",
+        "cap": "round",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "size": {
+        "w": "space.5",
+        "h": "space.5"
+      },
+      "at": {
+        "parent": "narrow-c1-top"
+      }
+    },
+    "narrow-c1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c1"
+      },
+      "text": "1,279 program actions since June 2025",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "narrow-c2": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-cases"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c2-top": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-c2"
+      },
+      "axis": "x",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c2-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c2-top"
+      },
+      "text": "West Virginia"
+    },
+    "narrow-c2-held": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.1,
+          0.55
+        ],
+        [
+          0.4,
+          0.85
+        ],
+        [
+          0.9,
+          0.15
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "regular",
+        "cap": "round",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "size": {
+        "w": "space.5",
+        "h": "space.5"
+      },
+      "at": {
+        "parent": "narrow-c2-top"
+      }
+    },
+    "narrow-c2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c2"
+      },
+      "text": "28 programs, 143 faculty lines",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "narrow-c3": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-cases"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c3-top": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-c3"
+      },
+      "axis": "x",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c3-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c3-top"
+      },
+      "text": "UNC Greensboro"
+    },
+    "narrow-c3-held": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.1,
+          0.55
+        ],
+        [
+          0.4,
+          0.85
+        ],
+        [
+          0.9,
+          0.15
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "regular",
+        "cap": "round",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "size": {
+        "w": "space.5",
+        "h": "space.5"
+      },
+      "at": {
+        "parent": "narrow-c3-top"
+      }
+    },
+    "narrow-c3-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c3"
+      },
+      "text": "20 programs, no litigation",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "narrow-c4": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-cases"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c4-top": {
+      "type": "stack",
+      "at": {
+        "parent": "narrow-c4"
+      },
+      "axis": "x",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "narrow-c4-name": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c4-top"
+      },
+      "text": "Penn State"
+    },
+    "narrow-c4-held": {
+      "type": "shape",
+      "kind": "line",
+      "points": [
+        [
+          0.1,
+          0.55
+        ],
+        [
+          0.4,
+          0.85
+        ],
+        [
+          0.9,
+          0.15
+        ]
+      ],
+      "stroke": {
+        "paint": "accent",
+        "width": "regular",
+        "cap": "round",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "size": {
+        "w": "space.5",
+        "h": "space.5"
+      },
+      "at": {
+        "parent": "narrow-c4-top"
+      }
+    },
+    "narrow-c4-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "narrow-c4"
+      },
+      "text": "7 campuses closing in 2027",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "narrowing-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Narrowing scope is already happening, and it holds",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "boards-cols": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          9
+        ],
+        "row": [
+          4,
+          8
+        ]
+      },
+      "cols": 2,
+      "gap": "space.4",
+      "semantic": "comparison",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "boards-p1": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-cols"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "comparison",
+      "stroke": {
+        "paint": "accent",
+        "width": "thin"
+      }
+    },
+    "boards-p1-figs": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p1",
+        "index": 1
+      },
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p1-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p1",
+        "index": 0
+      },
+      "text": "Strongest quintile",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "boards-p1-1": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p1-figs"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p1-1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p1-1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "19.7"
+    },
+    "boards-p1-1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p1-1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "members",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "boards-p1-2": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p1-figs"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p1-2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p1-2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "92.5%"
+    },
+    "boards-p1-2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p1-2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "attendance",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "boards-p2": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-cols"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.5",
+      "distribute": "between",
+      "semantic": "comparison"
+    },
+    "boards-p2-figs": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p2",
+        "index": 1
+      },
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p2-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p2",
+        "index": 0
+      },
+      "text": "Weakest quintiles"
+    },
+    "boards-p2-1": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p2-figs"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p2-1-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p2-1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "53.5",
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "boards-p2-1-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p2-1",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "members",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "boards-p2-2": {
+      "type": "stack",
+      "at": {
+        "parent": "boards-p2-figs"
+      },
+      "axis": "x",
+      "gap": "space.4",
+      "semantic": "comparison"
+    },
+    "boards-p2-2-fig": {
+      "type": "text",
+      "role": "figure",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p2-2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "84.6%",
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "boards-p2-2-what": {
+      "type": "text",
+      "role": "body",
+      "semantic": "comparison",
+      "at": {
+        "parent": "boards-p2-2",
+        "align": {
+          "y": "baseline"
+        }
+      },
+      "text": "attendance",
+      "style": {
+        "color": "onSurfaceMuted"
+      }
+    },
+    "boards-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Smaller, engaged boards govern best",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "boards-note": {
+      "type": "text",
+      "role": "quote",
+      "semantic": "takeaway",
+      "at": {
+        "col": [
+          1,
+          9
+        ],
+        "row": [
+          10,
+          12
+        ]
+      },
+      "text": "Seats bought with gifts or politics aren’t governance.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "demand-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "The market has already told us where students are",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "demand-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@masters-demand",
+      "x": {
+        "field": "program",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "degrees",
+        "type": "quantitative",
+        "format": ".3~k"
+      },
+      "alt": "Master's degrees awarded in 2023: 495,000 from programs available online, 397,000 from classroom-only programs.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Available online"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "demand-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "demand-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "demand-facts"
+      },
+      "runs": [
+        {
+          "text": "~100,000 more ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "master's a year from online-available programs.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "demand-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "demand-facts"
+      },
+      "runs": [
+        {
+          "text": "The gap ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "was about 60,000 in 2022.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "demand-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "demand-facts"
+      },
+      "runs": [
+        {
+          "text": "Part-time: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "education 62%, business 49%.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "demand-f4": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "demand-facts"
+      },
+      "runs": [
+        {
+          "text": "Pacing and price ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "are the battleground.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "leaders-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "The leadership pipeline is thinning at the top",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "leaders-chart": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@tenure",
+      "x": {
+        "field": "year",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "years",
+        "type": "quantitative",
+        "format": ".1f",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "alt": "Average years in the current presidency: 8.5 in 2006, 7.0 in 2011, 6.5 in 2016, 5.9 in 2022.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "leaders-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "leaders-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "leaders-facts"
+      },
+      "runs": [
+        {
+          "text": "Average tenure ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "fell from 8.5 years to 5.9.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "leaders-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "leaders-facts"
+      },
+      "runs": [
+        {
+          "text": "55% of presidents ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "plan to leave within five years.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "leaders-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "leaders-facts"
+      },
+      "runs": [
+        {
+          "text": "Grow the bench: ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "budget, a revenue line, board exposure.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "trust-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "The public is leaving. The customers are staying.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "trust-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@confidence",
+      "x": {
+        "field": "group",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "share",
+        "type": "quantitative",
+        "format": ".0%"
+      },
+      "alt": "Confidence in higher education in 2026: all adults 38%, Democrats 50%, independents 39%, Republicans 23%, enrolled students 90%.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Students"
+          }
+        }
+      ],
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "grow",
+        "delay": 180
+      }
+    },
+    "trust-facts": {
+      "type": "stack",
+      "at": {
+        "in": "note"
+      },
+      "gap": "space.6",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "trust-f1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "trust-facts"
+      },
+      "runs": [
+        {
+          "text": "Adult confidence ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "has fallen to 38%.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "trust-f2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "trust-facts"
+      },
+      "runs": [
+        {
+          "text": "The decline ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "is almost entirely among Democrats.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "trust-f3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "trust-facts"
+      },
+      "runs": [
+        {
+          "text": "Nine in ten ",
+          "style": {
+            "weight": 650,
+            "color": "onSurface"
+          }
+        },
+        {
+          "text": "enrolled students trust their degree.",
+          "style": {
+            "color": "onSurfaceMuted"
+          }
+        }
+      ]
+    },
+    "unknowns-cards": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          4,
+          7
+        ]
+      },
+      "cols": 4,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "unknowns-c1": {
+      "type": "stack",
+      "at": {
+        "parent": "unknowns-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "unknowns-c1-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c1"
+      },
+      "text": "Loan caps",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "unknowns-c1-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c1"
+      },
+      "text": "What fills the gap? Deposits will tell."
+    },
+    "unknowns-c2": {
+      "type": "stack",
+      "at": {
+        "parent": "unknowns-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "unknowns-c2-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c2"
+      },
+      "text": "Tax exemption",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "unknowns-c2-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c2"
+      },
+      "text": "Conditional after May 31, 2027"
+    },
+    "unknowns-c3": {
+      "type": "stack",
+      "at": {
+        "parent": "unknowns-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "unknowns-c3-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c3"
+      },
+      "text": "Visas",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "unknowns-c3-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c3"
+      },
+      "text": "OPT could vanish, or cost $100,000"
+    },
+    "unknowns-c4": {
+      "type": "stack",
+      "at": {
+        "parent": "unknowns-cards"
+      },
+      "fill": "surface-2",
+      "radius": "radius.1",
+      "padding": "space.5",
+      "gap": "space.4",
+      "distribute": "between",
+      "semantic": "evidence"
+    },
+    "unknowns-c4-name": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c4"
+      },
+      "text": "Recession",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "unknowns-c4-what": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "unknowns-c4"
+      },
+      "text": "Returning adults could mask the problem"
+    },
+    "unknowns-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "What could overtake this report",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "watch-list": {
+      "type": "grid",
+      "at": {
+        "in": "main"
+      },
+      "cols": [
+        "fraction(1)",
+        "fraction(3)"
+      ],
+      "rows": 6,
+      "gap": "space.3",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "watch-n1": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Operations",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w1": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "No single shock; everything at once"
+    },
+    "watch-r1": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 1
+      }
+    },
+    "watch-n2": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "International",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w2": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Predictability, finally"
+    },
+    "watch-r2": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 2
+      }
+    },
+    "watch-n3": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Research",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w3": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Policy set; will Congress intervene?"
+    },
+    "watch-r3": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 3
+      }
+    },
+    "watch-n4": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Sports",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w4": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Power conferences separate"
+    },
+    "watch-r4": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 4
+      }
+    },
+    "watch-n5": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 5,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "AI",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w5": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 5,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Student adoption meets faculty division"
+    },
+    "watch-r5": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 5
+      }
+    },
+    "watch-n6": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 1,
+        "row": 6,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Presidents",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "watch-w6": {
+      "type": "text",
+      "role": "body",
+      "semantic": "evidence",
+      "at": {
+        "parent": "watch-list",
+        "col": 2,
+        "row": 6,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Turnover as a symptom"
+    },
+    "watch-r6": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "watch-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 6
+      }
+    },
+    "watch-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "What to watch in 2027",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "rebuild-list": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          10
+        ],
+        "row": [
+          4,
+          12
+        ]
+      },
+      "cols": [
+        "fill",
+        "fraction(1)"
+      ],
+      "rows": 5,
+      "gap": "space.4",
+      "semantic": "evidence",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "rebuild-w1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 1,
+        "row": 1,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Smaller boards chosen for expertise"
+    },
+    "rebuild-o1": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 2,
+        "row": 1,
+        "align": {
+          "x": "end",
+          "y": "cap"
+        }
+      },
+      "text": "Board",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "rebuild-r1": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "rebuild-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 1
+      }
+    },
+    "rebuild-w2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 1,
+        "row": 2,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Decision rights in writing"
+    },
+    "rebuild-o2": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 2,
+        "row": 2,
+        "align": {
+          "x": "end",
+          "y": "cap"
+        }
+      },
+      "text": "Board",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "rebuild-r2": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "rebuild-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 2
+      }
+    },
+    "rebuild-w3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 1,
+        "row": 3,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Consultation with a deadline"
+    },
+    "rebuild-o3": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 2,
+        "row": 3,
+        "align": {
+          "x": "end",
+          "y": "cap"
+        }
+      },
+      "text": "President",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "rebuild-r3": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "rebuild-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 3
+      }
+    },
+    "rebuild-w4": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 1,
+        "row": 4,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "Scorecards tied to long-range goals"
+    },
+    "rebuild-o4": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 2,
+        "row": 4,
+        "align": {
+          "x": "end",
+          "y": "cap"
+        }
+      },
+      "text": "Board",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "rebuild-r4": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "rebuild-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 4
+      }
+    },
+    "rebuild-w5": {
+      "type": "text",
+      "role": "title",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 1,
+        "row": 5,
+        "align": {
+          "y": "cap"
+        }
+      },
+      "text": "AI office, committees, school leads"
+    },
+    "rebuild-o5": {
+      "type": "text",
+      "role": "label",
+      "semantic": "evidence",
+      "at": {
+        "parent": "rebuild-list",
+        "col": 2,
+        "row": 5,
+        "align": {
+          "x": "end",
+          "y": "cap"
+        }
+      },
+      "text": "Provost",
+      "style": {
+        "color": "accent"
+      }
+    },
+    "rebuild-r5": {
+      "type": "shape",
+      "kind": "line",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "size": {
+        "h": "space.1"
+      },
+      "align": {
+        "y": "end"
+      },
+      "at": {
+        "parent": "rebuild-list",
+        "col": [
+          1,
+          2
+        ],
+        "row": 5
+      }
+    },
+    "rebuild-head": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "text": "Rebuild governance for the speed the model demands",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "act-statement": {
+      "type": "text",
+      "role": "display",
+      "semantic": "claim",
+      "at": {
+        "col": [
+          1,
+          10
+        ],
+        "row": [
+          3,
+          7
+        ]
+      },
+      "runs": [
+        {
+          "text": "Act while there is still room to "
+        },
+        {
+          "text": "shape the future.",
+          "style": {
+            "color": "accent"
+          }
+        }
+      ],
+      "fit": "shrink",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "act-moves": {
+      "type": "grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          8,
+          9
+        ]
+      },
+      "cols": 3,
+      "gap": "space.4",
+      "semantic": "takeaway",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "act-m1": {
+      "type": "text",
+      "role": "title",
+      "semantic": "takeaway",
+      "at": {
+        "parent": "act-moves"
+      },
+      "text": "Test the assumptions"
+    },
+    "act-m2": {
+      "type": "text",
+      "role": "title",
+      "semantic": "takeaway",
+      "at": {
+        "parent": "act-moves"
+      },
+      "text": "Decide where to play and win"
+    },
+    "act-m3": {
+      "type": "text",
+      "role": "title",
+      "semantic": "takeaway",
+      "at": {
+        "parent": "act-moves"
+      },
+      "text": "Create margin deliberately"
+    },
+    "act-band": {
+      "type": "stack",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          11,
+          12
+        ]
+      },
+      "fill": "accent",
+      "padding": [
+        "space.4",
+        "space.5"
+      ],
+      "distribute": "center",
+      "semantic": "takeaway",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "act-band-text": {
+      "type": "text",
+      "role": "title",
+      "semantic": "takeaway",
+      "at": {
+        "parent": "act-band"
+      },
+      "text": "Waiting for each threat to become a crisis leaves fewer choices and less money.",
+      "style": {
+        "color": "onAccent"
+      },
+      "measure": 90
+    },
+    "close-statement": {
+      "type": "text",
+      "role": "display",
+      "semantic": "claim",
+      "at": {
+        "in": "statement"
+      },
+      "runs": [
+        {
+          "text": "Not every institution can be "
+        },
+        {
+          "text": "comprehensive.",
+          "style": {
+            "color": "accent"
+          }
+        }
+      ],
+      "fit": "shrink",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "close-support": {
+      "type": "text",
+      "role": "lede",
+      "semantic": "context",
+      "at": {
+        "in": "support"
+      },
+      "text": "Choosing where to concentrate resources, which students to serve, and when to partner will define the next era.",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "close-credit": {
+      "type": "text",
+      "role": "caption",
+      "semantic": "source",
+      "at": {
+        "in": "note"
+      },
+      "text": "The State of Higher Education 2026 · jeffselingo.com",
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    },
+    "close-art": {
+      "type": "image",
+      "src": "assets/hed-acropolis.png",
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "art"
+      },
+      "exit": {
+        "preset": "fade",
+        "duration": "fast"
+      },
+      "enter": {
+        "preset": "fade",
+        "delay": 180
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "cover-title": {},
+        "cover-sub": {},
+        "cover-art": {},
+        "kicker": {
+          "text": "Jeff Selingo · September 2026"
+        },
+        "progress": {
+          "size": {
+            "w": "3.03%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "cover-title",
+          "split": "words",
+          "enter": "rise",
+          "stagger": 70,
+          "timing": "with"
+        },
+        {
+          "target": "cover-art",
+          "enter": "fade",
+          "delay": 150
+        }
+      ]
+    },
+    {
+      "id": "bigger",
+      "mode": "absolute",
+      "layout": "statement",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "bigger-statement": {},
+        "bigger-support": {},
+        "kicker": {
+          "text": "The thesis · Get bigger"
+        },
+        "progress": {
+          "size": {
+            "w": "6.06%"
+          }
+        }
+      }
+    },
+    {
+      "id": "era",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "era-head": {},
+        "era-list": {},
+        "era-r1-fig": {},
+        "era-r1-what": {},
+        "era-r1-rule": {},
+        "kicker": {
+          "text": "The thesis · Inflection"
+        },
+        "progress": {
+          "size": {
+            "w": "9.09%"
+          }
+        }
+      }
+    },
+    {
+      "id": "era-2",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "era-head": {},
+        "era-list": {},
+        "era-r1-fig": {},
+        "era-r1-what": {},
+        "era-r1-rule": {},
+        "era-r2-fig": {},
+        "era-r2-what": {},
+        "era-r2-rule": {},
+        "kicker": {
+          "text": "The thesis · Inflection"
+        },
+        "progress": {
+          "size": {
+            "w": "9.09%"
+          }
+        }
+      },
+      "slide": "era"
+    },
+    {
+      "id": "era-3",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "era-head": {},
+        "era-list": {},
+        "era-r1-fig": {},
+        "era-r1-what": {},
+        "era-r1-rule": {},
+        "era-r2-fig": {},
+        "era-r2-what": {},
+        "era-r2-rule": {},
+        "era-r3-fig": {},
+        "era-r3-what": {},
+        "era-r3-rule": {},
+        "kicker": {
+          "text": "The thesis · Inflection"
+        },
+        "progress": {
+          "size": {
+            "w": "9.09%"
+          }
+        }
+      },
+      "slide": "era"
+    },
+    {
+      "id": "era-4",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "era-head": {},
+        "era-list": {},
+        "era-r1-fig": {},
+        "era-r1-what": {},
+        "era-r1-rule": {},
+        "era-r2-fig": {},
+        "era-r2-what": {},
+        "era-r2-rule": {},
+        "era-r3-fig": {},
+        "era-r3-what": {},
+        "era-r3-rule": {},
+        "era-r4-fig": {},
+        "era-r4-what": {},
+        "era-r4-rule": {},
+        "kicker": {
+          "text": "The thesis · Inflection"
+        },
+        "progress": {
+          "size": {
+            "w": "9.09%"
+          }
+        }
+      },
+      "slide": "era"
+    },
+    {
+      "id": "strain",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "strain-head": {},
+        "strain-diagram": {},
+        "strain-axis": {},
+        "strain-from": {},
+        "strain-to": {},
+        "strain-scope": {},
+        "strain-scope-name": {},
+        "strain-facts": {},
+        "strain-f1": {},
+        "kicker": {
+          "text": "The thesis · 1965–2026"
+        },
+        "progress": {
+          "size": {
+            "w": "12.12%"
+          }
+        }
+      }
+    },
+    {
+      "id": "strain-2",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "strain-head": {},
+        "strain-diagram": {},
+        "strain-axis": {},
+        "strain-from": {},
+        "strain-to": {},
+        "strain-scope": {},
+        "strain-scope-name": {},
+        "strain-facts": {},
+        "strain-f1": {},
+        "strain-res": {},
+        "strain-res-name": {},
+        "strain-f2": {},
+        "kicker": {
+          "text": "The thesis · 1965–2026"
+        },
+        "progress": {
+          "size": {
+            "w": "12.12%"
+          }
+        }
+      },
+      "slide": "strain"
+    },
+    {
+      "id": "strain-3",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "strain-head": {},
+        "strain-diagram": {},
+        "strain-axis": {},
+        "strain-from": {},
+        "strain-to": {},
+        "strain-scope": {},
+        "strain-scope-name": {},
+        "strain-facts": {},
+        "strain-f1": {},
+        "strain-res": {},
+        "strain-res-name": {},
+        "strain-f2": {},
+        "strain-wedge": {},
+        "strain-up": {},
+        "strain-down": {},
+        "strain-gap-name": {},
+        "strain-f3": {},
+        "kicker": {
+          "text": "The thesis · 1965–2026"
+        },
+        "progress": {
+          "size": {
+            "w": "12.12%"
+          }
+        }
+      },
+      "slide": "strain"
+    },
+    {
+      "id": "risk",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "risk-head": {},
+        "risk-cards": {},
+        "risk-c1": {},
+        "risk-c1-name": {},
+        "risk-c1-what": {},
+        "risk-c2": {},
+        "risk-c2-name": {},
+        "risk-c2-what": {},
+        "risk-c3": {},
+        "risk-c3-name": {},
+        "risk-c3-what": {},
+        "risk-c4": {},
+        "risk-c4-name": {},
+        "risk-c4-what": {},
+        "kicker": {
+          "text": "Framing · Enterprise risk"
+        },
+        "progress": {
+          "size": {
+            "w": "15.15%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "risk-cards",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "margin",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "margin-number": {},
+        "margin-claim": {},
+        "margin-detail": {},
+        "margin-chronic": {},
+        "margin-costs": {},
+        "margin-quote": {},
+        "kicker": {
+          "text": "Business model · Margin"
+        },
+        "progress": {
+          "size": {
+            "w": "18.18%"
+          }
+        }
+      }
+    },
+    {
+      "id": "red-ink",
+      "mode": "absolute",
+      "layout": "narrow-figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "red-ink-head": {},
+        "red-ink-chart": {},
+        "red-ink-facts": {},
+        "red-ink-f1": {},
+        "red-ink-f2": {},
+        "kicker": {
+          "text": "Business model · Red ink"
+        },
+        "progress": {
+          "size": {
+            "w": "21.21%"
+          }
+        }
+      }
+    },
+    {
+      "id": "intl",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "intl-head": {},
+        "intl-chart": {},
+        "intl-facts": {},
+        "intl-f1": {},
+        "intl-f2": {},
+        "intl-f3": {},
+        "kicker": {
+          "text": "Business model · International"
+        },
+        "progress": {
+          "size": {
+            "w": "24.24%"
+          }
+        }
+      }
+    },
+    {
+      "id": "loans",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "loans-head": {},
+        "loans-tiles": {},
+        "loans-t1": {},
+        "loans-t1-fig": {},
+        "loans-t1-label": {},
+        "loans-t2": {},
+        "loans-t2-fig": {},
+        "loans-t2-label": {},
+        "loans-t3": {},
+        "loans-t3-fig": {},
+        "loans-t3-label": {},
+        "loans-t4": {},
+        "loans-t4-fig": {},
+        "loans-t4-label": {},
+        "kicker": {
+          "text": "Washington · Loan caps"
+        },
+        "progress": {
+          "size": {
+            "w": "27.27%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "loans-tiles",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "rd",
+      "mode": "absolute",
+      "layout": "narrow-figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "rd-head": {},
+        "rd-chart": {},
+        "rd-facts": {},
+        "rd-f1": {},
+        "rd-f2": {},
+        "rd-f3": {},
+        "kicker": {
+          "text": "Research · R&D funding"
+        },
+        "progress": {
+          "size": {
+            "w": "30.3%"
+          }
+        }
+      }
+    },
+    {
+      "id": "pell",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "pell-head": {},
+        "pell-funnel": {},
+        "pell-s1": {},
+        "pell-s1-name": {},
+        "pell-s1-what": {},
+        "pell-s2": {},
+        "pell-s2-name": {},
+        "pell-s2-what": {},
+        "pell-s3": {},
+        "pell-s3-name": {},
+        "pell-s3-what": {},
+        "pell-s4": {},
+        "pell-s4-name": {},
+        "pell-s4-what": {},
+        "kicker": {
+          "text": "Washington · Workforce Pell"
+        },
+        "progress": {
+          "size": {
+            "w": "33.33%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "pell-funnel",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 160
+        }
+      ]
+    },
+    {
+      "id": "floor",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "floor-head": {},
+        "floor-chart": {},
+        "floor-facts": {},
+        "floor-f1": {},
+        "floor-f2": {},
+        "floor-f3": {},
+        "kicker": {
+          "text": "Washington · Earnings floor"
+        },
+        "progress": {
+          "size": {
+            "w": "36.36%"
+          }
+        }
+      }
+    },
+    {
+      "id": "commerce",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "commerce-number": {},
+        "commerce-claim": {},
+        "commerce-detail": {},
+        "commerce-record": {},
+        "commerce-costs": {},
+        "commerce-ratio": {},
+        "commerce-ratio-part": {},
+        "commerce-ratio-rest": {},
+        "kicker": {
+          "text": "Research · Commercialization"
+        },
+        "progress": {
+          "size": {
+            "w": "39.39%"
+          }
+        }
+      }
+    },
+    {
+      "id": "athletics",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "athletics-head": {},
+        "athletics-table": {},
+        "athletics-total": {},
+        "athletics-total-text": {},
+        "athletics-side": {},
+        "athletics-gap": {},
+        "athletics-gap-what": {},
+        "kicker": {
+          "text": "Athletics · The bill"
+        },
+        "progress": {
+          "size": {
+            "w": "42.42%"
+          }
+        }
+      }
+    },
+    {
+      "id": "aicost",
+      "mode": "absolute",
+      "layout": "art-left",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "aicost-head": {},
+        "aicost-art": {},
+        "aicost-body": {},
+        "aicost-c1": {},
+        "aicost-c1-name": {},
+        "aicost-c1-what": {},
+        "aicost-c2": {},
+        "aicost-c2-name": {},
+        "aicost-c2-what": {},
+        "kicker": {
+          "text": "AI · The cost"
+        },
+        "progress": {
+          "size": {
+            "w": "45.45%"
+          }
+        }
+      }
+    },
+    {
+      "id": "hinge",
+      "mode": "absolute",
+      "layout": "poster",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "hinge-statement": {},
+        "hinge-support": {},
+        "hinge-art": {},
+        "kicker": {
+          "text": "Strategy · The hinge"
+        },
+        "progress": {
+          "size": {
+            "w": "48.48%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "hinge-statement",
+          "split": "words",
+          "enter": "rise",
+          "stagger": 70,
+          "timing": "with"
+        }
+      ]
+    },
+    {
+      "id": "payoff",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "payoff-head": {},
+        "payoff-list": {},
+        "payoff-n1": {},
+        "payoff-q1": {},
+        "payoff-r1": {},
+        "payoff-n2": {},
+        "payoff-q2": {},
+        "payoff-r2": {},
+        "payoff-n3": {},
+        "payoff-q3": {},
+        "payoff-r3": {},
+        "payoff-n4": {},
+        "payoff-q4": {},
+        "payoff-r4": {},
+        "kicker": {
+          "text": "Strategy · Payoff test"
+        },
+        "progress": {
+          "size": {
+            "w": "51.52%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": [
+            "payoff-q1",
+            "payoff-q2",
+            "payoff-q3",
+            "payoff-q4"
+          ],
+          "enter": "rise",
+          "stagger": 120
+        }
+      ]
+    },
+    {
+      "id": "gates",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "gates-head": {},
+        "gates-flow": {},
+        "gates-c1": {},
+        "gates-c1-name": {},
+        "gates-c1-what": {},
+        "gates-a1": {},
+        "gates-c2": {},
+        "gates-c2-name": {},
+        "gates-c2-what": {},
+        "gates-a2": {},
+        "gates-c3": {},
+        "gates-c3-name": {},
+        "gates-c3-what": {},
+        "gates-a3": {},
+        "gates-c4": {},
+        "gates-c4-name": {},
+        "gates-c4-what": {},
+        "gates-quote": {},
+        "kicker": {
+          "text": "Research · Decision gates"
+        },
+        "progress": {
+          "size": {
+            "w": "54.55%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "gates-flow",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 110
+        }
+      ]
+    },
+    {
+      "id": "assess",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "assess-head": {},
+        "assess-cols": {},
+        "assess-reality": {},
+        "assess-right": {},
+        "assess-method-label": {},
+        "assess-method": {},
+        "assess-reality-label": {},
+        "assess-s1": {},
+        "assess-s1-fig": {},
+        "assess-s1-what": {},
+        "assess-s2": {},
+        "assess-s2-fig": {},
+        "assess-s2-what": {},
+        "assess-s3": {},
+        "assess-s3-fig": {},
+        "assess-s3-what": {},
+        "assess-m1": {},
+        "assess-mr1": {},
+        "assess-m2": {},
+        "assess-mr2": {},
+        "assess-m3": {},
+        "assess-mr3": {},
+        "kicker": {
+          "text": "AI · Assessment"
+        },
+        "progress": {
+          "size": {
+            "w": "57.58%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": [
+            "assess-m1",
+            "assess-m2",
+            "assess-m3"
+          ],
+          "enter": "rise",
+          "stagger": 140
+        }
+      ]
+    },
+    {
+      "id": "curriculum",
+      "mode": "absolute",
+      "layout": "art-right",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "curriculum-head": {},
+        "curriculum-art": {},
+        "curriculum-facts": {},
+        "curriculum-f1": {},
+        "curriculum-f2": {},
+        "curriculum-f3": {},
+        "kicker": {
+          "text": "AI · Curriculum"
+        },
+        "progress": {
+          "size": {
+            "w": "60.61%"
+          }
+        }
+      }
+    },
+    {
+      "id": "duke",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "duke-head": {},
+        "duke-list": {},
+        "duke-n1": {},
+        "duke-w1": {},
+        "duke-r1": {},
+        "duke-n2": {},
+        "duke-w2": {},
+        "duke-r2": {},
+        "duke-n3": {},
+        "duke-w3": {},
+        "duke-r3": {},
+        "duke-n4": {},
+        "duke-w4": {},
+        "duke-r4": {},
+        "kicker": {
+          "text": "AI · Governance"
+        },
+        "progress": {
+          "size": {
+            "w": "63.64%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "duke-list",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 60
+        }
+      ]
+    },
+    {
+      "id": "cyber",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "cyber-head": {},
+        "cyber-tiles": {},
+        "cyber-t1": {},
+        "cyber-t1-fig": {},
+        "cyber-t1-label": {},
+        "cyber-t2": {},
+        "cyber-t2-fig": {},
+        "cyber-t2-label": {},
+        "cyber-t3": {},
+        "cyber-t3-fig": {},
+        "cyber-t3-label": {},
+        "cyber-t4": {},
+        "cyber-t4-fig": {},
+        "cyber-t4-label": {},
+        "kicker": {
+          "text": "Governance · Cyber"
+        },
+        "progress": {
+          "size": {
+            "w": "66.67%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "cyber-tiles",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "compute",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "compute-head": {},
+        "compute-chart": {},
+        "compute-facts": {},
+        "compute-f1": {},
+        "compute-f2": {},
+        "compute-f3": {},
+        "kicker": {
+          "text": "Research · Compute"
+        },
+        "progress": {
+          "size": {
+            "w": "69.7%"
+          }
+        }
+      }
+    },
+    {
+      "id": "narrowing",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "narrowing-head": {},
+        "narrow-cases": {},
+        "narrow-c1": {},
+        "narrow-c1-top": {},
+        "narrow-c1-name": {},
+        "narrow-c1-held": {},
+        "narrow-c1-what": {},
+        "narrow-c2": {},
+        "narrow-c2-top": {},
+        "narrow-c2-name": {},
+        "narrow-c2-held": {},
+        "narrow-c2-what": {},
+        "narrow-c3": {},
+        "narrow-c3-top": {},
+        "narrow-c3-name": {},
+        "narrow-c3-held": {},
+        "narrow-c3-what": {},
+        "narrow-c4": {},
+        "narrow-c4-top": {},
+        "narrow-c4-name": {},
+        "narrow-c4-held": {},
+        "narrow-c4-what": {},
+        "kicker": {
+          "text": "Business model · Narrowing"
+        },
+        "progress": {
+          "size": {
+            "w": "72.73%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "narrow-cases",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "boards",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "boards-head": {},
+        "boards-cols": {},
+        "boards-p1": {},
+        "boards-p1-name": {},
+        "boards-p1-figs": {},
+        "boards-p1-1": {},
+        "boards-p1-1-fig": {},
+        "boards-p1-1-what": {},
+        "boards-p1-2": {},
+        "boards-p1-2-fig": {},
+        "boards-p1-2-what": {},
+        "boards-p2": {},
+        "boards-p2-name": {},
+        "boards-p2-figs": {},
+        "boards-p2-1": {},
+        "boards-p2-1-fig": {},
+        "boards-p2-1-what": {},
+        "boards-p2-2": {},
+        "boards-p2-2-fig": {},
+        "boards-p2-2-what": {},
+        "boards-note": {},
+        "kicker": {
+          "text": "Governance · Boards"
+        },
+        "progress": {
+          "size": {
+            "w": "75.76%"
+          }
+        }
+      }
+    },
+    {
+      "id": "demand",
+      "mode": "absolute",
+      "layout": "narrow-figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "demand-head": {},
+        "demand-chart": {},
+        "demand-facts": {},
+        "demand-f1": {},
+        "demand-f2": {},
+        "demand-f3": {},
+        "demand-f4": {},
+        "kicker": {
+          "text": "Business model · Demand"
+        },
+        "progress": {
+          "size": {
+            "w": "78.79%"
+          }
+        }
+      }
+    },
+    {
+      "id": "leaders",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "leaders-head": {},
+        "leaders-chart": {},
+        "leaders-facts": {},
+        "leaders-f1": {},
+        "leaders-f2": {},
+        "leaders-f3": {},
+        "kicker": {
+          "text": "Governance · Leadership"
+        },
+        "progress": {
+          "size": {
+            "w": "81.82%"
+          }
+        }
+      }
+    },
+    {
+      "id": "trust",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "trust-head": {},
+        "trust-chart": {},
+        "trust-facts": {},
+        "trust-f1": {},
+        "trust-f2": {},
+        "trust-f3": {},
+        "kicker": {
+          "text": "Governance · Trust"
+        },
+        "progress": {
+          "size": {
+            "w": "84.85%"
+          }
+        }
+      }
+    },
+    {
+      "id": "unknowns",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "unknowns-head": {},
+        "unknowns-cards": {},
+        "unknowns-c1": {},
+        "unknowns-c1-name": {},
+        "unknowns-c1-what": {},
+        "unknowns-c2": {},
+        "unknowns-c2-name": {},
+        "unknowns-c2-what": {},
+        "unknowns-c3": {},
+        "unknowns-c3-name": {},
+        "unknowns-c3-what": {},
+        "unknowns-c4": {},
+        "unknowns-c4-name": {},
+        "unknowns-c4-what": {},
+        "kicker": {
+          "text": "Outlook · Unknowns"
+        },
+        "progress": {
+          "size": {
+            "w": "87.88%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "unknowns-cards",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "watch",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "watch-head": {},
+        "watch-list": {},
+        "watch-n1": {},
+        "watch-w1": {},
+        "watch-r1": {},
+        "watch-n2": {},
+        "watch-w2": {},
+        "watch-r2": {},
+        "watch-n3": {},
+        "watch-w3": {},
+        "watch-r3": {},
+        "watch-n4": {},
+        "watch-w4": {},
+        "watch-r4": {},
+        "watch-n5": {},
+        "watch-w5": {},
+        "watch-r5": {},
+        "watch-n6": {},
+        "watch-w6": {},
+        "watch-r6": {},
+        "kicker": {
+          "text": "Outlook · 2027"
+        },
+        "progress": {
+          "size": {
+            "w": "90.91%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": [
+            "watch-w1",
+            "watch-w2",
+            "watch-w3",
+            "watch-w4",
+            "watch-w5",
+            "watch-w6"
+          ],
+          "enter": "rise",
+          "stagger": 90
+        }
+      ]
+    },
+    {
+      "id": "rebuild",
+      "mode": "absolute",
+      "layout": "full",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "rebuild-head": {},
+        "rebuild-list": {},
+        "rebuild-w1": {},
+        "rebuild-o1": {},
+        "rebuild-r1": {},
+        "rebuild-w2": {},
+        "rebuild-o2": {},
+        "rebuild-r2": {},
+        "rebuild-w3": {},
+        "rebuild-o3": {},
+        "rebuild-r3": {},
+        "rebuild-w4": {},
+        "rebuild-o4": {},
+        "rebuild-r4": {},
+        "rebuild-w5": {},
+        "rebuild-o5": {},
+        "rebuild-r5": {},
+        "kicker": {
+          "text": "Governance · Rebuild"
+        },
+        "progress": {
+          "size": {
+            "w": "93.94%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": "rebuild-list",
+          "split": "children",
+          "enter": "rise",
+          "stagger": 60
+        }
+      ]
+    },
+    {
+      "id": "act",
+      "mode": "absolute",
+      "layout": "statement",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "act-statement": {},
+        "act-moves": {},
+        "act-m1": {},
+        "act-m2": {},
+        "act-m3": {},
+        "act-band": {},
+        "act-band-text": {},
+        "kicker": {
+          "text": "The ask"
+        },
+        "progress": {
+          "size": {
+            "w": "96.97%"
+          }
+        }
+      },
+      "choreography": [
+        {
+          "target": [
+            "act-m1",
+            "act-m2",
+            "act-m3"
+          ],
+          "enter": "rise",
+          "stagger": 120
+        },
+        {
+          "target": "act-band",
+          "enter": "rise",
+          "delay": 500
+        }
+      ]
+    },
+    {
+      "id": "close",
+      "mode": "absolute",
+      "layout": "poster",
+      "transition": {
+        "duration": "standard"
+      },
+      "props": {
+        "close-statement": {},
+        "close-support": {},
+        "close-credit": {},
+        "close-art": {},
+        "kicker": {
+          "text": "Closing · 2026"
+        },
+        "progress": {
+          "size": {
+            "w": "100.0%"
+          }
+        }
+      }
+    }
+  ]
+}

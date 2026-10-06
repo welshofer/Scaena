@@ -1,0 +1,1341 @@
+{
+  "scaena": "0.11",
+  "meta": {
+    "title": "Ridgeline bike-share: expand in 2027"
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/ember.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "rides": {
+      "source": "data/ridgeline-rides.csv",
+      "schema": {
+        "month": "date",
+        "neighborhood": "string",
+        "trips": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "opening",
+        "title": "Opening",
+        "beats": [
+          {
+            "id": "open",
+            "claim": "The Ridgeline pilot worked, and the case to expand is strong.",
+            "states": [
+              "cover"
+            ],
+            "notes": "Frame the vote: one decision next Tuesday."
+          }
+        ]
+      },
+      {
+        "id": "growth-section",
+        "title": "Growth",
+        "beats": [
+          {
+            "id": "growth",
+            "claim": "Monthly trips grew from 4,200 in January to 18,900 in December.",
+            "evidence": [
+              "@rides"
+            ],
+            "states": [
+              "growth",
+              "total"
+            ]
+          },
+          {
+            "id": "hilltop-stalled",
+            "claim": "Hilltop, the steepest neighborhood, barely moved until June.",
+            "evidence": [
+              "@rides"
+            ],
+            "states": [
+              "hoods"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hilltop-section",
+        "title": "E-bikes",
+        "beats": [
+          {
+            "id": "ebikes",
+            "claim": "E-bikes arrived in June, and Hilltop trips grew sixfold by December.",
+            "evidence": [
+              "@rides"
+            ],
+            "states": [
+              "ebikes",
+              "sixfold"
+            ]
+          },
+          {
+            "id": "lesson",
+            "claim": "E-bikes unlock steep neighborhoods.",
+            "states": [
+              "lesson"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "cost-section",
+        "title": "Cost",
+        "beats": [
+          {
+            "id": "cheaper",
+            "claim": "By December a bike trip cost about $1.20 to run, against $2.90 for the bus.",
+            "states": [
+              "cost"
+            ]
+          },
+          {
+            "id": "setup",
+            "claim": "The $1.4 million set-up cost bought a system that now runs cheaply.",
+            "states": [
+              "setup"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ask-section",
+        "title": "The ask",
+        "beats": [
+          {
+            "id": "recap",
+            "claim": "Demand, cost, and proof all point to expanding.",
+            "states": [
+              "recap"
+            ]
+          },
+          {
+            "id": "proposal",
+            "claim": "The proposal is two more neighborhoods in 2027.",
+            "states": [
+              "plan"
+            ]
+          },
+          {
+            "id": "ask",
+            "claim": "Approve $1.2 million to expand to two more neighborhoods in 2027.",
+            "states": [
+              "ask"
+            ],
+            "notes": "End on the ask. Vote is next Tuesday."
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "cover-kicker": {
+      "type": "text",
+      "role": "label",
+      "text": "City council briefing · 2027 expansion",
+      "semantic": "context",
+      "at": {
+        "col": [
+          1,
+          8
+        ],
+        "row": 1,
+        "align": {
+          "y": "end"
+        }
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "cover-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Ridgeline bike-share",
+      "semantic": "navigation",
+      "at": {
+        "in": "title"
+      }
+    },
+    "cover-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "The pilot worked. Here is the case to expand.",
+      "semantic": "claim",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "growth-number": {
+      "type": "text",
+      "role": "numeral",
+      "text": "18,900",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "fit": "grow",
+      "box": "cap"
+    },
+    "growth-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "trips in December, up from 4,200 in January",
+      "semantic": "claim",
+      "at": {
+        "in": "claim",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "growth-aside": {
+      "type": "text",
+      "role": "body",
+      "text": "Three neighborhoods. Monthly trips grew 4.5 times in one year.",
+      "semantic": "context",
+      "at": {
+        "in": "detail",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "total-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Trips grew every month of 2026",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "total-chart": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@rides",
+      "dataTransform": [
+        {
+          "aggregate": {
+            "trips": "sum(trips)"
+          },
+          "groupby": [
+            "month"
+          ]
+        }
+      ],
+      "x": {
+        "field": "month",
+        "type": "temporal"
+      },
+      "y": {
+        "field": "trips",
+        "type": "quantitative",
+        "format": ",d"
+      },
+      "alt": "Total monthly trips across the three neighborhoods, rising every month from 4,200 in January to 18,900 in December.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "total-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Monthly trips, all three pilot neighborhoods. Source: Ridgeline pilot ride data.",
+      "semantic": "source",
+      "at": {
+        "in": "note"
+      }
+    },
+    "hoods-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Hilltop barely moved until June",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "hoods-chart": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rides",
+      "x": {
+        "field": "month",
+        "type": "temporal"
+      },
+      "y": {
+        "field": "trips",
+        "type": "quantitative",
+        "format": ",d"
+      },
+      "series": {
+        "field": "neighborhood",
+        "type": "nominal"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Hilltop"
+          }
+        }
+      ],
+      "alt": "Monthly trips by neighborhood. Riverside rises from 2,000 to 7,800 and Old Town from 1,600 to 6,900. Hilltop stays near 600 to 680 until May, then rises to 4,200.",
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      }
+    },
+    "hoods-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Monthly trips by neighborhood. Source: Ridgeline pilot ride data.",
+      "semantic": "source",
+      "at": {
+        "in": "note"
+      }
+    },
+    "ebike-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "E-bikes lifted Hilltop",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "ebike-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Hilltop monthly trips. E-bikes arrived in June. Source: Ridgeline pilot ride data.",
+      "semantic": "source",
+      "at": {
+        "in": "note"
+      }
+    },
+    "six-number": {
+      "type": "text",
+      "role": "numeral",
+      "text": "6x",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "fit": "grow",
+      "box": "cap"
+    },
+    "six-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "Hilltop trips, May to December",
+      "semantic": "claim",
+      "at": {
+        "in": "claim",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "six-aside": {
+      "type": "text",
+      "role": "body",
+      "text": "680 trips in May, 4,200 in December. The steepest neighborhood took off with e-bikes.",
+      "semantic": "context",
+      "at": {
+        "in": "detail",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "cost-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Bikes cost under half the bus",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "cost-grid": {
+      "type": "grid",
+      "cols": 2,
+      "gap": "space.5",
+      "semantic": "comparison",
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          3,
+          5
+        ]
+      }
+    },
+    "cost-bike": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "comparison",
+      "at": {
+        "parent": "cost-grid",
+        "col": 1
+      }
+    },
+    "cost-bike-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Bike-share, December",
+      "semantic": "comparison",
+      "at": {
+        "parent": "cost-bike"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "cost-bike-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$1.20",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cost-bike"
+      },
+      "fit": "shrink"
+    },
+    "cost-bike-body": {
+      "type": "text",
+      "role": "body",
+      "text": "to run one trip",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cost-bike"
+      }
+    },
+    "cost-bus": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "comparison",
+      "at": {
+        "parent": "cost-grid",
+        "col": 2
+      }
+    },
+    "cost-bus-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Bus",
+      "semantic": "comparison",
+      "at": {
+        "parent": "cost-bus"
+      }
+    },
+    "cost-bus-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$2.90",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cost-bus"
+      },
+      "fit": "shrink"
+    },
+    "cost-bus-body": {
+      "type": "text",
+      "role": "body",
+      "text": "to run one trip",
+      "semantic": "evidence",
+      "at": {
+        "parent": "cost-bus"
+      }
+    },
+    "cost-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Operating cost per trip. Source: Ridgeline transportation office.",
+      "semantic": "source",
+      "at": {
+        "in": "note"
+      }
+    },
+    "setup-number": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$1.4M",
+      "semantic": "evidence",
+      "at": {
+        "in": "number"
+      },
+      "fit": "grow",
+      "box": "cap"
+    },
+    "setup-meaning": {
+      "type": "text",
+      "role": "title",
+      "text": "to set up the pilot, once",
+      "semantic": "claim",
+      "at": {
+        "in": "claim",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "setup-aside": {
+      "type": "text",
+      "role": "body",
+      "text": "That bought three working neighborhoods and a $1.20 trip.",
+      "semantic": "context",
+      "at": {
+        "in": "detail",
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "lesson-title": {
+      "type": "text",
+      "role": "display",
+      "text": "E-bikes unlock steep neighborhoods.",
+      "semantic": "claim",
+      "at": {
+        "in": "title"
+      },
+      "fit": "shrink"
+    },
+    "lesson-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "Hilltop is the proof.",
+      "semantic": "context",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "recap-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "The evidence says expand",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "recap-grid": {
+      "type": "grid",
+      "cols": 3,
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          3,
+          5
+        ]
+      }
+    },
+    "recap-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-grid",
+        "col": 1
+      }
+    },
+    "recap-a-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Demand",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-a"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "recap-a-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "4.5x",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-a"
+      },
+      "fit": "shrink"
+    },
+    "recap-a-body": {
+      "type": "text",
+      "role": "body",
+      "text": "monthly trips, January to December",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-a"
+      }
+    },
+    "recap-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-grid",
+        "col": 2
+      }
+    },
+    "recap-b-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Cost",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-b"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "recap-b-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$1.20",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-b"
+      },
+      "fit": "shrink"
+    },
+    "recap-b-body": {
+      "type": "text",
+      "role": "body",
+      "text": "a trip, against $2.90 by bus",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-b"
+      }
+    },
+    "recap-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-grid",
+        "col": 3
+      }
+    },
+    "recap-c-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Proof",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-c"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "recap-c-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "6x",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-c"
+      },
+      "fit": "shrink"
+    },
+    "recap-c-body": {
+      "type": "text",
+      "role": "body",
+      "text": "Hilltop trips after e-bikes",
+      "semantic": "evidence",
+      "at": {
+        "parent": "recap-c"
+      }
+    },
+    "plan-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Two more neighborhoods",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      }
+    },
+    "plan-grid": {
+      "type": "grid",
+      "cols": 3,
+      "gap": "space.5",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": [
+          3,
+          5
+        ]
+      }
+    },
+    "plan-a": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-grid",
+        "col": 1
+      }
+    },
+    "plan-a-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Where",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-a"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "plan-a-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "2",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-a"
+      },
+      "fit": "shrink"
+    },
+    "plan-a-body": {
+      "type": "text",
+      "role": "body",
+      "text": "new neighborhoods",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-a"
+      }
+    },
+    "plan-b": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-grid",
+        "col": 2
+      }
+    },
+    "plan-b-label": {
+      "type": "text",
+      "role": "label",
+      "text": "When",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-b"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "plan-b-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "2027",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-b"
+      },
+      "fit": "shrink"
+    },
+    "plan-b-body": {
+      "type": "text",
+      "role": "body",
+      "text": "the expansion year",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-b"
+      }
+    },
+    "plan-c": {
+      "type": "stack",
+      "fill": "surface-2",
+      "radius": "radius.3",
+      "padding": "space.5",
+      "gap": "space.6",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-grid",
+        "col": 3
+      }
+    },
+    "plan-c-label": {
+      "type": "text",
+      "role": "label",
+      "text": "Cost",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-c"
+      },
+      "style": {
+        "color": "accent"
+      }
+    },
+    "plan-c-num": {
+      "type": "text",
+      "role": "numeral",
+      "text": "$1.2M",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-c"
+      },
+      "fit": "shrink"
+    },
+    "plan-c-body": {
+      "type": "text",
+      "role": "body",
+      "text": "for the expansion",
+      "semantic": "evidence",
+      "at": {
+        "parent": "plan-c"
+      }
+    },
+    "ask-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Approve $1.2 million to expand.",
+      "semantic": "takeaway",
+      "at": {
+        "in": "title"
+      },
+      "fit": "shrink"
+    },
+    "ask-sub": {
+      "type": "text",
+      "role": "title",
+      "text": "Two more neighborhoods in 2027. Council votes next Tuesday.",
+      "semantic": "context",
+      "at": {
+        "in": "subtitle"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "cover",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "standard",
+      "props": {
+        "cover-kicker": {},
+        "cover-title": {},
+        "cover-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "cover-title",
+              "enter": "rise"
+            },
+            {
+              "target": "cover-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 4500.0
+    },
+    {
+      "id": "growth",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": "fast",
+      "props": {
+        "growth-number": {},
+        "growth-meaning": {},
+        "growth-aside": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": [
+                "growth-number",
+                "growth-meaning"
+              ],
+              "enter": "rise"
+            },
+            {
+              "target": "growth-aside",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 5500.0
+    },
+    {
+      "id": "total",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "total-title": {},
+        "total-chart": {},
+        "total-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "total-title",
+              "enter": "rise"
+            },
+            {
+              "target": "total-chart",
+              "enter": "grow"
+            },
+            {
+              "target": "total-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "hoods",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "hoods-title": {},
+        "hoods-chart": {},
+        "hoods-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "hoods-title",
+              "enter": "rise"
+            },
+            {
+              "target": "hoods-chart",
+              "enter": "fade"
+            },
+            {
+              "target": "hoods-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6500.0
+    },
+    {
+      "id": "ebikes",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "standard",
+      "props": {
+        "ebike-title": {},
+        "hoods-chart": {
+          "dataTransform": [
+            {
+              "filter": "neighborhood == 'Hilltop'"
+            }
+          ],
+          "annotations": [
+            {
+              "kind": "callout",
+              "at": {
+                "x": "2026-06-01"
+              },
+              "text": "E-bikes arrive"
+            }
+          ]
+        },
+        "ebike-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "ebike-title",
+              "enter": "rise"
+            },
+            {
+              "target": "ebike-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6500.0
+    },
+    {
+      "id": "sixfold",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": "fast",
+      "props": {
+        "six-number": {},
+        "six-meaning": {},
+        "six-aside": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": [
+                "six-number",
+                "six-meaning"
+              ],
+              "enter": "rise"
+            },
+            {
+              "target": "six-aside",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    },
+    {
+      "id": "lesson",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "lesson-title": {},
+        "lesson-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "lesson-title",
+              "enter": "rise"
+            },
+            {
+              "target": "lesson-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 4500.0
+    },
+    {
+      "id": "cost",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "cost-title": {},
+        "cost-grid": {},
+        "cost-bike": {},
+        "cost-bike-label": {},
+        "cost-bike-num": {},
+        "cost-bike-body": {},
+        "cost-bus": {},
+        "cost-bus-label": {},
+        "cost-bus-num": {},
+        "cost-bus-body": {},
+        "cost-note": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "cost-title",
+              "enter": "rise"
+            },
+            {
+              "target": "cost-grid",
+              "split": "children",
+              "enter": "rise",
+              "stagger": 300
+            },
+            {
+              "target": "cost-note",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 6500.0
+    },
+    {
+      "id": "setup",
+      "mode": "absolute",
+      "layout": "stat",
+      "transition": "fast",
+      "props": {
+        "setup-number": {},
+        "setup-meaning": {},
+        "setup-aside": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": [
+                "setup-number",
+                "setup-meaning"
+              ],
+              "enter": "rise"
+            },
+            {
+              "target": "setup-aside",
+              "enter": "fade"
+            }
+          ]
+        }
+      ],
+      "hold": 5500.0
+    },
+    {
+      "id": "recap",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "recap-title": {},
+        "recap-grid": {},
+        "recap-a": {},
+        "recap-a-label": {},
+        "recap-a-num": {},
+        "recap-a-body": {},
+        "recap-b": {},
+        "recap-b-label": {},
+        "recap-b-num": {},
+        "recap-b-body": {},
+        "recap-c": {},
+        "recap-c-label": {},
+        "recap-c-num": {},
+        "recap-c-body": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "recap-title",
+              "enter": "rise"
+            },
+            {
+              "target": "recap-grid",
+              "split": "children",
+              "enter": "rise",
+              "stagger": 300
+            }
+          ]
+        }
+      ],
+      "hold": 7000.0
+    },
+    {
+      "id": "plan",
+      "mode": "absolute",
+      "layout": "figure",
+      "transition": "fast",
+      "props": {
+        "plan-title": {},
+        "plan-grid": {},
+        "plan-a": {},
+        "plan-a-label": {},
+        "plan-a-num": {},
+        "plan-a-body": {},
+        "plan-b": {},
+        "plan-b-label": {},
+        "plan-b-num": {},
+        "plan-b-body": {},
+        "plan-c": {},
+        "plan-c-label": {},
+        "plan-c-num": {},
+        "plan-c-body": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "plan-title",
+              "enter": "rise"
+            },
+            {
+              "target": "plan-grid",
+              "split": "children",
+              "enter": "rise",
+              "stagger": 300
+            }
+          ]
+        }
+      ],
+      "hold": 6500.0
+    },
+    {
+      "id": "ask",
+      "mode": "absolute",
+      "layout": "title",
+      "transition": "fast",
+      "props": {
+        "ask-title": {},
+        "ask-sub": {}
+      },
+      "choreography": [
+        {
+          "sequence": [
+            {
+              "target": "ask-title",
+              "enter": "rise"
+            },
+            {
+              "target": "ask-sub",
+              "enter": "rise"
+            }
+          ]
+        }
+      ],
+      "hold": 6000.0
+    }
+  ]
+}

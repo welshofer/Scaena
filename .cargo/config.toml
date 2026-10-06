@@ -1,0 +1,4 @@
+# The browser's modules run WebAssembly SIMD (Chrome 91, Firefox 89, Safari 16.4), so the web
+# player's CPU painter runs vello_cpu's SIMD path, not its scalar fallback (ADR-0004 finding 15).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

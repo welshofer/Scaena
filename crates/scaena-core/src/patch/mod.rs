@@ -12,9 +12,14 @@
 //! A patch applies as a whole or not at all: on any failure the document is left as it was.
 //! Lint's fixes are RFC 6902 patches (SPEC §7.4, [`apply`]).
 
+mod find;
 mod ops;
 
+pub use find::{Found, Query, find, replacing};
+pub use ops::{Written, written};
+
 use crate::document::{DataSource, Node, Props, State};
+use crate::model::values::{Duration, NonNegative, Range, Rect};
 use crate::model::{Id, StateDeltaRef, ThemeRef};
 use crate::validate::BundleFiles;
 use schemars::JsonSchema;
@@ -170,6 +175,28 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         state: String,
     },
+    /// A new group, `id`, holding `nodes` where they stand (ADR-0008, ADR-0013). They are
+    /// children of one container, the slide or a group, as `state` shows them (else as their
+    /// own `at` places them), and take the group as their container wherever that one is
+    /// written. A group lays nothing out, so nothing moves. It sits where they sat, at the
+    /// highest `z` among them (0 for one that sets none), last among what stands there; and
+    /// it shows in each state that shows one of them in it, and only there.
+    Group {
+        #[schemars(with = "Id")]
+        id: String,
+        #[schemars(with = "Vec<Id>", length(min = 1))]
+        nodes: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+    },
+    /// A group's children taken out to the group's own container where they stand, each
+    /// keeping its own `z`, and the group gone with everything that names it: its deltas, its
+    /// exits, its choreography, and its overrides. Its look goes with it.
+    Ungroup {
+        #[schemars(with = "Id")]
+        group: String,
+    },
     /// One property (`kind`), or one key of an object property (`at/in`), set to `value`:
     /// in a state, as its delta, or in the node's defaults. `null` takes it away: from the
     /// node's defaults, or, in a state, from what the node tracks (SPEC §2.2).
@@ -183,6 +210,30 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
     },
+    /// A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that
+    /// say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`,
+    /// and the rest of them go. They are written where the placement lives: in the deck's
+    /// `overrides` if they set it; else in the latest delta that sets it, from `state` back
+    /// along what it tracks; else in the node's own `at`. Without `state`, in the node's own
+    /// unless the overrides set it. Its container (`at.parent`) is part of its placement: the
+    /// node stays in it unless `at` names another, or `null` for the canvas (PLAN 2.50). What
+    /// holds it says what places it: the theme's grid places a root or a group's member by
+    /// cells, slot, or `rect`; a grid container by cells, `area`, or `index`; a stack by
+    /// `index`; a frame by `rect`.
+    Place {
+        #[schemars(with = "Id")]
+        node: String,
+        at: Spot,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever the placement lives now: the node goes
+        /// there in that state, and in the states that track it as they take the rest of its
+        /// props, and stays where it was in the others. Refused where the deck's `overrides`
+        /// place the node, in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// A text node's `text`, in a state or in its defaults. `runs` there go, so the text
     /// is what shows.
     SetText {
@@ -192,6 +243,78 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
+    },
+    /// Text typed into a text node where it stands (ADR-0013): the characters from `from` to
+    /// `to` of its text as `state` shows it (its `text`, or its runs' texts end to end, as the
+    /// deck's `overrides` leave them) become `text`. Offsets count characters (Unicode scalar
+    /// values). Runs keep their looks: what is typed takes the look of the run it is typed
+    /// into, the one before where two meet, and a run the edit leaves with no text goes. It is
+    /// written where the
+    /// text lives: in the deck's `overrides` if they set it; else in the latest delta that
+    /// sets it, from `state` back along what it tracks; else in the node's own. Without
+    /// `state`, in the node's own unless the overrides set it.
+    ReplaceText {
+        #[schemars(with = "Id")]
+        node: String,
+        from: u32,
+        to: u32,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever the text lives now: it reads so there,
+        /// and in the states that track it as they take the rest of its props, and as it did
+        /// in the others. Refused where the deck's `overrides` set the text, in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
+    /// The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters
+    /// `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them,
+    /// take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its
+    /// `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the
+    /// node's own look shows there. The text becomes runs split at `from` and `to`; neighbors
+    /// left alike are joined, and runs that all read as the node does are its `text` again.
+    /// It is written where the text lives, as `replace_text` writes typing. A size, and a
+    /// color written out, are refused: a size comes with a role, and a run takes the theme's
+    /// names.
+    StyleText {
+        #[schemars(with = "Id")]
+        node: String,
+        from: u32,
+        to: u32,
+        #[schemars(extend("minProperties" = 1))]
+        look: Props,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever the text lives now, as `replace_text`'s
+        /// `fork` does.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
+    /// One property of a node (`prop`: a property, or one key of an object property,
+    /// `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the
+    /// property lives. A value written out where the theme has names (a color, a text size, a
+    /// length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it
+    /// is legal, and so does any value where the overrides set the property, since they win
+    /// in every state. Else it goes in the latest delta that sets it, from `state` back along
+    /// what it tracks, else in the node's own; without `state`, in the node's own. `null`
+    /// takes it away where it lives, so what is under it shows.
+    Choose {
+        #[schemars(with = "Id")]
+        node: String,
+        #[schemars(regex(pattern = r"^[^/]+(/[^/]+)?$"))]
+        prop: String,
+        value: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever it lives now: it shows there, and in
+        /// the states that track it as they take the rest of its props, and the others show
+        /// what they did. Refused for a value that goes in the deck's `overrides`, which hold
+        /// in every state.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
     },
     /// A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data
     /// update, morphed by key) or in its defaults. `source` declares it, or replaces it if
@@ -220,6 +343,21 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(with = "Option<Id>")]
         state: Option<String>,
+    },
+    /// When a motion of `node`'s in `state` starts and how long it runs (PLAN 2.44): its
+    /// `delay`, ms, and its `duration`, ms or a theme duration, each per unit, written where the
+    /// motion is written. That is the state's choreography item that moves the node so, else
+    /// the node's own preset or `anim` where it lives.
+    TimeMotion {
+        #[schemars(with = "Id")]
+        node: String,
+        motion: Timed,
+        #[schemars(with = "Id")]
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delay: Option<NonNegative>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration: Option<Duration>,
     },
     /// A state, `after` or `before` another, else last. With `beat`, it joins that beat's
     /// states.
@@ -261,6 +399,26 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         to: String,
     },
+    /// One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its
+    /// `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout
+    /// tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it,
+    /// from `id` back along what it tracks, and each state that takes it from there changes
+    /// with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a
+    /// bare duration, or none, stays bare while its duration is all it sets, and becomes an
+    /// object to take another key. `null` takes a value away where it lives: a layout taken
+    /// away shows what is under it, and a transition left with nothing cuts.
+    SetState {
+        #[schemars(with = "Id")]
+        id: String,
+        #[schemars(regex(pattern = r"^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$"))]
+        prop: String,
+        value: Value,
+        /// Write a layout into `id` itself, wherever it lives now: it shows there, and in the
+        /// states that track `id`, and the others show what they did. The rest are `id`'s own
+        /// with or without it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in),
     /// or a theme inline.
     Retheme {
@@ -278,17 +436,73 @@ impl SemanticOp {
             SemanticOp::RenameNode { .. } => "rename_node",
             SemanticOp::ShowNode { .. } => "show_node",
             SemanticOp::HideNode { .. } => "hide_node",
+            SemanticOp::Group { .. } => "group",
+            SemanticOp::Ungroup { .. } => "ungroup",
             SemanticOp::SetProp { .. } => "set_prop",
+            SemanticOp::Place { .. } => "place",
             SemanticOp::SetText { .. } => "set_text",
+            SemanticOp::ReplaceText { .. } => "replace_text",
+            SemanticOp::StyleText { .. } => "style_text",
+            SemanticOp::Choose { .. } => "choose",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
+            SemanticOp::TimeMotion { .. } => "time_motion",
             SemanticOp::AddState { .. } => "add_state",
             SemanticOp::MoveState { .. } => "move_state",
             SemanticOp::RemoveState { .. } => "remove_state",
             SemanticOp::RenameState { .. } => "rename_state",
+            SemanticOp::SetState { .. } => "set_state",
             SemanticOp::Retheme { .. } => "retheme",
         }
     }
+}
+
+/// Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col`
+/// and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the
+/// state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`;
+/// in its container, or in another (`parent`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Spot {
+    /// The container the node goes into, or `null` for the canvas; unsaid, it stays in its
+    /// own (PLAN 2.50).
+    #[serde(default, deserialize_with = "said", skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "container_or_canvas")]
+    pub parent: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col: Option<Range>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<Range>,
+    /// A slot of the state's layout template, or `canvas` or `grid`.
+    #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
+    /// `[x, y, w, h]`, canvas units: on the canvas, an override (W301), or from a frame's
+    /// padding edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rect: Option<Rect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+}
+
+impl Spot {
+    /// The keys of `at` that say where a node goes in what holds it: what `place` replaces.
+    pub const KEYS: [&'static str; 6] = ["col", "row", "in", "rect", "area", "index"];
+    /// The keys of `at` that make a node's placement: what holds it, and where it goes there.
+    pub const PLACED: [&'static str; 7] = ["parent", "col", "row", "in", "rect", "area", "index"];
+}
+
+/// A `Spot`'s `parent`: a container's id, or `null` for the canvas, a `null` that says
+/// something, which the schema keeps (`x-null`, `model::finish`).
+fn container_or_canvas(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let id = generator.subschema_for::<Id>();
+    schemars::json_schema!({ "anyOf": [id, { "type": "null" }], "x-null": true })
+}
+
+/// A value that may be `null`, said: `null` is not the same as unsaid.
+fn said<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 /// The motion a motion preset is for.
@@ -307,6 +521,28 @@ impl Motion {
             Motion::Enter => "enter",
             Motion::Exit => "exit",
             Motion::Emphasis => "emphasis",
+        }
+    }
+}
+
+/// A motion `time_motion` times: a preset's, or `anim` tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Timed {
+    Enter,
+    Exit,
+    Emphasis,
+    Anim,
+}
+
+impl Timed {
+    /// The node property, and the choreography item's key, it is.
+    pub fn key(self) -> &'static str {
+        match self {
+            Timed::Enter => "enter",
+            Timed::Exit => "exit",
+            Timed::Emphasis => "emphasis",
+            Timed::Anim => "anim",
         }
     }
 }
@@ -375,7 +611,7 @@ pub fn apply(doc: &mut Value, ops: &[Value]) -> Result<(), PatchError> {
     Ok(())
 }
 
-fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
+pub(super) fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
     match op {
         JsonOp::Add { path, value } => add(doc, path, value.clone()),
         JsonOp::Remove { path } => remove(doc, path).map(drop),

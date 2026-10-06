@@ -174,6 +174,22 @@ impl ImageNode {
         }
     }
 
+    /// The point of the image drawn under `at` (canvas units), in fractions of the part its
+    /// crop keeps: what `focal` names, so that a focal point picked where the image shows
+    /// keeps that point in view (PLAN 2.45). `None` off the image.
+    pub fn point(&self, at: [f32; 2]) -> Option<[f32; 2]> {
+        let (src, [dx, dy, dw, dh]) = self.placement();
+        let [px, py] = [at[0] - self.rect[0], at[1] - self.rect[1]];
+        if dw <= 0.0 || dh <= 0.0 || px < dx || py < dy || px > dx + dw || py > dy + dh {
+            return None;
+        }
+        let (iw, ih) = (self.info.width as f32, self.info.height as f32);
+        let [cx, cy, cw, ch] = [self.crop[0] * iw, self.crop[1] * ih, self.crop[2] * iw, self.crop[3] * ih];
+        // The image's pixel under the point, then where it is in the crop.
+        let [ix, iy] = [src[0] + (px - dx) / dw * src[2], src[1] + (py - dy) / dh * src[3]];
+        Some([((ix - cx) / cw).clamp(0.0, 1.0), ((iy - cy) / ch).clamp(0.0, 1.0)])
+    }
+
     /// What the image draws, box-local: the image, clipped to rounded corners if it has
     /// them.
     pub fn ops(&self) -> Vec<Op> {
@@ -227,6 +243,34 @@ mod tests {
         assert!(ImageInfo::read(&png(8192, 1)).is_ok());
         assert!(ImageInfo::read(&png(8193, 1)).unwrap_err().contains("at most 8192 px a side"));
         assert!(ImageInfo::read(&png(0, 1)).unwrap_err().contains("no pixels"));
+    }
+
+    /// The point under the pointer is the point of the image drawn there, in fractions of
+    /// its crop, whatever the fit: what a focal point picked there names (PLAN 2.45).
+    #[test]
+    fn the_point_under_the_pointer_is_the_images_own() {
+        // A 400 × 200 image covering a square box shows its middle half: the box's left edge is
+        // the image's quarter, its middle the image's middle, its right edge three quarters.
+        let cover = node(json!({ "src": "assets/photo.png" }), [100.0, 0.0, 100.0, 100.0]);
+        assert_eq!(cover.point([100.0, 50.0]), Some([0.25, 0.5]));
+        assert_eq!(cover.point([150.0, 0.0]), Some([0.5, 0.0]));
+        assert_eq!(cover.point([200.0, 100.0]), Some([0.75, 1.0]));
+        assert_eq!(cover.point([99.0, 50.0]), None, "off the box");
+        // Picked there, the point lines up with the same point of the box: in view.
+        let picked = node(json!({ "src": "assets/photo.png", "focal": [0.25, 0.5] }), [100.0, 0.0, 100.0, 100.0]);
+        assert_eq!(picked.point([125.0, 50.0]), Some([0.25, 0.5]));
+        // Contained, it shows whole, in a band across the box; above and below it, nothing.
+        let contain = node(json!({ "src": "assets/photo.png", "fit": "contain" }), [0.0, 0.0, 100.0, 100.0]);
+        assert_eq!(contain.point([50.0, 50.0]), Some([0.5, 0.5]));
+        assert_eq!(contain.point([0.0, 25.0]), Some([0.0, 0.0]));
+        assert_eq!(contain.point([50.0, 10.0]), None);
+        // A crop is what the fractions are of.
+        let cropped = node(
+            json!({ "src": "assets/photo.png", "fit": "fill", "crop": [0.5, 0, 0.5, 1] }),
+            [0.0, 0.0, 100.0, 100.0],
+        );
+        assert_eq!(cropped.point([50.0, 50.0]), Some([0.5, 0.5]));
+        assert_eq!(cropped.point([100.0, 100.0]), Some([1.0, 1.0]));
     }
 
     #[test]

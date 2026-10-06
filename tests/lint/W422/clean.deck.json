@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "_comment": "W422 clean: the claim in headline, over evidence in body; a stat's numeral would not count.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

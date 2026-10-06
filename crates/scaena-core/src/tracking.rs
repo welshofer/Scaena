@@ -73,6 +73,77 @@ pub fn tracks_from(deck: &Deck, i: usize) -> Option<usize> {
     }
 }
 
+/// Where a state gets one of a node's properties from (ADR-0013: an edit changes a value
+/// where it lives).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lives {
+    /// The delta of the state at this index.
+    State(usize),
+    /// The node's own properties, which every state shows that sets nothing over them.
+    Node,
+}
+
+/// Where `deck.states[i]` gets `node`'s property `prop` from: the latest delta that sets it,
+/// from state `i` back along what it tracks, else the node's own properties. With `keys`, an
+/// object property is set by a delta that sets any of those keys of it, or sets it whole. A
+/// node that leaves comes back with its own properties, and an absolute state starts from
+/// them. The deck's `overrides`, which win over every state, are not asked.
+pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Lives {
+    let mut at = Some(i);
+    while let Some(j) = at {
+        let state = &deck.states[j];
+        if let Some(value) = state.props.get(node).and_then(|delta| delta.get(prop)) {
+            let sets = match value {
+                Value::Object(set) if !keys.is_empty() => keys.iter().any(|k| set.contains_key(*k)),
+                _ => true,
+            };
+            if sets {
+                return Lives::State(j);
+            }
+        }
+        if state.remove.iter().any(|id| id == node) {
+            return Lives::Node;
+        }
+        at = tracks_from(deck, j);
+    }
+    Lives::Node
+}
+
+/// Where `deck.states[i]` gets its layout template from, which tracks like a property: the
+/// latest state that sets one, from state `i` back along what it tracks. `None` where none
+/// does.
+pub fn layout_lives(deck: &Deck, i: usize) -> Option<usize> {
+    let mut at = Some(i);
+    while let Some(j) = at {
+        if deck.states[j].layout.is_some() {
+            return Some(j);
+        }
+        // A state tracks from one before it; a `from` that does not is an error resolving.
+        at = tracks_from(deck, j).filter(|&k| k < j);
+    }
+    None
+}
+
+/// The states that take their layout from state `w`, were it to set one: `w`, and each state
+/// whose way back along what it tracks reaches `w` before a state that sets one.
+pub fn layout_takers(deck: &Deck, w: usize) -> Vec<usize> {
+    (0..deck.states.len())
+        .filter(|&j| {
+            let mut at = Some(j);
+            while let Some(k) = at {
+                if k == w {
+                    return true;
+                }
+                if deck.states[k].layout.is_some() {
+                    return false;
+                }
+                at = tracks_from(deck, k).filter(|&back| back < k);
+            }
+            false
+        })
+        .collect()
+}
+
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
     nodes
         .iter()
@@ -129,7 +200,8 @@ fn apply_state(
 /// Shallow-merge `delta` into `base`: top-level keys replace; object values merge
 /// one level (so `at: {col}` can override just `col`); `null` deletes a key. An object
 /// with nothing to merge into is taken as it is, less the keys it deletes. Deletes keep
-/// the order of what remains.
+/// the order of what remains. A text's `text` and `runs` are one property written two
+/// ways: a delta that sets either takes the other away.
 pub fn merge_props(base: &mut Props, delta: &Props) {
     for (k, v) in delta {
         match v {
@@ -152,9 +224,21 @@ pub fn merge_props(base: &mut Props, delta: &Props) {
                 }
             },
             _ => {
+                if let Some(other) = other_spelling(k) {
+                    base.shift_remove(other);
+                }
                 base.insert(k.clone(), v.clone());
             }
         }
+    }
+}
+
+/// The other way a text's words are written: `runs` for `text`, `text` for `runs`.
+pub fn other_spelling(prop: &str) -> Option<&'static str> {
+    match prop {
+        "text" => Some("runs"),
+        "runs" => Some("text"),
+        _ => None,
     }
 }
 
@@ -202,6 +286,24 @@ mod tests {
         let del: Props = serde_json::from_value(json!({"at": {"row": null}})).unwrap();
         merge_props(&mut base, &del);
         assert_eq!(base["at"], json!({"col": [7, 12], "align": "center"}));
+    }
+
+    #[test]
+    fn text_and_runs_are_one_property() {
+        let d = deck(
+            json!({ "t": { "type": "text", "runs": [{ "text": "bold", "style": { "weight": 700 } }] } }),
+            json!([
+                { "id": "a", "props": { "t": {} } },
+                { "id": "b", "props": { "t": { "text": "plain" } } },
+                { "id": "c", "props": { "t": { "runs": [{ "text": "low", "emphasis": "low" }] } } },
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert!(snaps[0].nodes["t"].contains_key("runs"));
+        assert_eq!(snaps[1].nodes["t"].get("runs"), None, "a state's text is shown over the runs it tracks");
+        assert_eq!(snaps[1].nodes["t"]["text"], json!("plain"));
+        assert_eq!(snaps[2].nodes["t"].get("text"), None, "and its runs over the text");
+        assert_eq!(snaps[2].nodes["t"]["runs"], json!([{ "text": "low", "emphasis": "low" }]));
     }
 
     #[test]
@@ -297,6 +399,33 @@ mod tests {
         // What enters and exits is against what was on screen: `b`.
         assert_eq!(snaps[2].entered, ["t"]);
         assert_eq!(snaps[2].exited, ["u"]);
+    }
+
+    #[test]
+    fn a_value_lives_in_the_latest_delta_a_state_tracks_or_in_the_node() {
+        let d = deck(
+            json!({ "t": { "type": "text", "text": "x", "at": { "in": "title" } } }),
+            json!([
+                { "id": "a", "props": { "t": { "text": "a", "at": { "align": "center" } } } },
+                { "id": "b", "props": { "t": { "at": { "in": "header" } } } },
+                { "id": "c" },
+                { "id": "d", "from": "a" },
+                { "id": "e", "remove": ["t"] },
+                { "id": "f", "props": { "t": {} } },
+                { "id": "g", "mode": "absolute", "props": { "t": { "at": { "col": 2 } } } }
+            ]),
+        );
+        let place = |i: usize| lives(&d, i, "t", "at", &["in", "col"]);
+        // `a` sets `at`, but none of its keys that place: the node's own do.
+        assert_eq!(
+            [place(0), place(1), place(2), place(3)],
+            [Lives::Node, Lives::State(1), Lives::State(1), Lives::Node]
+        );
+        // Back after leaving, from its own; in an absolute state, from that state.
+        assert_eq!([place(5), place(6)], [Lives::Node, Lives::State(6)]);
+        // Without keys, a delta that sets the property at all.
+        assert_eq!(lives(&d, 3, "t", "at", &[]), Lives::State(0));
+        assert_eq!(lives(&d, 2, "t", "text", &[]), Lives::State(0));
     }
 
     #[test]

@@ -218,3 +218,68 @@ fn a_table_short_of_room_in_a_stack_takes_what_is_left_and_says_what_to_cut() {
     assert_eq!(e100.len(), 1, "{found:#?}");
     assert!(e100[0].node.as_deref() == Some("table") && e100[0].message.contains(&cell), "{e100:#?}");
 }
+
+/// The torture deck's `containers` state with a caption `depth` containers deep: `stats`,
+/// then a column of stacks, one in the next.
+fn nested(depth: usize) -> Deck {
+    deck(|d| {
+        let mut parent = "stats".to_string();
+        for level in 2..=depth {
+            let id = format!("level-{level}");
+            d["nodes"][&id] = json!({ "type": "stack", "semantic": "evidence", "at": { "parent": parent } });
+            d["states"][0]["props"][&id] = json!({});
+            parent = id;
+        }
+        let caption = json!({ "type": "text", "role": "caption", "text": "deep", "semantic": "evidence", "at": { "parent": parent } });
+        d["nodes"]["deepest"] = caption;
+        d["states"][0]["props"]["deepest"] = json!({});
+    })
+}
+
+/// The torture bundle, as `scaena validate` reads it.
+struct Bundle;
+
+impl scaena_core::validate::BundleFiles for Bundle {
+    fn exists(&self, path: &str) -> bool {
+        std::path::Path::new(BUNDLE).join(path).is_file()
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(format!("{BUNDLE}/{path}")).ok()
+    }
+}
+
+/// What validation says of `deck` in the torture bundle, E106 alone.
+fn e106(deck: &Deck) -> Vec<scaena_core::Finding> {
+    let found = scaena_core::validate::validate_bundle(&deck.to_json().unwrap(), &Bundle).unwrap();
+    found.into_iter().filter(|f| f.code == "E106").collect()
+}
+
+/// Each level of containers lays out by recursion, on the small stack a browser's worker
+/// has: they nest at most `MAX_NESTING` deep, which validation says (E106) and the engine,
+/// which a player hands a deck it has not validated, refuses rather than overflow.
+#[test]
+fn containers_nest_at_most_64_deep() {
+    use scaena_core::document::MAX_NESTING;
+    let deep = nested(MAX_NESTING);
+    assert_eq!(e106(&deep), []);
+    let dl = frame(&deep, "containers", f64::INFINITY);
+    assert!(layers(&dl).iter().any(|(n, _)| n == "deepest"));
+
+    let deeper = nested(MAX_NESTING + 1);
+    let found = e106(&deeper);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].message.contains("node `deepest` is 65 containers deep"), "{}", found[0].message);
+    let theme = theme();
+    let data = DataFiles::new();
+    let req = FrameRequest {
+        deck: &deeper,
+        theme: &theme,
+        data: &data,
+        state: "containers",
+        t_ms: f64::INFINITY,
+        format: None,
+    };
+    let Err(error) = engine(&deeper).frame(&req) else { panic!("too deep to lay out") };
+    assert!(error.to_string().contains("containers nest more than 64 deep"), "{error}");
+}

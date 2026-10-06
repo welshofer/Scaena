@@ -16,6 +16,7 @@ would time the wrong font.
     pip install fonttools==4.66.1
     python3 scripts/build_bundle_fonts.py           # rebuild fonts, then check
     python3 scripts/build_bundle_fonts.py --cache ~/.cache/scaena-fonts
+    python3 scripts/build_bundle_fonts.py --only b2 --only b3   # rebuild two, check all
     python3 scripts/build_bundle_fonts.py --check   # check only
 """
 
@@ -46,47 +47,71 @@ LICENSES = {
     "OFL-Inter.txt": ("ofl/inter/OFL.txt", "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"),
     "OFL-JetBrainsMono.txt": ("ofl/jetbrainsmono/OFL.txt", "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"),
 }
-# The example decks' themes (Dusk, Daybreak) set display, body, and mono in these three.
-EXAMPLE_FONTS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
+# Each family's italic face (PLAN 2.40), which the themes that ship name.
+FRAUNCES_ITALIC = (
+    "ofl/fraunces/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf",
+    "b24448c43702fac4ee856781d461a0dfba8d8e594b6e8e190234b75fed2c0e01",
+    "display, italic",
+)
+INTER_ITALIC = (
+    "ofl/inter/Inter-Italic[opsz,wght].ttf",
+    "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6",
+    "body, italic",
+)
+JETBRAINS_MONO_ITALIC = (
+    "ofl/jetbrainsmono/JetBrainsMono-Italic[wght].ttf",
+    "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558",
+    "mono, italic",
+)
+ROMANS = {"Fraunces-VF.ttf": FRAUNCES, "Inter-VF.ttf": INTER, "JetBrainsMono-VF.ttf": JETBRAINS_MONO}
+# The example decks' themes (Dusk, Daybreak, Ember) set display, body, and mono in these three,
+# each with its italic.
+EXAMPLE_FONTS = {
+    **ROMANS,
+    "Fraunces-Italic-VF.ttf": FRAUNCES_ITALIC,
+    "Inter-Italic-VF.ttf": INTER_ITALIC,
+    "JetBrainsMono-Italic-VF.ttf": JETBRAINS_MONO_ITALIC,
+}
+# The benchmark decks' theme sets the three romans, and adds Source Serif 4, for quotations.
+B1_FONTS = {  # bundle file -> (google/fonts path, upstream sha256, theme family)
+    **ROMANS,
+    "SourceSerif4-VF.ttf": (
+        "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
+        "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",
+        "text",
+    ),
+}
+B1_LICENSES = {
+    **LICENSES,
+    "OFL-SourceSerif4.txt": ("ofl/sourceserif4/OFL.txt", "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"),
+}
 BUNDLES = {
     "b1": {
         "title": "Benchmark B1",
         "bundle": ROOT / "tests/bench/b1.scaena",
         "deck": "deck.json",
         "every_family": True,
-        "fonts": {  # bundle file -> (google/fonts path, upstream sha256, theme family)
-            "Fraunces-VF.ttf": (
-                "ofl/fraunces/Fraunces[SOFT,WONK,opsz,wght].ttf",
-                "177ff6c0f14e5550a3c624247cd1189611d4eb65d000b14944c63d967958abbb",
-                "display",
-            ),
-            "Inter-VF.ttf": (
-                "ofl/inter/Inter[opsz,wght].ttf",
-                "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
-                "body",
-            ),
-            "JetBrainsMono-VF.ttf": (
-                "ofl/jetbrainsmono/JetBrainsMono[wght].ttf",
-                "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
-                "mono",
-            ),
-            "SourceSerif4-VF.ttf": (
-                "ofl/sourceserif4/SourceSerif4[opsz,wght].ttf",
-                "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b",
-                "text",
-            ),
-        },
-        "licenses": {
-            **LICENSES,
-            "OFL-SourceSerif4.txt": ("ofl/sourceserif4/OFL.txt", "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9"),
-        },
+        "fonts": B1_FONTS,
+        "licenses": B1_LICENSES,
+    },
+    # B2 (charts) and B3 (shaders) share B1's theme and fonts (scripts/build_bench_decks.py).
+    **{
+        name: {
+            "title": f"Benchmark {name.upper()}",
+            "bundle": ROOT / f"tests/bench/{name}.scaena",
+            "deck": "deck.json",
+            "every_family": True,
+            "fonts": B1_FONTS,
+            "licenses": B1_LICENSES,
+        }
+        for name in ["b2", "b3"]
     },
     "revenue": {
         "title": "Example decks'",
         "bundle": ROOT / "docs/examples",
         "deck": "revenue.deck.json",
         # Decks beside it that share its fonts: the subset covers them all, and each is checked.
-        "also": ["trails.deck.json"],
+        "also": ["trails.deck.json", "higher-ed.deck.json"],
         "every_family": False,
         "fonts": EXAMPLE_FONTS,
         "licenses": LICENSES,
@@ -209,12 +234,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="check coverage only; no network, no writes")
     ap.add_argument("--cache", type=Path, help="directory of upstream files keyed by sha256 (read, then filled)")
+    ap.add_argument("--only", action="append", choices=list(BUNDLES), help="build only this bundle (repeatable); all are checked")
     args = ap.parse_args()
     ok = True
     for name, cfg in BUNDLES.items():
         files = [cfg["deck"], *cfg.get("also", [])]
         decks = [json.loads((cfg["bundle"] / f).read_text(encoding="utf-8")) for f in files]
-        if not args.check:
+        if not args.check and (not args.only or name in args.only):
             build(name, decks, args.cache)
         for file, deck in zip(files, decks):
             label = name if file == cfg["deck"] else file.removesuffix(".deck.json")

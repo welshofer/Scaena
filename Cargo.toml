@@ -9,7 +9,11 @@ members = [
   "crates/scaena-ops",
   "crates/scaena-cli",
   "crates/scaena-mcp",
+  "crates/scaena-serve",
   "crates/scaena-wasm",
+  "crates/scaena-subset",
+  "crates/scaena-history",
+  "crates/scaena-resources",
   "crates/scaena-ffi",
 ]
 default-members = [
@@ -39,6 +43,9 @@ scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }
 scaena-ops    = { path = "crates/scaena-ops" }
 scaena-mcp    = { path = "crates/scaena-mcp" }
+scaena-serve  = { path = "crates/scaena-serve" }
+scaena-resources = { path = "crates/scaena-resources" }
+scaena-history = { path = "crates/scaena-history" }
 
 # serialization / schema
 serde      = { version = "1.0", features = ["derive"] }
@@ -63,12 +70,15 @@ clap = { version = "4.6", features = ["derive"] }
 parley   = { version = "0.11.1", default-features = false, features = ["std"] }
 fontique = { version = "0.11.1", default-features = false, features = ["std"] }
 skrifa   = { version = "0.44.0", default-features = false, features = ["std"] } # same minor as parley/vello
-taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
+taffy    = { version = "0.14.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "detailed_layout_info"] }
 # Hyphenation by `lang` (PLAN 1.8): TeX patterns under permissive licenses (LPPL, MPL, MIT, BSD-3),
 # embedded as tries. Seventeen languages; about 340 KB of the WASM engine, gzipped.
 hypher   = { version = "0.1.8", default-features = false, features = ["alloc", "english", "german", "french", "spanish", "italian", "portuguese", "dutch", "swedish", "danish", "finnish", "polish", "czech", "russian", "ukrainian", "turkish", "greek", "catalan"] }
 peniko   = "0.6.1"
 kurbo    = "0.13.1"
+# Grapheme clusters, where a caret stands in a text (ADR-0013): parley's own segmenter, with its compiled
+# data. Already in the graph through parley.
+icu_segmenter = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 # Pure-Rust cbrt/pow for color interpolation: the same bits on every platform, unlike the platform
 # math library behind f32::cbrt and f32::powf (SPEC §13). Already in the graph through the painters.
 libm     = "0.2.16"
@@ -76,6 +86,9 @@ libm     = "0.2.16"
 # painters
 vello     = "0.10.0"
 vello_cpu = "0.2.0"
+# A shader's bytes and a frame's pixels as vello_cpu's pixels and back, in the same buffer. Already in
+# the graph through peniko.
+bytemuck  = { version = "1.25", features = ["extern_crate_alloc"] }
 # wgpu: use the version vello re-exports (`vello::wgpu`); do not pin separately.
 
 # bundle I/O (PLAN 1.4): `.scaena` zips with pure-Rust deflate; fontations' subsetter (hb-subset's
@@ -89,8 +102,9 @@ sha2  = "0.10"
 # export
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] } # no `simple-text`: we never shape here
 hayro  = { version = "0.7.1", default-features = false } # tests only: rasterizes PDFs to compare with the painters
+resvg  = { version = "0.48.1", default-features = false, features = ["raster-images"] } # tests only: rasterizes SVGs to compare with the painters
 png    = "0.18.1"
-image  = { version = "0.25", default-features = false, features = ["png"] }
+image  = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # data
 csv = "1.4"
@@ -100,13 +114,24 @@ loro = "1.16"
 
 # agent surface
 rmcp   = { version = "3.5", default-features = false, features = ["server", "macros", "schemars", "transport-io"] }
-tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+tokio  = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sync", "time"] }
 base64 = "0.23"
+# Gzip for a single-file HTML export's files (PLAN 2.5), on the backend zip already builds.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+# `scaena serve` (PLAN 2.11, ADR-0012): HTTP/1.1 on the tokio the MCP server already runs on.
+hyper          = { version = "1.11", default-features = false, features = ["server", "http1"] }
+hyper-util     = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
+bytes          = "1.12"
+
+# benchmarks (SPEC §15, PLAN 1.24): no plots, no rayon; `cargo bench` runs them
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
 # wasm / ffi (versions as Cargo.lock already resolves them through wgpu)
 wasm-bindgen = "0.2.129"
 wasm-bindgen-futures = "0.4.79"
 web-sys = "0.3.106"
+js-sys = "0.3.106"
 
 [profile.release]
 lto = "fat"
@@ -114,5 +139,44 @@ codegen-units = 1
 opt-level = 3
 strip = true
 
+# The font subsetter, which a page loads only to download a bundle (PLAN 2.4), built for size:
+# its module is 244 KB gzipped, against 296 KB at opt-level 3.
+[profile.release.package.skera]
+opt-level = "s"
+[profile.release.package.write-fonts]
+opt-level = "s"
+
+# The WASM modules (`just wasm`): release's, with what runs as a deck is read, edited, or saved,
+# not each frame, built for size, so the editor's module keeps within SPEC §15's 3.0 MB: 87 KB
+# less gzipped than at opt-level 3, and B1's frames paint as fast. Release's overrides carry over.
+[profile.wasm]
+inherits = "release"
+[profile.wasm.package.scaena-ops]
+opt-level = "z"
+[profile.wasm.package.scaena-store]
+opt-level = "z"
+# What links the module: Cargo strips its symbols only where its own override says so.
+[profile.wasm.package.scaena-wasm]
+opt-level = "z"
+strip = true
+[profile.wasm.package.serde_json]
+opt-level = "z"
+[profile.wasm.package.zip]
+opt-level = "z"
+[profile.wasm.package.png]
+opt-level = "z"
+[profile.wasm.package.zlib-rs]
+opt-level = "z"
+[profile.wasm.package.fdeflate]
+opt-level = "z"
+[profile.wasm.package.regex-lite]
+opt-level = "z"
+
 [profile.dev.package."*"]
 opt-level = 1
+
+# The raster diff (SPEC §13.5) walks every pixel of every golden frame, in the painter tests
+# and the parity harness: unoptimized, the harness holds two of the browser's painters to the
+# goldens in 88 s; at 2, in 11.
+[profile.dev.package.scaena-paint]
+opt-level = 2
