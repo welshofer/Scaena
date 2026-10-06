@@ -189,6 +189,7 @@ web-smoke: site
     node web/commands.mjs
     node web/export.mjs
     node web/data.mjs
+    node web/reader.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

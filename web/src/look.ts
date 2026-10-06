@@ -21,6 +21,11 @@
 // an edge or a middle, spread them so the gaps between them are equal, and put them in front of or
 // behind what they overlap (`Player.arranging`), as they do for one node.
 //
+// What a reader hears (PLAN 2.56, SPEC §3.12): every node offers its description (`alt`) and its
+// part in the story (`semantic`), each a `choose` as any choice is. Under the choices, how the
+// state shown reads, as the player's live region and the PDF's tags say it (`Player.reading`): for
+// the node shown, what it reads as; for the state, each part in order, each selecting its node.
+//
 // With characters selected in a text typed in (PLAN 2.38, `Player.characterChoices`), their look:
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
 // character's. Each choice is one `style_text`, written where the text lives; × takes the run's
@@ -47,6 +52,8 @@ export interface Around {
   ungroup(): Promise<void>;
   /** Pick the focal point of the image the canvas selects: the next press on it (PLAN 2.45). */
   pick(): void;
+  /** Select `node` on the canvas, as a click on it does: a part of the reading (PLAN 2.56). */
+  select(node: string): void;
 }
 
 /** What several nodes offer alike: each field all of them have with the same choices, its value
@@ -84,6 +91,27 @@ const ARRANGE: [string, Arrange, string][] = [
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A part of how a state reads (PLAN 2.56): the node it names, what kind of part it is, and what a
+ * reader hears of it. */
+function part(el: HTMLElement): { node: string; kind: string; says: string } {
+  const node = el.dataset.node ?? "";
+  const label = el.getAttribute("aria-label");
+  const quoted = (words: string) => `“${words.trim()}”`;
+  switch (el.tagName) {
+    case "H1":
+    case "H2":
+      return { node, kind: `heading ${el.tagName[1]}`, says: quoted(el.textContent ?? "") };
+    case "P":
+      return { node, kind: "text", says: quoted(el.textContent ?? "") };
+    case "TABLE": {
+      const rows = el.querySelectorAll("tr").length;
+      return { node, kind: "table", says: `${label ? `${quoted(label)}, ` : ""}${rows} row${rows === 1 ? "" : "s"}` };
+    }
+    default:
+      return { node, kind: "figure", says: label ? quoted(label) : "not described" };
+  }
+}
+
 /** A value as the inspector says it. */
 const spoken = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
 
@@ -120,6 +148,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
    * color picker open, a change on its way) is not swapped out from under it by an edit's
    * inspection that offers the same. */
   let drawn = "";
+  /** A field to focus once the inspector shows `node` (PLAN 2.56): a finding's mark asks for it. */
+  let pending: { node: string; prop: string } | undefined;
+  /** Readings asked for: only the latest is shown. */
+  let read = 0;
 
   /** Show what the deck offers for node `next` in the state shown, with `also` selected beside it,
    * or for the state with none. */
@@ -141,7 +173,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     // Notes being written are kept: the change they make draws the inspector again.
     const at = document.activeElement;
     if (at instanceof HTMLTextAreaElement && into.contains(at) && at.value !== at.defaultValue) return;
-    render();
+    // What the state reads may have changed though nothing offered did: a text typed in elsewhere.
+    if (!render() && into.querySelector(".reads")) void reads(next !== undefined && !beside.length ? next : undefined);
   }
 
   /** Show what the deck offers for the characters `selected`, or, with none, for the node. */
@@ -207,8 +240,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
         const shown = typeof value === "number" ? String(value) : "";
         return `<input id="${id}" type="number" ${prop}${bounds} step="${step}" value="${shown}" placeholder="the theme's">`;
       }
-      case "text":
-        return `<textarea id="${id}" ${prop} rows="3" placeholder="none">${html(typeof value === "string" ? value : "")}</textarea>`;
+      case "text": {
+        // A text says its words unless it is described; anything else says nothing until it is.
+        const words = offered && "node" in offered && offered.type === "text" ? "its words" : "not described";
+        const [rows, empty] = f.prop === "alt" ? [2, words] : [3, "none"];
+        return `<textarea id="${id}" ${prop} rows="${rows}" placeholder="${empty}">${html(typeof value === "string" ? value : "")}</textarea>`;
+      }
       case "fractions": {
         // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it.
         const rest = f.prop === "crop" ? [0, 0, 1, 1] : [0.5, 0.5];
@@ -250,16 +287,16 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   }
 
   /** Draw what is offered, the control that had focus keeping it: when it changed, or, `again`,
-   * to put the controls back to what the deck says. */
-  function render(again = false) {
+   * to put the controls back to what the deck says. Whether it drew. */
+  function render(again = false): boolean {
     const now = around.shown();
     if (!offered || !now) {
       drawn = "";
       into.replaceChildren();
-      return;
+      return false;
     }
     const showing = JSON.stringify([now.state, keep, offered, chars]);
-    if (showing === drawn && !again) return;
+    if (showing === drawn && !again) return false;
     drawn = showing;
     const focused = into.contains(document.activeElement) ? document.activeElement?.id : undefined;
     const rows = offered.fields.map((f) => {
@@ -294,12 +331,68 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const kept = "node" in offered ? `only in ${html(now.state)}` : `layout only in ${html(now.state)}`;
     // Characters are kept to the state as their text is typed in: with Alt, or not.
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
+    // How it reads: for one node or the state, never for several or for characters.
+    const reading = !chars && nodes.length <= 1 ? `<section class="reads" aria-label="How it reads"></section>` : "";
     into.innerHTML = `
       <h2>${title}</h2>
       ${keeping}
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
-      <div class="fields">${rows.join("")}</div>`;
-    if (focused) into.querySelector<HTMLElement>(`#${CSS.escape(focused)}`)?.focus();
+      <div class="fields">${rows.join("")}</div>
+      ${reading}`;
+    const wanted = pending && nodes.length === 1 && nodes[0] === pending.node ? `look-${pending.prop.replace(/\//g, "-")}` : undefined;
+    if (wanted) pending = undefined;
+    const focus = wanted ?? focused;
+    if (focus) into.querySelector<HTMLElement>(`#${CSS.escape(focus)}`)?.focus();
+    if (reading) void reads(nodes[0]);
+    return true;
+  }
+
+  /** How the state shown reads (PLAN 2.56), into the inspector's reading: what `node` reads as, or,
+   * with none, each part of the state in order. */
+  async function reads(node: string | undefined) {
+    const now = around.shown();
+    if (!now) return;
+    const turn = ++read;
+    const said = await stage.reading(now.state, around.format()).catch(() => undefined);
+    const box = into.querySelector<HTMLElement>(".reads");
+    if (turn !== read || said === undefined || !box) return;
+    const parsed = document.createElement("template");
+    parsed.innerHTML = said;
+    const parts = [...parsed.content.querySelectorAll<HTMLElement>("[data-node]")].map(part);
+    if (node === undefined) {
+      box.innerHTML = parts.length
+        ? `<h3>Reads, in order</h3><ol>${parts
+            .map((p) => `<li><button type="button" data-read="${html(p.node)}" title="Select ${html(p.node)}">${html(p.kind)}</button> ${html(p.says)}</li>`)
+            .join("")}</ol>`
+        : "<h3>Reads</h3><p>nothing: no node here is read</p>";
+      return;
+    }
+    const mine = parts.find((p) => p.node === node);
+    const fields = offered && "fields" in offered ? offered.fields : [];
+    const value = (prop: string) => fields.find((f) => f.prop === prop)?.value;
+    const type = offered && "type" in offered ? offered.type : "";
+    const why =
+      value("semantic") === "decoration" || value("alt") === ""
+        ? "decoration"
+        : ["stack", "grid", "frame"].includes(type)
+          ? "a container: what it holds reads on its own"
+          : ["shape", "shader"].includes(type)
+            ? "it says nothing until it is described"
+            : "not on its own";
+    box.innerHTML = mine
+      ? `<h3>Reads as</h3><p><span class="kind">${html(mine.kind)}</span> ${html(mine.says)}</p>`
+      : `<h3>Reads as</h3><p>not read: ${html(why)}</p>`;
+  }
+
+  /** Focus `prop`'s field once the inspector shows `node`: now, if it does. */
+  function focus(node: string, prop: string) {
+    pending = { node, prop };
+    const shows = offered && "node" in offered && offered.node === node && !("nodes" in offered);
+    const field = shows ? into.querySelector<HTMLElement>(`#look-${CSS.escape(prop.replace(/\//g, "-"))}`) : null;
+    if (field) {
+      pending = undefined;
+      field.focus();
+    }
   }
 
   /** Choose `value` for the node shown's `prop`, or the state's with none shown; `null` takes it
@@ -374,12 +467,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if ((e.target as Element).closest("[data-group]")) void around.group();
     if ((e.target as Element).closest("[data-ungroup]")) void around.ungroup();
     if ((e.target as Element).closest("[data-pick]")) around.pick();
+    const reading = (e.target as Element).closest<HTMLElement>("[data-read]");
+    if (reading?.dataset.read) around.select(reading.dataset.read);
   });
 
   return {
     show,
     characters,
     choose,
+    focus,
     /** What is offered for the node shown, or for the state, for a test. */
     offered: () => offered,
     /** Choices made so far are made: what a test waits for. */

@@ -182,6 +182,14 @@
       #look textarea { width: 100%; min-width: 12em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; resize: vertical; }
       #look .lives { color: var(--muted); font-size: 12px; }
       #look .away { padding: 0 5px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
+      /* How the node shown, or the state, reads (PLAN 2.56). */
+      #look .reads { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+      #look .reads h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      #look .reads p { margin: 0; }
+      #look .reads ol { margin: 0; padding-left: 1.6em; }
+      #look .reads li { margin: 2px 0; }
+      #look .reads button { font-size: 12px; padding: 0 5px; }
+      #look .reads .kind { color: var(--muted); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;

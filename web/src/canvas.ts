@@ -84,6 +84,8 @@ export interface Editor {
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
   go(f: Finding): void;
+  /** Open the inspector on the node `f` is about, its field for `prop` in focus (PLAN 2.56). */
+  edit(f: Finding, prop: string): void;
   /** A right click, or the menu key (PLAN 2.53): offer, at `x`, `y` (client pixels), what can be
    * done to what is selected, `on` a node, or to the canvas where nothing is. */
   menu(x: number, y: number, on: "node" | "canvas"): void;
@@ -424,6 +426,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     select: (node) => select(node),
     fix: (f) => editor.fix(f),
     go: (f) => editor.go(f),
+    edit: (f, prop) => {
+      if (f.node !== undefined && (selected !== f.node || also.length)) select(f.node);
+      editor.edit(f, prop);
+    },
     say: (words) => editor.say(words),
   });
 

@@ -370,6 +370,7 @@ async function edit(source: Source) {
     group: () => board.group(),
     ungroup: () => board.ungroup(),
     pick: () => board.pick(),
+    select: (node) => board.select(node),
   });
 
   /** The cue of the state shown (PLAN 2.44), under the preview: once the canvas is there. */
@@ -430,6 +431,11 @@ async function edit(source: Source) {
     // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
     fix: (f) => fix(f),
     go: (f) => go(f),
+    // A finding no fix can make, about what the inspector sets (PLAN 2.56): its field in focus.
+    edit: (f, prop) => {
+      tab("inspector");
+      if (f.node !== undefined) look.focus(f.node, prop);
+    },
     // A right click, or the menu key (PLAN 2.53): what is done to the nodes selected, or on the
     // canvas where nothing is.
     menu: (x, y, on) =>
