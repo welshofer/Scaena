@@ -17,8 +17,18 @@
 //   the weight each is set in; ⌘I sets them in italic, or not, as each asks for it (PLAN 2.40); and
 //   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
 //   where the text lives, one step to undo.
+import { type Key, MOD } from "./commands";
 import type { CaretLine, Carets, Edited, Map6, Rect } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What a text typed in answers that no command runs by name (PLAN 2.65), as the keys sheet lists
+ * it; the rest are the keys of any field typed in. */
+export const typingKeys = (): Key[] => [
+  { keys: `${MOD}B`, label: "In a text typed in: the characters selected bold, or not", group: "Type" },
+  { keys: `${MOD}I`, label: "In italic, or not", group: "Type" },
+  { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
+  { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
+];
 
 /** What typing asks of the canvas and the editor around it. */
 export interface Around {

@@ -354,6 +354,14 @@
       #palette li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
       #palette li[aria-selected="true"], #palette li:hover { background: var(--line); }
       #palette li[aria-selected="true"] kbd, #palette li:hover kbd { color: var(--ink); }
+      #keys { width: min(90em, 96vw); max-height: 88vh; overflow: auto; }
+      #keys [data-groups] { columns: 3 24em; column-gap: 32px; }
+      #keys section { break-inside: avoid; margin: 0 0 14px; }
+      #keys h3 { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 4px; }
+      #keys table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      #keys th { text-align: left; font-weight: normal; padding: 3px 12px 3px 0; color: var(--ink); }
+      #keys td { text-align: right; padding: 3px 0; vertical-align: top; }
+      #keys kbd { color: var(--ink); white-space: normal; }
       .context-menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 13em; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.45); }
       .context-menu button { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border: none; background: none; text-align: left; padding: 4px 8px; }
       .context-menu button:hover, .context-menu button:focus { background: var(--line); outline: none; }
@@ -433,6 +441,7 @@
           <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
           <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
           <button type="button" id="commands-open" title="Every command, by name (⌘K); words no command has are asked of the assistant">Commands…</button>
+          <button type="button" id="keys-open" title="Every key the editor answers (?)">Keys</button>
           <span id="zoom" role="group" aria-label="Zoom">
             <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (⌘−)">−</button>
             <output title="How close the preview is. Zoomed in, the wheel or a drag with Space moves what it shows">100%</output>
@@ -589,6 +598,13 @@
           <button value="cancel">Discard</button>
           <button value="keep" id="rehearsed-keep">Keep as holds</button>
         </menu>
+      </form>
+    </dialog>
+    <dialog id="keys" aria-labelledby="keys-title">
+      <form method="dialog">
+        <h2 id="keys-title">Keys</h2>
+        <div data-groups></div>
+        <menu><button value="close">Close</button></menu>
       </form>
     </dialog>
     <dialog id="palette" aria-label="Commands">

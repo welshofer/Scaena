@@ -11,6 +11,7 @@
 //   times. Keep makes each state reached hold that long, one `set_state` of `hold` each, as one
 //   patch: one step to undo. A state not reached keeps its hold.
 // - Nothing the rehearsal does changes the deck until Keep.
+import type { Key } from "./commands";
 import type { Slot } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -43,6 +44,18 @@ export interface Rehearsed {
 
 const ON = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"]);
 const BACK = new Set(["ArrowLeft", "ArrowUp", "PageUp", "Backspace"]);
+
+/** A key as the keys sheet shows it. */
+const shown = (key: string) => ({ ArrowRight: "→", ArrowLeft: "←", ArrowUp: "↑", ArrowDown: "↓", " ": "Space" })[key] ?? key;
+
+/** What a rehearsal answers (PLAN 2.65), from the keys it goes on and back by, as the keys sheet
+ * lists it. */
+export const rehearsalKeys = (): Key[] => [
+  { keys: [...ON].map(shown).join(" "), label: "Rehearsing: go on; from the last state, stop", group: "Rehearse" },
+  { keys: "Click the canvas", label: "Go on", group: "Rehearse" },
+  { keys: [...BACK].map(shown).join(" "), label: "Go back", group: "Rehearse" },
+  { keys: "Escape", label: "Stop, and see what each state took", group: "Rehearse" },
+];
 
 /** `ms` as the bar and the table say it: `1:05`, or `4.2 s` under a minute. */
 export const clock = (ms: number) => {

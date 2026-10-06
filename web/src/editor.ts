@@ -42,7 +42,7 @@ import {
   undoDepth,
 } from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
-import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
+import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, nextDiagnostic, openLintPanel, previousDiagnostic, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import {
   drawSelection,
@@ -55,15 +55,15 @@ import {
 import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
-import { canvas, placed } from "./canvas";
-import { type Command, MOD, MOD_ALT, menu, palette, SHIFT } from "./commands";
-import { cue } from "./cue";
-import { sheets } from "./data";
+import { canvas, canvasKeys, placed } from "./canvas";
+import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, palette, SHIFT, sheet } from "./commands";
+import { cue, cueKeys } from "./cue";
+import { dataKeys, sheets } from "./data";
 import { filesPanel } from "./files";
-import { finder } from "./find";
+import { finder, findKeys } from "./find";
 import { keptNames } from "./folders";
 import { formatsRow } from "./formats";
-import { layers } from "./layers";
+import { layerKeys, layers } from "./layers";
 import { looks } from "./look";
 import type {
   Arrange,
@@ -81,13 +81,13 @@ import type {
   Source,
   Where,
 } from "./protocol";
-import { rehearsal } from "./rehearse";
+import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
-import { strip } from "./strip";
-import type { Selected } from "./typing";
+import { strip, stripKeys } from "./strip";
+import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
 
@@ -102,6 +102,31 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const rowsSaid = (rows: number[]) =>
   rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
+
+/** The source's keys for its findings: CodeMirror's, and Shift-F8 back to the one before. */
+const findingKeys = [...lintKeymap, { key: "Shift-F8", run: previousDiagnostic }];
+/** What the source answers beyond typing (PLAN 2.65), as the keys sheet lists it: its findings'
+ * keys as the keymap binds them, then Tab and the way out. */
+const sourceKeys = (): Key[] => {
+  const does = new Map<unknown, string>([
+    [nextDiagnostic, "In the source: go to the next finding"],
+    [previousDiagnostic, "Go to the finding before"],
+    [openLintPanel, "List the findings"],
+  ]);
+  return [
+    ...[...does].flatMap(([run, label]): Key[] => {
+      const bound = findingKeys.find((b) => b.run === run)?.key;
+      return bound ? [{ keys: keyOf(bound), label, group: "The source" }] : [];
+    }),
+    { keys: "Tab", label: "Indent", group: "The source" },
+    { keys: "Escape, then Tab", label: "Leave the source", group: "The source" },
+  ];
+};
+/** What the editor answers anywhere beyond its commands' keys (PLAN 2.65). */
+const editorKeys = (): Key[] => [{ keys: `${MOD}K`, label: "Commands by name, and words for the assistant", group: "The editor" }];
+/** Whether `at` takes what is typed: a field, or the source. */
+const typingIn = (at: EventTarget | null) =>
+  at instanceof Element && Boolean(at.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), .cm-editor"));
 
 /** The one change that turns `from` into `to`: what lies between their common start and
  * their common end. A fix rewrites the deck as canonical source, so most of it is unchanged. */
@@ -343,7 +368,7 @@ async function edit(source: Source) {
         rewrites,
         drawSelection(),
         highlightActiveLine(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...lintKeymap, indentWithTab]),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
         // Named for a screen reader, and in the tab order by its own attribute: Tab indents,
         // so Escape then Tab leaves it.
         EditorView.contentAttributes.of({ "aria-label": "The deck's source", tabindex: "0" }),
@@ -1302,9 +1327,10 @@ async function edit(source: Source) {
   function nodeCommands(): Command[] {
     const any = () => picked().length > 0;
     const one = () => picked().length === 1;
-    const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, applies = any): Command => ({
+    const pressing = (label: string, keys: string, key: string, init: KeyboardEventInit, group: Group, applies = any): Command => ({
       label,
       keys,
+      group,
       where: ["node", "layer"],
       applies,
       run: () => press(key, init),
@@ -1316,19 +1342,19 @@ async function edit(source: Source) {
       run: () => board.arrange(how),
     });
     return [
-      { label: "Type in it", keys: "Enter", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
-      pressing("Duplicate", `${MOD}D`, "d", mod()),
-      { label: "Copy", keys: `${MOD}C`, where: ["node", "layer"], applies: any, run: () => clip("copy") },
-      { label: "Cut", keys: `${MOD}X`, where: ["node", "layer"], applies: any, run: () => clip("cut") },
+      { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
+      pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
+      { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
+      { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
       // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
-      pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), one),
-      pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), () => any() && board.copiedLook() !== undefined),
-      pressing("Group", `${MOD}G`, "g", mod()),
-      pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), () => one() && typeOf(picked()[0]) === "group"),
-      pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" })),
-      pressing("Send backward", `${MOD}[`, "[", mod({ code: "BracketLeft" })),
-      pressing("Bring to front", `${MOD}${SHIFT}]`, "}", mod({ code: "BracketRight", shiftKey: true })),
-      pressing("Send to back", `${MOD}${SHIFT}[`, "{", mod({ code: "BracketLeft", shiftKey: true })),
+      pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), "Edit", one),
+      pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), "Edit", () => any() && board.copiedLook() !== undefined),
+      pressing("Group", `${MOD}G`, "g", mod(), "Arrange"),
+      pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), "Arrange", () => one() && typeOf(picked()[0]) === "group"),
+      pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" }), "Arrange"),
+      pressing("Send backward", `${MOD}[`, "[", mod({ code: "BracketLeft" }), "Arrange"),
+      pressing("Bring to front", `${MOD}${SHIFT}]`, "}", mod({ code: "BracketRight", shiftKey: true }), "Arrange"),
+      pressing("Send to back", `${MOD}${SHIFT}[`, "{", mod({ code: "BracketLeft", shiftKey: true }), "Arrange"),
       // Aligning takes two, spreading three, as in the inspector (PLAN 2.42).
       arranging("Align left", { align: "left" }, 2),
       arranging("Align center", { align: "center" }, 2),
@@ -1341,12 +1367,13 @@ async function edit(source: Source) {
       {
         label: "Select what holds it",
         keys: "Escape",
+        group: "Select",
         where: ["node"],
         applies: () => one() && board.boxes().some((b) => b.node === picked()[0] && b.parent !== null),
         run: () => press("Escape"),
       },
-      pressing("Delete", "Delete", "Delete", {}),
-      pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }),
+      pressing("Delete", "Delete", "Delete", {}, "Edit"),
+      pressing("Delete from every state", `${SHIFT}Delete`, "Delete", { shiftKey: true }, "Edit"),
     ];
   }
 
@@ -1362,6 +1389,7 @@ async function edit(source: Source) {
       {
         label: "Rename it",
         keys: "F2",
+        group: "Layers",
         where: ["layer"],
         applies: () => node() !== undefined && showing() !== undefined,
         run: () => {
@@ -1386,13 +1414,15 @@ async function edit(source: Source) {
       ? [{ label: "Insert…", where: ["canvas"], applies: () => ready() && insertable.length > 0, run: () => commanding.open("insert ") }]
       : insertable.map((label, n) => ({ label: `Insert ${label}`, applies: ready, run: () => board.insert(n, label.split(" · ").at(-1)) }));
     return [
-      { label: "Paste", keys: `${MOD}V`, where: ["canvas"], applies: ready, run: pasted },
+      { label: "Paste", keys: `${MOD}V`, group: "Edit", where: ["canvas"], applies: ready, run: pasted },
       ...inserts,
-      ...draws.map(([key, label]): Command => ({ label, keys: key.toUpperCase(), where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) })),
-      { label: "Zoom in", keys: `${MOD}+`, where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
-      { label: "Zoom out", keys: `${MOD}−`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
-      { label: "Zoom to fit", keys: `${MOD}0`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
-      { label: board.ruled() ? "Hide the grid" : "Show the grid", keys: `${MOD}'`, where: ["canvas"], run: () => board.rule() },
+      ...draws.map(
+        ([key, label]): Command => ({ label, keys: key.toUpperCase(), group: "Draw and insert", where: ["canvas"], applies: () => ready() && board.armed()?.key !== key, run: () => press(key) }),
+      ),
+      { label: "Zoom in", keys: `${MOD}+`, group: "See", where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
+      { label: "Zoom out", keys: `${MOD}−`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
+      { label: "Zoom to fit", keys: `${MOD}0`, group: "See", where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
+      { label: board.ruled() ? "Hide the grid" : "Show the grid", keys: `${MOD}'`, group: "See", where: ["canvas"], run: () => board.rule() },
     ];
   }
 
@@ -1415,9 +1445,9 @@ async function edit(source: Source) {
   function deckCommands(): Command[] {
     const rethemes = [...themePicker.querySelectorAll("option")].filter((o) => o.value && !o.defaultSelected);
     return [
-      { label: "Undo", keys: `${MOD}Z`, applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
-      { label: "Redo", keys: `${MOD}${SHIFT}Z`, applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
-      { label: "Find in the deck's texts", keys: `${MOD}F`, run: () => finding?.open() },
+      { label: "Undo", keys: `${MOD}Z`, group: "Edit", applies: () => undoDepth(view.state) > 0 && !assisting, run: () => undo(view) && forceLinting(view) },
+      { label: "Redo", keys: `${MOD}${SHIFT}Z`, group: "Edit", applies: () => redoDepth(view.state) > 0 && !assisting, run: () => redo(view) && forceLinting(view) },
+      { label: "Find in the deck's texts", keys: `${MOD}F`, group: "Find and replace", run: () => finding?.open() },
       ...rethemes.map(
         (o): Command => ({
           label: `Re-theme in ${o.textContent}`,
@@ -1428,7 +1458,7 @@ async function edit(source: Source) {
           },
         }),
       ),
-      { label: "Save", keys: `${MOD}S`, run: () => save().catch(failed) },
+      { label: "Save", keys: `${MOD}S`, group: "The editor", run: () => save().catch(failed) },
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
       { label: "Download .scaena", run: () => download().catch(failed) },
       { label: "Export the state shown as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
@@ -1450,6 +1480,7 @@ async function edit(source: Source) {
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
+      { label: "Show the keys", keys: "?", group: "The editor", run: () => keying.open() },
     ];
   }
 
@@ -1467,15 +1498,28 @@ async function edit(source: Source) {
     });
   }
 
-  const commanding = palette(
-    $<HTMLDialogElement>("#palette"),
-    () => {
-      const node = () => (picked().length === 1 ? picked()[0] : undefined);
-      return [...nodeCommands(), ...layerCommands(node, () => false), ...canvasCommands(false), ...stateCommands(), ...deckCommands()];
-    },
-    ask,
-  );
+  /** Every command the editor has, as the palette lists them. */
+  const commandsNow = () => {
+    const node = () => (picked().length === 1 ? picked()[0] : undefined);
+    return [...nodeCommands(), ...layerCommands(node, () => false), ...canvasCommands(false), ...stateCommands(), ...deckCommands()];
+  };
+  const commanding = palette($<HTMLDialogElement>("#palette"), commandsNow, ask);
   $("#commands-open").onclick = () => commanding.open();
+  /** The keys (PLAN 2.65): every key the editor answers, by what it does, from the commands' own
+   * list and from what each part of the page declares it answers. */
+  const keying = sheet($<HTMLDialogElement>("#keys"), commandsNow, () => [
+    ...canvasKeys(),
+    ...typingKeys(),
+    ...stripKeys(),
+    ...layerKeys(),
+    ...cueKeys(),
+    ...findKeys(),
+    ...dataKeys(),
+    ...rehearsalKeys(),
+    ...sourceKeys(),
+    ...editorKeys(),
+  ]);
+  $("#keys-open").onclick = () => keying.open();
   /** Where a menu opens for `e`: at the pointer, or, from the keyboard, under `el`. */
   const near = (e: MouseEvent, el: Element): [number, number] => {
     const r = el.getBoundingClientRect();
@@ -1607,6 +1651,14 @@ async function edit(source: Source) {
       if ($<HTMLDialogElement>("#palette").open) commanding.close();
       else commanding.open();
     }
+    // ?: the keys (PLAN 2.65), outside what takes typing, and over no other dialog; again, it closes.
+    if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.defaultPrevented && !typingIn(e.target)) {
+      const over = document.querySelector("dialog[open]");
+      if (!over || over.id === "keys") {
+        e.preventDefault();
+        keying.toggle();
+      }
+    }
     // ⌘F finds in the deck's texts (PLAN 2.47); in the source, the browser's find stays.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f" && !(e.target instanceof Element && e.target.closest(".cm-editor"))) {
       e.preventDefault();
@@ -1669,6 +1721,8 @@ async function edit(source: Source) {
       },
       /** Put the cursor at `offset`. */
       cursor: (offset: number) => view.dispatch({ selection: { anchor: offset } }),
+      /** Where the cursor is, an offset in the source. */
+      head: () => view.state.selection.main.head,
       /** Apply the fix of the first finding with `code`. */
       fix: async (code: string) => {
         const f = last?.findings.find((g) => g.code === code && g.fix);
@@ -1710,6 +1764,11 @@ async function edit(source: Source) {
       find: finding,
       /** Commands by name (PLAN 2.53): the palette, and what it lists. */
       commands: commanding,
+      /** The keys (PLAN 2.65): the sheet and what it lists, and each command's key and group. */
+      keys: {
+        ...keying,
+        commands: () => commandsNow().flatMap((c) => (c.keys ? [{ label: c.label, keys: c.keys, group: c.group }] : [])),
+      },
     },
   });
 }

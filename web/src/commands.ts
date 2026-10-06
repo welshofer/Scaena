@@ -3,6 +3,40 @@
 // right click on a node, on the canvas, on a state in the strip, or on a layer offers the commands
 // for what is under the pointer, in a menu. A command is what its key or its button does, nothing
 // else: each edit it makes is the patch that gesture makes.
+//
+// The keys (PLAN 2.65): `?` shows every key the editor answers, by what it does. A command's key
+// comes from the commands' own list, which the palette names too. A key no command runs by name (a
+// gesture's modifier, the keys that move what is selected, a panel's own keys) is declared beside
+// the code that answers it, as a `Key`, and the sheet lists it with them.
+
+/** What a key does, as the keys sheet heads it, in the order it lists them. */
+export const GROUPS = [
+  "Select",
+  "Edit",
+  "Arrange",
+  "Move and resize",
+  "Type",
+  "Draw and insert",
+  "See",
+  "States",
+  "Layers",
+  "The cue",
+  "Find and replace",
+  "The data",
+  "Rehearse",
+  "The source",
+  "The editor",
+] as const;
+export type Group = (typeof GROUPS)[number];
+
+/** A key the editor answers that no command runs by name, as the keys sheet lists it. */
+export interface Key {
+  /** The key, or the gesture with the keys it is made with, as the page shows them. */
+  keys: string;
+  /** What it does. */
+  label: string;
+  group: Group;
+}
 
 /** A command the editor has. */
 export interface Command {
@@ -10,6 +44,8 @@ export interface Command {
   label: string;
   /** Its key, as the page shows it (`⌘D`, `Delete`). */
   keys?: string;
+  /** What its key does, under which the keys sheet lists it. */
+  group?: Group;
   /** What a right click offers it on, besides the palette. */
   where?: Where[];
   /** Whether it applies now: one that does not is not offered. */
@@ -26,6 +62,16 @@ export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 export const SHIFT = MOD === "⌘" ? "⇧" : "Shift+";
 /** ⌘ with Option, or Ctrl with Alt: what copies and pastes a look (PLAN 2.58). */
 export const MOD_ALT = MOD === "⌘" ? "⌥⌘" : "Ctrl+Alt+";
+/** Option, or Alt. */
+export const ALT = MOD === "⌘" ? "⌥" : "Alt+";
+
+/** A key of a CodeMirror keymap (`Mod-Shift-m`) as this machine shows it. */
+export const keyOf = (binding: string) => {
+  const parts = binding.split("-");
+  const key = parts.pop()!;
+  const shown: Record<string, string> = { Mod: MOD, Shift: SHIFT, Alt: ALT, Ctrl: "Ctrl+", Meta: "⌘" };
+  return parts.map((p) => shown[p] ?? `${p}+`).join("") + (key.length === 1 ? key.toUpperCase() : key);
+};
 
 /** The commands of `all` that apply now and name every word of `query`, in any order, case
  * folded: those whose label starts with the first word first, else in their order. */
@@ -186,4 +232,67 @@ export function menu(x: number, y: number, items: Command[], back: HTMLElement |
     void Promise.resolve(live[Number(n)].run());
   };
   return { close, items: () => live.map((c) => c.label) };
+}
+
+/** A key, or the keys of a command, as the keys sheet lists it, in its group. */
+const listedKey = (c: Command): Key[] => (c.keys && c.group ? [{ keys: c.keys, label: c.label, group: c.group }] : []);
+
+/** The keys sheet in `dialog` (PLAN 2.65): every key the editor answers, by what it does: the
+ * keys of `commands`, the list the palette names, whether or not each applies now, then `keys`,
+ * those no command runs by name. Each once, in `GROUPS`' order. Focus goes back where it was when
+ * it closes. */
+export function sheet(dialog: HTMLDialogElement, commands: () => Command[], keys: () => Key[]) {
+  const groups = dialog.querySelector<HTMLElement>("[data-groups]")!;
+  let back: Element | null = null;
+
+  /** What the sheet lists: each group, and its keys. */
+  function listed(): [Group, Key[]][] {
+    const by = new Map<Group, Key[]>(GROUPS.map((g) => [g, []]));
+    for (const k of [...commands().flatMap(listedKey), ...keys()]) {
+      const list = by.get(k.group)!;
+      if (!list.some((o) => o.keys === k.keys && o.label === k.label)) list.push(k);
+    }
+    return [...by].filter(([, list]) => list.length);
+  }
+
+  function render() {
+    groups.innerHTML = listed()
+      .map(
+        ([group, list], i) =>
+          `<section><h3 id="keys-${i}">${html(group)}</h3><table aria-labelledby="keys-${i}"><tbody>${list
+            .map((k) => `<tr><th scope="row">${html(k.label)}</th><td><kbd>${html(k.keys)}</kbd></td></tr>`)
+            .join("")}</tbody></table></section>`,
+      )
+      .join("");
+  }
+
+  function open() {
+    if (dialog.open) return;
+    back = document.activeElement;
+    render();
+    dialog.showModal();
+    // Focus on Close, the sheet read from its top.
+    dialog.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    dialog.scrollTop = 0;
+  }
+
+  function close() {
+    if (dialog.open) dialog.close();
+  }
+
+  // Escape closes a modal dialog by itself; either way, focus goes back where it was.
+  dialog.addEventListener("close", () => {
+    if (back instanceof HTMLElement && back.isConnected) back.focus();
+  });
+  dialog.onclick = (e) => {
+    if (e.target === dialog) close();
+  };
+  return {
+    open,
+    close,
+    /** Open it, or close it if it is open: `?` again. */
+    toggle: () => (dialog.open ? close() : open()),
+    /** What it lists, each key with its group, for a test. */
+    listed: () => listed().flatMap(([, list]) => list),
+  };
 }

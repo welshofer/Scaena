@@ -58,11 +58,37 @@
 //   away. A node of another type takes what its look shares with it (PLAN 2.58).
 // - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
+import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP } from "./protocol";
 import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
+
+/** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
+ * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
+ * commands' keys. */
+export const canvasKeys = (): Key[] => [
+  { keys: "Click", label: "Select what is topmost there", group: "Select" },
+  { keys: `${SHIFT}Click`, label: "Put it in the selection, or take it out", group: "Select" },
+  { keys: "Drag across nothing", label: "Select what the drag encloses", group: "Select" },
+  { keys: `${SHIFT}Drag across nothing`, label: "Select what it encloses too", group: "Select" },
+  { keys: "Drag", label: "Move what is selected onto the grid; a handle resizes it", group: "Move and resize" },
+  { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it", group: "Move and resize" },
+  { keys: `${MOD}Drag`, label: "Off the grid, go where the pointer says, not onto an edge it meets", group: "Move and resize" },
+  { keys: "← ↑ → ↓", label: "Move what is selected a track, a place along its stack, or a unit off the grid", group: "Move and resize" },
+  { keys: `${SHIFT}← ↑ → ↓`, label: "Resize it the same", group: "Move and resize" },
+  { keys: `${ALT}Drag, ${ALT}← ↑ → ↓`, label: "Keep the move to the state shown", group: "Move and resize" },
+  { keys: "Drag the round handle", label: "Turn it", group: "Move and resize" },
+  { keys: `${SHIFT}Drag the round handle`, label: "Turn it by 15°", group: "Move and resize" },
+  { keys: "Escape", label: "Cancel the drag, the turn, or the drawing under way", group: "Move and resize" },
+  { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
+  { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
+  { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
+  { keys: `${MOD}Wheel, Pinch`, label: "Zoom about the pointer", group: "See" },
+  { keys: "Click a chart's mark", label: "With the Data tab shown, choose the rows it was made from", group: "The data" },
+  { keys: "Double-click a chart's mark", label: "Open the Data tab on its rows", group: "The data" },
+];
 
 /** What the canvas asks of the editor around it. */
 export interface Editor {

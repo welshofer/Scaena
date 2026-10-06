@@ -18,8 +18,18 @@
 //   outlines what it draws in the state shown, each chart mark and table row made from it; the line
 //   under the table says what. A chart's mark, or a table's row, pointed at on the canvas chooses
 //   the rows it was made from, a group's every row, the first in view.
+import { type Key, MOD, SHIFT } from "./commands";
 import type { Edited, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What a cell of the Data tab answers (PLAN 2.65), as the keys sheet lists it. */
+export const dataKeys = (): Key[] => [
+  { keys: "Enter", label: "In a cell: set it, and go to the cell below", group: "The data" },
+  { keys: `${SHIFT}Enter`, label: "Set it, and go to the cell above", group: "The data" },
+  { keys: "↑ ↓", label: "Set it, and go up or down", group: "The data" },
+  { keys: "Escape", label: "Put a cell changed back as it was", group: "The data" },
+  { keys: `${MOD}Z, ${MOD}${SHIFT}Z`, label: "In a cell as it was: undo or redo the source's last change", group: "The data" },
+];
 
 /** What the panel asks of the editor around it. */
 export interface DataEditor {
