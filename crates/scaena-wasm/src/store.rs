@@ -291,7 +291,7 @@ fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use scaena_store::crdt::DeckDoc;
     use serde_json::json;
@@ -341,7 +341,7 @@ mod tests {
     }
 
     /// The revenue example's files: its deck, theme, fonts, and data, as a bundle of its own.
-    fn revenue() -> BTreeMap<String, Vec<u8>> {
+    pub(crate) fn revenue() -> BTreeMap<String, Vec<u8>> {
         let bundle = Bundle::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let mut files: BTreeMap<String, Vec<u8>> =
             bundle.read_fonts().unwrap().into_iter().chain(bundle.read_data().unwrap()).collect();

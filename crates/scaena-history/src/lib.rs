@@ -28,9 +28,10 @@ pub fn recorded(history: &[u8], changes: &str) -> Result<Vec<u8>, String> {
     doc.save().map_err(|e| e.to_string())
 }
 
-/// Every change `history` holds, oldest first, as JSON: `[{ author, message, timestamp,
-/// peer, ops }]`, its timestamp in seconds since 1970, and the editor that made it as a
-/// decimal string (it may not fit in a JavaScript number).
+/// Every change `history` holds, oldest first, as JSON: `[{ id, author, message, timestamp,
+/// peer, ops }]`, its id what names its version (PLAN 2.60), its timestamp in seconds since
+/// 1970, and the editor that made it as a decimal string (it may not fit in a JavaScript
+/// number).
 #[wasm_bindgen]
 pub fn changes(history: &[u8]) -> Result<String, JsError> {
     listed(history).map_err(|e| JsError::new(&e))
@@ -41,6 +42,7 @@ pub fn listed(history: &[u8]) -> Result<String, String> {
     let doc = DeckDoc::load(history).map_err(|e| e.to_string())?;
     let changes = doc.changes().into_iter().map(|c| {
         serde_json::json!({
+            "id": c.id,
             "author": c.author,
             "message": c.message,
             "timestamp": c.timestamp,
@@ -49,6 +51,29 @@ pub fn listed(history: &[u8]) -> Result<String, String> {
         })
     });
     Ok(serde_json::Value::Array(changes.collect()).to_string())
+}
+
+/// The version of the deck `history` names `id` (a change's id, as [`changes`] lists it), as
+/// JSON: `{ deck, files }`, the deck as deck.json's text as it was just after that change, and
+/// the data files its sources name, by their paths, as their text then (PLAN 2.60). An id the
+/// history does not hold says so.
+#[wasm_bindgen]
+pub fn at(history: &[u8], id: &str) -> Result<String, JsError> {
+    version(history, id).map_err(|e| JsError::new(&e))
+}
+
+/// [`at`], for a caller in Rust.
+pub fn version(history: &[u8], id: &str) -> Result<String, String> {
+    let doc = DeckDoc::load(history).map_err(|e| e.to_string())?;
+    let then = doc.at(id).map_err(|e| e.to_string())?.ok_or_else(|| format!("the history holds no version {id}"))?;
+    let deck = then.deck().map_err(|e| e.to_string())?;
+    let named: Vec<&str> = deck.data.values().filter_map(|source| source.source.as_str()).collect();
+    let files: serde_json::Map<String, serde_json::Value> = (then.files().into_iter())
+        .filter(|(path, _)| named.contains(&path.as_str()))
+        .map(|(path, bytes)| (path, String::from_utf8_lossy(&bytes).into_owned().into()))
+        .collect();
+    let deck = deck.to_json().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "deck": deck, "files": files }).to_string())
 }
 
 #[cfg(test)]
@@ -103,6 +128,34 @@ mod tests {
         assert_eq!(listed[1]["message"], "save");
         assert_eq!(listed[1]["timestamp"], at);
         assert!(listed[1]["peer"].as_str().unwrap().parse::<u64>().is_ok());
+    }
+
+    /// A version (PLAN 2.60): the deck as it was just after a change, with its data files.
+    #[test]
+    fn a_version_is_the_deck_and_its_data_as_they_were() {
+        let files = begun();
+        let held = String::from_utf8(files["deck.json"].clone()).unwrap();
+        let edited = held.replace("Revenue doubled\"", "Revenue more than doubled\"");
+        let change = Recorded {
+            deck: edited,
+            files: [("data/q3-revenue.csv".to_string(), "quarter,revenue\n".to_string())].into(),
+            author: "user".into(),
+            message: Some("save".into()),
+            timestamp: None,
+            renamed_nodes: Vec::new(),
+            renamed_states: Vec::new(),
+        };
+        let history = recorded(&files[HISTORY], &serde_json::to_string(&[change]).unwrap()).unwrap();
+        let listed: serde_json::Value = serde_json::from_str(&listed(&history).unwrap()).unwrap();
+        let first = listed[0]["id"].as_str().unwrap();
+        let then: serde_json::Value = serde_json::from_str(&version(&history, first).unwrap()).unwrap();
+        assert_eq!(then["deck"].as_str().unwrap(), held.trim_end());
+        let csv = String::from_utf8(files["data/q3-revenue.csv"].clone()).unwrap();
+        assert_eq!(then["files"]["data/q3-revenue.csv"], csv);
+        let now: serde_json::Value =
+            serde_json::from_str(&version(&history, listed[1]["id"].as_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(now["files"]["data/q3-revenue.csv"], "quarter,revenue\n");
+        assert!(version(&history, "9@9").unwrap_err().contains("no version"));
     }
 
     #[test]

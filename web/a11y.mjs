@@ -219,6 +219,10 @@ try {
   await editor.waitForFunction(() => window.scaena.files.listed().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its files");
   await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#versions")) === JSON.stringify(["tab-versions", "tab-versions", false]), `→ again shows the deck's versions: ${JSON.stringify(await tab("#versions"))}`);
+  await editor.waitForFunction(() => window.scaena.versions.listed() === null, null, { timeout: 60000 }).catch(() => {});
+  await audit(editor, "the editor, its versions");
+  await editor.keyboard.press("ArrowRight");
   check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");

@@ -47,6 +47,8 @@ mod data;
 pub mod editor;
 #[cfg(feature = "editor")]
 mod store;
+#[cfg(feature = "editor")]
+mod versions;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -148,6 +150,9 @@ pub struct Session {
     /// next save takes out where the bundle is kept.
     #[cfg(feature = "editor")]
     removed: std::collections::BTreeSet<String>,
+    /// A version from the bundle's history, shown read-only (PLAN 2.60): a session of its own.
+    #[cfg(feature = "editor")]
+    viewing: Option<Box<Session>>,
 }
 
 /// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
@@ -230,6 +235,8 @@ impl Session {
             held: BTreeMap::new(),
             #[cfg(feature = "editor")]
             removed: Default::default(),
+            #[cfg(feature = "editor")]
+            viewing: None,
         })
     }
 
@@ -2006,6 +2013,61 @@ impl Player {
             at: at.as_deref().and_then(store::seconds),
         };
         self.0.data_undo(true, by).map_err(js)
+    }
+
+    /// Show a version of the deck read-only (PLAN 2.60): `held`, JSON `{ deck, files }` as the
+    /// history's module reads it (`at`), in a session of its own. Its states' ids, as JSON.
+    #[wasm_bindgen(js_name = viewVersion)]
+    pub fn view_version(&mut self, held: &str) -> Result<String, JsError> {
+        let held: versions::Held = serde_json::from_str(held).map_err(js)?;
+        serde_json::to_string(&self.0.view_version(&held).map_err(js)?).map_err(js)
+    }
+
+    /// The version shown's `state` at rest, as a PNG `width` pixels wide.
+    #[wasm_bindgen(js_name = versionPng)]
+    pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {
+        self.0.version_png(state, width).map_err(js)
+    }
+
+    /// What changed from version `from` to version `to`, each `{ deck, files }`, or without `to`,
+    /// to the deck and its data files as they are now, as JSON `{ states, deck, files }`, as
+    /// `scaena history --diff` says it.
+    #[wasm_bindgen(js_name = compareVersions)]
+    pub fn compare_versions(&self, from: &str, to: Option<String>) -> Result<String, JsError> {
+        let from: versions::Held = serde_json::from_str(from).map_err(js)?;
+        let to: Option<versions::Held> = to.map(|to| serde_json::from_str(&to)).transpose().map_err(js)?;
+        serde_json::to_string(&self.0.compare_versions(&from, to.as_ref()).map_err(js)?).map_err(js)
+    }
+
+    /// Make version `held` (`{ deck, files }`), `version` as listed, the deck again, with its data
+    /// files, by `author` (`user` without one) at `at`: one change, refused as a patch is. JSON
+    /// `{ restored, files }`: what `scaena history --restore` says, and each data file written,
+    /// `{ path, before, after }`, for the editor's undo to write back.
+    #[wasm_bindgen(js_name = restoreVersion)]
+    pub fn restore_version(
+        &mut self,
+        held: &str,
+        version: &str,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> Result<String, JsError> {
+        let held: versions::Held = serde_json::from_str(held).map_err(js)?;
+        let version: scaena_ops::history::Version = serde_json::from_str(version).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (restored, files) = self.0.restore_version(&held, version, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "restored": restored, "files": files })).map_err(js)
+    }
+
+    /// Data files written back, as an undo or a redo of a restore has them: JSON `[{ path,
+    /// text }]`, `text` null for a file to take out.
+    #[wasm_bindgen(js_name = writeFiles)]
+    pub fn write_files(&mut self, files: &str) -> Result<(), JsError> {
+        let files: Vec<versions::Written> = serde_json::from_str(files).map_err(js)?;
+        self.0.write_files(files);
+        Ok(())
     }
 }
 

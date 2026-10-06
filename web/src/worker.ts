@@ -38,6 +38,9 @@ import type {
   Look,
   Put,
   BundleFile,
+  Compared,
+  Restored,
+  Rewritten,
   Grid,
   Grouped,
   Line,
@@ -335,6 +338,60 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         latest++;
         shown = { index: data.index, format: data.format };
         return post({ type: "removed", id: data.id, edited: await edit(player.source(), data.index, data.format) });
+      }
+      case "versions": {
+        const module = await history();
+        if (!module) return post({ type: "versions", id: data.id, versions: null });
+        const changes = JSON.parse(module.changes(player.file(HISTORY)!)) as Change[];
+        const at = (s: number) => (s > 0 ? new Date(s * 1000).toISOString() : null);
+        const versions = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        return post({ type: "versions", id: data.id, versions });
+      }
+      case "version": {
+        const held = await version(data.version);
+        const states = JSON.parse(player.viewVersion(held)) as string[];
+        const state = data.state !== undefined && states.includes(data.state) ? data.state : states[0];
+        // A version that cannot be drawn in the bundle as it is still lists its states, and why.
+        let png: ArrayBuffer | undefined;
+        let why: string | undefined;
+        try {
+          png = player.versionPng(state, data.width).slice().buffer as ArrayBuffer;
+        } catch (e) {
+          why = said(e);
+        }
+        return post({ type: "version", id: data.id, states, state, png, why }, png ? [png] : []);
+      }
+      case "compareVersions": {
+        const from = await version(data.from);
+        const to = data.to === undefined ? undefined : await version(data.to);
+        // The deck now is the one the source compiles to.
+        if (to === undefined) compiles(data.source);
+        return post({ type: "compared", id: data.id, compared: JSON.parse(player.compareVersions(from, to)) as Compared });
+      }
+      case "restoreVersion": {
+        // The deck before is the source's, or, where it does not compile, the last that did.
+        try {
+          compiles(data.source);
+        } catch {
+          // Restoring a version is a way back from a source that does not compile.
+        }
+        const held = await version(data.version.id);
+        const done = JSON.parse(player.restoreVersion(held, JSON.stringify(data.version), "user", new Date().toISOString())) as {
+          restored: Restored;
+          files: Rewritten[];
+        };
+        if (!done.restored.applied) return post({ type: "restored", id: data.id, restored: done.restored, files: [] });
+        latest++;
+        shown = { index: data.index, format: data.format };
+        const next = player.source();
+        return post({ type: "restored", id: data.id, ...done, source: next, edited: await edit(next, data.index, data.format) });
+      }
+      case "writeFiles": {
+        player.writeFiles(JSON.stringify(data.files));
+        if (!data.edit) return post({ type: "filesWritten", id: data.id });
+        latest++;
+        shown = { index: data.edit.index, format: data.edit.format };
+        return post({ type: "filesWritten", id: data.id, edited: await edit(data.edit.source, data.edit.index, data.edit.format) });
       }
       case "ask":
         return await ask(data.id, data.source, data.ask);
@@ -661,10 +718,43 @@ async function exporting(what: Export): Promise<Uint8Array> {
   }
 }
 
-/** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save needs it:
- * the bundle keeps one (`history/deck.loro`). The engine's module leaves the CRDT out. */
+/** Where a bundle keeps its history (SPEC §8). */
+const HISTORY = "history/deck.loro";
+
+/** A change as the history's module lists it (PLAN 2.60). */
+interface Change {
+  id: string;
+  author?: string | null;
+  message?: string | null;
+  timestamp: number;
+  ops: number;
+}
+
+/** Versions read, by their ids, the last read last: a version is the deck as it was after one
+ * change, which no later change alters, and its id names that change in any history. */
+const versionsRead = new Map<string, string>();
+
+/** Version `id` of the deck, as the history's module reads it: JSON `{ deck, files }`. */
+async function version(id: string): Promise<string> {
+  const read = versionsRead.get(id);
+  if (read !== undefined) {
+    versionsRead.delete(id);
+    versionsRead.set(id, read);
+    return read;
+  }
+  const module = await history();
+  if (!module) throw new Error("the bundle keeps no history: `scaena save --history` begins one");
+  const held = module.at(player.file(HISTORY)!, id);
+  versionsRead.set(id, held);
+  for (const old of versionsRead.keys()) if (versionsRead.size > 8) versionsRead.delete(old);
+  return held;
+}
+
+/** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save, or the
+ * versions (PLAN 2.60), needs it: the bundle keeps one (`history/deck.loro`). The engine's
+ * module leaves the CRDT out. */
 async function history() {
-  if (!player.files().includes("history/deck.loro")) return undefined;
+  if (!player.files().includes(HISTORY)) return undefined;
   const module = await import("@scaena/history");
   await module.default();
   return module;

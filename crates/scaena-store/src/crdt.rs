@@ -26,8 +26,8 @@
 //! their order. A map whose keys the deck shows in an order keeps that order beside them.
 
 use loro::{
-    CommitOptions, Container, ContainerTrait, ExpandType, ExportMode, ID, LoroDoc, LoroMap, LoroMovableList, LoroText,
-    LoroValue, StyleConfig, StyleConfigMap, TreeID, UndoManager, ValueOrContainer,
+    CommitOptions, Container, ContainerTrait, ExpandType, ExportMode, Frontiers, ID, LoroDoc, LoroMap, LoroMovableList,
+    LoroText, LoroValue, StyleConfig, StyleConfigMap, TreeID, UndoManager, ValueOrContainer,
 };
 use scaena_core::Deck;
 use serde_json::{Map, Value};
@@ -71,6 +71,9 @@ type Result<T> = std::result::Result<T, CrdtError>;
 /// One change to the document, as its history keeps it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
+    /// What names it for as long as the history lasts: its first operation's id,
+    /// `counter@peer`. [`DeckDoc::at`] takes it.
+    pub id: String,
     /// Who made it: `user`, `agent:<name>`, or `fs` (SPEC §8.2); none if it does not say.
     pub author: Option<String>,
     pub message: Option<String>,
@@ -277,11 +280,14 @@ impl DeckDoc {
         Ok(recorded)
     }
 
-    /// Every change, oldest first.
+    /// Every change, oldest first. A commit the history keeps in pieces (a large one, as the
+    /// first of a long deck is) is one change: each piece goes on where the one before it ends,
+    /// by the same author, with the same message, at the same time.
     pub fn changes(&self) -> Vec<Change> {
-        let mut out = Vec::new();
+        let mut out: Vec<Change> = Vec::new();
         for (&peer, &end) in self.doc.oplog_vv().iter() {
             let mut counter = 0;
+            let mut last: Option<usize> = None;
             while counter < end {
                 let Some(meta) = self.doc.get_change(ID::new(peer, counter)) else { break };
                 let (author, message) = match meta.message.as_deref() {
@@ -292,12 +298,38 @@ impl DeckDoc {
                     None => (None, None),
                 };
                 let (timestamp, lamport, ops) = (meta.timestamp, meta.lamport, meta.len);
-                out.push(Change { author, message, timestamp, peer, lamport, ops });
+                let piece = last.map(|i| &mut out[i]).filter(|was| {
+                    was.lamport + was.ops as u32 == lamport
+                        && (&was.author, &was.message, was.timestamp) == (&author, &message, timestamp)
+                });
+                match piece {
+                    Some(was) => was.ops += ops,
+                    None => {
+                        out.push(Change { id: meta.id.to_string(), author, message, timestamp, peer, lamport, ops });
+                        last = Some(out.len() - 1);
+                    }
+                }
                 counter = meta.id.counter + meta.len as i32;
             }
         }
         scaena_core::sort::by_key(&mut out, |c| (c.lamport, c.peer));
         out
+    }
+
+    /// The document as it was just after the change `id` names ([`Change::id`], or any of its
+    /// operations' ids): what it held then, and its history up to there (PLAN 2.60). After a
+    /// merge, that is what the change's editor had seen: the changes before it, not those made
+    /// beside it. None where the history holds no such change.
+    pub fn at(&self, id: &str) -> Result<Option<DeckDoc>> {
+        let Ok(id) = ID::try_from(id) else { return Ok(None) };
+        let holds = |c: &Change| {
+            let first = ID::try_from(c.id.as_str()).map_or(i32::MAX, |first| first.counter);
+            c.peer == id.peer && (first..first + c.ops as i32).contains(&id.counter)
+        };
+        let Some(change) = self.changes().into_iter().find(holds) else { return Ok(None) };
+        let first = ID::try_from(change.id.as_str())?;
+        let last = ID::new(change.peer, first.counter + change.ops as i32 - 1);
+        Ok(Some(DeckDoc { doc: self.doc.fork_at(&Frontiers::from(last))? }))
     }
 
     /// Undo and redo for this document's own changes (SPEC §8.2): each [`DeckDoc::apply`]

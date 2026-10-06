@@ -45,6 +45,8 @@ import type {
   Look,
   Put,
   BundleFile,
+  Compared,
+  Version,
 } from "./protocol";
 
 type Reply = Extract<
@@ -87,6 +89,11 @@ type Reply = Extract<
       | "put"
       | "bundleFiles"
       | "removed"
+      | "versions"
+      | "version"
+      | "compared"
+      | "restored"
+      | "filesWritten"
       | "carets"
       | "characterChoices"
       | "bolding"
@@ -371,6 +378,39 @@ export class Stage {
   removeFile(source: string, path: string, index: number, format?: string): Promise<Edited> {
     return this.request<"removed">({ type: "removeFile", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
       this.moved(edited);
+      return edited;
+    });
+  }
+
+  /** The bundle's versions, oldest first (PLAN 2.60); none where it keeps no history. */
+  versions(): Promise<Version[] | null> {
+    return this.request<"versions">({ type: "versions", id: ++this.asked }).then(({ versions }) => versions);
+  }
+
+  /** Version `version` shown read-only: its states, and `state` of it at rest as a PNG `width`
+   * pixels wide. */
+  version(version: string, state: string | undefined, width: number) {
+    return this.request<"version">({ type: "version", id: ++this.asked, version, state, width });
+  }
+
+  /** What changed from version `from` to version `to`, or without it to the deck now. */
+  compareVersions(source: string, from: string, to?: string): Promise<Compared> {
+    return this.request<"compared">({ type: "compareVersions", id: ++this.asked, source, from, to }).then(({ compared }) => compared);
+  }
+
+  /** `version` made the deck again, with its data files, as one change by the user. */
+  restoreVersion(source: string, version: Version, index: number, format?: string) {
+    return this.request<"restored">({ type: "restoreVersion", id: ++this.asked, source, version, index, format }).then((done) => {
+      if (done.edited) this.moved(done.edited);
+      return done;
+    });
+  }
+
+  /** Data files written back, as an undo or a redo of a restore has them; with `edit`, the deck
+   * its source compiles to shown and linted again, as an edit is. */
+  writeFiles(files: { path: string; text: string | null }[], edit?: { source: string; index: number; format?: string }): Promise<Edited | undefined> {
+    return this.request<"filesWritten">({ type: "writeFiles", id: ++this.asked, files, edit }).then(({ edited }) => {
+      if (edited) this.moved(edited);
       return edited;
     });
   }
@@ -695,6 +735,11 @@ export class Stage {
       case "put":
       case "bundleFiles":
       case "removed":
+      case "versions":
+      case "version":
+      case "compared":
+      case "restored":
+      case "filesWritten":
       case "carets":
       case "characterChoices":
       case "bolding":

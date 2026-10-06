@@ -233,6 +233,24 @@
       #files .used { padding-left: 12px; color: var(--muted); }
       #files .used button { all: unset; cursor: pointer; color: var(--ink); text-decoration: underline; }
       #files .used button:focus-visible { outline: 2px solid var(--info); }
+      /* The versions (PLAN 2.60): the history's changes, the newest first; one shown as it was. */
+      #versions { padding: 6px 12px; }
+      #versions [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+      #versions ol { list-style: none; margin: 0 0 8px; padding: 0; max-height: 30vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+      #versions ol button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 3px 6px; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
+      #versions ol button:hover { background: var(--line); }
+      #versions ol button:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+      #versions ol button[aria-pressed="true"] { background: rgb(156 196 228 / 0.22); }
+      #versions ol button[aria-pressed="true"] :is(.n, .by) { color: var(--ink); }
+      #versions [data-why] { margin: 0; padding: 12px; border: 1px dashed var(--line); border-radius: 4px; color: var(--muted); font-size: 12px; }
+      #versions .n { display: inline-block; min-width: 2em; color: var(--muted); font-variant-numeric: tabular-nums; }
+      #versions .by { color: var(--muted); }
+      #versions h3 { font-size: 12px; font-weight: 600; margin: 6px 0 4px; }
+      #versions .versions-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
+      #versions img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
+      #versions img[hidden] { display: none; }
+      #versions [data-changes] { margin: 6px 0 0; padding-left: 1.2em; font-size: 12px; }
+      #versions [data-changes] li { margin: 2px 0; overflow-wrap: anywhere; }
       #data .data-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
       #data [data-where] { color: var(--muted); font-size: 12px; flex: 1 1 auto; }
       #data .sheet { max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
@@ -376,6 +394,7 @@
           <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
           <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
           <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
+          <button role="tab" id="tab-versions" aria-selected="false" aria-controls="versions">Versions</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
@@ -404,6 +423,21 @@
             <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the panel)">Redo</button>
           </p>
           <div data-files></div>
+        </section>
+        <section id="versions" role="tabpanel" aria-labelledby="tab-versions" hidden>
+          <p data-summary></p>
+          <ol data-versions aria-label="The deck's versions, the newest first"></ol>
+          <div data-version hidden>
+            <h3 data-title></h3>
+            <p class="versions-pick">
+              <select data-state aria-label="The version's state shown"></select>
+              <select data-against aria-label="Compared with"></select>
+              <button type="button" data-restore title="Make this version the deck again, with its data files: one change, which ⌘Z undoes">Restore</button>
+            </p>
+            <img alt="" />
+            <p data-why hidden></p>
+            <ul data-changes aria-label="What changed"></ul>
+          </div>
         </section>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">

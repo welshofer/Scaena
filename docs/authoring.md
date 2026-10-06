@@ -101,6 +101,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
   - The file keeps every byte you did not change, its quoting and line endings included, as `scaena data` writes it. Undo and Redo, or ⌘Z in a cell you have not changed, put it back as it was. A save records each version in the bundle's history.
 - **Files.** The Files tab lists what your bundle holds besides the deck: its images, fonts, and data files, each with its size, what in the deck names it, and the objects drawn from it, slide by slide. Click an object there to go to the first slide that shows it, selected.
+- **Versions.** A bundle that keeps a history (`scaena save --history` begins one) lists its versions in the Versions tab, the newest first, each by who made it and when; each save adds the edits since the last. Click one to see a slide of it as it was, and what changed since, or since another version. Restore makes it the deck again, with its data, as one edit: ⌘Z takes it back.
   - Drag an image from the list onto an image on the slide to show it there instead, or onto an empty spot to add it there. **Insert** adds it where you last clicked the slide. Drop it on the source and its path goes there. Each is one ⌘Z.
   - A file nothing names says so. **Remove** takes it out of the bundle, and the deck looks the same. Undo puts it back, and the next save takes it out where the bundle is kept. A file something names stays, and the status says what names it.
 - **Theme.** The theme menu beside the format menu lists the themes your bundle holds, the deck's own chosen, and the themes that ship. Choose one to see the deck in it: one ⌘Z takes it back. A theme that lacks a role or a color your deck uses is refused, and the status says which.
@@ -183,6 +184,7 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
   - `scaena patch` makes edits as JSON operations (SPEC §7.3).
   - `scaena data talk q3` shows a data source's rows as written, each by its index, and any value its column does not read. `--edits` sets cells, adds rows, and takes them away, in one write of the file that keeps every other byte (SPEC §3.10).
   - `scaena files talk` lists the bundle's images, fonts, and data, what names each, and the objects drawn from each, in which states. `--remove` takes out files nothing names, and refuses the rest.
+  - `scaena history talk` lists the versions its history keeps. `--at 3` prints version 3's deck, `--diff 3` says what changed from it to the deck now (`--diff 3,5` from one version to another), and `--restore 3` makes it the deck again, with its data files, as one change.
 
 **Pick one place to write.** If you keep `deck.scn`, it is your source: `scaena serve` compiles it as you save, or `compile` does when you ask. The editor on a served folder opens and saves that same `deck.scn`. The editor anywhere else writes `deck.json` alone, and leaves a `deck.scn` behind. If you edit only in the editor, `deck.json` is the source, and `scaena decompile` gives you its `.scn` whenever you want it.
 

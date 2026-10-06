@@ -19,6 +19,7 @@ pub mod data;
 pub mod export;
 pub mod files;
 pub mod find;
+pub mod history;
 pub mod inspect;
 pub mod lint;
 pub mod patch;
@@ -99,7 +100,13 @@ macro_rules! from {
         }
     )*};
 }
-from!(scaena_store::StoreError, serde_json::Error, std::io::Error, scaena_core::tracking::TrackingError);
+from!(
+    scaena_store::StoreError,
+    scaena_store::crdt::CrdtError,
+    serde_json::Error,
+    std::io::Error,
+    scaena_core::tracking::TrackingError
+);
 
 /// What an operation was doing when it stopped, in front of why, as `anyhow`'s context
 /// reads in the CLI.

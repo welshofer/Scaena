@@ -477,6 +477,16 @@ pub struct DataEdit {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct DeckHistory {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`. Its history is
+    /// `history/deck.loro`, which `scaena save --history` begins.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub ask: scaena_ops::history::Ask,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpineUpdate {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -791,6 +801,22 @@ impl Scaena {
     ) -> Result<Json<scaena_ops::data::DataEdited>, String> {
         let author = author(&context);
         blocking(move || scaena_ops::data::data_edit(&open_by(&a.bundle, author)?, &a.data, a.dry_run)).await.map(Json)
+    }
+
+    #[tool(description = "A bundle's versions (SPEC §8): each change its history keeps, by author and time, \
+        oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after \
+        one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the \
+        deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` \
+        says them), the deck's own fields, and the data files whose bytes changed; with `restore`, that version \
+        made the deck again, with its data files as they were: one change, refused as a patch is where the deck \
+        would not validate in the bundle as it is (`dry_run` writes nothing).")]
+    async fn deck_history(
+        &self,
+        Parameters(a): Parameters<DeckHistory>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::history::History>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::history::history(&open_by(&a.bundle, author)?, &a.ask)).await.map(Json)
     }
 
     #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \

@@ -338,6 +338,54 @@ export const CLIP = "application/x-scaena+json";
 /** What a drag from the Files panel carries (PLAN 2.59): an image's path in the bundle. */
 export const BUNDLE_PATH = "application/x-scaena-path";
 
+/** A version of the deck (PLAN 2.60, SPEC §8): as it was just after one change its history
+ * keeps, numbered from the oldest, and named by its change's id for as long as the history lasts. */
+export interface Version {
+  n: number;
+  id: string;
+  author?: string | null;
+  message?: string | null;
+  /** When the change was made, in ISO 8601, UTC. */
+  at?: string | null;
+  ops: number;
+}
+
+/** How a node changes from one version to another, as `deck_diff` says it: a prop gone is null. */
+export type NodeChange = { enter: Record<string, unknown> } | { exit: true } | { change: Record<string, unknown> };
+
+/** How a state changes from one version to another. */
+export type StateChange =
+  | { added: true }
+  | { removed: true }
+  | { changed: { fields?: Record<string, unknown>; nodes?: Record<string, NodeChange> } };
+
+/** What changed from one version to another, as `scaena history --diff` says it. */
+export interface Compared {
+  states: Record<string, StateChange>;
+  /** The deck's own fields that changed, each as the later version has it. */
+  deck: Record<string, unknown>;
+  /** The data files whose bytes changed. */
+  files: string[];
+}
+
+/** What restoring a version did, as `scaena history --restore` says it. */
+export interface Restored {
+  version: Version;
+  applied: boolean;
+  files: string[];
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+  states: string[];
+}
+
+/** A data file a restore wrote: its text before and after, null where the bundle did not hold it. */
+export interface Rewritten {
+  path: string;
+  before: string | null;
+  after: string | null;
+}
+
 /** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
  * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
  * drawn from it, each with the states that show it so. */
@@ -541,6 +589,28 @@ export type ToWorker =
   | { type: "bundleFiles"; id: number; source: string }
   /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
   | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
+  /** The bundle's versions (PLAN 2.60), read from its history by the history's own module: none
+   * where it keeps no history. */
+  | { type: "versions"; id: number }
+  /** Version `version` (its id) shown read-only: its states, and `state` of it, or its first
+   * where it has none such, at rest as a PNG `width` pixels wide. */
+  | { type: "version"; id: number; version: string; state?: string; width: number }
+  /** What changed from version `from` to version `to`, or without it to the deck `source`
+   * compiles to, and its data files as they are now. */
+  | { type: "compareVersions"; id: number; source: string; from: string; to?: string }
+  /** `version` made the deck again, with its data files, as one change by the user; refused
+   * where the deck would not validate in the bundle as it is. A source that does not compile
+   * is no bar: restoring a version is a way back from one. */
+  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
+  /** Data files written back, as an undo or a redo of a restore has them: `text` null to take
+   * one out. With `edit`, the deck its source compiles to shown and linted again after, as an
+   * edit is: the source did not change, so nothing else compiles it. */
+  | {
+      type: "writeFiles";
+      id: number;
+      files: { path: string; text: string | null }[];
+      edit?: { source: string; index: number; format?: string };
+    }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -911,6 +981,16 @@ export type FromWorker =
   | { type: "bundleFiles"; id: number; files: BundleFile[] }
   /** A file taken out: what the deck came to, shown and linted as an edit is. */
   | { type: "removed"; id: number; edited: Edited }
+  /** The bundle's versions, oldest first; none where it keeps no history. */
+  | { type: "versions"; id: number; versions: Version[] | null }
+  /** A version shown: its states, and the one drawn, as a PNG; or why it is not drawn (a file
+   * it names the bundle no longer holds). */
+  | { type: "version"; id: number; states: string[]; state: string; png?: ArrayBuffer; why?: string }
+  | { type: "compared"; id: number; compared: Compared }
+  /** What restoring a version did; where it did, each data file it wrote, before and after, the
+   * deck's source after, and what the edit came to. */
+  | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
+  | { type: "filesWritten"; id: number; edited?: Edited }
   /** What `dataEdit` did; where it wrote, the deck's source after and what the edit of it came to. */
   | { type: "dataEdited"; id: number; result: DataEdited; source?: string; edited?: Edited }
   /** The source whose file an undo or redo wrote, and what the edit came to; none where there was

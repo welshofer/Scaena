@@ -63,6 +63,7 @@ fn every_command_prints_one_json_value() {
         (vec!["save", TORTURE, "--to", kept.to_str().unwrap(), "--history"], 0, |v| {
             v["manifest"]["files"].get("history/deck.loro").is_some()
         }),
+        (vec!["history", kept.to_str().unwrap()], 0, |v| v["versions"].as_array().is_some_and(|v| v.len() == 1)),
         (vec!["export", EXAMPLE, "--format", "spine"], 0, |v| v["format"] == "spine" && v["spine"].is_object()),
         // Written, the spine is in its file, and the result names its renders.
         (vec!["export", EXAMPLE, "--format", "spine", "--out", spine.to_str().unwrap()], 0, |v| {
@@ -490,6 +491,90 @@ fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
     let text = String::from_utf8(scaena(&["files", TORTURE]).stdout).unwrap();
     assert!(text.starts_with("images\n  assets/test-card.png  "), "{text}");
     assert!(text.contains("    image-cover in images\n"), "{text}");
+}
+
+/// A bundle's versions (PLAN 2.60): listed by author and time; the deck as it was after one,
+/// by number or by id; two compared, and one with the deck now; one restored, with its data
+/// file, as one change; and one whose deck names a file gone since refused.
+#[test]
+fn history_lists_shows_compares_and_restores_versions() {
+    use serde_json::json as j;
+    let dir = scratch("history");
+    let b = dir.join("talk");
+    assert!(scaena(&["save", EXAMPLE, "--to", b.to_str().unwrap(), "--history"]).status.success());
+    let bundle = b.to_str().unwrap();
+    let ops = dir.join("ops.json");
+    let patch = |ops_json: &str| {
+        std::fs::write(&ops, ops_json).unwrap();
+        assert!(scaena(&["patch", bundle, "--ops", ops.to_str().unwrap()]).status.success(), "{ops_json}");
+    };
+    patch(r#"[{"op": "set_text", "node": "title", "text": "Revenue tripled"}]"#);
+    let edits = dir.join("edits.json");
+    std::fs::write(&edits, r#"[{"op": "set", "row": 0, "column": "revenue", "value": "9"}]"#).unwrap();
+    assert!(scaena(&["data", bundle, "q3", "--edits", edits.to_str().unwrap()]).status.success());
+
+    let (code, listed) = json(&["history", bundle]);
+    assert_eq!(code, 0, "{listed:#}");
+    let versions = listed["versions"].as_array().unwrap().clone();
+    let said: Vec<(i64, &str)> =
+        versions.iter().map(|v| (v["n"].as_i64().unwrap(), v["message"].as_str().unwrap_or(""))).collect();
+    assert_eq!(said, [(1, "history begins"), (2, "patch: set_text"), (3, "data_edit q3: revenue of row 0")]);
+    assert!(versions.iter().all(|v| v["author"] == "user" && v["at"].as_str().is_some_and(|t| t.ends_with('Z'))));
+
+    // The deck as it was, by number or by id.
+    let (_, seen) = json(&["history", bundle, "--at", "1"]);
+    assert_eq!(seen["seen"]["deck"]["nodes"]["title"]["text"], "Q3 Review", "{seen:#}");
+    let (_, seen) = json(&["history", bundle, "--at", versions[1]["id"].as_str().unwrap(), "--scn"]);
+    assert!(seen["seen"]["scn"].as_str().unwrap().contains("Revenue tripled"));
+
+    // Compared with the deck now, and two with each other.
+    let (_, c) = json(&["history", bundle, "--diff", "1"]);
+    let c = &c["compared"];
+    assert_eq!(c["states"]["intro"]["changed"]["nodes"]["title"]["change"]["text"], "Revenue tripled", "{c:#}");
+    assert_eq!((c["files"].clone(), c["to"].clone()), (j!(["data/q3-revenue.csv"]), Value::Null));
+    let (_, c) = json(&["history", bundle, "--diff", "2,3"]);
+    assert_eq!(
+        (c["compared"]["states"].clone(), c["compared"]["files"].clone()),
+        (j!({}), j!(["data/q3-revenue.csv"]))
+    );
+
+    // Restored: the deck and its data file, as one change; a dry run writes nothing.
+    let csv = std::fs::read(b.join("data/q3-revenue.csv")).unwrap();
+    let (code, r) = json(&["history", bundle, "--restore", "1", "--dry-run"]);
+    assert_eq!((code, r["restored"]["applied"].clone()), (0, false.into()), "{r:#}");
+    assert_eq!(std::fs::read(b.join("data/q3-revenue.csv")).unwrap(), csv);
+    let (code, r) = json(&["history", bundle, "--restore", "1"]);
+    let restored = &r["restored"];
+    assert_eq!(
+        (code, restored["applied"].clone(), restored["files"].clone()),
+        (0, true.into(), j!(["data/q3-revenue.csv"]))
+    );
+    let (_, c) = json(&["history", bundle, "--diff", "1"]);
+    assert_eq!((c["compared"]["states"].clone(), c["compared"]["files"].clone()), (j!({}), j!([])), "{c:#}");
+    let (_, listed) = json(&["history", bundle]);
+    let last = listed["versions"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["message"], format!("history --restore {}", versions[0]["id"].as_str().unwrap()));
+
+    // A version whose deck names a file taken out since is refused, and says why.
+    std::fs::create_dir_all(b.join("assets")).unwrap();
+    std::fs::copy(Path::new(TORTURE).join("assets/test-card.png"), b.join("assets/card.png")).unwrap();
+    patch(r#"[{"op": "add_node", "id": "photo", "node": {"type": "image", "src": "assets/card.png"}}]"#);
+    patch(r#"[{"op": "remove_node", "id": "photo"}]"#);
+    assert!(scaena(&["files", bundle, "--remove", "assets/card.png"]).status.success());
+    let (_, listed) = json(&["history", bundle]);
+    let shown = (listed["versions"].as_array().unwrap().len() - 1).to_string();
+    let (code, r) = json(&["history", bundle, "--restore", &shown]);
+    assert_eq!((code, r["restored"]["applied"].clone()), (1, false.into()), "{r:#}");
+    assert!(r["restored"]["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{r:#}");
+
+    // Ask one thing at a time; and a bundle without a history says how to begin one.
+    let (code, e) = json(&["history", bundle, "--diff", "1,2,3"]);
+    assert_eq!(code, 2, "{e:#}");
+    let (code, e) = json(&["history", EXAMPLE]);
+    assert_eq!(code, 2);
+    assert!(e["error"]["message"].as_str().unwrap().contains("scaena save --history"), "{e:#}");
+    let text = String::from_utf8(scaena(&["history", bundle, "--diff", "1,2"]).stdout).unwrap();
+    assert_eq!(text, "from version 1 to version 2\n  state intro:\n    title: text \"Revenue tripled\"\n");
 }
 
 fn copy_dir(from: &Path, to: &Path) {

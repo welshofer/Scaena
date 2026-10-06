@@ -94,6 +94,7 @@ async fn the_tools_and_resources_are_listed() {
             "deck_diff",
             "deck_export",
             "deck_find",
+            "deck_history",
             "deck_inspect",
             "deck_lint",
             "deck_patch",
@@ -260,11 +261,18 @@ async fn a_tool_that_stops_says_why() {
             json!({ "op": 0 }),
         ),
         ("deck_lint", json!({ "bundle": "no/such/bundle" }), json!({})),
+        // A bundle that keeps no history, and one thing asked of a history at a time.
+        ("deck_history", json!({ "bundle": example }), json!({})),
+        ("deck_history", json!({ "bundle": example, "at": "1", "restore": "1" }), json!({})),
     ] {
         let result = call(&client, tool, args).await;
         assert_eq!(result.is_error, Some(true), "{tool}");
         let failure: Value = serde_json::from_str(&text(&result)).unwrap();
         assert!(failure["message"].as_str().is_some_and(|m| !m.is_empty()), "{failure:#}");
+        if tool == "deck_history" {
+            let message = failure["message"].as_str().unwrap();
+            assert!(message.contains("`scaena save --history` begins one") || message.contains("one of"), "{message}");
+        }
         for (k, v) in says.as_object().unwrap() {
             assert_eq!(&failure[k], v, "{tool}: {failure:#}");
         }

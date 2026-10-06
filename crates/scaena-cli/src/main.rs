@@ -269,6 +269,29 @@ enum Cmd {
         #[arg(long, requires = "edits")]
         dry_run: bool,
     },
+    /// A bundle's versions (PLAN 2.60, SPEC §8): each change its history keeps, by author and
+    /// time, oldest first. `--at` prints the deck as it was just after one; `--diff` says what
+    /// changed from one to another, or to the deck as it is now; `--restore` makes one the deck
+    /// again, with its data files as they were, one change, refused as a patch is where the deck
+    /// would not validate in the bundle as it is.
+    History {
+        bundle: PathBuf,
+        /// The deck as it was in this version: its number as listed, or its id.
+        #[arg(long, value_name = "VERSION", conflicts_with_all = ["diff", "restore"])]
+        at: Option<String>,
+        /// With `--at`, the deck as `.scn`.
+        #[arg(long, requires = "at")]
+        scn: bool,
+        /// What changed from one version to another, or, with one, to the deck as it is now.
+        #[arg(long, value_name = "FROM[,TO]", value_delimiter = ',', conflicts_with = "restore")]
+        diff: Option<Vec<String>>,
+        /// Make this version the deck again: its number as listed, or its id.
+        #[arg(long, value_name = "VERSION")]
+        restore: Option<String>,
+        /// Say what restoring would change, and write nothing.
+        #[arg(long, requires = "restore")]
+        dry_run: bool,
+    },
     /// The bundle's images, fonts, and data (PLAN 2.59): each with what in the deck or its theme
     /// names it, and the nodes drawn from it in the states that show them so; a file nothing
     /// names says so. With `--remove`, those files taken out of the bundle, all or none: each
@@ -624,6 +647,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
         Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
+        Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
+            let ask = scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run };
+            history(&bundle, &ask, cli.json)
+        }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
@@ -993,6 +1020,84 @@ fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) ->
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<ExitCode> {
+    use scaena_ops::history::StateChange;
+    use scaena_ops::inspect::Change;
+    let h = scaena_ops::history::history(&open(bundle)?, ask)?;
+    let refused = h.restored.as_ref().is_some_and(|r| r.refused || r.errors > 0);
+    let code = if refused { ExitCode::from(1) } else { ExitCode::SUCCESS };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&h)?);
+        return Ok(code);
+    }
+    let shown = |v: &serde_json::Value| {
+        let text = v.to_string();
+        if text.chars().count() > 60 { format!("{}…", text.chars().take(59).collect::<String>()) } else { text }
+    };
+    for v in h.versions.iter().flatten() {
+        let (at, by) = (v.at.as_deref().unwrap_or("-"), v.author.as_deref().unwrap_or("-"));
+        println!("{:>4}  {at}  {by:<14}  {}  ({})", v.n, v.message.as_deref().unwrap_or(""), v.id);
+    }
+    if let Some(seen) = &h.seen {
+        match (&seen.scn, &seen.deck) {
+            (Some(scn), _) => print!("{scn}"),
+            (_, Some(deck)) => println!("{}", serde_json::to_string_pretty(deck)?),
+            _ => {}
+        }
+    }
+    if let Some(c) = &h.compared {
+        let later = c.to.as_ref().map_or_else(|| "the deck as it is now".to_string(), |v| format!("version {}", v.n));
+        println!("from version {} to {later}", c.from.n);
+        if c.states.is_empty() && c.deck.is_empty() && c.files.is_empty() {
+            println!("  nothing changed");
+        }
+        for (id, change) in &c.states {
+            match change {
+                StateChange::Added(_) => println!("  state {id}: added"),
+                StateChange::Removed(_) => println!("  state {id}: removed"),
+                StateChange::Changed(changed) => {
+                    println!("  state {id}:");
+                    for (field, value) in &changed.fields {
+                        println!("    {field}: {}", shown(value));
+                    }
+                    for (node, change) in &changed.nodes {
+                        match change {
+                            Change::Enter(_) => println!("    {node} enters"),
+                            Change::Exit(_) => println!("    {node} exits"),
+                            Change::Change(props) => {
+                                let props: Vec<String> =
+                                    props.iter().map(|(k, v)| format!("{k} {}", shown(v))).collect();
+                                println!("    {node}: {}", props.join(", "));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (field, value) in &c.deck {
+            println!("  deck {field}: {}", shown(value));
+        }
+        for file in &c.files {
+            println!("  {file} changed");
+        }
+    }
+    if let Some(r) = &h.restored {
+        let n = r.version.n;
+        match (r.refused, ask.dry_run) {
+            (true, _) => {
+                println!("refused: version {n} would make the deck invalid in the bundle as it is; nothing was written")
+            }
+            (false, true) => println!("would make version {n} the deck again"),
+            (false, false) => println!("made version {n} the deck again"),
+        }
+        for file in &r.files {
+            println!("  {file} as it was then");
+        }
+        print_delta(&r.added, &r.removed);
+    }
+    Ok(code)
 }
 
 /// A size in bytes, as a person reads it.

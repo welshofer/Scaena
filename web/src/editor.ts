@@ -29,10 +29,21 @@
 // that is the source the editor shows and saves. A change on disk, from a text editor or
 // another page, comes into the editor when it has no changes of its own not saved; over such
 // changes, the editor offers to take it.
-import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  invertedEffects,
+  isolateHistory,
+  redo,
+  redoDepth,
+  undo,
+  undoDepth,
+} from "@codemirror/commands";
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, forceLinting, lintGutter, lintKeymap, linter, setDiagnostics } from "@codemirror/lint";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -53,13 +64,28 @@ import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
 import { looks } from "./look";
-import type { Arrange, Edited, Export, Finding, FromWorker, Inspected, Linted, Painter, SaveTo, Seeing, Source, Where } from "./protocol";
+import type {
+  Arrange,
+  Edited,
+  Export,
+  Finding,
+  FromWorker,
+  Inspected,
+  Linted,
+  Painter,
+  Rewritten,
+  SaveTo,
+  Seeing,
+  Source,
+  Where,
+} from "./protocol";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
 import { Stage } from "./stage";
 import { strip } from "./strip";
 import type { Selected } from "./typing";
+import { versionsPanel } from "./versions";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -196,6 +222,14 @@ const failed = (e: unknown) => {
   console.error(e);
 };
 
+/** The data files a restore wrote (PLAN 2.60), carried by its change to the source: the undo of
+ * that change writes each back as it was, and its redo as the restore left it. */
+const filesWritten = StateEffect.define<Rewritten[]>();
+/** A change that carries files written is undone with each file's texts swapped. */
+const rewrites = invertedEffects.of((tr) =>
+  tr.effects.filter((e) => e.is(filesWritten)).map((e) => filesWritten.of(e.value.map(({ path, before, after }) => ({ path, before: after, after: before })))),
+);
+
 async function edit(source: Source) {
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
@@ -284,6 +318,7 @@ async function edit(source: Source) {
         lineNumbers(),
         highlightActiveLineGutter(),
         history(),
+        rewrites,
         drawSelection(),
         highlightActiveLine(),
         keymap.of([...defaultKeymap, ...historyKeymap, ...lintKeymap, indentWithTab]),
@@ -307,6 +342,12 @@ async function edit(source: Source) {
               tell();
             }
           }
+          // An undo or a redo of a restore writes its data files back, before the deck is
+          // compiled again (PLAN 2.60).
+          const written = update.transactions.flatMap((tr) =>
+            tr.isUserEvent("undo") || tr.isUserEvent("redo") ? tr.effects.filter((e) => e.is(filesWritten)).flatMap((e) => e.value) : [],
+          );
+          if (written.length) rewrite(written, update.docChanged ? undefined : update.state.doc.toString());
           if (update.selectionSet) follow();
         }),
         // A file dropped on the source joins the bundle; its path goes where it was dropped.
@@ -499,6 +540,50 @@ async function edit(source: Source) {
     },
     say,
   });
+  /** The deck's versions (PLAN 2.60): what the bundle's history keeps, each shown as it was,
+   * compared, and made the deck again as one change, which ⌘Z undoes with its data files. */
+  const versioning = versionsPanel(stage, $("#versions"), {
+    shown: showing,
+    source: () => view.state.doc.toString(),
+    restore: async (version) => {
+      if (assisting) return void say("not restored: the assistant is at work on the deck");
+      try {
+        const done = await stage.restoreVersion(view.state.doc.toString(), version, shown, format());
+        const r = done.restored;
+        if (!r.applied || done.source === undefined || !done.edited) {
+          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+          say(`version ${version.n} not restored: ${why.join("; ") || "the deck would not validate in the bundle as it is"}`);
+          return r;
+        }
+        // One change, which carries the data files the restore wrote for its undo.
+        const effects = filesWritten.of(done.files);
+        if (done.source === view.state.doc.toString()) {
+          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          wrote(done.edited);
+        } else {
+          taken = { source: done.source, edited: done.edited };
+          const changes = change(view.state.doc.toString(), done.source);
+          view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
+        }
+        const files = r.files.length ? `, with ${r.files.join(", ")}` : "";
+        say(`version ${version.n} restored${files} · ⌘Z undoes it`);
+        return r;
+      } catch (e) {
+        say(`not restored: ${said(e)}`);
+      }
+    },
+    say,
+  });
+  /** Data files an undo or a redo of a restore writes back (PLAN 2.60), each to its text after.
+   * Where the source did not change, it is `source`, which nothing compiles again: the deck is
+   * shown and linted again here, as after a data file's edit. */
+  function rewrite(files: Rewritten[], source?: string) {
+    const written = files.map(({ path, after }) => ({ path, text: after }));
+    const edit = source === undefined ? undefined : { source, index: shown, format: format() };
+    void stage.writeFiles(written, edit).then((edited) => {
+      if (edited) wrote(edited);
+    }, failed);
+  }
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -676,6 +761,7 @@ async function edit(source: Source) {
       void layering.refresh();
       void data.refresh();
       void filing.refresh();
+      void versioning.edited();
       void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
@@ -929,6 +1015,8 @@ async function edit(source: Source) {
     address(where);
     tell();
     void listKept();
+    // The save recorded the edits since the last: they are versions now.
+    void versioning.refresh();
     const named = done.renamed.length ? `, ${done.renamed.length} named by their content` : "";
     status.textContent = `saved ${done.files} files${named}${done.recorded ? ", and recorded in its history" : ""}`;
     return done;
@@ -1058,7 +1146,7 @@ async function edit(source: Source) {
   const picked = () => (ready() ? board.chosen() : []);
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "data" | "assistant") => {
+  const tab = (id: "inspector" | "layers" | "data" | "files" | "versions" | "assistant") => {
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1213,6 +1301,8 @@ async function edit(source: Source) {
       { label: "Show the inspector", run: () => tab("inspector").focus() },
       { label: "Show the layers", run: () => tab("layers").focus() },
       { label: "Show the data", run: () => tab("data").focus() },
+      { label: "Show the bundle's files", run: () => tab("files").focus() },
+      { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
     ];
   }
@@ -1454,6 +1544,9 @@ async function edit(source: Source) {
       data,
       /** The files panel (PLAN 2.59): the bundle's files as it lists them, and its changes. */
       files: filing,
+      /** The versions panel (PLAN 2.60): the versions as it lists them, one shown, compared, and
+       * restored. */
+      versions: versioning,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
