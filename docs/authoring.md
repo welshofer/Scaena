@@ -407,7 +407,7 @@ state long slide:revenue
   title "Pro drove the growth this year, and Enterprise is next in every region" fit:shrink
 ```
 
-**Motion, and a self-running deck.** `transition` names how long the cue takes; `choreo` brings an object in with a preset, after a delay; `hold` moves on by itself after the cue, for a kiosk or a video.
+**Motion, and a self-running deck.** `transition` names how long the cue takes; `choreo` brings an object in with a preset, after a delay; `hold` moves on by itself after the cue, for a kiosk or a video. Once any state holds, the deck runs on its own, so a state with neither a cue nor a hold would show for 0 ms. Lint W323 names each one, here `cover` and `mix`, with a hold that fits its reading.
 
 ```scn
 state turn layout:statement transition:slow hold:4s
