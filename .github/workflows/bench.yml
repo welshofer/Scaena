@@ -7,14 +7,18 @@ name: bench
 # A pull request is timed beside its base, both built and then run on the same machine in the same
 # job, a group of benches at a time, the base first. Both are built with every function starting on
 # a 64-byte line, so code a change adds elsewhere cannot move a bench's loops onto other boundaries
-# (ADR-0004 finding 18). It fails when a bench is slower than the base
-# by more than the run's floor (10%, or 2.5 times how far its benches stray from the base, if that
-# is more), and in each of three more turns beside its base, bench by bench
-# (scripts/bench_gate.py). Runs on different machines spread too far to judge by,
-# so each runner's history of main's runs, kept in the Actions cache, is only shown beside each
-# bench. The label `bench-accept` lets a regression through on purpose. Every run's report, SPEC
-# §15's budgets first, goes to the run summary. A draft pull request is not timed; once it is ready
-# for review each push is, so what merges was timed beside its base.
+# (ADR-0004 finding 18). Both read the base's decks (`SCAENA_BENCH_DECKS`), so they run the same
+# work and the gate judges the code: a deck a pull request changes is timed on main once it lands,
+# and judged from the next pull request on. Where a format change leaves the base's decks
+# unreadable to the pull request's build, its benches panic opening them and the job fails; nothing
+# works around that. It fails when a bench is slower than the base by more than the run's floor
+# (10%, or 2.5 times how far its benches stray from the base, if that is more), and in each of
+# three more turns beside its base, bench by bench (scripts/bench_gate.py). Runs on different
+# machines spread too far to judge by, so each runner's history of main's runs, kept in the
+# Actions cache, is only shown beside each bench. The label `bench-accept` lets a regression
+# through on purpose. Every run's report, SPEC §15's budgets first, goes to the run summary. A
+# draft pull request is not timed; once it is ready for review each push is, so what merges was
+# timed beside its base.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -104,8 +108,10 @@ jobs:
       # first, so a spell of load on the machine falls on both.
       - name: Time the benches, beside the base on a pull request
         run: |
-          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
-          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
+          stages() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          # The pull request's build on its base's decks.
+          this() { SCAENA_BENCH_DECKS="$RUNNER_TEMP/base" stages "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" stages "$@"); }
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             for group in $(this --list | sed -n 's|^\([a-z0-9_]*\)/.*: benchmark$|\1|p' | sort -u); do
               CRITERION_HOME="$CRITERION_HOME-base" base "^$group/"
@@ -113,7 +119,7 @@ jobs:
             done
             python3 scripts/bench_gate.py collect "$CRITERION_HOME-base" --out bench-base.json
           else
-            this
+            stages
           fi
           python3 scripts/bench_gate.py collect "$CRITERION_HOME" --out bench-run.json
       # Each bench slower than the base by more than the run's floor, timed again beside it, bench
@@ -122,8 +128,9 @@ jobs:
       - name: Time again what is slower than the base
         if: github.event_name == 'pull_request'
         run: |
-          this() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
-          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"); }
+          stages() { cargo bench --locked -p scaena-cli $FEATURES --bench stages -- "$@"; }
+          this() { SCAENA_BENCH_DECKS="$RUNNER_TEMP/base" stages "$@"; }
+          base() { (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$BASE_TARGET" stages "$@"); }
           python3 scripts/bench_gate.py suspects --run bench-run.json --base bench-base.json --out suspects.txt
           if [ -s suspects.txt ]; then
             for bench in $(cat suspects.txt); do

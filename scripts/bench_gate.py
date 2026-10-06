@@ -4,7 +4,10 @@
 Runs of the same code on different CI machines spread too far to judge a change by. Of six
 runs of `main` on the macOS runner, 46% of the times were more than 10% from their bench's
 median and 13% more than 30%, and Linux runs land on different processors. So a pull
-request is judged beside its base, built and timed on the same machine in the same job:
+request is judged beside its base, built and timed on the same machine in the same job,
+both on the base's decks, so the two run the same work and the gate judges the code. A deck
+a pull request changes is timed on `main` once it lands, and judged from the next pull
+request on:
 
 - the two are timed a group of benches at a time, the base first, so a spell of load on the
   machine falls on both;
@@ -277,7 +280,9 @@ def check(args) -> int:
         verdict = f"No bench slower than the base by more than {floor_} every time, of {count} judged"
     lines.append(
         f"{verdict}. The base, the commit a pull request merges onto, is built and timed on the same machine in "
-        f"the same job, a group of benches at a time and the base first. A bench slower than it by more than {floor_} "
+        "the same job, a group of benches at a time and the base first, and both run on the base's decks: the "
+        "budgets above are the pull request's code on them. A deck the pull request changes is judged from the "
+        f"next pull request on. A bench slower than the base by more than {floor_} "
         "is timed again beside it in three turns, and regresses when it is slower than that in every turn. Main's runs "
         "on this runner, on other machines, are shown for context and do not judge."
     )
