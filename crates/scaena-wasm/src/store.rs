@@ -142,7 +142,10 @@ impl Session {
             _ => Ok(None),
         };
         let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| self.subset(font, chars);
-        self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))
+        let mut saving = self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))?;
+        // What the Files panel took out goes where the bundle is kept too (PLAN 2.59).
+        saving.replaced.extend(self.removed.iter().cloned());
+        Ok(saving)
     }
 
     /// `font`'s subset for `chars`, as the page handed it over ([`Session::add_subset`]).
@@ -769,5 +772,36 @@ mod tests {
         let images =
             |dl: &scaena_core::displaylist::DisplayList| serde_json::to_string(dl).unwrap().matches("sha256:").count();
         assert_eq!(images(&drawn), 1);
+    }
+
+    /// The Files panel (PLAN 2.59): the bundle's images, fonts, and data and what uses each; a
+    /// file nothing names taken out, one step the panel undoes and redoes; one something names
+    /// refused, with why; and a save takes out what was taken out where the bundle is kept.
+    #[test]
+    fn a_file_nothing_names_is_taken_out_and_put_back_and_a_save_takes_it_out() {
+        let mut files = revenue();
+        files.insert("assets/stray.png".into(), b"not drawn".to_vec());
+        let mut s = Session::open(files).unwrap();
+        let listed = s.bundle_files().unwrap();
+        let stray = listed.iter().find(|f| f.path == "assets/stray.png").unwrap();
+        assert!(stray.named.is_empty() && stray.bytes == 9);
+        let q3 = listed.iter().find(|f| f.path == "data/q3-revenue.csv").unwrap();
+        assert_eq!(q3.used.first().map(|u| u.node.as_str()), Some("rev"));
+
+        let refused = s.remove_file("data/q3-revenue.csv").unwrap_err().to_string();
+        assert!(refused.contains("data source q3 names it"), "{refused}");
+        assert!(s.remove_file("deck.json").is_err() && s.file("data/q3-revenue.csv").is_some());
+
+        s.remove_file("assets/stray.png").unwrap();
+        assert!(s.file("assets/stray.png").is_none());
+        assert!(s.bundle_files().unwrap().iter().all(|f| f.path != "assets/stray.png"));
+        let user = Caller { author: "user", at: None };
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("assets/stray.png"));
+        assert_eq!(s.file("assets/stray.png"), Some(&b"not drawn"[..]));
+        assert_eq!(s.data_undo(true, user).unwrap().as_deref(), Some("assets/stray.png"));
+        assert!(s.file("assets/stray.png").is_none());
+
+        let saved = s.save(NOW, false, None).unwrap();
+        assert!(!saved.files.contains_key("assets/stray.png") && saved.replaced.contains("assets/stray.png"));
     }
 }

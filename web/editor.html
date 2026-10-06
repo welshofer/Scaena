@@ -219,6 +219,20 @@
       /* The data (PLAN 2.55): a source as a table, each cell a field; a cell its column does not
          read marked. */
       #data { padding: 6px 12px; }
+      #files { padding: 6px 12px; }
+      #files .files-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
+      #files [data-summary] { color: var(--muted); font-size: 12px; flex: 1 1 auto; }
+      #files h3 { font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
+      #files ul { list-style: none; margin: 0; padding: 0; }
+      #files [data-path] { padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+      #files [data-path][draggable="true"] { cursor: grab; }
+      #files .name { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+      #files .size { color: var(--muted); }
+      #files .named, #files .unnamed { margin: 2px 0 0; color: var(--muted); }
+      #files .unnamed { color: var(--ink); }
+      #files .used { padding-left: 12px; color: var(--muted); }
+      #files .used button { all: unset; cursor: pointer; color: var(--ink); text-decoration: underline; }
+      #files .used button:focus-visible { outline: 2px solid var(--info); }
       #data .data-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px; }
       #data [data-where] { color: var(--muted); font-size: 12px; flex: 1 1 auto; }
       #data .sheet { max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
@@ -361,6 +375,7 @@
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
           <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
           <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
+          <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
         </nav>
         <div id="inspector" role="tabpanel" aria-labelledby="tab-inspector">
@@ -381,6 +396,14 @@
           </p>
           <div class="sheet"><table aria-label="The source's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
           <ul data-problems aria-label="Cells their column does not read"></ul>
+        </section>
+        <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
+          <p class="files-head">
+            <span data-summary></span>
+            <button type="button" data-undo title="Undo the last change to the bundle's files (⌘Z in the panel)">Undo</button>
+            <button type="button" data-redo title="Make the last change undone again (⇧⌘Z in the panel)">Redo</button>
+          </p>
+          <div data-files></div>
         </section>
         <section id="assistant" role="tabpanel" aria-labelledby="tab-assistant" hidden>
           <div id="who">

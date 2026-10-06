@@ -48,6 +48,7 @@ import { canvas, placed } from "./canvas";
 import { type Command, MOD, MOD_ALT, menu, palette, SHIFT } from "./commands";
 import { cue } from "./cue";
 import { sheets } from "./data";
+import { filesPanel } from "./files";
 import { finder } from "./find";
 import { keptNames } from "./folders";
 import { layers } from "./layers";
@@ -474,6 +475,30 @@ async function edit(source: Source) {
     redo: () => void redo(view),
     say,
   });
+  /** The bundle's files (PLAN 2.59): its images, fonts, and data, what uses each in which states,
+   * and those nothing names taken out, each one change the panel's undo takes back. */
+  const filing = filesPanel(stage, $("#files"), {
+    shown: showing,
+    format,
+    source: () => view.state.doc.toString(),
+    took: wrote,
+    // The cursor goes into the state, as the strip puts it there: the preview stays on it.
+    show: async (state, node) => {
+      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+      const start = last?.states[index]?.[1];
+      if (start === undefined) return;
+      view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+      await show(index);
+      board.select(node);
+    },
+    insert: async (path) => {
+      const inserts = await stage.inserts().catch(() => []);
+      const n = inserts.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
+      if (n < 0) return say(`${path} is not an image the deck can insert: a PNG in the bundle`);
+      await board.insert(n, path);
+    },
+    say,
+  });
   // The zoom's buttons (PLAN 2.46), as ⌘−, ⌘+, and ⌘0.
   $("#zoom").onclick = (e) => {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -650,6 +675,7 @@ async function edit(source: Source) {
       void inspect();
       void layering.refresh();
       void data.refresh();
+      void filing.refresh();
       void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
@@ -1426,6 +1452,8 @@ async function edit(source: Source) {
       layers: layering,
       /** The data panel (PLAN 2.55): the source shown and its sheet. */
       data,
+      /** The files panel (PLAN 2.59): the bundle's files as it lists them, and its changes. */
+      files: filing,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */

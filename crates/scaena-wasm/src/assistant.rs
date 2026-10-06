@@ -101,6 +101,8 @@ fn ops(e: impl std::fmt::Display) -> Error {
 struct DeckRead {
     #[serde(default)]
     scn: bool,
+    #[serde(default)]
+    files: bool,
 }
 
 #[derive(Deserialize)]
@@ -277,7 +279,7 @@ impl Session {
         match name {
             "deck_read" => {
                 let a: DeckRead = args(name, a)?;
-                Called::of(scaena_ops::read::read(&b, a.scn)?)
+                Called::of(scaena_ops::read::read(&b, a.scn, a.files)?)
             }
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
@@ -412,9 +414,9 @@ impl Session {
         for (path, bytes) in w.files {
             if let Some(before) = self.files.get(&path).filter(|before| data.contains_key(&path) && **before != bytes) {
                 let why = w.why.message.clone();
-                let written =
-                    crate::data::Written { path: path.clone(), before: before.clone(), after: bytes.clone(), why };
-                self.held.entry(path.clone()).or_insert_with(|| written.before.clone());
+                self.held.entry(path.clone()).or_insert_with(|| before.clone());
+                let (before, after) = (Some(before.clone()), Some(bytes.clone()));
+                let written = crate::data::Written { path: path.clone(), before, after, why };
                 self.undone.clear();
                 self.done.push(written);
             }

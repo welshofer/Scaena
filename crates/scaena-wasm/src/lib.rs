@@ -144,6 +144,10 @@ pub struct Session {
     /// what the next save records as the bundle's own, before the edits (PLAN 2.55).
     #[cfg(feature = "editor")]
     held: BTreeMap<String, Vec<u8>>,
+    /// The files taken out of the bundle since it was opened or last saved (PLAN 2.59): what the
+    /// next save takes out where the bundle is kept.
+    #[cfg(feature = "editor")]
+    removed: std::collections::BTreeSet<String>,
 }
 
 /// What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it.
@@ -224,6 +228,8 @@ impl Session {
             undone: Vec::new(),
             #[cfg(feature = "editor")]
             held: BTreeMap::new(),
+            #[cfg(feature = "editor")]
+            removed: Default::default(),
         })
     }
 
@@ -1930,6 +1936,22 @@ impl Player {
 #[cfg(feature = "editor")]
 #[wasm_bindgen]
 impl Player {
+    /// The bundle's images, fonts, and data, as JSON (PLAN 2.59): `[{ path, type, bytes, named,
+    /// used }]`, as `scaena files --json` lists them, each with what in the deck names it, and
+    /// the nodes drawn from it in the states that show them so.
+    #[wasm_bindgen(js_name = bundleFiles)]
+    pub fn bundle_files(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.bundle_files().map_err(js)?).map_err(js)
+    }
+
+    /// `path` taken out of the bundle (PLAN 2.59): one of its images, fonts, or data that nothing
+    /// names. `dataUndo` puts it back; the next save takes it out where the bundle is kept. An
+    /// error says why, where something names it.
+    #[wasm_bindgen(js_name = removeFile)]
+    pub fn remove_file(&mut self, path: &str) -> Result<(), JsError> {
+        self.0.remove_file(path).map_err(js)
+    }
+
     /// The deck's data sources, as JSON: `[{ name, file? }]`, in its order, `file` the file each
     /// is (none for rows written inline).
     #[wasm_bindgen(js_name = dataSources)]
@@ -1963,8 +1985,9 @@ impl Player {
         serde_json::to_string(&serde_json::json!({ "result": result, "wrote": wrote })).map_err(js)
     }
 
-    /// The data file the last edit wrote put back as it was, by `author` (`user` without one) at
-    /// `at`: the source it is, by name; none where there was nothing to undo.
+    /// The file the last edit wrote, or the Files panel took out, put back as it was, by `author`
+    /// (`user` without one) at `at`: the source it is, by name, or its path; none where there was
+    /// nothing to undo.
     #[wasm_bindgen(js_name = dataUndo)]
     pub fn data_undo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
         let by = assistant::Caller {
@@ -1974,7 +1997,8 @@ impl Player {
         self.0.data_undo(false, by).map_err(js)
     }
 
-    /// The data file the last undo put back written again, as [`Player::data_undo`] says.
+    /// The file the last undo put back written, or taken out, again, as [`Player::data_undo`]
+    /// says.
     #[wasm_bindgen(js_name = dataRedo)]
     pub fn data_redo(&mut self, author: Option<String>, at: Option<String>) -> Result<Option<String>, JsError> {
         let by = assistant::Caller {

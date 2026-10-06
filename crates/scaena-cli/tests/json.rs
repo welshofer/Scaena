@@ -85,6 +85,9 @@ fn every_command_prints_one_json_value() {
             },
         ),
         (vec!["theme", EXAMPLE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
+        (vec!["files", TORTURE], 0, |v| {
+            v["files"].as_array().is_some_and(|f| f.iter().any(|x| x["path"] == "assets/test-card.png"))
+        }),
         (vec!["data", EXAMPLE, "q3"], 0, |v| {
             v["edited"] == false && v["sheet"]["rows"].as_array().is_some_and(|r| r.len() == 12)
         }),
@@ -419,6 +422,74 @@ fn inspect_says_a_states_layers() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("  layers, topmost first:\n    note (text)\n    rev (chart)\n"), "{text}");
     assert!(text.contains("    bg (shader, hidden)\n"), "{text}");
+}
+
+/// `scaena files` (PLAN 2.59) says what uses each of a bundle's images, fonts, and data, and
+/// takes out what nothing names, all or none: from a directory, and from a zip and its
+/// manifest.
+#[test]
+fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
+    let dir = scratch("files").join("torture.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    std::fs::write(dir.join("assets/stray.png"), b"not drawn").unwrap();
+    std::fs::write(dir.join("data/old.csv"), b"a,b\n1,2\n").unwrap();
+    let bundle = dir.to_str().unwrap();
+    let (code, listed) = json(&["files", bundle]);
+    assert_eq!(code, 0, "{listed:#}");
+    let file = |path: &str| listed["files"].as_array().unwrap().iter().find(|f| f["path"] == path).cloned().unwrap();
+    let card = file("assets/test-card.png");
+    assert!(card["named"].as_array().unwrap().contains(&serde_json::json!({ "by": "node", "node": "image-cover" })));
+    assert!(
+        card["used"].as_array().unwrap().contains(&serde_json::json!({ "node": "image-cover", "states": ["images"] }))
+    );
+    assert_eq!(
+        (file("assets/stray.png")["named"].clone(), file("data/old.csv")["type"].clone()),
+        (serde_json::json!([]), "data".into())
+    );
+    assert!(
+        listed["files"].as_array().unwrap().iter().all(|f| f["path"] != "deck.json" && f["path"] != "fonts/SOURCES.md")
+    );
+
+    // One something names stops them all; so does a file that is not one of them, or not there.
+    let (code, r) = json(&["files", bundle, "--remove", "assets/stray.png,assets/test-card.png,deck.json,nope.png"]);
+    assert_eq!((code, r["applied"].clone(), r["removed"].clone()), (1, false.into(), serde_json::json!([])), "{r:#}");
+    let why: Vec<&str> = r["refused"].as_array().unwrap().iter().map(|f| f["why"].as_str().unwrap()).collect();
+    assert!(why[0].starts_with("image ") && why[0].ends_with("names it: take that out of the deck first"), "{why:?}");
+    assert_eq!(
+        why[1..],
+        ["deck.json is not one of the bundle's images, fonts, or data", "the bundle holds no nope.png"]
+    );
+    assert!(dir.join("assets/stray.png").is_file());
+
+    // A dry run says so, and writes nothing; then they go.
+    let (code, r) = json(&["files", bundle, "--remove", "assets/stray.png,data/old.csv", "--dry-run"]);
+    assert_eq!((code, r["applied"].clone()), (0, false.into()), "{r:#}");
+    assert!(dir.join("assets/stray.png").is_file());
+    let out = scaena(&["files", bundle, "--remove", "assets/stray.png,data/old.csv"]);
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "took out assets/stray.png, data/old.csv\n");
+    assert!(!dir.join("assets/stray.png").exists() && !dir.join("data/old.csv").exists());
+
+    // From a saved zip, which lists it in its manifest: the manifest lists it no more.
+    std::fs::write(dir.join("assets/stray.png"), b"not drawn").unwrap();
+    let zip = dir.with_extension("saved.scaena");
+    assert!(scaena(&["save", bundle, "--to", zip.to_str().unwrap()]).status.success());
+    let zipped = zip.to_str().unwrap();
+    let (code, r) = json(&["files", zipped, "--remove", "assets/stray.png"]);
+    assert_eq!((code, r["applied"].clone()), (0, true.into()), "{r:#}");
+    let (_, listed) = json(&["files", zipped]);
+    assert!(listed["files"].as_array().unwrap().iter().all(|f| f["path"] != "assets/stray.png"));
+    assert!(scaena(&["validate", zipped]).status.success());
+    let bundle = scaena_store::Bundle::open(&zip).unwrap();
+    let manifest: Value = serde_json::from_slice(&bundle.read("manifest.json").unwrap()).unwrap();
+    assert!(
+        manifest["files"].get("assets/stray.png").is_none()
+            && manifest["files"].as_object().is_some_and(|f| !f.is_empty())
+    );
+
+    // For a person: each with what names it and where it draws, and what nothing names.
+    let text = String::from_utf8(scaena(&["files", TORTURE]).stdout).unwrap();
+    assert!(text.starts_with("images\n  assets/test-card.png  "), "{text}");
+    assert!(text.contains("    image-cover in images\n"), "{text}");
 }
 
 fn copy_dir(from: &Path, to: &Path) {

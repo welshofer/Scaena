@@ -37,6 +37,7 @@ import type {
   Pasted,
   Look,
   Put,
+  BundleFile,
   Grid,
   Grouped,
   Line,
@@ -325,6 +326,16 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "dataEdited", id: data.id, ...(await dataEdit(data.source, data.name, data.edits, data.index, data.format)) });
       case "dataUndo":
         return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
+      case "bundleFiles":
+        current(data.source);
+        return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+      case "removeFile": {
+        compiles(data.source);
+        player.removeFile(data.path);
+        latest++;
+        shown = { index: data.index, format: data.format };
+        return post({ type: "removed", id: data.id, edited: await edit(player.source(), data.index, data.format) });
+      }
       case "ask":
         return await ask(data.id, data.source, data.ask);
       case "stop":

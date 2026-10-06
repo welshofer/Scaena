@@ -335,6 +335,27 @@ export interface Grouped {
 
 /** The media type a clip goes on the clipboard as, beside its text (PLAN 2.37). */
 export const CLIP = "application/x-scaena+json";
+/** What a drag from the Files panel carries (PLAN 2.59): an image's path in the bundle. */
+export const BUNDLE_PATH = "application/x-scaena-path";
+
+/** One of a bundle's images, fonts, or data files (PLAN 2.59), as `scaena files` lists it: what in
+ * the deck or its theme names it (none where nothing does: it may be taken out), and the nodes
+ * drawn from it, each with the states that show it so. */
+export interface BundleFile {
+  path: string;
+  type: "image" | "font" | "data";
+  bytes: number;
+  named: Named[];
+  used: { node: string; states: string[] }[];
+}
+
+/** What names a file of the bundle. */
+export type Named =
+  | { by: "node"; node: string }
+  | { by: "evidence"; beat: string }
+  | { by: "font"; family: string; style?: string }
+  | { by: "theme"; family: string }
+  | { by: "source"; source: string };
 
 /** The page to the worker. */
 export type ToWorker =
@@ -515,6 +536,11 @@ export type ToWorker =
   /** The last edit of a data file undone, or with `redo` the last undone made again (PLAN 2.55):
    * the file as it was, written, then shown and linted as an edit is. */
   | { type: "dataUndo"; id: number; source: string; redo: boolean; index: number; format?: string }
+  /** The bundle's images, fonts, and data, and what uses each, in the deck `source` compiles to
+   * (PLAN 2.59). */
+  | { type: "bundleFiles"; id: number; source: string }
+  /** `path` taken out of the bundle, by the user: one nothing names (PLAN 2.59). */
+  | { type: "removeFile"; id: number; source: string; path: string; index: number; format?: string }
   /** Ask the assistant (PLAN 2.6): the editor's `source` must compile to a deck that
    * validates, which its tools then work on. Each step comes back as an `assistant` event,
    * until one that is `done` or `failed`. */
@@ -882,6 +908,9 @@ export type FromWorker =
   | { type: "dropped"; id: number; path: string }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
+  | { type: "bundleFiles"; id: number; files: BundleFile[] }
+  /** A file taken out: what the deck came to, shown and linted as an edit is. */
+  | { type: "removed"; id: number; edited: Edited }
   /** What `dataEdit` did; where it wrote, the deck's source after and what the edit of it came to. */
   | { type: "dataEdited"; id: number; result: DataEdited; source?: string; edited?: Edited }
   /** The source whose file an undo or redo wrote, and what the edit came to; none where there was

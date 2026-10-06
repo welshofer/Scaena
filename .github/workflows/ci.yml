@@ -291,6 +291,9 @@ jobs:
       # A look copied from one node (⌥⌘C) and pasted on others (⌥⌘V), each written where its own
       # lives (PLAN 2.58).
       - run: node web/looks.mjs
+      # The bundle's files, what uses each, an image dragged onto the canvas, and one nothing names
+      # taken out and put back (PLAN 2.59).
+      - run: node web/files.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

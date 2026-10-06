@@ -44,6 +44,7 @@ import type {
   StateChoices,
   Look,
   Put,
+  BundleFile,
 } from "./protocol";
 
 type Reply = Extract<
@@ -84,6 +85,8 @@ type Reply = Extract<
       | "stateChoices"
       | "look"
       | "put"
+      | "bundleFiles"
+      | "removed"
       | "carets"
       | "characterChoices"
       | "bolding"
@@ -355,6 +358,21 @@ export class Stage {
         return { result, source, edited };
       },
     );
+  }
+
+  /** The bundle's images, fonts, and data, in the deck `source` compiles to (PLAN 2.59): each with
+   * what names it, and the nodes drawn from it in the states that show them so. */
+  bundleFiles(source: string): Promise<BundleFile[]> {
+    return this.request<"bundleFiles">({ type: "bundleFiles", id: ++this.asked, source }).then(({ files }) => files);
+  }
+
+  /** `path` taken out of the bundle, by the user (PLAN 2.59): one nothing names. `dataUndo` puts it
+   * back. What the deck came to, shown and linted as an edit is. */
+  removeFile(source: string, path: string, index: number, format?: string): Promise<Edited> {
+    return this.request<"removed">({ type: "removeFile", id: ++this.asked, source, path, index, format }).then(({ edited }) => {
+      this.moved(edited);
+      return edited;
+    });
   }
 
   /** The last edit of a data file undone, or with `redo` made again (PLAN 2.55): the source whose
@@ -675,6 +693,8 @@ export class Stage {
       case "stateChoices":
       case "look":
       case "put":
+      case "bundleFiles":
+      case "removed":
       case "carets":
       case "characterChoices":
       case "bolding":

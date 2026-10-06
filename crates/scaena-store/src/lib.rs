@@ -90,6 +90,20 @@ impl Files {
         }
     }
 
+    /// The size of the file at `rel`, in bytes.
+    pub fn size(&self, rel: &str) -> Result<u64, StoreError> {
+        match self {
+            Files::Dir(root) => {
+                let path = inside(root, rel)?;
+                std::fs::metadata(&path).map(|m| m.len()).map_err(|source| StoreError::Read { path, source })
+            }
+            Files::Zip(entries) => {
+                let key = normal(rel)?;
+                entries.get(&key).map(|bytes| bytes.len() as u64).ok_or(StoreError::Missing(key))
+            }
+        }
+    }
+
     /// Every file in the bundle, by its path inside it, sorted.
     pub fn list(&self) -> Result<Vec<String>, StoreError> {
         match self {

@@ -87,7 +87,7 @@ fn a_bundle_from_a_theme_then_data_then_a_chart() {
 
     // Read back as JSON and as `.scn`; the spine replaced.
     let b = scaena_ops::open(&dir).unwrap();
-    let read = scaena_ops::read::read(&b, true).unwrap();
+    let read = scaena_ops::read::read(&b, true, false).unwrap();
     assert!(read.scn.unwrap().contains("rev"));
     let spine = json!({ "sections": [{ "id": "all", "beats": [
         { "id": "growth", "claim": "Revenue doubled.", "evidence": ["@q3"], "states": ["start"] }] }] });

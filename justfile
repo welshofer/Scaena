@@ -192,6 +192,7 @@ web-smoke: site
     node web/reader.mjs
     node web/guides.mjs
     node web/looks.mjs
+    node web/files.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

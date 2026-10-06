@@ -317,6 +317,44 @@ impl Bundle {
     }
 }
 
+impl Bundle {
+    /// Take `paths` out of the bundle (PLAN 2.59): out of its directory, or its zip written
+    /// again without them; and out of its manifest's list of files, where it keeps one, so the
+    /// manifest names no file the bundle lacks.
+    pub fn remove(&self, paths: &[String]) -> Result<(), StoreError> {
+        let manifest = match self.files.read("manifest.json") {
+            Ok(bytes) => {
+                let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
+                manifest.files.retain(|path, _| !paths.contains(path));
+                Some((serde_json::to_string_pretty(&manifest)? + "\n").into_bytes())
+            }
+            Err(_) => None,
+        };
+        match &self.files {
+            Files::Dir(root) => {
+                for rel in paths {
+                    std::fs::remove_file(crate::inside(root, rel)?)?;
+                }
+                if let Some(bytes) = manifest {
+                    std::fs::write(crate::inside(root, "manifest.json")?, bytes)?;
+                }
+                Ok(())
+            }
+            Files::Zip(entries) => {
+                let mut all = (**entries).clone();
+                for rel in paths {
+                    all.remove(&crate::normal(rel)?);
+                }
+                if let Some(bytes) = manifest {
+                    all.insert("manifest.json".into(), bytes);
+                }
+                std::fs::write(&self.root, zip(&all)?)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 /// `files` as a `.scaena` zip's bytes: sorted by path, each deflated and dated 1980-01-01,
 /// so the same bundle zips to the same bytes.
 pub fn zip(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, StoreError> {

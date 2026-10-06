@@ -56,8 +56,10 @@
 //   selected that takes it, one patch of `choose`s, each written where that node's own value lives,
 //   as the inspector writes one; where the look's value is the theme's, the node's own is taken
 //   away. A node of another type takes what its look shares with it (PLAN 2.58).
+// - An image dragged from the Files panel (PLAN 2.59) takes the place of the image node it is
+//   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { marks } from "./marks";
-import { CLIP } from "./protocol";
+import { BUNDLE_PATH, CLIP } from "./protocol";
 import type { Added, Arrange, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
@@ -945,16 +947,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Insert what the deck offers `n`th (`Stage.inserts`) where the pointer last pressed, or in the
    * middle of the canvas: it enters in the state shown, selected. */
   function insert(n: number, label = "it") {
-    return inTurn(async () => {
-      const shown = editor.shown();
-      if (!shown) return editor.say("the canvas waits for a source that compiles");
-      try {
-        const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
-        await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
-      } catch (e) {
-        editor.say(`not inserted: ${said(e)}`);
-      }
-    });
+    return inTurn(() => inserting(n, label));
+  }
+  async function inserting(n: number, label: string) {
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    try {
+      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
+      await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
+    } catch (e) {
+      editor.say(`not inserted: ${said(e)}`);
+    }
   }
 
   /** Arm the canvas to draw what `key` draws (PLAN 2.48); armed with it already, stop. */
@@ -1163,10 +1166,35 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     });
   }
+  /** An image of the bundle dragged from the Files panel (PLAN 2.59): over an image node, it takes
+   * that image's place, one `choose` of `src` written where it lives; anywhere else, it is inserted
+   * there, as Insert inserts it. */
+  function place(at: [number, number], path: string) {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say("the canvas waits for a source that compiles");
+      const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
+      const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
+      if (top && choices?.type === "image") {
+        const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
+        return change([op], "replacing…", `${top.node} shows ${path}`, top.node);
+      }
+      const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
+      if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG in the bundle`);
+      pointed = at;
+      await inserting(n, path);
+    });
+  }
   overlay.addEventListener("dragover", (e) => {
-    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    const types = e.dataTransfer?.types ?? [];
+    if (types.includes("Files") || types.includes(BUNDLE_PATH)) e.preventDefault();
   });
   overlay.addEventListener("drop", (e) => {
+    const path = e.dataTransfer?.getData(BUNDLE_PATH);
+    if (path) {
+      e.preventDefault();
+      return void place(point(e), path);
+    }
     const file = e.dataTransfer?.files[0];
     if (!file) return;
     e.preventDefault();

@@ -188,7 +188,9 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         if (name === undefined || !edited) return editor.say(redo ? "no data change to redo" : "no data change to undo");
         editor.took(edited);
         editor.say(redo ? `made again: the last change to ${name}` : `undone: the last change to ${name}`);
-        await refresh(name);
+        // A file the Files panel took out is put back by its path (PLAN 2.59): the source shown
+        // stays.
+        await refresh(name.includes("/") ? undefined : name);
       } catch (e) {
         editor.say(`${redo ? "not made again" : "not undone"}: ${said(e)}`);
       }

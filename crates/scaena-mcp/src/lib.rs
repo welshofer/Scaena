@@ -295,6 +295,11 @@ pub struct DeckRead {
     /// The deck as `.scn` source rather than JSON.
     #[serde(default)]
     pub scn: bool,
+    /// The bundle's images, fonts, and data too, each with what in the deck names it and the
+    /// nodes drawn from it in the states that show them so; a file nothing names has no
+    /// `named`, and may be taken out (`scaena files --remove`).
+    #[serde(default)]
+    pub files: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -546,9 +551,10 @@ impl Scaena {
         blocking(move || scaena_ops::create::create(Path::new(&a.bundle), &req)).await.map(Json)
     }
 
-    #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source.")]
+    #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the \
+        bundle's images, fonts, and data too, and what uses each.")]
     async fn deck_read(&self, Parameters(a): Parameters<DeckRead>) -> Result<Json<scaena_ops::read::Read>, String> {
-        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn)).await.map(Json)
+        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn, a.files)).await.map(Json)
     }
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \

@@ -269,6 +269,19 @@ enum Cmd {
         #[arg(long, requires = "edits")]
         dry_run: bool,
     },
+    /// The bundle's images, fonts, and data (PLAN 2.59): each with what in the deck or its theme
+    /// names it, and the nodes drawn from it in the states that show them so; a file nothing
+    /// names says so. With `--remove`, those files taken out of the bundle, all or none: each
+    /// must be one of its images, fonts, or data that nothing names.
+    Files {
+        bundle: PathBuf,
+        /// Files to take out, by their paths in the bundle, comma-separated.
+        #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+        remove: Option<Vec<String>>,
+        /// Say what would be taken out, and write nothing.
+        #[arg(long, requires = "remove")]
+        dry_run: bool,
+    },
     /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
     /// once for each place the text is written, and the states that show it. With `--replace`,
     /// every match is replaced in one patch, a `replace_text` where each text lives.
@@ -610,6 +623,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
         Cmd::Data { bundle, source, edits, dry_run } => data(&bundle, &source, edits.as_deref(), dry_run, cli.json),
+        Cmd::Files { bundle, remove, dry_run } => files(&bundle, remove.as_deref(), dry_run, cli.json),
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
@@ -930,6 +944,64 @@ fn data(bundle: &Path, source: &str, edits: Option<&Path>, dry_run: bool, json: 
     }
     print_delta(&d.added, &d.removed);
     Ok(if d.refused || d.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena files` (PLAN 2.59): the bundle's images, fonts, and data, and what uses each; or,
+/// with `remove`, those taken out, all or none, which exits 1 where one cannot be.
+fn files(bundle: &Path, remove: Option<&[String]>, dry_run: bool, json: bool) -> Result<ExitCode> {
+    use scaena_core::files::Kind;
+    let b = open(bundle)?;
+    if let Some(paths) = remove {
+        let r = scaena_ops::files::remove(&b, paths, dry_run)?;
+        let code = if r.refused.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
+        if json {
+            println!("{}", serde_json::to_string_pretty(&r)?);
+            return Ok(code);
+        }
+        for refusal in &r.refused {
+            println!("refused: {}: {}", refusal.path, refusal.why);
+        }
+        match (r.refused.is_empty(), dry_run) {
+            (false, _) => println!("nothing was taken out"),
+            (true, true) => println!("would take out {}", r.removed.join(", ")),
+            (true, false) => println!("took out {}", r.removed.join(", ")),
+        }
+        return Ok(code);
+    }
+    let listed = scaena_ops::files::Listed { files: scaena_ops::files::files(&b)? };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&listed)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    for (kind, heading) in [(Kind::Image, "images"), (Kind::Font, "fonts"), (Kind::Data, "data")] {
+        let of: Vec<_> = listed.files.iter().filter(|f| f.kind == kind).collect();
+        if of.is_empty() {
+            continue;
+        }
+        println!("{heading}");
+        for f in of {
+            println!("  {}  {}", f.path, size(f.bytes));
+            if f.named.is_empty() {
+                println!("    nothing names it: --remove {} takes it out", f.path);
+                continue;
+            }
+            let names: Vec<String> = f.named.iter().map(scaena_ops::files::said).collect();
+            println!("    named by {}", names.join(", "));
+            for used in &f.used {
+                println!("    {} in {}", used.node, used.states.join(", "));
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// A size in bytes, as a person reads it.
+fn size(bytes: u64) -> String {
+    match bytes {
+        b if b < 1024 => format!("{b} B"),
+        b if b < 1024 * 1024 => format!("{:.0} KB", b as f64 / 1024.0),
+        b => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
+    }
 }
 
 /// A data source's sheet as a table: each column's name and type over its cells, each row by
