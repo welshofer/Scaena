@@ -156,6 +156,14 @@
       #formats .found.error { background: var(--error); }
       #formats .found.warning { background: var(--warning); }
       #formats .found.info { background: var(--info); }
+      /* A rehearsal under way (PLAN 2.63): where it is, and its controls. */
+      #rehearsing { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--info); font-variant-numeric: tabular-nums; }
+      #rehearsing[hidden] { display: none; }
+      #rehearsing [data-where] { flex: 1; }
+      #rehearsed { width: min(34em, 92vw); }
+      #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+      #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
+      #rehearsed thead th { color: var(--muted); font-weight: 500; }
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
       #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
@@ -381,6 +389,12 @@
           <button type="button" data-find="all" title="Replace every match, one step to undo (⌘Enter)">Replace All</button>
           <button type="button" data-find="close" aria-label="Close" title="Close (Escape)">×</button>
         </div>
+        <div id="rehearsing" role="group" aria-label="Rehearsal" hidden>
+          <span data-where></span>
+          <button type="button" data-back title="The state before (←)">Back</button>
+          <button type="button" data-on title="The next state (→, Space, or a click on the canvas)">On</button>
+          <button type="button" data-end title="Stop, and see what each state took (Escape)">End</button>
+        </div>
         <div id="preview">
           <canvas id="stage"></canvas>
           <div
@@ -411,6 +425,7 @@
           <select id="state" aria-label="State"></select>
           <select id="format" aria-label="Format"><option value="">own canvas</option></select>
           <button type="button" id="formats-open" aria-pressed="false" title="The state shown in each of the deck's formats, side by side, as it plays; a click on one edits the deck in it">Formats</button>
+          <button type="button" id="rehearse-open" title="Play the deck as you present it, and keep the time each state took as its hold">Rehearse</button>
           <select id="theme" aria-label="Theme" title="The deck's theme: one that ships, or one the bundle holds. A theme the deck would not validate in is refused, and says why."></select>
           <select id="insert" aria-label="Insert" title="Insert a node where you last clicked on the canvas, or in the middle (Delete takes the node selected out, ⌘D copies it)"><option value="">Insert…</option></select>
           <button type="button" id="find-open" title="Find and replace in the deck's texts, in every state (⌘F)">Find…</button>
@@ -553,6 +568,22 @@
         <menu>
           <button value="cancel" formnovalidate>Cancel</button>
           <button value="export" id="exporting-go">Export</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="rehearsed" aria-labelledby="rehearsed-title">
+      <form method="dialog">
+        <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
+        <table>
+          <thead>
+            <tr><th scope="col">State</th><th scope="col">Time</th><th scope="col">Cue</th><th scope="col">Hold it keeps</th><th scope="col">Hold now</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p class="note">A state's cue plays, then its hold, then the next state: the hold a state keeps is its time less its cue. Kept, the deck plays at the pace you rehearsed.</p>
+        <menu>
+          <button value="cancel">Discard</button>
+          <button value="keep" id="rehearsed-keep">Keep as holds</button>
         </menu>
       </form>
     </dialog>

@@ -80,6 +80,7 @@ import type {
   Source,
   Where,
 } from "./protocol";
+import { rehearsal } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, status as onDisk } from "./served";
 import { worker } from "./spawn";
@@ -600,6 +601,26 @@ async function edit(source: Source) {
     },
   });
   formatting.formats(stage.opened.formats);
+  /** The deck played as presented, each state's time kept, and kept as its hold on request: one
+   * patch, one step to undo (PLAN 2.63). */
+  const rehearsing = rehearsal(stage, $("#rehearsing"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
+    slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
+    format,
+    show: (index) => void show(index),
+    keep: async (ops, what) => {
+      try {
+        const { source, edited } = await stage.make(view.state.doc.toString(), ops, shown, format());
+        made(source, edited);
+        say(`kept ${what} · ⌘Z undoes them`);
+        return true;
+      } catch (e) {
+        say(`not kept: ${said(e)}`);
+        return false;
+      }
+    },
+    say,
+  });
+  $("#rehearse-open").addEventListener("click", () => void rehearsing.start());
   /** The deck's theme, edited (PLAN 2.61, ADR-0016): its colors, type roles, and spacing, each
    * change one edit of the theme the deck names, the deck drawn in it. Refused, it says why; else
    * the source's history takes it as a change that carries the theme's text before and after, so
@@ -1378,6 +1399,7 @@ async function edit(source: Source) {
         label: formatting.open() ? "Hide the formats side by side" : "Show every format side by side",
         run: () => formatting.show(!formatting.open()),
       },
+      { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
@@ -1629,6 +1651,8 @@ async function edit(source: Source) {
       theme: theming,
       /** The formats side by side (PLAN 2.62): shown or hidden, and what they last painted. */
       formats: formatting,
+      /** The rehearsal (PLAN 2.63): started, stopped, and what each state took. */
+      rehearsal: rehearsing,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */

@@ -303,6 +303,9 @@ jobs:
       # The state shown in every format side by side, painted as a cue plays, each counting its
       # findings and opening the canvas in it (PLAN 2.62).
       - run: node web/formats.mjs
+      # A rehearsal: each state's time kept, and kept as its hold in one patch, one step to undo
+      # (PLAN 2.63).
+      - run: node web/rehearse.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
