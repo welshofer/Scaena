@@ -64,7 +64,7 @@ fn lint(bundle: &Path) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 37] = [
+const RULES: [(&str, &[&str]); 38] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E110", &["/nodes/t"]),
@@ -89,6 +89,7 @@ const RULES: [(&str, &[&str]); 37] = [
     ("W320", &["/states/0"]),
     ("W321", &["/states/0/choreography"]),
     ("W322", &["/states/1/choreography/0"]),
+    ("W323", &["/states/1"]),
     ("W401", &["/states/1"]),
     ("W410", &["/nodes/p"]),
     ("W420", &["/spine/sections/0/beats/0"]),
@@ -313,6 +314,33 @@ fn lint_fix_applies_what_lint_offers_and_lints_again() {
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stdout).contains("nothing to fix"));
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
+}
+
+#[test]
+fn a_state_shown_for_no_time_is_judged_only_where_the_deck_runs_on_its_own() {
+    // `b`'s seven words and photograph read in 4 s: four words a second, 2 s a figure.
+    let (_, found) = lint(&fixture("w323", "W323", "trigger"));
+    let w323 = found.iter().find(|f| f["code"] == "W323").unwrap();
+    assert_eq!(w323["state"], "b");
+    assert!(w323["message"].as_str().unwrap().ends_with("give it a `hold` of about 4000 ms"), "{w323:#}");
+    assert_eq!(w323["measure"], serde_json::json!({ "words": 7, "figures": 1, "suggestedHold": 4000.0 }));
+    // The trigger, edited by `edit`, lints clean.
+    let clean = |test: &str, edit: &dyn Fn(&mut Value)| {
+        let dir = fixture(test, "W323", "trigger");
+        let mut deck: Value = serde_json::from_slice(&std::fs::read(dir.join("deck.json")).unwrap()).unwrap();
+        edit(&mut deck);
+        std::fs::write(dir.join("deck.json"), deck.to_string()).unwrap();
+        let (exit, found) = lint(&dir);
+        assert_eq!((exit, found.len()), (0, 0), "{test}: {found:#?}");
+    };
+    // Without a hold anywhere the deck is presented live, and `b` shows until the next click.
+    clean("live", &|deck| {
+        for state in deck["states"].as_array_mut().unwrap() {
+            state.as_object_mut().unwrap().remove("hold");
+        }
+    });
+    // With a transition, `b` plays its cue on its way to `c`.
+    clean("passing", &|deck| deck["states"][1]["transition"] = "fast".into());
 }
 
 #[test]

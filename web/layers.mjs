@@ -200,6 +200,8 @@ try {
   const drop = async (node, on, where) => {
     await has(...holding);
     await row(on).waitFor({ state: "visible" });
+    // The panel runs past the window's foot: the row dropped on is brought into view first.
+    await row(on).scrollIntoViewIfNeeded();
     const { height } = await row(on).boundingBox();
     const y = where === "before" ? 2 : where === "after" ? height - 2 : height / 2;
     await row(node).dragTo(row(on), { targetPosition: { x: 40, y } });

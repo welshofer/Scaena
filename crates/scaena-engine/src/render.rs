@@ -304,7 +304,7 @@ impl Engine {
         let canvas = canvas(deck);
         let grid = Grid::from_theme(theme, canvas)?;
         let snap = &cascade::with_overrides(deck, snap);
-        let placement = self.place(deck, theme, &grid, snap)?;
+        let placement = self.place(deck, theme, data, &grid, snap)?;
         let tree = tree(deck, snap, &placement)?;
         let mut nodes = Vec::with_capacity(snap.nodes.len());
         // Every state's props, read once, for what each chart colors across the deck.
@@ -387,18 +387,38 @@ impl Engine {
             return Err(EngineError::Layout(format!("node `{node}` is not visible in state `{}`", req.state)));
         }
         let grid = Grid::from_theme(theme, canvas(deck))?;
-        let placement = self.place(deck, theme, &grid, snap)?;
+        let placement = self.place(deck, theme, req.data, &grid, snap)?;
         self.layout_text_node(deck, theme, grid.baseline, snap, node, placement.boxes[node])
     }
 
     /// Every node's box in `snap` (overrides merged), its container, and paint order:
-    /// roots on the theme grid, containers' children through `taffy`, text measured here.
-    fn place(&mut self, deck: &Deck, theme: &Theme, grid: &Grid, snap: &Snapshot) -> Result<Placement, EngineError> {
-        let (text, fonts) = (&mut self.text, &mut self.fonts);
+    /// roots on the theme grid, containers' children through `taffy`, text and tables
+    /// measured here.
+    fn place(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        grid: &Grid,
+        snap: &Snapshot,
+    ) -> Result<Placement, EngineError> {
+        let (text, fonts, lenient) = (&mut self.text, &mut self.fonts, self.lenient);
         let mut specs: HashMap<String, (TextSpec, TextBox)> = HashMap::new();
+        // A table's size as content, set once whatever taffy asks: its columns across, its
+        // rows down, and whether it spans its cell.
+        let mut tables: HashMap<String, ([f32; 2], bool)> = HashMap::new();
         let mut measure = |id: &str, known: taffy::Size<Option<f32>>, available: taffy::Size<taffy::AvailableSpace>| {
+            let props = &snap.nodes[id];
+            if deck.nodes[id].node_type == NodeType::Table {
+                if !tables.contains_key(id) {
+                    let mut cx = Ctx { text: &mut *text, fonts: &mut *fonts, theme, deck, data, colors: &[], lenient };
+                    let set = tables::set(&mut cx, props).map_err(|e| in_node(id, e))?;
+                    tables.insert(id.to_string(), ([set.width(), set.height()], set.stretches()));
+                }
+                let (content, stretch) = tables[id];
+                return Ok(measure_table(content, stretch, known, available));
+            }
             if !specs.contains_key(id) {
-                let props = &snap.nodes[id];
                 let spec = text_spec(deck, theme, props, None).map_err(|e| in_node(id, e))?;
                 let trim = typed_prop::<TextBox>(props, "box")?.unwrap_or(spec.role.text_box);
                 specs.insert(id.to_string(), (spec, trim));
@@ -613,6 +633,29 @@ fn measure_text(
         width: known.width.unwrap_or(laid.width + FIT_SLACK),
         height: known.height.unwrap_or(bottom - top),
     })
+}
+
+/// A table's size in a container (SPEC §3.3, §3.4): its columns across, or, under
+/// `tables.stretch`, the width it is offered, and its rows down. It asks for no more than
+/// it is offered and needs none of it, so a table short of room takes what it is given
+/// and says what to cut, rather than pushing what follows it past its container's end.
+fn measure_table(
+    content: [f32; 2],
+    stretch: bool,
+    known: taffy::Size<Option<f32>>,
+    available: taffy::Size<taffy::AvailableSpace>,
+) -> taffy::Size<f32> {
+    use taffy::AvailableSpace::{Definite, MaxContent, MinContent};
+    let along = |available, content: f32, stretch: bool| match available {
+        Definite(room) if stretch => room,
+        Definite(room) => content.min(room),
+        MinContent => 0.0,
+        MaxContent => content,
+    };
+    taffy::Size {
+        width: known.width.unwrap_or_else(|| along(available.width, content[0], stretch)),
+        height: known.height.unwrap_or_else(|| along(available.height, content[1], false)),
+    }
 }
 
 /// A container's panel: its `fill` and `stroke` as a rectangle with its `radius`.

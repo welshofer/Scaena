@@ -69,8 +69,9 @@ impl Rule for W210Density {
     }
 }
 
-/// The words a text node shows: its `text`, or its runs' text.
-fn words(props: &Props) -> usize {
+/// The words a text node shows: its `text`, or its runs' text. A word is what whitespace
+/// separates (W210, and the reading W323 sizes a hold by).
+pub fn words(props: &Props) -> usize {
     let count = |v: Option<&Value>| v.and_then(Value::as_str).map_or(0, |s| s.split_whitespace().count());
     match props.get("runs").and_then(Value::as_array) {
         Some(runs) => runs.iter().map(|r| count(r.get("text"))).sum(),

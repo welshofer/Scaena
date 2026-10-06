@@ -6,7 +6,7 @@ Phase 2's exit criteria (PLAN, "Exit criteria (gate 2)"), each with its evidence
 - the first needs a real machine's browsers, held to the bar Jay set on 2026-10-04;
 - the fourth needs his own key.
 
-The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. Phase 2's tasks are done but for 2.7's deploy, which waits on where the site goes.
+The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. The site is deployed (PLAN 2.7), so the first can be run there. Phase 2's open tasks, 2.72–2.75, are none of the four.
 
 ## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox: needs a real machine
 
@@ -47,8 +47,8 @@ The same headless runs hold even the states without a shader to 30–56 fps, whi
 The worker times each frame by the display's clock.
 
 **To run it:**
-1. Serve the pages: `just web` once, then `just web-dev`. Or use the site once it is deployed (PLAN 2.7).
-2. In Chrome, open `http://localhost:5173/?bundle=/docs/examples/trails.deck.json&fps`. On the site, open `index.html?fps`.
+1. Serve the pages: `just web` once, then `just web-dev`. Or use the site (PLAN 2.7), published from `main` first (Actions → site → Run workflow, with "deploy" ticked) so it plays the engine as it is now.
+2. In Chrome, open `http://localhost:5173/?bundle=/docs/examples/trails.deck.json&fps`. On the site, open `https://welshofer.github.io/Scaena/index.html?fps`.
 3. The status line should say `WebGPU`. Make the window the size you present at, or press F for fullscreen.
 4. Go through the deck with →. Each cue with motion fills the meter: the cover's rise, the charts growing, the table, and the diagram. Note the lowest frames a second and the worst frame.
 5. Do the same in Safari 26 on the Mac.
