@@ -600,6 +600,11 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
         let _ = s.outline(one, &b.node);
     }
     let _ = s.outline(one, "nowhere");
+    // Each node's framing, an image's or none, and a node that is not there (PLAN 2.74).
+    for b in s.boxes(one).unwrap_or_default().iter().take(8) {
+        let _ = s.framing(one, &b.node);
+    }
+    let _ = s.framing(one, "nowhere");
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);

@@ -61,7 +61,7 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
@@ -90,6 +90,9 @@ export const canvasKeys = (): Key[] => [
   { keys: "Click an edge's middle", label: "Add a point there; a drag from it places the point", group: "Points and corners" },
   { keys: "Click a point, then Delete", label: "Take it away, though never below the two or three its kind keeps", group: "Points and corners" },
   { keys: "Drag a rect's corner", label: "Round its corners to the theme's radius steps", group: "Points and corners" },
+  { keys: "Drag a crop handle inside an image", label: "Crop it from that side, the crop shown on the whole image as it goes", group: "Points and corners" },
+  { keys: "Drag an image's focal point", label: "Keep that point of the image in view as its box cuts it", group: "Points and corners" },
+  { keys: `${ALT}Drag a crop handle or the focal point`, label: "Keep the crop or the focal point to the state shown", group: "Points and corners" },
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
   { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
@@ -261,6 +264,22 @@ interface Reshape {
   index?: number;
   added?: boolean;
   step?: number;
+}
+
+/** An image's crop, from one side, or its focal point, dragged by its handle (PLAN 2.74): its
+ * framing when the press began, where it pressed (canvas units as laid out, and client px), whether
+ * it has moved past the slop, Alt, and the crop and the focal point as the drag leaves them. */
+interface Cropping {
+  state: string;
+  framing: Framing;
+  side?: "n" | "e" | "s" | "w";
+  from: Point;
+  client: Point;
+  moved: boolean;
+  alt: boolean;
+  version: number;
+  crop: Rect;
+  focal: Point;
 }
 
 /** Where a slot dragged lands on the grid (PLAN 2.71): its cells, from 1, and its box. */
@@ -436,6 +455,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let pointPicked: number | undefined;
   /** A point, or a rect's corner, dragged by its handle. */
   let reshaping: Reshape | undefined;
+  /** The framing of the image selected (PLAN 2.74): its crop's handles and its focal point's. */
+  let imaged: { state: string; framing: Framing } | undefined;
+  /** A crop handle, or the focal point, dragged. */
+  let cropping: Cropping | undefined;
   /** The layout of the state shown, as its slots, while the canvas edits it (PLAN 2.71): the
    * state and the format it was asked in, and the grid its slots snap to. */
   let slotting: { state: string; format?: string; layout: LayoutSlots; grid?: Grid } | undefined;
@@ -735,6 +758,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         draw();
       })
       .catch(() => (shaped = undefined));
+    // An image's crop and focal point (PLAN 2.74).
+    stage
+      .framing(shown.state, node, editor.format())
+      .then((f) => {
+        if (selected !== node) return;
+        imaged = f && { state: shown.state, framing: f };
+        draw();
+      })
+      .catch(() => (imaged = undefined));
   }
 
   /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
@@ -824,7 +856,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         return [x + by[0], y + by[1]];
       };
       const [x, y, w, h] = first.rect;
-      const still = !drag && !typed && !turning && !reshaping && also.length === 0;
+      const still = !drag && !typed && !turning && !reshaping && !cropping && also.length === 0;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -849,10 +881,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       // A shape's points and corners (PLAN 2.68), over its box's handles.
       const o = shaped?.state === boxed && shaped?.outline.node === first.node ? shaped?.outline : undefined;
       if (o && still && !marquee && !armed) parts.push(...shapeHandles(o, u));
+      // An image's crop and focal point (PLAN 2.74), inside its box.
+      const f = imaged?.state === boxed && imaged?.framing.node === first.node ? imaged?.framing : undefined;
+      if (f && still && !marquee && !armed) parts.push(cropHandles(f, u));
     }
     if (reshaping && reshaping.state === boxed) parts.push(reshaped(reshaping));
+    if (cropping && cropping.state === boxed) parts.push(cropped(cropping, u));
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping) parts.push(shape(over, [0, 0], "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping && !cropping) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -1056,6 +1092,146 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const done = r.added ? `${o.node} has a point added${kept}` : `${o.node}'s point ${r.index + 1} moved${kept}`;
     await change([choose("points", r.points)], r.added ? "adding a point…" : "moving the point…", done, o.node);
+  }
+
+  /** An image's crop and focal point on the canvas (PLAN 2.74). With an image selected, a handle
+   * stands inside each side of the part that shows: one dragged crops the image from that side, the
+   * whole image outlined as it goes, and the part the crop keeps over it. The focal point, the point
+   * of the crop that lines up with the same point of the box, as CSS `object-position` does, is a
+   * handle there: one dragged moves it within the box. Each is one `choose` of `crop` or `focal`, written where it lives, or
+   * kept to the state shown with Alt; Escape leaves it as it was. */
+  /** `f`'s map, as an SVG attribute: what draws a part laid out where it is drawn. */
+  const framedMap = (f: Framing) => (f.transform ? ` transform="matrix(${f.transform.join(" ")})"` : "");
+  /** The part of `f`'s whole image `crop` keeps, canvas units as laid out. */
+  const cropRect = (f: Framing, crop: Rect): Rect => {
+    const [x, y, w, h] = f.whole;
+    return [x + crop[0] * w, y + crop[1] * h, crop[2] * w, crop[3] * h];
+  };
+  /** Where focal point `focal` stands in `f`, canvas units as laid out: that point of the crop lines
+   * up with the same point of the box, as CSS `object-position` does, so it stands there. */
+  const focalPoint = (f: Framing, focal: Point): Point => {
+    const [x, y, w, h] = f.rect;
+    return [x + focal[0] * w, y + focal[1] * h];
+  };
+  /** A fraction to a thousandth. */
+  const thousandth = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000;
+  /** The least a crop keeps of the image, each way. */
+  const LEAST_CROP = 0.05;
+
+  function cropHandles(f: Framing, u: number): string {
+    const [x, y, w, h] = f.shown;
+    const inset = Math.min(10 * u, w / 4, h / 4);
+    const [long, thick] = [16 * u, 5 * u];
+    const sides: Record<"n" | "e" | "s" | "w", Rect> = {
+      n: [x + w / 2 - long / 2, y + inset - thick / 2, long, thick],
+      s: [x + w / 2 - long / 2, y + h - inset - thick / 2, long, thick],
+      w: [x + inset - thick / 2, y + h / 2 - long / 2, thick, long],
+      e: [x + w - inset - thick / 2, y + h / 2 - long / 2, thick, long],
+    };
+    const names = { n: "top", e: "right", s: "bottom", w: "left" };
+    const bars = (Object.keys(sides) as (keyof typeof sides)[]).map((side) => {
+      const [bx, by, bw, bh] = sides[side];
+      const cursor = side === "n" || side === "s" ? "ns-resize" : "ew-resize";
+      return `<rect class="handle crop-handle" data-crop="${side}" x="${bx}" y="${by}" width="${bw}" height="${bh}" style="cursor:${cursor}"><title>Crop ${f.node} from the ${names[side]}</title></rect>`;
+    });
+    const [fx, fy] = focalPoint(f, f.focal);
+    const focal = `<g class="focal-handle" data-focal="1" style="cursor:move"><circle class="handle focal" data-focal="1" cx="${fx}" cy="${fy}" r="${6 * u}"/><path class="focal-cross" d="M${fx - 10 * u} ${fy}H${fx + 10 * u}M${fx} ${fy - 10 * u}V${fy + 10 * u}"/><title>${f.node}'s focal point: drag it to keep that part in view</title></g>`;
+    return `<g class="crop"${framedMap(f)}>${bars.join("")}${focal}</g>`;
+  }
+
+  /** What cropping `c` shows as it is dragged: the whole image outlined, what the crop cuts away
+   * shaded, the part it keeps, and the focal point. */
+  function cropped(c: Cropping, u: number): string {
+    const f = c.framing;
+    const [wx, wy, ww, wh] = f.whole;
+    const [cx, cy, cw, ch] = cropRect(f, c.crop);
+    const [fx, fy] = focalPoint(f, c.focal);
+    const shade = `<path class="crop-shade" fill-rule="evenodd" d="M${wx} ${wy}h${ww}v${wh}h${-ww}ZM${cx} ${cy}h${cw}v${ch}h${-cw}Z"/>`;
+    return `<g class="cropping"${framedMap(f)}>${shade}<rect class="image-whole" x="${wx}" y="${wy}" width="${ww}" height="${wh}"/><rect class="crop-frame" x="${cx}" y="${cy}" width="${cw}" height="${ch}"/><circle class="focal" cx="${fx}" cy="${fy}" r="${6 * u}"/></g>`;
+  }
+
+  /** A press on crop handle `handle` of the image selected, at `from`, canvas units. */
+  function cropStart(handle: Element, from: Point, client: Point, alt: boolean) {
+    const f = imaged!.framing;
+    const at = f.transform ? (invert(f.transform) ? apply(invert(f.transform)!, from) : from) : from;
+    const side = handle.getAttribute("data-crop") as Cropping["side"] | null;
+    cropping = {
+      state: imaged!.state,
+      framing: f,
+      side: side ?? undefined,
+      from: at,
+      client,
+      moved: false,
+      alt,
+      version: editor.version(),
+      crop: [...f.crop] as Rect,
+      focal: [...f.focal] as Point,
+    };
+    draw();
+  }
+
+  /** The pointer at `at` in cropping `c`: the side goes as far as the pointer went, the crop kept to
+   * the image and to at least a twentieth of it; or the focal point goes there, kept to the crop. */
+  function cropTo(c: Cropping, at: Point, client: Point, alt: boolean) {
+    c.alt = alt;
+    if (!c.moved && Math.hypot(client[0] - c.client[0], client[1] - c.client[1]) < SLOP) return;
+    c.moved = true;
+    const f = c.framing;
+    const m = f.transform && invert(f.transform);
+    const p = f.transform ? (m ? apply(m, at) : undefined) : at;
+    if (!p) return;
+    const kept = keeping(alt) ? ` · kept to ${c.state}` : "";
+    const [x, y, w, h] = f.crop;
+    if (c.side) {
+      const [dx, dy] = [(p[0] - c.from[0]) / f.whole[2], (p[1] - c.from[1]) / f.whole[3]];
+      let crop: Rect = [x, y, w, h];
+      if (c.side === "w") {
+        const nx = Math.min(x + w - LEAST_CROP, Math.max(0, x + dx));
+        crop = [nx, y, x + w - nx, h];
+      } else if (c.side === "e") crop = [x, y, Math.min(1 - x, Math.max(LEAST_CROP, w + dx)), h];
+      else if (c.side === "n") {
+        const ny = Math.min(y + h - LEAST_CROP, Math.max(0, y + dy));
+        crop = [x, ny, w, y + h - ny];
+      } else crop = [x, y, w, Math.min(1 - y, Math.max(LEAST_CROP, h + dy))];
+      c.crop = crop.map(thousandth) as Rect;
+      editor.say(`${f.node} cropped to ${c.crop.join(", ")} of the image${kept}`);
+    } else {
+      const [rx, ry, rw, rh] = f.rect;
+      c.focal = [thousandth((p[0] - rx) / rw), thousandth((p[1] - ry) / rh)];
+      editor.say(`${f.node}'s focal point → ${c.focal.join(", ")}${kept}`);
+    }
+    draw();
+  }
+
+  /** Cropping `c` let go: one `choose` of the image's `crop` or `focal`. */
+  async function cropEnd(c: Cropping) {
+    const shown = editor.shown();
+    const f = c.framing;
+    if (!shown || shown.state !== c.state) {
+      draw();
+      return editor.say(`another state is shown: ${f.node} is as it was`);
+    }
+    if (editor.version() !== c.version) {
+      draw();
+      return editor.say("the source changed under the drag: nothing is changed");
+    }
+    const same = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) < 5e-4);
+    const fork = keeping(c.alt);
+    const kept = fork ? ` · kept to ${c.state}` : "";
+    const choose = (prop: string, value: unknown) => ({ op: "choose", node: f.node, prop, value, state: c.state, ...(fork ? { fork } : {}) });
+    if (c.side) {
+      if (!c.moved || same(c.crop, f.crop)) {
+        draw();
+        return editor.say(c.moved ? `${f.node}'s crop stays as it is` : `drag ${f.node}'s crop handle to crop it from that side`);
+      }
+      const whole = same(c.crop, [0, 0, 1, 1]);
+      return change([choose("crop", whole ? null : c.crop)], "cropping…", whole ? `${f.node} shows the whole image${kept}` : `${f.node} cropped to ${c.crop.join(", ")}${kept}`, f.node);
+    }
+    if (!c.moved || same(c.focal, f.focal)) {
+      draw();
+      return editor.say(c.moved ? `${f.node}'s focal point stays where it is` : `drag ${f.node}'s focal point to keep that part of the image in view`);
+    }
+    return change([choose("focal", c.focal)], "moving the focal point…", `${f.node}'s focal point → ${c.focal.join(", ")}${kept}`, f.node);
   }
 
   /** Bullets or numbers on a text (ADR-0018, PLAN 2.69), as ⌘⇧8 and ⌘⇧7 do: typed in, on the
@@ -2148,6 +2324,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       e.preventDefault();
       return reshape(handle, from, client, e.altKey);
     }
+    // An image's crop handle, or its focal point (PLAN 2.74).
+    const crop = (e.target as Element).closest?.("[data-crop],[data-focal]");
+    if (crop && selected !== undefined && imaged?.framing.node === selected) {
+      e.preventDefault();
+      return cropStart(crop, from, client, e.altKey);
+    }
     const edge = (e.target as Element).closest?.("[data-edge]")?.getAttribute("data-edge") as Edge | null;
     if (edge && selected !== undefined) {
       press = { node: selected, edge, from, client };
@@ -2358,6 +2540,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (turning) return turned(turning, at, e.shiftKey);
     if (slotDrag) return slotMove(at);
     if (reshaping) return reshapeTo(reshaping, at, [e.clientX, e.clientY], e.altKey);
+    if (cropping) return cropTo(cropping, at, [e.clientX, e.clientY], e.altKey);
     if (carrying) {
       [carrying.at, carrying.alt] = [at, e.altKey];
       return draw();
@@ -2437,6 +2620,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       reshaping = undefined;
       return void inTurn(() => reshapeEnd(r));
     }
+    if (cropping) {
+      const c = cropping;
+      cropTo(c, point(e), [e.clientX, e.clientY], e.altKey);
+      cropping = undefined;
+      return void inTurn(() => cropEnd(c));
+    }
     if (marquee) {
       marquee.at = point(e);
       return finish();
@@ -2464,8 +2653,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   overlay.onpointercancel = () => {
     press = starting = marquee = undefined;
-    if (reshaping) {
-      reshaping = undefined;
+    if (reshaping || cropping) {
+      reshaping = cropping = undefined;
       draw();
     }
     if (sketch) disarm("not drawn: the drag was cancelled");
@@ -2592,6 +2781,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         reshaping = undefined;
         draw();
         return editor.say(`${r.outline.node} stays as it is`);
+      }
+      if (cropping) {
+        e.preventDefault();
+        const c = cropping;
+        cropping = undefined;
+        draw();
+        return editor.say(`${c.framing.node}'s crop and focal point stay as they are`);
       }
       if (pointPicked !== undefined) {
         e.preventDefault();
@@ -2729,6 +2925,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     slotting: () => slotting?.layout,
     /** The outline of the shape selected, and the point of it picked (PLAN 2.68). */
     outlined: () => shaped?.outline,
+    /** The framing of the image selected (PLAN 2.74), for a test. */
+    framing: () => imaged?.framing,
     pointPicked: () => pointPicked,
     /** Pick what is at `at` of the chart selected, as a click there does. */
     pickAt: (at: Point) => pickAt(at),
@@ -2800,7 +2998,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return shown ? stage.targets(shown.state, node, editor.format()) : Promise.reject(new Error("nothing is shown"));
     },
     /** Whether a drag is under way, or its request with the worker. */
-    busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined,
+    busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined || cropping !== undefined,
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** What is typed in it, for a test. */

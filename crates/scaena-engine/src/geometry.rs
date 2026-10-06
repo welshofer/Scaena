@@ -87,7 +87,52 @@ pub struct Outline {
     pub radii: Vec<f32>,
 }
 
+/// An image as a pointer crops it (PLAN 2.74): where its whole is drawn, at the scale its crop and
+/// fit draw it at, the part that shows, and its crop and focal point.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Framing {
+    pub node: String,
+    /// Its box at rest, canvas units.
+    pub rect: Rect,
+    /// As [`NodeBox::transform`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
+    /// Where the whole image is drawn as it is now, canvas units as laid out: past the box where
+    /// the crop or `cover` cuts it.
+    pub whole: Rect,
+    /// Where the part that shows is drawn, canvas units as laid out.
+    pub shown: Rect,
+    /// `[x, y, w, h]`, fractions of the image.
+    pub crop: Rect,
+    /// Fractions of the crop.
+    pub focal: [f32; 2],
+    /// `cover`, `contain`, or `fill`.
+    pub fit: &'static str,
+    /// The image, in pixels.
+    pub size: [u32; 2],
+}
+
 impl Scene {
+    /// Image `node`'s framing at rest (PLAN 2.74); `None` for a node this state does not draw,
+    /// or one that is no image.
+    pub fn framing(&self, node: &str) -> Option<Framing> {
+        let drawn = self.nodes.iter().find(|n| n.id == node)?;
+        let Content::Image(image) = &drawn.content else { return None };
+        let (whole, shown, crop, focal, fit, size) = image.framing();
+        let rect = self.tree.get(node)?.rect;
+        Some(Framing {
+            node: node.to_string(),
+            rect,
+            transform: self.drawn(node),
+            whole,
+            shown,
+            crop,
+            focal,
+            fit,
+            size,
+        })
+    }
+
     /// Every visible node's box: those that draw, in paint order, then the containers and
     /// groups that only hold others, by id.
     pub fn boxes(&self) -> Vec<NodeBox> {

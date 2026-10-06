@@ -178,6 +178,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "layout":
         layOut(data.format);
         return post({ type: "laidOut", id: data.id, layout: JSON.parse(player.layout(data.state)) });
+      case "framing":
+        layOut(data.format);
+        return post({ type: "framed", id: data.id, framing: JSON.parse(player.framing(data.state, data.node)) });
       case "outline":
         layOut(data.format);
         return post({ type: "outlined", id: data.id, outline: JSON.parse(player.outline(data.state, data.node)) });

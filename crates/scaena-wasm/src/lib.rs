@@ -542,6 +542,13 @@ impl Session {
         Ok(scene.outline(node, &self.theme))
     }
 
+    /// Image `node`'s framing in `state` at rest, in the format shown (PLAN 2.74): where its whole
+    /// is drawn, the part that shows, its crop, and its focal point. `None` for a node the state
+    /// does not draw, or one that is no image.
+    pub fn framing(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::geometry::Framing>, Error> {
+        Ok(self.at_rest(state)?.framing(node))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -1668,6 +1675,15 @@ impl Player {
     /// the state does not draw, or one that is no shape.
     pub fn outline(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.outline(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// Image `node`'s framing in `state` at rest, as JSON (PLAN 2.74): `{ "node", "rect",
+    /// "transform"?, "whole", "shown", "crop", "focal", "fit", "size" }`, where its whole image and
+    /// the part that shows are drawn in canvas units as laid out, its crop in fractions of the image,
+    /// and its focal point in fractions of the crop; `null` for a node the state does not draw, or
+    /// one that is no image.
+    pub fn framing(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.framing(state, node).map_err(js)?).map_err(js)
     }
 
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
