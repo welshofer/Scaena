@@ -165,7 +165,12 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   - *Approved by Jay on 2026-10-03. Candidates for a later pass, by the same rule:*
     - *range frames for the value axis;*
     - *white gridlines knocked through bars;*
-    - *a rule over a table's total row.)*
+    - *a rule over a table's total row.*
+  - *After the thirty-three-slide deck (#43): a table with `size: { h: "fit" }` got a 0-high box (E100, "its cell is 0 high"), since containers measured only text and images. A table now has a size of its own, as text does (SPEC §3.3, §3.4; ADR-0008 amended):*
+    - *its columns across, or under `tables.stretch` the width it is given, and its rows down: the header and each row, with `rowGap` above and below; rules take no room. `tables::set` sets it before it has a box, and what a container measures adds up the rows `Typeset::place` lays out, in the same order, so its box ends at its last row;*
+    - *in a stack it takes its rows, with or without `size: fit`, so a total band sits a `gap` under its last row, and `fill` shares what is left as before;*
+    - *short of room, it takes what is left and E100 says how many rows fit. It asks for no more than it is offered and needs none of it, where CSS's automatic minimum would push what follows past the stack's end.*
+    - *Tests: `containers.rs` in the engine, 2 unit and 2 end to end with the torture deck's fonts. No golden moved: no deck in the repository put a table in a container.)*
 
 - [x] 1.10 Shaders: `gradient`, `noise`, `grain`, `particles` (`mesh` since 0.11) — CPU ref + WGSL each in `scaena-core::shader`, parity tests; theme shader presets. *(Done. In `scaena-core::shader`, SPEC §3.8:*
   - *Kinds: `gradient` (linear, radial, or conic, turning; the palette as a ramp in Oklab), `noise` (3D simplex in octaves, evolving along time, keyed by the seed), `grain` (per device pixel, two palette tones, changing `fps` times a second), and `particles` (seeded soft discs that drift and wrap, blended in linear light). Each has a CPU reference and a WGSL twin side by side. Per frame, geometry comes from `libm`; per pixel the arithmetic matches line for line.*
