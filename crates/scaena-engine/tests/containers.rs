@@ -1,12 +1,15 @@
 //! Containers through the whole engine (SPEC §3.4, PLAN 1.7), on the torture deck's
 //! `containers` case: typographic anchors inside a row stack, and a child that moves
-//! from one container to another between states, which morphs like any box.
+//! from one container to another between states, which morphs like any box. And a table
+//! in a stack, which takes its rows as text takes its lines (SPEC §3.3).
 
 use scaena_core::Deck;
-use scaena_core::displaylist::{DisplayList, Op};
+use scaena_core::displaylist::{DisplayList, Op, Rect};
 use scaena_engine::data::DataFiles;
 use scaena_engine::fonts::BundleFonts;
 use scaena_engine::images::BundleImages;
+use scaena_engine::sample::Content;
+use scaena_engine::tables::TableLayout;
 use scaena_engine::theme::Theme;
 use scaena_engine::{Engine, FrameRequest};
 use serde_json::{Value, json};
@@ -114,6 +117,106 @@ fn a_child_moved_to_another_container_morphs_between_them() {
     let order: Vec<String> = layers(&frame(&d, "moved", 200.0)).into_iter().map(|(n, _)| n).collect();
     let rest: Vec<String> = layers(&after).into_iter().map(|(n, _)| n).collect();
     assert_eq!(order, rest);
+}
+
+/// A bill, as a budget deck sets one: stack `bill`, `h` high, holds a table of six fees
+/// (no header; `size` if any) and a total band, `space.5` (32 cu) apart. The torture
+/// deck's fonts and theme, in its own format only, its tables' rows 6 cu apart and ruled
+/// between.
+fn bill(h: f32, size: Option<Value>) -> (Deck, Theme) {
+    let mut table = json!({
+        "type": "table", "data": "@fees", "header": false,
+        "columns": [{ "field": "item" }, { "field": "amount", "format": "$.4~k" }],
+        "at": { "parent": "bill" }
+    });
+    if let Some(size) = size {
+        table["size"] = size;
+    }
+    let nodes = json!({
+        "bill": { "type": "stack", "gap": "space.5", "at": { "rect": [120, 120, 900, h] } },
+        "table": table,
+        "total": { "type": "stack", "fill": "accent", "padding": ["space.3", "space.5"], "at": { "parent": "bill" } },
+        "total-label": { "type": "text", "role": "body", "text": "Total", "at": { "parent": "total" } }
+    });
+    let fees = json!([
+        { "item": "Coaching staff", "amount": 412000 },
+        { "item": "Travel", "amount": 186500 },
+        { "item": "Facilities", "amount": 240000 },
+        { "item": "Equipment", "amount": 98250 },
+        { "item": "Medical", "amount": 61000 },
+        { "item": "Scholarships", "amount": 242250 }
+    ]);
+    let mut d: Value = serde_json::from_slice(&read("deck.json")).unwrap();
+    d.as_object_mut().unwrap().remove("formats");
+    d["meta"] = json!({ "lang": "en-US" });
+    d["data"] = json!({ "fees": { "source": { "inline": fees }, "schema": { "item": "string", "amount": "number" } } });
+    let props: serde_json::Map<String, Value> =
+        nodes.as_object().unwrap().keys().map(|k| (k.clone(), json!({}))).collect();
+    d["nodes"] = nodes;
+    d["states"] = json!([{ "id": "bill", "layout": "specimen", "props": props }]);
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["tables"] = json!({ "rowGap": 6, "rowRule": { "stroke": "thin" } });
+    (serde_json::from_value(d).unwrap(), Theme::from_json(&t.to_string()).unwrap())
+}
+
+/// The bill laid out: each node's box, and the table as set.
+fn lay_out_bill(deck: &Deck, theme: &Theme) -> (impl Fn(&str) -> Rect, TableLayout) {
+    let snap = &scaena_core::resolve_states(deck).unwrap()[0];
+    let scene = engine(deck).scene(deck, theme, &DataFiles::new(), snap).unwrap();
+    let table = scene.nodes.iter().find_map(|n| match &n.content {
+        Content::Table { table, .. } => Some((**table).clone()),
+        _ => None,
+    });
+    (move |id: &str| scene.tree[id].rect, table.expect("a table"))
+}
+
+#[test]
+fn a_table_in_a_stack_takes_its_rows_and_what_follows_starts_a_gap_under_them() {
+    for size in [Some(json!({ "h": "fit" })), None] {
+        let (deck, theme) = bill(840.0, size.clone());
+        let (rect, table) = lay_out_bill(&deck, &theme);
+        // Its box ends where its last row does: `rowGap` under that row's text. The rules
+        // between rows lie on the lines between them and take no room.
+        let last = table.cells.iter().map(|c| c.at[0]).max().unwrap();
+        let text = table.cells.iter().filter(|c| c.at[0] == last).map(|c| c.origin[1] + c.text.height);
+        let rows = text.fold(0.0, f32::max) + 6.0;
+        let [x, y, w, h] = rect("table");
+        assert_eq!(table.row_rules.len(), 5, "{size:?}");
+        assert!((h - rows).abs() < 1e-3 && table.overflow.is_none(), "{size:?}: {h} for {rows} cu of rows");
+        // Across the stack, and the band one gap under the last row.
+        assert_eq!([x, y, w], [120.0, 120.0, 900.0], "{size:?}");
+        let total = rect("total");
+        assert!(
+            (total[1] - (y + h + 32.0)).abs() < 1e-3,
+            "{size:?}: the band at {}, the rows end at {}",
+            total[1],
+            y + h
+        );
+        // Nothing to report: the rows fit, and nothing overlaps.
+        let found = scaena_engine::lint::lint(&mut engine(&deck), &deck, &theme, &DataFiles::new(), None).unwrap();
+        let errors: Vec<_> = found.iter().filter(|f| f.code.starts_with('E')).collect();
+        assert!(errors.is_empty(), "{size:?}: {errors:#?}");
+    }
+}
+
+#[test]
+fn a_table_short_of_room_in_a_stack_takes_what_is_left_and_says_what_to_cut() {
+    let (deck, theme) = bill(840.0, None);
+    let band = lay_out_bill(&deck, &theme).0("total")[3];
+    // In 200 cu, the band keeps its line and padding, and the table takes the rest.
+    let (deck, theme) = bill(200.0, None);
+    let left = 200.0 - 32.0 - band;
+    let data = DataFiles::new();
+    let req =
+        FrameRequest { deck: &deck, theme: &theme, data: &data, state: "bill", t_ms: f64::INFINITY, format: None };
+    let refused = engine(&deck).frame(&req).unwrap_err().to_string();
+    let cell = format!("its cell is {left:.0} high");
+    assert!(refused.contains("node `table`") && refused.contains(&cell) && refused.contains("\"limit\""), "{refused}");
+    // Lint lays it out anyway and reports it, in the same cell: what the stack had left.
+    let found = scaena_engine::lint::lint(&mut engine(&deck), &deck, &theme, &data, None).unwrap();
+    let e100: Vec<_> = found.iter().filter(|f| f.code == "E100").collect();
+    assert_eq!(e100.len(), 1, "{found:#?}");
+    assert!(e100[0].node.as_deref() == Some("table") && e100[0].message.contains(&cell), "{e100:#?}");
 }
 
 /// The torture deck's `containers` state with a caption `depth` containers deep: `stats`,
