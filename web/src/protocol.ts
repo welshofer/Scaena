@@ -216,6 +216,21 @@ export interface Snapped {
   patch: unknown[];
   /** With several nodes moved together (PLAN 2.42): where each lands. */
   landed?: Landed[];
+  /** Where the box's edges, or its middle, meet another box's or the canvas's (PLAN 2.57). */
+  guides?: Line[];
+}
+
+/** A guide: `[x1, y1, x2, y2]`, canvas units, a line down or across the canvas. */
+export type Line = [number, number, number, number];
+
+/** The theme's grid in the format shown (PLAN 2.57), canvas units: its columns and rows, each
+ * `[start, end]`, the gutters between them and the margins around them; and the baseline grid's
+ * lines, each a `y`. */
+export interface Grid {
+  canvas: [number, number];
+  columns: [number, number][];
+  rows: [number, number][];
+  baselines: number[];
 }
 
 /** Where a node arranged with others lands (PLAN 2.42). */
@@ -356,6 +371,8 @@ export type ToWorker =
   | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
   /** Where `node` may go in `state` at rest. */
   | { type: "targets"; id: number; state: string; node: string; format?: string }
+  /** The theme's grid in `format` (PLAN 2.57). */
+  | { type: "grid"; id: number; format?: string }
   /** A drag's move (ADR-0013). With `by`, `state` painted at rest with `node`, and what it holds,
    * that far from where it stands, laying nothing out. With `snap`, where its cell would land,
    * `snap.to` snapped `snap.how`, and the states the patch changes; `fork` keeps the patch to
@@ -369,9 +386,11 @@ export type ToWorker =
       /** The nodes moved with it, children of what holds it (PLAN 2.42). */
       with?: string[];
       by?: [number, number];
-      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      /** `reach`: off the grid, how near, canvas units, an edge or the middle goes onto
+       * another's (PLAN 2.57). */
+      snap?: { how: SnapMode; to: Rect; fork: boolean; reach?: number };
       /** With `with`: where they all land, moved `by` together, `free` off the grid. */
-      together?: { by: [number, number]; free: boolean; fork: boolean };
+      together?: { by: [number, number]; free: boolean; fork: boolean; reach?: number };
       preview?: boolean;
       format?: string;
     }
@@ -793,6 +812,7 @@ export type FromWorker =
   /** Where a focal point picked there would be; `null` off the image. */
   | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }
+  | { type: "grid"; id: number; grid: Grid }
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
   | { type: "arranged"; id: number; arranged: Arranged | null }

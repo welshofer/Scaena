@@ -20,7 +20,8 @@
 //! in colors or gradients, and PNG images draw in their boxes, and `stack`, `grid`, and
 //! `frame` containers lay their children out with `taffy` (1.7, [`containers`]). A state at
 //! rest says what stands where, for a client that edits by pointing ([`geometry`], ADR-0013),
-//! and where a caret stands in each of its texts ([`carets`]).
+//! and where a caret stands in each of its texts ([`carets`]); and what an editor draws to
+//! place things by: the theme's grid, and where a moved box meets others ([`guides`]).
 //! Nothing here may read a clock, system fonts, or the filesystem (SPEC §13).
 
 pub mod carets;
@@ -31,6 +32,7 @@ pub mod data;
 pub mod error;
 pub mod fonts;
 pub mod geometry;
+pub mod guides;
 pub mod hyphen;
 pub mod images;
 pub mod layout;

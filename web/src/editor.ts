@@ -428,6 +428,7 @@ async function edit(source: Source) {
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
+    ruled: (on) => $("#grid").setAttribute("aria-pressed", String(on)),
     // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
     fix: (f) => fix(f),
     go: (f) => go(f),
@@ -478,6 +479,8 @@ async function edit(source: Source) {
     const how = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
     if (how === "in" || how === "out" || how === "fit") void board.zoom(how);
   };
+  // The theme's grid over the canvas (PLAN 2.57), as ⌘' draws it.
+  $("#grid").onclick = () => void board.rule();
   /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
    * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
   cueing = cue(stage, $("#cue"), $("#preview"), {
@@ -1132,6 +1135,7 @@ async function edit(source: Source) {
       { label: "Zoom in", keys: `${MOD}+`, where: ["canvas"], applies: () => board.zoomed() < 8, run: () => board.zoom("in") },
       { label: "Zoom out", keys: `${MOD}−`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("out") },
       { label: "Zoom to fit", keys: `${MOD}0`, where: ["canvas"], applies: () => board.zoomed() > 1, run: () => board.zoom("fit") },
+      { label: board.ruled() ? "Hide the grid" : "Show the grid", keys: `${MOD}'`, where: ["canvas"], run: () => board.rule() },
     ];
   }
 

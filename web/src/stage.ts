@@ -13,6 +13,7 @@ import type {
   Export,
   Found,
   FromWorker,
+  Grid,
   Grouped,
   Hit,
   Insert,
@@ -72,6 +73,7 @@ type Reply = Extract<
       | "found"
       | "replacement"
       | "targets"
+      | "grid"
       | "dragged"
       | "arranged"
       | "grouped"
@@ -281,6 +283,11 @@ export class Stage {
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
   }
+  /** The theme's grid in `format`, as the canvas's guides draw it (PLAN 2.57). */
+  grid(format?: string): Promise<Grid> {
+    return this.request<"grid">({ type: "grid", id: ++this.asked, format }).then(({ grid }) => grid);
+  }
+
 
   /** A drag's move: `node` painted `by` from where it stands, where its box would land `snap`ped,
    * and the states that patch changes; or, to `preview`, the state as the patch would make it. */
@@ -289,9 +296,9 @@ export class Stage {
     node: string,
     move: {
       by?: [number, number];
-      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      snap?: { how: SnapMode; to: Rect; fork: boolean; reach?: number };
       with?: string[];
-      together?: { by: [number, number]; free: boolean; fork: boolean };
+      together?: { by: [number, number]; free: boolean; fork: boolean; reach?: number };
       preview?: boolean;
     },
     format?: string,
@@ -642,6 +649,7 @@ export class Stage {
       case "found":
       case "replacement":
       case "targets":
+      case "grid":
       case "dragged":
       case "arranged":
       case "grouped":

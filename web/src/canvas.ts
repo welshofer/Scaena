@@ -44,9 +44,15 @@
 //   so what is selected is copied when it is selected.
 // - Lint's findings stand on what they are about, a mark at each box's corner, and a mark opened
 //   offers each finding's fix (PLAN 2.49, `marks.ts`).
+// - Guides (PLAN 2.57): ⌘' (Ctrl+'), the Grid button, or the command draws the theme's grid of the
+//   format shown over the canvas, its columns and rows, the gutters and margins between them, and
+//   the baseline grid. As a node moves or is resized, a line shows wherever one of its edges, or
+//   its middle, meets another's or the canvas's; off the grid (Shift), a box within a few pixels
+//   of one goes onto it, unless ⌘ (Ctrl) is held. The engine says where they meet; the page draws
+//   what it says.
 import { marks } from "./marks";
 import { CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Finding, Insert, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Edited, Finding, Grid, Insert, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -80,6 +86,8 @@ export interface Editor {
   keeps(to: EventTarget | null): boolean;
   /** The preview is zoomed to `zoom`: 1 shows the whole canvas (PLAN 2.46). */
   zoomed(zoom: number): void;
+  /** The theme's grid is drawn over the canvas, or not (PLAN 2.57). */
+  ruled(on: boolean): void;
   /** Take `f`'s fix: one patch, one step to undo (PLAN 2.49). */
   fix(f: Finding): Promise<void>;
   /** Show where the source writes what `f` is about. */
@@ -115,6 +123,8 @@ interface Drag {
   at: [number, number];
   shift: boolean;
   alt: boolean;
+  /** ⌘ or Ctrl held: off the grid, it goes where the pointer says, onto no guide (PLAN 2.57). */
+  loose: boolean;
   /** The source's version when it began. */
   version: number;
   targets: Targets;
@@ -173,6 +183,7 @@ interface Starting {
   at: [number, number];
   shift: boolean;
   alt: boolean;
+  loose?: boolean;
   up?: boolean;
 }
 
@@ -204,6 +215,8 @@ interface Sketch {
 const AGAIN = 450;
 /** How long a resize pauses before the preview shows it laid out, ms. */
 const PAUSE = 300;
+/** How near, CSS pixels, an edge or a middle moved off the grid goes onto another's (PLAN 2.57). */
+const REACH = 6;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const has = (at: Placement | undefined, key: string) => at?.[key] !== undefined && at?.[key] !== null;
@@ -326,6 +339,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let marquee: { from: [number, number]; at: [number, number]; adding: boolean } | undefined;
   /** Where the node selected may go: whether it has handles. */
   let aim: Targets | undefined;
+  /** Whether the theme's grid is drawn over the canvas (PLAN 2.57), and the grid: the format
+   * shown's, asked again whenever what stands where is. */
+  let ruled = false;
+  let grid: Grid | undefined;
   let hovered: string | undefined;
   /** Where the pointer last pressed, canvas units: where Insert puts what it inserts. */
   let pointed: [number, number] | undefined;
@@ -387,6 +404,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   };
   /** Canvas units to a CSS pixel: what handles and lines are sized in. */
   const unit = () => view[2] / Math.max(1, overlay.getBoundingClientRect().width);
+  /** How near, canvas units, an edge `d` moves off the grid goes onto another's: a few pixels;
+   * none with ⌘ or Ctrl held. */
+  const reach = (d: Drag) => (d.loose ? 0 : REACH * unit());
   const inside = ([x, y, w, h]: Rect, [px, py]: [number, number]) => px >= x && px <= x + w && py >= y && py <= y + h;
   /** Whether `at` is over `b` where it is drawn (PLAN 2.51). */
   const over = (b: NodeBox, at: Point) => {
@@ -445,7 +465,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (!shown) return;
     const [was, format] = [size, editor.format()];
+    const ruling = ruled ? stage.grid(format).catch(() => undefined) : undefined;
     ({ boxes, size } = await stage.boxes(shown.state, format));
+    if (ruling) grid = await ruling;
     boxed = shown.state;
     // Another format, laid out again, or another canvas: the preview shows all of it again.
     if (size[0] !== was[0] || size[1] !== was[1] || format !== framed) void look([0, 0, size[0], size[1]]);
@@ -584,6 +606,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       .catch(() => (aim = undefined));
   }
 
+  /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
+   * the other way from now. Resolves once it is drawn so. */
+  async function rule(on = !ruled) {
+    ruled = on;
+    if (on) {
+      try {
+        grid = await stage.grid(editor.format());
+      } catch (e) {
+        ruled = false;
+        editor.ruled(false);
+        return editor.say(`no grid: ${said(e)}`);
+      }
+    }
+    if (ruled !== on) return;
+    draw();
+    editor.ruled(on);
+    const where = grid?.baselines.length ? ", and the baseline grid" : "";
+    editor.say(on ? `the theme's grid: ${grid?.columns.length ?? 0} columns and ${grid?.rows.length ?? 0} rows${where}` : "the grid is hidden");
+  }
+
   function draw() {
     const u = unit();
     const parts: string[] = [];
@@ -591,6 +633,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       `<rect class="${cls}" x="${x}" y="${y}" width="${Math.max(0, w)}" height="${Math.max(0, h)}"${extra}/>`;
     const line = (x1: number, y1: number, x2: number, y2: number, cls: string) =>
       `<line class="${cls}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+    // The theme's grid (PLAN 2.57), under all else: the columns and rows as bands, the gutters
+    // between them, the margins around them, and the baseline grid's lines.
+    if (ruled && grid && grid.canvas[0] === size[0] && grid.canvas[1] === size[1]) {
+      const [left, right] = [grid.columns[0]?.[0] ?? 0, grid.columns.at(-1)?.[1] ?? size[0]];
+      const [top, bottom] = [grid.rows[0]?.[0] ?? 0, grid.rows.at(-1)?.[1] ?? size[1]];
+      for (const [a, b] of grid.columns) parts.push(rect([a, top, b - a, bottom - top], "grid-track"));
+      for (const [a, b] of grid.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
+      for (const y of grid.baselines) parts.push(line(left, y, right, y, "baseline"));
+      parts.push(rect([left, top, right - left, bottom - top], "grid-margin"));
+    }
     if (drag) {
       const t = drag.targets;
       const cols = t.columns ?? [];
@@ -607,6 +659,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (drag.how === "order") for (const id of t.flow ?? []) if (id !== drag.node && box(id)) parts.push(rect(box(id)!.rect, "flow"));
       if (drag.how === "free") parts.push(rect(t.within, "slot"));
       const land = drag.snapped?.cell;
+      // Where its edges, or its middle, meet another's or the canvas's (PLAN 2.57).
+      for (const [x1, y1, x2, y2] of drag.snapped?.guides ?? []) parts.push(line(x1, y1, x2, y2, "guide"));
       if (drag.snapped?.landed) for (const l of drag.snapped.landed) parts.push(rect(l.cell, "landing"));
       else if (land && drag.how === "order") parts.push(line(land[0], land[1], land[0] + land[2], land[1] + land[3], "landing-line"));
       else if (land) parts.push(rect(land, "landing"));
@@ -718,15 +772,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const shown = editor.shown();
     if (busy || drag !== d || !shown) return;
     const { how, to, by, held } = aimed(d);
-    const asked = JSON.stringify([by, how, d.alt]);
+    const asked = JSON.stringify([by, how, d.alt, d.loose]);
     if (asked === d.asked) return;
     d.asked = asked;
     d.how = how;
     busy = true;
     try {
       const move = d.with.length
-        ? { by, with: d.with, together: { by: held, free: d.shift, fork: d.alt } }
-        : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt } : undefined };
+        ? { by, with: d.with, together: { by: held, free: d.shift, fork: d.alt, reach: reach(d) } }
+        : { by: d.kind === "move" ? by : undefined, snap: how ? { how, to, fork: d.alt, reach: reach(d) } : undefined };
       const reply = await stage.drag(shown.state, d.node, move, editor.format());
       if (drag !== d) return;
       d.snapped = how ? reply.snapped : null;
@@ -752,7 +806,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     busy = true;
     try {
       const { how, to } = aimed(d);
-      if (how) await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt }, preview: true }, editor.format());
+      if (how) await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) }, preview: true }, editor.format());
     } catch (e) {
       editor.say(`error: ${said(e)}`);
     } finally {
@@ -770,9 +824,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const { how, to, held } = aimed(d);
     let snapped: Snapped | null | undefined;
     try {
-      const together = { with: d.with, together: { by: held, free: d.shift, fork: d.alt } };
+      const together = { with: d.with, together: { by: held, free: d.shift, fork: d.alt, reach: reach(d) } };
       if (d.with.length) snapped = (await stage.drag(shown.state, d.node, together, editor.format())).snapped;
-      else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt } }, editor.format())).snapped;
+      else if (how) snapped = (await stage.drag(shown.state, d.node, { snap: { how, to, fork: d.alt, reach: reach(d) } }, editor.format())).snapped;
     } catch (e) {
       return still(`not placed: ${said(e)}`);
     }
@@ -1367,7 +1421,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (press === mine) press = undefined;
       early++;
       if (!keeps) select(node);
-      return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, up: mine.released });
+      return begin({ ...mine, node }, { at: moved.at, shift: moved.shift, alt: moved.alt, loose: moved.loose, up: mine.released });
     }
     // A click let go before the engine answered selects what is topmost.
     if (mine.released) return mine.toggle !== undefined ? toggle(mine.toggle) : select(top?.node);
@@ -1412,6 +1466,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
           at: now.at,
           shift: now.shift,
           alt: now.alt,
+          loose: now.loose === true,
           version,
           targets,
         };
@@ -1482,11 +1537,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const at = point(e);
     if (text.drag(at)) return;
     if (starting) {
-      [starting.at, starting.shift, starting.alt] = [at, e.shiftKey, e.altKey];
+      [starting.at, starting.shift, starting.alt, starting.loose] = [at, e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       return;
     }
     if (drag) {
-      [drag.at, drag.shift, drag.alt] = [at, e.shiftKey, e.altKey];
+      [drag.at, drag.shift, drag.alt, drag.loose] = [at, e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       if (drag.kind === "move") draw();
       void pump(drag);
       return;
@@ -1506,7 +1561,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (press.asking) {
-      press.moved = { at, shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      press.moved = { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
       return;
     }
     const far = Math.hypot(e.clientX - press.client[0], e.clientY - press.client[1]) >= SLOP;
@@ -1518,7 +1573,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!press.node || !far) return;
     const begun = press;
     press = undefined;
-    begin(begun, { at, shift: e.shiftKey, alt: e.altKey });
+    begin(begun, { at, shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey });
   };
 
   overlay.onpointerup = (e) => {
@@ -1535,13 +1590,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (text.up()) return;
     if (starting) {
-      [starting.at, starting.shift, starting.alt, starting.up] = [point(e), e.shiftKey, e.altKey, true];
+      [starting.at, starting.shift, starting.alt, starting.loose, starting.up] = [point(e), e.shiftKey, e.altKey, e.metaKey || e.ctrlKey, true];
       return;
     }
     if (drag) {
       const d = drag;
       drag = undefined;
-      [d.at, d.shift, d.alt] = [point(e), e.shiftKey, e.altKey];
+      [d.at, d.shift, d.alt, d.loose] = [point(e), e.shiftKey, e.altKey, e.metaKey || e.ctrlKey];
       void inTurn(() => drop(d));
       return;
     }
@@ -1559,7 +1614,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     press = undefined;
     if (!clicked) return;
     if (clicked.asking) {
-      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, client: [e.clientX, e.clientY] };
+      clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
       clicked.released = true;
     } else if (clicked.toggle !== undefined) toggle(clicked.toggle);
     else if (clicked.marquee) select(clicked.click);
@@ -1586,6 +1641,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (mod && !e.altKey && ["=", "+", "-", "_", "0"].includes(key) && !drag) {
       e.preventDefault();
       return void (key === "0" ? fit() : zoomStep(key === "-" || key === "_" ? -1 : 1));
+    }
+    // The theme's grid, drawn or not (PLAN 2.57); while typing too.
+    if (mod && !e.altKey && !e.shiftKey && key === "'" && !drag) {
+      e.preventDefault();
+      return void rule();
     }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
@@ -1724,6 +1784,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       svg.replaceChildren();
       pins.found([]);
     },
+    /** Draw the theme's grid over the canvas, or stop, as ⌘' does (PLAN 2.57); and whether it is
+     * drawn, and what. */
+    rule,
+    ruled: () => ruled,
+    grid: () => (ruled ? grid : undefined),
+    /** The guides the drag under way shows: where its box meets others (PLAN 2.57). */
+    guides: () => drag?.snapped?.guides ?? [],
     /** What lint found, every finding: those about the state shown, in the format shown, stand on
      * it (PLAN 2.49). */
     found: (findings: Finding[]) => pins.found(findings),

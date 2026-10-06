@@ -57,6 +57,12 @@
       #look .fraction { width: 4.2em; }
       #overlay .marquee { fill: rgb(156 196 228 / 0.1); stroke: var(--info); stroke-width: 1; stroke-dasharray: 4 3; }
       #overlay .landing-line { stroke: var(--info); stroke-width: 3; }
+      /* Guides (PLAN 2.57): the theme's grid on request, and where a moved box meets others. */
+      #overlay .grid-track { fill: rgb(255 92 168 / 0.07); stroke: none; }
+      #overlay .grid-margin { fill: none; stroke: rgb(255 92 168 / 0.55); stroke-width: 1; stroke-dasharray: 4 3; }
+      #overlay .baseline { stroke: rgb(64 196 255 / 0.3); stroke-width: 0.5; }
+      #overlay .guide { stroke: rgb(255 72 160); stroke-width: 1; }
+      #grid[aria-pressed="true"] { border-color: var(--info); color: var(--info); }
       #overlay .sketch-line { stroke: var(--info); stroke-width: 2; stroke-dasharray: 4 3; }
       #overlay .selected.typed { stroke-dasharray: 2 2; opacity: 0.6; }
       #overlay .caret { fill: var(--info); animation: blink 1.06s steps(1) infinite; }
@@ -348,6 +354,7 @@
             <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (⌘+), or pinch">+</button>
             <button type="button" data-zoom="fit" title="The whole canvas (⌘0)">Fit</button>
           </span>
+          <button type="button" id="grid" aria-pressed="false" title="The theme's grid over the canvas: its columns, rows, gutters, margins, and baseline grid (⌘')">Grid</button>
           <span id="status" role="status">loading…</span>
         </p>
         <nav id="tabs" role="tablist">

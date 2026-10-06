@@ -504,6 +504,91 @@ impl Session {
         scaena_ops::inspect::snap(&found, how, to, state, fork).map_err(|e| Error::Deck(e.to_string()))
     }
 
+    /// The theme's grid in the format shown, as the editor's guides draw it (PLAN 2.57).
+    #[cfg(feature = "editor")]
+    pub fn grid(&self) -> Result<scaena_engine::guides::Guides, Error> {
+        Ok(scaena_engine::guides::grid(&self.deck, &self.theme, self.format.as_deref())?)
+    }
+
+    /// What a box `moving` move in `state` at rest, in the format shown, may meet (PLAN 2.57):
+    /// what else draws, and the canvas, as [`scaena_engine::guides::around`] says. Nothing where
+    /// one of them is drawn elsewhere than its placement puts it, by its transform or what holds
+    /// it: a drag of it shows no guides.
+    #[cfg(feature = "editor")]
+    fn around(&mut self, state: &str, moving: &[&str]) -> Result<Vec<[f32; 4]>, Error> {
+        let scene = self.at_rest(state)?;
+        let boxes = scene.boxes();
+        let plain = moving.iter().all(|n| boxes.iter().any(|b| b.node == *n && b.transform.is_none()));
+        Ok(match plain {
+            true => scaena_engine::guides::around(&boxes, scene.canvas, moving),
+            false => Vec::new(),
+        })
+    }
+
+    /// Where the box `to` lands, as [`Session::snap`] says, and the guides it meets there (PLAN
+    /// 2.57): a line wherever one of its edges, or its middle, meets another box's or the
+    /// canvas's. Off the grid (`free`), it goes first the least way that brings one onto another
+    /// within `reach` canvas units. Into a slot or among a stack's children, it meets none.
+    #[cfg(feature = "editor")]
+    #[allow(clippy::type_complexity)]
+    pub fn guided(
+        &mut self,
+        state: &str,
+        node: &str,
+        how: scaena_ops::inspect::SnapMode,
+        to: [f32; 4],
+        fork: bool,
+        reach: f32,
+    ) -> Result<Option<(scaena_ops::inspect::Snapped, Vec<[f32; 4]>)>, Error> {
+        use scaena_engine::guides;
+        use scaena_ops::inspect::SnapMode;
+        let cell = self.targets(state, node)?.cell;
+        let around = self.around(state, &[node])?;
+        let to = match how {
+            SnapMode::Free => guides::align(to, cell, &around, reach),
+            _ => to,
+        };
+        let Some(snapped) = self.snap(state, node, how, to, fork)? else { return Ok(None) };
+        let lines = match how {
+            SnapMode::Move | SnapMode::Resize | SnapMode::Free => guides::meets(snapped.cell, &around),
+            SnapMode::Slot | SnapMode::Order => Vec::new(),
+        };
+        Ok(Some((snapped, lines)))
+    }
+
+    /// `nodes`, children of one container, moved together `by` (PLAN 2.42) as
+    /// [`Session::arranging`] moves them, and the guides the box around them meets where they
+    /// land (PLAN 2.57). Off the grid (`free`), that box goes first the least way that brings an
+    /// edge, or its middle, onto another's within `reach` canvas units.
+    #[cfg(feature = "editor")]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    pub fn together(
+        &mut self,
+        state: &str,
+        nodes: &[String],
+        by: [f32; 2],
+        free: bool,
+        fork: bool,
+        reach: f32,
+    ) -> Result<Option<(scaena_ops::arrange::Arranged, Vec<[f32; 4]>)>, Error> {
+        use scaena_engine::guides;
+        let cells = nodes.iter().map(|n| self.targets(state, n).map(|t| t.cell)).collect::<Result<Vec<_>, _>>()?;
+        let moving: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        let around = self.around(state, &moving)?;
+        let by = match (free, guides::union(&cells)) {
+            (true, Some(from)) => {
+                let to = guides::align([from[0] + by[0], from[1] + by[1], from[2], from[3]], from, &around, reach);
+                [to[0] - from[0], to[1] - from[1]]
+            }
+            _ => by,
+        };
+        let how = scaena_ops::arrange::How::Together { by, free };
+        let Some(arranged) = self.arranging(state, nodes, how, fork)? else { return Ok(None) };
+        let landed: Vec<[f32; 4]> = arranged.landed.iter().map(|l| l.cell).collect();
+        let lines = guides::union(&landed).map_or_else(Vec::new, |cell| guides::meets(cell, &around));
+        Ok(Some((arranged, lines)))
+    }
+
     /// Draw nodes, and what they hold, `by` canvas units from where they stand in the frames at
     /// rest that follow, from the state as laid out at rest: what a drag shows as it moves,
     /// laying nothing out (ADR-0013). `None` puts them back.
@@ -1063,6 +1148,15 @@ pub fn shader_rows(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, Error>
     Ok(out)
 }
 
+/// `out` with `guides` as its `guides`, where there are any (PLAN 2.57).
+#[cfg(feature = "editor")]
+fn with_guides(mut out: serde_json::Value, guides: &[[f32; 4]]) -> serde_json::Value {
+    if !guides.is_empty() {
+        out["guides"] = serde_json::json!(guides);
+    }
+    out
+}
+
 fn js(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
@@ -1364,9 +1458,12 @@ impl Player {
 
     /// Where the box `x`, `y`, `w`, `h` (`node`'s cell as a drag left it) lands in `state`
     /// when it snaps `how` (`move`, `resize`, `slot`, `free`, `order`), as JSON: `{ "cell",
-    /// "patch" }`, the patch the place ops that put the node there, kept to `state` when they
-    /// `fork`; `null` where nothing places the node that way. Asked with each move of a drag,
-    /// it lays nothing out.
+    /// "patch", "guides"? }`, the patch the place ops that put the node there, kept to `state`
+    /// when they `fork`; `null` where nothing places the node that way. `guides`, each `[x1,
+    /// y1, x2, y2]`, are where the box's edges or its middle meet another box's or the
+    /// canvas's (PLAN 2.57); off the grid (`free`), the box goes first the least way that
+    /// brings one onto another within `reach` canvas units. Asked with each move of a drag, it
+    /// lays nothing out.
     #[allow(clippy::too_many_arguments)]
     pub fn snap(
         &mut self,
@@ -1378,10 +1475,51 @@ impl Player {
         w: f32,
         h: f32,
         fork: bool,
+        reach: f32,
     ) -> Result<String, JsError> {
         let how: scaena_ops::inspect::SnapMode = how.parse().map_err(|e: String| JsError::new(&e))?;
-        let snapped = self.0.snap(state, node, how, [x, y, w, h], fork).map_err(js)?;
-        serde_json::to_string(&snapped).map_err(js)
+        let guided = self.0.guided(state, node, how, [x, y, w, h], fork, reach).map_err(js)?;
+        let out = match guided {
+            None => serde_json::Value::Null,
+            Some((snapped, guides)) => with_guides(serde_json::to_value(snapped).map_err(js)?, &guides),
+        };
+        serde_json::to_string(&out).map_err(js)
+    }
+
+    /// `nodes`, children of one container, moved together `dx`, `dy` canvas units in `state`
+    /// at rest (PLAN 2.42), as a drag of the first snaps it, `free` off the grid; as JSON: `{
+    /// "landed": [{ "node", "cell" }], "patch", "guides"? }`, the patch made in `state` or kept
+    /// there to `fork` it, or `null` where nothing moves them. `guides` are where the box around
+    /// them meets another's or the canvas's (PLAN 2.57); `free`, it goes first the least way
+    /// that brings an edge, or its middle, onto another's within `reach`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn together(
+        &mut self,
+        state: &str,
+        nodes: Vec<String>,
+        dx: f32,
+        dy: f32,
+        free: bool,
+        fork: bool,
+        reach: f32,
+    ) -> Result<String, JsError> {
+        let moved = self.0.together(state, &nodes, [dx, dy], free, fork, reach).map_err(js)?;
+        let out = match moved {
+            None => serde_json::Value::Null,
+            Some((arranged, guides)) => with_guides(serde_json::to_value(arranged).map_err(js)?, &guides),
+        };
+        serde_json::to_string(&out).map_err(js)
+    }
+
+    /// The theme's grid in the format shown, as the editor's guides draw it (PLAN 2.57), as
+    /// JSON: `{ "canvas": [w, h], "columns": [[start, end]], "rows": [[start, end]],
+    /// "baselines": [y] }`, canvas units: the gutters between the tracks, the margins around
+    /// them, and a line every pitch of the baseline grid from the top margin.
+    pub fn grid(&self) -> Result<String, JsError> {
+        let g = self.0.grid().map_err(js)?;
+        let out =
+            serde_json::json!({ "canvas": g.canvas, "columns": g.columns, "rows": g.rows, "baselines": g.baselines });
+        serde_json::to_string(&out).map_err(js)
     }
 
     /// `nodes`, children of one container, arranged in `state` at rest, in the format shown
@@ -2348,6 +2486,61 @@ mod tests {
         // A way that does not place a node is no target, and a node not on screen is an error.
         assert!(s.snap("containers", "stat-a", SnapMode::Move, cell, false).unwrap().is_none());
         assert!(s.targets("containers", "title").is_err());
+    }
+
+    /// Guides (PLAN 2.57): the theme's grid in the format shown, and where a box a drag moves
+    /// meets what else draws. Off the grid, a box within reach of another's edge goes onto it,
+    /// and its patch puts it there; on the grid, it lands on the tracks alone. Several moved
+    /// together off the grid go as one box.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_meets_what_else_draws_and_off_the_grid_goes_onto_it() {
+        use scaena_ops::inspect::SnapMode;
+        let mut s = torture();
+        let wide = s.grid().unwrap();
+        assert_eq!(
+            (wide.canvas, wide.columns.len(), wide.rows.len(), wide.baselines.len()),
+            ([1920.0, 1080.0], 12, 8, 112)
+        );
+        s.set_format(Some("9:16")).unwrap();
+        assert_eq!(s.grid().unwrap().canvas, [1080.0, 1920.0], "the format shown's grid");
+        s.set_format(None).unwrap();
+
+        let boxes = s.boxes("containers").unwrap();
+        let rect = |node: &str| boxes.iter().find(|b| b.node == node).unwrap().rect;
+        let (card, photo) = (s.targets("containers", "card").unwrap().cell, rect("board-photo"));
+        // Off the grid, its left edge 3 units right of the photo's: onto it, in whole units.
+        let to = [photo[0] + 3.0, card[1] - 37.0, card[2], card[3]];
+        let (snapped, guides) = s.guided("containers", "card", SnapMode::Free, to, false, 6.0).unwrap().unwrap();
+        assert_eq!(snapped.cell[0], photo[0].round(), "{snapped:?}");
+        assert_eq!(snapped.patch[0]["at"]["rect"][0], serde_json::json!(photo[0].round()));
+        let down = guides.iter().find(|g| g[0] == g[2] && (g[0] - photo[0]).abs() <= 0.5);
+        assert!(down.is_some_and(|g| g[1] <= photo[1] && g[3] >= snapped.cell[1] + snapped.cell[3]), "{guides:?}");
+        // No reach: it stays where the drag left it.
+        let (left, _) = s.guided("containers", "card", SnapMode::Free, to, false, 0.0).unwrap().unwrap();
+        assert_eq!(left.cell[0], (photo[0] + 3.0).round());
+        // On the grid, the tracks alone place it: a box 3 units off its cells lands in them, and
+        // its edges meet the grid's other boxes where they stand on the same tracks.
+        let nudged = [card[0] + 3.0, card[1], card[2], card[3]];
+        let (moved, lines) = s.guided("containers", "card", SnapMode::Move, nudged, false, 6.0).unwrap().unwrap();
+        assert_eq!(moved.cell, card, "{moved:?}");
+        assert_eq!(moved.patch[0]["at"], serde_json::json!({ "col": [9, 12], "row": [6, 8] }));
+        assert!(lines.iter().any(|g| g[1] == g[3] && g[1] == card[1]), "its top meets the board's: {lines:?}");
+        // Into a slot or a stack's order, no guides.
+        let flow = s.targets("containers", "stat-b").unwrap().cell;
+        let (_, none) = s.guided("containers", "stat-b", SnapMode::Order, flow, false, 6.0).unwrap().unwrap();
+        assert!(none.is_empty());
+
+        // The card and the board moved together off the grid, 2 units right of where they stand:
+        // the box around them goes back onto the canvas's middle and its left margin's edges.
+        let both = ["board".to_string(), "card".to_string()];
+        let (arranged, lines) = s.together("containers", &both, [2.0, 0.0], true, false, 6.0).unwrap().unwrap();
+        let board = s.targets("containers", "board").unwrap().cell;
+        assert_eq!(arranged.landed[0].cell[0], board[0], "{arranged:?}");
+        assert!(lines.iter().any(|g| g[0] == g[2]), "{lines:?}");
+        // Not off the grid, they go by the tracks, and nothing aligns them.
+        let (on_grid, _) = s.together("containers", &both, [2.0, 0.0], false, false, 6.0).unwrap().unwrap();
+        assert!(on_grid.patch.is_empty(), "two units is no track: {on_grid:?}");
     }
 
     /// A drag shows its node moved in the frames at rest, from the layout the session keeps,

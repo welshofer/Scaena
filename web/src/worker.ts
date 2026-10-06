@@ -35,7 +35,9 @@ import type {
   Opened,
   Painter,
   Pasted,
+  Grid,
   Grouped,
+  Line,
   RowEdit,
   Section,
   Sheet,
@@ -169,6 +171,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "targets":
         layOut(data.format);
         return post({ type: "targets", id: data.id, targets: JSON.parse(player.targets(data.state, data.node)) });
+      case "grid":
+        layOut(data.format);
+        return post({ type: "grid", id: data.id, grid: JSON.parse(player.grid()) as Grid });
       case "drag":
         layOut(data.format);
         return post({ type: "dragged", id: data.id, ...(await drag(data)) });
@@ -888,13 +893,14 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
   let states: string[] | undefined;
   const nodes = [d.node, ...(d.with ?? [])];
   if (d.together) {
-    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does.
-    const { by, free, fork } = d.together;
-    const arranged = arranging(d.state, nodes, { by, free }, fork);
-    snapped = arranged && { cell: arranged.landed[0]?.cell ?? [0, 0, 0, 0], patch: arranged.patch, landed: arranged.landed };
+    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does, and
+    // the box around them meets others (PLAN 2.57).
+    const { by, free, fork, reach } = d.together;
+    const moved = JSON.parse(player.together(d.state, nodes, by[0], by[1], free, fork, reach ?? 0)) as (Arranged & { guides?: Line[] }) | null;
+    snapped = moved && { cell: moved.landed[0]?.cell ?? [0, 0, 0, 0], patch: moved.patch, landed: moved.landed, guides: moved.guides };
   } else if (d.snap) {
     const [x, y, w, h] = d.snap.to;
-    snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork)) as Snapped | null;
+    snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork, d.snap.reach ?? 0)) as Snapped | null;
   }
   if (d.together || d.snap) {
     states = [];

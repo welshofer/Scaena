@@ -285,6 +285,9 @@ jobs:
       # What a reader hears: a node's description and part chosen in the inspector, the state's
       # reading in order, and W410's mark opening the inspector on the image (PLAN 2.56).
       - run: node web/reader.mjs
+      # Guides: the theme's grid of the format shown on request, and a line where a dragged box
+      # meets another, which a move off the grid snaps to (PLAN 2.57).
+      - run: node web/guides.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
