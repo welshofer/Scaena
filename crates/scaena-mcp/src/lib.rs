@@ -16,29 +16,157 @@ use indexmap::IndexMap;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ErrorData, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerConfig, Tool,
+    CacheScope, CallToolResult, ContentBlock, ErrorData, Implementation, ListResourcesResult, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource, ResourceContents,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{Json, RoleServer, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use scaena_core::Finding;
+use scaena_core::patch::Query;
 use scaena_ops::OpsError;
-use scaena_ops::export::Exported;
+use scaena_ops::export::{Exported, Progress, Running};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::watch;
+
+use scaena_resources as resources;
+pub use scaena_resources::{LIMIT, resource};
 
 /// The server: its tools, and the resources it serves.
 #[derive(Debug, Clone)]
 pub struct Scaena {
     tool_router: ToolRouter<Self>,
+    /// The exports this server is running, or has run and not yet handed back, by the
+    /// file each writes (SPEC §7.2).
+    exports: Arc<Mutex<HashMap<PathBuf, Export>>>,
+    /// How long `deck_export` waits for an export before it answers that it is running.
+    wait: Duration,
 }
 
 impl Default for Scaena {
     fn default() -> Self {
-        Scaena { tool_router: Self::tool_router() }
+        let mut tool_router = Self::tool_router();
+        for route in tool_router.map.values_mut() {
+            route.attr.input_schema = standard(&route.attr.input_schema);
+            route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
+        }
+        Scaena { tool_router, exports: Arc::default(), wait: EXPORT_WAIT }
     }
+}
+
+impl Scaena {
+    /// The same server, its exports answering after `wait` at most.
+    pub fn with_export_wait(mut self, wait: Duration) -> Self {
+        self.wait = wait;
+        self
+    }
+}
+
+/// How long `deck_export` waits for an export before it answers that the export is still
+/// running: under the minute a client commonly gives a tool call (Claude Code's limit, and
+/// the TypeScript SDK's default), with room to answer.
+pub const EXPORT_WAIT: Duration = Duration::from_secs(40);
+
+/// An export the server runs beyond the call that asked for it.
+#[derive(Debug)]
+struct Export {
+    /// What was asked: the arguments, and the deck and theme they were asked of.
+    asked: u64,
+    format: String,
+    out: String,
+    started: Instant,
+    progress: Arc<Progress>,
+    /// What it wrote, or why it stopped, once it is done.
+    done: watch::Receiver<Option<Result<Exported, String>>>,
+}
+
+impl Export {
+    /// How far it has got, and what to do while it runs.
+    fn running(&self) -> Running {
+        let (done, of) = self.progress.get();
+        Running {
+            done,
+            of,
+            unit: scaena_ops::export::unit(&self.format).into(),
+            elapsed_ms: self.started.elapsed().as_millis() as u64,
+            next: "It is still being written. Call deck_export again with the same arguments to wait for the rest; \
+                   it then returns what it wrote."
+                .into(),
+        }
+    }
+}
+
+/// What a call to `deck_export` asks: its arguments, and the deck and theme it reads.
+fn asked(a: &DeckExport, b: &scaena_ops::Bundle) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    (&a.bundle, &a.format, &a.states, &a.out, &a.size, &a.fps, &a.audio, &a.painter).hash(&mut hasher);
+    serde_json::to_string(&b.deck).unwrap_or_default().hash(&mut hasher);
+    b.theme_json.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The formats JSON Schema defines (2020-12, §7.3).
+const FORMATS: &[&str] = &[
+    "date-time",
+    "date",
+    "time",
+    "duration",
+    "email",
+    "idn-email",
+    "hostname",
+    "idn-hostname",
+    "ipv4",
+    "ipv6",
+    "uri",
+    "uri-reference",
+    "iri",
+    "iri-reference",
+    "uuid",
+    "uri-template",
+    "json-pointer",
+    "relative-json-pointer",
+    "regex",
+];
+
+/// A tool's schema with only the formats JSON Schema defines. schemars also marks a number
+/// with the width Rust gives it (`uint32`, `double`, …), which a client's validator does not
+/// know and warns of; the type and its `minimum` say what the width meant.
+fn standard(schema: &Map<String, Value>) -> Arc<Map<String, Value>> {
+    fn object(o: &mut Map<String, Value>) {
+        if o.get("format").and_then(Value::as_str).is_some_and(|f| !FORMATS.contains(&f)) {
+            o.shift_remove("format");
+        }
+        // Values, not schemas: what a `default` or an `enum` holds is left as it is.
+        for (key, v) in o.iter_mut() {
+            if !matches!(key.as_str(), "default" | "examples" | "const" | "enum") {
+                value(v);
+            }
+        }
+    }
+    fn value(v: &mut Value) {
+        match v {
+            Value::Object(o) => object(o),
+            Value::Array(a) => a.iter_mut().for_each(value),
+            _ => {}
+        }
+    }
+    let mut schema = schema.clone();
+    object(&mut schema);
+    Arc::new(schema)
+}
+
+/// Who the client is, as the history of a bundle it edits names it: `agent:<name>`, by the
+/// name it gives (SPEC §8.2). A client on protocol 2026-07-28 gives it with every request;
+/// an older one, once, when it connects.
+fn author(context: &RequestContext<RoleServer>) -> String {
+    context.client_info().map_or_else(|| "agent".into(), |client| format!("agent:{}", client.name))
 }
 
 /// Serve on stdin and stdout until the client goes.
@@ -71,7 +199,42 @@ fn failure(e: OpsError) -> String {
     serde_json::to_string(&Failure { message, plan, op }).unwrap_or_default()
 }
 
+/// Waits until an export has counted what it writes, for [`COUNTING`] at most; whether it
+/// finished meanwhile.
+async fn counted(progress: &Progress, done: &watch::Receiver<Option<Result<Exported, String>>>) -> bool {
+    let until = Instant::now() + COUNTING;
+    while progress.get().1 == 0 && done.borrow().is_none() && Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    done.borrow().is_some()
+}
+
+/// How long `deck_export` waits for an export to count what it writes before it says how far
+/// it has got. An export counts its states or pages as it starts, and a video its frames once
+/// it has its timeline, in well under this.
+const COUNTING: Duration = Duration::from_secs(10);
+
 /// `f`, off the async runtime: the operations lay out and paint, and block.
+/// Starts the export `req` of `b` on a thread of its own, which runs to the end whoever is
+/// still waiting for it.
+fn start(b: scaena_ops::Bundle, req: scaena_ops::export::Request, a: &DeckExport, asked: u64) -> Export {
+    let progress = Arc::new(Progress::default());
+    let (tell, done) = watch::channel(None);
+    let watched = progress.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = scaena_ops::export::export_watched(&b, &req, &watched).map_err(failure);
+        let _ = tell.send(Some(result));
+    });
+    Export {
+        asked,
+        format: a.format.clone(),
+        out: a.out.clone().unwrap_or_default(),
+        started: Instant::now(),
+        progress,
+        done,
+    }
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, OpsError> + Send + 'static) -> Result<T, String> {
     match tokio::task::spawn_blocking(f).await {
         Ok(result) => result.map_err(failure),
@@ -81,6 +244,13 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, OpsError> + S
 
 fn open(bundle: &str) -> Result<scaena_ops::Bundle, OpsError> {
     scaena_ops::open(Path::new(bundle))
+}
+
+/// The bundle, edited by `author`: what it writes is theirs in its history.
+fn open_by(bundle: &str, author: String) -> Result<scaena_ops::Bundle, OpsError> {
+    let mut b = open(bundle)?;
+    b.author = author;
+    Ok(b)
 }
 
 // --- inputs ---------------------------------------------------------------------------
@@ -98,8 +268,9 @@ pub struct BundleArg {
 pub struct DeckCreate {
     /// Where the bundle goes: a directory that is not there yet, or is empty.
     pub bundle: String,
-    /// The theme file to start from, copied in with the fonts its families name (from
-    /// beside it, or above it): `docs/examples/themes/dusk.theme.json` is one.
+    /// The theme to start from: one that ships, by its name (`dusk`, `daybreak`, or `ember`),
+    /// which comes with its fonts; or a theme file, copied in with the fonts its families
+    /// name (from beside it, or above it).
     pub theme: String,
     /// The deck, as `deck.json` holds it (`scaena://schema/deck`). Its `theme` and `fonts`
     /// are set to the bundle's. Without it and `scn`, one state with nothing on screen.
@@ -124,6 +295,11 @@ pub struct DeckRead {
     /// The deck as `.scn` source rather than JSON.
     #[serde(default)]
     pub scn: bool,
+    /// The bundle's images, fonts, and data too, each with what in the deck names it and the
+    /// nodes drawn from it in the states that show them so; a file nothing names has no
+    /// `named`, and may be taken out (`scaena files --remove`).
+    #[serde(default)]
+    pub files: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -135,6 +311,27 @@ pub struct DeckPatch {
     /// `scaena://schema/patch`). All apply, or none.
     pub ops: Vec<Map<String, Value>>,
     /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeckFind {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    /// The characters sought, as typed.
+    pub find: String,
+    /// Upper and lower case apart; alike without it.
+    #[serde(default)]
+    pub case: bool,
+    /// Whole words only: a match that neither begins nor ends inside a word.
+    #[serde(default)]
+    pub words: bool,
+    /// Replace every match with this, in one patch: a `replace_text` where each text lives.
+    #[serde(default)]
+    pub replace: Option<String>,
+    /// With `replace`: say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -204,16 +401,16 @@ pub struct DeckRender {
 pub struct DeckExport {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
-    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, or `prores`; `html` names the PLAN task
-    /// that builds it.
+    /// `spine`, `pdf`, `png`, `svg`, `mp4`, `webm`, `prores`, or `html`.
     pub format: String,
     /// The states a frame export draws, in this order: an image each (png, svg), a page
-    /// each (pdf), or each one's part of the timeline (video). Without it: every state; a
-    /// PDF's slides, each at its last state, in spine order; a video's whole timeline.
+    /// each (pdf), each one's part of the timeline (video), or the states it plays (html).
+    /// Without it: every state; a PDF's slides, each at its last state, in spine order; a
+    /// video's whole timeline.
     #[serde(default)]
     pub states: Option<Vec<String>>,
-    /// Where to write it: a file (pdf, video, spine), or a directory that gets an image per
-    /// state (png, svg). Only the spine needs none.
+    /// Where to write it: a file (pdf, video, html, spine), or a directory that gets an
+    /// image per state (png, svg). Only the spine needs none.
     #[serde(default)]
     pub out: Option<String>,
     /// `WxH` pixels for png, svg, and video, in the canvas's aspect ratio; the canvas's
@@ -227,6 +424,10 @@ pub struct DeckExport {
     /// video ends, or carried on in silence until it does.
     #[serde(default)]
     pub audio: Option<String>,
+    /// What paints a video's frames: `gpu` is vello on the GPU, in a server built with the
+    /// `gpu` feature. Every other export paints with the CPU painter.
+    #[serde(default)]
+    pub painter: scaena_ops::render::Painter,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -247,6 +448,22 @@ pub struct ThemeApply {
     pub theme: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme, and
+    /// the new one is copied in for a `deck_patch` with the `retheme` op and the fixes.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ThemeEdit {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub edit: scaena_ops::theme::ThemeEdit,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -256,6 +473,28 @@ pub struct DataAttach {
     pub bundle: String,
     #[serde(flatten)]
     pub data: scaena_ops::create::Attach,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DataEdit {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub data: scaena_ops::data::DataEdit,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeckHistory {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`. Its history is
+    /// `history/deck.loro`, which `scaena save --history` begins.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub ask: scaena_ops::history::Ask,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -313,19 +552,13 @@ pub struct Rendered {
     pub ms: scaena_ops::render::Timings,
 }
 
-fn object(v: Value) -> Map<String, Value> {
-    match v {
-        Value::Object(map) => map,
-        other => Map::from_iter([("value".to_string(), other)]),
-    }
-}
-
 // --- tools ----------------------------------------------------------------------------
 
 #[tool_router]
 impl Scaena {
     #[tool(description = "Make a bundle: a theme and its fonts, data files, and a deck pointed at them \
-        (or one state with nothing on screen). Checked as `deck_lint` checks a bundle, and written only if it validates.")]
+        (or one state with nothing on screen). The theme is one that ships, by name (dusk, daybreak, ember), or a \
+        theme file. Checked as `deck_lint` checks a bundle, and written only if it validates.")]
     async fn deck_create(
         &self,
         Parameters(a): Parameters<DeckCreate>,
@@ -340,9 +573,10 @@ impl Scaena {
         blocking(move || scaena_ops::create::create(Path::new(&a.bundle), &req)).await.map(Json)
     }
 
-    #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source.")]
+    #[tool(description = "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the \
+        bundle's images, fonts, and data too, and what uses each.")]
     async fn deck_read(&self, Parameters(a): Parameters<DeckRead>) -> Result<Json<scaena_ops::read::Read>, String> {
-        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn)).await.map(Json)
+        blocking(move || scaena_ops::read::read(&open(&a.bundle)?, a.scn, a.files)).await.map(Json)
     }
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
@@ -351,22 +585,47 @@ impl Scaena {
     async fn deck_patch(
         &self,
         Parameters(a): Parameters<DeckPatch>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
         let ops = Value::Array(a.ops.into_iter().map(Value::Object).collect());
-        blocking(move || scaena_ops::patch::patch(&open(&a.bundle)?, &ops, a.dry_run)).await.map(Json)
+        let author = author(&context);
+        blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
+    }
+
+    #[tool(description = "Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it, \
+        once for each place the text is written (the node's own, a state's delta, or the deck's overrides), with the \
+        states that show it from there and each match, in characters. With `replace`, every match is replaced in one \
+        patch, a `replace_text` where each text lives, reported as `deck_patch` reports a patch (`replaced`).")]
+    async fn deck_find(
+        &self,
+        Parameters(a): Parameters<DeckFind>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::find::Searched>, String> {
+        let query = Query { find: a.find, case: a.case, words: a.words };
+        let author = author(&context);
+        blocking(move || {
+            scaena_ops::find::search(&open_by(&a.bundle, author)?, &query, a.replace.as_deref(), a.dry_run)
+        })
+        .await
+        .map(Json)
     }
 
     #[tool(description = "Lint the bundle (SPEC §7.5): validation, the document rules, then layout, contrast, \
         motion, and narrative in every format it lists. Findings carry a JSON pointer, and a fix when one is safe; \
         `fix` applies them.")]
-    async fn deck_lint(&self, Parameters(a): Parameters<DeckLint>) -> Result<Json<Linted>, String> {
+    async fn deck_lint(
+        &self,
+        Parameters(a): Parameters<DeckLint>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<Linted>, String> {
         let min = match a.severity {
             SeverityArg::Error => scaena_core::Severity::Error,
             SeverityArg::Warning => scaena_core::Severity::Warning,
             SeverityArg::Info => scaena_core::Severity::Info,
         };
+        let author = author(&context);
         blocking(move || {
-            let b = open(&a.bundle)?;
+            let b = open_by(&a.bundle, author)?;
             let (findings, fixed, laid) = match a.fix {
                 true => {
                     let f = scaena_ops::lint::lint_fix(&b)?;
@@ -432,22 +691,74 @@ impl Scaena {
 
     #[tool(description = "Export a projection to `out`: `pdf` (each slide at its last state, or `states`, a page \
         each), `png` or `svg` (an image per state, into a directory), `mp4`, `webm`, or `prores` (the timeline, \
-        each state's cue then its hold, at `fps`; needs ffmpeg), or `spine`, which is also returned. `html` names \
-        the PLAN task that builds it.")]
+        each state's cue then its hold, at `fps`; needs ffmpeg), `html` (one file that plays the deck in a \
+        browser, offline: the player, the engine, and the bundle), or `spine`, which is also returned. An export \
+        that takes longer than 40 s keeps going: the call returns \
+        `running`, how far it has got, and the same call again waits for the rest, then returns what it wrote.")]
     async fn deck_export(&self, Parameters(a): Parameters<DeckExport>) -> Result<Json<Exported>, String> {
-        blocking(move || {
-            let req = scaena_ops::export::Request {
-                format: a.format,
-                states: a.states,
-                out: a.out.map(Into::into),
-                size: a.size,
-                fps: a.fps,
-                audio: a.audio.map(Into::into),
-            };
-            scaena_ops::export::export(&open(&a.bundle)?, &req)
-        })
-        .await
-        .map(Json)
+        let req = scaena_ops::export::Request {
+            format: a.format.clone(),
+            states: a.states.clone(),
+            out: a.out.clone().map(Into::into),
+            size: a.size.clone(),
+            fps: a.fps,
+            audio: a.audio.clone().map(Into::into),
+            painter: a.painter,
+        };
+        let bundle = a.bundle.clone();
+        let b = blocking(move || open(&bundle)).await?;
+        // The spine without `out` comes back in the result: there is nothing to wait for.
+        let Some(out) = req.out.clone() else {
+            return blocking(move || scaena_ops::export::export(&b, &req)).await.map(Json);
+        };
+        let file = std::path::absolute(&out).unwrap_or(out);
+        let asked = asked(&a, &b);
+        let (mut done, progress) = {
+            let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+            match exports.get(&file) {
+                // Asked again: wait for it.
+                Some(export) if export.asked == asked => (export.done.clone(), export.progress.clone()),
+                Some(export) if export.done.borrow().is_none() => {
+                    let Running { done, of, unit, elapsed_ms, .. } = export.running();
+                    return Err(failure(OpsError::new(format!(
+                        "an export to {} is running, asked with other arguments or of another version of the deck: \
+                         {done} of {of} {unit} after {} s. Export to another file, or again when it is done.",
+                        export.out,
+                        elapsed_ms / 1000
+                    ))));
+                }
+                // Not running, or done and never handed back: start it.
+                _ => {
+                    let export = start(b, req, &a, asked);
+                    let started = (export.done.clone(), export.progress.clone());
+                    exports.insert(file.clone(), export);
+                    started
+                }
+            }
+        };
+        let waited = tokio::time::timeout(self.wait, done.wait_for(Option::is_some)).await.map(|r| r.is_ok());
+        let finished = match waited {
+            Ok(true) => true,
+            Ok(false) => return Err(failure(OpsError::new("the export stopped before it was done"))),
+            // Still running. How far it has got means nothing until it has counted what it
+            // writes, which takes it a moment: wait for that, or for the end.
+            Err(_) => counted(&progress, &done).await,
+        };
+        let mut exports = self.exports.lock().unwrap_or_else(|e| e.into_inner());
+        let result = done.borrow().clone();
+        match result.filter(|_| finished) {
+            Some(result) => {
+                // Handed back: the next call for this file starts again.
+                if exports.get(&file).is_some_and(|e| e.asked == asked) {
+                    exports.remove(&file);
+                }
+                result.map(Json)
+            }
+            None => {
+                let running = exports.get(&file).map(Export::running);
+                Ok(Json(Exported { format: a.format, out: a.out, running, ..Exported::default() }))
+            }
+        }
     }
 
     #[tool(
@@ -460,12 +771,38 @@ impl Scaena {
     }
 
     #[tool(description = "Re-theme: point the deck at another theme, copied into the bundle, and say what that \
-        changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched.")]
+        changes in what lint finds. A theme change is a re-render; the deck is not otherwise touched. A theme that \
+        would leave the deck invalid, as one that lacks a name it uses does, is refused (`refused`, and its \
+        errors in `added`) unless `force`: the deck keeps its theme, and the new one is copied in, so one \
+        `deck_patch` with the `retheme` op and the fixes swaps it with the deck valid throughout.")]
     async fn theme_apply(
         &self,
         Parameters(a): Parameters<ThemeApply>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::theme::Themed>, String> {
-        blocking(move || scaena_ops::theme::theme_apply(&open(&a.bundle)?, Path::new(&a.theme), a.dry_run))
+        let author = author(&context);
+        blocking(move || {
+            scaena_ops::theme::theme_apply(&open_by(&a.bundle, author)?, Path::new(&a.theme), a.dry_run, a.force)
+        })
+        .await
+        .map(Json)
+    }
+
+    #[tool(description = "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, \
+        by RFC 6902 operations on its JSON (`ops`, each path a JSON Pointer into the theme: \
+        `/tokens/color/accent`, `/type/roles/body/size`, `/grid/gutter`). Every node that names what the edit \
+        changes changes with it, so a look asked of the whole deck is an edit here, not a literal in each node. \
+        Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses \
+        does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file \
+        is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is \
+        reported. A theme that ships is edited in the bundle's copy.")]
+    async fn theme_edit(
+        &self,
+        Parameters(a): Parameters<ThemeEdit>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::theme::ThemeEdited>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::theme::theme_edit(&open_by(&a.bundle, author)?, &a.edit, a.dry_run))
             .await
             .map(Json)
     }
@@ -475,15 +812,53 @@ impl Scaena {
     async fn data_attach(
         &self,
         Parameters(a): Parameters<DataAttach>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::create::Attached>, String> {
-        blocking(move || scaena_ops::create::attach(&open(&a.bundle)?, &a.data)).await.map(Json)
+        let author = author(&context);
+        blocking(move || scaena_ops::create::attach(&open_by(&a.bundle, author)?, &a.data)).await.map(Json)
     }
 
-    #[tool(
-        description = "The deck's spine (SPEC §2.6): its sections and beats, each beat's claim, evidence, and states."
-    )]
-    async fn spine_read(&self, Parameters(a): Parameters<BundleArg>) -> Result<Json<Map<String, Value>>, String> {
-        blocking(move || Ok(object(scaena_ops::read::spine(&open(&a.bundle)?)))).await.map(Json)
+    #[tool(description = "A data source's rows (SPEC §3.10). With no `edits`, the source as a sheet: its columns, \
+        each one's type, its rows as written, by index from 0, and the cells a column does not read. With them, \
+        cells set (`set`), rows added (`add`, at `row` or the end) and taken away (`remove`), in order, all or none: \
+        one write of the source's file that keeps every other byte, or a patch of rows written inline, and what \
+        that changes in what lint finds. A value its column's type refuses stops them, by index (`op`); edits that \
+        would leave the deck invalid are refused (`refused`, and why in `added`). Every chart and table that reads \
+        the source reads it changed.")]
+    async fn data_edit(
+        &self,
+        Parameters(a): Parameters<DataEdit>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::data::DataEdited>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::data::data_edit(&open_by(&a.bundle, author)?, &a.data, a.dry_run)).await.map(Json)
+    }
+
+    #[tool(description = "A bundle's versions (SPEC §8): each change its history keeps, by author and time, \
+        oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after \
+        one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the \
+        deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` \
+        says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \
+        changed; with `restore`, that version made the deck again, with its data files and its theme as they \
+        were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
+        (`dry_run` writes nothing).")]
+    async fn deck_history(
+        &self,
+        Parameters(a): Parameters<DeckHistory>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::history::History>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::history::history(&open_by(&a.bundle, author)?, &a.ask)).await.map(Json)
+    }
+
+    #[tool(description = "The deck's spine (SPEC §2.6, §10): its sections and beats, each beat's claim, evidence, \
+        and states, and the state that shows it. `deck_export` with `spine` also places it on the timeline and \
+        draws each beat.")]
+    async fn spine_read(
+        &self,
+        Parameters(a): Parameters<BundleArg>,
+    ) -> Result<Json<scaena_core::spine::SpineProjection>, String> {
+        blocking(move || Ok(scaena_ops::read::spine(&open(&a.bundle)?))).await.map(Json)
     }
 
     #[tool(description = "Replace the deck's spine, as a patch: checked, refused if it makes the deck invalid, \
@@ -491,112 +866,14 @@ impl Scaena {
     async fn spine_update(
         &self,
         Parameters(a): Parameters<SpineUpdate>,
+        context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::patch::Patched>, String> {
-        blocking(move || scaena_ops::read::spine_update(&open(&a.bundle)?, Value::Object(a.spine), a.dry_run))
-            .await
-            .map(Json)
-    }
-}
-
-// --- resources ------------------------------------------------------------------------
-
-/// What the server serves as resources: (uri, name, MIME type, text).
-const RESOURCES: &[(&str, &str, &str, &str)] = &[
-    (
-        "scaena://schema/deck",
-        "The deck format",
-        "application/schema+json",
-        include_str!("../../../docs/schema/deck.schema.json"),
-    ),
-    (
-        "scaena://schema/theme",
-        "The theme format",
-        "application/schema+json",
-        include_str!("../../../docs/schema/theme.schema.json"),
-    ),
-    (
-        "scaena://schema/patch",
-        "A patch's ops",
-        "application/schema+json",
-        include_str!("../../../docs/schema/patch.schema.json"),
-    ),
-    ("scaena://lint/catalog", "The lint catalog", "text/markdown", ""),
-    ("scaena://spec", "The specification", "text/markdown", include_str!("../../../docs/SPEC.md")),
-    (
-        "scaena://skills/author-deck",
-        "How to author a deck",
-        "text/markdown",
-        include_str!("../../../skills/author-deck/SKILL.md"),
-    ),
-    (
-        "scaena://skills/chart-from-data",
-        "How to make a chart or table from data",
-        "text/markdown",
-        include_str!("../../../skills/chart-from-data/SKILL.md"),
-    ),
-    (
-        "scaena://skills/motion-pass",
-        "How to set a deck's motion",
-        "text/markdown",
-        include_str!("../../../skills/motion-pass/SKILL.md"),
-    ),
-    (
-        "scaena://skills/retheme",
-        "How to apply another theme",
-        "text/markdown",
-        include_str!("../../../skills/retheme/SKILL.md"),
-    ),
-    (
-        "scaena://skills/tighten-copy",
-        "How to tighten a deck's words",
-        "text/markdown",
-        include_str!("../../../skills/tighten-copy/SKILL.md"),
-    ),
-    (
-        "scaena://examples/revenue.deck.json",
-        "An example deck",
-        "application/json",
-        include_str!("../../../docs/examples/revenue.deck.json"),
-    ),
-    (
-        "scaena://examples/trails.deck.json",
-        "A fifteen-slide example: text, a stat, a photograph, five kinds of chart, a table, cards, and a quote",
-        "application/json",
-        include_str!("../../../docs/examples/trails.deck.json"),
-    ),
-    (
-        "scaena://examples/revenue.deck.scn",
-        "The example deck as .scn",
-        "text/plain",
-        include_str!("../../../docs/examples/revenue.deck.scn"),
-    ),
-    (
-        "scaena://examples/revenue.patch.json",
-        "An example patch",
-        "application/json",
-        include_str!("../../../docs/examples/revenue.patch.json"),
-    ),
-    (
-        "scaena://examples/dusk.theme.json",
-        "An example theme",
-        "application/json",
-        include_str!("../../../docs/examples/themes/dusk.theme.json"),
-    ),
-];
-
-/// The lint catalog: SPEC §7.5, as SPEC writes it.
-fn catalog() -> &'static str {
-    let spec = include_str!("../../../docs/SPEC.md");
-    let start = spec.find("### 7.5").unwrap_or(0);
-    let end = spec[start..].find("### 7.6").map_or(spec.len(), |i| start + i);
-    &spec[start..end]
-}
-
-/// A resource's text, by its uri.
-pub fn resource(uri: &str) -> Option<&'static str> {
-    match uri {
-        "scaena://lint/catalog" => Some(catalog()),
-        _ => RESOURCES.iter().find(|r| r.0 == uri).map(|r| r.3),
+        let author = author(&context);
+        blocking(move || {
+            scaena_ops::read::spine_update(&open_by(&a.bundle, author)?, Value::Object(a.spine), a.dry_run)
+        })
+        .await
+        .map(Json)
     }
 }
 
@@ -604,37 +881,65 @@ pub fn resource(uri: &str) -> Option<&'static str> {
 impl ServerHandler for Scaena {
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
-        ServerConfig::new(capabilities).with_instructions(
+        let server = Implementation::new("scaena", env!("CARGO_PKG_VERSION"));
+        ServerConfig::new(capabilities).with_server_info(server).with_instructions(
             "Scaena decks are states over one scene graph: nodes exist for the whole deck, each state says what changes, \
              and the theme owns type and layout, so a deck names roles, slots, and presets, never pixels. Make a bundle \
-             with deck_create, attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
-             deck_render. The resources hold the schemas, the lint catalog, the specification, the skills (procedures to \
-             follow: scaena://skills/author-deck first), and examples.",
+             with deck_create (a theme that ships, dusk, daybreak, or ember, needs no file), attach data with data_attach, edit with deck_patch, check with deck_lint, and look with \
+             deck_render. The resources hold the schemas, the lint catalog, the specification by section (scaena://spec is \
+             its index), the skills (procedures to follow: scaena://skills/author-deck first), and examples.",
         )
     }
 
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        let resources = RESOURCES
+        let listed = resources::all()
             .iter()
-            .map(|(uri, name, mime, _)| {
-                let text = resource(uri).unwrap_or_default();
-                Resource::new(*uri, *name).with_mime_type(*mime).with_size(text.len() as u64)
-            })
+            .filter(|r| r.listed)
+            .map(|r| Resource::new(&r.uri, &r.name).with_mime_type(r.mime).with_size(r.text.len() as u64))
             .collect();
-        Ok(ListResourcesResult::with_all_items(resources))
+        let mut list = ListResourcesResult::with_all_items(listed);
+        if hints(&context) {
+            list = list.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(list)
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        let text = resource(&request.uri)
+        let served = resources::all()
+            .iter()
+            .find(|r| r.uri == request.uri)
             .ok_or_else(|| ErrorData::resource_not_found(format!("no resource `{}`", request.uri), None))?;
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(text, request.uri)]).into())
+        let contents = ResourceContents::TextResourceContents {
+            uri: request.uri,
+            mime_type: Some(served.mime.into()),
+            text: served.text.clone(),
+            meta: None,
+        };
+        let mut read = ReadResourceResult::new(vec![contents]);
+        if hints(&context) {
+            read = read.with_ttl_ms(RESOURCE_TTL_MS).with_cache_scope(CacheScope::Public);
+        }
+        Ok(read.into())
     }
+}
+
+/// How long a client may keep what `resources/list` and `resources/read` return. The
+/// resources are built into the server, the same for everyone, and never change while it
+/// runs; an hour bounds how stale a client's copy can be across a rebuild.
+const RESOURCE_TTL_MS: u64 = 3_600_000;
+
+/// Whether the client negotiated a protocol (2026-07-28 on) whose list and read results
+/// carry cache hints: there `ttlMs` and `cacheScope` are required, and a client rejects a
+/// result without them (SEP-2549). Older clients get the shape they know, as rmcp's own
+/// `tools/list` does.
+fn hints(context: &RequestContext<RoleServer>) -> bool {
+    context.protocol_version().is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
 }

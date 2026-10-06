@@ -8,6 +8,13 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["hyphenation"]
+# The seventeen languages' hyphenation patterns compiled in (`hyphen`, ADR-0015): the CLI, the
+# MCP server, and the player's module. The editor's module leaves them out, and its page hands a
+# language's patterns over the first time a text hyphenates in it.
+hyphenation = []
+
 [dependencies]
 scaena-core.workspace = true
 serde.workspace = true
@@ -18,13 +25,16 @@ thiserror.workspace = true
 parley.workspace = true
 fontique.workspace = true
 taffy.workspace = true
-hypher.workspace = true
+icu_segmenter.workspace = true
 peniko.workspace = true
 kurbo.workspace = true
 libm.workspace = true
 # Image content ids (`sha256:…`), as bundles name assets (SPEC §3.1).
 sha2.workspace = true
+# A font's OS/2 embedding bits, which lint reads (W230); parley reads fonts with the same
+# skrifa. Tests also map characters to glyph ids through a font's own cmap.
+skrifa.workspace = true
 
 [dev-dependencies]
-# Torture tests map characters to glyph ids through the font's own cmap.
-skrifa.workspace = true
+# What `hyphen` walks as: every language breaks every word where it does.
+hypher.workspace = true

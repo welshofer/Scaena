@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "meta": {
     "title": "High Country Trails: the 2026 season",
     "lang": "en-US",
@@ -43,6 +43,47 @@
     {
       "family": "JetBrains Mono",
       "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
       "axes": {
         "wght": [
           100,
@@ -105,7 +146,7 @@
     "cover-bg": {
       "type": "shader",
       "kind": "mesh",
-      "preset": "mesh-soft",
+      "preset": "backdrop",
       "seed": 11,
       "alt": "",
       "semantic": "decoration",
@@ -124,7 +165,10 @@
           1,
           8
         ],
-        "row": 1,
+        "row": [
+          1,
+          2
+        ],
         "align": {
           "y": "end"
         }
@@ -175,8 +219,8 @@
           9
         ],
         "row": [
-          2,
-          6
+          3,
+          12
         ]
       }
     },
@@ -345,7 +389,7 @@
       "text": "volunteer hours this season",
       "semantic": "claim",
       "at": {
-        "in": "meaning",
+        "in": "claim",
         "align": {
           "y": "end"
         }
@@ -357,7 +401,7 @@
       "text": "More than three full-time years of work, given one Saturday at a time by 1,214 people.",
       "semantic": "context",
       "at": {
-        "in": "aside",
+        "in": "detail",
         "align": {
           "y": "end"
         }
@@ -387,7 +431,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "storm-note": {
@@ -396,7 +443,7 @@
       "text": "The Alpine crew rebuilt 4.6 miles here after the storms, in eleven weekends.",
       "semantic": "context",
       "at": {
-        "in": "footer"
+        "in": "note"
       },
       "style": {
         "color": "onSurface"
@@ -412,7 +459,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "miles-chart": {
@@ -449,7 +499,7 @@
       "text": "Miles of tread rebuilt per month. Source: crew logs.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     },
     "crews-title": {
@@ -462,7 +512,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "crews-chart": {
@@ -502,7 +555,7 @@
       "text": "Volunteer hours per month, by crew.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     },
     "kinds-title": {
@@ -515,7 +568,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "kinds-chart": {
@@ -555,7 +611,7 @@
       "text": "Volunteer hours per month, by kind of work.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     },
     "change-title": {
@@ -568,7 +624,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "change-grid": {
@@ -582,8 +641,8 @@
           12
         ],
         "row": [
-          2,
-          3
+          3,
+          6
         ]
       }
     },
@@ -678,7 +737,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "erosion-chart": {
@@ -721,7 +783,7 @@
       "text": "Measured on 18 segments, 2024–2026.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     },
     "funding-text": {
@@ -729,7 +791,7 @@
       "gap": "space.5",
       "distribute": "center",
       "at": {
-        "in": "left"
+        "in": "body"
       }
     },
     "funding-title": {
@@ -766,7 +828,7 @@
       "alt": "Funding by source: grants $184,000, members $124,000, business partners $60,000, events $32,000.",
       "semantic": "evidence",
       "at": {
-        "in": "right"
+        "in": "main"
       },
       "annotations": [
         {
@@ -787,7 +849,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "budget-table": {
@@ -822,8 +887,8 @@
           8
         ],
         "row": [
-          2,
-          5
+          3,
+          10
         ]
       }
     },
@@ -837,7 +902,10 @@
           9,
           12
         ],
-        "row": 2
+        "row": [
+          3,
+          4
+        ]
       }
     },
     "budget-why": {
@@ -851,8 +919,8 @@
           12
         ],
         "row": [
-          3,
-          4
+          5,
+          8
         ]
       }
     },
@@ -862,7 +930,7 @@
       "text": "Fiscal year ending September 30.",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       }
     },
     "process-title": {
@@ -875,7 +943,10 @@
           1,
           12
         ],
-        "row": 1
+        "row": [
+          1,
+          2
+        ]
       }
     },
     "process-flow": {
@@ -896,8 +967,8 @@
           12
         ],
         "row": [
-          2,
-          3
+          3,
+          6
         ]
       }
     },
@@ -1147,7 +1218,7 @@
     "next-bg": {
       "type": "shader",
       "kind": "noise",
-      "preset": "noise-fine",
+      "preset": "texture",
       "seed": 5,
       "alt": "",
       "semantic": "decoration",

@@ -3,8 +3,50 @@
   "description": "Each state as it resolves (SPEC §2.2): its nodes with their props, what enters and exits. `resolved` adds each text node's look through the theme, `timeline` each motion as placed on the state's clock, `data` the rows each chart and table reads.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "SnapMode": {
+        "description": "How a box dropped on a node's targets snaps (ADR-0013).",
+        "oneOf": [
+          {
+            "description": "As many cells as the node spans, from the track nearest the box's corner.",
+            "type": "string",
+            "const": "move"
+          },
+          { "description": "Each edge to the nearest track's.", "type": "string", "const": "resize" },
+          {
+            "description": "Into the slot, or the grid container's area, the box covers most.",
+            "type": "string",
+            "const": "slot"
+          },
+          {
+            "description": "Where it was dropped, in whole canvas units: a `rect`. On the theme's grid, an\noverride (W301); in a frame, its own way of placing.",
+            "type": "string",
+            "const": "free"
+          },
+          {
+            "description": "Among a stack's children, where the box's middle falls.",
+            "type": "string",
+            "const": "order"
+          }
+        ]
+      },
+      "Align": {
+        "description": "The edge, or the middle, that nodes aligned share.",
+        "type": "string",
+        "enum": ["left", "center", "right", "top", "middle", "bottom"]
+      },
+      "Spread": { "description": "The way nodes spread run.", "type": "string", "enum": ["across", "down"] },
+      "Order": {
+        "description": "Where a node goes among what its container paints.",
+        "oneOf": [
+          { "description": "In front of the next it overlaps.", "type": "string", "const": "forward" },
+          { "description": "Behind the one before it that it overlaps.", "type": "string", "const": "backward" },
+          { "description": "In front of all of them.", "type": "string", "const": "front" },
+          { "description": "Behind all of them.", "type": "string", "const": "back" }
+        ]
+      }
+    },
     "required": ["bundle"],
-    "additionalProperties": false,
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
@@ -23,8 +65,130 @@
         "description": "The rows each chart and table reads, after its `dataTransform`.",
         "type": "boolean",
         "default": false
+      },
+      "boxes": {
+        "description": "Each visible node's box at rest, canvas units: what a pointer selects and moves\n(ADR-0013).",
+        "type": "boolean",
+        "default": false
+      },
+      "at": {
+        "description": "The nodes that draw at this point at rest, `[x, y]` in canvas units, topmost first,\neach with the containers it sits in (ADR-0013).",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": null
+      },
+      "format": {
+        "description": "One of the deck's `formats` (`9:16`) to inspect it in, laid out again with its\ntemplate set; the deck's own canvas without it.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "targets": {
+        "description": "A node shown in the state inspected: where it may go, as a drag snaps it (ADR-0013).\nWhat holds it, its cell, and the tracks, slots, or order it takes.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "snap": {
+        "description": "With `targets` and `to`: how the dropped box snaps, and the patch that puts the node\nthere.",
+        "anyOf": [{ "$ref": "#/$defs/SnapMode" }, { "type": "null" }],
+        "default": null
+      },
+      "to": {
+        "description": "With `snap`: the box a drag left, `[x, y, width, height]` in canvas units: the node's\ncell, moved or resized.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 4,
+        "maxItems": 4,
+        "default": null
+      },
+      "fork": {
+        "description": "With `snap` or `arrange`: the patch keeps what it changes to the state inspected,\nwritten into its own props wherever it lives now (`place`'s and `choose`'s `fork`).",
+        "type": "boolean",
+        "default": false
+      },
+      "arrange": {
+        "description": "Several nodes shown in the state inspected, children of one container, arranged at\nonce (PLAN 2.42): with one of `align`, `spread`, `order`, or `by`, where each lands\nand the patch that puts them there.",
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "default": null
+      },
+      "align": {
+        "description": "With `arrange`: the edge, or the middle, they all take: the one all of them reach\nfarthest, or the middle of them all; on a grid, snapped to its tracks.",
+        "anyOf": [{ "$ref": "#/$defs/Align" }, { "type": "null" }],
+        "default": null
+      },
+      "spread": {
+        "description": "With `arrange`: the first and the last stay, and the ones between move so the gaps\nbetween them all are equal, `across` or `down`.",
+        "anyOf": [{ "$ref": "#/$defs/Spread" }, { "type": "null" }],
+        "default": null
+      },
+      "order": {
+        "description": "With `arrange`: each goes `forward` in front of the next of its container's children\nthat it overlaps, `backward` behind the one before, or to the `front` or the `back` of\nthem all, by its `z`.",
+        "anyOf": [{ "$ref": "#/$defs/Order" }, { "type": "null" }],
+        "default": null
+      },
+      "before": {
+        "description": "With `arrange`, one node: listed just before this other node, as `layers` lists them\n(PLAN 2.50): painted just over it, by the `z` that does it, or, in a stack, laid out\njust before it. Held by another container, or by none, the node goes there with it,\nplaced as that container places what it holds.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "after": {
+        "description": "With `arrange`, one node: listed just after this other node: painted just under it, or,\nin a stack, laid out just after it; into what holds it, as with `before`.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "into": {
+        "description": "With `arrange`, one node: into this container, listed first among what it holds,\nplaced as it places what it holds (PLAN 2.50).",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "by": {
+        "description": "With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of\nit snaps, the rest as far as it went, each its own way.",
+        "type": ["array", "null"],
+        "items": { "type": "number" },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": null
+      },
+      "free": {
+        "description": "With `by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.",
+        "type": "boolean",
+        "default": false
+      },
+      "choices": {
+        "description": "A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each\nproperty it edits, with the theme's names for it or what the schema allows, the value\nthe state shows, and where that value lives, which is where `choose` writes.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "state_choices": {
+        "description": "What an inspector offers for the state inspected itself (PLAN 2.36): its layout (the\ntheme's layouts with a slot for each node placed in one), each key of its transition,\nits hold, and its notes, each with the value it has and where it lives, which is where\n`set_state` writes.",
+        "type": "boolean",
+        "default": false
+      },
+      "inserts": {
+        "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, a chart and a table of\neach data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with\nthe box it takes at first.",
+        "type": "boolean",
+        "default": false
+      },
+      "layers": {
+        "description": "The state inspected's layers (PLAN 2.50): its nodes nested as their containers and\ngroups hold them, topmost first, with those that leave in it and those another state\nof its slide shows, hidden, each where the nearest state that shows it places it.",
+        "type": "boolean",
+        "default": false
+      },
+      "look": {
+        "description": "A node shown in the state inspected: its look (PLAN 2.58), each property of its type's\nlook with the value the state shows, as the editor's ⌥⌘C picks it up.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "onto": {
+        "description": "With `look`: nodes shown in the state to put it on, and what that makes: a `choose` for\neach property of it a node shows otherwise, written where that node's own value lives\n(what `deck_patch` takes), and the nodes that look so already or take none of it, with\nwhy.",
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "default": null
       }
-    }
+    },
+    "additionalProperties": false
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -66,6 +230,54 @@
             "description": "The rows each chart and table reads, by node (`data`).",
             "type": ["object", "null"],
             "additionalProperties": { "$ref": "#/$defs/Rows" }
+          },
+          "boxes": {
+            "description": "Each visible node's box at rest (`boxes`): those that draw, in paint order, then the\ncontainers and groups that only hold others.",
+            "type": ["object", "null"],
+            "additionalProperties": { "$ref": "#/$defs/NodeBox" }
+          },
+          "hits": {
+            "description": "The nodes that draw at the point asked about (`at`), topmost first.",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Hit" }
+          },
+          "targets": {
+            "description": "Where the node asked about may go (`targets`).",
+            "anyOf": [{ "$ref": "#/$defs/Targets" }, { "type": "null" }]
+          },
+          "snapped": {
+            "description": "Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.",
+            "anyOf": [{ "$ref": "#/$defs/Snapped" }, { "type": "null" }]
+          },
+          "arranged": {
+            "description": "Where the nodes `arrange` names land, and the patch that puts them there.",
+            "anyOf": [{ "$ref": "#/$defs/Arranged" }, { "type": "null" }]
+          },
+          "choices": {
+            "description": "What an inspector offers for the node asked about (`choices`).",
+            "anyOf": [{ "$ref": "#/$defs/Choices" }, { "type": "null" }]
+          },
+          "state_choices": {
+            "description": "What an inspector offers for the state itself (`state_choices`).",
+            "anyOf": [{ "$ref": "#/$defs/StateChoices" }, { "type": "null" }]
+          },
+          "inserts": {
+            "description": "What may be inserted in this state (`inserts`).",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Insert" }
+          },
+          "layers": {
+            "description": "Its layers, what stands on the canvas topmost first (`layers`).",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Layer" }
+          },
+          "look": {
+            "description": "The look of the node asked about (`look`).",
+            "anyOf": [{ "$ref": "#/$defs/Look" }, { "type": "null" }]
+          },
+          "put": {
+            "description": "That look put on the nodes `onto` names (`onto`).",
+            "anyOf": [{ "$ref": "#/$defs/Put" }, { "type": "null" }]
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -76,10 +288,10 @@
         "properties": {
           "role": { "description": "The role it is set in: its own, or its slot's.", "type": "string" },
           "family": { "description": "The family's name, as its font names it.", "type": "string" },
-          "size": { "type": "number", "format": "double" },
-          "weight": { "type": "number", "format": "double" },
-          "leading": { "type": "number", "format": "double" },
-          "tracking": { "type": "number", "format": "double" },
+          "size": { "type": "number" },
+          "weight": { "type": "number" },
+          "leading": { "type": "number" },
+          "tracking": { "type": "number" },
           "color": { "description": "The color as the cascade names it, and as sRGB.", "type": "string" },
           "hex": { "type": "string" }
         },
@@ -89,13 +301,9 @@
         "description": "A state's cue (SPEC §2.4, §3.9), ms: where it falls on the deck's timeline, its\ntransition, and each motion as placed on the state's clock, which starts with the\ntransition.",
         "type": "object",
         "properties": {
-          "start": { "description": "When the transition into it starts.", "type": "number", "format": "double" },
-          "span": { "description": "Its transition and motions, from `start`.", "type": "number", "format": "double" },
-          "hold": {
-            "description": "Its dwell at rest before the next state starts.",
-            "type": "number",
-            "format": "double"
-          },
+          "start": { "description": "When the transition into it starts.", "type": "number" },
+          "span": { "description": "Its transition and motions, from `start`.", "type": "number" },
+          "hold": { "description": "Its dwell at rest before the next state starts.", "type": "number" },
           "transition": { "$ref": "#/$defs/Transition" },
           "motions": { "type": "array", "items": { "$ref": "#/$defs/Motion" } }
         },
@@ -104,7 +312,7 @@
       "Transition": {
         "type": "object",
         "properties": {
-          "duration": { "type": "number", "format": "double" },
+          "duration": { "type": "number" },
           "curve": { "$ref": "#/$defs/Curve" },
           "match": {
             "description": "`id`: nodes are matched by id across the cut. `none`: every node leaves and enters.",
@@ -118,14 +326,7 @@
         "anyOf": [
           {
             "type": "object",
-            "properties": {
-              "ease": {
-                "type": "array",
-                "items": { "type": "number", "format": "double" },
-                "minItems": 4,
-                "maxItems": 4
-              }
-            },
+            "properties": { "ease": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 } },
             "required": ["ease"]
           },
           { "type": "object", "properties": { "spring": { "$ref": "#/$defs/Spring" } }, "required": ["spring"] }
@@ -134,9 +335,9 @@
       "Spring": {
         "type": "object",
         "properties": {
-          "stiffness": { "type": "number", "format": "double" },
-          "damping": { "type": "number", "format": "double" },
-          "mass": { "type": "number", "format": "double" }
+          "stiffness": { "type": "number" },
+          "damping": { "type": "number" },
+          "mass": { "type": "number" }
         },
         "required": ["stiffness", "damping", "mass"]
       },
@@ -150,11 +351,26 @@
             "description": "What it moves one at a time: lines, words, glyphs, children, or marks.",
             "anyOf": [{ "$ref": "#/$defs/SplitUnit" }, { "type": "null" }]
           },
-          "units": { "type": "integer", "format": "uint", "minimum": 0 },
-          "start": { "type": "number", "format": "double" },
-          "stagger": { "description": "From one unit's start to the next's.", "type": "number", "format": "double" },
-          "duration": { "description": "Each unit's.", "type": "number", "format": "double" },
-          "end": { "type": "number", "format": "double" },
+          "units": { "type": "integer", "minimum": 0 },
+          "start": { "type": "number" },
+          "stagger": { "description": "From one unit's start to the next's.", "type": "number" },
+          "duration": { "description": "Each unit's.", "type": "number" },
+          "end": { "type": "number" },
+          "moving": {
+            "description": "When its first unit starts to change and its last comes to rest: an `anim`'s from when\nits first key falls.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "delay": {
+            "description": "Its `delay` as written, what `time_motion` reads and sets (PLAN 2.44): a choreography\nitem's own, else its preset call's, and a node's own preset call's. A node's own `anim`\nhas none: it is when its first key falls.",
+            "type": "number"
+          },
+          "written": {
+            "description": "Where it is written, a JSON pointer into the deck: the choreography item\n(`/states/2/choreography/0`), or the node's own property where it lives\n(`/states/1/props/title/enter`, `/nodes/title/exit`).",
+            "type": ["string", "null"]
+          },
           "curve": { "$ref": "#/$defs/Curve" },
           "from": {
             "description": "An entrance's look before it: what it changes from rest.",
@@ -173,7 +389,7 @@
             "anyOf": [{ "$ref": "#/$defs/Tracks" }, { "type": "null" }]
           }
         },
-        "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "curve"]
+        "required": ["node", "motion", "units", "start", "stagger", "duration", "end", "moving", "delay", "curve"]
       },
       "SplitUnit": {
         "description": "What a choreographed entrance splits its target into.",
@@ -184,36 +400,18 @@
         "description": "A look as what it changes from rest.",
         "type": "object",
         "properties": {
-          "opacity": { "type": ["number", "null"], "format": "double" },
-          "translate": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
-          "scale": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
-          "rotate": { "type": ["number", "null"], "format": "double" },
-          "anchor": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          },
+          "opacity": { "type": ["number", "null"] },
+          "translate": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "scale": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "rotate": { "type": ["number", "null"] },
+          "anchor": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
           "tint": { "anyOf": [{ "$ref": "#/$defs/Tint" }, { "type": "null" }] },
-          "progress": { "type": ["number", "null"], "format": "double" }
+          "progress": { "type": ["number", "null"] }
         }
       },
       "Tint": {
         "type": "object",
-        "properties": {
-          "color": { "description": "sRGB.", "type": "string" },
-          "amount": { "type": "number", "format": "double" }
-        },
+        "properties": { "color": { "description": "sRGB.", "type": "string" }, "amount": { "type": "number" } },
         "required": ["color", "amount"]
       },
       "Tracks": {
@@ -225,30 +423,21 @@
           "scale": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key2" } },
           "rotate": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
           "progress": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Key" } },
-          "anchor": {
-            "type": ["array", "null"],
-            "items": { "type": "number", "format": "double" },
-            "minItems": 2,
-            "maxItems": 2
-          }
+          "anchor": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         }
       },
       "Key": {
         "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
         "type": "object",
-        "properties": {
-          "t": { "type": "number", "format": "double" },
-          "v": { "type": "number", "format": "double" },
-          "curve": { "$ref": "#/$defs/Curve" }
-        },
+        "properties": { "t": { "type": "number" }, "v": { "type": "number" }, "curve": { "$ref": "#/$defs/Curve" } },
         "required": ["t", "v", "curve"]
       },
       "Key2": {
         "description": "A key: when (ms after its track starts), its value, and the curve from the key before.",
         "type": "object",
         "properties": {
-          "t": { "type": "number", "format": "double" },
-          "v": { "type": "array", "items": { "type": "number", "format": "double" }, "minItems": 2, "maxItems": 2 },
+          "t": { "type": "number" },
+          "v": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
           "curve": { "$ref": "#/$defs/Curve" }
         },
         "required": ["t", "v", "curve"]
@@ -263,6 +452,459 @@
           "rows": { "type": "array", "items": { "type": "array", "items": true } }
         },
         "required": ["source", "columns", "types", "rows"]
+      },
+      "NodeBox": {
+        "description": "A visible node's box at rest, canvas units (ADR-0013).",
+        "type": "object",
+        "properties": {
+          "rect": {
+            "description": "`[x, y, width, height]`: its grid cell or slot, the box its container gave it, or a\ngroup's box around its members.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "parent": { "description": "The container or group it sits in.", "type": ["string", "null"] },
+          "draws": {
+            "description": "Whether it draws anything: a container with no panel, and a group, only hold others.",
+            "type": "boolean"
+          },
+          "transform": {
+            "description": "Where its `transform`, and those of what holds it, draw it (SPEC §3.3): the map of\ncanvas points `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`) from `rect` to where it is\ndrawn. Left out where nothing turns, scales, leans, or moves it.",
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 6,
+            "maxItems": 6
+          }
+        },
+        "required": ["rect", "draws"]
+      },
+      "Hit": {
+        "description": "A node that draws at the point asked about.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "rect": {
+            "description": "Its box: `[x, y, width, height]`.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "transform": {
+            "description": "As a box's `transform`: where it is drawn from `rect`, where something moves it.",
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 6,
+            "maxItems": 6
+          },
+          "containers": {
+            "description": "The containers and groups it sits in, innermost first.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "offset": {
+            "description": "For a text, where a caret put at the point stands: how many characters of its text\n(Unicode scalar values) come before it, as `replace_text` counts them (ADR-0013).",
+            "type": ["integer", "null"],
+            "minimum": 0
+          }
+        },
+        "required": ["node", "rect", "containers"]
+      },
+      "Targets": {
+        "description": "Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.",
+        "type": "object",
+        "properties": {
+          "by": {
+            "description": "What holds it, and so how it is placed: `grid`, the theme's (by cells, a slot, or a\n`rect`); `stack` (by order); `cells`, a grid container's (by its cells or areas); or\n`frame` (by a `rect` from its padding edge).",
+            "type": "string"
+          },
+          "parent": { "description": "The container that holds it.", "type": ["string", "null"] },
+          "cell": {
+            "description": "The box its placement names now, before its inset, offset, alignment, and size: what\na drag moves.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "columns": {
+            "description": "The tracks a placement by cells takes, each `[start, end]`: columns left to right.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          },
+          "rows": {
+            "description": "Rows, top to bottom.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          },
+          "slots": {
+            "description": "The boxes a placement by name takes: the template's slots, then `canvas` and `grid`;\nor a grid container's areas.",
+            "type": "object",
+            "additionalProperties": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+          },
+          "flow": {
+            "description": "A stack's children in their order, this node among them.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "within": {
+            "description": "What a `rect` is measured in: the canvas, or a frame's padding box; else the box of\nthe container that holds it.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "snaps": {
+            "description": "How a box dropped here snaps (`snap`).",
+            "type": "array",
+            "items": { "$ref": "#/$defs/SnapMode" }
+          }
+        },
+        "required": ["by", "cell", "columns", "rows", "slots", "flow", "within", "snaps"]
+      },
+      "SnapMode": {
+        "description": "How a box dropped on a node's targets snaps (ADR-0013).",
+        "oneOf": [
+          {
+            "description": "As many cells as the node spans, from the track nearest the box's corner.",
+            "type": "string",
+            "const": "move"
+          },
+          { "description": "Each edge to the nearest track's.", "type": "string", "const": "resize" },
+          {
+            "description": "Into the slot, or the grid container's area, the box covers most.",
+            "type": "string",
+            "const": "slot"
+          },
+          {
+            "description": "Where it was dropped, in whole canvas units: a `rect`. On the theme's grid, an\noverride (W301); in a frame, its own way of placing.",
+            "type": "string",
+            "const": "free"
+          },
+          {
+            "description": "Among a stack's children, where the box's middle falls.",
+            "type": "string",
+            "const": "order"
+          }
+        ]
+      },
+      "Snapped": {
+        "description": "Where a dropped box lands.",
+        "type": "object",
+        "properties": {
+          "cell": {
+            "description": "The box a guide shows there: a cell, a slot, a `rect`, or, in a stack, a line across\nit where the node goes.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "patch": {
+            "description": "The patch that puts the node there, made in the state inspected: `place` ops (SPEC\n§7.3), each written where that placement lives. What `scaena patch` and `deck_patch`\ntake; empty when the node is there already.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["cell", "patch"]
+      },
+      "Arranged": {
+        "description": "Several nodes arranged: where each lands, and the patch that puts them all there.",
+        "type": "object",
+        "properties": {
+          "landed": { "type": "array", "items": { "$ref": "#/$defs/Landed" } },
+          "patch": {
+            "description": "`place` ops, or `choose` ops for `z`, each written where what it sets lives; empty when\neach is there already.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["landed", "patch"]
+      },
+      "Landed": {
+        "description": "Where a node arranged lands.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "cell": {
+            "description": "Its box there, `[x, y, width, height]` in canvas units.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "required": ["node", "cell"]
+      },
+      "Choices": {
+        "description": "What an inspector offers for one node as one state shows it.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "state": { "type": "string" },
+          "fields": {
+            "description": "Each property the inspector edits: the node type's own, then those every node has.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Field" }
+          }
+        },
+        "required": ["node", "type", "state", "fields"]
+      },
+      "NodeType": {
+        "description": "Node types (SPEC §3.3).",
+        "type": "string",
+        "enum": ["text", "shape", "image", "chart", "table", "shader", "stack", "grid", "frame", "group"]
+      },
+      "Field": {
+        "description": "One property an inspector edits.",
+        "type": "object",
+        "properties": {
+          "prop": {
+            "description": "A property, or one key of an object property (`style/color`): what `choose` names.",
+            "type": "string"
+          },
+          "takes": { "description": "What it takes.", "$ref": "#/$defs/Takes" },
+          "value": {
+            "description": "The value the state shows, as the deck sets it: tracked (SPEC §2.2), then the deck's\n`overrides`. Absent where nothing sets it, and the theme's shows."
+          },
+          "lives": {
+            "description": "Where that value lives: where a choice is written.",
+            "anyOf": [{ "$ref": "#/$defs/Where" }, { "type": "null" }]
+          },
+          "literal": {
+            "description": "The value is written out where the theme has names: an override in the deck's\n`overrides`, lint W300's anywhere else.",
+            "type": "boolean"
+          }
+        },
+        "required": ["prop", "takes"]
+      },
+      "Takes": {
+        "description": "What a property takes.",
+        "oneOf": [
+          {
+            "description": "One of the theme's names of a kind (`of`), in its order. With `overrides`, a value\nwritten out too (a color, a length in canvas units), which goes in the deck's\n`overrides`.",
+            "type": "object",
+            "properties": {
+              "of": { "$ref": "#/$defs/Vocabulary" },
+              "names": { "type": "array", "items": { "type": "string" } },
+              "overrides": { "type": "boolean" },
+              "kind": { "type": "string", "const": "name" }
+            },
+            "required": ["kind", "of", "names"]
+          },
+          {
+            "description": "One of these words.",
+            "type": "object",
+            "properties": {
+              "words": { "type": "array", "items": { "type": "string" } },
+              "kind": { "type": "string", "const": "word" }
+            },
+            "required": ["kind", "words"]
+          },
+          {
+            "description": "A number: at least `min`, or more than `above`; at most `max`; whole with `whole`.\nWith `overrides`, every value is written out (a text size), and goes in the deck's\n`overrides`.",
+            "type": "object",
+            "properties": {
+              "min": { "type": ["number", "null"] },
+              "above": { "type": ["number", "null"] },
+              "max": { "type": ["number", "null"] },
+              "whole": { "type": "boolean" },
+              "overrides": { "type": "boolean" },
+              "kind": { "type": "string", "const": "number" }
+            },
+            "required": ["kind"]
+          },
+          {
+            "description": "Yes or no.",
+            "type": "object",
+            "properties": { "kind": { "type": "string", "const": "flag" } },
+            "required": ["kind"]
+          },
+          {
+            "description": "Words for people, as they are written: a state's notes.",
+            "type": "object",
+            "properties": { "kind": { "type": "string", "const": "text" } },
+            "required": ["kind"]
+          },
+          {
+            "description": "Fractions of an image, from 0 to 1, one for each of `names` (PLAN 2.45): a point's `x`\nand `y`, or a part's `x`, `y`, `w`, and `h`.",
+            "type": "object",
+            "properties": {
+              "names": { "type": "array", "items": { "type": "string" } },
+              "kind": { "type": "string", "const": "fractions" }
+            },
+            "required": ["kind", "names"]
+          }
+        ]
+      },
+      "Vocabulary": {
+        "description": "A kind of name a theme defines, which a deck calls it by (SPEC §3.6).",
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "text-role",
+              "font-family",
+              "layout",
+              "motion-preset",
+              "duration",
+              "easing",
+              "spring",
+              "shader-preset",
+              "shader-palette"
+            ]
+          },
+          { "description": "A color role or a color token.", "type": "string", "const": "color" },
+          { "description": "A chart's color scale.", "type": "string", "const": "data-palette" },
+          { "description": "A stroke token: a width.", "type": "string", "const": "stroke" },
+          { "description": "A step of the radius scale.", "type": "string", "const": "radius" },
+          { "description": "A step of the space scale.", "type": "string", "const": "space" }
+        ]
+      },
+      "Where": {
+        "description": "Where a value a state shows lives.",
+        "oneOf": [
+          {
+            "description": "The deck's `overrides`, in every state: an override.",
+            "type": "string",
+            "const": "overrides"
+          },
+          {
+            "description": "A state's delta, by the state's id: the state shown, or one it tracks from. For a\nstate's own property, the state that sets it.",
+            "type": "object",
+            "properties": { "state": { "type": "string" } },
+            "required": ["state"],
+            "additionalProperties": false
+          },
+          { "description": "The node's own properties.", "type": "string", "const": "node" }
+        ]
+      },
+      "StateChoices": {
+        "description": "What an inspector offers for a state itself (PLAN 2.36).",
+        "type": "object",
+        "properties": {
+          "state": { "type": "string" },
+          "fields": {
+            "description": "Its layout, each key of its transition, its hold, and its notes: what `set_state`\nnames. A state that sets no key of its transition cuts in.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Field" }
+          }
+        },
+        "required": ["state", "fields"]
+      },
+      "Insert": {
+        "description": "One thing an editor may insert.",
+        "type": "object",
+        "properties": {
+          "label": {
+            "description": "What a menu says: the node's type, and the name it is made from.",
+            "type": "string"
+          },
+          "node": { "description": "The node `add_node` adds, unplaced." },
+          "id": {
+            "description": "What its id starts from: a role, a kind, an image's name, a preset.",
+            "type": "string"
+          },
+          "start": { "description": "The box it takes at first.", "$ref": "#/$defs/Start" }
+        },
+        "required": ["label", "node", "id", "start"]
+      },
+      "Start": {
+        "description": "The box an inserted node takes at first.",
+        "oneOf": [
+          {
+            "description": "A box about the pointer, each side a fraction of the canvas's, snapped to the theme's\ngrid as a drop snaps; a text or an image fills instead the template's slot under the\npointer, if nothing fills it.",
+            "type": "object",
+            "properties": {
+              "box": {
+                "type": "object",
+                "properties": { "w": { "type": "number" }, "h": { "type": "number" } },
+                "required": ["w", "h"]
+              }
+            },
+            "required": ["box"],
+            "additionalProperties": false
+          },
+          {
+            "description": "A slot it fills whole, and under the nodes there (`z`): a shader fills the canvas.",
+            "type": "object",
+            "properties": { "slot": { "type": "string" } },
+            "required": ["slot"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Layer": {
+        "description": "One node of a state's layers.",
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "shown": {
+            "description": "Whether the state shows it. One it does not leaves in it, another state of its slide\nshows it, or no state does.",
+            "type": "boolean"
+          },
+          "children": {
+            "description": "What it holds, a container's or a group's children, listed as the state's are.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Layer" }
+          }
+        },
+        "required": ["node", "type", "shown"]
+      },
+      "Look": {
+        "description": "A node's look as a state shows it: what ⌥⌘C picks up.",
+        "type": "object",
+        "properties": {
+          "node": { "description": "The node it was picked up from.", "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "props": {
+            "description": "Each property of its type's look, with the value the state shows.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Part" }
+          }
+        },
+        "required": ["node", "type", "props"]
+      },
+      "Part": {
+        "description": "One property of a look.",
+        "type": "object",
+        "properties": {
+          "prop": { "type": "string" },
+          "value": {
+            "description": "As the deck sets it, tracked and then overridden; absent where nothing sets it and the\ntheme's shows."
+          }
+        },
+        "required": ["prop"]
+      },
+      "Put": {
+        "description": "What a look put down makes.",
+        "type": "object",
+        "properties": {
+          "patch": {
+            "description": "The patch: one `choose` (SPEC §7.3) for each property a node takes whose value it does\nnot show already, in the state the look is put down in. What `deck_patch` takes; empty\nwhen every node looks so already.",
+            "type": "array",
+            "items": true
+          },
+          "took": {
+            "description": "The nodes it changes, in the order asked.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "same": { "description": "The nodes that look so already.", "type": "array", "items": { "type": "string" } },
+          "refused": {
+            "description": "The nodes that take none of it, each with why.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Refused" }
+          }
+        },
+        "required": ["patch", "took", "same", "refused"]
+      },
+      "Refused": {
+        "description": "A node a look is not put on, and why.",
+        "type": "object",
+        "properties": { "node": { "type": "string" }, "why": { "type": "string" } },
+        "required": ["node", "why"]
       }
     },
     "type": "object",

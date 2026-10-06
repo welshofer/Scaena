@@ -1,0 +1,203 @@
+{
+  "name": "deck_find",
+  "description": "Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it, once for each place the text is written (the node's own, a state's delta, or the deck's overrides), with the states that show it from there and each match, in characters. With `replace`, every match is replaced in one patch, a `replace_text` where each text lives, reported as `deck_patch` reports a patch (`replaced`).",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "find"],
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "find": { "description": "The characters sought, as typed.", "type": "string" },
+      "case": { "description": "Upper and lower case apart; alike without it.", "type": "boolean", "default": false },
+      "words": {
+        "description": "Whole words only: a match that neither begins nor ends inside a word.",
+        "type": "boolean",
+        "default": false
+      },
+      "replace": {
+        "description": "Replace every match with this, in one patch: a `replace_text` where each text lives.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "dry_run": {
+        "description": "With `replace`: say what would change, and write nothing.",
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Found": {
+        "description": "A text the deck shows, as written in one place, and where a query matches it.",
+        "type": "object",
+        "properties": {
+          "node": { "description": "The text node.", "type": "string" },
+          "state": {
+            "description": "The first state that shows the text as written there: where `replace_text` is made.",
+            "type": "string"
+          },
+          "states": {
+            "description": "Every state that shows it as written there, in the deck's order.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "lives": {
+            "description": "Where it is written, a JSON pointer into the deck: the node's own `text` or `runs`\n(`/nodes/title/text`), a state's delta (`/states/2/props/title/text`), or the deck's\n`overrides`, which hold it in every state (`/overrides/title/text`).",
+            "type": "string"
+          },
+          "text": { "description": "The text: its `text`, or its runs' texts end to end.", "type": "string" },
+          "matches": {
+            "description": "Each match, `[from, to]` in characters (Unicode scalar values), as `replace_text`\ncounts them, in order; none overlap.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }
+          }
+        },
+        "required": ["node", "state", "states", "lives", "text", "matches"]
+      },
+      "Patched": {
+        "description": "What a patch did, or would do.",
+        "type": "object",
+        "properties": {
+          "applied": {
+            "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
+            "type": "boolean"
+          },
+          "patch": {
+            "description": "The patch as RFC 6902, in order.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/JsonOp" }
+          },
+          "added": {
+            "description": "What `validate` and `lint` find after the patch that they did not before.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Finding" }
+          },
+          "removed": {
+            "description": "What they found before that they do not after.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Finding" }
+          },
+          "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
+          "states": {
+            "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, or notes are not as they were, and\neach it adds. None when it is refused.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["applied", "patch", "added", "removed", "errors", "states"]
+      },
+      "JsonOp": {
+        "description": "RFC 6902's ops.",
+        "oneOf": [
+          {
+            "description": "Put `value` at `path`: a member of an object (one already there is replaced, in its\nplace), or an item of an array, at an index or at its end (`-`).",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "add" }
+            },
+            "required": ["op", "path", "value"]
+          },
+          {
+            "description": "Take away what is at `path`.",
+            "type": "object",
+            "properties": { "path": { "$ref": "#/$defs/Pointer" }, "op": { "type": "string", "const": "remove" } },
+            "required": ["op", "path"]
+          },
+          {
+            "description": "Replace what is at `path`, which must be there.",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "replace" }
+            },
+            "required": ["op", "path", "value"]
+          },
+          {
+            "description": "`remove` at `from`, then `add` at `path`. A member moved within its object keeps its\nplace: a rename.",
+            "type": "object",
+            "properties": {
+              "from": { "$ref": "#/$defs/Pointer" },
+              "path": { "$ref": "#/$defs/Pointer" },
+              "op": { "type": "string", "const": "move" }
+            },
+            "required": ["op", "from", "path"]
+          },
+          {
+            "description": "`add` at `path` what is at `from`.",
+            "type": "object",
+            "properties": {
+              "from": { "$ref": "#/$defs/Pointer" },
+              "path": { "$ref": "#/$defs/Pointer" },
+              "op": { "type": "string", "const": "copy" }
+            },
+            "required": ["op", "from", "path"]
+          },
+          {
+            "description": "Fail the patch unless `path` holds `value` (numbers equal by value: 1 is 1.0).",
+            "type": "object",
+            "properties": {
+              "path": { "$ref": "#/$defs/Pointer" },
+              "value": true,
+              "op": { "type": "string", "const": "test" }
+            },
+            "required": ["op", "path", "value"]
+          }
+        ]
+      },
+      "Pointer": {
+        "description": "A JSON Pointer (RFC 6901): empty, the whole document, or `/`-separated tokens, `~1` for a\n`/` and `~0` for a `~` inside one.",
+        "type": "string",
+        "pattern": "^(/.*)?$"
+      },
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["found", "matches"],
+    "type": "object",
+    "properties": {
+      "found": {
+        "description": "Each text the query matches, once for each place it is written, in the order the\ndeck first shows them.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Found" }
+      },
+      "matches": { "description": "The matches in all of them.", "type": "integer", "minimum": 0 },
+      "replaced": {
+        "description": "With a replacement and a match: the one patch that replaces every match, a\n`replace_text` for each, as `patch` reports it.",
+        "anyOf": [{ "$ref": "#/$defs/Patched" }, { "type": "null" }]
+      }
+    }
+  }
+}

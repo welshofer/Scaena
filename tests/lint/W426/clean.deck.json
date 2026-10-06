@@ -1,0 +1,15 @@
+{
+  "scaena": "0.11",
+  "_comment": "W426 clean: the spine tells the problem first, as the states play it.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "spine": {"sections": [{"id": "only", "beats": [{"id": "problem", "claim": "Sales were flat.", "states": ["a"]}, {"id": "result", "claim": "Revenue doubled.", "states": ["b"]}]}]},
+  "nodes": {
+    "c": {"type": "text", "role": "headline", "text": "Sales were flat.", "semantic": "claim", "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"c": {}}},
+    {"id": "b", "layout": "full", "props": {"c": {"text": "Revenue doubled."}}}
+  ]
+}

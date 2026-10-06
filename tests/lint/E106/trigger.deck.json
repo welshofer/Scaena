@@ -1,6 +1,6 @@
 {
-  "scaena": "0.9",
-  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, and chart annotations that stand where their kinds cannot.",
+  "scaena": "0.11",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, chart annotations that stand where their kinds cannot, and rows that run backward.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": { "q": { "source": { "inline": [{ "quarter": "Q1", "rev": 12 }] }, "schema": { "rev": "number" } } },
   "nodes": {
@@ -10,6 +10,7 @@
     "badge": { "type": "text", "text": "New", "at": { "parent": "headline" } },
     "left": { "type": "stack", "at": { "parent": "right" } },
     "right": { "type": "stack", "at": { "parent": "left" } },
+    "late": { "type": "text", "text": "Late", "at": { "col": [1, 12], "row": [4, 3] } },
     "plot": {
       "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "quarter" }, "y": { "field": "rev" },
       "annotations": [{ "kind": "rule", "at": { "x": "Q1", "y": 3 } }, { "kind": "highlight", "at": { "x": "Q1" }, "text": "Up" }],
@@ -17,7 +18,7 @@
     }
   },
   "states": [
-    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {} } },
+    { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {}, "late": {} } },
     { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] } },
       "choreography": [
         { "target": "headline", "enter": "fade", "exit": "fade" },

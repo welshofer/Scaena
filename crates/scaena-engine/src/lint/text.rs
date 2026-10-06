@@ -1,8 +1,9 @@
 //! Text as laid out: whether it fits (E100, W202, W203), whether its fonts have its
 //! glyphs (E120), how its lines break (W200, W201), how a state aligns it (W220); and a
-//! chart's value labels (W310).
+//! chart's value labels (W310) and the size of its text (W312).
 
 use super::{Cx, Laid, Rule};
+use crate::charts::{ChartLayout, ChartText};
 use crate::layout::Grid;
 use crate::sample::Content;
 use crate::text::{TextAlign, TextLayout};
@@ -85,6 +86,9 @@ impl Rule for E100Overflow {
                 );
             }
             for node in &state.scene.nodes {
+                if let Content::Chart { cell, chart } = &node.content {
+                    out.extend(cut(cx, state, &node.id, cell, chart));
+                }
                 if let Content::Table { table, .. } = &node.content
                     && let Some(why) = &table.overflow
                 {
@@ -103,6 +107,40 @@ impl Rule for E100Overflow {
         }
         out
     }
+}
+
+/// E100 for a chart: text it sets past its sides, where it is cut off. A chart draws
+/// within its width; its ticks, value labels, and annotations within the plot and the
+/// room beside it, when it clips them there. Reported once, by the text cut furthest.
+fn cut(cx: &Cx, state: &Laid, id: &str, cell: &[f32; 4], chart: &ChartLayout) -> Option<Finding> {
+    let within = |part: ChartText| match (part, chart.clip) {
+        (ChartText::Tick | ChartText::Value | ChartText::Note, Some([a, b])) => [a.max(0.0), b.min(cell[2])],
+        _ => [0.0, cell[2]],
+    };
+    let cut: Vec<(ChartText, &str, f32)> = (chart.texts())
+        .filter_map(|(part, l)| {
+            let [from, to] = within(part);
+            let over = (from - l.origin[0]).max(l.origin[0] + l.text.width - to);
+            (over > 0.5).then_some((part, l.text.text.as_str(), over))
+        })
+        .collect();
+    let &(part, text, over) = cut.iter().max_by(|a, b| a.2.total_cmp(&b.2))?;
+    let more = match cut.len() {
+        1 => String::new(),
+        n => format!(", and {} more", n - 1),
+    };
+    Some(
+        cx.finding(
+            "E100",
+            Severity::Error,
+            state,
+            format!("chart `{id}` cuts off its {} `{text}`, {over:.0} cu past its side{more}", part.name()),
+        )
+        .at(cx.node_path(id))
+        .node(id)
+        .measure(json!({ "part": part.name(), "label": text, "over": over, "cut": cut.len() }))
+        .hint("Give the chart more width, shorten the text, or place its legend `top`."),
+    )
 }
 
 /// W203: text under `fit: shrink` that does not fit at its smallest size.
@@ -195,15 +233,7 @@ fn layouts(content: &Content) -> Vec<&TextLayout> {
     match content {
         Content::Text(placed) => vec![&placed.text],
         Content::Table { table, .. } => table.header.iter().chain(&table.cells).map(|c| &c.text).collect(),
-        Content::Chart { chart, .. } => chart
-            .labels
-            .iter()
-            .chain(&chart.ticks)
-            .chain(&chart.titles)
-            .chain(chart.legend.iter().map(|e| &e.label))
-            .chain(chart.y_axis.iter().filter_map(|t| t.label.as_ref()))
-            .map(|l| &l.text)
-            .collect(),
+        Content::Chart { chart, .. } => chart.texts().map(|(_, l)| &l.text).collect(),
         _ => vec![],
     }
 }
@@ -282,6 +312,52 @@ impl Rule for W200Widow {
                         .node(id)
                         .hint(
                             "Rewrite the last sentence, or change the box's width, so the last line takes more words.",
+                        ),
+                );
+            }
+        }
+        out
+    }
+}
+
+/// W231: text that asks for italic, set upright: a family it is set in has no italic face,
+/// and none is synthesized (SPEC §3.5, PLAN 2.40).
+pub struct W231Upright;
+impl Rule for W231Upright {
+    fn code(&self) -> &'static str {
+        "W231"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let mut out = Vec::new();
+        for state in cx.states {
+            for (id, placed, _) in texts(state) {
+                let upright = &placed.text.upright;
+                if upright.is_empty() {
+                    continue;
+                }
+                // A theme family by its key and name; a fallback's font by its file.
+                let named: Vec<String> = (upright.iter())
+                    .map(|f| match cx.theme.families().get(f) {
+                        Some(def) => format!("`{f}` ({})", def.family),
+                        None => format!("`{f}`"),
+                    })
+                    .collect();
+                let has = if named.len() == 1 { "has" } else { "have" };
+                let message = format!(
+                    "text `{id}` asks for italic, but {} {has} no italic face: it is set upright",
+                    named.join(" and ")
+                );
+                out.push(
+                    cx.finding(self.code(), self.severity(), state, message)
+                        .at(cx.node_path(id))
+                        .node(id)
+                        .measure(json!({ "upright": upright }))
+                        .hint(
+                            "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
+                             the bundle, or take `italic` away.",
                         ),
                 );
             }
@@ -372,7 +448,8 @@ impl Rule for W220MixedAlignment {
     }
 }
 
-/// W310: chart value labels that overlap, which `labels.collide` does not resolve.
+/// W310: chart value labels that overlap, which `labels.collide` does not resolve; and
+/// category labels that overlap, on an axis of text, which keeps every one.
 pub struct W310LabelCollision;
 impl Rule for W310LabelCollision {
     fn code(&self) -> &'static str {
@@ -386,6 +463,20 @@ impl Rule for W310LabelCollision {
         for state in cx.states {
             for node in &state.scene.nodes {
                 let Content::Chart { chart, .. } = &node.content else { continue };
+                for (a, b) in &chart.covers {
+                    out.push(
+                        cx.finding(
+                            self.code(),
+                            self.severity(),
+                            state,
+                            format!("chart `{}`: the value label of `{a}` covers the mark of `{b}`", node.id),
+                        )
+                        .at(format!("{}/labels", cx.node_path(&node.id)))
+                        .node(node.id.clone())
+                        .measure(json!({ "marks": [a, b] }))
+                        .hint("Set `labels.collide` to `hide`, show fewer labels (`labels.show`), or give the chart more room."),
+                    );
+                }
                 for (a, b) in &chart.collisions {
                     out.push(
                         cx.finding(
@@ -400,8 +491,136 @@ impl Rule for W310LabelCollision {
                         .hint("Set `labels.collide` to `hide` or `nudge`, show fewer labels (`labels.show`), or give the chart more room."),
                     );
                 }
+                for (a, b) in &chart.crowded {
+                    out.push(
+                        cx.finding(
+                            self.code(),
+                            self.severity(),
+                            state,
+                            format!("chart `{}`: the category labels `{a}` and `{b}` overlap", node.id),
+                        )
+                        .at(format!("{}/x", cx.node_path(&node.id)))
+                        .node(node.id.clone())
+                        .measure(json!({ "categories": [a, b] }))
+                        .hint("Give the chart more width, or shorter categories."),
+                    );
+                }
             }
         }
         out
+    }
+}
+
+/// The smallest chart text that reads across a room: 12 pt on a 13.33 × 7.5 in slide,
+/// which is 24 cu where the canvas's shorter side is 1080 cu.
+const PRESENTATION_SIZE: f32 = 24.0;
+
+/// W312: chart text under 12 pt at presentation size: 24 cu where the canvas's shorter
+/// side is 1080 cu, in proportion on others. One finding per chart, naming each kind of
+/// its text (labels, axis, titles, names, annotations) that is too small, at its
+/// smallest.
+pub struct W312ChartTextSize;
+
+/// A chart with text too small: each kind of it at its smallest, the state it is
+/// smallest in first, and every state it is too small in.
+struct Small {
+    parts: BTreeMap<ChartText, f32>,
+    least: f32,
+    first: usize,
+    states: Vec<String>,
+}
+
+impl Rule for W312ChartTextSize {
+    fn code(&self) -> &'static str {
+        "W312"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let floor = PRESENTATION_SIZE * cx.deck.canvas.width.min(cx.deck.canvas.height) as f32 / 1080.0;
+        let mut small: BTreeMap<String, Small> = BTreeMap::new();
+        for state in cx.states {
+            for node in &state.scene.nodes {
+                let Content::Chart { chart, .. } = &node.content else { continue };
+                // As drawn: a chart scaled down sets its text smaller; one flattened sets none.
+                let scale = scaena_core::pose::stretch(&state.scene.posed(&node.id, true))[1] as f32;
+                if scale <= 0.0 {
+                    continue;
+                }
+                for (part, label) in chart.texts() {
+                    let size = label.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
+                    if size >= floor - 1.0e-3 {
+                        continue;
+                    }
+                    let entry = small.entry(node.id.clone()).or_insert_with(|| Small {
+                        parts: BTreeMap::new(),
+                        least: size,
+                        first: state.index,
+                        states: Vec::new(),
+                    });
+                    let at = entry.parts.entry(part).or_insert(size);
+                    *at = at.min(size);
+                    if size < entry.least {
+                        (entry.least, entry.first) = (size, state.index);
+                    }
+                    if !entry.states.contains(&state.snapshot.state_id) {
+                        entry.states.push(state.snapshot.state_id.clone());
+                    }
+                }
+            }
+        }
+        let cu = |v: f32| (v * 10.0).round() / 10.0;
+        small
+            .into_iter()
+            .map(|(chart, Small { parts, least, first, states })| {
+                // Its kinds of text by size, smallest first: "its category labels and
+                // titles at 20 cu, and its value labels at 22 cu".
+                let mut by_size: Vec<(f32, Vec<&str>)> = Vec::new();
+                for (part, size) in &parts {
+                    match by_size.iter_mut().find(|(s, _)| cu(*s) == cu(*size)) {
+                        Some((_, names)) => names.push(part.name()),
+                        None => by_size.push((*size, vec![part.name()])),
+                    }
+                }
+                scaena_core::sort::by(&mut by_size, |a, b| a.0.total_cmp(&b.0));
+                let said: Vec<String> = by_size
+                    .iter()
+                    .map(|(size, names)| {
+                        let names: Vec<String> = names.iter().map(|n| format!("{n}s")).collect();
+                        format!("its {} at {} cu", series(&names), cu(*size))
+                    })
+                    .collect();
+                cx.finding(
+                    self.code(),
+                    self.severity(),
+                    cx.laid(first),
+                    format!(
+                        "chart `{chart}` sets text under 12 pt at presentation size ({} cu on this canvas): {}",
+                        cu(floor),
+                        series(&said)
+                    ),
+                )
+                .at(cx.node_path(&chart))
+                .node(chart.clone())
+                .measure(json!({
+                    "size": cu(least),
+                    "needs": cu(floor),
+                    "parts": parts.iter().map(|(p, s)| json!({ "part": p.name(), "size": cu(*s) })).collect::<Vec<_>>(),
+                    "states": states,
+                }))
+                .hint("Set the chart's text in larger roles: the theme's `charts` roles, or the chart's `labels.role` for its value labels.")
+            })
+            .collect()
+    }
+}
+
+/// `a`, `a and b`, `a, b, and c`.
+fn series(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [a] => a.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }

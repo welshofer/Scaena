@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -358,19 +358,19 @@
         "inline": [
           {
             "channel": "Direct",
-            "share": 42
+            "share": 0.42
           },
           {
             "channel": "Partners",
-            "share": 27
+            "share": 0.27
           },
           {
             "channel": "Online",
-            "share": 19
+            "share": 0.19
           },
           {
             "channel": "Retail",
-            "share": 12
+            "share": 0.12
           }
         ]
       },
@@ -383,19 +383,19 @@
         "inline": [
           {
             "channel": "Direct",
-            "share": 38
+            "share": 0.38
           },
           {
             "channel": "Online",
-            "share": 24
+            "share": 0.24
           },
           {
             "channel": "Social",
-            "share": 22
+            "share": 0.22
           },
           {
             "channel": "Retail",
-            "share": 16
+            "share": 0.16
           }
         ]
       },
@@ -431,6 +431,230 @@
       "schema": {
         "rev": "number",
         "growth": "number"
+      }
+    },
+    "forecast": {
+      "source": {
+        "inline": [
+          {
+            "year": "2021",
+            "product": "Core",
+            "rev": 12,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2022",
+            "product": "Core",
+            "rev": 15,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Core",
+            "rev": 18,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Core",
+            "rev": 22,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Core",
+            "rev": 25,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Core",
+            "rev": 28,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2027",
+            "product": "Core",
+            "rev": 31,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2021",
+            "product": "Cloud",
+            "rev": 6,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2022",
+            "product": "Cloud",
+            "rev": 8,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Cloud",
+            "rev": 11,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Cloud",
+            "rev": 14,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Cloud",
+            "rev": 17,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Cloud",
+            "rev": 20,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2027",
+            "product": "Cloud",
+            "rev": 23,
+            "estimate": true,
+            "kind": "forecast"
+          }
+        ]
+      },
+      "schema": {
+        "year": "date",
+        "rev": "number",
+        "estimate": "boolean"
+      },
+      "parse": {
+        "year": "%Y"
+      }
+    },
+    "forecast-next": {
+      "source": {
+        "inline": [
+          {
+            "year": "2022",
+            "product": "Core",
+            "rev": 15,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Core",
+            "rev": 18,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Core",
+            "rev": 22,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Core",
+            "rev": 25,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Core",
+            "rev": 29,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2027",
+            "product": "Core",
+            "rev": 32,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2028",
+            "product": "Core",
+            "rev": 35,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2022",
+            "product": "Cloud",
+            "rev": 8,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2023",
+            "product": "Cloud",
+            "rev": 11,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2024",
+            "product": "Cloud",
+            "rev": 14,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2025",
+            "product": "Cloud",
+            "rev": 17,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2026",
+            "product": "Cloud",
+            "rev": 21,
+            "estimate": false,
+            "kind": "actual"
+          },
+          {
+            "year": "2027",
+            "product": "Cloud",
+            "rev": 24,
+            "estimate": true,
+            "kind": "forecast"
+          },
+          {
+            "year": "2028",
+            "product": "Cloud",
+            "rev": 27,
+            "estimate": true,
+            "kind": "forecast"
+          }
+        ]
+      },
+      "schema": {
+        "year": "date",
+        "rev": "number",
+        "estimate": "boolean"
+      },
+      "parse": {
+        "year": "%Y"
       }
     }
   },
@@ -2060,12 +2284,6 @@
           4
         ]
       },
-      "axes": {
-        "y": {
-          "show": true,
-          "gridlines": true
-        }
-      },
       "alt": "Revenue by product and quarter, side by side."
     },
     "k-stacked": {
@@ -2095,7 +2313,6 @@
       "labels": {
         "show": "all"
       },
-      "legend": "none",
       "alt": "Revenue by quarter, stacked by product, totals above."
     },
     "k-line": {
@@ -2132,7 +2349,6 @@
         "show": "ends",
         "collide": "nudge"
       },
-      "legend": "none",
       "alt": "Revenue by product over four quarters, as lines."
     },
     "k-area": {
@@ -2165,7 +2381,6 @@
           "gridlines": true
         }
       },
-      "legend": "none",
       "alt": "Revenue by product over four quarters, stacked areas."
     },
     "k-scatter": {
@@ -2186,9 +2401,6 @@
         "field": "size"
       },
       "axes": {
-        "x": {
-          "gridlines": true
-        },
         "y": {
           "show": true,
           "gridlines": true
@@ -2230,13 +2442,6 @@
           5
         ]
       },
-      "axes": {
-        "y": {
-          "show": true,
-          "gridlines": true
-        }
-      },
-      "legend": "bottom",
       "alt": "Revenue by product per quarter, as dots."
     },
     "k-donut": {
@@ -2248,12 +2453,11 @@
       },
       "y": {
         "field": "share",
-        "format": ".0f"
+        "format": ".0%"
       },
       "labels": {
         "show": "all"
       },
-      "legend": "right",
       "at": {
         "col": [
           9,
@@ -2327,12 +2531,6 @@
           8
         ]
       },
-      "axes": {
-        "y": {
-          "show": true,
-          "gridlines": true
-        }
-      },
       "labels": {
         "show": "all"
       },
@@ -2362,15 +2560,6 @@
           8
         ]
       },
-      "axes": {
-        "x": {
-          "gridlines": true
-        },
-        "y": {
-          "show": true,
-          "gridlines": true
-        }
-      },
       "legend": {
         "title": "Product"
       },
@@ -2390,7 +2579,7 @@
           "at": {
             "y": 20
           },
-          "text": "Target"
+          "text": "Target: $20"
         },
         {
           "kind": "callout",
@@ -2428,9 +2617,6 @@
         ]
       },
       "axes": {
-        "x": {
-          "gridlines": true
-        },
         "y": {
           "show": true,
           "gridlines": true
@@ -2439,10 +2625,6 @@
       "labels": {
         "show": "ends",
         "collide": "nudge"
-      },
-      "legend": {
-        "place": "right",
-        "title": "Product"
       },
       "annotations": [
         {
@@ -2820,6 +3002,7 @@
       "y": {
         "field": "share",
         "type": "quantitative",
+        "format": ".0%",
         "domain": [
           0,
           null
@@ -3057,6 +3240,7 @@
       "y": {
         "field": "share",
         "type": "quantitative",
+        "format": ".0%",
         "domain": [
           0,
           null
@@ -3108,7 +3292,7 @@
       },
       "y": {
         "field": "share",
-        "format": ".0f"
+        "format": ".0%"
       },
       "at": {
         "col": [
@@ -3149,6 +3333,555 @@
       },
       "alt": "Revenue by product over four quarters, one line after another.",
       "semantic": "evidence"
+    },
+    "grid-head": {
+      "type": "text",
+      "role": "grid-display",
+      "text": "Set on the grid",
+      "at": {
+        "col": [
+          1,
+          12
+        ],
+        "row": 2,
+        "align": {
+          "y": "center"
+        }
+      }
+    },
+    "grid-body": {
+      "type": "text",
+      "role": "grid-body",
+      "text": "Each line sits on a line of the grid, eight units apart from the top margin; lines are five grid lines apart.",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          3,
+          8
+        ]
+      }
+    },
+    "grid-loose": {
+      "type": "text",
+      "role": "grid-loose",
+      "text": "At a leading of 43.2 units each gap rounds up to six grid lines, and lint warns.",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          3,
+          8
+        ]
+      }
+    },
+    "grid-foot": {
+      "type": "text",
+      "role": "grid-caption",
+      "text": "Aligned to its foot, this caption moves up to the grid line above.",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          3,
+          5
+        ],
+        "align": {
+          "y": "end"
+        }
+      }
+    },
+    "grid-row": {
+      "type": "stack",
+      "axis": "x",
+      "gap": "space.4",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          7,
+          8
+        ]
+      }
+    },
+    "grid-row-figure": {
+      "type": "text",
+      "role": "grid-body",
+      "text": "Body",
+      "align": {
+        "y": "baseline"
+      },
+      "at": {
+        "parent": "grid-row"
+      }
+    },
+    "grid-row-label": {
+      "type": "text",
+      "role": "grid-caption",
+      "text": "and caption, on one baseline",
+      "align": {
+        "y": "baseline"
+      },
+      "at": {
+        "parent": "grid-row"
+      }
+    },
+    "fc-line": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@forecast",
+      "x": {
+        "field": "year"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "projected": {
+        "field": "estimate"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by product, 2021 to 2027: actual to 2025, estimated after, the estimates dashed.",
+      "semantic": "evidence"
+    },
+    "fc-area": {
+      "type": "chart",
+      "kind": "area",
+      "data": "@forecast",
+      "x": {
+        "field": "year"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "projected": {
+        "field": "kind",
+        "value": "forecast"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "alt": "Revenue by product, 2021 to 2027, stacked: actual to 2025, the estimates lighter.",
+      "semantic": "evidence"
+    },
+    "tf-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Turned six degrees",
+      "semantic": "claim",
+      "transform": {
+        "rotate": -6
+      },
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-ghost": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          8,
+          9
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-panel": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "transform": {
+        "scale": 0.5,
+        "anchor": [
+          0,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          8,
+          9
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "semantic": "evidence",
+      "alt": "The test card, leaning 12 degrees.",
+      "transform": {
+        "skew": [
+          -12,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-card": {
+      "type": "frame",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "radius": "radius.3",
+      "padding": "space.4",
+      "semantic": "evidence",
+      "transform": {
+        "rotate": 8
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          5,
+          8
+        ]
+      }
+    },
+    "tf-card-label": {
+      "type": "text",
+      "role": "body",
+      "text": "Held, and turned with its frame",
+      "semantic": "annotation",
+      "at": {
+        "parent": "tf-card",
+        "rect": [
+          0,
+          0,
+          420,
+          120
+        ]
+      }
+    },
+    "tf-card-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-card",
+        "rect": [
+          0,
+          200,
+          96,
+          96
+        ]
+      }
+    },
+    "tf-pair": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration",
+      "transform": {
+        "rotate": 45
+      }
+    },
+    "tf-pair-a": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-pair",
+        "col": [
+          6,
+          7
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "tf-pair-b": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "ink",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-pair",
+        "col": [
+          7,
+          8
+        ],
+        "row": [
+          6,
+          7
+        ]
+      }
+    },
+    "tf-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "transform": {
+        "scale": [
+          -1,
+          1
+        ]
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          5
+        ]
+      }
+    },
+    "tf-flag": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0.5
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "stroke": {
+        "paint": "onSurface",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          10,
+          10
+        ],
+        "row": [
+          6,
+          7
+        ]
+      }
+    },
+    "tf-note": {
+      "type": "text",
+      "role": "body",
+      "text": "Scaled up",
+      "semantic": "annotation",
+      "transform": {
+        "scale": 1.25,
+        "anchor": [
+          0,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          8,
+          8
+        ]
+      }
+    },
+    "photo-baseline": {
+      "type": "image",
+      "src": "assets/baseline-420.jpg",
+      "fit": "contain",
+      "alt": "A baseline JPEG, its color sampled at half each way: the gradient, the red block, the green disc, and the blue diagonal.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-progressive": {
+      "type": "image",
+      "src": "assets/progressive-444.jpg",
+      "fit": "contain",
+      "alt": "The same picture as a progressive JPEG in ten scans, its color sampled in full, with Huffman tables of its own.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-gray": {
+      "type": "image",
+      "src": "assets/gray-progressive.jpg",
+      "fit": "contain",
+      "alt": "The same picture in gray, as a progressive JPEG.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-turned": {
+      "type": "image",
+      "src": "assets/orientation-6.jpg",
+      "fit": "contain",
+      "alt": "The same picture stored on its side and turned upright by its EXIF orientation: the yellow corner at its top right.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-restart": {
+      "type": "image",
+      "src": "assets/restart-progressive.jpg",
+      "alt": "The same picture as a progressive JPEG with a restart marker every row of blocks.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "photo-sampled": {
+      "type": "image",
+      "src": "assets/sampled-411.jpg",
+      "alt": "The same picture, its color sampled at a quarter across: each color sample repeated four times.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "photo-large": {
+      "type": "image",
+      "src": "assets/large-420.jpg",
+      "alt": "A larger picture of the same kind, 300 by 200, as a progressive JPEG.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -3656,7 +4389,7 @@
         "k-line": {},
         "k-area": {}
       },
-      "notes": "Pass: four charts over one long table of three products by quarter, each series in its categorical color in every chart. Grouped bars share each quarter, with a legend above and a value axis whose gridlines fall on round dollars. Stacked bars pile Core, Cloud, and Edge with each stack's total above it. Lines run through each series' points, their end labels nudged apart where they would touch. Areas stack in series order. No transition: a cut."
+      "notes": "Pass: four charts over one long table of three products by quarter, each series in the same grey in every chart. Grouped bars share each quarter, a value over each bar and a key over the plot: bars side by side have no ends to name, so this is the one chart with a key. Stacked bars pile Core, Cloud, and Edge, each stack's total above it and each series named beside the last stack. Lines run through each series' points, their first and last values printed and each named where it ends, the names nudged apart where they would touch. Areas stack in series order, named beside their last points. No transition: a cut."
     },
     {
       "id": "chart-kinds-next",
@@ -3700,7 +4433,7 @@
         "k-donut": {},
         "k-table": {}
       },
-      "notes": "Pass: a scatter on round axes both ways, each dot's area by its seats; a dot plot with its legend below; a donut whose labels sit outside each slice, legend at the right; and a table sorted by revenue, numbers in tabular figures at their columns' ends, the region column taking the room to spare."
+      "notes": "Pass: a scatter on round axes both ways, each dot's area by its seats, the smallest still a dot; a dot plot with every value over its dot and no value axis, its series named beside their last dots, and a value that would cover another dot printed under its own; a donut whose slices are named beside their shares, outside each slice; and a table sorted by revenue, numbers in tabular figures at their columns' ends, the region column taking the room to spare."
     },
     {
       "id": "chart-kinds-2-next",
@@ -3745,7 +4478,7 @@
         },
         "regroup": {}
       },
-      "notes": "Pass: grouped bars, three products to a quarter, value labels over each bar."
+      "notes": "Pass: grouped bars, three products to a quarter, a value over each bar and a key over the plot."
     },
     {
       "id": "regroup-stacked",
@@ -3763,7 +4496,7 @@
           "kind": "stackedBar"
         }
       },
-      "notes": "Pass in the transition (frames @0.25 and @0.75): the bars regroup in two stages, as d3's do. First the heights: each bar rises to its place in its quarter's stack while still side by side. Then the widths: the bars slide together into one stack. Each stack's total counts up over its top segment."
+      "notes": "Pass in the transition (frames @0.25 and @0.75): the bars regroup in two stages, as d3's do. First the heights: each bar rises to its place in its quarter's stack while still side by side. Then the widths: the bars slide together into one stack. Each stack's total counts up over its top segment. The key over the plot fades out where it stands as the names beside the last stack fade in; nothing crosses the plot."
     },
     {
       "id": "annotations",
@@ -3778,7 +4511,7 @@
         "n-bars": {},
         "n-lines": {}
       },
-      "notes": "Pass: left, grouped bars with a band behind Q3 and Q4 (the accent at 0.12, under the gridlines) reading “Launch” inside its top-left corner, a target rule across the plot at $20 in the accent with “Target” over its start, a callout whose leader rises from over Q4 Cloud's bar to “Record”, and gridlines between the quarters' bands; the legend starts with its title, “Product”, on the entries' baseline. Right, lines with only Cloud at full strength: Core and Edge, their end labels, and their legend entries dim to 0.3; a callout over Cloud's Q3 point reads “Cloud doubles”; gridlines run through each quarter; the legend stands at the right under its title."
+      "notes": "Pass: one signal color throughout, the theme's: every annotation and the highlight. Left, grouped bars with a band behind Q3 and Q4 (the signal at 0.12) reading “Launch” inside its top-left corner; a target rule across the plot at $20 reading “Target: $20” over its start, broken where it would cross Q4 Cloud's value label; and a callout whose leader rises from over Q4 Cloud's bar, past Core's taller bar and its label, to “Record”. The key starts with its title, “Product”; no value axis, as every bar carries its value. Right, lines over a value axis with only Cloud at full strength, in the signal: Core and Edge and their values dim, their names at the lines' ends half as far, Cloud's name in the signal; a callout over Cloud's Q3 point reads “Cloud doubles”."
     },
     {
       "id": "annotations-next",
@@ -3798,7 +4531,7 @@
               "kind": "band",
               "at": {
                 "x": [
-                  "Q4",
+                  "Q2",
                   "Q4"
                 ]
               },
@@ -3809,7 +4542,7 @@
               "at": {
                 "y": 25
               },
-              "text": "Target"
+              "text": "Target: $25"
             },
             {
               "kind": "callout",
@@ -3840,7 +4573,7 @@
           ]
         }
       },
-      "notes": "Pass in the transition (frame @0.5): each annotation moves to where this state puts it. The band narrows to Q4 alone, the target rule rises to $25 as the value axis widens to reach it, and the callout slides from Cloud's bar to Core's. On the right, Cloud dims as Core comes up, their end labels and legend entries with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from “Cloud doubles” to “Core leads”."
+      "notes": "Pass in the transition (frame @0.5): each annotation moves to where this state puts it. The band widens to Q2 through Q4, its text riding its corner; the target rule rises to $25 as the plot rescales to reach it, its text cross-fading to “Target: $25”, and closes the break it made for Q4 Cloud's label once it has left the label; the callout slides from Cloud's bar to Core's. At rest the callout's text stands above the rule, its leader crossing it, and the band's text a space unit under it. On the right, Cloud dims as Core comes up, their names and values with them, and the callout moves from Cloud's Q3 point to Core's Q4 point while its text cross-fades from “Cloud doubles” to “Core leads”."
     },
     {
       "id": "shaders",
@@ -4047,6 +4780,152 @@
         }
       ],
       "notes": "Pass: the state cuts in and each chart's marks grow in one after another, 120 ms apart, on the theme's snappy spring (frames `stagger@0.3` and `@0.6` of its span). The stacked bars build layer by layer in data order: every Core segment on the baseline, then each Cloud segment on its Core, then Edge, each standing on the one under it as it is at that moment, never under it or apart from it. The donut's slices sweep open clockwise from twelve, each from where the one before it ends, so the ring is one ring however far each has come. The line's three series rise one after another, each whole: no point drops to the baseline while its neighbors are up. Value labels count with their marks and never pass their values, though the spring carries the marks past them. At rest, everything stands where the layout puts it."
+    },
+    {
+      "id": "baseline-grid",
+      "name": "Baseline grid",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "45 · Baseline grid: baselines and cap heights on 8 cu lines · recorded"
+        },
+        "grid-head": {},
+        "grid-body": {},
+        "grid-loose": {},
+        "grid-foot": {},
+        "grid-row": {},
+        "grid-row-figure": {},
+        "grid-row-label": {}
+      },
+      "notes": "Recorded (PLAN 1.25): the theme's baseline grid has a line every 8 cu from the 96 cu top margin, and the grid roles snap to it; the rows start off it, from 210 cu. The headline's cap top sits on a grid line, moved down from where centering put it. Left, the body paragraph's baselines sit on grid lines 40 cu (five lines) apart, its first moved down to the next line. Middle, text of the same size at a leading of 43.2 cu sets its lines 48 apart, every gap rounded up to whole grid lines, and lint W221 warns about its leading. Right, the caption aligned to the foot of its box (rows 3-5) moved up to the grid line above, its lines 32 cu apart and still in the box. Rows 7-8, right: a row stack whose 32 cu body text and 22 cu caption share one baseline on the row's foot; both moved up to the same grid line."
+    },
+    {
+      "id": "forecast",
+      "name": "Forecasts and estimates",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "46 · Forecasts and estimates · recorded"
+        },
+        "fc-line": {},
+        "fc-area": {}
+      },
+      "notes": "Pass: left, each product's line runs solid from 2021 to 2025, its last actual year, and dashed from there to 2027, each dash three line widths long and each gap two. Its 2027 value says it is an estimate (\"$31 est.\", \"$23 est.\"); its 2021 value says nothing more. Right, the same rows as stacked areas, which print no values: each area is half as strong from 2025 on, its value axis beside it. The line's `projected` reads a boolean column; the area's reads `kind` for `forecast`."
+    },
+    {
+      "id": "forecast-next",
+      "name": "Forecasts: a year comes in",
+      "slide": "forecast",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "47 · Forecasts: a year comes in · recorded"
+        },
+        "fc-line": {
+          "data": "@forecast-next"
+        },
+        "fc-area": {
+          "data": "@forecast-next"
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): each line and area slides a year over by key, 2021 leaving on the left and 2028 coming in on the right. 2026 comes in as actual: from halfway on, each line runs solid to 2026 and dashed after it, and each area is half as strong only from 2026. The values at the line's ends fade, the estimates' with their notes, rather than count; 2028's rides in with its point from past the plot's edge, clipped until it arrives."
+    },
+    {
+      "id": "transforms",
+      "name": "Transforms",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "48 · Transforms · recorded"
+        },
+        "tf-title": {},
+        "tf-ghost": {},
+        "tf-panel": {},
+        "tf-photo": {},
+        "tf-card": {},
+        "tf-card-label": {},
+        "tf-card-dot": {},
+        "tf-pair": {},
+        "tf-pair-a": {},
+        "tf-pair-b": {},
+        "tf-arrow": {},
+        "tf-flag": {},
+        "tf-note": {}
+      },
+      "notes": "Pass: each node is laid out, then drawn through its transform about its own box: scale, then lean, then turn, about its anchor (its middle unless it says), then move. Rows 2-3: the headline turned 6° anticlockwise about its middle; in columns 8-9 an accent panel at half its size in the top left corner of its box, whose outline is drawn at full size; in columns 10-12 the test card leaning 12° to the right. Rows 5-8: a framed card turned 8° clockwise, its label and dot turning with it inside it; a group of an accent square and an ink square at 0.6, turned 45° as one layer, so only the ink square shows where they overlap; an arrow mirrored to point left; a pennant pointing right; and, on row 8, a note a quarter larger, grown from its top left corner. Nothing is laid out again, and the glyphs are the same glyphs."
+    },
+    {
+      "id": "transforms-next",
+      "name": "Transforms: they move",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "49 · Transforms: they move · recorded"
+        },
+        "tf-title": {
+          "transform": {
+            "rotate": 6
+          }
+        },
+        "tf-panel": {
+          "transform": {
+            "scale": 1,
+            "anchor": [
+              0,
+              0
+            ]
+          }
+        },
+        "tf-photo": {
+          "transform": {
+            "skew": [
+              12,
+              0
+            ]
+          }
+        },
+        "tf-card": {
+          "transform": {
+            "rotate": -8
+          }
+        },
+        "tf-pair": {
+          "transform": {
+            "rotate": 90
+          }
+        },
+        "tf-flag": {
+          "transform": {
+            "rotate": 350
+          }
+        }
+      },
+      "notes": "Pass in the transition (frame @0.25): each transform moves part by part, never as a matrix. The headline turns from 6° anticlockwise to 6° clockwise, level halfway; the accent panel grows from its top left corner to fill its outline; the test card leans the other way, upright halfway; the card turns from 8° to -8° with its label and dot inside it; the pair turns on to 90°; the pennant turns 350° clockwise, most of the way round, not 10° back: a quarter into the cue it has turned past half a turn and points up and to the left. The arrow stays mirrored and the note stays scaled."
+    },
+    {
+      "id": "photos",
+      "name": "Photos",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "50 · Photos · recorded"
+        },
+        "photo-baseline": {},
+        "photo-progressive": {},
+        "photo-gray": {},
+        "photo-turned": {},
+        "photo-restart": {},
+        "photo-sampled": {},
+        "photo-large": {}
+      },
+      "notes": "Pass: seven JPEGs, each read by another path of the one decoder (ADR-0017), each the same bytes in every painter natively and in the browser. Top row, each whole: baseline with its color sampled at half each way; progressive in ten scans with its color in full; gray, progressive; and the same picture stored on its side, turned upright by its EXIF orientation, so its yellow corner is at its top right. Bottom row, each covering its box: progressive with a restart marker every row of blocks; color sampled at a quarter across, each sample repeated; and a 300 × 200 progressive photo."
     }
   ],
   "overrides": {

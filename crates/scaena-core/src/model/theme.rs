@@ -42,6 +42,85 @@ pub struct Theme {
     pub density: Option<Density>,
 }
 
+impl Theme {
+    /// A theme from its JSON. Every crate parses a theme here, so the model's parser is
+    /// compiled once: a WASM module carries one copy of it rather than one per crate that
+    /// asks (SPEC §15).
+    pub fn from_json(text: &str) -> Result<Theme, serde_json::Error> {
+        serde_json::from_str(text)
+    }
+
+    /// A theme from a JSON value, through its text, as [`Theme::from_json`]; an error
+    /// says what is wrong without a place in that text, which no file holds.
+    pub fn from_value(value: &serde_json::Value) -> Result<Theme, String> {
+        Theme::from_json(&value.to_string()).map_err(crate::document::unplaced)
+    }
+
+    /// The names this theme defines of one kind, in its order: what a deck may call them.
+    /// A color is a color role or a token, the roles first, a name both have once; a step of the space or radius
+    /// scale is `space.N` or `radius.N`; a data palette is `categorical`, then `sequential`
+    /// and `diverging` where the theme has them.
+    pub fn names(&self, of: Vocabulary) -> Vec<String> {
+        fn keys<V>(map: &IndexMap<String, V>) -> Vec<String> {
+            map.keys().cloned().collect()
+        }
+        fn steps(scale: Option<&Vec<NonNegative>>, token: &str) -> Vec<String> {
+            (0..scale.map_or(0, Vec::len)).map(|i| format!("{token}.{i}")).collect()
+        }
+        let shaders = self.shaders.as_ref();
+        match of {
+            Vocabulary::TextRole => keys(&self.typography.roles),
+            Vocabulary::FontFamily => keys(&self.typography.families),
+            Vocabulary::Color => {
+                let mut names = keys(&self.tokens.roles);
+                names.extend(self.tokens.color.keys().filter(|k| !self.tokens.roles.contains_key(*k)).cloned());
+                names
+            }
+            Vocabulary::Layout => keys(&self.layouts),
+            Vocabulary::MotionPreset => keys(&self.motion.presets),
+            Vocabulary::Duration => keys(&self.motion.durations),
+            Vocabulary::Easing => keys(&self.motion.easings),
+            Vocabulary::Spring => keys(&self.motion.springs),
+            Vocabulary::ShaderPreset => shaders.and_then(|s| s.presets.as_ref()).map(keys).unwrap_or_default(),
+            Vocabulary::ShaderPalette => shaders.and_then(|s| s.palettes.as_ref()).map(keys).unwrap_or_default(),
+            Vocabulary::DataPalette => {
+                let data = &self.tokens.data;
+                let more = [("sequential", data.sequential.is_some()), ("diverging", data.diverging.is_some())];
+                let more = more.into_iter().filter(|(_, has)| *has).map(|(name, _)| name);
+                ["categorical"].into_iter().chain(more).map(String::from).collect()
+            }
+            Vocabulary::Stroke => self.tokens.stroke.as_ref().map(keys).unwrap_or_default(),
+            Vocabulary::Radius => steps(self.tokens.radius.as_ref().and_then(|r| r.scale.as_ref()), "radius"),
+            Vocabulary::Space => steps(Some(&self.tokens.space.scale), "space"),
+        }
+    }
+}
+
+/// A kind of name a theme defines, which a deck calls it by (SPEC §3.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Vocabulary {
+    TextRole,
+    FontFamily,
+    /// A color role or a color token.
+    Color,
+    Layout,
+    MotionPreset,
+    Duration,
+    Easing,
+    Spring,
+    ShaderPreset,
+    ShaderPalette,
+    /// A chart's color scale.
+    DataPalette,
+    /// A stroke token: a width.
+    Stroke,
+    /// A step of the radius scale.
+    Radius,
+    /// A step of the space scale.
+    Space,
+}
+
 /// `#rrggbb[aa]`, `oklch(...)`, or `oklab(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
@@ -114,11 +193,26 @@ pub struct Family {
     pub file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axes: Option<IndexMap<String, [f64; 2]>>,
+    /// Its italic face (SPEC §3.5), which text set `italic` takes. A family without one sets
+    /// such text upright: no italic is synthesized (lint W231).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<Face>,
     /// Other families in this theme, in order. Bundle-only; system fonts are never consulted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub features: Option<Features>,
+}
+
+/// Another face of a family, in a file of its own: its italic (PLAN 2.40). Its file names
+/// the family's name, as the family's own file does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Face {
+    #[schemars(regex(pattern = r"^fonts/"))]
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axes: Option<IndexMap<String, [f64; 2]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -142,6 +236,9 @@ pub struct Role {
     pub size: f64,
     #[schemars(range(min = 1, max = 1000))]
     pub weight: u16,
+    /// Set in its family's italic face (SPEC §3.5); upright when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
     /// Line height as a multiple of size.
     #[schemars(extend("exclusiveMinimum" = 0))]
     pub leading: f64,
@@ -158,6 +255,10 @@ pub struct Role {
     pub wrap: Option<super::nodes::Wrap>,
     #[serde(rename = "box", default, skip_serializing_if = "Option::is_none")]
     pub text_box: Option<super::nodes::TextBox>,
+    /// What of the text sits on the baseline grid (`grid.baseline`, SPEC §3.4): every
+    /// baseline, or the first line's cap height. Nothing snaps when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snap: Option<Snap>,
     /// Max characters per line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]
@@ -189,6 +290,16 @@ pub struct Role {
     pub color: Option<String>,
 }
 
+/// What of a text role sits on the baseline grid (SPEC §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Snap {
+    /// Every line's baseline, the lines whole grid lines apart: body text.
+    Baseline,
+    /// The first line's cap height, the lines below at the role's leading: display text.
+    Cap,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Case {
@@ -210,7 +321,8 @@ pub struct Grid {
     #[schemars(range(min = 0))]
     pub gutter: f64,
     pub margin: Margin,
-    /// Baseline grid in cu; text leading snaps to multiples.
+    /// Baseline grid: the distance between its lines in cu, which run from the top
+    /// margin. Text roles with `snap` sit on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]
     pub baseline: Option<f64>,
@@ -410,6 +522,27 @@ pub struct Charts {
     /// Annotations: rules, bands, callouts, and highlights.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotation: Option<ChartAnnotation>,
+    /// Forecasts and estimates (PLAN 1.28): how a line dashes through what is projected,
+    /// how much lighter an area is under it, and what its value labels add.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projected: Option<ChartProjected>,
+}
+
+/// How a chart shows the rows its `projected` marks (SPEC §3.7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChartProjected {
+    /// A line's dash and the gap after it, in widths of the line; [3, 2] when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("items" = {"type": "number", "exclusiveMinimum": 0}))]
+    pub dash: Option<[f64; 2]>,
+    /// An area's fill under projected rows, a fraction of its own; 0.5 when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 1))]
+    pub opacity: Option<f64>,
+    /// What a projected value's label says after the value; `est.` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// How a chart's annotations look (SPEC §3.7), every one a role, a token, or a fraction.

@@ -31,7 +31,10 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// 42's morphs: words, points, paths, uniforms, a group, an outline drawing on, and a
 /// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
 /// build member on member, a ring that sweeps open, and lines that rise series by series.
-const MORPH: [(&str, f64); 17] = [
+/// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
+/// there from halfway. Case 49 adds transforms that move (PLAN 2.51): turns, a lean, a
+/// scale from a corner, and a frame turning what it holds, each part on its own.
+const MORPH: [(&str, f64); 19] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -49,6 +52,8 @@ const MORPH: [(&str, f64); 17] = [
     ("morph", 0.75),
     ("stagger", 0.3),
     ("stagger", 0.6),
+    ("forecast-next", 0.5),
+    ("transforms-next", 0.25),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
@@ -426,6 +431,39 @@ fn a_shader_drifts_on_through_a_transition() {
     }
     let (_, t, _) = mesh_op(&fx.frame("mesh").unwrap());
     assert!((t - (start + (d / 1000.0) as f32)).abs() < 1e-6, "at rest: t = {t}");
+}
+
+/// The transform of `node`'s layer in `dl`, wherever it sits.
+fn layer_map(ops: &[Op], node: &str) -> Option<[f32; 6]> {
+    ops.iter().find_map(|op| match op {
+        Op::Layer { node: Some(n), transform, .. } if n == node => Some(*transform),
+        Op::Layer { ops, .. } => layer_map(ops, node),
+        _ => None,
+    })
+}
+
+/// Case 49 (PLAN 2.51): between two states a transform moves part by part, about the box
+/// as it stands, never as a matrix. A quarter into the cue, eased, the pennant has turned
+/// past half a turn clockwise on its way to 350°, not back toward −10°; the panel growing
+/// from its top left corner keeps that corner; and the card's label turns with the card.
+#[test]
+fn transforms_move_part_by_part_between_states() {
+    let mut fx = fixture();
+    let rest = fx.frame("transforms").unwrap();
+    let t = 0.25 * fx.duration("transforms-next");
+    let dl = fx.frame_at("transforms-next", t).unwrap();
+    let map =
+        |dl: &DisplayList, node: &str| layer_map(&dl.ops, node).unwrap_or_else(|| panic!("no layer for `{node}`"));
+    let flag = map(&dl, "tf-flag");
+    let turned = flag[1].atan2(flag[0]).to_degrees().rem_euclid(360.0);
+    assert!(turned > 180.0 && turned < 270.0, "the pennant has turned {turned}°");
+    let (panel, still) = (map(&dl, "tf-panel"), map(&rest, "tf-panel"));
+    assert!(panel[0] > 0.5 && panel[0] < 1.0, "{panel:?}");
+    assert!((panel[4] - still[4]).abs() < 1e-3 && (panel[5] - still[5]).abs() < 1e-3, "{panel:?} {still:?}");
+    assert_eq!(map(&dl, "tf-card-label")[..4], map(&dl, "tf-card")[..4]);
+    // Level halfway: the headline turns from −6° through 0° to 6°.
+    let title = map(&dl, "tf-title");
+    assert!(title[1].abs() < (6f32).to_radians().sin(), "{title:?}");
 }
 
 #[test]
@@ -847,12 +885,13 @@ fn counting_figures_spell_numbers_as_shaping_does() {
     let mut fonts = bundle_fonts(&fx.deck, false);
     let mut engine = TextEngine::new();
     // The chart has no `format`, so labels count in the default form: no grouping, and a
-    // hyphen-minus, since these fonts have no U+2212.
+    // hyphen-minus, since these fonts have no U+2212. They are set in the theme's chart
+    // label role, `value`.
     let samples = ["-7", "0.5", "12.25", "1024", "-0.75", "100.5", "-1000.25", "38.0"];
     for text in (0..=200).map(|n| n.to_string()).chain(samples.map(String::from)) {
         let spec = TextSpec {
             numeric: Some(scaena_engine::theme::Numeric::TabularLining),
-            ..TextSpec::plain(fx.theme.text_role("label").unwrap(), text.clone())
+            ..TextSpec::plain(fx.theme.text_role("value").unwrap(), text.clone())
         };
         let shaped = engine.layout(&mut fonts, &fx.theme, &spec, f32::INFINITY).unwrap();
         let (runs, width) = numerals.compose(&text).unwrap();
@@ -928,6 +967,45 @@ fn box_cap_trims_to_the_cap_height_and_slots_align_by_it() {
     // The `case` slot aligns `y: cap`.
     let label = fx.placed("axes", "case");
     assert!((anchors(&label).0 - 96.0).abs() < 1e-3);
+}
+
+// --- baseline grid (PLAN 1.25) ------------------------------------------------------
+
+/// How far `y` is from the torture grid's nearest baseline-grid line (every 8 cu from the
+/// 96 cu top margin), in grid lines.
+fn off_grid(y: f32) -> f32 {
+    let lines = (y - 96.0) / 8.0;
+    (lines - lines.round()).abs()
+}
+
+fn baselines(p: &PlacedText) -> Vec<f32> {
+    p.text.lines.iter().map(|l| p.origin[1] + l.baseline).collect()
+}
+
+#[test]
+fn the_grid_roles_set_their_baselines_and_cap_heights_on_the_baseline_grid() {
+    let mut fx = fixture();
+    // Body (40 cu: five lines), the off-grid leading (43.2 cu, set at six), the caption (32).
+    for (node, apart) in [("grid-body", 40.0), ("grid-loose", 48.0), ("grid-foot", 32.0)] {
+        let on = baselines(&fx.placed("baseline-grid", node));
+        assert!(on.len() >= 2, "`{node}` sets one line: {on:?}");
+        assert!(on.iter().all(|y| off_grid(*y) < 1e-3), "`{node}`: {on:?}");
+        assert!(on.windows(2).all(|p| (p[1] - p[0] - apart).abs() < 1e-3), "`{node}`: {on:?}");
+    }
+    // Both paragraphs start on row 3, at 324 cu, off the grid: their first baselines meet.
+    let (body, loose) = (fx.placed("baseline-grid", "grid-body"), fx.placed("baseline-grid", "grid-loose"));
+    assert!((baselines(&body)[0] - baselines(&loose)[0]).abs() < 1e-3);
+    // The headline's cap top sits on a grid line.
+    let head = fx.placed("baseline-grid", "grid-head");
+    assert!(off_grid(anchors(&head).0) < 1e-3, "cap top at {}", anchors(&head).0);
+    // The caption aligned to its box's foot moved up, so it stays in the box.
+    let foot = fx.placed("baseline-grid", "grid-foot");
+    let (bottom, cell_bottom) = (foot.origin[1] + foot.text.height, foot.cell[1] + foot.cell[3]);
+    assert!(bottom <= cell_bottom + 1e-3 && cell_bottom - bottom < 8.0, "{bottom} {cell_bottom}");
+    // The row's body text and caption share one baseline, on the grid.
+    let figure = anchors(&fx.placed("baseline-grid", "grid-row-figure")).2;
+    let label = anchors(&fx.placed("baseline-grid", "grid-row-label")).2;
+    assert!((figure - label).abs() < 1e-3 && off_grid(figure) < 1e-3, "{figure} {label}");
 }
 
 // --- catalogue (characterized as observed) ----------------------------------------

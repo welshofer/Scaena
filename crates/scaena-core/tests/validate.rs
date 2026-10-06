@@ -148,6 +148,7 @@ fn e102_unknown_references() {
             "/nodes/cell/at/area",
             "/nodes/chart/labels/role",
             "/nodes/figure/at/parent",
+            "/nodes/late/at/row",
             "/nodes/note/at/parent",
             "/nodes/photo/src",
             "/nodes/title/enter",
@@ -167,6 +168,24 @@ fn e102_unknown_references() {
             "/states/2/slide",
         ],
     );
+}
+
+/// A name the theme lacks comes with the names of that kind it has, so whoever uses
+/// the deck, an agent re-theming it above all, need not guess them.
+#[test]
+fn e102_says_what_the_theme_has() {
+    let found = validate_bundle(fixture!("E102", "trigger"), &Fixtures).unwrap();
+    let says = |path: &str| {
+        let finding = found.iter().find(|f| f.path.as_deref() == Some(path));
+        finding.map_or_else(|| panic!("no finding at {path}: {found:#?}"), |f| f.message.clone())
+    };
+    assert_eq!(says("/states/0/layout"), "layout `titel` is not in the theme, which has title, full");
+    assert_eq!(
+        says("/nodes/title/role"),
+        "text role `headlin` is not in the theme, which has display, headline, body, caption, label, numeral"
+    );
+    assert_eq!(says("/nodes/title/enter"), "motion preset `slide` is not in the theme, which has fade, rise, grow");
+    assert_eq!(says("/nodes/bg/palette"), "shader palette `sunset` is not in the theme, which has ambient");
 }
 
 #[test]
@@ -198,6 +217,7 @@ fn e106_schema_and_resolved_types() {
         &[
             "/nodes/badge/at/parent",
             "/nodes/headline/fit",
+            "/nodes/late/at/row",
             "/nodes/left/at/parent",
             "/nodes/logo/src",
             "/nodes/logo/style",
@@ -225,6 +245,65 @@ fn e106_schema_and_resolved_types() {
     assert!(say("/states/1/choreography/0").contains("enter and exit"));
     assert!(say("/states/1/choreography/1/split").contains("`photo`, an image node, into words"));
     assert!(say("/states/1/choreography/2/enter/split").contains("only a stack, grid, frame, or group"));
+    assert_eq!(say("/nodes/late/at/row"), "`late` is placed in rows 4–3, which run backward: write [3, 4]");
+}
+
+#[test]
+fn a_placement_past_the_grid_names_the_grid() {
+    let found = validate_bundle(fixture!("E102", "trigger"), &Fixtures).unwrap();
+    let late = found.iter().find(|f| f.path.as_deref() == Some("/nodes/late/at/row")).unwrap();
+    assert_eq!(late.message, "`late` is placed in rows 6–7, past the theme's grid, which has 6 rows");
+    assert_eq!((late.state.as_deref(), late.node.as_deref()), (Some("photo"), Some("late")));
+}
+
+#[test]
+fn a_slot_past_the_grid_is_e102_in_the_theme_file() {
+    let files = EditedTheme(|t| {
+        t.replace(r#""subtitle": { "col": [1, 8], "row": 2 }"#, r#""subtitle": { "col": [1, 8], "row": [2, 7] }"#)
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    // The clean deck shows nothing in `subtitle`: a slot no node is placed in places nothing.
+    assert!(found.is_empty(), "{found:#?}");
+    let deck = fixture!("E102", "clean")
+        .replace(r#""at": { "in": "title" }, "fill""#, r#""at": { "in": "subtitle" }, "fill""#);
+    let placed: Vec<_> =
+        validate_bundle(&deck, &files).unwrap().into_iter().map(|f| (f.code, f.file, f.path, f.message)).collect();
+    let message =
+        "slot `subtitle` of layout `title` is in rows 2–7, past the theme's grid, which has 6 rows".to_string();
+    assert_eq!(
+        placed,
+        [(
+            "E102".to_string(),
+            Some("theme.json".to_string()),
+            Some("/layouts/title/slots/subtitle/row".to_string()),
+            message
+        )]
+    );
+}
+
+#[test]
+fn a_format_with_a_smaller_grid_is_judged_on_its_own() {
+    // A tall format whose grid has 4 rows and 6 columns: `late` (columns 1–12, rows 5–6) is
+    // past it, and so are the slots nodes stand in, `title` (columns 1–8) and `main` (1–12).
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""grid": { "columns": 12, "gutter": 24, "margin": 96 },"#,
+            r#""grid": { "columns": 12, "gutter": 24, "margin": 96 }, "formats": { "9:16": { "grid": { "columns": 6, "rows": 4, "gutter": 24, "margin": 64 } } },"#,
+        )
+    });
+    let deck = fixture!("E102", "clean").replace(r#""canvas":"#, r#""formats": ["9:16"], "canvas":"#);
+    let mut found: Vec<_> =
+        validate_bundle(&deck, &files).unwrap().into_iter().map(|f| (f.path.unwrap_or_default(), f.message)).collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            ("/layouts/full/slots/main/col".to_string(), "slot `main` of layout `full` is in columns 1–12, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/layouts/title/slots/title/col".to_string(), "slot `title` of layout `title` is in columns 1–8, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/nodes/late/at/col".to_string(), "`late` is placed in columns 1–12, past the theme's grid in `9:16`, which has 6 columns".to_string()),
+            ("/nodes/late/at/row".to_string(), "`late` is placed in rows 5–6, past the theme's grid in `9:16`, which has 4 rows".to_string()),
+        ]
+    );
 }
 
 /// The fixtures' bundle with its theme edited by `edit`.
@@ -262,6 +341,39 @@ fn a_theme_name_the_theme_does_not_define_is_e102_in_the_theme_file() {
 }
 
 #[test]
+fn a_familys_italic_face_is_a_file_the_bundle_holds_and_the_deck_lists() {
+    // Body's italic, a file the bundle lacks and the deck does not list (PLAN 2.40).
+    let files = EditedTheme(|t| {
+        t.replace(
+            r#""file": "fonts/Body.ttf" }"#,
+            r#""file": "fonts/Body.ttf", "italic": { "file": "fonts/Body-Italic.ttf" } }"#,
+        )
+    });
+    let found = validate_bundle(fixture!("E102", "clean"), &files).unwrap();
+    let mut at: Vec<(&str, Option<&str>, &str)> =
+        found.iter().map(|f| (f.code.as_str(), f.file.as_deref(), f.path.as_deref().unwrap_or_default())).collect();
+    at.sort();
+    assert_eq!(
+        at,
+        [("E102", None, "/fonts"), ("E102", Some("theme.json"), "/type/families/body/italic/file")],
+        "{found:#?}"
+    );
+    let listed = found.iter().find(|f| f.path.as_deref() == Some("/fonts")).unwrap();
+    assert!(
+        listed.message.contains("theme family `body`'s italic is set in `fonts/Body-Italic.ttf`"),
+        "{}",
+        listed.message
+    );
+    // Its fix lists the face, as the italic it is.
+    let fix = serde_json::to_value(&listed.fix).unwrap();
+    assert_eq!(
+        fix[0]["value"],
+        serde_json::json!({ "family": "Body", "file": "fonts/Body-Italic.ttf", "style": "italic" }),
+        "{fix}"
+    );
+}
+
+#[test]
 fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
     assert!(validate_bundle("{ \"scaena\": ", &Fixtures).is_err());
 }
@@ -270,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.9",
+        "scaena": "0.11",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -289,4 +401,52 @@ fn e103_two_rows_one_mark() {
         "states": [{ "id": "a", "layout": "full", "props": { "keyed": {}, "unseried": {}, "fine": {} } }]
     });
     assert_eq!(findings(&deck.to_string()), ["E103 /nodes/keyed/key", "E103 /nodes/unseried/x/field"]);
+}
+
+#[test]
+fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
+    // PLAN 1.28: a true boolean, or a value its column holds; and only a line or an area.
+    let chart = |id: &str, kind: &str, projected: serde_json::Value| {
+        (
+            id.to_string(),
+            serde_json::json!({ "type": "chart", "kind": kind, "data": "@r", "x": { "field": "y" },
+            "y": { "field": "v" }, "projected": projected, "alt": "", "at": { "in": "main" } }),
+        )
+    };
+    let nodes: serde_json::Map<String, serde_json::Value> = [
+        chart("boolean", "line", serde_json::json!({ "field": "est" })),
+        chart("valued", "area", serde_json::json!({ "field": "kind", "value": "forecast" })),
+        chart("missing", "line", serde_json::json!({ "field": "estimate" })),
+        chart("unvalued", "line", serde_json::json!({ "field": "kind" })),
+        chart("mistyped", "line", serde_json::json!({ "field": "kind", "value": true })),
+        chart("bars", "bar", serde_json::json!({ "field": "est" })),
+    ]
+    .into_iter()
+    .collect();
+    let props: serde_json::Map<String, serde_json::Value> =
+        nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
+    let deck = serde_json::json!({
+        "scaena": "0.11",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": {
+            "source": { "inline": [
+                { "y": "2025", "v": 1, "est": false, "kind": "actual" },
+                { "y": "2026", "v": 2, "est": true, "kind": "forecast" }
+            ] },
+            "schema": { "v": "number", "est": "boolean" }
+        } },
+        "nodes": nodes,
+        "states": [{ "id": "a", "layout": "full", "props": props }]
+    });
+    assert_eq!(
+        findings(&deck.to_string()),
+        [
+            "E103 /nodes/missing/projected/field",
+            "E103 /nodes/mistyped/projected/value",
+            "E103 /nodes/unvalued/projected/field",
+            "E106 /nodes/bars/projected"
+        ]
+    );
 }

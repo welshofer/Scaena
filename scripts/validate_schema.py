@@ -13,7 +13,7 @@ for tool in sorted((root / 'docs/schema/mcp').glob('*.json')):
         assert t.get(k) is None or t[k]['type'] == 'object', f"{tool.name}: a tool's {k} is an object (MCP)"
     for sch in filter(None, (t['inputSchema'], t.get('outputSchema'))): Draft202012Validator.check_schema(sch)
 # Every example, plus every fixture and benchmark bundle under tests/ (deck.json and its theme.json).
-targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema), ('docs/examples/themes/ember.theme.json', theme_schema)]
+targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/charts.deck.json', deck_schema), ('docs/examples/trails.deck.json', deck_schema), ('docs/examples/higher-ed.deck.json', deck_schema), ('docs/examples/ridgeline.deck.json', deck_schema), ('docs/examples/themes/dusk.theme.json', theme_schema), ('docs/examples/themes/ember.theme.json', theme_schema)]
 # The example patch (PLAN 1.16).
 targets += [('docs/examples/revenue.patch.json', patch_schema)]
 # The deck the authorability spike's agents wrote (PLAN 0.13), and the themes it moved between.
@@ -77,7 +77,7 @@ patch_accept = {
     'an RFC 6902 op with a member it ignores': ops({'op': 'remove', 'path': '/nodes/rev', 'value': 1}),
     'a test of the whole document': ops({'op': 'test', 'path': '', 'value': {}}),
     'a state added with its deltas': ops({'op': 'add_state', 'state': {'id': 'b', 'props': {'t': {'at': {'in': None}}}}}),
-    'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.6'}}),
+    'a theme inline': ops({'op': 'retheme', 'theme': {'scaena-theme': '0.9'}}),
 }
 for name, inst in patch_reject.items():
     assert list(Draft202012Validator(patch_schema).iter_errors(inst)), f"patch schema failed to reject {name}"

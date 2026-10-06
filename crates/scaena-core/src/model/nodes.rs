@@ -241,7 +241,7 @@ pub enum ShapeKind {
 }
 
 node! {
-    /// An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.
+    /// An image from the bundle, a PNG or a JPEG, placed in its box (SPEC §3.3).
     ImageNode {
         /// The image file's path in the bundle; `assets/<sha256>.<ext>` once saved.
         pub src: String,
@@ -293,6 +293,9 @@ node! {
         pub color: Option<Encoding>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub size_encoding: Option<Encoding>,
+        /// Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub projected: Option<Projected>,
         /// The field that identifies a mark across states.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub key: Option<String>,

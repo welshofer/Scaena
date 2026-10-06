@@ -1,21 +1,103 @@
 {
   "name": "deck_read",
-  "description": "The bundle's deck, as `deck.json` holds it, or as `.scn` source.",
+  "description": "The bundle's deck, as `deck.json` holds it, or as `.scn` source; with `files`, the bundle's images, fonts, and data too, and what uses each.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
-      "scn": { "description": "The deck as `.scn` source rather than JSON.", "type": "boolean", "default": false }
+      "scn": { "description": "The deck as `.scn` source rather than JSON.", "type": "boolean", "default": false },
+      "files": {
+        "description": "The bundle's images, fonts, and data too, each with what in the deck names it and the\nnodes drawn from it in the states that show them so; a file nothing names has no\n`named`, and may be taken out (`scaena files --remove`).",
+        "type": "boolean",
+        "default": false
+      }
     },
     "additionalProperties": false
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "BundleFile": {
+        "description": "One of a bundle's images, fonts, or data files, and what uses it.",
+        "type": "object",
+        "properties": {
+          "path": { "description": "Its path in the bundle.", "type": "string" },
+          "type": { "$ref": "#/$defs/Kind" },
+          "bytes": { "description": "Its size, in bytes.", "type": "integer", "minimum": 0 },
+          "named": {
+            "description": "What in the deck or its theme names it. None, where nothing does: it may be taken out.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Named" }
+          },
+          "used": {
+            "description": "The nodes drawn from it, in the deck's order, each with the states that show it so.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Used" }
+          }
+        },
+        "required": ["path", "type", "bytes", "named", "used"]
+      },
+      "Kind": {
+        "description": "What a file of a bundle is, as an editor lists them: images, then fonts, then data.",
+        "type": "string",
+        "enum": ["image", "font", "data"]
+      },
+      "Named": {
+        "description": "What names a file.",
+        "oneOf": [
+          {
+            "description": "An image node's `src`: its own, a state's, or the deck's overrides'.",
+            "type": "object",
+            "properties": { "node": { "type": "string" }, "by": { "type": "string", "const": "node" } },
+            "required": ["by", "node"]
+          },
+          {
+            "description": "A beat cites it as evidence (SPEC §3.11).",
+            "type": "object",
+            "properties": { "beat": { "type": "string" }, "by": { "type": "string", "const": "evidence" } },
+            "required": ["by", "beat"]
+          },
+          {
+            "description": "A face the deck's `fonts` list: its family, and its style where it sets one.",
+            "type": "object",
+            "properties": {
+              "family": { "type": "string" },
+              "style": { "type": ["string", "null"] },
+              "by": { "type": "string", "const": "font" }
+            },
+            "required": ["by", "family"]
+          },
+          {
+            "description": "A family of the theme (`typography.families`, by its key): its face, or its italic.",
+            "type": "object",
+            "properties": { "family": { "type": "string" }, "by": { "type": "string", "const": "theme" } },
+            "required": ["by", "family"]
+          },
+          {
+            "description": "A data source reads it.",
+            "type": "object",
+            "properties": { "source": { "type": "string" }, "by": { "type": "string", "const": "source" } },
+            "required": ["by", "source"]
+          }
+        ]
+      },
+      "Used": {
+        "description": "A node drawn from a file, and the states that show it so, in the deck's order.",
+        "type": "object",
+        "properties": { "node": { "type": "string" }, "states": { "type": "array", "items": { "type": "string" } } },
+        "required": ["node", "states"]
+      }
+    },
     "properties": {
       "deck": { "description": "The deck, canonical." },
-      "scn": { "description": "The deck as canonical `.scn` (SPEC §4).", "type": ["string", "null"] }
+      "scn": { "description": "The deck as canonical `.scn` (SPEC §4).", "type": ["string", "null"] },
+      "files": {
+        "description": "With `files`, the bundle's images, fonts, and data, each with what in the deck names it\nand the nodes drawn from it, as `scaena files` lists them (PLAN 2.59).",
+        "type": ["array", "null"],
+        "items": { "$ref": "#/$defs/BundleFile" }
+      }
     },
     "type": "object"
   }

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scaena.dev/schema/spine-0.11.json",
+  "title": "Scaena spine projection",
+  "description": "The spine projection: `export --format spine` writes it; `spine_read` returns it without timing or renders.",
+  "type": "object",
+  "required": ["scaena", "canvas", "states"],
+  "additionalProperties": false,
+  "properties": {
+    "scaena": {
+      "description": "The format of the deck it was projected from: its `scaena`.",
+      "type": "string",
+      "pattern": "^0\\.11(\\.[0-9]+)?$"
+    },
+    "title": { "type": "string" },
+    "lang": { "description": "The deck's language (BCP 47), for a voice that reads it.", "type": "string" },
+    "canvas": {
+      "description": "The deck's canvas, in canvas units: width and height.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "formats": {
+      "description": "The formats the deck lists (SPEC §3.4), as it names them: `16:9`, `9:16`. A beat has a render in each whose canvas is not the deck's own.",
+      "type": "array",
+      "default": [],
+      "items": { "type": "string" }
+    },
+    "spine": { "description": "The spine as the deck holds it; absent if it has none.", "$ref": "#/$defs/Spine" },
+    "states": {
+      "description": "Every state, in cue-list order.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/SpineState" }
+    },
+    "beats": {
+      "description": "Every beat, by id, in spine order.",
+      "type": "object",
+      "default": {},
+      "additionalProperties": { "$ref": "#/$defs/SpineBeat" }
+    }
+  },
+  "$defs": {
+    "Spine": {
+      "type": "object",
+      "required": ["sections"],
+      "additionalProperties": false,
+      "properties": { "sections": { "type": "array", "items": { "$ref": "#/$defs/Section" } } }
+    },
+    "Section": {
+      "type": "object",
+      "required": ["id", "beats"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "beats": { "type": "array", "items": { "$ref": "#/$defs/Beat" }, "minItems": 1 }
+      }
+    },
+    "Id": {
+      "description": "A slug: unique within its collection (SPEC §3.2).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "Beat": {
+      "type": "object",
+      "required": ["id", "claim"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "claim": { "description": "One sentence the audience should leave with.", "type": "string" },
+        "evidence": {
+          "description": "@data refs, asset refs, or URLs.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "states": { "$ref": "#/$defs/IdList" },
+        "notes": { "description": "Speaker notes.", "type": "string" },
+        "duration": { "description": "Estimated seconds.", "type": "number", "minimum": 0 },
+        "media": {
+          "description": "Projection hints (infographic priority, podcast script, …).",
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "IdList": {
+      "description": "Ids, each at most once.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Id" },
+      "uniqueItems": true
+    },
+    "SpineState": {
+      "description": "A state: its slide, its notes, and where it plays.",
+      "type": "object",
+      "required": ["id", "slide"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
+        "notes": { "type": "string" },
+        "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": "number" },
+        "start": {
+          "description": "When its transition starts on the global timeline, ms. Given the timeline.",
+          "type": "number"
+        },
+        "span": {
+          "description": "Its cue, ms: its transition and motions. Its hold follows. Given the timeline.",
+          "type": "number"
+        }
+      }
+    },
+    "SpineBeat": {
+      "description": "A beat: the state that shows it, when it plays, and its renders.",
+      "type": "object",
+      "required": ["section"],
+      "additionalProperties": false,
+      "properties": {
+        "section": { "description": "Its section's id.", "type": "string" },
+        "state": {
+          "description": "The state that shows it: the last of its states in the deck's order. None if it names no state of the deck.",
+          "type": "string"
+        },
+        "start": {
+          "description": "When it starts on the global timeline, ms: where its first state starts. Given the timeline.",
+          "type": "number"
+        },
+        "end": {
+          "description": "When it ends, ms: where its last state's hold ends. Given the timeline.",
+          "type": "number"
+        },
+        "thumbnail": {
+          "description": "`state` at rest, small, in the deck's own format: a path relative to the projection's file. Once drawn.",
+          "type": "string"
+        },
+        "formats": {
+          "description": "`state` at rest in each of the deck's other formats, at that format's canvas size: paths relative to the projection's file, by format. Once drawn.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

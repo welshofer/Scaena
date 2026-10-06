@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@scaena/wasm": ["../crates/scaena-wasm/www/pkg/scaena_wasm.d.ts"],
+      "@scaena/subset": ["../crates/scaena-subset/pkg/scaena_subset.d.ts"],
+      "@scaena/history": ["../crates/scaena-history/pkg/scaena_history.d.ts"],
+      "@scaena/resources": ["../crates/scaena-resources/pkg/scaena_resources.d.ts"],
+      "@scaena/pdf": ["../crates/scaena-pdf/pkg/scaena_pdf.d.ts"],
+      "@scaena/assistant": ["./src/assistant/index.ts"],
+      "@scaena/themes": ["./src/themes.ts"],
+      "@scaena/hyphenation": ["./src/hyphenation.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/worker.ts"]
+}

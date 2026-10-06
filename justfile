@@ -4,7 +4,7 @@ default:
     @just --list
 
 # fmt + clippy (-D warnings, all features) + tests (CPU and GPU) + schema + wasm32. Must be green before any commit; mirrors CI.
-check: fmt-check clippy test test-gpu schema wasm-check
+check: fmt-check clippy test test-gpu schema scripts wasm-check
 
 fmt:
     cargo fmt --all
@@ -33,9 +33,12 @@ bless:
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     rm -rf tests/golden/torture/actual
 
-# The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8).
+# The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
+# with every feature, and as the player's engine alone, without the hyphenation patterns the
+# editor's module leaves out (ADR-0015).
 wasm-check:
-    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
 # (needs python3; `pip install jsonschema fonttools==4.66.1`).
@@ -44,14 +47,35 @@ schema:
     python3 scripts/build_torture_fonts.py --check
     python3 scripts/build_torture_images.py --check
     python3 scripts/build_bundle_fonts.py --check
+    python3 scripts/build_lint_fonts.py --check
+    python3 scripts/build_bench_decks.py --check
 
-# Per-stage timings against SPEC §15 (PLAN 0.14): B1 and B4 in one process each, then B1's cold
-# start in headless Chromium. CI runs the first half on Apple Silicon (.github/workflows/bench.yml).
-bench: wasm
+# The scripts' own tests: the bench gate's judgment (PLAN 1.24).
+scripts:
+    python3 -m unittest discover -s scripts -p 'test_*.py'
+
+# CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
+# beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the
+# run's noise if that is more (.github/workflows/bench.yml, scripts/bench_gate.py).
+# SPEC §15's stages on B1–B4, timed by criterion (PLAN 1.24); `just bench layout/b1` runs one.
+# Built as CI builds them, each function on a 64-byte line (ADR-0004 finding 18).
+bench *FILTER:
+    RUSTFLAGS="-C llvm-args=-align-all-functions=6" cargo bench --locked -p scaena-cli --features gpu --bench stages -- {{FILTER}}
+
+# Per-state medians and worst cases on one bundle, in one process (PLAN 0.14's tables).
+stages BUNDLE="tests/bench/b1.scaena":
     cargo build --release --locked -p scaena-cli --features gpu --bins --examples
-    target/release/examples/stages tests/bench/b1.scaena
-    target/release/examples/stages tests/fixtures/torture.scaena
+    target/release/examples/stages {{BUNDLE}}
+
+# B1's cold start in headless Chromium: WASM load to the first frame at 1080p (SPEC §15).
+coldstart: wasm
     node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena
+
+# BROWSER is chrome (the one installed), chromium, firefox, or webkit; ARGS go to web/fps.mjs, which
+# needs `just web` and Playwright.
+# Gate 2's first criterion here: a deck played state by state in a browser, the frame meter for each.
+fps BROWSER="chrome" *ARGS:
+    node web/fps.mjs --browser {{BROWSER}} {{ARGS}}
 
 # Rebuild the torture deck's subset fonts from pinned upstream files (network; PLAN 0.2).
 torture-fonts *ARGS:
@@ -73,18 +97,117 @@ example:
 spike: wasm-smoke
     SCAENA_WEB_PNGS={{justfile_directory()}}/target/wasm-smoke cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
 
-# Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8).
+# Build the WASM engine and its JS glue into crates/scaena-wasm/www/pkg (PLAN 0.8), the font
+# subsetter, which a page loads to download a bundle, into crates/scaena-subset/pkg (PLAN 2.4),
+# the CRDT, which a page loads to save a bundle that keeps a history, into
+# crates/scaena-history/pkg (PLAN 2.9), what the assistant reads (the resources MCP serves)
+# into crates/scaena-resources/pkg (PLAN 2.6), the PDF painter, which a page loads to export a
+# PDF, into crates/scaena-pdf/pkg (PLAN 2.54),
+# and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
+# what a single-file HTML export carries (PLAN 2.5), with every language's hyphenation patterns,
+# which the editor's module leaves out and its page fetches as a text needs them (ADR-0015). Cargo keeps each feature set's build, so
+# building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
+# release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
-    wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
+    wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+    cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+    wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and
 # every torture state paints (PLAN 0.8). Needs Node and Playwright with its Chromium.
 wasm-smoke: wasm
     node crates/scaena-wasm/www/smoke.mjs
 
-# Print the Cargo.lock-resolved versions behind ADR-0004's table, then any duplicated crates.
+# The web player (PLAN 2.1): the WASM engine, then the Vite app into web/dist, and the page a
+# single-file export fills in (PLAN 2.5) into crates/scaena-export/player, which `scaena` built
+# after it carries. Needs Node 22. Serve the repository's root and open
+# /web/dist/?bundle=/tests/fixtures/torture.scaena.
+web: wasm
+    cd web && npm ci && npm run build
+
+# The web player and editor as a static site (PLAN 2.7): one directory, target/site, that any
+# static host serves from its root or from any path under it, with a demo deck the pages open:
+# the trails example by default, or the bundle or deck file given. The deck is saved as
+# `scaena save` saves it, its fonts whole, so the editor sets any character they carry.
+# `python3 target/site/serve.py` serves it on this machine only.
+site deck="docs/examples/trails.deck.json": web
+    cd web && VITE_BUNDLE=decks/{{file_stem(file_stem(deck))}}/ npx vite build --outDir ../target/site --emptyOutDir
+    SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save {{deck}} --to target/site/decks/{{file_stem(file_stem(deck))}} --keep-fonts
+    cp web/serve.py target/site/serve.py
+
+# The web player on Vite's dev server, with the repository's bundles at their paths in it
+# (/?bundle=/docs/examples/ridgeline.deck.json), on the WASM engine `just wasm` last built.
+web-dev:
+    cd web && npm run dev
+
+# The web player in headless Chromium: every torture frame shown, painted in its worker by
+# WebGPU and by the CPU painter (PLAN 2.1); a single-file export's, from its address on disk
+# with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
+# the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its canvas,
+# where a node is moved and resized (PLAN 2.31) and text typed where it stands (PLAN 2.32), its
+# inspector, where a node's look is chosen from the theme (PLAN 2.33), nodes inserted, copied,
+# and deleted (PLAN 2.34), its state strip (PLAN 2.35), its
+# storage: open, save, download, and drop (PLAN 2.4), its assistant, against a scripted server
+# for each provider (PLAN 2.6), its saves recorded in a bundle's history (PLAN 2.9), and the
+# pages on a folder `scaena serve` serves (PLAN 2.11). Then
+# the static site from a path under its host (PLAN 2.7), and, last, what a reader needs:
+# axe-core's audit, the reading, less motion, and keys (PLAN 2.8).
+web-smoke: site
+    node web/smoke.mjs
+    node web/standalone.mjs
+    SCAENA_WEB_PNGS={{justfile_directory()}}/target/web-smoke/player-webgpu:{{justfile_directory()}}/target/web-smoke/player-cpu:{{justfile_directory()}}/target/web-smoke/standalone-cpu cargo test -p scaena-paint --test parity --locked -- --nocapture
+    node web/player.mjs
+    node web/editor.mjs
+    node web/canvas.mjs
+    node web/typing.mjs
+    node web/inspector.mjs
+    node web/insert.mjs
+    node web/draw.mjs
+    node web/findings.mjs
+    node web/layers.mjs
+    node web/rotate.mjs
+    node web/clipboard.mjs
+    node web/charts.mjs
+    node web/several.mjs
+    node web/group.mjs
+    node web/cue.mjs
+    node web/image.mjs
+    node web/zoom.mjs
+    node web/find.mjs
+    node web/runs.mjs
+    node web/theme.mjs
+    node web/strip.mjs
+    node web/storage.mjs
+    node web/assistant.mjs
+    node web/seeing.mjs
+    node web/commands.mjs
+    node web/export.mjs
+    node web/data.mjs
+    node web/reader.mjs
+    node web/guides.mjs
+    node web/looks.mjs
+    node web/files.mjs
+    node web/versions.mjs
+    node web/theme-edit.mjs
+    node web/formats.mjs
+    node web/rehearse.mjs
+    node web/rows.mjs
+    node web/keys.mjs
+    node web/annotate.mjs
+    node web/history.mjs
+    node web/live.mjs
+    node web/new.mjs
+    node web/site.mjs
+    node web/a11y.mjs
+
+# Print the Cargo.lock-resolved versions behind ADR-0004's table (`hypher` is a dev-dependency,
+# ADR-0015), then any duplicated crates.
 versions:
-    cargo tree --workspace --all-features -e normal --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|hypher|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
+    cargo tree --workspace --all-features -e normal,dev --prefix none | grep -E '^(parley|parley_data|harfrust|skrifa|read-fonts|fontique|icu_segmenter|icu_properties|taffy|hypher|kurbo|peniko|linebender_resource_handle|vello|vello_shaders|wgpu|naga|vello_cpu|vello_common|glifo|fearless_simd) v' | sed 's/ (\*)//' | sort -u
     cargo tree --workspace --all-features -e normal -d --depth 0

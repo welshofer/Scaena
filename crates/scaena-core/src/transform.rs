@@ -33,12 +33,24 @@ const STEPS: [(&str, &[&str]); 7] = [
 /// What `aggregate` and `pivot` can compute over a group's values.
 const OPS: &str = "count, distinct, sum, mean, median, min, max, first, last";
 
+/// Each row of a table, the rows of the table it was made from, in order, from 0: what a
+/// chart's mark or a table's row draws of its source (PLAN 2.64).
+pub type Rows = Vec<Vec<usize>>;
+
 /// `table` after `steps`, in order.
-pub fn apply(mut table: Table, steps: &[Value]) -> Result<Table, TransformError> {
+pub fn apply(table: Table, steps: &[Value]) -> Result<Table, TransformError> {
+    traced(table, steps).map(|(table, _)| table)
+}
+
+/// `table` after `steps`, in order, with the rows of `table` each of its rows was made from: a
+/// row kept, derived, or sorted, its own; an aggregated or pivoted row, its group's; a folded
+/// row, the row it unfolds.
+pub fn traced(mut table: Table, steps: &[Value]) -> Result<(Table, Rows), TransformError> {
+    let mut from: Rows = (0..table.rows.len()).map(|r| vec![r]).collect();
     for (i, step) in steps.iter().enumerate() {
-        table = Step { i }.run(step, table)?;
+        (table, from) = Step { i }.run(step, table, from)?;
     }
-    Ok(table)
+    Ok((table, from))
 }
 
 struct Step {
@@ -83,7 +95,7 @@ impl Step {
         }
     }
 
-    fn run(&self, step: &Value, table: Table) -> Result<Table, TransformError> {
+    fn run(&self, step: &Value, table: Table, from: Rows) -> Result<(Table, Rows), TransformError> {
         let Some(o) = step.as_object() else {
             return Err(self.malformed(&[], "a step is an object, such as `{ \"filter\": \"revenue > 0\" }`"));
         };
@@ -100,25 +112,26 @@ impl Step {
             return Err(self.malformed(&[key.as_str()], format!("`{kind}` takes {takes}")));
         }
         match kind {
-            "filter" => self.filter(o, table),
-            "derive" => self.derive(o, table),
-            "sort" => self.sort(o, table),
-            "limit" => self.limit(o, table),
-            "aggregate" => self.aggregate(o, table),
-            "fold" => self.fold(o, table),
-            _ => self.pivot(o, table),
+            "filter" => self.filter(o, table, from),
+            "derive" => Ok((self.derive(o, table)?, from)),
+            "sort" => self.sort(o, table, from),
+            "limit" => self.limit(o, table, from),
+            "aggregate" => self.aggregate(o, table, &from),
+            "fold" => self.fold(o, table, &from),
+            _ => self.pivot(o, table, &from),
         }
     }
 
     /// `{ "filter": "region == 'NA'" }`: the rows where it is true.
-    fn filter(&self, o: &Map<String, Value>, table: Table) -> Result<Table, TransformError> {
+    fn filter(&self, o: &Map<String, Value>, table: Table, from: Rows) -> Result<(Table, Rows), TransformError> {
         let test = self.bind(&table, &o["filter"], &["filter"])?;
         if !matches!(test.ty, Type::Bool | Type::Null) {
             return Err(self.wrong(&["filter"], "`filter` keeps the rows where it is true, so it tests true or false"));
         }
         let Table { columns, types, rows } = table;
-        let rows = rows.into_iter().filter(|r| test.eval(r, &columns) == Datum::Bool(true)).collect();
-        Ok(Table { columns, types, rows })
+        let (rows, from): (Vec<_>, Rows) =
+            rows.into_iter().zip(from).filter(|(r, _)| test.eval(r, &columns) == Datum::Bool(true)).unzip();
+        Ok((Table { columns, types, rows }, from))
     }
 
     /// `{ "derive": { "margin": "profit / revenue" } }`: a column per expression, in
@@ -149,7 +162,7 @@ impl Step {
 
     /// `{ "sort": ["region", "-revenue"] }`: by each field in turn, `-` for descending;
     /// rows that tie keep their order, and nulls go last either way.
-    fn sort(&self, o: &Map<String, Value>, mut table: Table) -> Result<Table, TransformError> {
+    fn sort(&self, o: &Map<String, Value>, table: Table, from: Rows) -> Result<(Table, Rows), TransformError> {
         let mut by = Vec::new();
         for field in self.fields(&o["sort"], &["sort"])? {
             let (descending, name) = match field.strip_prefix('-') {
@@ -158,7 +171,9 @@ impl Step {
             };
             by.push((self.column(&table, name, &["sort"])?, descending));
         }
-        table.rows.sort_by(|a, b| {
+        let Table { columns, types, rows } = table;
+        let mut rows: Vec<(Vec<Datum>, Vec<usize>)> = rows.into_iter().zip(from).collect();
+        crate::sort::by(&mut rows, |(a, _), (b, _)| {
             by.iter()
                 .map(|&(c, descending)| match (&a[c], &b[c]) {
                     (Datum::Null, Datum::Null) => std::cmp::Ordering::Equal,
@@ -170,20 +185,23 @@ impl Step {
                 .find(|o| o.is_ne())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        Ok(table)
+        let (rows, from): (Vec<_>, Rows) = rows.into_iter().unzip();
+        Ok((Table { columns, types, rows }, from))
     }
 
     /// `{ "limit": 8 }`: the first rows.
-    fn limit(&self, o: &Map<String, Value>, mut table: Table) -> Result<Table, TransformError> {
+    fn limit(&self, o: &Map<String, Value>, mut table: Table, mut from: Rows) -> Result<(Table, Rows), TransformError> {
         let n = o["limit"].as_u64().ok_or_else(|| self.malformed(&["limit"], "how many rows to keep: 0 or more"))?;
-        table.rows.truncate(usize::try_from(n).unwrap_or(usize::MAX));
-        Ok(table)
+        let n = usize::try_from(n).unwrap_or(usize::MAX);
+        table.rows.truncate(n);
+        from.truncate(n);
+        Ok((table, from))
     }
 
     /// `{ "aggregate": { "total": "sum(revenue)" }, "groupby": ["region"] }`: a row per
     /// group, in the order groups first appear, with its `groupby` fields and each
     /// aggregate. Without `groupby`, every row is one group.
-    fn aggregate(&self, o: &Map<String, Value>, table: Table) -> Result<Table, TransformError> {
+    fn aggregate(&self, o: &Map<String, Value>, table: Table, from: &Rows) -> Result<(Table, Rows), TransformError> {
         let Some(specs) = o["aggregate"].as_object() else {
             return Err(self.malformed(&["aggregate"], "aggregates by name: `{ \"total\": \"sum(revenue)\" }`"));
         };
@@ -223,6 +241,7 @@ impl Step {
             out.columns.push(name.clone());
             out.types.push(*ty);
         }
+        let mut made = Vec::with_capacity(groups.len());
         for members in groups {
             let mut row: Vec<Datum> = keys.iter().map(|&k| table.rows[members[0]][k].clone()).collect();
             for (_, op, column, _) in &outputs {
@@ -230,14 +249,15 @@ impl Step {
                 row.push(compute(op, values, members.len(), column.is_none()));
             }
             out.rows.push(row);
+            made.push(union(from, &members));
         }
-        Ok(out)
+        Ok((out, made))
     }
 
     /// `{ "fold": ["2024", "2025"], "as": ["year", "revenue"] }`: wide to long. Each row
     /// becomes one per folded column, with the column's name (`as[0]`, default `key`)
     /// and its value (`as[1]`, default `value`) beside the columns not folded.
-    fn fold(&self, o: &Map<String, Value>, table: Table) -> Result<Table, TransformError> {
+    fn fold(&self, o: &Map<String, Value>, table: Table, from: &Rows) -> Result<(Table, Rows), TransformError> {
         let folded = self.fields(&o["fold"], &["fold"])?;
         let folded: Vec<usize> = folded.iter().map(|f| self.column(&table, f, &["fold"])).collect::<Result<_, _>>()?;
         if folded.is_empty() {
@@ -263,20 +283,22 @@ impl Step {
         columns.extend([key.to_string(), value.to_string()]);
         types.extend([ColumnType::String, ty]);
         let mut rows = Vec::with_capacity(table.rows.len() * folded.len());
-        for row in &table.rows {
+        let mut made = Vec::with_capacity(rows.capacity());
+        for (row, came) in table.rows.iter().zip(from) {
             for &c in &folded {
                 let mut out: Vec<Datum> = kept.iter().map(|&k| row[k].clone()).collect();
                 out.extend([Datum::Text(table.columns[c].clone()), row[c].clone()]);
                 rows.push(out);
+                made.push(came.clone());
             }
         }
-        Ok(Table { columns, types, rows })
+        Ok((Table { columns, types, rows }, made))
     }
 
     /// `{ "pivot": "year", "value": "revenue", "groupby": ["region"] }`: long to wide. A
     /// row per group with a column per `pivot` value, in the order they first appear,
     /// holding `op` (default `sum` for numbers, else `first`) over the group's values.
-    fn pivot(&self, o: &Map<String, Value>, table: Table) -> Result<Table, TransformError> {
+    fn pivot(&self, o: &Map<String, Value>, table: Table, from: &Rows) -> Result<(Table, Rows), TransformError> {
         let name = |key: &str| o.get(key).and_then(Value::as_str);
         let by = name("pivot").ok_or_else(|| self.malformed(&["pivot"], "the field whose values become columns"))?;
         let by = self.column(&table, by, &["pivot"])?;
@@ -305,6 +327,7 @@ impl Step {
             types: keys.iter().map(|&k| table.types[k]).chain(heads.iter().map(|_| ty)).collect(),
             rows: Vec::new(),
         };
+        let mut made = Vec::new();
         for members in groups(&table, &keys) {
             let mut row: Vec<Datum> = keys.iter().map(|&k| table.rows[members[0]][k].clone()).collect();
             for head in &heads {
@@ -316,8 +339,9 @@ impl Step {
                 });
             }
             out.rows.push(row);
+            made.push(union(from, &members));
         }
-        Ok(out)
+        Ok((out, made))
     }
 
     /// A step's `groupby` columns, if it has any.
@@ -390,6 +414,14 @@ fn groups(table: &Table, keys: &[usize]) -> Vec<Vec<usize>> {
     out
 }
 
+/// The rows a group's `members` were made from, in order, each once.
+fn union(from: &Rows, members: &[usize]) -> Vec<usize> {
+    let mut out: Vec<usize> = members.iter().flat_map(|&m| from[m].iter().copied()).collect();
+    crate::sort::sort(&mut out);
+    out.dedup();
+    out
+}
+
 /// `op` over a group's `values` (`rows` of them; `count()` counts rows), nulls aside.
 fn compute<'d>(op: &str, values: impl Iterator<Item = &'d Datum>, rows: usize, all: bool) -> Datum {
     let present: Vec<&Datum> = values.filter(|v| !matches!(v, Datum::Null)).collect();
@@ -412,7 +444,7 @@ fn compute<'d>(op: &str, values: impl Iterator<Item = &'d Datum>, rows: usize, a
         "mean" => some(numbers().fold(0.0, |a, b| a + b) / present.len() as f64),
         "median" => {
             let mut sorted: Vec<f64> = numbers().collect();
-            sorted.sort_by(f64::total_cmp);
+            crate::sort::by(&mut sorted, f64::total_cmp);
             match sorted.len() {
                 0 => Datum::Null,
                 n if n % 2 == 1 => Datum::Number(sorted[n / 2]),
@@ -497,6 +529,37 @@ mod tests {
         assert_eq!(long.columns, ["region", "year", "revenue"]);
         assert_eq!(texts(&long, "year")[..2], ["2024", "2025"]);
         assert_eq!(long.rows.len(), 6);
+    }
+
+    #[test]
+    fn each_row_says_which_rows_it_was_made_from() {
+        let trace = |steps: Value| traced(sales(), steps.as_array().unwrap()).unwrap_or_else(|e| panic!("{e}")).1;
+        // Rows kept, derived, sorted, or limited are their own.
+        assert_eq!(trace(json!([])), [[0], [1], [2], [3], [4]]);
+        let kept = trace(json!([
+            { "filter": "year == 2025" },
+            { "derive": { "k": "revenue * 2" } },
+            { "sort": "-revenue" },
+            { "limit": 2 }
+        ]));
+        assert_eq!(kept, [[2], [4]], "NA's 14 and APAC's 9; EU's null sorts last and is cut");
+        // An aggregated or pivoted row is its group's, and a folded row the row it unfolds.
+        let totals =
+            trace(json!([{ "aggregate": { "total": "sum(revenue)" }, "groupby": "region" }, { "sort": "total" }]));
+        assert_eq!(totals, [vec![1, 3], vec![4], vec![0, 2]], "EU 7, APAC 9, NA 24");
+        assert_eq!(trace(json!([{ "aggregate": { "n": "count()" } }])), [[0, 1, 2, 3, 4]]);
+        assert_eq!(
+            trace(json!([{ "filter": "year > 2030" }, { "aggregate": { "n": "count()" } }])),
+            [Vec::<usize>::new()]
+        );
+        let round = trace(json!([
+            { "pivot": "year", "value": "revenue", "groupby": ["region"] },
+            { "fold": ["2024", "2025"], "as": ["year", "revenue"] }
+        ]));
+        assert_eq!(round, [vec![0, 2], vec![0, 2], vec![1, 3], vec![1, 3], vec![4], vec![4]]);
+        // Tracing changes no table.
+        let steps = json!([{ "filter": "revenue > 8" }, { "sort": "-year" }]);
+        assert_eq!(traced(sales(), steps.as_array().unwrap()).unwrap().0, run(steps.clone()));
     }
 
     #[test]

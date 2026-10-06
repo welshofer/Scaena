@@ -1,7 +1,7 @@
 //! PDF export (PLAN 1.20): every page drawn by a PDF rasterizer (`hayro`) against the CPU
 //! painter's frame of the same state, by SPEC §13.5's metric.
 
-use scaena_ops::export::{Request as Export, export, pdf_document};
+use scaena_ops::export::{PdfSettings, Request as Export, export, pdf_document};
 use scaena_ops::render::{Request, render};
 use scaena_paint::Raster;
 use std::path::Path;
@@ -35,10 +35,11 @@ fn rasterize(pdf: Vec<u8>) -> Vec<Raster> {
 
 #[test]
 fn every_page_draws_its_slide_as_the_cpu_painter_does() {
-    // Shaders at one pixel to the unit, so a page has the same pixels as the CPU
-    // painter's frame: grain is per device pixel (SPEC §3.8).
+    // Shaders at one pixel to the unit and kept whole, so a page has the same pixels as
+    // the CPU painter's frame: grain is per device pixel (SPEC §3.8).
     let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
-    let (bytes, states) = pdf_document(&bundle, None, 1.0).unwrap();
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, states) = pdf_document(&bundle, None, &whole).unwrap();
     let pages = rasterize(bytes);
     assert_eq!(pages.len(), states.len());
     let mut failed = Vec::new();
@@ -63,13 +64,37 @@ fn a_pdf_draws_each_slide_at_its_last_state_and_shaders_at_twice_the_canvas() {
     let mesh = vec!["mesh".to_string()];
     let (bytes, pages) = exported(&bundle, Some(&mesh), "mesh");
     assert_eq!(pages, mesh);
-    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels.
+    // The full-canvas mesh embeds as an image of 3840 × 2160 pixels: opaque, so as a
+    // JPEG, a few hundred kilobytes where its pixels kept whole are megabytes.
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("/Width 3840") && text.contains("/Height 2160"));
+    assert!(text.contains("/DCTDecode") && bytes.len() < 2_000_000, "{} bytes", bytes.len());
+    let whole = PdfSettings { shader_quality: None, ..PdfSettings::default() };
+    let (kept, _) = pdf_document(&bundle, Some(&mesh), &whole).unwrap();
+    assert!(!String::from_utf8_lossy(&kept).contains("/DCTDecode") && kept.len() > 2 * bytes.len());
     let out = Some(Path::new(env!("CARGO_TARGET_TMPDIR")).join("export-nope.pdf"));
     let req = Export { format: "pdf".into(), states: Some(vec!["nope".into()]), out, ..Export::default() };
     let err = export(&bundle, &req).unwrap_err();
     assert!(err.to_string().contains("nope"), "{err}");
+}
+
+/// A photo goes into a PDF as its own JPEG, what it says beyond its picture left out (ADR-0017):
+/// the file's coded data as it is, and nothing of the camera, the time, the comment, or the color
+/// profile. That the page draws it turned as the CPU painter does, the test above says.
+#[test]
+fn a_photo_goes_in_as_its_own_jpeg_without_what_it_says() {
+    let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
+    let photos = vec!["photos".to_string()];
+    let (bytes, _) = exported(&bundle, Some(&photos), "photos");
+    let has = |s: &[u8]| bytes.windows(s.len()).any(|w| w == s);
+    assert!(has(b"/DCTDecode"));
+    let file = std::fs::read(format!("{TORTURE}/assets/orientation-6.jpg")).unwrap();
+    let bare = scaena_core::jpeg::stripped(&file).unwrap();
+    assert!(has(&bare[bare.len() - 512..]), "the photo's coded data, as the file has it");
+    for said in [&b"Scaena Test Camera"[..], b"2026:10:06 12:00:00", b"taken somewhere", b"ICC_PROFILE"] {
+        assert!(file.windows(said.len()).any(|w| w == said), "the file says {}", String::from_utf8_lossy(said));
+        assert!(!has(said), "the PDF says {}", String::from_utf8_lossy(said));
+    }
 }
 
 /// The PDF's structure, an element a line, indented by depth: its type, then its alt
@@ -229,7 +254,8 @@ fn text_at_a_layers_opacity_keeps_its_last_glyph() {
     std::fs::write(dir.join("deck.json"), serde_json::to_vec(&deck).unwrap()).unwrap();
     let bundle = scaena_ops::open(&dir).unwrap();
     let motion = vec!["motion".to_string()];
-    let (bytes, _) = pdf_document(&bundle, Some(&motion), 1.0).unwrap();
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let (bytes, _) = pdf_document(&bundle, Some(&motion), &whole).unwrap();
     let page = rasterize(bytes).remove(0);
     let cpu = render(&dir, &Request { state: "motion".to_string(), ..Request::default() }).unwrap();
     let d = scaena_paint::diff::compare(&Raster::from_png(&cpu.png).unwrap(), &page).unwrap();
@@ -248,4 +274,24 @@ fn copy_dir(from: &Path, to: &Path) {
             }
         }
     }
+}
+
+/// krilla reads each font with a reader of its own and subsets it as the document finishes,
+/// and neither expects a damaged font: a PDF of a deck whose font has an empty `hhea` table,
+/// which the engine draws, is an error that says so, not a panic (PLAN 2.25).
+#[test]
+fn a_damaged_font_stops_a_pdf_with_an_error() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("damaged.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    let font = dir.join("fonts/RobotoSerif-VF.ttf");
+    let mut bytes = std::fs::read(&font).unwrap();
+    let tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    let record = (0..tables).map(|i| 12 + 16 * i).find(|&r| &bytes[r..r + 4] == b"hhea").unwrap();
+    bytes[record + 12..record + 16].copy_from_slice(&0u32.to_be_bytes());
+    std::fs::write(&font, bytes).unwrap();
+    let bundle = scaena_ops::open(&dir).unwrap();
+    let first = vec![bundle.deck.states[0].id.clone()];
+    let whole = PdfSettings { shader_scale: 1.0, shader_quality: None };
+    let error = pdf_document(&bundle, Some(&first), &whole).expect_err("no PDF of a damaged font").to_string();
+    assert!(error.contains("damaged"), "{error}");
 }

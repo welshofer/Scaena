@@ -13,10 +13,22 @@ scaena-core.workspace = true
 scaena-engine.workspace = true
 scaena-paint.workspace = true
 serde.workspace = true
+schemars.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 krilla.workspace = true
 kurbo.workspace = true
 skrifa.workspace = true
 png.workspace = true
+image.workspace = true
 base64.workspace = true
+flate2.workspace = true
+
+[features]
+# Video painted by vello on the GPU (PLAN 2.22). Off by default so the everyday build does
+# not compile wgpu.
+gpu = ["scaena-paint/gpu"]
+
+[dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }

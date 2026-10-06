@@ -1,4 +1,4 @@
-//! Image nodes (SPEC §3.3): a bundle's PNGs, placed in their box.
+//! Image nodes (SPEC §3.3): a bundle's PNGs and JPEGs, placed in their box.
 //!
 //! The engine needs only each image's size and its content id; painters decode the
 //! pixels (`scaena_paint::Resources`). `fit` says how the image meets its box: `cover`
@@ -9,7 +9,9 @@
 //! image to `[x, y, w, h]`, fractions of it, before anything else, so a sharper file of
 //! the same picture keeps the crop. `radius` rounds the corners of what shows.
 //!
-//! Images are PNG in v1: one pure-Rust decoder, the same pixels everywhere (SPEC §13).
+//! Images are PNGs and JPEGs, each read by one decoder in Rust alone, the same pixels everywhere
+//! (SPEC §13): a JPEG by `scaena_core::jpeg`, in integers (ADR-0017). A JPEG's size is its size as
+//! seen, turned by its EXIF orientation, as its pixels are.
 
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
@@ -31,19 +33,21 @@ pub struct ImageInfo {
 }
 
 impl ImageInfo {
-    /// A PNG's id and size, from its header; the pixels are the painters' to decode.
+    /// A PNG's or a JPEG's id and size, from its header; the pixels are the painters' to decode.
     pub fn read(bytes: &[u8]) -> Result<ImageInfo, String> {
         const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-        if !bytes.starts_with(SIGNATURE) {
-            let what = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { "a JPEG" } else { "not a PNG" };
-            return Err(format!("{what}; images are PNG in v1 (SPEC §3.3)"));
-        }
-        // The first chunk is IHDR: length, type, then width and height, big-endian.
-        let ihdr = bytes.get(8..24).filter(|h| &h[4..8] == b"IHDR").ok_or("a PNG with no IHDR chunk")?;
-        let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-        let (width, height) = (be(&ihdr[8..12]), be(&ihdr[12..16]));
+        let (width, height) = if bytes.starts_with(SIGNATURE) {
+            // The first chunk is IHDR: length, type, then width and height, big-endian.
+            let ihdr = bytes.get(8..24).filter(|h| &h[4..8] == b"IHDR").ok_or("a PNG with no IHDR chunk")?;
+            let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+            (be(&ihdr[8..12]), be(&ihdr[12..16]))
+        } else if scaena_core::jpeg::is_jpeg(bytes) {
+            scaena_core::jpeg::Header::read(bytes).map_err(|e| e.to_string())?.size()
+        } else {
+            return Err("neither a PNG nor a JPEG; images are PNGs and JPEGs (SPEC §3.3)".into());
+        };
         if width == 0 || height == 0 {
-            return Err("a PNG with no pixels".into());
+            return Err("an image with no pixels".into());
         }
         if width.max(height) > MAX_IMAGE_SIDE {
             return Err(format!("{width} × {height} px; images are at most {MAX_IMAGE_SIDE} px a side (SPEC §3.3)"));
@@ -174,6 +178,22 @@ impl ImageNode {
         }
     }
 
+    /// The point of the image drawn under `at` (canvas units), in fractions of the part its
+    /// crop keeps: what `focal` names, so that a focal point picked where the image shows
+    /// keeps that point in view (PLAN 2.45). `None` off the image.
+    pub fn point(&self, at: [f32; 2]) -> Option<[f32; 2]> {
+        let (src, [dx, dy, dw, dh]) = self.placement();
+        let [px, py] = [at[0] - self.rect[0], at[1] - self.rect[1]];
+        if dw <= 0.0 || dh <= 0.0 || px < dx || py < dy || px > dx + dw || py > dy + dh {
+            return None;
+        }
+        let (iw, ih) = (self.info.width as f32, self.info.height as f32);
+        let [cx, cy, cw, ch] = [self.crop[0] * iw, self.crop[1] * ih, self.crop[2] * iw, self.crop[3] * ih];
+        // The image's pixel under the point, then where it is in the crop.
+        let [ix, iy] = [src[0] + (px - dx) / dw * src[2], src[1] + (py - dy) / dh * src[3]];
+        Some([((ix - cx) / cw).clamp(0.0, 1.0), ((iy - cy) / ch).clamp(0.0, 1.0)])
+    }
+
     /// What the image draws, box-local: the image, clipped to rounded corners if it has
     /// them.
     pub fn ops(&self) -> Vec<Op> {
@@ -223,10 +243,45 @@ mod tests {
         let info = ImageInfo::read(&png(400, 200)).unwrap();
         assert_eq!((info.width, info.height), (400, 200));
         assert!(info.id.starts_with("sha256:") && info.id.len() == 7 + 64);
+        // A JPEG's size is as it is seen: this one is stored 67 × 45 and turned a quarter.
+        let photo = include_bytes!("../../../tests/fixtures/jpeg/orientation-6.jpg");
+        let info = ImageInfo::read(photo).unwrap();
+        assert_eq!((info.width, info.height), (45, 67));
         assert!(ImageInfo::read(&[0xFF, 0xD8, 0xFF, 0xE0]).unwrap_err().contains("JPEG"));
+        let cmyk = include_bytes!("../../../tests/fixtures/jpeg/cmyk.jpg");
+        assert!(ImageInfo::read(cmyk).unwrap_err().contains("CMYK"));
+        assert!(ImageInfo::read(b"GIF89a").unwrap_err().contains("neither a PNG nor a JPEG"));
         assert!(ImageInfo::read(&png(8192, 1)).is_ok());
         assert!(ImageInfo::read(&png(8193, 1)).unwrap_err().contains("at most 8192 px a side"));
         assert!(ImageInfo::read(&png(0, 1)).unwrap_err().contains("no pixels"));
+    }
+
+    /// The point under the pointer is the point of the image drawn there, in fractions of
+    /// its crop, whatever the fit: what a focal point picked there names (PLAN 2.45).
+    #[test]
+    fn the_point_under_the_pointer_is_the_images_own() {
+        // A 400 × 200 image covering a square box shows its middle half: the box's left edge is
+        // the image's quarter, its middle the image's middle, its right edge three quarters.
+        let cover = node(json!({ "src": "assets/photo.png" }), [100.0, 0.0, 100.0, 100.0]);
+        assert_eq!(cover.point([100.0, 50.0]), Some([0.25, 0.5]));
+        assert_eq!(cover.point([150.0, 0.0]), Some([0.5, 0.0]));
+        assert_eq!(cover.point([200.0, 100.0]), Some([0.75, 1.0]));
+        assert_eq!(cover.point([99.0, 50.0]), None, "off the box");
+        // Picked there, the point lines up with the same point of the box: in view.
+        let picked = node(json!({ "src": "assets/photo.png", "focal": [0.25, 0.5] }), [100.0, 0.0, 100.0, 100.0]);
+        assert_eq!(picked.point([125.0, 50.0]), Some([0.25, 0.5]));
+        // Contained, it shows whole, in a band across the box; above and below it, nothing.
+        let contain = node(json!({ "src": "assets/photo.png", "fit": "contain" }), [0.0, 0.0, 100.0, 100.0]);
+        assert_eq!(contain.point([50.0, 50.0]), Some([0.5, 0.5]));
+        assert_eq!(contain.point([0.0, 25.0]), Some([0.0, 0.0]));
+        assert_eq!(contain.point([50.0, 10.0]), None);
+        // A crop is what the fractions are of.
+        let cropped = node(
+            json!({ "src": "assets/photo.png", "fit": "fill", "crop": [0.5, 0, 0.5, 1] }),
+            [0.0, 0.0, 100.0, 100.0],
+        );
+        assert_eq!(cropped.point([50.0, 50.0]), Some([0.5, 0.5]));
+        assert_eq!(cropped.point([100.0, 100.0]), Some([1.0, 1.0]));
     }
 
     #[test]

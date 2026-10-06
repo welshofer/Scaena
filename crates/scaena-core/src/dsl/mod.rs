@@ -8,6 +8,7 @@
 mod lex;
 mod parse;
 mod print;
+pub(crate) use print::whole;
 
 use crate::document::Deck;
 use crate::model::check::Checker;
@@ -40,7 +41,10 @@ impl DslError {
     }
 
     fn span(src: &str, offset: usize, len: usize, message: &str) -> DslError {
-        let offset = offset.min(src.len());
+        // Whole characters: an error about a character is about all of its bytes.
+        let end = src.ceil_char_boundary(offset.saturating_add(len));
+        let offset = src.floor_char_boundary(offset);
+        let len = end - offset;
         let before = &src[..offset];
         let line = before.matches('\n').count() + 1;
         let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
@@ -68,6 +72,12 @@ impl SourceMap {
             }
             p = &p[..p.rfind('/')?];
         }
+    }
+
+    /// The source the part of the deck at `pointer` came from, if the source wrote that
+    /// part itself: no ancestor's.
+    pub fn exact(&self, pointer: &str) -> Option<(usize, usize)> {
+        self.0.get(pointer).copied()
     }
 }
 

@@ -5,11 +5,19 @@
 //! shape lets a violation say what the author meant. A node is checked as its own `type`,
 //! so a chart's mistake reads as a chart's, not as "matches none of nine node types". An
 //! unknown property names the node types that have it, or the closest known name.
+//!
+//! The checker reads the schemas as committed in `docs/schema/`, which the model generates
+//! (`tests/schemas.rs` holds the two together), rather than generating them: generation
+//! would carry `schemars` and every type's schema into the browser's engine (PLAN 2.4).
 
-use super::{deck_schema, theme_schema};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
+
+/// A schema as committed in `docs/schema/`.
+fn committed(text: &str) -> Value {
+    serde_json::from_str(text).expect("a committed schema is JSON")
+}
 
 /// The keywords this checker understands. Annotations (`description`, `default`, `format`,
 /// …) say nothing about validity.
@@ -86,13 +94,19 @@ impl Checker {
     /// `docs/schema/deck.schema.json`.
     pub fn deck() -> &'static Checker {
         static DECK: OnceLock<Checker> = OnceLock::new();
-        DECK.get_or_init(|| Checker::new(deck_schema()))
+        DECK.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/deck.schema.json"))))
     }
 
     /// `docs/schema/theme.schema.json`.
     pub fn theme() -> &'static Checker {
         static THEME: OnceLock<Checker> = OnceLock::new();
-        THEME.get_or_init(|| Checker::new(theme_schema()))
+        THEME.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/theme.schema.json"))))
+    }
+
+    /// `docs/schema/spine.schema.json`: what `export --format spine` writes (SPEC §10).
+    pub fn spine() -> &'static Checker {
+        static SPINE: OnceLock<Checker> = OnceLock::new();
+        SPINE.get_or_init(|| Checker::new(committed(include_str!("../../../../docs/schema/spine.schema.json"))))
     }
 
     fn new(root: Value) -> Checker {
@@ -125,6 +139,43 @@ impl Checker {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// What the schema allows a node of type `tag` for `prop`: one of its properties
+    /// (`fit`), or one key of an object property (`style/color`), references followed.
+    /// `None` for a property the type does not have.
+    pub fn property(&self, tag: &str, prop: &str) -> Option<&Value> {
+        let (def, _) = self.node_types().into_iter().find(|(_, t)| t == tag)?;
+        let mut at = self.defs.get(&def)?;
+        for name in prop.split('/') {
+            at = self.member(self.follow(at), name)?;
+        }
+        Some(self.follow(at))
+    }
+
+    /// What the schema allows definition `def` (`State`, `TransitionSpec`) for its property
+    /// `prop`, references followed. `None` for a property it does not have.
+    pub fn def_property(&self, def: &str, prop: &str) -> Option<&Value> {
+        Some(self.follow(self.member(self.defs.get(def)?, prop)?))
+    }
+
+    /// `name` among the properties of `schema`, else of the definition it refers to: a
+    /// node's own properties, then those every node has.
+    fn member<'s>(&'s self, schema: &'s Value, name: &str) -> Option<&'s Value> {
+        let own = schema.get("properties").and_then(|p| p.get(name));
+        own.or_else(|| self.member(self.defs.get(def_of(schema.get("$ref")?.as_str()?))?, name))
+    }
+
+    /// The definition `schema` only refers to (`{"$ref": …}`, perhaps with a description or
+    /// a default), followed to what it says.
+    fn follow<'s>(&'s self, schema: &'s Value) -> &'s Value {
+        let only = schema
+            .as_object()
+            .is_some_and(|s| s.keys().all(|k| matches!(k.as_str(), "$ref" | "description" | "default")));
+        match schema.get("$ref").and_then(Value::as_str).and_then(|r| self.defs.get(def_of(r))) {
+            Some(target) if only => self.follow(target),
+            _ => schema,
+        }
     }
 
     fn run(&self, schema: &Value, value: &Value, path: &str, def: Option<&str>) -> Outcome {
@@ -318,6 +369,17 @@ impl Checker {
     /// form the author most likely meant: the node type the value names, else the one form
     /// that takes this kind of value, else the object form closest to matching.
     fn union(&self, key: &str, branches: &[Value], value: &Value, path: &str, def: Option<&str>, out: &mut Outcome) {
+        // A node that names one of the union's types is checked as that type alone. Every
+        // other type's `type` is another constant, so no other branch could pass, and their
+        // violations would be dropped: the outcome is the same, at a tenth of the work.
+        if dispatches()
+            && let Some(tags) = self.tags(branches)
+            && let Some(tag) = value.get("type").and_then(Value::as_str)
+            && let [i] = tags.iter().enumerate().filter(|(_, t)| *t == tag).map(|(i, _)| i).collect::<Vec<_>>()[..]
+        {
+            out.absorb(self.run(&branches[i], value, path, def));
+            return;
+        }
         let results: Vec<Outcome> = branches.iter().map(|b| self.run(b, value, path, def)).collect();
         let passing: Vec<&Outcome> = results.iter().filter(|r| r.errors.is_empty()).collect();
         if key == "oneOf" && passing.len() > 1 {
@@ -518,6 +580,23 @@ struct Outcome {
     claimed: BTreeSet<String>,
 }
 
+/// Whether a union of node types checks a node as the type it names alone (see
+/// `Checker::union`). Always, but in the test that holds it to checking every branch.
+#[cfg(not(test))]
+fn dispatches() -> bool {
+    true
+}
+
+#[cfg(test)]
+thread_local! {
+    static EVERY_BRANCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn dispatches() -> bool {
+    !EVERY_BRANCH.get()
+}
+
 impl Outcome {
     fn push(&mut self, path: &str, kind: Kind, def: Option<&str>, message: String) {
         self.errors.push(Violation { path: path.into(), kind, message, def: def.map(String::from) });
@@ -689,4 +768,81 @@ fn distance(a: &str, b: &str) -> usize {
         }
     }
     row[b.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    /// Every deck the repository holds, as JSON.
+    fn decks() -> Vec<(PathBuf, Value)> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut found = Vec::new();
+        let mut dirs = vec![root.join("docs/examples"), root.join("tests")];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().map(Result::unwrap) {
+                let path = entry.path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if name == "deck.json" || name.ends_with(".deck.json") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    if let Ok(deck) = serde_json::from_str(&text) {
+                        found.push((path, deck));
+                    }
+                }
+            }
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found
+    }
+
+    /// The violations with every branch of a node union checked, as before dispatching.
+    fn by_every_branch<T>(check: impl FnOnce() -> T) -> T {
+        EVERY_BRANCH.set(true);
+        let found = check();
+        EVERY_BRANCH.set(false);
+        found
+    }
+
+    /// Checking a node as the type it names finds what checking it against every node type
+    /// found: on every deck the repository holds, and on each of their nodes broken each of
+    /// these ways: named as another type, named as no type, given no type, given a property
+    /// no type has, and given a property of the wrong kind.
+    #[test]
+    fn a_node_checked_as_its_type_finds_what_every_branch_found() {
+        let checker = Checker::deck();
+        let types: Vec<String> = checker.node_types().into_iter().map(|(_, tag)| tag).collect();
+        let decks = decks();
+        assert!(decks.len() > 20, "found {} decks", decks.len());
+        for (path, deck) in &decks {
+            assert_eq!(checker.check(deck), by_every_branch(|| checker.check(deck)), "{}", path.display());
+            let Some(nodes) = deck.get("nodes").and_then(Value::as_object) else { continue };
+            for (k, (id, node)) in nodes.iter().enumerate().take(12) {
+                let mut variants = vec![node.clone()];
+                let mut other = node.clone();
+                other["type"] = Value::from(types[k % types.len()].as_str());
+                variants.push(other);
+                let mut nonsense = node.clone();
+                nonsense["type"] = Value::from("nonsense");
+                variants.push(nonsense);
+                let mut untyped = node.clone();
+                untyped.as_object_mut().map(|o| o.remove("type"));
+                variants.push(untyped);
+                let mut unknown = node.clone();
+                unknown["colour"] = Value::from(1);
+                variants.push(unknown);
+                let mut wrong = node.clone();
+                wrong["at"] = Value::from(5);
+                variants.push(wrong);
+                for (v, variant) in variants.iter().enumerate() {
+                    let at = format!("/nodes/{id}");
+                    let fast = checker.check_def("Node", variant, &at);
+                    let full = by_every_branch(|| checker.check_def("Node", variant, &at));
+                    assert_eq!(fast, full, "{}: {id}, variant {v}", path.display());
+                }
+            }
+        }
+    }
 }

@@ -1,0 +1,90 @@
+{
+  "name": "theme_edit",
+  "description": "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, by RFC 6902 operations on its JSON (`ops`, each path a JSON Pointer into the theme: `/tokens/color/accent`, `/type/roles/body/size`, `/grid/gutter`). Every node that names what the edit changes changes with it, so a look asked of the whole deck is an edit here, not a literal in each node. Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is reported. A theme that ships is edited in the bundle's copy.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": ["bundle", "ops"],
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
+      "ops": {
+        "description": "RFC 6902 operations on the theme the deck names, applied in order, all or none: each\npath a JSON Pointer into the theme's JSON (`/tokens/color/accent`,\n`/type/roles/body/size`, `/grid/gutter`), for a theme file and an inline theme alike.",
+        "type": "array",
+        "items": true
+      },
+      "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "Finding": {
+        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "$ref": "#/$defs/Severity" },
+          "message": { "type": "string" },
+          "file": {
+            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
+            "type": ["string", "null"]
+          },
+          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "node": { "type": ["string", "null"] },
+          "format": {
+            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
+            "type": ["string", "null"]
+          },
+          "measure": true,
+          "hint": { "type": ["string", "null"] },
+          "fix": {
+            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
+            "type": ["array", "null"],
+            "items": true
+          }
+        },
+        "required": ["code", "severity", "message"]
+      },
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+    },
+    "required": ["theme", "paths", "applied", "listed", "added", "removed", "errors", "refused"],
+    "type": "object",
+    "properties": {
+      "theme": {
+        "description": "The theme edited: its path in the bundle, or `(inline)` for one written in the deck.",
+        "type": "string"
+      },
+      "paths": {
+        "description": "Where in the theme the edit writes: each operation's path, once, in order.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "applied": {
+        "description": "Whether the edit stands: not under a dry run, nor when it was refused.",
+        "type": "boolean"
+      },
+      "listed": {
+        "description": "The theme's families the deck's `fonts` now lists, as rendering needs them to be:\n`family `key`: file`. Each is a file the bundle holds that the deck did not list.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "added": {
+        "description": "What `validate` and `lint` find in the theme as edited that they did not before.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "removed": {
+        "description": "What they found before that they do not after.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Finding" }
+      },
+      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
+      "refused": {
+        "description": "Whether the edit was refused: it would have added a validation error (in `added`). The\ntheme stays as it was.",
+        "type": "boolean"
+      }
+    }
+  }
+}

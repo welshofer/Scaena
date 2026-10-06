@@ -6,19 +6,26 @@
 
 use scaena_core::format::{DateTime, exponent_of};
 
+/// The most ticks [`ticks`] makes: many times what any count asks for.
+const MAX_TICKS: f64 = 1000.0;
+
 /// √50, √10, √2: where d3 rounds a tick step up to 10, 5, and 2 times its magnitude.
 const E10: f64 = 7.071_067_811_865_475_5;
 const E5: f64 = 3.162_277_660_168_379_5;
 const E2: f64 = std::f64::consts::SQRT_2;
 
-/// 10^e: exact for 0 ≤ e ≤ 22, and the correctly rounded literal for −22 ≤ e < 0.
+/// 10^e: exact for 0 ≤ e ≤ 22, and the correctly rounded literal for −22 ≤ e < 0. Past
+/// them, the literal as Rust reads it, which is correctly rounded on every platform.
 fn pow10(e: i32) -> f64 {
     const TABLE: [f64; 45] = [
         1e-22, 1e-21, 1e-20, 1e-19, 1e-18, 1e-17, 1e-16, 1e-15, 1e-14, 1e-13, 1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7,
         1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13,
         1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
     ];
-    TABLE[(e.clamp(-22, 22) + 22) as usize]
+    match e {
+        -22..=22 => TABLE[(e + 22) as usize],
+        _ => format!("1e{e}").parse().expect("a float literal"),
+    }
 }
 
 /// d3's `tickSpec`: ticks are `i × inc` for `i` in `i1..=i2`, or `i / −inc` when `inc`
@@ -75,8 +82,13 @@ pub fn ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
         return vec![start];
     }
     let (lo, hi) = if stop < start { (stop, start) } else { (start, stop) };
+    if !(hi - lo).is_finite() {
+        return Vec::new();
+    }
     let (i1, i2, inc) = tick_spec(lo, hi, count as f64);
-    if i2 < i1 {
+    // About `count` of them, unless the ends are too far from zero for f64 to count the
+    // steps between them: then none.
+    if !(0.0..=MAX_TICKS).contains(&(i2 - i1)) {
         return Vec::new();
     }
     let mut out: Vec<f64> = (0..=(i2 - i1) as i64)
@@ -284,6 +296,15 @@ impl LinearScale {
         let ([d0, d1], [r0, r1]) = (self.domain, self.range);
         (f64::from(r0) - (v - d0) / (d1 - d0) * f64::from(r0 - r1)) as f32
     }
+
+    /// The value `map` places at `p`: its inverse, beyond the range too (PLAN 2.67).
+    pub fn invert(&self, p: f32) -> f64 {
+        let ([d0, d1], [r0, r1]) = (self.domain, self.range);
+        if r0 == r1 {
+            return d0;
+        }
+        d0 + (f64::from(r0) - f64::from(p)) / f64::from(r0 - r1) * (d1 - d0)
+    }
 }
 
 #[cfg(test)]
@@ -301,6 +322,19 @@ mod tests {
         assert_eq!(ticks(3.0, 3.0, 5), [3.0]);
         assert_eq!(tick_step(0.0, 38.0, 5), 10.0);
         assert_eq!(tick_step(0.0, 1.0, 5), 0.2);
+    }
+
+    /// Data far past 10^22, or a hair from zero, ticks as any other: a handful of round
+    /// steps. A range wider than f64 holds has none.
+    #[test]
+    fn ticks_hold_at_the_ends_of_f64() {
+        assert_eq!(ticks(0.0, 1e300, 5).len(), 6, "{:?}", ticks(0.0, 1e300, 5));
+        assert_eq!(ticks(0.0, 1e300, 5)[1], 2e299);
+        assert_eq!(ticks(0.0, 1e-300, 5).len(), 6, "{:?}", ticks(0.0, 1e-300, 5));
+        assert!(ticks(0.0, 1e25, 5).iter().zip(ticks(0.0, 1e25, 5).iter().skip(1)).all(|(a, b)| a < b));
+        assert_eq!(ticks(-f64::MAX, f64::MAX, 5), Vec::<f64>::new());
+        assert_eq!(nice(0.0, 1e300, 5, [true, true]).1, 1e300);
+        assert_eq!(pow10(23), 1e23);
     }
 
     #[test]

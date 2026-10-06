@@ -1,6 +1,6 @@
 {
-  "scaena": "0.9",
-  "_comment": "E101 trigger: two paragraphs in one slot, at the same z; then a chart placed by cells into the footer's row, over its caption, as the example deck's chart was.",
+  "scaena": "0.11",
+  "_comment": "E101 trigger: two paragraphs in one slot, at the same z; then a chart placed by cells into the footer's row, over its caption, as the example deck's chart was; then a source note over a card in a stack, the stack and the note at the same z, as gate 1's cost cards were.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
@@ -9,10 +9,14 @@
     "a": {"type": "text", "role": "body", "text": "First paragraph"},
     "b": {"type": "text", "role": "body", "text": "Second paragraph"},
     "k": {"type": "chart", "kind": "bar", "data": "@sales", "x": {"field": "quarter"}, "y": {"field": "revenue"}, "series": {"field": "product"}, "alt": "Revenue by quarter and product.", "at": {"col": [1, 12], "row": [2, 6]}},
-    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}}
+    "note": {"type": "text", "role": "caption", "text": "Revenue by quarter.", "at": {"in": "footer"}},
+    "cards": {"type": "stack", "at": {"in": "main"}},
+    "card": {"type": "text", "role": "body", "text": "Cost per rider", "at": {"parent": "cards"}},
+    "src": {"type": "text", "role": "caption", "text": "Source: the pilot.", "at": {"in": "main"}}
   },
   "states": [
     {"id": "s", "layout": "full", "props": {"a": {"at": {"in": "main"}}, "b": {"at": {"in": "main"}}}},
-    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}}
+    {"id": "t", "layout": "figure", "remove": ["a", "b"], "props": {"k": {}, "note": {}}},
+    {"id": "u", "layout": "full", "remove": ["k", "note"], "props": {"cards": {}, "card": {}, "src": {}}}
   ]
 }

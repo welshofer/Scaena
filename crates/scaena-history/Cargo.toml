@@ -1,0 +1,20 @@
+[package]
+name = "scaena-history"
+description = "A bundle's history as its own WASM module, which a page loads to save a bundle that keeps one (PLAN 2.9)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+scaena-store.workspace = true
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+
+[dev-dependencies]
+scaena-core.workspace = true

@@ -61,6 +61,53 @@ fn a_theme_that_has_every_name_the_deck_uses_changes_no_finding() {
     assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
 }
 
+/// `theme --edit` (PLAN 2.61, ADR-0016): the theme the deck names, edited by RFC 6902 operations
+/// and written in canonical form, the deck as it was; refused, exit 1, where the deck would not
+/// validate in it; exit 2 at an op that does not apply, which it names.
+#[test]
+fn a_theme_is_edited_where_the_deck_names_it_and_refused_where_the_deck_needs_what_it_takes() {
+    let dir = example("edit");
+    let deck_before = std::fs::read(dir.join("deck.json")).unwrap();
+    let ops = dir.join("ops.json");
+    let edit = |ops_json: &str, json: bool| {
+        std::fs::write(&ops, ops_json).unwrap();
+        let mut args = vec!["theme", dir.to_str().unwrap(), "--edit", ops.to_str().unwrap()];
+        if json {
+            args.insert(0, "--json");
+        }
+        scaena(&args)
+    };
+    let out = edit(
+        r##"[{"op": "replace", "path": "/tokens/color/accent", "value": "#2E86E4"},
+             {"op": "replace", "path": "/grid/gutter", "value": 32}]"##,
+        false,
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("edited themes/dusk.theme.json at /tokens/color/accent, /grid/gutter"), "{stdout}");
+    let text = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
+    let theme: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(theme["tokens"]["color"]["accent"], "#2E86E4");
+    assert_eq!(theme["grid"]["gutter"], 32);
+    assert_eq!(text, serde_json::to_string_pretty(&theme).unwrap() + "\n", "written in canonical form");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), deck_before, "the deck is as it was");
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+
+    // A role the deck uses, taken out: refused, and nothing written.
+    let out = edit(r#"[{"op": "remove", "path": "/type/roles/headline"}]"#, true);
+    assert_eq!(out.status.code(), Some(1));
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((said["refused"].as_bool(), said["applied"].as_bool()), (Some(true), Some(false)), "{said:#}");
+    assert!(said["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{said:#}");
+    assert_eq!(std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap(), text);
+
+    // An op that does not apply.
+    let out = edit(r#"[{"op": "replace", "path": "/no/such", "value": 1}]"#, true);
+    assert_eq!(out.status.code(), Some(2));
+    let failed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(failed["error"]["op"], 0, "{failed:#}");
+}
+
 #[test]
 fn a_theme_that_lacks_names_the_deck_uses_says_which_and_exits_1() {
     let dir = example("lacking");
@@ -84,6 +131,63 @@ fn a_theme_that_lacks_names_the_deck_uses_says_which_and_exits_1() {
     // A dry run writes nothing.
     assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
     assert!(!dir.join("themes/theme.json").exists());
+}
+
+/// A theme that would leave the deck invalid is refused, as a patch that would is (PLAN
+/// 1.35): the deck keeps its theme, and the new one is copied in for a patch that swaps it
+/// with the fixes, all or none. `--force` applies it anyway.
+#[test]
+fn a_theme_that_would_leave_the_deck_invalid_is_refused_unless_forced() {
+    let dir = example("refused");
+    let before = std::fs::read(dir.join("deck.json")).unwrap();
+    let theme = "../../tests/lint/theme.json";
+    let out = scaena(&["--json", "theme", dir.to_str().unwrap(), "--apply", theme]);
+    assert_eq!(out.status.code(), Some(1));
+    let refused: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((&refused["refused"], &refused["applied"]), (&true.into(), &false.into()), "{refused:#}");
+    assert!(refused["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{refused:#}");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before, "the deck keeps its theme");
+    assert!(dir.join("themes/theme.json").exists(), "the theme is copied in");
+    // The copy is for a patch with the `retheme` op and the fixes; alone, the op is refused too.
+    let ops = dir.join("retheme.json");
+    std::fs::write(&ops, r#"[{ "op": "retheme", "theme": "themes/theme.json" }]"#).unwrap();
+    let out = scaena(&["patch", dir.to_str().unwrap(), "--ops", ops.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("refused:"));
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), before);
+    // Forced, it applies, and the deck is left with its errors.
+    let out = scaena(&["theme", dir.to_str().unwrap(), "--apply", theme, "--force"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("applied themes/theme.json"));
+    assert_eq!(deck(&dir)["theme"], "themes/theme.json");
+}
+
+#[test]
+fn a_theme_whose_grid_is_too_small_is_refused_at_each_placement_past_it() {
+    // Gate 1's case (PLAN 1.37): a deck placed on 12 rows, onto a theme of 6. Each cell past
+    // the grid is an E102 naming its size, so the re-theme is refused, as for a missing name.
+    let dir = example("small-grid");
+    let mut ember: serde_json::Value =
+        serde_json::from_slice(&std::fs::read("../../docs/examples/themes/ember.theme.json").unwrap()).unwrap();
+    ember["grid"]["rows"] = 6.into();
+    let small = dir.join("small.theme.json");
+    std::fs::write(&small, serde_json::to_vec_pretty(&ember).unwrap()).unwrap();
+    let deck = "../../docs/examples/higher-ed.deck.json";
+    let out = scaena(&["--json", "theme", deck, "--apply", small.to_str().unwrap(), "--dry-run"]);
+    assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
+    let t: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(t["refused"], true, "{t:#}");
+    let past: Vec<&str> = t["added"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["code"] == "E102")
+        .map(|f| f["message"].as_str().unwrap())
+        .collect();
+    assert!(
+        !past.is_empty() && past.iter().all(|m| m.ends_with("past the theme's grid, which has 6 rows")),
+        "{past:#?}"
+    );
 }
 
 #[test]
@@ -144,5 +248,92 @@ fn copy_dir(from: &Path, to: &Path) {
         } else {
             std::fs::copy(entry.path(), target).unwrap();
         }
+    }
+}
+
+/// The shipped themes, by name: Dusk, its light twin Daybreak, and Ember.
+const SHIPPED: [(&str, &str); 3] = [
+    ("dusk", "../../docs/examples/themes/dusk.theme.json"),
+    ("daybreak", DAYBREAK),
+    ("ember", "../../docs/examples/themes/ember.theme.json"),
+];
+
+/// What a theme names that a deck may use (SPEC §3.6): its layouts and their slots, roles,
+/// families, colors, color roles, data palettes, shader presets and palettes, motion, and the
+/// shape of its grid.
+fn vocabulary(path: &str) -> serde_json::Value {
+    let t: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let keys = |v: &serde_json::Value| {
+        let mut k: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+        k.sort();
+        k
+    };
+    let layouts: serde_json::Map<String, serde_json::Value> =
+        t["layouts"].as_object().unwrap().iter().map(|(name, l)| (name.clone(), keys(&l["slots"]).into())).collect();
+    serde_json::json!({
+        "layouts": layouts,
+        "roles": keys(&t["type"]["roles"]),
+        "families": keys(&t["type"]["families"]),
+        "colors": keys(&t["tokens"]["color"]),
+        "colorRoles": keys(&t["tokens"]["roles"]),
+        "data": keys(&t["tokens"]["data"]),
+        "presets": keys(&t["shaders"]["presets"]),
+        "palettes": keys(&t["shaders"]["palettes"]),
+        "durations": keys(&t["motion"]["durations"]),
+        "easings": keys(&t["motion"]["easings"]),
+        "springs": keys(&t["motion"]["springs"]),
+        "motion": keys(&t["motion"]["presets"]),
+        "grid": [&t["grid"]["columns"], &t["grid"]["rows"]],
+    })
+}
+
+/// One vocabulary for the shipped themes (PLAN 1.34): each defines the names the others do,
+/// for the same jobs, on a grid of the same shape, so a deck moves between them by swapping
+/// the file. Dusk's copy in the authorability bundle is Dusk.
+#[test]
+fn the_shipped_themes_name_the_same_things() {
+    let dusk = vocabulary(SHIPPED[0].1);
+    for (name, path) in &SHIPPED[1..] {
+        assert_eq!(vocabulary(path), dusk, "{name} names what Dusk does");
+    }
+    assert_eq!(
+        std::fs::read("../../docs/examples/authorability/themes/dusk.theme.json").unwrap(),
+        std::fs::read(SHIPPED[0].1).unwrap()
+    );
+}
+
+/// Every example deck re-themes onto every shipped theme with no name it lacks (PLAN 1.34):
+/// no E102, so no swap is refused. What the new type and colors break is lint's to say, in
+/// the delta.
+#[test]
+fn every_example_deck_moves_between_the_shipped_themes() {
+    let decks = [
+        "revenue.deck.json",
+        "charts.deck.json",
+        "trails.deck.json",
+        "higher-ed.deck.json",
+        "ridgeline.deck.json",
+        "authorability",
+    ];
+    let runs: Vec<(String, String)> = std::thread::scope(|s| {
+        let jobs: Vec<_> = decks
+            .iter()
+            .flat_map(|deck| SHIPPED.iter().map(move |(name, theme)| (*deck, *name, *theme)))
+            .map(|(deck, name, theme)| {
+                s.spawn(move || {
+                    let path = format!("../../docs/examples/{deck}");
+                    let out = scaena(&["--json", "theme", &path, "--apply", theme, "--dry-run"]);
+                    (format!("{deck} onto {name}"), String::from_utf8(out.stdout).unwrap())
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    for (run, stdout) in runs {
+        let t: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{run}: {e}: {stdout}"));
+        assert_eq!(t["refused"], false, "{run}: {t:#}");
+        let missing: Vec<&serde_json::Value> =
+            t["added"].as_array().unwrap().iter().filter(|f| f["code"] == "E102").collect();
+        assert!(missing.is_empty(), "{run}: {missing:#?}");
     }
 }

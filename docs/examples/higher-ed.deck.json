@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "meta": {
     "title": "The State of Higher Education 2026",
     "author": "Jeff Selingo",
@@ -38,6 +38,57 @@
         "opsz": [
           14,
           32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100,
+          800
         ]
       }
     }
@@ -893,7 +944,7 @@
       "semantic": "evidence",
       "alt": "A schematic from 1965 to 2026: the line for scope rises ever more steeply while the line for resources rises and flattens; the widening gap between them is the strain.",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "exit": {
         "preset": "fade",
@@ -1455,7 +1506,7 @@
     "strain-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -1852,7 +1903,7 @@
       "alt": "Share of colleges posting a loss in fiscal 2024: public 17%, private nonprofit 31%.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -1874,7 +1925,7 @@
     "red-ink-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -1989,7 +2040,7 @@
       "alt": "International graduate students in the US: 329,000 in 2020-21, a record 502,000 in 2023-24, 488,000 in 2024-25, and 429,000 in fall 2025.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "exit": {
         "preset": "fade",
@@ -2003,7 +2054,7 @@
     "intl-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -2282,7 +2333,7 @@
       "alt": "University R&D spending in fiscal 2024 by source: federal $64.7B, institutions' own funds $30.2B, other $22.8B.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -2304,7 +2355,7 @@
     "rd-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -2652,7 +2703,7 @@
       "alt": "Share of programs below the earnings benchmark by credential: certificates 45%, associate 7%, master's 4%, bachelor's 1.2%.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -2674,7 +2725,7 @@
     "floor-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -2975,7 +3026,7 @@
     "athletics-side": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.4",
       "semantic": "evidence",
@@ -4584,7 +4635,7 @@
       "alt": "Notable AI models released in 2025 by origin: industry 93, industry–academia 5, other 2, academia 2.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -4606,7 +4657,7 @@
     "compute-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -5343,7 +5394,7 @@
       "alt": "Master's degrees awarded in 2023: 495,000 from programs available online, 397,000 from classroom-only programs.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -5365,7 +5416,7 @@
     "demand-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -5507,7 +5558,7 @@
       "alt": "Average years in the current presidency: 8.5 in 2006, 7.0 in 2011, 6.5 in 2016, 5.9 in 2022.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "exit": {
         "preset": "fade",
@@ -5521,7 +5572,7 @@
     "leaders-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -5636,7 +5687,7 @@
       "alt": "Confidence in higher education in 2026: all adults 38%, Democrats 50%, independents 39%, Republicans 23%, enrolled students 90%.",
       "semantic": "evidence",
       "at": {
-        "in": "chart"
+        "in": "main"
       },
       "annotations": [
         {
@@ -5658,7 +5709,7 @@
     "trust-facts": {
       "type": "stack",
       "at": {
-        "in": "side"
+        "in": "note"
       },
       "gap": "space.6",
       "semantic": "evidence",
@@ -6772,7 +6823,7 @@
       "role": "caption",
       "semantic": "source",
       "at": {
-        "in": "footer"
+        "in": "note"
       },
       "text": "The State of Higher Education 2026 · jeffselingo.com",
       "exit": {
@@ -6974,7 +7025,7 @@
     {
       "id": "strain",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7001,7 +7052,7 @@
     {
       "id": "strain-2",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7032,7 +7083,7 @@
     {
       "id": "strain-3",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7132,7 +7183,7 @@
     {
       "id": "red-ink",
       "mode": "absolute",
-      "layout": "narrow-chart",
+      "layout": "narrow-figure",
       "transition": {
         "duration": "standard"
       },
@@ -7155,7 +7206,7 @@
     {
       "id": "intl",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7219,7 +7270,7 @@
     {
       "id": "rd",
       "mode": "absolute",
-      "layout": "narrow-chart",
+      "layout": "narrow-figure",
       "transition": {
         "duration": "standard"
       },
@@ -7283,7 +7334,7 @@
     {
       "id": "floor",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7333,7 +7384,7 @@
     {
       "id": "athletics",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7658,7 +7709,7 @@
     {
       "id": "compute",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7769,7 +7820,7 @@
     {
       "id": "demand",
       "mode": "absolute",
-      "layout": "narrow-chart",
+      "layout": "narrow-figure",
       "transition": {
         "duration": "standard"
       },
@@ -7794,7 +7845,7 @@
     {
       "id": "leaders",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },
@@ -7818,7 +7869,7 @@
     {
       "id": "trust",
       "mode": "absolute",
-      "layout": "chart",
+      "layout": "figure",
       "transition": {
         "duration": "standard"
       },

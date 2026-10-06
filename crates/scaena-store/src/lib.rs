@@ -1,6 +1,7 @@
 //! # scaena-store
 //!
-//! Bundle I/O (SPEC §3.1, PLAN 1.4) now; the CRDT document (SPEC §8, ADR-0002) in PLAN 1.23.
+//! Bundle I/O (SPEC §3.1, PLAN 1.4), and the CRDT document that keeps a bundle's history
+//! ([`crdt`], SPEC §8, ADR-0002, PLAN 1.23).
 //!
 //! A bundle is a directory `name.scaena/` or a zip of the same layout, `name.scaena`. It
 //! opens either way, or from a bare deck file (its directory is the bundle). `deck.json`
@@ -8,12 +9,25 @@
 //! or inline. [`Bundle::save`] writes a bundle back as SPEC §3.1 lays it out: fonts
 //! subset to what the deck can draw ([`subset`]), assets and fonts content-addressed, and a
 //! manifest.
+//!
+//! A bundle that keeps `history/deck.loro` keeps its history: whatever writes its deck
+//! records the change there too ([`Bundle::record`]), by the bundle's `author`, after taking
+//! in, as a change by `fs`, any edit made to `deck.json` outside Scaena since. It keeps the
+//! files the deck is drawn from beside it ([`kept_paths`]): its data files (ADR-0014) and its
+//! theme (ADR-0016).
+//!
+//! A bundle can also live in memory, as a page holds one (PLAN 2.4): opened from its files
+//! ([`Bundle::in_memory`]) or a `.scaena` zip's bytes ([`Bundle::from_zip`]), and saved to
+//! a set of files ([`Bundle::saving`]) the caller writes where it keeps them, or zips
+//! ([`zip`]).
 
+pub mod crdt;
 mod save;
 pub mod subset;
 
-pub use save::{SaveOptions, Saved};
+pub use save::{SaveOptions, Saved, Saving, place, zip};
 
+use crdt::{CrdtError, DeckDoc, Edit};
 use scaena_core::Deck;
 use scaena_core::validate::BundleFiles;
 use std::collections::BTreeMap;
@@ -44,9 +58,19 @@ pub enum StoreError {
     Occupied(PathBuf),
     #[error("not implemented yet: {0} (see docs/PLAN.md)")]
     NotImplemented(&'static str),
+    #[error("{HISTORY}: {0}")]
+    Crdt(#[from] CrdtError),
+    /// What keeps the history elsewhere, as a page's module does (PLAN 2.9), could not
+    /// record in it.
+    #[error("{HISTORY}: {0}")]
+    History(String),
 }
 
-/// Where a bundle's files are: a directory on disk, or the entries of a zip, read once.
+/// Where a bundle keeps its CRDT document and its history (SPEC §3.1, §8).
+pub const HISTORY: &str = "history/deck.loro";
+
+/// Where a bundle's files are: a directory on disk, or in memory, by their paths inside
+/// the bundle: the entries of a zip, read once, or the files a page holds.
 #[derive(Debug, Clone)]
 pub enum Files {
     Dir(PathBuf),
@@ -68,13 +92,27 @@ impl Files {
         }
     }
 
+    /// The size of the file at `rel`, in bytes.
+    pub fn size(&self, rel: &str) -> Result<u64, StoreError> {
+        match self {
+            Files::Dir(root) => {
+                let path = inside(root, rel)?;
+                std::fs::metadata(&path).map(|m| m.len()).map_err(|source| StoreError::Read { path, source })
+            }
+            Files::Zip(entries) => {
+                let key = normal(rel)?;
+                entries.get(&key).map(|bytes| bytes.len() as u64).ok_or(StoreError::Missing(key))
+            }
+        }
+    }
+
     /// Every file in the bundle, by its path inside it, sorted.
     pub fn list(&self) -> Result<Vec<String>, StoreError> {
         match self {
             Files::Dir(root) => {
                 let mut out = Vec::new();
                 walk(root, root, &mut out)?;
-                out.sort();
+                scaena_core::sort::sort(&mut out);
                 Ok(out)
             }
             Files::Zip(entries) => Ok(entries.keys().cloned().collect()),
@@ -115,6 +153,9 @@ pub struct Bundle {
     pub deck: Deck,
     pub theme_json: Option<String>,
     pub files: Files,
+    /// Who edits it: `user` unless the client says otherwise, as `agent:<name>` (SPEC §8.2).
+    /// Changes written to its history are theirs.
+    pub author: String,
 }
 
 impl Bundle {
@@ -125,7 +166,25 @@ impl Bundle {
         let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
         let deck = Deck::from_json(&text)?;
         let theme_json = theme_of(&deck, &files)?;
-        Ok(Bundle { root, deck_file, deck, theme_json, files })
+        Ok(Bundle { root, deck_file, deck, theme_json, files, author: "user".into() })
+    }
+
+    /// A bundle held in memory: `files`, by their paths inside it, with its deck at
+    /// `deck.json` (PLAN 2.4). A path outside the bundle is refused.
+    pub fn in_memory(files: BTreeMap<String, Vec<u8>>) -> Result<Bundle, StoreError> {
+        let files: BTreeMap<String, Vec<u8>> =
+            files.into_iter().map(|(rel, bytes)| Ok((normal(&rel)?, bytes))).collect::<Result<_, StoreError>>()?;
+        let files = Files::Zip(Arc::new(files));
+        let deck_file = "deck.json".to_string();
+        let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
+        let deck = Deck::from_json(&text)?;
+        let theme_json = theme_of(&deck, &files)?;
+        Ok(Bundle { root: PathBuf::from("deck.scaena"), deck_file, deck, theme_json, files, author: "user".into() })
+    }
+
+    /// A `.scaena` zip's bytes, opened in memory.
+    pub fn from_zip(bytes: &[u8]) -> Result<Bundle, StoreError> {
+        Bundle::in_memory(unzip_from(std::io::Cursor::new(bytes), Path::new("deck.scaena"))?)
     }
 
     /// A path the deck names (theme, fonts, data), resolved inside a directory bundle.
@@ -137,6 +196,48 @@ impl Bundle {
     /// The file at `rel` inside the bundle.
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, StoreError> {
         self.files.read(rel)
+    }
+
+    /// The bundle's CRDT document, if it keeps one ([`HISTORY`]), with `deck.json` and the
+    /// files it is drawn from as they are now taken in: a deck edited outside Scaena since it
+    /// was last written goes in as a change by `fs` (SPEC §8.1), and then so does a data file
+    /// or a theme replaced or edited outside it, or one the history does not hold yet
+    /// (ADR-0014, ADR-0016).
+    pub fn history(&self) -> Result<Option<DeckDoc>, StoreError> {
+        if !self.files.exists(HISTORY) {
+            return Ok(None);
+        }
+        let doc = DeckDoc::load(&self.read(HISTORY)?)?;
+        let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
+        doc.outside(&disk, &self.kept_files(&disk, &BTreeMap::new()), None)?;
+        Ok(Some(doc))
+    }
+
+    /// The history to write beside `deck`, if the bundle keeps one: with the change from
+    /// the deck it holds to `deck` recorded as `edit` says, and the files the history keeps
+    /// beside `deck` ([`kept_paths`]) that `written` holds, as they are written there, in the
+    /// same change (ADR-0014, ADR-0016).
+    pub fn record(
+        &self,
+        deck: &Deck,
+        written: &BTreeMap<String, Vec<u8>>,
+        edit: &Edit,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let Some(doc) = self.history()? else { return Ok(None) };
+        let files: Vec<(String, Vec<u8>)> = kept_paths(deck)
+            .into_iter()
+            .filter_map(|path| written.get(path).map(|bytes| (path.to_string(), bytes.clone())))
+            .collect();
+        doc.apply_with(deck, &files, edit)?;
+        Ok(Some(doc.save()?))
+    }
+
+    /// The files the history keeps beside `deck` ([`kept_paths`]), as (bundle path, bytes), in
+    /// deck order: each as `written` has it, else as the bundle holds it; one neither holds is
+    /// left out.
+    pub fn kept_files(&self, deck: &Deck, written: &BTreeMap<String, Vec<u8>>) -> Vec<(String, Vec<u8>)> {
+        let bytes = |path: &str| written.get(path).cloned().or_else(|| self.read(path).ok());
+        kept_paths(deck).into_iter().filter_map(|path| Some((path.to_string(), bytes(path)?))).collect()
     }
 
     /// The deck's font files (`fonts[].file`) in deck order, as (bundle id, bytes). The
@@ -161,6 +262,20 @@ impl Bundle {
         }
         Ok(out)
     }
+}
+
+/// The files a bundle's history keeps beside `deck`, by their paths, each once: those its data
+/// sources name (`data.*.source` strings), in deck order (ADR-0014), then the theme file it
+/// names (ADR-0016). An inline theme or inline rows are the deck's own.
+pub fn kept_paths(deck: &Deck) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    let data = deck.data.values().filter_map(|source| source.source.as_str());
+    for path in data.chain(deck.theme.as_ref().and_then(|theme| theme.as_str())) {
+        if !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
 }
 
 /// A bundle's deck file as text, unparsed, and the bundle's files: what `scaena validate`
@@ -189,9 +304,15 @@ fn locate(path: &Path) -> Result<(PathBuf, String, Files), StoreError> {
 
 /// Every file in a zip bundle, by its path inside it.
 fn unzip(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
-    let zip_error = |source| StoreError::Zip { path: path.to_path_buf(), source };
     let file = std::fs::File::open(path).map_err(|source| StoreError::Read { path: path.into(), source })?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error)?;
+    unzip_from(file, path)
+}
+
+/// Every file in the zip `reader` holds, by its path inside the bundle; `path` names it in
+/// an error.
+fn unzip_from(reader: impl Read + std::io::Seek, path: &Path) -> Result<BTreeMap<String, Vec<u8>>, StoreError> {
+    let zip_error = |source| StoreError::Zip { path: path.to_path_buf(), source };
+    let mut archive = zip::ZipArchive::new(reader).map_err(zip_error)?;
     let mut out = BTreeMap::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(zip_error)?;

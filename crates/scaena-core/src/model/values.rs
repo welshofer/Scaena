@@ -449,6 +449,10 @@ pub struct TextStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1, max = 1000))]
     pub weight: Option<u16>,
+    /// Set in the family's italic face (SPEC §3.5), or, `false`, upright. None is
+    /// synthesized: a family without one sets the text upright (lint W231).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
     /// Line height as a multiple of size.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("exclusiveMinimum" = 0))]
@@ -491,6 +495,24 @@ pub struct Encoding {
     pub sort: Option<Sort>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+}
+
+/// Which of a line's or an area's rows are projected: a forecast, or an estimate (SPEC
+/// §3.7). The rows whose `field` holds `value`, or a true one when no value is given. The
+/// line runs dashed from the last actual point through them, the area under them is lighter,
+/// and their value labels say they are estimates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Projected {
+    pub field: String,
+    /// What `field` holds in a projected row; `true` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("type" = ["string", "number", "boolean"]))]
+    pub value: Option<Value>,
+    /// What a projected value's label says after the value; the theme's
+    /// `charts.projected.note` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

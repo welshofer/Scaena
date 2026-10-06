@@ -1,17 +1,113 @@
 name: ci
+# What runs, and when. A macOS minute bills as ten Linux ones, and the bench workflow times
+# pull requests apart (bench.yml).
+# - A draft pull request gets the fast checks, on Linux: fmt, clippy, the workspace's tests, and
+#   the schemas. Its author has run `just check`, which covers them and more.
+# - A pull request marked ready for review is the checkpoint: everything on Linux (the painters on
+#   lavapipe, the WASM engine in Chromium, the parity harness) and on macOS (Metal, and NEON
+#   against the x86-64 goldens). A push to it after that runs Linux in full, and
+#   macOS again only where the push touches what can paint differently there: the painters, the
+#   shaders, the goldens, or the lockfile. A manual run (workflow_dispatch) runs everything.
+# - `main` runs Linux in full on each push, a newer push cancelling an older run, and everything
+#   once a week, which catches what the merges did between. A release tag runs everything.
+# - A pull request that changes only prose skips the Rust and WASM jobs. The schemas, which also
+#   read the examples, always run.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * 1"
+env:
+  # Debug builds keep line tables only: a panic or backtrace still names its file and line, and
+  # the test builds take about 40% less disk. With full debug info they outgrew the Linux runner's
+  # 32 GB free once the web crates joined the workspace (PLAN 2.1–2.26): rustc died with "No space
+  # left on device".
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+concurrency:
+  # A newer push supersedes an older run of the same pull request, or of `main`. A tag's run, the
+  # weekly run, and a manual one each finish.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' && github.event_name == 'push' }}
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      full: ${{ steps.diff.outputs.full }}
+      os: ${{ steps.diff.outputs.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A pull request's merge commit and its base, its first parent.
+          fetch-depth: 2
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          # Prose is Markdown outside what the build and tests read: SPEC and its parts under
+          # docs/spec/ (served over MCP and to the editor's assistant, and checked against the
+          # skills), the authoring guide (held to the code), the skills, the examples, and anything
+          # under crates/ or tests/.
+          code=true
+          if [ "$EVENT" = pull_request ]; then
+            code=false
+            for f in $(git diff --name-only HEAD^1 HEAD); do
+              case "$f" in
+                docs/SPEC.md | docs/spec/* | docs/authoring.md | docs/examples/* | skills/* | crates/* | tests/*) code=true ;;
+                *.md) ;;
+                *) code=true ;;
+              esac
+            done
+          fi
+          # Everything on Linux, but for a draft.
+          full=true
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then full=false; fi
+          # macOS at the checkpoints; on a push to a ready pull request, only where the push itself
+          # touches what can paint differently there.
+          macos=false
+          case "$EVENT" in
+            schedule | workflow_dispatch) macos=true ;;
+            push) macos=$TAG ;;
+            pull_request)
+              if [ "$DRAFT" != true ]; then
+                macos=true
+                if [ "$ACTION" = synchronize ] && git fetch -q --depth=1 origin "$BEFORE" "$AFTER"; then
+                  macos=false
+                  for f in $(git diff --name-only "$BEFORE" "$AFTER"); do
+                    case "$f" in
+                      crates/scaena-paint/* | crates/scaena-core/src/shader/* | tests/golden/* | Cargo.lock | .github/workflows/ci.yml) macos=true ;;
+                    esac
+                  done
+                fi
+              fi ;;
+          esac
+          if [ "$macos" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code; everything on Linux: $full; runners: $os" | tee -a "$GITHUB_STEP_SUMMARY"
   rust:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
     runs-on: ${{ matrix.os }}
-    # A stalled GPU readback or test must fail the job, not hold a runner for six hours.
-    timeout-minutes: 45
+    # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
+    # with nothing in its cache, as the first after the cache's key changes, builds everything:
+    # #103's took 39 minutes on Linux and 27 on macOS.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       # The debug test binaries, built once without `gpu` and once with it, outgrow the Linux
@@ -23,23 +119,30 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
+      # Saved from `main` only, which every pull request restores from: a pull request's own
+      # caches would evict main's from the repository's 10 GB.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all -- --check
       # --all-features type-checks the `gpu` painter (vello on wgpu: Metal on macOS, Vulkan/GL on Linux).
       # --locked: Cargo.lock is the pin for the text and rendering stack (ADR-0004).
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      # Video export pipes its frames to ffmpeg (PLAN 1.21). Its tests skip without it; on Linux,
-      # where it installs quickly, SCAENA_REQUIRE_FFMPEG makes a missing one a failure instead.
-      - if: runner.os == 'Linux'
+      # Video export pipes its frames to ffmpeg (PLAN 1.21). Its tests skip without it, as on a
+      # draft; in a full run on Linux, where it installs quickly, SCAENA_REQUIRE_FFMPEG makes a
+      # missing one a failure instead.
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && echo "SCAENA_REQUIRE_FFMPEG=1" >> "$GITHUB_ENV"
       - run: cargo test --workspace --locked --exclude scaena-paint
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
       # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
       # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
-      - if: runner.os == 'Linux'
+      # A full run's.
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
-      - run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
+      - if: needs.changes.outputs.full == 'true'
+        run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
       # Diff images from the parity harness and any rejected golden (PLAN 0.9).
@@ -51,34 +154,185 @@ jobs:
           if-no-files-found: ignore
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
-      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
+      # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
+      - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
     # hash to the native digest (tests/golden/torture/raw.fnv1a) and paint through WebGPU.
-    # PLAN 0.9: then the parity harness compares all three painters (vello_cpu goldens, vello on
-    # lavapipe, vello on WebGPU in the browser) on every state.
+    # PLAN 2.1–2.2: the web player shows every torture frame, painted in its worker by WebGPU
+    # and by the CPU painter, and its controls and presenter view work. PLAN 2.5: a single-file
+    # export plays from its address on disk with the network off. PLAN 0.9: then the parity
+    # harness compares the painters on every state: the vello_cpu goldens, vello on lavapipe,
+    # vello on WebGPU in the browser, the player's two, and the single file's. PLAN 2.3–2.4:
+    # the editor edits, opens, saves, downloads, and takes dropped files. PLAN 2.7: the static
+    # site plays, edits, and asks from a path under its host. PLAN 2.8: what a reader needs.
+    # A full run's: a draft skips it.
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # With nothing in its cache, #103's run passed every step, then ran out of 45 minutes while
+    # saving the cache: its runner took twice as long over the browser tests as #88's. With its
+    # cache, #88's took 29.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # The CLI must match the wasm-bindgen version in Cargo.lock.
-      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The CLI must match the wasm-bindgen version in Cargo.lock: built once, then restored.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.129-${{ runner.os }}-${{ runner.arch }}
+      - run: wasm-bindgen --version 2>/dev/null | grep -q ' 0.2.129' || cargo install wasm-bindgen-cli --version 0.2.129 --locked --force
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm --target wasm32-unknown-unknown --release --locked
-      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
+      # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
+      # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
+      # The PDF painter, which the editor loads the first time it exports a PDF (PLAN 2.54).
+      - run: wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+      # The player's engine alone, which a single-file export carries (PLAN 2.5), with every
+      # language's hyphenation patterns, since its page plays offline (ADR-0015).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
+      # subsetter, which a page loads only to download a bundle, is recorded beside it.
+      - name: WASM size
+        run: |
+          wasm=crates/scaena-wasm/www/pkg/scaena_wasm_bg.wasm
+          gz=$(gzip -9 -c "$wasm" | wc -c)
+          echo "WASM engine: $(wc -c < "$wasm") bytes, $gz gzipped (SPEC §15: at most 3,000,000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          subset=crates/scaena-subset/pkg/scaena_subset_bg.wasm
+          echo "Font subsetter: $(wc -c < "$subset") bytes, $(gzip -9 -c "$subset" | wc -c) gzipped, loaded to download" | tee -a "$GITHUB_STEP_SUMMARY"
+          history=crates/scaena-history/pkg/scaena_history_bg.wasm
+          echo "History (the CRDT): $(wc -c < "$history") bytes, $(gzip -9 -c "$history" | wc -c) gzipped, loaded to save a bundle that keeps one" | tee -a "$GITHUB_STEP_SUMMARY"
+          player=crates/scaena-wasm/player/scaena_wasm_bg.wasm
+          echo "The player's engine, in a single-file export: $(wc -c < "$player") bytes, $(gzip -9 -c "$player" | wc -c) gzipped" | tee -a "$GITHUB_STEP_SUMMARY"
+          read=crates/scaena-resources/pkg/scaena_resources_bg.wasm
+          echo "What the assistant reads: $(wc -c < "$read") bytes, $(gzip -9 -c "$read" | wc -c) gzipped, loaded to ask" | tee -a "$GITHUB_STEP_SUMMARY"
+          pdf=crates/scaena-pdf/pkg/scaena_pdf_bg.wasm
+          echo "The PDF painter: $(wc -c < "$pdf") bytes, $(gzip -9 -c "$pdf" | wc -c) gzipped, loaded to export a PDF" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$gz" -le 3000000
       - run: node crates/scaena-wasm/www/smoke.mjs
+      # SPEC §15's cold start, recorded: B1's first frame after navigation, WebGPU on SwiftShader.
+      - run: node crates/scaena-wasm/www/coldstart.mjs tests/bench/b1.scaena 5 | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cd web && npm ci && npm run build
+      - run: node web/smoke.mjs
+      # Exports with a `scaena` built after the web build, which carries its single-file page.
+      - run: node web/standalone.mjs
+      - run: node web/player.mjs
+      - run: node web/editor.mjs
+      # The preview as a canvas: select, drag, resize, and the keys, each a patch to undo (PLAN 2.31).
+      - run: node web/canvas.mjs
+      - run: node web/typing.mjs
+      - run: node web/inspector.mjs
+      # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
+      - run: node web/insert.mjs
+      # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
+      - run: node web/draw.mjs
+      # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
+      - run: node web/findings.mjs
+      # The layers: listed topmost first, a node selected, shown or hidden, and renamed (PLAN 2.50).
+      - run: node web/layers.mjs
+      # A node turned on the canvas: its outline and handles drawn through its transform, the rotate handle, the inspector's angle, and typing in a turned text (PLAN 2.51).
+      - run: node web/rotate.mjs
+      # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
+      - run: node web/clipboard.mjs
+      # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
+      - run: node web/charts.mjs
+      # Several nodes at once: selected, moved, aligned, ordered, deleted, copied, and pasted, each a patch (PLAN 2.42).
+      - run: node web/several.mjs
+      # Group and ungroup: a group where the nodes stand, and taken apart to the deck as it was (PLAN 2.43).
+      - run: node web/group.mjs
+      # The cue under the preview: a motion's delay and duration dragged, a motion added, the ruler, Play (PLAN 2.44).
+      - run: node web/cue.mjs
+      # An image from the inspector: its focal point picked on it, its crop and fit, an image file dropped on it (PLAN 2.45).
+      - run: node web/image.mjs
+      # The preview zoomed and panned: painted at the size shown, every pointer read through the view (PLAN 2.46).
+      - run: node web/zoom.mjs
+      # Find and replace across the deck's texts: each match shown, marked, and replaced where its text lives (PLAN 2.47).
+      - run: node web/find.mjs
+      # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
+      - run: node web/runs.mjs
+      # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).
+      - run: node web/theme.mjs
+      # The state strip: thumbnails, and states added, moved, renamed, and removed (PLAN 2.35).
+      - run: node web/strip.mjs
+      - run: node web/storage.mjs
+      # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
+      - run: node web/assistant.mjs
+      # A question carries what the editor shows, and what its patch changes is selected after it (PLAN 2.52).
+      - run: node web/seeing.mjs
+      - run: node web/commands.mjs
+      # The state shown as a PNG, the deck as a PDF by its own module, and as one HTML file, each what
+      # `scaena export` writes (PLAN 2.54).
+      - run: node web/export.mjs
+      # A data source as a table: a cell set, rows added and taken away, undone, and saved as
+      # `scaena data` writes the file (PLAN 2.55).
+      - run: node web/data.mjs
+      # What a reader hears: a node's description and part chosen in the inspector, the state's
+      # reading in order, and W410's mark opening the inspector on the image (PLAN 2.56).
+      - run: node web/reader.mjs
+      # Guides: the theme's grid of the format shown on request, and a line where a dragged box
+      # meets another, which a move off the grid snaps to (PLAN 2.57).
+      - run: node web/guides.mjs
+      # A look copied from one node (⌥⌘C) and pasted on others (⌥⌘V), each written where its own
+      # lives (PLAN 2.58).
+      - run: node web/looks.mjs
+      # The bundle's files, what uses each, an image dragged onto the canvas, and one nothing names
+      # taken out and put back (PLAN 2.59).
+      - run: node web/files.mjs
+      # The deck's versions from its history: one shown as it was, compared, and restored with its
+      # data file as one change, which undoes and records as any other (PLAN 2.60).
+      - run: node web/versions.mjs
+      # The deck's theme edited in its tab: colors, a role's size, each one edit undone with the
+      # theme written back, and recorded by the user (PLAN 2.61).
+      - run: node web/theme-edit.mjs
+      # The state shown in every format side by side, painted as a cue plays, each counting its
+      # findings and opening the canvas in it (PLAN 2.62).
+      - run: node web/formats.mjs
+      # A rehearsal: each state's time kept, and kept as its hold in one patch, one step to undo
+      # (PLAN 2.63).
+      - run: node web/rehearse.mjs
+      # A chart's marks and the rows of its data: a click on a bar chooses its row in the Data tab,
+      # and a row chosen is outlined where it draws (PLAN 2.64).
+      - run: node web/rows.mjs
+      # ? shows every key the editor answers, by what it does, from the commands' own list (PLAN 2.65).
+      - run: node web/keys.mjs
+      # A chart annotated from its marks: a bar picked offers to highlight it, call it out, rule its
+      # value, or band from it to another; a callout dragged to another bar, reworded, and deleted
+      # (PLAN 2.67).
+      - run: node web/annotate.mjs
+      # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
+      - run: node web/history.mjs
+      # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
+      - run: node web/live.mjs
+      # The editor starts a deck from a theme that ships, and saves it somewhere new (PLAN 2.12).
+      - run: node web/new.mjs
+      # The static site with its demo deck (`just site`), served from a path under its host (PLAN 2.7).
+      - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
+      - run: node web/site.mjs
+      # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
+      # as the single file does, less motion cuts, and the keys (PLAN 2.8).
+      - run: node web/a11y.mjs
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"
-          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke
+          SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke:${{ github.workspace }}/target/web-smoke/player-webgpu:${{ github.workspace }}/target/web-smoke/player-cpu:${{ github.workspace }}/target/web-smoke/standalone-cpu
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -86,6 +340,7 @@ jobs:
           path: |
             tests/golden/torture/actual/
             target/wasm-smoke/
+            target/web-smoke/
           if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest
@@ -99,5 +354,13 @@ jobs:
       - run: python3 scripts/validate_schema.py .
       # Every character in the torture deck resolves through its role's bundle-font fallback chain (PLAN 0.2).
       - run: python3 scripts/build_torture_fonts.py --check
+      # The torture deck's test card is what its generator writes (PLAN 1.7), as `just schema` checks.
+      - run: python3 scripts/build_torture_images.py --check
       # Every character in the benchmark decks maps in its role's own family (PLAN 0.14).
       - run: python3 scripts/build_bundle_fonts.py --check
+      # The lint fixtures' font is what its generator writes, its license bits and all (W230).
+      - run: python3 scripts/build_lint_fonts.py --check
+      # B2 and B3 are what their generator writes (PLAN 1.24).
+      - run: python3 scripts/build_bench_decks.py --check
+      # The bench gate judges a pull request beside its base (PLAN 1.24).
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"

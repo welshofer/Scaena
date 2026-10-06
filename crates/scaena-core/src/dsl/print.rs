@@ -507,7 +507,7 @@ fn canvas(c: &Value) -> String {
 
 /// `v` with every float that is a whole number written as an integer: for a field the
 /// deck's types hold as a float anyway, where `4000` reads back as `4000.0`.
-fn whole(v: &Value) -> Value {
+pub(crate) fn whole(v: &Value) -> Value {
     match v {
         Value::Number(n) if n.is_f64() => match n.as_f64() {
             Some(f) if f.fract() == 0.0 && f.abs() < 9.0e15 => Value::from(f as i64),
@@ -519,8 +519,10 @@ fn whole(v: &Value) -> Value {
     }
 }
 
+/// A size as `canvas:` writes it: a whole number as an integer, anything else as JSON writes
+/// it, which reads back the same (Rust's `{}` writes 1e300 out in 301 digits, which do not).
 fn dim(n: f64) -> String {
-    if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") }
+    if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { Value::from(n).to_string() }
 }
 
 /// Whether a spine is written as `section` lines: a spine of sections, each a map with an

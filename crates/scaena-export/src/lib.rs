@@ -1,19 +1,21 @@
 //! # scaena-export
 //!
-//! Projections (SPEC §10). All consume the same resolved document; the spine is
-//! the contract for anything that is not the deck.
+//! Projections (SPEC §10). All consume the same resolved document; the spine
+//! (`scaena_core::spine`) is the contract for anything that is not the deck.
 //!
 //! | format | status |
 //! |---|---|
 //! | png per state (the CPU painter, in `scaena-ops`) | PLAN 1.21, done |
 //! | svg per state (vector paths and outlined glyphs, with their text; [`svg`]) | PLAN 1.21, done |
-//! | pdf (krilla: vector paths, text, shaders as images, tagged by [`reading`]; [`pdf`]) | PLAN 1.20, done |
-//! | mp4 / webm / prores: the global timeline's frames piped to ffmpeg ([`video`]) | PLAN 1.21, done |
-//! | single-file html | PLAN 2.5 |
-//! | spine json (+ per-beat renders) | PLAN 1.22 |
+//! | pdf (krilla: vector paths, text, shaders as images, tagged by `scaena_core::reading`; [`pdf`]) | PLAN 1.20, done |
+//! | mp4 / webm / prores: the global timeline's frames piped to ffmpeg, a chapter per beat ([`video`]) | PLAN 1.21–1.22, done |
+//! | single-file html: the web player, the engine, and the bundle in one file that plays offline, read aloud from `scaena_core::reading` ([`html`]) | PLAN 2.5, done |
+//! | spine json, on the timeline, with per-beat renders (`scaena_core::spine`; drawn in `scaena-ops`) | PLAN 1.22, done |
 
+pub mod html;
 pub mod pdf;
-pub mod reading;
+#[cfg(test)]
+mod photos;
 pub mod svg;
 pub mod video;
 
@@ -29,6 +31,8 @@ pub enum ExportError {
     Svg(String),
     #[error("video: {0}")]
     Video(String),
+    #[error("html: {0}")]
+    Html(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,19 +63,4 @@ impl std::str::FromStr for Format {
             other => return Err(format!("unknown export format `{other}`")),
         })
     }
-}
-
-/// The spine projection: what external pipelines (infographic, motion, podcast) consume.
-pub fn spine_json(deck: &scaena_core::Deck) -> serde_json::Value {
-    let mut v = serde_json::json!({
-        "scaena": deck.scaena,
-        "title": deck.meta.as_ref().and_then(|m| m.title.clone()),
-        "spine": deck.spine,
-        "states": deck.states.iter().map(|s| serde_json::json!({
-            "id": s.id, "slide": deck.slide_of(s), "notes": s.notes, "hold": s.hold
-        })).collect::<Vec<_>>(),
-    });
-    // Per-beat renders are attached by the CLI once painters exist (PLAN 1.22).
-    v["renders"] = serde_json::Value::Null;
-    v
 }

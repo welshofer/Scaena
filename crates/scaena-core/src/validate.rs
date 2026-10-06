@@ -4,19 +4,19 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
-use crate::document::{Deck, NodeType, Props};
+use crate::data::{self, ColumnType, DataError, Datum, Table};
+use crate::document::{Deck, MAX_NESTING, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
-use crate::model::Theme;
 use crate::model::check::{Checker, Kind, Violation};
-use crate::model::values::{Annotation, Duration, Easing};
+use crate::model::theme::{Grid, Vocabulary};
+use crate::model::values::{Annotation, Duration, Easing, Range};
+use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
@@ -229,6 +229,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(resolved_types(&deck, snapshots));
             out.extend(containers(&deck, snapshots));
             out.extend(annotations(&deck, snapshots));
+            out.extend(projections(&deck, snapshots));
             out.extend(encodings(&deck, snapshots, files));
         }
         out.extend(override_types(&deck));
@@ -238,6 +239,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(theme_names(&deck, snapshots.as_deref(), theme));
             out.extend(shader_presets(&deck, snapshots.as_deref().unwrap_or_default(), theme));
         }
+        out.extend(grid_cells(&deck, snapshots.as_deref().unwrap_or_default(), theme.as_ref()));
     }
     // Each finding once, and an id problem once per place: the schema and the semantic
     // checks can both see an invalid id, in their own words.
@@ -350,7 +352,7 @@ impl LoadedTheme {
         let mut out = Vec::new();
         let mut need = |defined: bool, what: &str, name: &str, path: String| {
             if !defined {
-                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme"), &path));
+                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme{}", self.has(what)), &path));
             }
         };
         for (name, color) in &t.tokens.roles {
@@ -487,6 +489,32 @@ impl LoadedTheme {
             _ => false,
         }
     }
+
+    /// What the theme has of the kind `what` names, for a finding about a name it lacks:
+    /// `, which has a, b, c`, or `, which has none`. Long lists end in their count.
+    fn has(&self, what: &str) -> String {
+        let of = match what {
+            "text role" => Vocabulary::TextRole,
+            "layout" => Vocabulary::Layout,
+            "font family" => Vocabulary::FontFamily,
+            "color" => Vocabulary::Color,
+            "shader palette" => Vocabulary::ShaderPalette,
+            "shader preset" => Vocabulary::ShaderPreset,
+            "data palette" => Vocabulary::DataPalette,
+            "motion preset" => Vocabulary::MotionPreset,
+            "duration" => Vocabulary::Duration,
+            "easing" => Vocabulary::Easing,
+            "spring" => Vocabulary::Spring,
+            _ => return String::new(),
+        };
+        let names = self.theme.names(of);
+        const SHOWN: usize = 24;
+        match names.len() {
+            0 => ", which has none".into(),
+            n if n > SHOWN => format!(", which has {}, … ({n} in all)", names[..SHOWN].join(", ")),
+            _ => format!(", which has {}", names.join(", ")),
+        }
+    }
 }
 
 /// `#rrggbb[aa]`, `oklch(…)`, or `oklab(…)`: a color written out, not named.
@@ -514,7 +542,7 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 out.push(repeated(&at).file(path.clone()));
             }
             out.extend(Checker::theme().check(&value).into_iter().map(|v| schema_finding(v).file(path.clone())));
-            let theme = serde_json::from_value(value).ok()?;
+            let theme = Theme::from_json(&text).ok()?;
             Some(LoadedTheme { theme, file: Some(path.clone()), root: "" })
         }
         inline @ Value::Object(_) => {
@@ -522,7 +550,7 @@ fn load_theme(doc: &Value, files: &dyn BundleFiles, out: &mut Vec<Finding>) -> O
                 let path = format!("/theme{}", v.path);
                 out.push(schema_finding(Violation { path, ..v }));
             }
-            let theme = serde_json::from_value(inline.clone()).ok()?;
+            let theme = Theme::from_value(inline).ok()?;
             Some(LoadedTheme { theme, file: None, root: "/theme" })
         }
         _ => None,
@@ -596,21 +624,30 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
     }
     if let Some(theme) = theme {
         for (key, family) in &theme.theme.typography.families {
-            if !files.exists(&family.file) {
-                let message = format!("font file `{}` is not in the bundle", family.file);
-                out.push(theme.finding("E102", message, &format!("/type/families/{}/file", esc(key))));
-            }
-            // Rendering registers the fonts the deck lists, and needs every family's.
-            if !deck.fonts.iter().any(|f| f.file == family.file) {
-                let message =
-                    format!("theme family `{key}` is set in `{}`, which the deck's `fonts` does not list", family.file);
-                let font = json!({ "family": family.family, "file": family.file });
-                out.push(
-                    Finding::new("E102", Severity::Error, message)
-                        .at("/fonts")
-                        .hint("Rendering registers only the fonts the deck lists.")
-                        .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
-                );
+            // The family's own file, and its italic face's (PLAN 2.40).
+            let italic = family.italic.as_ref().map(|face| (face.file.as_str(), "/italic/file", Some("italic")));
+            for (file, at, style) in std::iter::once((family.file.as_str(), "/file", None)).chain(italic) {
+                if !files.exists(file) {
+                    let message = format!("font file `{file}` is not in the bundle");
+                    out.push(theme.finding("E102", message, &format!("/type/families/{}{at}", esc(key))));
+                }
+                // Rendering registers the fonts the deck lists, and needs every family's.
+                if !deck.fonts.iter().any(|f| f.file == file) {
+                    let face = if style.is_some() { "'s italic" } else { "" };
+                    let message = format!(
+                        "theme family `{key}`{face} is set in `{file}`, which the deck's `fonts` does not list"
+                    );
+                    let mut font = json!({ "family": family.family, "file": file });
+                    if let Some(style) = style {
+                        font["style"] = json!(style);
+                    }
+                    out.push(
+                        Finding::new("E102", Severity::Error, message)
+                            .at("/fonts")
+                            .hint("Rendering registers only the fonts the deck lists.")
+                            .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
+                    );
+                }
             }
         }
     }
@@ -725,6 +762,35 @@ fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
     out
 }
 
+/// E106: `projected` marks the rows of a line or an area (SPEC §3.7); a chart of another
+/// kind draws nothing projected. Each finding points at what set it in the state.
+fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Chart) || props.get("projected").is_none() {
+                continue;
+            }
+            let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
+            if matches!(kind, "line" | "area") {
+                continue;
+            }
+            let path = match state.props.get(id).and_then(|d| d.get("projected")) {
+                Some(_) => format!("/states/{i}/props/{}/projected", esc(id)),
+                None => format!("/nodes/{}/projected", esc(id)),
+            };
+            let message = format!("`projected` marks the rows of a line or an area; a `{kind}` chart draws none");
+            if seen.insert(path.clone()) {
+                out.push(
+                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Each state's containers (SPEC §3.4, ADR-0008): a node's `at.parent` is a container the
 /// state shows (E102) and of a container type (E106), containers do not nest in a loop
 /// (E106), and an `at.area` is one of its grid's areas (E102). Each finding points at
@@ -760,17 +826,26 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
             }
             // Up the chain: a loop comes back to `id` within as many steps as there are nodes.
             let mut chain = vec![id.as_str(), parent];
-            while let Some(next) = parent_of(chain[chain.len() - 1]) {
+            let rooted = loop {
+                let Some(next) = parent_of(chain[chain.len() - 1]) else { break true };
                 if next == id {
                     chain.push(next);
                     let message = format!("containers nest in a loop: {}", chain.join(" → "));
                     out.push(finding("E106", id, "parent", message));
-                    break;
+                    break false;
                 }
                 if chain.len() > snapshot.nodes.len() {
-                    break;
+                    break false;
                 }
                 chain.push(next);
+            };
+            // The first node deeper than containers nest: what is in it is too deep as well.
+            if rooted && chain.len() - 1 == MAX_NESTING + 1 {
+                let message = format!(
+                    "node `{id}` is {} containers deep; containers nest at most {MAX_NESTING} deep",
+                    chain.len() - 1
+                );
+                out.push(finding("E106", id, "parent", message));
             }
             if let Some(area) = snapshot.nodes[id].get("at").and_then(|at| at.get("area")).and_then(Value::as_str) {
                 let areas = snapshot.nodes[parent].get("areas").and_then(Value::as_array);
@@ -798,16 +873,10 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 /// field in the state: its delta, or the node. A chart with a `dataTransform` reads
 /// columns the transform makes, so its fields are checked once transforms run (PLAN 1.9e).
 fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Vec<Finding> {
-    struct Text<'a>(&'a dyn BundleFiles);
-    impl SourceFiles for Text<'_> {
-        fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
-            self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
-        }
-    }
     let mut out = Vec::new();
     let mut tables: BTreeMap<&str, Table> = BTreeMap::new();
     for name in deck.data.keys() {
-        match data::load(deck, &Text(files), name) {
+        match data::load(deck, &data::Texts(files), name) {
             Ok(table) => {
                 tables.insert(name, table);
             }
@@ -874,7 +943,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             // What reads a field: a chart's channels, or a table's columns, each with the
             // key its path starts at, the rest of the path, and its name in a message.
             let readers: Vec<(&str, String, String, &Map<String, Value>)> = match node.node_type {
-                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding"]
+                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding", "projected"]
                     .into_iter()
                     .filter_map(|c| {
                         props.get(c).and_then(Value::as_object).map(|e| (c, String::new(), c.to_string(), e))
@@ -926,6 +995,47 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     if let Err(e) = parsed {
                         found("E106", here("/format"), e.to_string());
                     }
+                }
+            }
+            // What marks a row projected: a value its column can hold, or, with none, a
+            // true one in a boolean column. A column that is not there was reported above.
+            if let Some(projected) = props.get("projected").and_then(Value::as_object)
+                && let Some(field) = projected.get("field").and_then(Value::as_str)
+                && let Some(kind) = column(field)
+            {
+                let message = match (projected.get("value"), kind) {
+                    (None, ColumnType::Boolean) => None,
+                    (None, _) => Some((
+                        "/field",
+                        format!(
+                            "`projected` marks a row whose `{field}` is true, but {read} types it {}; say which `value` marks one, or declare it `boolean` in the source's schema",
+                            article(kind.name())
+                        ),
+                    )),
+                    (Some(v), _) => {
+                        let fits = match kind {
+                            ColumnType::Boolean => v.is_boolean(),
+                            ColumnType::Number => v.is_number(),
+                            ColumnType::String | ColumnType::Date => v.is_string(),
+                        };
+                        (!fits).then(|| {
+                            let what = match v {
+                                Value::Bool(_) => "a boolean",
+                                Value::Number(_) => "a number",
+                                _ => "text",
+                            };
+                            (
+                                "/value",
+                                format!(
+                                    "`projected.value` is {what}, but {read} types `{field}` {}",
+                                    article(kind.name())
+                                ),
+                            )
+                        })
+                    }
+                };
+                if let Some((rest, message)) = message {
+                    found("E103", here("projected", rest), message);
                 }
             }
             // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A
@@ -1090,6 +1200,134 @@ fn keys_repeat(keys: &[String]) -> String {
         [_] => format!("key {} repeats", named[0]),
         _ => format!("keys {}{} repeat", named.join(", "), if keys.len() > 8 { ", …" } else { "" }),
     }
+}
+
+/// E102: a placement past the theme's grid, which layout cannot make. A node placed by
+/// `at.col` or `at.row` beyond the grid's columns or rows, or in a slot that runs past them,
+/// in the deck's own format or one it lists, where the grid and the slots can differ (SPEC
+/// §3.4). Each finding names the grid's size: a node's at its `at`, a slot's in the theme. A
+/// node's range that runs backward is E106. A child of a stack, grid, or frame takes its
+/// container's lines, and is not judged here. Without a theme, only the E106 is.
+fn grid_cells(deck: &Deck, snapshots: &[Snapshot], theme: Option<&LoadedTheme>) -> Vec<Finding> {
+    // The grids the deck is laid out on: its own, then each listed format's whose canvas is
+    // not the deck's (a format of the deck's own shape lays out the same).
+    let own = [deck.canvas.width, deck.canvas.height];
+    let mut grids: Vec<(Option<Format>, &Grid)> = Vec::new();
+    if let Some(t) = theme.map(|t| &t.theme) {
+        grids.push((None, &t.grid));
+        for format in deck.formats.iter().filter_map(|f| Format::parse(f)).filter(|f| f.canvas(own) != own) {
+            let there = t.formats.as_ref().and_then(|f| f.get(&format)).and_then(|f| f.grid.as_ref());
+            grids.push((Some(format), there.unwrap_or(&t.grid)));
+        }
+    }
+    let past = |format: Option<Format>, axis: &str, n: u64| {
+        let there = format.map(|f| format!(" in `{}`", f.name())).unwrap_or_default();
+        format!("past the theme's grid{there}, which has {n} {}", if axis == "col" { "columns" } else { "rows" })
+    };
+    let mut out = Vec::new();
+    let mut met = HashSet::new();
+    for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
+        for (id, props) in &snapshot.nodes {
+            let Some(at) = props.get("at") else { continue };
+            // `rect`, else `in`, else `col` and `row` (SPEC §3.4); a child of a stack, grid, or
+            // frame takes its container's lines.
+            if at.get("rect").is_some() {
+                continue;
+            }
+            let parent = at.get("parent").and_then(Value::as_str);
+            if parent.is_some_and(|p| deck.nodes.get(p).is_none_or(|p| p.node_type != NodeType::Group)) {
+                continue;
+            }
+            let located = |f: Finding| f.state(state.id.clone()).node(id.clone());
+            if let Some(slot) = at.get("in").and_then(Value::as_str) {
+                // A slot of the state's layout, as each format has it. A missing layout or
+                // slot is reported above.
+                let Some(theme) = theme else { continue };
+                let layout = snapshot.layout.as_deref().and_then(|l| theme.theme.layouts.get_key_value(l));
+                let Some((name, layout)) = layout else { continue };
+                for &(format, grid) in &grids {
+                    let moved = format.and_then(|f| layout.formats.as_ref()?.get(&f)?.slots.get(slot));
+                    let (def, at) = match (moved, layout.slots.get(slot)) {
+                        (Some(def), _) => {
+                            let f = format.expect("only a format moves a slot").name();
+                            (def, format!("/layouts/{}/formats/{}/slots/{}", esc(name), esc(f), esc(slot)))
+                        }
+                        (None, Some(def)) => (def, format!("/layouts/{}/slots/{}", esc(name), esc(slot))),
+                        (None, None) => continue,
+                    };
+                    for (axis, range) in [("col", def.col), ("row", def.row)] {
+                        let Some(range) = range else { continue };
+                        let (a, b) = match range {
+                            Range::Index(n) => (u64::from(n), u64::from(n)),
+                            Range::Span([a, b]) => (u64::from(a), u64::from(b)),
+                        };
+                        let n = tracks(grid, axis);
+                        let path = format!("{at}/{axis}");
+                        if b > n && met.insert((path.clone(), n)) {
+                            let message = format!(
+                                "slot `{slot}` of layout `{name}` is in {}, {}",
+                                cells(axis, a, b),
+                                past(format, axis, n)
+                            );
+                            out.push(located(theme.finding("E102", message, &path)));
+                        }
+                    }
+                }
+                continue;
+            }
+            for axis in ["col", "row"] {
+                let Some((a, b)) = at.get(axis).and_then(bounds) else { continue };
+                let sets =
+                    |props: Option<&Props>| props.and_then(|p| p.get("at")).and_then(|at| at.get(axis)).is_some();
+                let path = if sets(state.props.get(id)) {
+                    format!("/states/{i}/props/{}/at/{axis}", esc(id))
+                } else if sets(Some(&deck.nodes[id].props)) {
+                    format!("/nodes/{}/at/{axis}", esc(id))
+                } else {
+                    format!("/states/{i}/props/{}", esc(id))
+                };
+                if b < a {
+                    if met.insert((path.clone(), 0)) {
+                        let message =
+                            format!("`{id}` is placed in {}, which run backward: write [{b}, {a}]", cells(axis, a, b));
+                        out.push(located(Finding::new("E106", Severity::Error, message).at(path)));
+                    }
+                    continue;
+                }
+                for &(format, grid) in &grids {
+                    let n = tracks(grid, axis);
+                    if b > n && met.insert((path.clone(), n)) {
+                        let message = format!("`{id}` is placed in {}, {}", cells(axis, a, b), past(format, axis, n));
+                        out.push(located(Finding::new("E102", Severity::Error, message).at(path.clone()).hint(
+                            "Place it within the grid, or in a slot of the state's layout: a slot moves with the \
+                             theme and the format, and cells do not.",
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A grid's columns or rows (`axis`: `col` or `row`); rows default to 6.
+fn tracks(grid: &Grid, axis: &str) -> u64 {
+    u64::from(if axis == "col" { grid.columns } else { grid.rows.unwrap_or(6) })
+}
+
+/// A grid range's first and last track, as a deck writes it: `n` or `[a, b]`.
+fn bounds(range: &Value) -> Option<(u64, u64)> {
+    match range {
+        Value::Number(n) => n.as_u64().map(|n| (n, n)),
+        Value::Array(v) if v.len() == 2 => Some((v[0].as_u64()?, v[1].as_u64()?)),
+        _ => None,
+    }
+}
+
+/// Grid tracks as they read: `row 8`, `columns 1–8`.
+fn cells(axis: &str, a: u64, b: u64) -> String {
+    let what = if axis == "col" { "column" } else { "row" };
+    if a == b { format!("{what} {a}") } else { format!("{what}s {a}–{b}") }
 }
 
 /// E102: theme names the deck uses that its theme does not define: text roles, layouts and
@@ -1279,8 +1517,8 @@ impl Names<'_> {
         if defined {
             return;
         }
-        let mut finding =
-            Finding::new("E102", Severity::Error, format!("{what} `{name}` is not in the theme")).at(path);
+        let message = format!("{what} `{name}` is not in the theme{}", self.theme.has(what));
+        let mut finding = Finding::new("E102", Severity::Error, message).at(path);
         if let Some(state) = state {
             finding = finding.state(state);
         }

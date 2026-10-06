@@ -1,0 +1,296 @@
+{
+  "scaena": "0.11",
+  "meta": {
+    "title": "B3: shaders on every state",
+    "lang": "en-US",
+    "description": "SPEC §15 benchmark B3: shader-heavy, 8 states, a full-bleed mesh with grain over it on every state."
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "theme": "theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          9,
+          144
+        ],
+        "SOFT": [
+          0,
+          100
+        ],
+        "WONK": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ],
+        "opsz": [
+          14,
+          32
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          800
+        ]
+      }
+    },
+    {
+      "family": "Source Serif 4",
+      "file": "fonts/SourceSerif4-VF.ttf",
+      "axes": {
+        "wght": [
+          200,
+          900
+        ],
+        "opsz": [
+          8,
+          60
+        ]
+      }
+    }
+  ],
+  "nodes": {
+    "mesh": {
+      "type": "shader",
+      "kind": "mesh",
+      "seed": 1,
+      "palette": "ambient",
+      "params": {
+        "points": 6,
+        "drift": 0.14,
+        "softness": 0.85,
+        "grain": 0.02
+      },
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "grain": {
+      "type": "shader",
+      "kind": "grain",
+      "palette": "ambient",
+      "params": {
+        "amount": 0.06,
+        "fps": 24
+      },
+      "at": {
+        "in": "canvas"
+      },
+      "z": -90,
+      "blend": "overlay",
+      "alt": "",
+      "semantic": "decoration"
+    },
+    "title": {
+      "type": "text",
+      "role": "display",
+      "text": "Light that moves",
+      "semantic": "claim",
+      "at": {
+        "in": "title"
+      }
+    },
+    "subtitle": {
+      "type": "text",
+      "role": "title",
+      "text": "Eight states over a mesh that never rests.",
+      "semantic": "context",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "kicker": {
+      "type": "text",
+      "role": "code",
+      "text": "mesh + grain",
+      "semantic": "navigation",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": 1
+      }
+    },
+    "quote": {
+      "type": "text",
+      "role": "quote",
+      "text": "“A frame is a function of time.”",
+      "semantic": "context",
+      "at": {
+        "col": [
+          6,
+          12
+        ],
+        "row": 1
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "s1",
+      "layout": "title",
+      "props": {
+        "mesh": {},
+        "grain": {},
+        "title": {},
+        "subtitle": {},
+        "kicker": {},
+        "quote": {}
+      },
+      "hold": 2500
+    },
+    {
+      "id": "s2",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 2,
+          "palette": "ember"
+        },
+        "title": {
+          "text": "Every frame is shaded"
+        },
+        "subtitle": {
+          "text": "A full-bleed mesh, with grain laid over it."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s3",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 3,
+          "palette": "ambient"
+        },
+        "title": {
+          "text": "The seed changes"
+        },
+        "subtitle": {
+          "text": "So the field reshapes between states."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s4",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 9,
+          "palette": "ember"
+        },
+        "title": {
+          "text": "The palette changes"
+        },
+        "subtitle": {
+          "text": "So its colors travel through Oklab."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s5",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 5,
+          "palette": "ambient"
+        },
+        "title": {
+          "text": "Grain at 24 frames a second"
+        },
+        "subtitle": {
+          "text": "Film's rate, on every state."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s6",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 6,
+          "palette": "ember"
+        },
+        "title": {
+          "text": "Text sits on top"
+        },
+        "subtitle": {
+          "text": "And has to stay readable on all of it."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s7",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 7,
+          "palette": "ambient"
+        },
+        "title": {
+          "text": "Nothing here is a picture"
+        },
+        "subtitle": {
+          "text": "Each frame is computed from its time."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    },
+    {
+      "id": "s8",
+      "layout": "title",
+      "props": {
+        "mesh": {
+          "seed": 8,
+          "palette": "ember"
+        },
+        "title": {
+          "text": "That is the benchmark"
+        },
+        "subtitle": {
+          "text": "Shaders on every state, nothing cached away."
+        }
+      },
+      "hold": 2500,
+      "transition": "slow"
+    }
+  ]
+}

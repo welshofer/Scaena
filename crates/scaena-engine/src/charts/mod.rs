@@ -20,6 +20,8 @@ use crate::theme::Theme;
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl, Point};
 use scaena_core::format::{DateFormat, Locale, MINUS, NumberFormat};
+use scaena_core::model::values::{AnnotationKind, Scalar};
+use std::collections::BTreeMap;
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
@@ -353,25 +355,53 @@ pub struct SeriesPath {
     pub stroke: Option<f32>,
     /// Its marks' keys.
     pub marks: Vec<String>,
+    /// Those of its marks that are projected, a forecast or an estimate (PLAN 1.28): a line
+    /// runs dashed into and through them, an area lighter under them.
+    pub projected: Vec<String>,
+    /// A projected stretch of a line: its dash and the gap after it, canvas units.
+    pub dash: [f32; 2],
+    /// A projected stretch of an area: its fill, a fraction of the area's.
+    pub fade: f32,
 }
 
 impl SeriesPath {
-    /// The path through `points`, the series' marks wherever they are, in order across.
-    pub fn path(&self, shapes: &[Shape]) -> Option<Path> {
-        let mut shapes: Vec<&Shape> = shapes.iter().collect();
-        shapes.sort_by(|a, b| a.center_x().total_cmp(&b.center_x()));
-        let (first, rest) = shapes.split_first()?;
-        let mut els = vec![PathEl::MoveTo(first.point())];
-        els.extend(rest.iter().map(|s| PathEl::LineTo(s.point())));
-        if self.stroke.is_none() {
-            for s in shapes.iter().rev() {
-                if let Shape::Span { x, base, .. } = **s {
-                    els.push(PathEl::LineTo([x, base]));
-                }
-            }
-            els.push(PathEl::Close);
+    /// The path through `marks`, the series' marks wherever they are, each with whether it
+    /// is projected, in order across: in stretches of segments alike, each with whether it
+    /// is projected. A segment is projected where either end is, so a line runs dashed from
+    /// its last actual point. A line is a path along each stretch; an area, the area under
+    /// it. A series with nothing projected is one stretch.
+    pub fn stretches(&self, marks: &[(Shape, bool)]) -> Vec<(bool, Path)> {
+        let mut marks: Vec<&(Shape, bool)> = marks.iter().collect();
+        scaena_core::sort::by(&mut marks, |a, b| a.0.center_x().total_cmp(&b.0.center_x()));
+        let Some(&&(_, first)) = marks.first() else { return Vec::new() };
+        let projected = |i: usize| marks[i].1 || marks[i + 1].1;
+        // Each stretch's first and last mark.
+        let mut runs: Vec<(bool, usize, usize)> = Vec::new();
+        if marks.len() == 1 {
+            runs.push((first, 0, 0));
         }
-        Some(Path(els))
+        for i in 0..marks.len().saturating_sub(1) {
+            match runs.last_mut() {
+                Some((p, _, end)) if *p == projected(i) => *end = i + 1,
+                _ => runs.push((projected(i), i, i + 1)),
+            }
+        }
+        (runs.into_iter())
+            .map(|(p, a, b)| {
+                let along = &marks[a..=b];
+                let mut els = vec![PathEl::MoveTo(along[0].0.point())];
+                els.extend(along[1..].iter().map(|m| PathEl::LineTo(m.0.point())));
+                if self.stroke.is_none() {
+                    for m in along.iter().rev() {
+                        if let Shape::Span { x, base, .. } = m.0 {
+                            els.push(PathEl::LineTo([x, base]));
+                        }
+                    }
+                    els.push(PathEl::Close);
+                }
+                (p, Path(els))
+            })
+            .collect()
     }
 }
 
@@ -386,11 +416,14 @@ pub struct Label {
     pub value: Option<ValueLabel>,
     /// Below 1 where a highlight dims it.
     pub opacity: f32,
+    /// A projected value's label, which says so after the value (PLAN 1.28): it does not
+    /// count from one value to the next, as a value alone does, but cross-fades.
+    pub noted: bool,
 }
 
 impl Label {
     pub fn new(key: impl Into<String>, origin: [f32; 2], text: TextLayout, value: Option<ValueLabel>) -> Label {
-        Label { key: key.into(), origin, text, value, opacity: 1.0 }
+        Label { key: key.into(), origin, text, value, opacity: 1.0, noted: false }
     }
 }
 
@@ -402,11 +435,30 @@ pub struct Note {
     /// Its kind and axis, and its place among the chart's annotations of both: what it
     /// matches in the next state, so a rule moves to its next value.
     pub key: String,
+    /// Its place among the chart's `annotations` (PLAN 2.67): what the editor names it by.
+    pub index: usize,
+    pub kind: AnnotationKind,
+    /// What it says, as written.
+    pub text: Option<String>,
     /// A band's box, `[x, y, w, h]`, and its fill.
     pub band: Option<([f32; 4], Color)>,
     /// A rule, or a callout's leader.
     pub rule: Option<Rule>,
+    /// Where the rule breaks for text it would cross.
+    pub gaps: Vec<Gap>,
     pub label: Option<Label>,
+}
+
+/// A stretch a rule leaves out where it crosses text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gap {
+    /// The text's key: what the gap matches in the next state.
+    pub key: String,
+    /// The stretch left out along the rule: x across a level rule, y up an upright one.
+    pub along: [f32; 2],
+    /// Where across the rule the text stands: a moving rule breaks only while it is
+    /// there.
+    pub across: [f32; 2],
 }
 
 /// What a value label shows and where it rides on its mark.
@@ -581,6 +633,7 @@ impl Numerals {
                     clusters: vec![at],
                     advances: vec![f.advance],
                     line: 0,
+                    rtl: false,
                     hyphen: false,
                 }),
             }
@@ -670,8 +723,83 @@ pub struct ChartLayout {
     /// Value labels that overlap as laid out, by their marks' keys (lint W310); none
     /// when `labels.collide` resolves them.
     pub collisions: Vec<(String, String)>,
+    /// Category labels that overlap, by category: a text axis keeps every one, where an
+    /// ordered axis keeps fewer (lint W310).
+    pub crowded: Vec<(String, String)>,
+    /// Value labels that cover another mark as laid out, by the label's mark's key and
+    /// the covered mark's (lint W310); none when the labels were not asked for, since
+    /// those hide.
+    pub covers: Vec<(String, String)>,
     /// Annotations: bands under the gridlines, rules and callouts over the marks.
     pub notes: Vec<Note>,
+    /// The data source it reads, as the deck names it.
+    pub source: String,
+    /// Each mark's rows of its source, by the mark's key: the rows its datum was made from,
+    /// through the chart's `dataTransform`, from 0 as the source's sheet numbers them
+    /// (PLAN 2.64).
+    pub rows: BTreeMap<String, Vec<usize>>,
+    /// What an annotation names each mark by, by the mark's key (PLAN 2.67).
+    pub places: BTreeMap<String, MarkPlace>,
+    /// Along a categorical x, each category as an annotation names it, with its band across,
+    /// `[start, end]` relative to the chart, in order (PLAN 2.67); none along a continuous x,
+    /// and none for a donut.
+    pub categories: Vec<(Scalar, [f32; 2])>,
+    /// Each highlight, by its place among the chart's `annotations`, with the keys of the
+    /// marks it picks out (PLAN 2.67).
+    pub highlights: Vec<(usize, Vec<String>)>,
+}
+
+/// What an annotation names a mark by (SPEC §3.7, PLAN 2.67): its x as an annotation writes
+/// it (a category as its datum reads, a number, or a date in ISO 8601), its value on the
+/// value axis, and its series.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkPlace {
+    pub x: Scalar,
+    pub value: f64,
+    pub series: Option<String>,
+}
+
+/// What a chart's text is for (lint names it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChartText {
+    /// A category label under the plot.
+    Tick,
+    /// A value label on its mark.
+    Value,
+    /// An annotation's text.
+    Note,
+    /// A value-axis label.
+    Axis,
+    /// An axis title, or the legend's.
+    Title,
+    /// A legend entry, or a series named where it ends.
+    Legend,
+}
+
+impl ChartText {
+    pub fn name(self) -> &'static str {
+        match self {
+            ChartText::Tick => "category label",
+            ChartText::Value => "value label",
+            ChartText::Note => "annotation",
+            ChartText::Axis => "axis label",
+            ChartText::Title => "title",
+            ChartText::Legend => "series name",
+        }
+    }
+}
+
+impl ChartLayout {
+    /// Every text the chart sets, with what it is for, in the order it paints them.
+    pub fn texts(&self) -> impl Iterator<Item = (ChartText, &Label)> {
+        let ticks = self.ticks.iter().map(|l| (ChartText::Tick, l));
+        let values = self.labels.iter().map(|l| (ChartText::Value, l));
+        let notes = self.notes.iter().filter_map(|n| Some((ChartText::Note, n.label.as_ref()?)));
+        let axis = self.y_axis.iter().filter_map(|t| Some((ChartText::Axis, t.label.as_ref()?)));
+        let titles = self.titles.iter().map(|l| (ChartText::Title, l));
+        let legend = self.legend.iter().map(|e| (ChartText::Legend, &e.label));
+        ticks.chain(values).chain(notes).chain(axis).chain(titles).chain(legend)
+    }
 }
 
 /// A legend entry: a swatch in the series' color beside its name.

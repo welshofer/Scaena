@@ -66,10 +66,12 @@ fn a_saved_torture_deck_draws_its_golden_frames() {
     let dir = scratch("torture");
     let zip = dir.join("torture.scaena");
     let renamed = save(TORTURE, &zip);
-    assert_eq!(renamed.len(), 6, "every font and image is renamed by its content: {renamed:?}");
+    assert_eq!(renamed.len(), 13, "every font and image is renamed by its content: {renamed:?}");
     let fonts = renamed.iter().filter(|(_, new)| new.starts_with("fonts/") && new.ends_with(".ttf")).count();
     let image = ("assets/test-card.png".to_string(), format!("assets/{}.png", TEST_CARD_SHA256));
-    assert_eq!((fonts, renamed.contains(&image)), (5, true), "{renamed:?}");
+    // The seven photos keep what they are: JPEGs, each named by its bytes (PLAN 2.66).
+    let photos = renamed.iter().filter(|(old, new)| old.ends_with(".jpg") && new.ends_with(".jpg")).count();
+    assert_eq!((fonts, renamed.contains(&image), photos), (5, true, 7), "{renamed:?}");
     // The scripts and features most likely to break in a subset: joining, bidi, marks,
     // color glyphs, ligatures, kerning, hanging quotes, variable axes; and the images,
     // found under their new names.

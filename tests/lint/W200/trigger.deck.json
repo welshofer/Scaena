@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "_comment": "W200 trigger: the last word is too long to share a line with the word before it, within the measure.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -24,6 +24,23 @@ pub struct Grid {
     cols: Vec<(f32, f32)>,
     /// `(start, end)` of each row, top to bottom.
     rows: Vec<(f32, f32)>,
+    /// Its baseline grid, if the theme sets `grid.baseline`.
+    pub baseline: Option<BaselineGrid>,
+}
+
+/// A baseline grid's lines (SPEC §3.4): one every `pitch` canvas units, through the top
+/// margin and on up and down the canvas.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BaselineGrid {
+    pub origin: f32,
+    pub pitch: f32,
+}
+
+impl BaselineGrid {
+    /// The first line at or below `y`. A line above `y` by float error is at it.
+    pub fn next(&self, y: f32) -> f32 {
+        self.origin + ((y - self.origin) / self.pitch - crate::text::GRID_EPSILON).ceil() * self.pitch
+    }
 }
 
 impl Grid {
@@ -56,16 +73,42 @@ impl Grid {
             canvas,
             cols: tracks(left, canvas[0] - left - right, columns),
             rows: tracks(top, canvas[1] - top - bottom, rows),
+            baseline: grid.baseline.map(|pitch| BaselineGrid { origin: top, pitch: pitch as f32 }),
         })
+    }
+
+    /// The grid's columns, each `[start, end]`, left to right.
+    pub fn columns(&self) -> Vec<[f32; 2]> {
+        self.cols.iter().map(|&(a, b)| [a, b]).collect()
+    }
+
+    /// The grid's rows, each `[start, end]`, top to bottom.
+    pub fn rows(&self) -> Vec<[f32; 2]> {
+        self.rows.iter().map(|&(a, b)| [a, b]).collect()
     }
 
     /// The box `at` names, in a state whose layout template is `template`.
     pub fn place(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
+        let mut rect = self.cell(theme, template, at)?;
+        let Some(at) = at else { return Ok(rect) };
+        if let Some(inset) = at.get("inset").and_then(Value::as_f64) {
+            let inset = inset as f32;
+            rect = [rect[0] + inset, rect[1] + inset, rect[2] - 2.0 * inset, rect[3] - 2.0 * inset];
+        }
+        if let Some([dx, dy]) = at.get("offset").and_then(|o| serde_json::from_value::<[f32; 2]>(o.clone()).ok()) {
+            rect = [rect[0] + dx, rect[1] + dy, rect[2], rect[3]];
+        }
+        Ok(rect)
+    }
+
+    /// The box `at` places a node in, before its `inset` and `offset`: its cells, its slot,
+    /// or its `rect`.
+    pub fn cell(&self, theme: &Theme, template: Option<&str>, at: Option<&Value>) -> Result<Rect, EngineError> {
         let Some(at) = at else { return Ok(self.margin_box()) };
         if at.get("area").is_some() {
             return Err(EngineError::Layout("`at.area` names an area of a grid container".into()));
         }
-        let mut rect = if let Some(rect) = at.get("rect") {
+        let rect = if let Some(rect) = at.get("rect") {
             let v: Vec<f32> =
                 rect.as_array().into_iter().flatten().filter_map(Value::as_f64).map(|v| v as f32).collect();
             <[f32; 4]>::try_from(v)
@@ -92,13 +135,6 @@ impl Grid {
         } else {
             self.cells(at.get("col"), at.get("row"))?
         };
-        if let Some(inset) = at.get("inset").and_then(Value::as_f64) {
-            let inset = inset as f32;
-            rect = [rect[0] + inset, rect[1] + inset, rect[2] - 2.0 * inset, rect[3] - 2.0 * inset];
-        }
-        if let Some([dx, dy]) = at.get("offset").and_then(|o| serde_json::from_value::<[f32; 2]>(o.clone()).ok()) {
-            rect = [rect[0] + dx, rect[1] + dy, rect[2], rect[3]];
-        }
         Ok(rect)
     }
 
@@ -252,7 +288,7 @@ mod tests {
         let grid = Grid::from_theme(&dusk, [1920.0, 1080.0]).unwrap();
         // Dusk: margin [96, 120] = 96 top/bottom, 120 left/right.
         assert_eq!((grid.cols[0].0, grid.rows[0].0), (120.0, 96.0));
-        assert_eq!((grid.cols[11].1, grid.rows[5].1), (1800.0, 984.0));
+        assert_eq!((grid.cols[11].1, grid.rows[11].1), (1800.0, 984.0));
     }
 
     #[test]

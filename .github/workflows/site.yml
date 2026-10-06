@@ -1,0 +1,80 @@
+name: site
+
+# PLAN 2.7: the web player and editor as a static site with the demo deck, as `just site`
+# builds it, from the branch or tag chosen. It runs only by hand (Actions → site → Run
+# workflow). Each run keeps the site as its `github-pages` artifact, a tar of the directory any
+# static host serves. With "deploy" ticked, it also publishes the site to GitHub Pages. That
+# needs the repository's Pages source set to GitHub Actions (Settings → Pages), and the site
+# it publishes is public.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publish to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # Saved from `main` only, as CI's are (ci.yml).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The CLI must match the wasm-bindgen version in Cargo.lock: built once, then restored.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.129-${{ runner.os }}-${{ runner.arch }}
+      - run: wasm-bindgen --version 2>/dev/null | grep -q ' 0.2.129' || cargo install wasm-bindgen-cli --version 0.2.129 --locked --force
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The engine, the subsetter, the history, what the assistant reads, the PDF painter, and the
+      # player's engine alone, which the single-file page carries, as `just wasm` builds them.
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      # Then `just site`: the pages, opening the demo deck by default, the single-file page beside
+      # the editor, which exports one (PLAN 2.54), and the deck beside them.
+      - run: cd web && npm ci && npm run typecheck && npx vite build --config vite.standalone.config.ts && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
+      - run: cp web/serve.py target/site/serve.py
+      - name: Size
+        run: |
+          echo "The site: $(du -sh target/site | cut -f1), $(find target/site -type f | wc -l) files" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site
+  deploy:
+    if: inputs.deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -274,6 +274,27 @@ fn a_sequence_runs_its_items_one_after_another() {
     assert!(layer(&fx.dl("s", 300.0), "b").is_some());
 }
 
+/// A node's `transform` (PLAN 2.51) is drawn about its box, and a cue's look moves the node
+/// inside it, in its own frame: a node turned a quarter clockwise rises in from its left, and
+/// rests turned.
+#[test]
+fn a_cue_moves_a_turned_node_in_its_own_frame() {
+    let mut a = text("Alpha", "main");
+    a["transform"] = json!({ "rotate": 90 });
+    let states = json!([{
+        "id": "s", "layout": "specimen", "props": { "a": {} },
+        "choreography": [{ "target": "a", "enter": "rise", "timing": "with" }]
+    }]);
+    let mut fx = Fx::new(deck(json!({ "a": a }), states), theme(|_| {}));
+    let (rest, _) = seen(&fx.dl("s", f64::INFINITY), "a").unwrap();
+    assert!(rest[0].abs() < 1e-6 && (rest[1] - 1.0).abs() < 1e-6, "its x runs down the canvas: {rest:?}");
+    // From 24 cu below where it rests, in its own frame: 24 cu to the left, on the canvas.
+    let (start, _) = seen(&fx.dl("s", 1.0), "a").unwrap();
+    let (dx, dy) = (start[4] - rest[4], start[5] - rest[5]);
+    assert!((-24.0..-20.0).contains(&dx) && dy.abs() < 1e-3, "rises from ({dx}, {dy})");
+    assert_eq!(start[..4], rest[..4], "it rises turned");
+}
+
 #[test]
 fn anim_tracks_move_a_node_by_keyframes() {
     let nodes = json!({ "a": text("Alpha", "main") });

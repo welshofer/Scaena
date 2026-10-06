@@ -15,7 +15,7 @@ use std::path::Path;
 use std::time::Instant;
 
 /// Which painter draws the frame.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Painter {
     /// `vello_cpu`: every machine, the goldens' painter.

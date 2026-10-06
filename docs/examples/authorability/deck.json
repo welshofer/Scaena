@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "meta": {
     "title": "Q4 2026 Board Update",
     "lang": "en-US",
@@ -33,6 +33,34 @@
     {
       "family": "JetBrains Mono",
       "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [100, 800]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [9, 144],
+        "SOFT": [0, 100],
+        "WONK": [0, 1]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [100, 900],
+        "opsz": [14, 32]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
       "axes": {
         "wght": [100, 800]
       }
@@ -162,14 +190,14 @@
       "role": "title",
       "text": "Q4 2026 revenue, double Q1 2026’s $34.7M",
       "semantic": "claim",
-      "at": { "in": "meaning" }
+      "at": { "in": "claim" }
     },
     "q3-total-detail": {
       "type": "text",
       "role": "body",
       "text": "Up $34.9M in three quarters, with every product growing every quarter.",
       "semantic": "evidence",
-      "at": { "in": "aside" }
+      "at": { "in": "detail" }
     },
     "headline": {
       "type": "text",
@@ -196,14 +224,14 @@
       "legend": "top",
       "alt": "Quarterly revenue by product, Q1 2026 to Q4 2026: Core $19.8M to $25.6M, Pro $8.9M to $24.8M, Enterprise $6.0M to $19.2M; total $34.7M to $69.6M.",
       "semantic": "evidence",
-      "at": { "col": [1, 12], "row": [2, 5] }
+      "at": { "col": [1, 12], "row": [3, 10] }
     },
     "chart-source": {
       "type": "text",
       "role": "caption",
       "text": "Revenue in $M by quarter and product.",
       "semantic": "source",
-      "at": { "in": "footer" }
+      "at": { "in": "note" }
     },
     "pro-share": {
       "type": "text",
@@ -217,7 +245,7 @@
       "role": "title",
       "text": "Pro’s share of Q4 2026 revenue, up from 26% in Q1 2026",
       "semantic": "claim",
-      "at": { "in": "meaning" }
+      "at": { "in": "claim" }
     }
   },
   "states": [
@@ -289,7 +317,7 @@
       "props": {
         "pro-share": {},
         "pro-share-meaning": {},
-        "rev-chart": { "kind": "stackedBar", "at": { "col": [8, 12], "row": [2, 5] } }
+        "rev-chart": { "kind": "stackedBar", "at": { "col": [8, 12], "row": [3, 10] } }
       },
       "choreography": [
         { "target": "pro-share", "enter": "rise", "timing": "with" }

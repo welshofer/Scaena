@@ -1,5 +1,5 @@
 {
-  "scaena": "0.9",
+  "scaena": "0.11",
   "_comment": "E102 clean: every node, state, data source, file, theme name, container, and grid area it references exists (tests/lint/theme.json).",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",
@@ -16,7 +16,8 @@
     "stats": { "type": "stack", "axis": "x", "at": { "in": "main" } },
     "figure": { "type": "text", "text": "42%", "at": { "parent": "stats" } },
     "board": { "type": "grid", "areas": ["head head", "left right"], "at": { "in": "main" } },
-    "cell": { "type": "text", "text": "Q3", "at": { "parent": "board", "area": "head" } }
+    "cell": { "type": "text", "text": "Q3", "at": { "parent": "board", "area": "head" } },
+    "late": { "type": "text", "text": "Q4", "at": { "col": [1, 12], "row": [5, 6] } }
   },
   "states": [
     { "id": "intro", "layout": "title", "props": { "bg": {}, "title": {} } },
@@ -27,7 +28,7 @@
       "props": { "title": { "at": { "in": "grid", "row": 1 } }, "chart": { "at": { "in": "main" } } },
       "choreography": [ { "target": "chart", "enter": { "preset": "grow", "spring": "snappy" } } ]
     },
-    { "id": "photo", "layout": "full", "remove": ["chart"], "props": { "photo": {}, "stats": {}, "figure": {}, "board": {}, "cell": {} } }
+    { "id": "photo", "layout": "full", "remove": ["chart"], "props": { "photo": {}, "stats": {}, "figure": {}, "board": {}, "cell": {}, "late": {} } }
   ],
   "overrides": { "title": { "style": { "size": 96, "color": "#C2410C" } } }
 }

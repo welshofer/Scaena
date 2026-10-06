@@ -4,10 +4,15 @@
 //! Validation reads sources here for E103, and the engine for charts and tables.
 
 use crate::Deck;
+use crate::document::Props;
 use crate::format::{self, DateFormat, DateTime, Locale};
+use crate::transform;
+use crate::validate::BundleFiles;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+
+pub mod edit;
 
 /// The bundle's files, by bundle path (`data/q3.csv`), as far as data needs them.
 pub trait SourceFiles {
@@ -17,6 +22,16 @@ pub trait SourceFiles {
 impl SourceFiles for BTreeMap<String, Vec<u8>> {
     fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
         self.get(path).map(|b| Cow::Borrowed(b.as_slice()))
+    }
+}
+
+/// A bundle's files as validation reads them ([`BundleFiles`]), as sources read them: each
+/// file as its text.
+pub struct Texts<'a>(pub &'a dyn BundleFiles);
+
+impl SourceFiles for Texts<'_> {
+    fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
+        self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
     }
 }
 
@@ -48,7 +63,8 @@ impl Datum {
 }
 
 /// What a column holds, from the source's `schema` (`string` when it says nothing).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum ColumnType {
     Number,
     String,
@@ -102,6 +118,37 @@ pub enum DataError {
     Bad(String),
 }
 
+/// The table a chart or a table reads, `props` its props as a state shows them: its source
+/// (`data`), through its `dataTransform` (SPEC §3.10). Why not, when it cannot.
+pub fn read(deck: &Deck, files: &dyn SourceFiles, props: &Props) -> Result<Table, String> {
+    let data = props.get("data").and_then(Value::as_str);
+    let name = data.and_then(|d| d.strip_prefix('@')).ok_or("it reads no data source")?;
+    let table = load(deck, files, name).map_err(|e| e.to_string())?;
+    match props.get("dataTransform").and_then(Value::as_array) {
+        Some(steps) => {
+            transform::apply(table, steps).map_err(|e| format!("`@{name}` through its `dataTransform`: {e}"))
+        }
+        None => Ok(table),
+    }
+}
+
+/// The columns of `table` a chart's channel `channel` (`x`, `y`, `series`, `color`,
+/// `sizeEncoding`; or `key`) can read, as `props` declares the channel's `type`: numbers for a
+/// quantitative one, and for a `y` or a size that declares none; dates for a temporal one;
+/// any column for the rest.
+pub fn readable<'t>(table: &'t Table, props: &Props, channel: &str) -> Vec<&'t str> {
+    let declared = props.get(channel).and_then(|e| e.get("type")).and_then(Value::as_str);
+    let wants = match (channel, declared) {
+        (_, Some("quantitative")) | ("y" | "sizeEncoding", None) => Some(ColumnType::Number),
+        (_, Some("temporal")) => Some(ColumnType::Date),
+        _ => None,
+    };
+    (table.columns.iter().zip(&table.types))
+        .filter(|(_, kind)| wants.is_none_or(|wants| **kind == wants))
+        .map(|(column, _)| column.as_str())
+        .collect()
+}
+
 /// The deck's data source `name` (a chart's `"@name"` without the `@`), typed.
 pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, DataError> {
     let source = deck.data.get(name).ok_or_else(|| DataError::Unknown(name.to_string()))?;
@@ -124,66 +171,84 @@ pub fn load(deck: &Deck, files: &dyn SourceFiles, name: &str) -> Result<Table, D
         parse.insert(column, f);
     }
     let typed = |column: &str, kind: ColumnType, raw: Value| -> Result<Datum, DataError> {
-        let bad = |what: &str| at(format!("column `{column}`: {what}"));
-        Ok(match (kind, raw) {
-            (_, Value::Null) => Datum::Null,
-            (ColumnType::Number, Value::Number(n)) => Datum::Number(n.as_f64().ok_or_else(|| bad("not a number"))?),
-            (ColumnType::Number | ColumnType::Date, Value::String(s)) if s.trim().is_empty() => Datum::Null,
-            (ColumnType::Number, Value::String(s)) => {
-                Datum::Number(s.trim().parse().map_err(|_| bad(&format!("`{s}` is not a number")))?)
-            }
-            (ColumnType::Boolean, Value::Bool(b)) => Datum::Bool(b),
-            (ColumnType::Boolean, Value::String(s)) => match s.trim() {
-                "true" => Datum::Bool(true),
-                "false" => Datum::Bool(false),
-                other => return Err(bad(&format!("`{other}` is not true or false"))),
-            },
-            (ColumnType::Date, Value::String(s)) => Datum::Date(match parse.get(column) {
-                Some(f) => f.read(&s, locale).map_err(|e| bad(&e.to_string()))?,
-                None => format::read_iso(&s).map_err(|e| bad(&format!("{e}; give the column a `parse` format")))?,
-            }),
-            (ColumnType::String, Value::String(s)) => Datum::Text(s),
-            (ColumnType::String, other) => Datum::Text(other.to_string()),
-            (kind, other) => return Err(bad(&format!("`{other}` does not fit schema type `{}`", kind.name()))),
-        })
+        cell(column, kind, parse.get(column), locale, raw).map_err(at)
     };
-    let records: Records = match &source.source {
+    let (records, header): (Records, Option<Vec<String>>) = match &source.source {
         Value::String(path) => {
             let bytes =
                 files.bytes(path).ok_or_else(|| DataError::Missing { name: name.to_string(), path: path.clone() })?;
             let text = std::str::from_utf8(&bytes).map_err(|_| at(format!("`{path}` is not UTF-8")))?;
             if path.ends_with(".csv") {
-                csv(text).map_err(|e| at(format!("`{path}`: {e}")))?
+                let (header, records) = csv(text).map_err(|e| at(format!("`{path}`: {e}")))?;
+                (records, Some(header))
             } else if path.ends_with(".json") {
                 let rows: Value = serde_json::from_str(text).map_err(|e| at(format!("`{path}`: {e}")))?;
-                json_rows(&rows).map_err(|e| at(format!("`{path}`: {e}")))?
+                (json_rows(&rows).map_err(|e| at(format!("`{path}`: {e}")))?, None)
             } else {
                 return Err(at(format!("`{path}`: expected a .csv or .json file")));
             }
         }
         Value::Object(o) if o.contains_key("inline") => {
-            json_rows(&o["inline"]).map_err(|e| at(format!("inline: {e}")))?
+            (json_rows(&o["inline"]).map_err(|e| at(format!("inline: {e}")))?, None)
         }
         other => return Err(at(format!("unsupported source {other}"))),
     };
-    let columns = records.first().map(|(c, _)| c.clone()).unwrap_or_else(|| schema.keys().cloned().collect());
+    // A CSV's columns are its header's, rows or none; JSON's, its rows' keys, else the schema's.
+    let columns = match header {
+        Some(header) => header,
+        None if records.is_empty() => schema.keys().cloned().collect(),
+        None => columns_of(&records),
+    };
     let types = columns
         .iter()
         .map(|c| ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}"))))
         .collect::<Result<Vec<_>, _>>()?;
     let mut rows = Vec::with_capacity(records.len());
     for (header, values) in records {
-        let row = header
-            .iter()
-            .zip(values)
-            .map(|(c, v)| {
-                let kind = ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}")))?;
-                typed(c, kind, v)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        // A JSON row may name its columns in another order, or leave one out, which is null.
+        let mut row = vec![Datum::Null; columns.len()];
+        for (i, (c, v)) in header.iter().zip(values).enumerate() {
+            let k = if header == columns { i } else { columns.iter().position(|x| x == c).expect("a column") };
+            let kind = ColumnType::of(schema.get(c).map(String::as_str)).map_err(|e| at(format!("`{c}`: {e}")))?;
+            row[k] = typed(c, kind, v)?;
+        }
         rows.push(row);
     }
     Ok(Table { columns, types, rows })
+}
+
+/// `raw`, a value of `column`, read as `kind`: a date by its column's `parse` format, else as ISO
+/// 8601. Why not, where it does not fit: what a chart reads a source by (SPEC §3.10), and what
+/// an edit of one is checked by ([`edit`]).
+fn cell(
+    column: &str,
+    kind: ColumnType,
+    parse: Option<&DateFormat>,
+    locale: &Locale,
+    raw: Value,
+) -> Result<Datum, String> {
+    let bad = |what: &str| format!("column `{column}`: {what}");
+    Ok(match (kind, raw) {
+        (_, Value::Null) => Datum::Null,
+        (ColumnType::Number, Value::Number(n)) => Datum::Number(n.as_f64().ok_or_else(|| bad("not a number"))?),
+        (ColumnType::Number | ColumnType::Date, Value::String(s)) if s.trim().is_empty() => Datum::Null,
+        (ColumnType::Number, Value::String(s)) => {
+            Datum::Number(s.trim().parse().map_err(|_| bad(&format!("`{s}` is not a number")))?)
+        }
+        (ColumnType::Boolean, Value::Bool(b)) => Datum::Bool(b),
+        (ColumnType::Boolean, Value::String(s)) => match s.trim() {
+            "true" => Datum::Bool(true),
+            "false" => Datum::Bool(false),
+            other => return Err(bad(&format!("`{other}` is not true or false"))),
+        },
+        (ColumnType::Date, Value::String(s)) => Datum::Date(match parse {
+            Some(f) => f.read(&s, locale).map_err(|e| bad(&e.to_string()))?,
+            None => format::read_iso(&s).map_err(|e| bad(&format!("{e}; give the column a `parse` format")))?,
+        }),
+        (ColumnType::String, Value::String(s)) => Datum::Text(s),
+        (ColumnType::String, other) => Datum::Text(other.to_string()),
+        (kind, other) => return Err(bad(&format!("`{other}` does not fit schema type `{}`", kind.name()))),
+    })
 }
 
 /// What a data file holds, read without a schema: its columns in order, the type each
@@ -202,20 +267,20 @@ pub struct Inferred {
 /// a schema written by hand gives it.
 pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
     let text = std::str::from_utf8(bytes).map_err(|_| DataError::Bad(format!("`{path}` is not UTF-8")))?;
-    let records = if path.ends_with(".csv") {
-        csv(text)
+    // A CSV with a header and no rows still names its columns.
+    let (records, columns) = if path.ends_with(".csv") {
+        csv(text).map(|(header, records)| (records, header))
     } else if path.ends_with(".json") {
-        serde_json::from_str::<Value>(text).map_err(|e| e.to_string()).and_then(|rows| json_rows(&rows))
+        serde_json::from_str::<Value>(text).map_err(|e| e.to_string()).and_then(|rows| json_rows(&rows)).map(
+            |records| {
+                let columns = columns_of(&records);
+                (records, columns)
+            },
+        )
     } else {
         Err("expected a .csv or .json file".to_string())
     }
     .map_err(|e| DataError::Bad(format!("`{path}`: {e}")))?;
-    let columns: Vec<String> = match records.first() {
-        Some((header, _)) => header.clone(),
-        // A CSV with a header and no rows still names its columns.
-        None if path.ends_with(".csv") => csv_rows(text).map(|(header, _)| header).unwrap_or_default(),
-        None => Vec::new(),
-    };
     let fits = |kind: ColumnType, v: &Value| match (kind, v) {
         (_, Value::Null) => true,
         (_, Value::String(s)) if s.trim().is_empty() => true,
@@ -250,10 +315,26 @@ pub fn infer(path: &str, bytes: &[u8]) -> Result<Inferred, DataError> {
 /// Rows as (column names, values), each in source order.
 type Records = Vec<(Vec<String>, Vec<Value>)>;
 
-/// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote.
-fn csv(text: &str) -> Result<Records, String> {
+/// The columns `records` name: the first row's, then any a later row names first, in the
+/// order they come. A CSV's rows all have its header's.
+fn columns_of(records: &Records) -> Vec<String> {
+    let mut columns: Vec<String> = records.first().map(|(header, _)| header.clone()).unwrap_or_default();
+    for (header, _) in records {
+        for c in header {
+            if !columns.contains(c) {
+                columns.push(c.clone());
+            }
+        }
+    }
+    columns
+}
+
+/// RFC 4180: a header row, then records; fields may be quoted, with `""` for a quote. The
+/// header, and the records.
+fn csv(text: &str) -> Result<(Vec<String>, Records), String> {
     let (header, rows) = csv_rows(text)?;
-    rows.into_iter()
+    let records = rows
+        .into_iter()
         .enumerate()
         .map(|(i, r)| {
             if r.len() != header.len() {
@@ -261,7 +342,8 @@ fn csv(text: &str) -> Result<Records, String> {
             }
             Ok((header.clone(), r.into_iter().map(Value::String).collect()))
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    Ok((header, records))
 }
 
 /// A CSV's header and its records, as text.
@@ -317,7 +399,7 @@ mod tests {
 
     fn deck(data: &str) -> Deck {
         let json = format!(
-            r#"{{"scaena": "0.9", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
+            r#"{{"scaena": "0.11", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
         );
         Deck::from_json(&json).unwrap()
     }
@@ -347,6 +429,30 @@ mod tests {
         assert!(err.contains("`seven` is not a number"), "{err}");
         let missing = load(&deck2, &BTreeMap::new(), "q").unwrap_err();
         assert!(matches!(missing, DataError::Missing { .. }), "{missing}");
+    }
+
+    /// JSON objects name their keys in any order and may leave one out: each row lines up
+    /// with the columns by name, a missing value null, and a key only a later row has is a
+    /// column too.
+    #[test]
+    fn json_rows_line_up_with_the_columns_by_name() {
+        let rows = r#"[{"k": "a", "v": 2}, {"v": 3, "k": "b"}, {"k": "c"}, {"k": "d", "v": 4, "note": "x"}]"#;
+        let d = deck(&format!(r#"{{"q": {{"source": {{"inline": {rows}}}, "schema": {{"v": "number"}}}}}}"#));
+        let t = load(&d, &BTreeMap::new(), "q").unwrap();
+        assert_eq!(t.columns, ["k", "v", "note"]);
+        let (text, n) = (|s: &str| Datum::Text(s.into()), Datum::Number);
+        assert_eq!(
+            t.rows,
+            [
+                vec![text("a"), n(2.0), Datum::Null],
+                vec![text("b"), n(3.0), Datum::Null],
+                vec![text("c"), Datum::Null, Datum::Null],
+                vec![text("d"), n(4.0), text("x")],
+            ]
+        );
+        let inferred = infer("data/q.json", rows.as_bytes()).unwrap();
+        assert_eq!(inferred.columns, t.columns);
+        assert_eq!(inferred.types, [ColumnType::String, ColumnType::Number, ColumnType::String]);
     }
 
     #[test]
@@ -384,7 +490,7 @@ mod tests {
         let err = load(&deck1, &files("d.csv", "day,month\nlast Tuesday,Mar 2025\n"), "q").unwrap_err().to_string();
         assert!(err.contains("column `day`") && err.contains("ISO 8601") && err.contains("parse"), "{err}");
         // Month names read in the deck's language.
-        let de = r#"{"scaena": "0.9", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
+        let de = r#"{"scaena": "0.11", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
             "data": {"q": {"source": {"inline": [{"m": "März 2025"}]}, "schema": {"m": "date"}, "parse": {"m": "%B %Y"}}},
             "nodes": {}, "states": []}"#;
         let t = load(&Deck::from_json(de).unwrap(), &BTreeMap::new(), "q").unwrap();

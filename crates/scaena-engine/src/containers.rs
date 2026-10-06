@@ -7,11 +7,13 @@
 //! that box unless its `size` says otherwise. A root container lays its subtree out inside
 //! its box.
 //!
-//! Inside a stack, text and images take the room their content needs and containers wrap
-//! theirs, while shapes, charts, and shaders share what is left; everything stretches
-//! across the stack. Inside a grid container, children fill their cells and never widen
-//! a track (CSS's `min-width: 0`). Inside a frame,
-//! `at.rect` is relative to the frame's padding, and a child with no `rect` fills it.
+//! Inside a stack, text, tables, and images take the room their content needs and
+//! containers wrap theirs, while shapes, charts, and shaders share what is left;
+//! everything stretches across the stack. A table never takes more than the stack has
+//! left: short of room, it takes what is left and says what to cut (E100). Inside a grid
+//! container, children fill their cells and never widen a track (CSS's `min-width: 0`).
+//! Inside a frame, `at.rect` is relative to the frame's padding, and a child with no
+//! `rect` fills it.
 //!
 //! Layout is per snapshot (SPEC §5): this runs once when a scene is built, never per frame.
 //! Positions are not rounded to whole canvas units, as the theme grid's are not.
@@ -22,7 +24,7 @@ use crate::layout::{AlignX, AlignY, Grid};
 use crate::theme::Theme;
 use scaena_core::Snapshot;
 use scaena_core::displaylist::Rect;
-use scaena_core::document::{Deck, NodeType, Props};
+use scaena_core::document::{Deck, MAX_NESTING, NodeType, Props};
 use scaena_core::model::values::{Size as SizeSpec, SizeValue};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -33,9 +35,9 @@ use taffy::{
     TaffyTree, TrackSizingFunction,
 };
 
-/// A text leaf's size, given what is known of it and the room available.
-pub type MeasureText<'m> =
-    dyn FnMut(&str, Size<Option<f32>>, Size<AvailableSpace>) -> Result<Size<f32>, EngineError> + 'm;
+/// The size of a leaf the engine typesets (a text node's lines, a table's rows and
+/// columns), given what is known of it and the room available.
+pub type Measure<'m> = dyn FnMut(&str, Size<Option<f32>>, Size<AvailableSpace>) -> Result<Size<f32>, EngineError> + 'm;
 
 /// Where every node of one snapshot goes.
 #[derive(Debug, Clone, Default)]
@@ -48,6 +50,16 @@ pub struct Placement {
     /// node from its root down to it. Keys sort in paint order: siblings by `z`, then
     /// `nodes` order, and a container under its children.
     pub order: Vec<(String, Vec<(i64, usize)>)>,
+    /// Each grid container's tracks as laid out: where its cells are (ADR-0013).
+    pub tracks: HashMap<String, Tracks>,
+}
+
+/// A grid's tracks, each `[start, end]` in canvas units: columns left to right, rows top to
+/// bottom. A placement by cells takes a range of them, 1-based.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Tracks {
+    pub columns: Vec<[f32; 2]>,
+    pub rows: Vec<[f32; 2]>,
 }
 
 impl Placement {
@@ -89,7 +101,7 @@ pub fn place(
     grid: &Grid,
     images: &BundleImages,
     snap: &Snapshot,
-    measure: &mut MeasureText,
+    measure: &mut Measure,
 ) -> Result<Placement, EngineError> {
     let kind = |id: &str| deck.nodes[id].node_type;
     let order_of = |id: &str| deck.nodes.get_index_of(id).expect("snapshot nodes are deck nodes");
@@ -114,6 +126,10 @@ pub fn place(
             if steps > placement.parents.len() {
                 return Err(in_node(id, "containers nest in a loop".into()));
             }
+            // Each level lays out by recursion, on a stack a browser keeps small.
+            if steps > MAX_NESTING {
+                return Err(in_node(id, format!("containers nest more than {MAX_NESTING} deep")));
+            }
         }
     }
 
@@ -124,7 +140,7 @@ pub fn place(
     }
     let index = |id: &str| snap.nodes[id].get("at").and_then(|at| at.get("index")).and_then(Value::as_u64);
     for kids in children.values_mut() {
-        kids.sort_by_key(|id| (index(id).unwrap_or(0), order_of(id)));
+        scaena_core::sort::by_key(kids, |id| (index(id).unwrap_or(0), order_of(id)));
     }
     let z = |id: &str| snap.nodes[id].get("z").and_then(Value::as_i64).unwrap_or(0);
     let mut stack: Vec<(&str, Vec<(i64, usize)>)> = snap
@@ -134,7 +150,7 @@ pub fn place(
         .map(|id| (id.as_str(), vec![(z(id), order_of(id))]))
         .collect();
     // Depth first: popping from the end, so push in reverse paint order.
-    stack.sort_by(|a, b| b.1.cmp(&a.1));
+    scaena_core::sort::by(&mut stack, |a, b| b.1.cmp(&a.1));
     while let Some((id, key)) = stack.pop() {
         let mut kids: Vec<(&str, Vec<(i64, usize)>)> = children
             .get(id)
@@ -146,7 +162,7 @@ pub fn place(
                 (*kid, k)
             })
             .collect();
-        kids.sort_by(|a, b| b.1.cmp(&a.1));
+        scaena_core::sort::by(&mut kids, |a, b| b.1.cmp(&a.1));
         placement.order.push((id.to_string(), key));
         stack.extend(kids);
     }
@@ -207,7 +223,7 @@ pub fn place(
                         style,
                         |_, _| 0.0,
                         |known, available| match context {
-                            Some(Leaf::Text(id)) if failed.is_none() => match measure(id, known, available) {
+                            Some(Leaf::Typeset(id)) if failed.is_none() => match measure(id, known, available) {
                                 Ok(size) => size,
                                 Err(e) => {
                                     failed = Some(e);
@@ -224,7 +240,7 @@ pub fn place(
         if let Some(e) = failed {
             return Err(e);
         }
-        flow.read(node, [cell[0], cell[1]], &mut placement.boxes)?;
+        flow.read(node, [cell[0], cell[1]], &mut placement.boxes, &mut placement.tracks)?;
     }
     Ok(placement)
 }
@@ -235,12 +251,10 @@ fn taffy_error(e: taffy::TaffyError) -> EngineError {
 
 /// What a leaf measures by.
 enum Leaf {
-    Text(String),
+    /// What the engine typesets in it: a text node's lines, a table's rows and columns.
+    Typeset(String),
     /// The part of the image that shows, in pixels, taken as canvas units.
-    Image {
-        width: f32,
-        height: f32,
-    },
+    Image { width: f32, height: f32 },
 }
 
 /// An image's size: its natural size, scaled to keep its aspect ratio when one side is
@@ -348,8 +362,8 @@ impl Flow<'_> {
                 }
                 self.tree.new_with_children(style, &nodes).map_err(taffy_error)?
             }
-            NodeType::Text => {
-                self.tree.new_leaf_with_context(style, Leaf::Text(id.to_string())).map_err(taffy_error)?
+            NodeType::Text | NodeType::Table => {
+                self.tree.new_leaf_with_context(style, Leaf::Typeset(id.to_string())).map_err(taffy_error)?
             }
             NodeType::Image => match natural {
                 Some((width, height)) => {
@@ -360,9 +374,7 @@ impl Flow<'_> {
             NodeType::Group => {
                 return Err(in_node(id, "a group cannot sit in a stack, grid, or frame".into()));
             }
-            NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader => {
-                self.tree.new_leaf(style).map_err(taffy_error)?
-            }
+            NodeType::Shape | NodeType::Chart | NodeType::Shader => self.tree.new_leaf(style).map_err(taffy_error)?,
         };
         self.ids.insert(node, id.to_string());
         Ok(node)
@@ -371,7 +383,13 @@ impl Flow<'_> {
     /// Each laid-out node's box, from `node` down, canvas units; `origin` is the top-left
     /// corner of `node`'s parent. As on the slide, `at.offset` moves a node (and what is in
     /// it) after layout, and `at.inset` shrinks a node's own box on every side.
-    fn read(&self, node: NodeId, origin: [f32; 2], boxes: &mut HashMap<String, Rect>) -> Result<(), EngineError> {
+    fn read(
+        &self,
+        node: NodeId,
+        origin: [f32; 2],
+        boxes: &mut HashMap<String, Rect>,
+        tracks: &mut HashMap<String, Tracks>,
+    ) -> Result<(), EngineError> {
         let layout = self.tree.layout(node).map_err(taffy_error)?;
         let id = &self.ids[&node];
         let at = self.snap.nodes[id].get("at");
@@ -383,8 +401,14 @@ impl Flow<'_> {
         let (x, y) = (origin[0] + layout.location.x + dx, origin[1] + layout.location.y + dy);
         let (w, h) = (layout.size.width, layout.size.height);
         boxes.insert(id.clone(), [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset]);
+        // A grid's tracks stand from its box's corner, as its children do.
+        if let taffy::DetailedLayoutInfo::Grid(grid) = self.tree.detailed_layout_info(node) {
+            let along = |lines: &[Line<f32>], from: f32| lines.iter().map(|l| [from + l.start, from + l.end]).collect();
+            let found = Tracks { columns: along(&grid.columns.positions, x), rows: along(&grid.rows.positions, y) };
+            tracks.insert(id.clone(), found);
+        }
         for child in self.tree.children(node).map_err(taffy_error)? {
-            self.read(child, [x, y], boxes)?;
+            self.read(child, [x, y], boxes, tracks)?;
         }
         Ok(())
     }
@@ -399,10 +423,22 @@ fn natural_size(images: &BundleImages, props: &Props) -> Option<(f32, f32)> {
     (w > 0.0 && h > 0.0).then_some((w, h))
 }
 
-/// Shapes, charts, tables, and shaders have no size of their own: in a stack they share
-/// the room.
+/// Shapes, charts, and shaders have no size of their own: in a stack they share the room.
+/// A table has one, its rows and columns, as text does.
 fn grows(kind: NodeType) -> bool {
-    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader)
+    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Shader)
+}
+
+/// What the node's own alignment says for one axis, `x` or `y`, when it places the node
+/// rather than stretching it: `at.align` over the node's `align`, a keyword aligning both
+/// axes. The slot's alignment is for its text, and places nothing.
+fn own_align<'a>(props: &'a Props, axis: &str) -> Option<&'a str> {
+    let on = |v: Option<&'a Value>| match v? {
+        Value::String(k) => Some(k.as_str()),
+        Value::Object(o) => o.get(axis)?.as_str(),
+        _ => None,
+    };
+    on(props.get("at").and_then(|at| at.get("align"))).or_else(|| on(props.get("align"))).filter(|k| *k != "stretch")
 }
 
 /// A node's style as a child of `within`: its `size` and its alignment.
@@ -476,8 +512,12 @@ fn item_style(
         Within::Root | Within::Stack { .. } => {
             let row = matches!(within, Within::Stack { row: true });
             let (main, cross, cross_alignment) = if row { (&w, &h, y_align) } else { (&h, &w, x_align) };
-            // A root fills its cell; in a stack, a node with no size of its own shares the room.
-            let default_share = matches!(within, Within::Root) || grows(kind);
+            // A root fills its cell, but on an axis its own alignment names, a root with a size
+            // of its own (a container's content, an image's picture, a table's rows and
+            // columns) takes that size and aligns there. In a stack, a node with no size of its
+            // own shares the room.
+            let placed = |axis| matches!(within, Within::Root) && !grows(kind) && own_align(props, axis).is_some();
+            let default_share = (matches!(within, Within::Root) && !placed("y")) || grows(kind);
             match main {
                 Some(Axis::Fixed(d)) => {
                     set_main(&mut style, row, *d);
@@ -501,6 +541,7 @@ fn item_style(
                 }
                 Some(Axis::Fit) => style.align_self = cross_align(cross_alignment, true),
                 Some(Axis::Share(_)) => style.align_self = Some(AlignSelf::STRETCH),
+                None if placed("x") => style.align_self = cross_alignment.or(Some(AlignSelf::START)),
                 None => style.align_self = cross_align(cross_alignment, false),
             }
             // An image keeps its picture's shape as it stretches across a stack.
@@ -615,7 +656,7 @@ fn dimension(theme: &Theme, v: &Value) -> Result<Extent, String> {
 }
 
 /// `padding` as `[top, right, bottom, left]`, CSS shorthand.
-fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
+pub(crate) fn padding(theme: &Theme, props: &Props) -> Result<[f32; 4], String> {
     let Some(v) = props.get("padding") else { return Ok([0.0; 4]) };
     let one = |v: &Value| theme.length(v, 0.0).map_err(|e| e.to_string());
     let sides: Vec<f32> = match v {
@@ -662,7 +703,7 @@ fn tracks(theme: &Theme, v: Option<&Value>, from_areas: u16) -> Result<Vec<GridT
 
 /// A grid container's named areas: each name's `[first col, last col, first row, last row]`,
 /// 1-based, from rows of names as CSS `grid-template-areas` writes them.
-fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
+pub(crate) fn areas(props: &Props) -> Result<BTreeMap<String, [u16; 4]>, String> {
     let Some(v) = props.get("areas") else { return Ok(BTreeMap::new()) };
     let rows: Vec<String> = serde_json::from_value(v.clone()).map_err(|_| format!("`areas` {v}: rows of names"))?;
     let cells: Vec<Vec<&str>> = rows.iter().map(|r| r.split_whitespace().collect()).collect();
@@ -725,15 +766,24 @@ mod tests {
         Deck::from_json(&deck.to_string()).unwrap()
     }
 
-    /// Text as 20 cu a character on 50 cu lines, wrapped at the width it gets.
-    fn fake_text(deck: &Deck) -> Box<MeasureText<'static>> {
+    /// Text as 20 cu a character on 50 cu lines, wrapped at the width it gets; a table as
+    /// 300 × 200 cu of columns and rows, never more than it is offered and needing none.
+    fn fake_measure(deck: &Deck) -> Box<Measure<'static>> {
         let chars: HashMap<String, f32> = deck
             .nodes
             .iter()
             .filter_map(|(id, n)| Some((id.clone(), n.props.get("text")?.as_str()?.chars().count() as f32 * 20.0)))
             .collect();
         Box::new(move |id, known, available| {
-            let wide = chars[id];
+            let Some(&wide) = chars.get(id) else {
+                let offered = |a: AvailableSpace, content: f32| match a {
+                    AvailableSpace::Definite(room) => content.min(room),
+                    AvailableSpace::MinContent => 0.0,
+                    AvailableSpace::MaxContent => content,
+                };
+                let width = known.width.unwrap_or(offered(available.width, 300.0));
+                return Ok(Size { width, height: known.height.unwrap_or(offered(available.height, 200.0)) });
+            };
             let room = known.width.or(match available.width {
                 AvailableSpace::Definite(w) => Some(w),
                 AvailableSpace::MinContent => Some(0.0),
@@ -755,7 +805,7 @@ mod tests {
         png.extend(200u32.to_be_bytes());
         png.extend([8, 6, 0, 0, 0]);
         images.register("assets/photo.png", &png).unwrap();
-        place(deck, &theme, &grid, &images, snap, &mut *fake_text(deck))
+        place(deck, &theme, &grid, &images, snap, &mut *fake_measure(deck))
     }
 
     fn boxes(nodes: Value) -> HashMap<String, Rect> {
@@ -776,6 +826,66 @@ mod tests {
         assert_eq!(b["rule"], [120.0, 180.0, 560.0, 4.0]);
         // The panel takes what is left: 460 tall inside, less 50 + 4 and two gaps.
         assert_eq!(b["panel"], [120.0, 194.0, 560.0, 386.0]);
+    }
+
+    #[test]
+    fn a_stack_gives_a_table_its_rows_and_never_more_than_it_has() {
+        // A 600-wide stack, `h` high: the table (`size` if any), a line of text, a shape.
+        let stack = |h: f32, size: Option<Value>| {
+            let mut table = json!({ "type": "table", "data": "@q", "at": { "parent": "col" } });
+            if let Some(size) = size {
+                table["size"] = size;
+            }
+            boxes(json!({
+                "col": { "type": "stack", "gap": 10, "at": { "rect": [0, 0, 600, h] } },
+                "t": table,
+                "total": { "type": "text", "text": "Total", "at": { "parent": "col" } },
+                "rest": { "type": "shape", "at": { "parent": "col" } }
+            }))
+        };
+        // Its rows, across the stack, as text takes its lines; what follows starts a gap
+        // under its last row, and the shape shares what is left.
+        let b = stack(500.0, Some(json!({ "h": "fit" })));
+        assert_eq!(b["t"], [0.0, 0.0, 600.0, 200.0]);
+        assert_eq!(b["total"], [0.0, 210.0, 600.0, 50.0]);
+        assert_eq!(b["rest"], [0.0, 270.0, 600.0, 230.0]);
+        // Without a size, the same: a table has a size of its own.
+        assert_eq!(stack(500.0, None), b);
+        // Short of room, it takes what is left, and the text keeps its line: 150 less two
+        // gaps and the line leaves 80 for 200 cu of rows, which lint reports (E100).
+        let b = stack(150.0, None);
+        assert_eq!(b["t"], [0.0, 0.0, 600.0, 80.0]);
+        assert_eq!(b["total"], [0.0, 90.0, 600.0, 50.0]);
+        // `fill` shares what is left, as a chart does: 500 less two gaps and the line is
+        // 430, half each. A length is that length.
+        let b = stack(500.0, Some(json!({ "h": "fill" })));
+        assert_eq!((b["t"][3], b["rest"][3]), (215.0, 215.0));
+        assert_eq!(stack(500.0, Some(json!({ "h": 120 })))["t"][3], 120.0);
+        // Across a row, its columns.
+        let b = boxes(json!({
+            "row": { "type": "stack", "axis": "x", "gap": 10, "at": { "rect": [0, 0, 1000, 400] } },
+            "t": { "type": "table", "data": "@q", "at": { "parent": "row" } },
+            "chart": { "type": "chart", "kind": "bar", "data": "@q", "at": { "parent": "row" } }
+        }));
+        assert_eq!(b["t"], [0.0, 0.0, 300.0, 400.0]);
+        assert_eq!(b["chart"], [310.0, 0.0, 690.0, 400.0]);
+    }
+
+    #[test]
+    fn a_root_table_that_fits_its_content_aligns_in_its_cell() {
+        let b = boxes(json!({
+            "t": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600] },
+                   "size": { "w": "fit", "h": "fit" }, "align": "center" },
+            "short": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 120] }, "size": { "h": "fit" } },
+            "sized": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600], "align": { "y": "end" } },
+                       "size": { "w": 500 } }
+        }));
+        assert_eq!(b["t"], [350.0, 200.0, 300.0, 200.0]);
+        // Never taller than its cell: its rows that do not fit are lint's to report.
+        assert_eq!(b["short"], [0.0, 0.0, 1000.0, 120.0]);
+        // Sized one way, it takes its rows on the axis its own alignment names, as an image
+        // takes its picture's.
+        assert_eq!(b["sized"], [0.0, 400.0, 500.0, 200.0]);
     }
 
     #[test]
@@ -865,6 +975,22 @@ mod tests {
         }));
         assert_eq!(b["photo"], [300.0, 200.0, 400.0, 200.0]);
         assert_eq!(b["plain"], [0.0, 0.0, 1000.0, 600.0], "no size: the cell, as before");
+    }
+
+    #[test]
+    fn a_root_container_that_aligns_takes_its_contents_size() {
+        let b = boxes(json!({
+            "cards": { "type": "grid", "cols": 2, "gap": 20, "at": { "rect": [0, 0, 1020, 600], "align": { "y": "center" } } },
+            "a": { "type": "text", "text": "Bike", "at": { "parent": "cards" } },
+            "b": { "type": "text", "text": "Bus", "at": { "parent": "cards" } },
+            "fills": { "type": "stack", "at": { "rect": [0, 0, 1020, 600] } },
+            "c": { "type": "text", "text": "Car", "at": { "parent": "fills" } }
+        }));
+        // One row of 50 cu lines, centered down the 600 cu cell, and across all of it.
+        assert_eq!(b["cards"], [0.0, 275.0, 1020.0, 50.0]);
+        assert_eq!(b["a"], [0.0, 275.0, 500.0, 50.0]);
+        // A root container with no alignment of its own fills its cell, as before.
+        assert_eq!(b["fills"], [0.0, 0.0, 1020.0, 600.0]);
     }
 
     #[test]
