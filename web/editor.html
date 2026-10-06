@@ -72,6 +72,7 @@
       #find input[name="find"], #find input[name="replace"] { flex: 1 1 10em; min-width: 8em; }
       #find output { min-width: 6em; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
       #overlay .found { fill: rgb(240 200 90 / 0.45); stroke: rgb(240 200 90 / 0.9); stroke-width: 1; }
+      #overlay .row-mark { fill: rgb(240 200 90 / 0.22); stroke: rgb(240 200 90 / 0.95); stroke-width: 2; vector-effect: non-scaling-stroke; }
       @keyframes blink { 50% { opacity: 0; } }
       @media (prefers-reduced-motion: reduce) { #overlay .caret { animation: none; } }
       /* What typing on the canvas types into (PLAN 2.32): unseen, under the caret, where an input
@@ -307,6 +308,8 @@
       #data td input[aria-invalid="true"] { border-color: var(--error); color: var(--error); }
       #data td input[readonly] { color: var(--muted); }
       #data tr.current th { color: var(--ink); }
+      #data tr.current td { background: rgb(240 200 90 / 0.14); }
+      #data [data-drawn] { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
       #data [data-problems] { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
       #data [data-problems] button { all: unset; color: var(--error); cursor: pointer; }
       #data [data-problems] button:focus-visible { outline: 2px solid var(--info); }
@@ -466,6 +469,7 @@
           </p>
           <div class="sheet"><table aria-label="The source's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
           <ul data-problems aria-label="Cells their column does not read"></ul>
+          <p data-drawn aria-live="polite"></p>
         </section>
         <section id="theming" role="tabpanel" aria-labelledby="tab-theming" hidden>
           <p data-summary></p>

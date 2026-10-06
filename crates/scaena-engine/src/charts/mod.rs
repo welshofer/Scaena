@@ -20,6 +20,7 @@ use crate::theme::Theme;
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl, Point};
 use scaena_core::format::{DateFormat, Locale, MINUS, NumberFormat};
+use std::collections::BTreeMap;
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
@@ -725,6 +726,12 @@ pub struct ChartLayout {
     pub covers: Vec<(String, String)>,
     /// Annotations: bands under the gridlines, rules and callouts over the marks.
     pub notes: Vec<Note>,
+    /// The data source it reads, as the deck names it.
+    pub source: String,
+    /// Each mark's rows of its source, by the mark's key: the rows its datum was made from,
+    /// through the chart's `dataTransform`, from 0 as the source's sheet numbers them
+    /// (PLAN 2.64).
+    pub rows: BTreeMap<String, Vec<usize>>,
 }
 
 /// What a chart's text is for (lint names it).

@@ -8,6 +8,7 @@ import type {
   AssistantEvent,
   At,
   DataEdited,
+  DataMark,
   DataSource,
   Edited,
   Export,
@@ -76,6 +77,7 @@ type Reply = Extract<
       | "reloaded"
       | "boxes"
       | "hits"
+      | "marked"
       | "viewed"
       | "focal"
       | "found"
@@ -282,6 +284,19 @@ export class Stage {
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   hit(state: string, point: [number, number], format?: string): Promise<Hit[]> {
     return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
+  }
+
+  /** The chart mark or table row drawn at `point` in `state` at rest, with the rows of its source
+   * it was made from; none where the topmost node there is no chart or table, or between its marks
+   * (PLAN 2.64). */
+  markAt(state: string, point: [number, number], format?: string): Promise<DataMark | undefined> {
+    return this.request<"marked">({ type: "markAt", id: ++this.asked, state, point, format }).then(({ marks }) => marks[0]);
+  }
+
+  /** What `rows` of data source `source` draw in `state` at rest: each chart mark and table row
+   * made from any of them, in paint order (PLAN 2.64). */
+  marksOf(state: string, source: string, rows: number[], format?: string): Promise<DataMark[]> {
+    return this.request<"marked">({ type: "marksOf", id: ++this.asked, state, source, rows, format }).then(({ marks }) => marks);
   }
 
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units: the part of the canvas a
@@ -757,6 +772,7 @@ export class Stage {
       case "reloaded":
       case "boxes":
       case "hits":
+      case "marked":
       case "viewed":
       case "focal":
       case "found":

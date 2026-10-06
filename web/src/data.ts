@@ -14,6 +14,10 @@
 // - + Row adds a row after the row last focused, else at the end; − Row takes that row away.
 // - Undo and Redo (⌘Z and ⇧⌘Z in the table) undo the source's last change: a file's as the page
 //   keeps them, and rows written inline as the source's own undo does.
+// - Rows and what they draw (PLAN 2.64): the row of the cell focused is chosen, and the canvas
+//   outlines what it draws in the state shown, each chart mark and table row made from it; the line
+//   under the table says what. A chart's mark, or a table's row, pointed at on the canvas chooses
+//   the rows it was made from, a group's every row, the first in view.
 import type { Edited, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -32,6 +36,9 @@ export interface DataEditor {
   undo(): void;
   redo(): void;
   say(text: string): void;
+  /** The rows chosen in source `source` are now `rows`: the row of the cell focused, or those of what
+   * was pointed at on the canvas; none with none (PLAN 2.64). */
+  chose?(source: string, rows: number[]): void;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -48,6 +55,8 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   let shown: { name: string; file?: string; sheet: Sheet } | undefined;
   /** The row last focused: where + Row adds and − Row takes away. */
   let row: number | undefined;
+  /** The rows chosen: the row last focused, or those of what was pointed at on the canvas. */
+  let chosen: number[] = [];
   /** Sheets asked for: the last answer wins. */
   let asking = 0;
   /** One change at a time, each made on the source the one before left. */
@@ -56,8 +65,26 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   /** The field of row `r`, column `c`. */
   const cell = (r: number, c: number) => table.querySelector<HTMLInputElement>(`input[data-row="${r}"][data-col="${c}"]`);
 
-  /** Read source `name` (the one shown, or the first) as a sheet, and show it. */
-  async function refresh(name = shown?.name) {
+  /** The source asked for last, and the read asked for last: what shows once it answers. */
+  let wanted: string | undefined;
+  let reading: Promise<void> = Promise.resolve();
+
+  /** Read source `name` (the one asked for last, the one shown, or the first) as a sheet, and show
+   * it. */
+  function refresh(name = wanted ?? shown?.name): Promise<void> {
+    reading = read(name);
+    return reading;
+  }
+
+  /** Once the read asked for last has answered, and any asked meanwhile. */
+  async function answered() {
+    for (let r = reading; ; r = reading) {
+      await r;
+      if (r === reading) return;
+    }
+  }
+
+  async function read(name: string | undefined) {
     if (into.hidden) return;
     const asked = ++asking;
     let got: Awaited<ReturnType<Stage["sheet"]>>;
@@ -89,9 +116,31 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       problems.replaceChildren();
       return;
     }
-    if (got.name !== shown?.name) row = undefined;
+    if (got.name !== shown?.name) [row, chosen] = [undefined, []];
     shown = { name: got.name!, file: got.file, sheet: got.sheet };
     draw();
+  }
+
+  /** Tell the editor the rows chosen, those the source still has. */
+  function told() {
+    if (!shown) return;
+    const rows = shown.sheet.rows.length;
+    chosen = chosen.filter((r) => r < rows);
+    for (const [i, tr] of table.querySelectorAll("tbody tr").entries()) tr.classList.toggle("current", chosen.includes(i));
+    editor.chose?.(shown.name, chosen);
+  }
+
+  /** Show source `name` with `rows` chosen, as what was pointed at on the canvas was made from them,
+   * the first in view; focus stays where it is (PLAN 2.64). */
+  async function select(name: string, rows: number[]) {
+    wanted = name;
+    if (shown?.name !== name) void refresh(name);
+    await answered();
+    if (shown?.name !== name) return;
+    chosen = [...rows];
+    row = rows[0] ?? row;
+    told();
+    table.querySelectorAll("tbody tr")[chosen[0]]?.scrollIntoView({ block: "nearest" });
   }
 
   /** The table: a column for each of the source's, its type under its name, and a row for each,
@@ -120,7 +169,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
           why ? ' aria-invalid="true"' : ""
         }${lines ? " readonly" : ""}${title ? ` title="${html(title)}"` : ""} /></td>`;
       });
-      return `<tr${r === row ? ' class="current"' : ""}><th scope="row" class="index">${r}</th>${fields.join("")}</tr>`;
+      return `<tr${chosen.includes(r) ? ' class="current"' : ""}><th scope="row" class="index">${r}</th>${fields.join("")}</tr>`;
     });
     table.innerHTML = `<thead><tr><th scope="col" class="index">row</th>${head}</tr></thead><tbody>${body.join("")}</tbody>`;
     problems.innerHTML = (sheet.problems ?? [])
@@ -129,6 +178,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
         return `<li><button type="button" data-row="${p.row}" data-col="${c}">${html(`${p.column}, row ${p.row}`)}</button> ${html(p.why)}</li>`;
       })
       .join("");
+    told();
     if (!focus) return;
     const field = cell(Math.min(focus.r, sheet.rows.length - 1), focus.c);
     if (field && focus.typed !== undefined && focus.r < sheet.rows.length) field.value = focus.typed;
@@ -198,12 +248,17 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     making = making.then(run, run);
   }
 
-  picker.onchange = () => void refresh(picker.value);
+  picker.onchange = () => {
+    wanted = picker.value;
+    void refresh(picker.value);
+  };
   table.addEventListener("focusin", (e) => {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
     if (!field) return;
     row = +field.dataset.row!;
-    for (const tr of table.querySelectorAll("tbody tr")) tr.classList.toggle("current", tr === field.closest("tr"));
+    if (chosen.length === 1 && chosen[0] === row) return;
+    chosen = [row];
+    told();
   });
   table.addEventListener("change", (e) => {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
@@ -264,6 +319,13 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   return {
     /** Read the source shown again, as the deck now has it: after an edit of the deck. */
     refresh: () => refresh(),
+    /** Show source `name` with `rows` chosen, as what was pointed at on the canvas was made from
+     * them (PLAN 2.64). */
+    select,
+    /** The rows chosen, for a test. */
+    chosen: () => [...chosen],
+    /** Say what the rows chosen draw in the state shown, under the table. */
+    drawn: (text: string) => void (into.querySelector<HTMLElement>("[data-drawn]")!.textContent = text),
     /** The source shown, by name, and its sheet: for tests. */
     shown: () => shown,
     /** Each change waits for the one before it: resolved once the last is made. */

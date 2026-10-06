@@ -111,6 +111,25 @@ export interface Hit {
   containers: string[];
 }
 
+/** What a row of a data source draws in a state at rest (PLAN 2.64): a chart's mark, or a table's
+ * row, with the rows of its source it was made from. */
+export interface DataMark {
+  /** The chart or table that draws it. */
+  node: string;
+  /** The source it reads, as the deck names it. */
+  source: string;
+  /** The mark's key, or the table row's. */
+  key: string;
+  /** The rows of the source it draws, from 0, as the source's sheet numbers them. */
+  rows: number[];
+  /** Its outline as laid out, canvas units: SVG path data. */
+  outline: string;
+  /** The box around it as laid out, canvas units. */
+  rect: Rect;
+  /** Where the node's transform, and those of what holds it, draw it from where it is laid out. */
+  transform?: [number, number, number, number, number, number];
+}
+
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
  * reader counts it, on its line, from the glyphs the engine set. Offsets are UTF-16 code units of
  * `text`, as the page counts a string; x and y are canvas units. */
@@ -447,6 +466,10 @@ export type ToWorker =
   | { type: "boxes"; id: number; state: string; format?: string }
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** The chart mark or table row at `point` in `state` at rest (PLAN 2.64). */
+  | { type: "markAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** What `rows` of data source `source` draw in `state` at rest (PLAN 2.64). */
+  | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
    * canvas with none; and paint what is shown again so (PLAN 2.46). */
   | { type: "view"; id: number; view: [number, number, number, number] | null }
@@ -962,6 +985,8 @@ export type FromWorker =
   /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
   | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
   | { type: "hits"; id: number; hits: Hit[] }
+  /** The marks asked for: the one at a point, or none; or what rows draw. */
+  | { type: "marked"; id: number; marks: DataMark[] }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }

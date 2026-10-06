@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 pub use scaena_core::data::{ColumnType, Datum, Table};
+pub use scaena_core::transform::Rows;
 
 /// A bundle's data files by bundle path (`data/q3.csv`), as the deck's sources name them.
 #[derive(Debug, Clone, Default, Hash)]
@@ -41,6 +42,19 @@ pub fn transform(table: Table, steps: Option<&serde_json::Value>) -> Result<Tabl
             scaena_core::transform::apply(table, steps).map_err(|e| EngineError::Data(format!("`dataTransform` {e}")))
         }
         None => Ok(table),
+    }
+}
+
+/// [`transform`], with the rows of `table` each of its rows was made from (PLAN 2.64).
+pub fn traced(table: Table, steps: Option<&serde_json::Value>) -> Result<(Table, Rows), EngineError> {
+    match steps.and_then(serde_json::Value::as_array) {
+        Some(steps) => {
+            scaena_core::transform::traced(table, steps).map_err(|e| EngineError::Data(format!("`dataTransform` {e}")))
+        }
+        None => {
+            let from = (0..table.rows.len()).map(|r| vec![r]).collect();
+            Ok((table, from))
+        }
     }
 }
 

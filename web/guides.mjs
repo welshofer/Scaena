@@ -208,7 +208,12 @@ try {
   check(away.said.includes(`rect ${clear}, `), `farther off, it stays where the drag left it: ${away.said} (at ${clear})`);
   await undo();
 
-  // A handle dragged with Shift: the right edge, 4 units short of the canvas's, onto it.
+  // A handle dragged with Shift: the right edge, 4 units short of the canvas's, onto it. The undo
+  // shown on the canvas first, so the handle stands where the card is again, not where the drag
+  // before left it: a press there would move the card.
+  await page
+    .waitForFunction((c) => window.scaena.canvas.boxes().find((b) => b.node === "card")?.rect.every((v, i) => Math.abs(v - c[i]) < 0.5), card, { timeout: 30000 })
+    .catch(() => {});
   await page.evaluate(() => window.scaena.canvas.select("card"));
   await page.waitForFunction(() => document.querySelectorAll("#overlay rect.handle").length === 8, null, { timeout: 30000 }).catch(() => {});
   n = await trips();

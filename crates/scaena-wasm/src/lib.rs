@@ -489,6 +489,24 @@ impl Session {
         Ok(self.at_rest(state)?.hit(point))
     }
 
+    /// The chart mark or table row drawn at `point` (canvas units) in `state` at rest, in the
+    /// format shown, with the rows of its source it was made from (PLAN 2.64). `None` where the
+    /// topmost node there is no chart or table, or the point falls between its marks.
+    pub fn mark_at(&mut self, state: &str, point: [f32; 2]) -> Result<Option<scaena_engine::marks::DataMark>, Error> {
+        Ok(self.at_rest(state)?.mark_at(point))
+    }
+
+    /// What `rows` of data source `source` draw in `state` at rest, in the format shown: each
+    /// chart mark and table row made from any of them, in paint order (PLAN 2.64).
+    pub fn marks_of(
+        &mut self,
+        state: &str,
+        source: &str,
+        rows: &[usize],
+    ) -> Result<Vec<scaena_engine::marks::DataMark>, Error> {
+        Ok(self.at_rest(state)?.marks_of(source, rows))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -1210,6 +1228,18 @@ fn with_guides(mut out: serde_json::Value, guides: &[[f32; 4]]) -> serde_json::V
     out
 }
 
+/// A chart mark or table row as `Player.markAt` gives it (PLAN 2.64).
+#[cfg(feature = "editor")]
+fn mark_json(m: scaena_engine::marks::DataMark) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "node": m.node, "source": m.source, "key": m.key, "rows": m.rows, "outline": m.outline, "rect": m.rect,
+    });
+    if let Some(map) = m.transform {
+        out["transform"] = serde_json::json!(map);
+    }
+    out
+}
+
 fn js(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
@@ -1506,6 +1536,29 @@ impl Player {
             })
             .collect();
         serde_json::to_string(&hits).map_err(js)
+    }
+
+    /// The chart mark or table row drawn at `x`, `y` (canvas units) in `state` at rest, in the
+    /// format shown, as JSON (PLAN 2.64): `{ "node", "source", "key", "rows", "outline", "rect",
+    /// "transform"? }`, or `null` where the topmost node there is no chart or table, or the
+    /// point falls between its marks. `rows` are the rows of `source` it was made from, from 0,
+    /// as the source's sheet numbers them; `outline` is SVG path data, canvas units, as laid
+    /// out, and `transform` where it is drawn from there, as a box's.
+    #[wasm_bindgen(js_name = markAt)]
+    pub fn mark_at(&mut self, state: &str, x: f32, y: f32) -> Result<String, JsError> {
+        let found = self.0.mark_at(state, [x, y]).map_err(js)?;
+        serde_json::to_string(&found.map(mark_json)).map_err(js)
+    }
+
+    /// What `rows` of data source `source` draw in `state` at rest, in the format shown, as
+    /// JSON (PLAN 2.64): each chart mark and table row made from any of them, in paint order,
+    /// as `markAt` gives one.
+    #[wasm_bindgen(js_name = marksOf)]
+    pub fn marks_of(&mut self, state: &str, source: &str, rows: Vec<u32>) -> Result<String, JsError> {
+        let rows: Vec<usize> = rows.into_iter().map(|r| r as usize).collect();
+        let marks: Vec<serde_json::Value> =
+            self.0.marks_of(state, source, &rows).map_err(js)?.into_iter().map(mark_json).collect();
+        serde_json::to_string(&marks).map_err(js)
     }
 
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
@@ -3746,5 +3799,39 @@ mod tests {
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
         assert_eq!(s.states().len(), 51);
+    }
+
+    /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is
+    /// the row of `q3` its sheet shows as that quarter and product; a row marks its bar, and a
+    /// point on the bar names the row, in the format shown.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn each_mark_is_the_row_of_its_source_it_was_made_from() {
+        let mut s = revenue();
+        let sheet = s.data_sheet("q3").unwrap().0;
+        let mut rects = Vec::new();
+        for (row, cells) in sheet.rows.iter().enumerate() {
+            let marks = s.marks_of("revenue", "q3", &[row]).unwrap();
+            let [mark] = &marks[..] else { panic!("row {row}: {marks:?}") };
+            assert_eq!((mark.node.as_str(), mark.rows.as_slice()), ("rev", [row].as_slice()));
+            assert_eq!(mark.key, format!("{}\u{1f}{}", cells[0], cells[1]), "quarter and product");
+            let [x, y, w, h] = mark.rect;
+            let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap();
+            assert_eq!(found.as_ref(), Some(mark), "the bar's middle names its row");
+            rects.push(mark.rect);
+        }
+        // Nothing reads `q3` in the intro, and no row is past its last.
+        assert!(s.marks_of("intro", "q3", &[0]).unwrap().is_empty());
+        assert!(s.marks_of("revenue", "q3", &[sheet.rows.len()]).unwrap().is_empty());
+        // In 9:16 the chart is laid out again: each row's bar stands elsewhere, made from the same row.
+        s.set_format(Some("9:16")).unwrap();
+        for (row, rect) in rects.iter().enumerate() {
+            let marks = s.marks_of("revenue", "q3", &[row]).unwrap();
+            assert_eq!(marks.len(), 1);
+            assert_ne!(&marks[0].rect, rect, "row {row}");
+            let [x, y, w, h] = marks[0].rect;
+            let found = s.mark_at("revenue", [x + w / 2.0, y + h / 2.0]).unwrap().unwrap();
+            assert_eq!(found.rows, [row]);
+        }
     }
 }

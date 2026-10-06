@@ -67,6 +67,7 @@ import { layers } from "./layers";
 import { looks } from "./look";
 import type {
   Arrange,
+  DataMark,
   Edited,
   Export,
   Finding,
@@ -97,6 +98,9 @@ const fallback = import.meta.env.VITE_BUNDLE ?? "../../docs/examples/revenue.dec
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** `rows` of a source as a sentence says them: `row 3`, or `rows 1 and 3`. */
+const rowsSaid = (rows: number[]) =>
+  rows.length === 1 ? `row ${rows[0]}` : `rows ${rows.slice(0, -1).join(", ")} and ${rows[rows.length - 1]}`;
 const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 /** The one change that turns `from` into `to`: what lies between their common start and
@@ -303,6 +307,9 @@ async function edit(source: Source) {
   const wholes: Linted[] = [];
   /** The state the preview and the inspector show, by index. */
   let shown = 0;
+  /** The states shown so far, counted: a compile asked for before the last answers with the state the
+   * worker showed then, and the one shown since stays. */
+  let showings = 0;
   /** The source's version: one more with each change. A lint answers the version it read. */
   let version = 0;
   /** A lint of every state, waiting for typing to stop. */
@@ -498,6 +505,19 @@ async function edit(source: Source) {
     // canvas where nothing is.
     menu: (x, y, on) =>
       void menu(x, y, on === "node" ? nodeCommands().filter((c) => c.where?.includes("node")) : canvasCommands(true), $("#overlay")),
+    // A chart's mark, or a table's row (PLAN 2.64): a click chooses its rows where the data is
+    // shown, and a double click opens the Data tab on them.
+    pointedAt: async (at, open) => {
+      if (!open && $("#data").hidden) return false;
+      const now = showing();
+      if (!now) return false;
+      const mark = await stage.markAt(now.state, at, format()).catch(() => undefined);
+      if (!mark) return false;
+      if (open) tab("data");
+      await data.select(mark.source, mark.rows);
+      say(`${mark.node} is drawn from ${rowsSaid(mark.rows)} of ${mark.source}`);
+      return true;
+    },
   }, $("#marks"), $("#marked"));
   /** The layers of the state shown (PLAN 2.50): a tab beside the inspector, each change a patch. */
   const layering = layers(stage, $("#layers"), {
@@ -530,7 +550,30 @@ async function edit(source: Source) {
     undo: () => void undo(view),
     redo: () => void redo(view),
     say,
+    chose: (source, rows) => {
+      rowsChosen = rows.length ? { source, rows } : undefined;
+      void outlineRows();
+    },
   });
+  /** The rows chosen in the data, and what they draw in the state shown: outlined on the canvas,
+   * and said under the table, while the Data tab is shown (PLAN 2.64). */
+  let rowsChosen: { source: string; rows: number[] } | undefined;
+  let outlining = 0;
+  async function outlineRows() {
+    const asked = ++outlining;
+    const now = showing();
+    const chosen = rowsChosen;
+    if (!now || !chosen || $("#data").hidden) {
+      board.markRows(undefined, []);
+      return data.drawn("");
+    }
+    const marks = await stage.marksOf(now.state, chosen.source, chosen.rows, format()).catch((): DataMark[] => []);
+    if (asked !== outlining) return;
+    board.markRows(now.state, marks);
+    const what = marks.map((m) => `${m.node} (${m.key.replaceAll("\u001f", " · ")})`);
+    data.drawn(what.length ? `In this state, ${rowsSaid(chosen.rows)} ${chosen.rows.length === 1 ? "draws" : "draw"} ${what.join(", ")}.` : `In this state, nothing draws ${rowsSaid(chosen.rows)}.`);
+  }
+  new MutationObserver(() => void outlineRows()).observe($("#data"), { attributes: true, attributeFilter: ["hidden"] });
   /** The bundle's files (PLAN 2.59): its images, fonts, and data, what uses each in which states,
    * and those nothing names taken out, each one change the panel's undo takes back. */
   const filing = filesPanel(stage, $("#files"), {
@@ -810,6 +853,7 @@ async function edit(source: Source) {
     const source = view.state.doc.toString();
     const read = version;
     const sent = performance.now();
+    const asked = showings;
     let edited: Edited;
     if (taken?.source !== source) told = undefined;
     try {
@@ -826,18 +870,19 @@ async function edit(source: Source) {
       return [];
     }
     trips.push({ ms: performance.now() - sent, ...edited.ms });
-    return take(edited, source, read).map((f) => diagnostic(f, view.state.doc.length));
+    return take(edited, source, read, asked !== showings).map((f) => diagnostic(f, view.state.doc.length));
   }
 
   /** Show `edited`, what the worker made of `source`, version `read` of it: the deck shown and
-   * linted, its findings listed, and every state linted once typing stops. The findings, to mark
-   * in the source. */
-  function take(edited: Edited, source: string, read: number): Finding[] {
+   * linted, its findings listed, and every state linted once typing stops; the state shown as it
+   * says, unless another was `moved` to since it was asked for. The findings, to mark in the
+   * source. */
+  function take(edited: Edited, source: string, read: number, moved = false): Finding[] {
     last = edited;
     if (edited.valid) {
       statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
       reformats(edited.formats);
-      if (edited.at) shown = edited.at.index;
+      if (edited.at && !moved) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
       void inspect();
@@ -999,6 +1044,7 @@ async function edit(source: Source) {
 
   async function show(index: number) {
     shown = index;
+    showings++;
     statesPicker.selectedIndex = index;
     states.select(index);
     formatting.shown();
@@ -1006,6 +1052,7 @@ async function edit(source: Source) {
     await inspect();
     void layering.refresh();
     await board.refresh();
+    void outlineRows();
   }
 
   /** The inspector: the state's cue, then each node, its look if it sets text, and how

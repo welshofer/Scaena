@@ -60,7 +60,7 @@
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -105,6 +105,10 @@ export interface Editor {
   /** A right click, or the menu key (PLAN 2.53): offer, at `x`, `y` (client pixels), what can be
    * done to what is selected, `on` a node, or to the canvas where nothing is. */
   menu(x: number, y: number, on: "node" | "canvas"): void;
+  /** A press at `at`, canvas units, on what may be a chart's mark or a table's row (PLAN 2.64): its
+   * rows chosen in the data, the Data tab `open`ed on them, else only where it is shown. Whether
+   * the press was on one. */
+  pointedAt?(at: [number, number], open: boolean): Promise<boolean>;
 }
 
 /** A node's `at`, resolved. */
@@ -334,6 +338,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Characters marked in a text, as a find shows its match (PLAN 2.47): the node, and the
    * rects they cover, canvas units, from the engine's carets. */
   let marked: { node: string; rects: Rect[] } | undefined;
+  /** What the rows chosen in the data draw in a state, outlined while it is shown (PLAN 2.64). */
+  let rowMarks: { state: string; marks: DataMark[] } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -737,6 +743,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       parts.push(rect([x, y, Math.abs(marquee.at[0] - marquee.from[0]), Math.abs(marquee.at[1] - marquee.from[1])], "marquee"));
     }
     if (marked && box(marked.node)) for (const r of marked.rects) parts.push(rect(r, "found"));
+    if (rowMarks && rowMarks.state === boxed && !drag && !marquee) {
+      for (const m of rowMarks.marks) {
+        const map = m.transform ? ` transform="matrix(${m.transform.join(" ")})"` : "";
+        parts.push(`<path class="row-mark" data-node="${m.node}" data-key="${m.key.replace(/[\u001f"&<>]/g, " ")}" d="${m.outline}"${map}/>`);
+      }
+    }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
     pins.aside(Boolean(drag || sketch || marquee));
@@ -1571,7 +1583,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     void inTurn(async () => {
       const shown = editor.shown();
       const top = shown && (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
-      if (top) await type(top.node, at, alt);
+      if (!top) return;
+      // On a chart's mark, or a table's row, the Data tab opens on its rows (PLAN 2.64).
+      if (await editor.pointedAt?.(at, true)) return;
+      await type(top.node, at, alt);
     });
   };
 
@@ -1695,6 +1710,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const clicked = press;
     press = undefined;
     if (!clicked) return;
+    // A click on a chart's mark, or a table's row, chooses its rows where the data is shown (PLAN 2.64).
+    if (!clicked.shift) void editor.pointedAt?.(clicked.from, false);
     if (clicked.asking) {
       clicked.moved = { at: point(e), shift: e.shiftKey, alt: e.altKey, loose: e.metaKey || e.ctrlKey, client: [e.clientX, e.clientY] };
       clicked.released = true;
@@ -1891,6 +1908,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Mark characters of a text in the state shown, as a find shows its match, and select it;
      * with no node, take the mark away (PLAN 2.47). */
     mark,
+    /** Outline `marks`, what the rows chosen in the data draw in `state`, while it is shown; none
+     * with none (PLAN 2.64). */
+    markRows: (state: string | undefined, marks: DataMark[]) => {
+      rowMarks = state === undefined || !marks.length ? undefined : { state, marks };
+      draw();
+    },
+    /** The marks outlined, for a test. */
+    rowMarks: () => rowMarks,
     /** Group what is selected, as ⌘G does, and take the group selected apart, as ⌘⇧G does. */
     group,
     ungroup,

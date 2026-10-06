@@ -66,6 +66,8 @@ struct Row {
     /// A forecast or an estimate (PLAN 1.28): a line's or an area's row its `projected`
     /// marks.
     projected: bool,
+    /// The rows of the source it was made from (PLAN 2.64).
+    from: Vec<usize>,
 }
 
 type Encoding<'a> = Option<&'a Map<String, Value>>;
@@ -243,8 +245,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
 
     // Data.
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
-    let table = data::load(cx.deck, cx.data, source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?)?;
-    let table = data::transform(table, props.get("dataTransform"))?;
+    let source = source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?;
+    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
     let (x_field, y_field) = (field(Some(x)).unwrap_or_default(), field(Some(y)).unwrap_or_default());
     let (xc, yc) = (col(x_field)?, col(y_field)?);
@@ -286,7 +288,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let group_col = series_col.or(color_col.filter(|_| !shaded));
     let mut rows: Vec<Row> = Vec::with_capacity(table.rows.len());
     let mut seen = BTreeSet::new();
-    for row in &table.rows {
+    for (row, came) in table.rows.iter().zip(&from) {
         let v = match &row[yc] {
             Datum::Number(v) => *v,
             // A missing value is a gap, not a zero.
@@ -324,6 +326,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             size,
             key,
             projected: projected_col.is_some_and(|c| marks_projected(&row[c], projected_value)),
+            from: came.clone(),
         });
     }
     if rows.is_empty() {
@@ -979,6 +982,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         crowded: Vec::new(),
         covers: Vec::new(),
         notes: Vec::new(),
+        source: source.to_string(),
+        rows: rows.iter().map(|r| (r.key.clone(), r.from.clone())).collect(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);

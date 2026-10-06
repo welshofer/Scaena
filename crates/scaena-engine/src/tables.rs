@@ -12,6 +12,7 @@ use scaena_core::displaylist::{Color, Point};
 use scaena_core::document::Props;
 use scaena_core::format::{Locale, MINUS};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// A table laid out for one snapshot, relative to its cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +28,14 @@ pub struct TableLayout {
     /// Why its rows do not fit its cell, when lint laid it out anyway (E100); a frame
     /// refuses such a table.
     pub overflow: Option<String>,
+    /// The data source it reads, as the deck names it.
+    pub source: String,
+    /// Each body row's rows of its source, by the row's key: what it was made from through
+    /// the table's `dataTransform`, from 0 as the source's sheet numbers them (PLAN 2.64).
+    pub rows: BTreeMap<String, Vec<usize>>,
+    /// Each body row's band across the table, `[x, y, w, h]` relative to it, by the row's
+    /// key, top to bottom: what a pointer on the row points at.
+    pub bands: Vec<(String, [f32; 4])>,
 }
 
 /// One cell's text, where it stands.
@@ -62,7 +71,7 @@ struct Column {
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayout, EngineError> {
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("table has no `data`".into()))?;
-    let table = data::transform(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
     let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
 
@@ -217,8 +226,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
 
     // Rows: each its tallest text with `row_gap` above and below, the cells' first
     // baselines on one line.
-    let mut out =
-        TableLayout { header: Vec::new(), cells: Vec::new(), rule: None, row_rules: Vec::new(), overflow: None };
+    let mut out = TableLayout {
+        header: Vec::new(),
+        cells: Vec::new(),
+        rule: None,
+        row_rules: Vec::new(),
+        overflow: None,
+        source: source.to_string(),
+        rows: keys.iter().cloned().zip(from).collect(),
+        bands: Vec::with_capacity(keys.len()),
+    };
     let mut y = 0.0_f32;
     let place = |cells: Vec<Option<TextLayout>>, row: &str, index: u32, y: &mut f32| -> Vec<Cell> {
         let baseline = cells.iter().flatten().filter_map(|t| t.lines.first()).map(|l| l.baseline).fold(0.0, f32::max);
@@ -241,7 +258,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<TableLayou
     }
     let rows = body.len();
     for (r, (cells, key)) in body.into_iter().zip(&keys).enumerate() {
+        let top = y;
         out.cells.extend(place(cells, key, r as u32 + 1, &mut y));
+        out.bands.push((key.clone(), [0.0, top, span, y - top]));
         if let Some(rule) = &row_rule
             && r + 1 < rows
         {

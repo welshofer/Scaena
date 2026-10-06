@@ -2569,6 +2569,8 @@ mod tests {
             collisions: Vec::new(),
             crowded: Vec::new(),
             covers: Vec::new(),
+            source: String::new(),
+            rows: Default::default(),
         }
     }
 

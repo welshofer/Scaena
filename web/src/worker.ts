@@ -159,6 +159,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "hit":
         layOut(data.format);
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "markAt": {
+        layOut(data.format);
+        const mark = JSON.parse(player.markAt(data.state, ...data.point));
+        return post({ type: "marked", id: data.id, marks: mark ? [mark] : [] });
+      }
+      case "marksOf":
+        layOut(data.format);
+        return post({ type: "marked", id: data.id, marks: JSON.parse(player.marksOf(data.state, data.source, Uint32Array.from(data.rows))) });
       case "view": {
         viewing = data.view ? Float32Array.from(data.view) : null;
         if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");

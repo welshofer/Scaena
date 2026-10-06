@@ -306,6 +306,9 @@ jobs:
       # A rehearsal: each state's time kept, and kept as its hold in one patch, one step to undo
       # (PLAN 2.63).
       - run: node web/rehearse.mjs
+      # A chart's marks and the rows of its data: a click on a bar chooses its row in the Data tab,
+      # and a row chosen is outlined where it draws (PLAN 2.64).
+      - run: node web/rows.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

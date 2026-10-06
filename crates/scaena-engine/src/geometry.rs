@@ -573,7 +573,7 @@ fn most(slots: &[(String, Rect)], cell: Rect) -> Option<&(String, Rect)> {
 
 /// Whether `point` falls in `rect`, its edges included, or within [`SLOP`] of it along a
 /// side shorter than twice that.
-fn reaches(rect: Rect, point: [f32; 2]) -> bool {
+pub(crate) fn reaches(rect: Rect, point: [f32; 2]) -> bool {
     let [x, y, w, h] = rect;
     let near = |at: f32, from: f32, size: f32| {
         let slop = if size < 2.0 * SLOP { SLOP } else { 0.0 };

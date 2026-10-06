@@ -564,6 +564,15 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
             let _ = s.pixels_in(format, one, span * 0.5, 24);
         }
     }
+    // The mark a point names, and what a source's rows draw (PLAN 2.64): at points on and off
+    // the canvas, and for each source's first rows and a row past any.
+    for _ in 0..4 {
+        let point = [r.below(2400) as f32 - 200.0, r.below(1400) as f32 - 200.0];
+        let _ = s.mark_at(one, point);
+    }
+    for (source, _) in s.data_sources() {
+        let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
+    }
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);
