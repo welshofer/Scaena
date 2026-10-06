@@ -327,6 +327,9 @@ jobs:
       # A theme's layouts on the canvas: a slot dragged and resized onto the grid is one theme
       # edit, in each format; a layout copied for the state shown (PLAN 2.71).
       - run: node web/layouts.mjs
+      # Copy that quotes data: a cell of the Data tab quoted in the characters selected, its
+      # figure set again when the cell changes (PLAN 2.72).
+      - run: node web/quotes.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

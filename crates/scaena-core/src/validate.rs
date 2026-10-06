@@ -161,6 +161,18 @@ pub fn validate(deck: &Deck) -> Vec<Finding> {
                         .node(id.clone()),
                 );
             }
+            // A quote of a data source the deck does not have (ADR-0019).
+            if let Some(Value::String(data)) = run.get("quote").and_then(|q| q.get("data"))
+                && let Some(name) = data.strip_prefix('@')
+                && !deck.data.contains_key(name)
+            {
+                out.push(
+                    err("E102", format!("a quote in `{id}` reads unknown data source `{data}`"))
+                        .at(format!("{path}/runs/{k}/quote/data"))
+                        .node(id.clone())
+                        .hint(format!("Declare it under /data/{name}, or quote one the deck has.")),
+                );
+            }
         }
     }
     if let Some(spine) = &deck.spine {
@@ -253,6 +265,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(annotations(&deck, snapshots));
             out.extend(projections(&deck, snapshots));
             out.extend(encodings(&deck, snapshots, files));
+            out.extend(quotes(&deck, &doc, files));
         }
         out.extend(override_types(&deck));
         out.extend(cues(&deck, theme.as_ref()));
@@ -879,6 +892,28 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                     out.push(finding("E102", id, "area", message));
                 }
             }
+        }
+    }
+    out
+}
+
+/// E103 and E106: what each run's `quote` reads (ADR-0019): a row, a column, and a cell that are
+/// there, and a format and a transform that parse. A source the deck lacks is E102, found with
+/// the deck's other references; a source that does not read is reported at the source.
+fn quotes(deck: &Deck, doc: &Value, files: &dyn BundleFiles) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for q in crate::quotes::quoted(doc) {
+        let Some(quote) = q.run.get("quote").and_then(|v| serde_json::from_value(v.clone()).ok()) else {
+            continue;
+        };
+        if let Err(Some(p)) = crate::quotes::value(deck, &data::Texts(files), &quote)
+            && p.code != "E102"
+        {
+            out.push(
+                Finding::new(p.code, Severity::Error, format!("a quote in `{}`: {}", q.node, p.message))
+                    .at(format!("{}/quote/{}", q.path, p.at))
+                    .node(q.node),
+            );
         }
     }
     out

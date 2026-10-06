@@ -435,6 +435,53 @@ pub struct Run {
     /// of the deck. It is drawn underlined.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Link>,
+    /// The value of a data source the run's text is (SPEC §3.5, ADR-0019, PLAN 2.72): its text
+    /// is the figure as last set, which every write sets again from the data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<Quote>,
+}
+
+/// A value of a data source that a run quotes (ADR-0019): a cell of the source, read as a chart
+/// reads it, through its `dataTransform`, written by `format`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Quote {
+    /// The source, as a chart names it: `@` and its id.
+    #[schemars(regex(pattern = "^@[a-z][a-z0-9_-]{0,63}$"))]
+    pub data: String,
+    /// Steps the source is read through, as a chart's (SPEC §3.10).
+    #[serde(default, rename = "dataTransform", skip_serializing_if = "Option::is_none")]
+    pub data_transform: Option<Vec<Value>>,
+    /// The row: the one whose columns hold these values, or an index from 0, negative from the
+    /// end (`-1`, the last). Without one, the table has one row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<QuoteRow>,
+    /// The column whose cell it is.
+    pub column: String,
+    /// How the cell is written: a number format for a number, a date format for a date
+    /// (SPEC §3.7). Without one, as a chart writes a category.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+}
+
+/// Which row a quote reads (ADR-0019).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum QuoteRow {
+    /// From 0; negative from the end.
+    Index(i64),
+    /// The one row whose columns hold these values.
+    #[schemars(extend("minProperties" = 1))]
+    Keys(IndexMap<String, QuoteKey>),
+}
+
+/// A value a quote's row is found by.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum QuoteKey {
+    Number(f64),
+    Bool(bool),
+    Text(String),
 }
 
 /// Where a link goes (PLAN 2.70): a web address (`https:`, `http:`, or `mailto:`), which the

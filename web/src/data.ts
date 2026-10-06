@@ -14,12 +14,16 @@
 // - + Row adds a row after the row last focused, else at the end; − Row takes that row away.
 // - Undo and Redo (⌘Z and ⇧⌘Z in the table) undo the source's last change: a file's as the page
 //   keeps them, and rows written inline as the source's own undo does.
+// - Quote (PLAN 2.72, ADR-0019): with characters selected in a text typed in, the cell last
+//   focused becomes what they say. Its row is found by a column of text whose value no other row
+//   has, else by those columns together, else by its index; each write of the deck or the data
+//   sets the figure again.
 // - Rows and what they draw (PLAN 2.64): the row of the cell focused is chosen, and the canvas
 //   outlines what it draws in the state shown, each chart mark and table row made from it; the line
 //   under the table says what. A chart's mark, or a table's row, pointed at on the canvas chooses
 //   the rows it was made from, a group's every row, the first in view.
 import { type Key, MOD, SHIFT } from "./commands";
-import type { Edited, RowEdit, Sheet } from "./protocol";
+import type { Edited, Quote, RowEdit, Sheet } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What a cell of the Data tab answers (PLAN 2.65), as the keys sheet lists it. */
@@ -49,6 +53,22 @@ export interface DataEditor {
   /** The rows chosen in source `source` are now `rows`: the row of the cell focused, or those of what
    * was pointed at on the canvas; none with none (PLAN 2.64). */
   chose?(source: string, rows: number[]): void;
+  /** Give the characters selected in the text typed in `quote`, said as `what` (PLAN 2.72). */
+  quote?(quote: Quote, what: string): Promise<boolean>;
+}
+
+/** The quote of row `r`, column `c` of source `name`'s `sheet` (ADR-0019): its row by a column of
+ * text whose value there no other row has, else by every such column together, else by its index. */
+export function quoting(name: string, sheet: Sheet, r: number, c: number): Quote {
+  const column = sheet.columns[c].name;
+  const texts = sheet.columns.map((col, k) => ({ col, k })).filter(({ col, k }) => k !== c && col.type === "string");
+  const unique = (ks: number[]) => sheet.rows.filter((cells) => ks.every((k) => cells[k] === sheet.rows[r][k])).length === 1;
+  const by = (ks: number[]) => Object.fromEntries(ks.map((k) => [sheet.columns[k].name, sheet.rows[r][k]]));
+  const one = texts.find(({ k }) => unique([k]));
+  if (one) return { data: `@${name}`, row: by([one.k]), column };
+  const all = texts.map(({ k }) => k);
+  if (all.length && unique(all)) return { data: `@${name}`, row: by(all), column };
+  return { data: `@${name}`, row: r, column };
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -63,8 +83,10 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
   const problems = into.querySelector<HTMLUListElement>("[data-problems]")!;
   /** The source shown, and its sheet as the engine last read it. */
   let shown: { name: string; file?: string; sheet: Sheet } | undefined;
-  /** The row last focused: where + Row adds and − Row takes away. */
+  /** The row last focused: where + Row adds and − Row takes away; and its column, which Quote
+   * quotes. */
   let row: number | undefined;
+  let col: number | undefined;
   /** The rows chosen: the row last focused, or those of what was pointed at on the canvas. */
   let chosen: number[] = [];
   /** Sheets asked for: the last answer wins. */
@@ -209,9 +231,11 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
           const why = result.added.find((f) => f.severity === "error") ?? result.added[0];
           editor.say(`refused: ${why ? `${why.code} ${why.message}` : "the deck would not be valid"}`);
         } else if (source !== undefined && edited) {
-          if (result.file) editor.took(edited);
+          // Figures that quote the data, set again, are an edit of the deck's source too.
+          const quoted = result.quoted ?? [];
+          if (result.file && !quoted.length) editor.took(edited);
           else editor.apply(source, edited);
-          editor.say(done);
+          editor.say(quoted.length ? `${done}; what ${quoted.join(", ")} quotes set again` : done);
         }
         shown = { name, file: result.file, sheet: result.sheet };
         draw();
@@ -266,6 +290,7 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     const field = (e.target as Element).closest<HTMLInputElement>("input[data-row]");
     if (!field) return;
     row = +field.dataset.row!;
+    col = +field.dataset.col!;
     if (chosen.length === 1 && chosen[0] === row) return;
     chosen = [row];
     told();
@@ -318,6 +343,13 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
     void make([{ op: "remove", row: at }], `row ${at} taken away`).then(() => {
       if (shown && at >= shown.sheet.rows.length) row = shown.sheet.rows.length ? shown.sheet.rows.length - 1 : undefined;
     });
+  };
+  into.querySelector<HTMLButtonElement>("[data-quote]")!.onclick = () => {
+    if (!shown || row === undefined || col === undefined || row >= shown.sheet.rows.length) {
+      return editor.say("focus the cell to quote first, with characters selected in a text typed in");
+    }
+    const quote = quoting(shown.name, shown.sheet, row, col);
+    void editor.quote?.(quote, `quotes ${quote.column} of row ${row} of @${shown.name}`);
   };
   into.querySelector<HTMLButtonElement>("[data-undo]")!.onclick = () => undo();
   into.querySelector<HTMLButtonElement>("[data-redo]")!.onclick = () => undo(true);

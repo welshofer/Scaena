@@ -982,6 +982,17 @@ export interface DataEdited {
   removed: Finding[];
   errors: number;
   refused: boolean;
+  /** The texts whose quoted figures the edits set again, by node (ADR-0019, PLAN 2.72). */
+  quoted?: string[];
+}
+
+/** A value of a data source a run quotes (ADR-0019, PLAN 2.72). */
+export interface Quote {
+  data: string;
+  dataTransform?: unknown[];
+  row?: number | Record<string, string | number | boolean>;
+  column: string;
+  format?: string;
 }
 
 /** What an edit came to (PLAN 2.3). */

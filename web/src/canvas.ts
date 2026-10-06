@@ -2776,7 +2776,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     pasteLook,
     copiedLook: () => copiedLook,
     /** Give the characters selected in the text typed in `look`, as the inspector does (PLAN 2.38). */
-    style: (look: Record<string, unknown>) => text.style(look),
+    style: (look: Record<string, unknown>, words?: string) => text.style(look, words),
     /** Make the characters selected bold, or not, as ⌘B does. */
     bold: () => text.bold(),
     /** Bullets or numbers on the text selected, or the paragraphs selected in it, as ⌘⇧8 and ⌘⇧7

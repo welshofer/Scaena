@@ -1568,3 +1568,79 @@ fn style_text_links_characters_and_a_link_to_a_state_the_deck_lacks_is_e102() {
     let found = errors(&patch(&example(), json!([bad])).unwrap().doc);
     assert!(!found.is_empty(), "only a web address or mailto: {found:?}");
 }
+
+/// `docs/examples/`, with `data/q3-revenue.csv` as the data moved on: Pro's Q3 is 20.0.
+struct MovedOn;
+
+impl BundleFiles for MovedOn {
+    fn exists(&self, path: &str) -> bool {
+        Examples.exists(path)
+    }
+
+    fn read_text(&self, path: &str) -> Option<String> {
+        let text = Examples.read_text(path)?;
+        Some(if path == "data/q3-revenue.csv" { text.replace("2026-Q3,Pro,19.4", "2026-Q3,Pro,20.0") } else { text })
+    }
+}
+
+#[test]
+fn a_quote_sets_its_figure_from_the_data_and_every_patch_sets_it_again() {
+    // ADR-0019, PLAN 2.72: "doubled" in the title, in `revenue`, quotes Pro's Q3 revenue.
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    let op = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "quote": quote } });
+    let doc = patch(&example(), json!([op])).unwrap().doc;
+    let runs = &doc["states"][1]["props"]["title"]["runs"];
+    assert_eq!(runs, &json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote }]));
+    assert_eq!(errors(&doc), Vec::<String>::new());
+
+    // Typed beside it, words of their own; typed into it, the figure is words.
+    let beside =
+        json!({ "op": "replace_text", "node": "title", "state": "revenue", "from": 13, "to": 13, "text": " in Q3" });
+    let after = patch(&doc, json!([beside])).unwrap().doc;
+    assert_eq!(
+        after["states"][1]["props"]["title"]["runs"],
+        json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote }, { "text": " in Q3" }])
+    );
+    let into = json!({ "op": "replace_text", "node": "title", "state": "revenue", "from": 10, "to": 11, "text": "8" });
+    let typed = patch(&doc, json!([into])).unwrap().doc;
+    assert_eq!(typed["states"][1]["props"]["title"]["runs"], json!([{ "text": "Revenue " }, { "text": "$18.4" }]));
+
+    // A look given to part of it is given to all of it.
+    let part = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 10, "to": 11, "look": { "emphasis": "high" } });
+    let styled = patch(&doc, json!([part])).unwrap().doc;
+    assert_eq!(
+        styled["states"][1]["props"]["title"]["runs"],
+        json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote, "emphasis": "high" }])
+    );
+
+    // The data moves on: any patch, an empty one too, sets the figure again, and the claim of
+    // the beat that shows it, where the claim holds the old figure.
+    let mut claimed = doc.clone();
+    claimed["spine"]["sections"][1]["beats"][0]["claim"] = json!("Pro reached $19.4M, up from $12.7M.");
+    let moved = compile(&claimed, &[], &MovedOn).unwrap();
+    assert_eq!(moved.doc["states"][1]["props"]["title"]["runs"][1]["text"], json!("$20.0"));
+    assert_eq!(moved.doc["spine"]["sections"][1]["beats"][0]["claim"], json!("Pro reached $20.0M, up from $12.7M."));
+    assert_eq!(moved.patch.len(), 2, "{:?}", moved.patch);
+
+    // What a quote reads that is not there is E103; a source the deck lacks, E102; a format
+    // that does not parse, E106. The last row, by index, rolls forward.
+    let with = |q: Value| {
+        let op = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "quote": q } });
+        patch(&example(), json!([op])).unwrap().doc
+    };
+    let found = errors(&with(json!({ "data": "@q3", "row": -1, "column": "nope" })));
+    assert!(found.iter().any(|e| e.starts_with("E103") && e.contains("no column `nope`")), "{found:?}");
+    let found = errors(&with(json!({ "data": "@q3", "row": { "quarter": "2026-Q3" }, "column": "revenue" })));
+    assert!(found.iter().any(|e| e.starts_with("E103") && e.contains("3 rows with")), "{found:?}");
+    let found = errors(&with(json!({ "data": "@q4", "row": 0, "column": "revenue" })));
+    assert!(found.iter().any(|e| e.starts_with("E102") && e.contains("`@q4`")), "{found:?}");
+    let found = errors(&with(json!({ "data": "@q3", "row": 0, "column": "revenue", "format": "%%%" })));
+    assert!(found.iter().any(|e| e.starts_with("E106")), "{found:?}");
+    let last = with(json!({ "data": "@q3", "row": -1, "column": "revenue" }));
+    assert_eq!(last["states"][1]["props"]["title"]["runs"][1]["text"], json!("14.3"));
+    // Summed through a transform, by the deck's locale's default.
+    let sum = with(
+        json!({ "data": "@q3", "dataTransform": [{ "filter": "quarter == '2026-Q3'" }, { "aggregate": { "total": "sum(revenue)" } }], "column": "total", "format": "$.1f" }),
+    );
+    assert_eq!(sum["states"][1]["props"]["title"]["runs"][1]["text"], json!("$57.6"));
+}

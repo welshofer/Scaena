@@ -172,8 +172,45 @@ fn lint_in(
         Ok(())
     })();
     let result = result.and_then(|()| verify(engine, deck, theme, data, &mut out));
+    // Quoted figures are the same in every format: judged once, and each fix is the figure.
+    if result.is_ok() && only.is_none() {
+        out.extend(w427(deck, data));
+    }
     engine.lenient = false;
     result.map(|()| out)
+}
+
+/// W427 (ADR-0019): each figure a run quotes that its data no longer gives, a file changed
+/// behind the deck's back, with the patch that sets it again; and each claim of a beat that
+/// shows the text and holds the old figure, with the claim written again.
+fn w427(deck: &Deck, data: &DataFiles) -> Vec<Finding> {
+    let Ok(doc) = serde_json::to_value(deck) else { return Vec::new() };
+    let mut out = Vec::new();
+    for s in scaena_core::quotes::stale(deck, &doc, data) {
+        let text = format!("{}/text", s.path);
+        out.push(
+            Finding::new(
+                "W427",
+                Severity::Warning,
+                format!("`{}` quotes {} where its data now gives {}", s.node, s.was, s.now),
+            )
+            .at(text.clone())
+            .node(s.node.clone())
+            .fix(vec![serde_json::json!({ "op": "replace", "path": text, "value": s.now })]),
+        );
+        for (path, claim) in &s.claims {
+            out.push(
+                Finding::new(
+                    "W427",
+                    Severity::Warning,
+                    format!("a claim says {}, which `{}` quotes, where its data now gives {}", s.was, s.node, s.now),
+                )
+                .at(path.clone())
+                .fix(vec![serde_json::json!({ "op": "replace", "path": path, "value": claim })]),
+            );
+        }
+    }
+    out
 }
 
 /// Keep a finding's fix only where laying its state out again with the fix applied

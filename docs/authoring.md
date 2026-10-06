@@ -104,6 +104,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
   - The file keeps every byte you did not change, its quoting and line endings included, as `scaena data` writes it. Undo and Redo, or ⌘Z in a cell you have not changed, put it back as it was. A save records each version in the bundle's history.
   - Click a row's cell and the slide outlines what that row draws: its bar, its point, its slice, its row of a table. The line under the table says which, or that nothing on this slide draws it. With the Data tab open, click a bar on the slide and its row is chosen; double-click a bar to open the Data tab on it. A bar your `dataTransform` sums from several rows chooses them all.
+  - **Quote a figure.** Double-click a text, select the words that should be a figure, then click a cell here and **Quote**: the words become what the cell holds, and when the cell changes, so do they, and so does a claim that says them. Typing over the figure makes it plain words again.
 - **Annotate a chart.** Select a chart, then click one of its bars, points, or slices, and it is outlined. Right-click it to:
   - highlight it, or its whole series;
   - call it out, with words you type over it;
@@ -441,6 +442,13 @@ state ridge layout:art-right
 ```scn
 state sources slide:revenue
   title runs:[{text: "Revenue "}, {text: "doubled", link: {href: "https://example.com/method"}}, {text: " "}, {text: "again", link: {state: cover}}]
+```
+
+**A figure from the data.** A run's `quote` makes its words a value of a data source: a row, found by its values or its index (`-1` is the last), and a column, written by a `format`. Write any text for it: every patch and data edit sets it from the data, and the claim of the beat that shows it with it, where the claim says the figure as a word. If the data file changes some other way, lint says so (W427), and `scaena lint --fix` writes the figure (SPEC §3.5):
+
+```scn
+state pro slide:revenue
+  title runs:[{text: "Pro reached "}, {text: "$19.4", quote: {data: @q3, row: {quarter: "2026-Q3", product: Pro}, column: revenue, format: "$.1f"}}]
 ```
 
 **A list.** A text's paragraphs are its lines, each ended by a line break (`\n`). `list` makes them a list's items, one entry for each: `{kind: bullet}` or `{kind: number}`, deeper with `level`, or `null` for a paragraph that is no item. The theme draws the markers, a bullet or a number for each level, and indents each level its own step, the item's wrapped lines starting under its words (SPEC §3.5):

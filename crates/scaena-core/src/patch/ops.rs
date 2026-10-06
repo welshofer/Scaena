@@ -643,13 +643,18 @@ fn style_text(
 ) -> Result<Vec<JsonOp>, String> {
     if look.is_empty() {
         return Err(
-            "`look` names nothing to set: a run's `role`, `emphasis`, `lang`, `link`, or one key of its `style`".into(),
+            "`look` names nothing to set: a run's `role`, `emphasis`, `lang`, `link`, `quote`, or one key of its `style`".into(),
         );
     }
     for (key, value) in look {
         let (name, sub) = key.split_once('/').map_or((key.as_str(), None), |(n, k)| (n, Some(k)));
         match (name, sub) {
             ("role" | "emphasis" | "lang" | "link", None) => {}
+            ("quote", None) if value.is_null() => {}
+            ("quote", None) => {
+                serde_json::from_value::<crate::model::values::Quote>(value.clone())
+                    .map_err(|e| format!("a quote is `{{ data, row?, column, format?, dataTransform? }}`: {e}"))?;
+            }
             ("style", Some("size")) => {
                 return Err("a run's size comes with a role: choose a role for the characters".into());
             }
@@ -661,7 +666,7 @@ fn style_text(
             ("style", Some(k)) if STYLE_KEYS.contains(&k) => {}
             _ => {
                 return Err(format!(
-                    "a run's look is its `role`, `emphasis`, `lang`, `link`, or one key of its `style` ({}), not `{key}`",
+                    "a run's look is its `role`, `emphasis`, `lang`, `link`, `quote`, or one key of its `style` ({}), not `{key}`",
                     STYLE_KEYS.iter().map(|k| format!("`style/{k}`")).collect::<Vec<_>>().join(", ")
                 ));
             }
@@ -676,7 +681,14 @@ fn style_text(
         Some(runs) => runs.clone(),
         None => vec![Value::Object(Map::from_iter([("text".to_string(), Value::String(shown.written.clone()))]))],
     };
-    let runs = join_runs(look_runs(split_runs(&runs, &[from, to]), from..to, look));
+    // A quoted figure is styled whole (ADR-0019).
+    let (from, to) = whole(&runs, from..to);
+    let mut runs = look_runs(split_runs(&runs, &[from, to]), from..to, look);
+    // Characters given a quote are one run: the figure it sets.
+    if look.get("quote").is_some_and(|q| !q.is_null()) {
+        runs = one_run(runs, from..to);
+    }
+    let runs = join_runs(runs);
     // Runs that all read as the node does are its text again.
     let plain = runs.iter().all(|r| r.as_object().is_some_and(|o| o.len() == 1 && o.contains_key("text")));
     let entry: Entry = if plain {
@@ -827,6 +839,46 @@ fn split_runs(runs: &[Value], cuts: &[usize]) -> Vec<Value> {
         }
         out.push(with_text(run, &text[at..]));
         start = end;
+    }
+    out
+}
+
+/// `range` (byte offsets into `runs`' texts end to end) widened to take in each quoted run it
+/// cuts into: a figure is styled whole (ADR-0019).
+fn whole(runs: &[Value], range: Range<usize>) -> (usize, usize) {
+    let (mut from, mut to) = (range.start, range.end);
+    let mut start = 0;
+    for run in runs {
+        let end = start + run.get("text").and_then(Value::as_str).map_or(0, str::len);
+        if run.get("quote").is_some() && start < to && from < end {
+            from = from.min(start);
+            to = to.max(end);
+        }
+        start = end;
+    }
+    (from, to)
+}
+
+/// `runs` with those within `range` (byte offsets) made one, in the first one's look.
+fn one_run(runs: Vec<Value>, range: Range<usize>) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::with_capacity(runs.len());
+    let mut start = 0;
+    let mut joined: Option<usize> = None;
+    for run in runs {
+        let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+        let inside = start >= range.start && start + text.len() <= range.end && !text.is_empty();
+        start += text.len();
+        match (inside, joined) {
+            (true, Some(k)) => {
+                let both = format!("{}{text}", out[k].get("text").and_then(Value::as_str).unwrap_or_default());
+                out[k] = with_text(&out[k], &both);
+            }
+            (true, None) => {
+                joined = Some(out.len());
+                out.push(run);
+            }
+            (false, _) => out.push(run),
+        }
     }
     out
 }
@@ -1228,21 +1280,48 @@ fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
             .find(|&k| starts[k] < start && start <= starts[k] + texts[k].len())
             .unwrap_or(texts.len().saturating_sub(1)),
     };
-    let mut out = Vec::with_capacity(runs.len());
+    // What is typed beside a quoted figure, not into it, goes in a run of its own, in the
+    // figure's look but quoting nothing (ADR-0019).
+    let quoted = |k: usize| runs.get(k).is_some_and(|r| r.get("quote").is_some());
+    let beside = (range.is_empty() && !text.is_empty() && quoted(into))
+        .then(|| (range.start == starts[into], range.start == starts[into] + texts[into].len()))
+        .filter(|(before, after)| *before || *after);
+    let plain = |run: &Value| {
+        let mut run = run.clone();
+        if let Some(fields) = run.as_object_mut() {
+            fields.shift_remove("quote");
+            fields.shift_remove("link");
+            fields.insert("text".into(), Value::String(text.into()));
+        }
+        run
+    };
+    let mut out = Vec::with_capacity(runs.len() + 1);
     for (k, (run, own)) in runs.iter().zip(&texts).enumerate() {
         let (start, end) = (starts[k], starts[k] + own.len());
         let (cut, kept) = (range.start.clamp(start, end) - start, range.end.clamp(start, end) - start);
         let mut new = format!("{}{}", &own[..cut], &own[kept..]);
         if k == into {
-            new.insert_str(cut, text);
-        } else if new.is_empty() && !own.is_empty() {
+            match beside {
+                Some((true, _)) => out.push(plain(run)),
+                Some((_, true)) => {}
+                _ => new.insert_str(cut, text),
+            }
+        }
+        if new.is_empty() && !own.is_empty() && !(k == into && beside.is_none()) {
             continue;
         }
         let mut run = run.clone();
         if let Some(fields) = run.as_object_mut() {
+            // A figure whose characters are typed over is words now: it quotes nothing.
+            if new != *own {
+                fields.shift_remove("quote");
+            }
             fields.insert("text".into(), Value::String(new));
         }
-        out.push(run);
+        out.push(run.clone());
+        if k == into && matches!(beside, Some((false, true))) {
+            out.push(plain(&run));
+        }
     }
     out
 }
