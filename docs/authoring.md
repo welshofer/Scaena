@@ -47,7 +47,7 @@ All three run the same engine, and the same checks.
 
 ## The editor: edit, save, see
 
-Serve the site folder and open `editor.html`. The folder is `target/site` from `just site`, or a copy of it. Its `serve.py` serves it on this machine only:
+Serve the site folder and open `editor.html`. Once it has opened, the site works with no network: the page says **Works offline**, and your browser can install it as an app. The folder is `target/site` from `just site`, or a copy of it. Its `serve.py` serves it on this machine only:
 
 ```sh
 cd target/site && python3 serve.py      # then open http://localhost:8080/editor.html

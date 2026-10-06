@@ -209,6 +209,7 @@ web-smoke: site
     node web/live.mjs
     node web/new.mjs
     node web/site.mjs
+    node web/offline.mjs
     node web/a11y.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table (`hypher` is a dev-dependency,

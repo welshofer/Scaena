@@ -8,6 +8,7 @@ button, select { font: inherit; }
 .bar input[type="range"] { flex: 1; min-width: 80px; }
 .bar a { color: inherit; }
 #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.offline { font-size: 12px; opacity: 0.8; white-space: nowrap; }
 #meter { white-space: nowrap; font-variant-numeric: tabular-nums; opacity: 0.8; }
 /* `scaena serve`'s word that deck.scn does not compile (PLAN 2.11), over the slide's top. */
 .served { position: fixed; top: 0; left: 0; right: 0; margin: 0; padding: 8px 12px; background: #5c1f1a; color: #fff; font: 13px ui-monospace, Menlo, monospace; white-space: pre-wrap; }

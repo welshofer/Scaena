@@ -91,6 +91,7 @@ import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
+import { offline } from "./offline";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -1847,3 +1848,5 @@ controls()
   .then(first)
   .then(edit)
   .catch(failed);
+
+offline();

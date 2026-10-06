@@ -208,6 +208,7 @@
          panels under it between two clicks; a longer one is clipped, whole in its title and to a
          screen reader. */
       #status { color: var(--muted); font-variant-numeric: tabular-nums; flex: 1 0 100%; min-height: 2lh; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+      .offline { color: var(--muted); font-size: 12px; white-space: nowrap; }
       #inspector { padding: 0 12px 12px; }
       #inspector h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 4px; }
       #inspector table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
@@ -473,6 +474,7 @@
           <button type="button" id="grid" aria-pressed="false" title="The theme's grid over the canvas: its columns, rows, gutters, margins, and baseline grid (⌘')">Grid</button>
           <button type="button" id="layout-edit" aria-pressed="false" title="The layout of the state shown as its slots, to move and resize on the theme's grid">Layout</button>
           <span id="status" role="status">loading…</span>
+          <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
         </p>
         <nav id="tabs" role="tablist">
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>

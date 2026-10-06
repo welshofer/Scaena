@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
@@ -50,10 +51,100 @@ const bundles: Plugin = {
   },
 };
 
+/** The site, installed (PLAN 2.73): `sw.js`, a service worker that keeps every file the build
+ * writes, so the pages, the engine, and each module they load later work with no network; and the
+ * web app manifest and its icon, by which a browser installs the site. The pages register it only
+ * in the static site's build (`VITE_BUNDLE`, `src/offline.ts`). Its cache is named for what the
+ * files hold: another build is another cache, taken once no page uses the last. */
+const offline: Plugin = {
+  name: "scaena-offline",
+  enforce: "post",
+  generateBundle(_, bundle) {
+    const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#14121c"/><path d="M128 352 L256 160 L384 352 Z" fill="none" stroke="#e8b04b" stroke-width="36" stroke-linejoin="round"/><circle cx="256" cy="300" r="34" fill="#e8b04b"/></svg>\n`;
+    const manifest = `${JSON.stringify(
+      {
+        name: "Scaena",
+        short_name: "Scaena",
+        description: "Decks as a timeline of states: play them, and edit them, with or without a network.",
+        start_url: "./",
+        scope: "./",
+        display: "standalone",
+        background_color: "#14121c",
+        theme_color: "#14121c",
+        icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }],
+      },
+      null,
+      2,
+    )}\n`;
+    this.emitFile({ type: "asset", fileName: "icon.svg", source: icon });
+    this.emitFile({ type: "asset", fileName: "manifest.webmanifest", source: manifest });
+    const files = Object.keys(bundle).filter((f) => f !== "sw.js" && !f.endsWith(".map")).sort();
+    const hash = createHash("sha256");
+    for (const f of files) {
+      const out = bundle[f];
+      hash.update(f).update(out.type === "chunk" ? out.code : out.source);
+    }
+    const version = hash.digest("hex").slice(0, 16);
+    this.emitFile({ type: "asset", fileName: "sw.js", source: worker(version, ["./", ...files]) });
+  },
+};
+
+/** The service worker's script: `files`, the site's, kept in a cache named for `version`. */
+function worker(version: string, files: string[]): string {
+  return `// Scaena's service worker (PLAN 2.73), written by the build: the site with no network.
+// - The site's files, every one the build wrote, are kept as the worker installs, and answered
+//   from the cache, a query aside (\`editor.html?bundle=…\`).
+// - Anything else under the site (a deck's files) is asked of the network, and the answer kept for
+//   when there is none. Requests elsewhere, and a page's events (\`scaena serve\`), pass by.
+const version = ${JSON.stringify(version)};
+const files = ${JSON.stringify(files)};
+const site = "scaena-site-" + version;
+const kept = "scaena-kept";
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(site).then((cache) => cache.addAll(files)));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith("scaena-site-") && k !== site).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  const request = e.request;
+  if (request.method !== "GET" || !request.url.startsWith(self.registration.scope)) return;
+  if ((request.headers.get("accept") ?? "").includes("text/event-stream")) return;
+  e.respondWith(answer(request));
+});
+
+async function answer(request) {
+  const url = new URL(request.url);
+  url.search = "";
+  url.hash = "";
+  const built = await (await caches.open(site)).match(url.href);
+  if (built) return built;
+  const cache = await caches.open(kept);
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch (error) {
+    const was = await cache.match(request);
+    if (was) return was;
+    throw error;
+  }
+}
+`;
+}
+
 export default defineConfig({
   // Relative paths: the build plays from any directory.
   base: "./",
-  plugins: [bundles, singleFile],
+  plugins: [bundles, singleFile, offline],
   // The WASM engine and its glue, as `just wasm` builds them (PLAN 0.8); the font subsetter,
   // which the worker loads only to download a bundle (PLAN 2.4); the history, which it loads
   // only to save a bundle that keeps one (PLAN 2.9); and the assistant, with what it reads,

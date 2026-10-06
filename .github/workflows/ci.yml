@@ -340,6 +340,8 @@ jobs:
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
       - run: node web/site.mjs
+      # The site installed, then used with no network: its service worker keeps every file (PLAN 2.73).
+      - run: node web/offline.mjs
       # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
       # as the single file does, less motion cuts, and the keys (PLAN 2.8).
       - run: node web/a11y.mjs

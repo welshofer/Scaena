@@ -11,6 +11,7 @@ import { sourceOf } from "./bundle";
 import { start } from "./player";
 import type { Painter } from "./protocol";
 import { client, served } from "./served";
+import { offline } from "./offline";
 import { worker } from "./spawn";
 
 const params = new URLSearchParams(location.search);
@@ -31,3 +32,5 @@ try {
 } catch (e) {
   document.querySelector("#status")!.textContent = `error: ${e instanceof Error ? e.message : String(e)}`;
 }
+
+offline();
