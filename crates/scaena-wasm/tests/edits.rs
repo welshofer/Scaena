@@ -555,6 +555,15 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
         }
     }
     let _ = s.set_format(None);
+    // Each format beside the canvas, as the editor paints them (PLAN 2.62): at rest and inside the
+    // cue, a format the deck no longer lists among them.
+    let span = timeline.slot(one).map_or(0.0, |slot| slot.span);
+    for format in s.formats().iter().map(|f| Some(f.as_str())).chain([None, Some("4:5")]) {
+        let _ = s.pixels_in(format, one, f64::INFINITY, 24);
+        if span > 0.0 && span.is_finite() {
+            let _ = s.pixels_in(format, one, span * 0.5, 24);
+        }
+    }
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);

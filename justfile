@@ -195,6 +195,7 @@ web-smoke: site
     node web/files.mjs
     node web/versions.mjs
     node web/theme-edit.mjs
+    node web/formats.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

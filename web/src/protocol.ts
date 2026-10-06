@@ -630,6 +630,10 @@ export type ToWorker =
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** The workers `helpers` asked for: a port to each (PLAN 2.28). */
   | { type: "helpers"; ports: MessagePort[] }
+  /** Paint the state shown in each of `besides`' formats beside the canvas, on its own canvas,
+   * `height` pixels high, after each frame of the canvas's, as it plays (PLAN 2.62): each a
+   * format of the deck's, or its own canvas (`format` unset). None stops it. */
+  | { type: "besides"; besides: { format?: string; canvas: OffscreenCanvas }[]; height: number }
   /** Be a helper: work out shaders' rows for the engine's worker at the other end of `port`,
    * which hands over the engine's module first (PLAN 2.28). A helper holds no deck. */
   | { type: "help"; port: MessagePort };
@@ -816,6 +820,9 @@ export interface Finding {
   /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds
    * there, and the rest in every format. */
   shown: boolean;
+  /** The formats it holds in, as the format menu names them: `""` for the deck's own canvas,
+   * then each of the deck's `formats` (PLAN 2.62). */
+  formats: string[];
 }
 
 /** A data source's rows as the Data panel shows them (PLAN 2.55, SPEC §3.10): its columns, each
@@ -867,6 +874,8 @@ export interface Edited {
   whole: boolean;
   /** The deck's timeline now. */
   slots: Slot[];
+  /** The formats the deck lists now, besides its own canvas (PLAN 2.62). */
+  formats: string[];
   /** Where the deck is: the slot repainted at rest. */
   at?: At;
   /** How long each step took in the worker, ms. */
@@ -1035,6 +1044,8 @@ export type FromWorker =
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }
+  /** The formats beside the canvas show `state` `t` ms into its cue (PLAN 2.62). */
+  | { type: "besides"; state: string; t: number }
   /** Request `id` failed, or, without one, opening or playing did. `webgpu`: setting
    * WebGPU up failed, and the CPU painter may still paint. */
   | { type: "error"; id?: number; message: string; webgpu?: boolean };

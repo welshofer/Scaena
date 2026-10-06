@@ -139,6 +139,8 @@ export class Stage {
   onAt: (at: At) => void = () => {};
   /** Called when the worker fails outside a request. */
   onError: (error: Error) => void = () => {};
+  /** The formats beside the canvas are painted: `state`, `t` ms into its cue (PLAN 2.62). */
+  onBesides: (state: string, t: number) => void = () => {};
   /** Requests not yet answered, by id. */
   private waiting = new Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>();
   /** What hears each step of the assistant's answer to a question, by the question's id. */
@@ -219,6 +221,17 @@ export class Stage {
 
   pause() {
     this.send({ type: "pause" });
+  }
+
+  /** Paint the state shown in each of `besides`' formats on its canvas, `height` pixels high,
+   * after each of the canvas's frames, as it plays (PLAN 2.62); none stops it. Each canvas is
+   * handed to the worker, which paints it from then on. */
+  besides(besides: { format?: string; canvas: HTMLCanvasElement }[], height: number) {
+    const offscreen = besides.map(({ format, canvas }) => ({ format, canvas: canvas.transferControlToOffscreen() }));
+    this.worker.postMessage(
+      { type: "besides", besides: offscreen, height } satisfies ToWorker,
+      offscreen.map(({ canvas }) => canvas),
+    );
   }
 
   /** Read the bundle again from its URL, on the same canvas (PLAN 2.11). */
@@ -812,6 +825,8 @@ export class Stage {
       }
       case "helpers":
         return this.help(data.count);
+      case "besides":
+        return this.onBesides(data.state, data.t);
       case "ready":
         return;
       default: {

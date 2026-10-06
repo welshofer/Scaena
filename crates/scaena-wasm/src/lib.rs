@@ -46,6 +46,8 @@ mod data;
 #[cfg(feature = "editor")]
 pub mod editor;
 #[cfg(feature = "editor")]
+mod formats;
+#[cfg(feature = "editor")]
 mod store;
 #[cfg(feature = "editor")]
 mod theme;
@@ -111,6 +113,9 @@ pub struct Session {
     previewing: Option<Deck>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
+    /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
+    #[cfg(feature = "editor")]
+    besides: BTreeMap<Option<String>, formats::Beside>,
     /// The fonts and images the engine was built from, as painters read them.
     store: Assets,
     /// The frame held while its shaders' rows are worked out (PLAN 2.28).
@@ -214,6 +219,8 @@ impl Session {
             #[cfg(feature = "editor")]
             previewing: None,
             format: None,
+            #[cfg(feature = "editor")]
+            besides: BTreeMap::new(),
             store: Assets::new(),
             #[cfg(feature = "cpu")]
             shading: None,
@@ -324,9 +331,17 @@ impl Session {
         self.files.get(path).map(Vec::as_slice)
     }
 
-    /// Let go of what was laid out: the deck, its files, or its format changed. A drag, or a
-    /// patch previewed, ends with it.
+    /// Let go of what was laid out: the deck or its files changed. A drag, or a patch
+    /// previewed, ends with it.
     fn forget(&mut self) {
+        self.forget_shown();
+        #[cfg(feature = "editor")]
+        self.besides.clear();
+    }
+
+    /// Let go of what the canvas laid out: the format it shows changed, or the deck did. What
+    /// each format beside it laid out stands (PLAN 2.62).
+    fn forget_shown(&mut self) {
         self.transition = None;
         self.rest = None;
         self.targets.clear();
@@ -376,7 +391,7 @@ impl Session {
         project(&self.deck, &self.theme, format)?;
         if self.format.as_deref() != format {
             self.format = format.map(str::to_string);
-            self.forget();
+            self.forget_shown();
         }
         Ok(())
     }
@@ -1293,6 +1308,23 @@ impl Player {
     #[cfg(feature = "cpu")]
     pub fn pixels(&mut self, state: &str, t_ms: f64, width: u32) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
         Ok(wasm_bindgen::Clamped(self.0.pixels(state, t_ms, width).map_err(js)?.rgba))
+    }
+
+    /// `state` at `t_ms` in `format`, one of the deck's formats or its own canvas
+    /// (`undefined`), painted `height` pixels high as `pixels` paints the canvas, whichever
+    /// format it shows, the width keeping the format's aspect (`pixels.length / 4 / height`):
+    /// what the editor paints beside the canvas, a format at a time, as it plays (PLAN 2.62).
+    /// Each format lays each state out once.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = pixelsIn)]
+    pub fn pixels_in(
+        &mut self,
+        format: Option<String>,
+        state: &str,
+        t_ms: f64,
+        height: u32,
+    ) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
+        Ok(wasm_bindgen::Clamped(self.0.pixels_in(format.as_deref(), state, t_ms, height).map_err(js)?.rgba))
     }
 }
 

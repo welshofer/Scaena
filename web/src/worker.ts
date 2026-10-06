@@ -161,7 +161,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
       case "view": {
         viewing = data.view ? Float32Array.from(data.view) : null;
-        if (lastPainted) await paint(lastPainted.state, lastPainted.t);
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
         return post({ type: "viewed", id: data.id });
       }
       case "find":
@@ -428,6 +428,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "helpers":
         await Promise.all(data.ports.map(join));
         return;
+      case "besides": {
+        besides = data.besides.map(({ format, canvas }) => ({ format, canvas, context: canvas.getContext("2d")! }));
+        besideHeight = Math.max(1, Math.round(data.height));
+        // A frame in flight finishes first: the formats show what the canvas shows.
+        await painting;
+        if (lastPainted) paintBesides(lastPainted.state, lastPainted.t, true);
+        return;
+      }
       case "help":
         return help(data.port);
     }
@@ -1009,6 +1017,7 @@ async function edit(source: string, index: number, at: string | undefined): Prom
     laid: linted?.laid ?? false,
     whole: linted?.whole ?? true,
     slots,
+    formats: player.formats(),
     at: where,
     ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
   };
@@ -1048,7 +1057,8 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
     const [dx, dy] = d.by ?? [0, 0];
     player.setMoving(d.by ? nodes : [], dx, dy);
     player.preview(d.preview && snapped?.patch.length ? JSON.stringify(snapped.patch) : undefined);
-    await paint(d.state, Infinity);
+    // The formats beside show the deck as it is until the drag ends in a patch.
+    await paint(d.state, Infinity, "keep");
   }
   return { snapped, states };
 }
@@ -1166,9 +1176,15 @@ let viewing: Float32Array | null | undefined;
  * for its shaders at a time, and a reload waits for it before it lets the engine go. */
 let painting: Promise<void> = Promise.resolve();
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
- * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
-async function paint(state: string, t: number) {
+/** How a frame of the canvas takes the formats beside it along (PLAN 2.62): `paint`ed with it,
+ * at the `pace` `BESIDE_MS` allows while a cue plays, or `keep`ing what they show, where only the
+ * canvas changes (a drag, a zoom). */
+type Beside = "paint" | "pace" | "keep";
+
+/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
+ * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
+ * (SPEC §3.8). */
+async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   const [width, height] = size();
   if (canvas.width !== width || canvas.height !== height) {
@@ -1176,16 +1192,52 @@ async function paint(state: string, t: number) {
     gpu?.resize(width, height);
   }
   if (viewing !== undefined) player.setView(viewing);
-  if (gpu) return player.paint(gpu, state, t);
+  if (gpu) {
+    player.paint(gpu, state, t);
+    if (beside !== "keep") paintBesides(state, t, beside === "paint");
+    return;
+  }
   const before = painting;
   let done = () => {};
   painting = new Promise((resolve) => (done = resolve));
   try {
     await before;
     await painted(player, state, t, width);
+    if (beside !== "keep") paintBesides(state, t, beside === "paint");
   } finally {
     done();
   }
+}
+
+/** The formats painted beside the canvas (PLAN 2.62): each its own canvas, the deck's own
+ * canvas where `format` is unset, all `besideHeight` pixels high. */
+let besides: { format?: string; canvas: OffscreenCanvas; context: OffscreenCanvasRenderingContext2D }[] = [];
+let besideHeight = 1;
+/** When they were last painted, by the worker's clock. */
+let besidesAt = -Infinity;
+/** How often they are painted at most while a cue plays: the canvas's own frames come first. */
+const BESIDE_MS = 1000 / 30;
+
+/** `state` `t` ms into its cue in each format beside the canvas, as the canvas would show it
+ * there, by the CPU painter (`Player.pixelsIn`): each format lays a state out once. `force`: this
+ * frame, however soon after the last; else none sooner than `BESIDE_MS` after it. A format the
+ * deck cannot be drawn in keeps what it showed. */
+function paintBesides(state: string, t: number, force: boolean) {
+  if (!besides.length) return;
+  const now = performance.now();
+  if (!force && now - besidesAt < BESIDE_MS) return;
+  besidesAt = now;
+  for (const { format, canvas, context } of besides) {
+    try {
+      const pixels = player.pixelsIn(format, state, t, besideHeight);
+      const width = pixels.length / 4 / besideHeight;
+      if (canvas.width !== width || canvas.height !== besideHeight) [canvas.width, canvas.height] = [width, besideHeight];
+      context.putImageData(new ImageData(pixels as Uint8ClampedArray<ArrayBuffer>, width, besideHeight), 0, 0);
+    } catch (e) {
+      console.warn(`the ${format ?? "deck's own"} format could not be drawn: ${said(e)}`);
+    }
+  }
+  post({ type: "besides", state, t });
 }
 
 /** The workers a shader's rows are spread over, this one among them (PLAN 2.28): the cores the
@@ -1344,7 +1396,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
     if (rested !== index) {
       const began = performance.now();
       try {
-        await paint(slot.state, shown);
+        // The formats beside the canvas follow it as often as they can, and come to rest with it.
+        await paint(slot.state, shown, playing ? "pace" : "paint");
       } catch (e) {
         return post({ type: "error", message: said(e) });
       }

@@ -62,6 +62,7 @@ import { sheets } from "./data";
 import { filesPanel } from "./files";
 import { finder } from "./find";
 import { keptNames } from "./folders";
+import { formatsRow } from "./formats";
 import { layers } from "./layers";
 import { looks } from "./look";
 import type {
@@ -251,6 +252,17 @@ async function edit(source: Source) {
   formatPicker.replaceChildren(new Option("own canvas", ""));
   for (const format of stage.opened.formats) formatPicker.add(new Option(format, format));
   const format = () => formatPicker.value || undefined;
+  /** The deck's formats as an edit leaves them: the format menu, and the formats side by side,
+   * follow. A format the deck no longer lists gives way to its own canvas, as the worker's does. */
+  function reformats(formats: string[]) {
+    const listed = [...formatPicker.options].slice(1).map((o) => o.value);
+    if (listed.length !== formats.length || listed.some((f, i) => f !== formats[i])) {
+      const chosen = formatPicker.value;
+      formatPicker.replaceChildren(new Option("own canvas", ""), ...formats.map((f) => new Option(f, f)));
+      formatPicker.value = formats.includes(chosen) ? chosen : "";
+    }
+    formatting.formats(formats);
+  }
   /** The bundle's name, and where it is kept. */
   let { name, where } = stage.opened;
   /** Changes typed, fixed, or dropped, and how many of them the last save holds. */
@@ -576,6 +588,18 @@ async function edit(source: Source) {
     },
     say,
   });
+  /** The state shown in each of the deck's formats, side by side under the canvas (PLAN 2.62): a
+   * click opens the canvas in one, as the format menu does. */
+  const formatting = formatsRow(stage, $("#formats"), $<HTMLButtonElement>("#formats-open"), {
+    state: () => last?.states[shown]?.[0] ?? stage.opened.states[shown],
+    format: () => formatPicker.value,
+    open: (name) => {
+      if (formatPicker.value === name) return;
+      formatPicker.value = name;
+      formatPicker.dispatchEvent(new Event("change"));
+    },
+  });
+  formatting.formats(stage.opened.formats);
   /** The deck's theme, edited (PLAN 2.61, ADR-0016): its colors, type roles, and spacing, each
    * change one edit of the theme the deck names, the deck drawn in it. Refused, it says why; else
    * the source's history takes it as a change that carries the theme's text before and after, so
@@ -791,6 +815,7 @@ async function edit(source: Source) {
     last = edited;
     if (edited.valid) {
       statesPicker.replaceChildren(...edited.states.map(([id]) => new Option(id, id)));
+      reformats(edited.formats);
       if (edited.at) shown = edited.at.index;
       statesPicker.selectedIndex = shown;
       states.states(edited.slots, shown);
@@ -841,6 +866,7 @@ async function edit(source: Source) {
     // Those about each state stand on the canvas and count in the strip (PLAN 2.49).
     board.found(findings);
     states.found(findings);
+    formatting.found(findings);
     if (edited.error) {
       status.textContent = "does not compile";
       return;
@@ -954,6 +980,7 @@ async function edit(source: Source) {
     shown = index;
     statesPicker.selectedIndex = index;
     states.select(index);
+    formatting.shown();
     await stage.seek(index, undefined, format());
     await inspect();
     void layering.refresh();
@@ -1347,6 +1374,10 @@ async function edit(source: Source) {
       { label: "Show the layers", run: () => tab("layers").focus() },
       { label: "Show the data", run: () => tab("data").focus() },
       { label: "Edit the theme", run: () => tab("theming").focus() },
+      {
+        label: formatting.open() ? "Hide the formats side by side" : "Show every format side by side",
+        run: () => formatting.show(!formatting.open()),
+      },
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
@@ -1535,6 +1566,7 @@ async function edit(source: Source) {
   formatPicker.onchange = () => {
     void show(shown);
     states.reformat();
+    formatting.shown();
     // Which findings hold in the format shown is lint's to say again (PLAN 2.49): CodeMirror lints
     // again only once the source changes.
     taken = undefined;
@@ -1595,6 +1627,8 @@ async function edit(source: Source) {
       versions: versioning,
       /** The theme panel (PLAN 2.61): the theme as it shows it, and an edit made there. */
       theme: theming,
+      /** The formats side by side (PLAN 2.62): shown or hidden, and what they last painted. */
+      formats: formatting,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */
