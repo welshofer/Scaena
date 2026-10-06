@@ -9,7 +9,9 @@ import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
 import { inflateSync } from "node:zlib";
 
-const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json" };
+// A stylesheet served as anything but CSS is not applied: the player's page, which links its own,
+// would be checked unstyled (the first-deck walk found its slide at 1920 × 1080 in any window).
+const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".css": "text/css" };
 
 /** The repository at `root`, served on a free port: `{ origin, close }`. `at` is the path it
  * is served at, ending in `/` (`/` by default), and `more` names the media types of other
