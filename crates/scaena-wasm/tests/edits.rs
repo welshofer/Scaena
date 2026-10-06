@@ -589,6 +589,8 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
     for (source, _) in s.data_sources() {
         let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
     }
+    // The layout it uses, as its slots (PLAN 2.71).
+    let _ = s.layout(one);
     // The link at points on and off the canvas (PLAN 2.70).
     for _ in 0..2 {
         let _ = s.link_at(one, [r.below(2400) as f32 - 200.0, r.below(1400) as f32 - 200.0]);

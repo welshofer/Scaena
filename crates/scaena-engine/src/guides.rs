@@ -60,6 +60,66 @@ pub fn grid(deck: &Deck, theme: &Theme, format: Option<&str>) -> Result<Guides, 
     Ok(Guides { canvas, columns, rows, baselines })
 }
 
+/// A slot of a theme's layout as the canvas shows it (PLAN 2.71): its name, its box in the
+/// format shown, its cells as the theme writes them, and whether that format writes it itself.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SlotBox {
+    pub name: String,
+    /// Canvas units.
+    pub rect: Rect,
+    /// `col` and `row` as the theme writes them, the format's own where it has one: what an
+    /// edit changes. None where the slot spans the grid that way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub col: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<serde_json::Value>,
+    /// The format shown writes this slot itself (`layouts.L.formats.F.slots`); on the deck's
+    /// own canvas, always false.
+    pub own: bool,
+}
+
+/// The layout state `state` uses, by its name, and its slots in the format shown (PLAN 2.71),
+/// in the order the theme writes them. None for a state that names no layout.
+pub fn layout(
+    deck: &Deck,
+    theme: &Theme,
+    state: &str,
+    format: Option<&str>,
+) -> Result<Option<(String, Vec<SlotBox>)>, EngineError> {
+    let snaps = scaena_core::resolve_states(deck).map_err(|e| EngineError::Layout(e.to_string()))?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+    let Some(name) = snap.layout.clone() else { return Ok(None) };
+    let own: Vec<String> = match format.and_then(scaena_core::model::Format::parse) {
+        Some(f) => (theme.layouts.get(&name))
+            .and_then(|l| l.formats.as_ref())
+            .and_then(|fs| fs.get(&f))
+            .map(|lf| lf.slots.keys().cloned().collect())
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let (projected, laid) = project(deck, theme, format)?;
+    let canvas = [projected.canvas.width as f32, projected.canvas.height as f32];
+    let grid = Grid::from_theme(&laid, canvas)?;
+    let slots = laid.slots(&name).ok_or_else(|| EngineError::Theme(format!("layout `{name}` is not in the theme")))?;
+    let boxes = slots
+        .iter()
+        .map(|(slot, def)| {
+            let rect = grid.cell(&laid, Some(&name), Some(&serde_json::json!({ "in": slot })))?;
+            let value =
+                |r: &Option<scaena_core::model::values::Range>| r.as_ref().and_then(|r| serde_json::to_value(r).ok());
+            Ok(SlotBox {
+                name: slot.clone(),
+                rect,
+                col: value(&def.col),
+                row: value(&def.row),
+                own: own.contains(slot),
+            })
+        })
+        .collect::<Result<_, EngineError>>()?;
+    Ok(Some((name, boxes)))
+}
+
 /// A guide where boxes meet: `[x1, y1, x2, y2]`, canvas units, a line down or across.
 pub type Line = [f32; 4];
 

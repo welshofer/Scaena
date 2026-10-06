@@ -25,6 +25,7 @@ export const GROUPS = [
   "Find and replace",
   "The data",
   "Annotate",
+  "Layouts",
   "Rehearse",
   "The source",
   "The editor",

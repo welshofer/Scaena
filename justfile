@@ -203,6 +203,7 @@ web-smoke: site
     node web/points.mjs
     node web/lists.mjs
     node web/links.mjs
+    node web/layouts.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

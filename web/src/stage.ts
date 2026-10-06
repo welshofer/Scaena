@@ -21,6 +21,7 @@ import type {
   Insert,
   Inspected,
   Layer,
+  LayoutSlots,
   LinkTarget,
   Linted,
   NodeBox,
@@ -86,6 +87,7 @@ type Reply = Extract<
       | "calledOut"
       | "outlined"
       | "linked"
+      | "laidOut"
       | "viewed"
       | "focal"
       | "found"
@@ -317,6 +319,12 @@ export class Stage {
    * `annotations`; none where the topmost node there is no chart, or off its annotations (PLAN 2.67). */
   noteAt(state: string, point: [number, number], format?: string): Promise<NoteMark | undefined> {
     return this.request<"noted">({ type: "noteAt", id: ++this.asked, state, point, format }).then(({ note }) => note ?? undefined);
+  }
+
+  /** The layout `state` uses and its slots in the format shown (PLAN 2.71); none for a state
+   * that names no layout. */
+  layout(state: string, format?: string): Promise<LayoutSlots | undefined> {
+    return this.request<"laidOut">({ type: "layout", id: ++this.asked, state, format }).then(({ layout }) => layout ?? undefined);
   }
 
   /** Shape `node`'s outline in `state` at rest: its points and a rect's corners, with the theme's
@@ -809,6 +817,7 @@ export class Stage {
       case "calledOut":
       case "outlined":
       case "linked":
+      case "laidOut":
       case "viewed":
       case "focal":
       case "found":

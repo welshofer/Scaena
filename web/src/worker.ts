@@ -175,6 +175,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "noteAt":
         layOut(data.format);
         return post({ type: "noted", id: data.id, note: JSON.parse(player.noteAt(data.state, ...data.point)) });
+      case "layout":
+        layOut(data.format);
+        return post({ type: "laidOut", id: data.id, layout: JSON.parse(player.layout(data.state)) });
       case "outline":
         layOut(data.format);
         return post({ type: "outlined", id: data.id, outline: JSON.parse(player.outline(data.state, data.node)) });

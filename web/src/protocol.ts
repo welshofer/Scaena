@@ -340,6 +340,22 @@ export type Line = [number, number, number, number];
 /** The theme's grid in the format shown (PLAN 2.57), canvas units: its columns and rows, each
  * `[start, end]`, the gutters between them and the margins around them; and the baseline grid's
  * lines, each a `y`. */
+/** A slot of a theme's layout as the canvas shows it (PLAN 2.71): its name, its box in the format
+ * shown, canvas units, its cells as the theme writes them, and whether that format writes it. */
+export interface SlotBox {
+  name: string;
+  rect: Rect;
+  col?: number | [number, number];
+  row?: number | [number, number];
+  own: boolean;
+}
+
+/** The layout a state uses and its slots (PLAN 2.71). */
+export interface LayoutSlots {
+  layout: string;
+  slots: SlotBox[];
+}
+
 export interface Grid {
   canvas: [number, number];
   columns: [number, number][];
@@ -552,6 +568,8 @@ export type ToWorker =
   | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
   /** The chart annotation drawn at `point` in `state` at rest (PLAN 2.67). */
   | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** The layout `state` uses and its slots, in the format shown (PLAN 2.71). */
+  | { type: "layout"; id: number; state: string; format?: string }
   /** Shape `node`'s outline in `state` at rest (PLAN 2.68). */
   | { type: "outline"; id: number; state: string; node: string; format?: string }
   /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
@@ -1078,6 +1096,7 @@ export type FromWorker =
   /** Where the link asked about goes, or none there. */
   | { type: "linked"; id: number; link: LinkTarget | null }
   | { type: "outlined"; id: number; outline: Outline | null }
+  | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }

@@ -61,7 +61,8 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Outline, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
+import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
@@ -101,6 +102,9 @@ export const canvasKeys = (): Key[] => [
   { keys: `${ALT}Drag a callout`, label: "Keep the move to the state shown", group: "Annotate" },
   { keys: "Double-click an annotation", label: "Change what it says", group: "Annotate" },
   { keys: "Escape", label: "Let go of the mark picked, or the band begun", group: "Annotate" },
+  { keys: "Drag a slot, the layout shown", label: "Move it onto the theme's grid: every state that uses the layout shows it moved", group: "Layouts" },
+  { keys: "Drag a slot's handle", label: "Resize it onto the grid", group: "Layouts" },
+  { keys: "Escape", label: "Leave the layout, or the drag under way as it was", group: "Layouts" },
 ];
 
 /** What the canvas asks of the editor around it. */
@@ -151,6 +155,11 @@ export interface Editor {
   /** Whether a change is kept to the state shown, as the inspector's "Only in this state" says
    * (PLAN 2.67): an annotation made from a mark is. */
   keeping?(): boolean;
+  /** Edit the theme by `ops`, RFC 6902 operations, as the Theme tab does (PLAN 2.71, ADR-0016):
+   * one change, one step to undo; whether it was made (the editor says why not). */
+  themeEdit?(ops: unknown[], what: string): Promise<boolean>;
+  /** The canvas shows the layout's slots to edit, or stops (PLAN 2.71). */
+  layouting?(on: boolean): void;
 }
 
 /** A node's `at`, resolved. */
@@ -252,6 +261,13 @@ interface Reshape {
   index?: number;
   added?: boolean;
   step?: number;
+}
+
+/** Where a slot dragged lands on the grid (PLAN 2.71): its cells, from 1, and its box. */
+interface Landing {
+  col: [number, number];
+  row: [number, number];
+  rect: Rect;
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -420,6 +436,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let pointPicked: number | undefined;
   /** A point, or a rect's corner, dragged by its handle. */
   let reshaping: Reshape | undefined;
+  /** The layout of the state shown, as its slots, while the canvas edits it (PLAN 2.71): the
+   * state and the format it was asked in, and the grid its slots snap to. */
+  let slotting: { state: string; format?: string; layout: LayoutSlots; grid?: Grid } | undefined;
+  /** A slot dragged, or resized by a handle (`edge`): where the pointer pressed and is, the box
+   * it leaves, and where that lands on the grid. */
+  let slotDrag: { slot: SlotBox; edge?: Edge; from: Point; rect: Rect; landed?: Landing; version: number } | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -572,6 +594,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     else if (selected !== undefined) aimAt(selected);
     hold();
     draw();
+    if (slotting) void relayout();
     void stage.inserts().then((i) => (offered = i), () => {});
     await text.sync();
   }
@@ -858,6 +881,33 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     } else if (noted && noted.state === boxed && !drag) {
       parts.push(`<path class="noted" data-index="${noted.note.index}" d="${noted.note.outline}"${matrix(noted.note.transform)}/>`);
     }
+    // A layout's slots (PLAN 2.71): each named, with handles to resize it, and where a drag lands.
+    if (slotting && slotting.state === boxed) {
+      const g = slotting.grid;
+      if (g) {
+        const [left, right] = [g.columns[0]?.[0] ?? 0, g.columns.at(-1)?.[1] ?? size[0]];
+        const [top, bottom] = [g.rows[0]?.[0] ?? 0, g.rows.at(-1)?.[1] ?? size[1]];
+        for (const [a, b] of g.columns) parts.push(rect([a, top, b - a, bottom - top], "grid-track"));
+        for (const [a, b] of g.rows) parts.push(rect([left, a, right - left, b - a], "grid-track"));
+      }
+      for (const slot of slotting.layout.slots) {
+        const r = slotDrag?.slot.name === slot.name ? slotDrag.rect : slot.rect;
+        parts.push(rect(r, slot.own ? "layout-slot own" : "layout-slot", ` data-slot="${slot.name}"`));
+        parts.push(`<text class="slot-name" x="${r[0] + 8 * u}" y="${r[1] + 18 * u}" font-size="${13 * u}">${slot.name}</text>`);
+        if (slotDrag) continue;
+        const [x, y, w, h] = r;
+        const s = 7 * u;
+        const spot: Record<Edge, [number, number]> = {
+          nw: [x, y], n: [x + w / 2, y], ne: [x + w, y], e: [x + w, y + h / 2],
+          se: [x + w, y + h], s: [x + w / 2, y + h], sw: [x, y + h], w: [x, y + h / 2],
+        };
+        for (const edge of EDGES) {
+          const [cx, cy] = spot[edge];
+          parts.push(rect([cx - s / 2, cy - s / 2, s, s], "handle slot-handle", ` data-slot="${slot.name}" data-slot-edge="${edge}" style="cursor:${CURSORS[edge]}-resize"`));
+        }
+      }
+      if (slotDrag?.landed) parts.push(rect(slotDrag.landed.rect, "landing"));
+    }
     parts.push(...text.parts(u));
     svg.innerHTML = parts.join("");
     pins.aside(Boolean(drag || sketch || marquee));
@@ -1043,6 +1093,178 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const op = { op: "choose", node: o.node, prop: "points", value: o.points.filter((_, k) => k !== i), state: shown.state, ...(fork ? { fork } : {}) };
       await change([op], "taking the point away…", `${o.node}'s point ${i + 1} taken away${fork ? ` · kept to ${shown.state}` : ""}`, o.node);
     });
+  }
+
+  /** A theme's layout on the canvas (PLAN 2.71, ADR-0016). The layout the state shown uses is
+   * drawn as its slots, each named, on the theme's grid in the format shown. A slot dragged, or
+   * resized by a handle, lands on the grid's tracks, and is one `theme_edit`: its `col` and `row`
+   * where the layout writes them on the deck's own canvas, or in the format shown's own slots
+   * (`layouts.L.formats.F.slots`), which take the layout's others with them. Every state that
+   * uses the layout shows it moved. Escape leaves it. */
+  async function layoutMode(on = slotting === undefined) {
+    if (!on) {
+      slotting = slotDrag = undefined;
+      editor.layouting?.(false);
+      draw();
+      return editor.say("the layout is left as it is");
+    }
+    const shown = editor.shown();
+    if (!shown) return editor.say("the canvas waits for a source that compiles");
+    const format = editor.format();
+    const [layout, g] = await Promise.all([
+      stage.layout(shown.state, format).catch(() => undefined),
+      stage.grid(format).catch(() => undefined),
+    ]);
+    if (!layout) return editor.say(`${shown.state} uses no layout of the theme's: choose one in the inspector`);
+    if (text.node() !== undefined) text.leave();
+    select(undefined);
+    slotting = { state: shown.state, format, layout, grid: g };
+    editor.layouting?.(true);
+    draw();
+    editor.say(`the layout ${layout.layout}${format ? `, in ${format}` : ""}: drag a slot onto the grid, or a handle to resize it · Escape leaves it`);
+  }
+  /** The layout asked again: the deck, the theme, the state, or the format changed. */
+  async function relayout() {
+    if (!slotting) return;
+    const shown = editor.shown();
+    if (!shown) return;
+    const format = editor.format();
+    const [layout, g] = await Promise.all([stage.layout(shown.state, format).catch(() => undefined), stage.grid(format).catch(() => undefined)]);
+    if (!slotting) return;
+    if (!layout) return void layoutMode(false);
+    slotting = { state: shown.state, format, layout, grid: g };
+    draw();
+  }
+
+  /** Where box `r` lands on the grid: the tracks nearest its edges, `span` cells (columns, rows)
+   * kept where a slot is moved, not resized. */
+  function slotLanding(r: Rect, span?: [number, number]): Landing | undefined {
+    const g = slotting?.grid;
+    if (!g?.columns.length || !g.rows.length) return undefined;
+    const nearest = (tracks: [number, number][], v: number, end: 0 | 1) =>
+      tracks.reduce((best, t, i) => (Math.abs(t[end] - v) < Math.abs(tracks[best][end] - v) ? i : best), 0);
+    const axis = (tracks: [number, number][], from: number, to: number, n?: number): [number, number] => {
+      if (n === undefined) {
+        const a = nearest(tracks, from, 0);
+        return [a, Math.max(a, nearest(tracks, to, 1))];
+      }
+      const a = Math.min(nearest(tracks, from, 0), tracks.length - n);
+      return [Math.max(0, a), Math.max(0, a) + n - 1];
+    };
+    const [c0, c1] = axis(g.columns, r[0], r[0] + r[2], span?.[0]);
+    const [r0, r1] = axis(g.rows, r[1], r[1] + r[3], span?.[1]);
+    const box: Rect = [g.columns[c0][0], g.rows[r0][0], g.columns[c1][1] - g.columns[c0][0], g.rows[r1][1] - g.rows[r0][0]];
+    return { col: [c0 + 1, c1 + 1], row: [r0 + 1, r1 + 1], rect: box };
+  }
+  /** A slot's cells as written, `[from, to]`: one number is one track. */
+  const cellsOf = (v: number | [number, number] | undefined, all: number): [number, number] =>
+    v === undefined ? [1, all] : typeof v === "number" ? [v, v] : v;
+
+  /** A press on a slot, or on one of its handles. */
+  function slotPress(e: PointerEvent) {
+    if (!slotting) return;
+    const at = point(e);
+    const target = (e.target as Element).closest?.("[data-slot-edge]");
+    let slot: SlotBox | undefined;
+    let edge: Edge | undefined;
+    if (target) {
+      slot = slotting.layout.slots.find((s) => s.name === target.getAttribute("data-slot"));
+      edge = target.getAttribute("data-slot-edge") as Edge;
+    } else {
+      // The smallest slot under the pointer: one inside another is the one meant.
+      const under = slotting.layout.slots.filter((s) => inside(s.rect, at));
+      slot = under.sort((a, b) => a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3])[0];
+    }
+    if (!slot) return editor.say("press on a slot to move it, or on its handle to resize it");
+    slotDrag = { slot, edge, from: at, rect: slot.rect, version: editor.version() };
+    editor.say(`slot ${slot.name} of ${slotting.layout.layout}: drag it onto the grid`);
+    draw();
+  }
+  /** The pointer at `at` in a slot's drag: its box follows, and lands on the grid. */
+  function slotMove(at: Point) {
+    const d = slotDrag;
+    const g = slotting?.grid;
+    if (!d || !slotting || !g) return;
+    const by: [number, number] = [at[0] - d.from[0], at[1] - d.from[1]];
+    d.rect = d.edge ? resized(d.slot.rect, d.edge, by) : moved(d.slot.rect, by);
+    const [c, r] = [cellsOf(d.slot.col, g.columns.length), cellsOf(d.slot.row, g.rows.length)];
+    d.landed = slotLanding(d.rect, d.edge ? undefined : [c[1] - c[0] + 1, r[1] - r[0] + 1]);
+    if (d.landed) editor.say(`slot ${d.slot.name} → ${placed({ col: d.landed.col, row: d.landed.row })}`);
+    draw();
+  }
+  /** A slot let go: one `theme_edit` that puts it where it landed. */
+  async function slotDrop() {
+    const d = slotDrag;
+    slotDrag = undefined;
+    const now = slotting;
+    if (!d || !now || !d.landed || !now.grid) return draw();
+    if (editor.version() !== d.version) {
+      draw();
+      return editor.say("the source changed under the drag: the layout is as it was");
+    }
+    const was = [cellsOf(d.slot.col, now.grid.columns.length), cellsOf(d.slot.row, now.grid.rows.length)];
+    const { col, row } = d.landed;
+    if (was[0][0] === col[0] && was[0][1] === col[1] && was[1][0] === row[0] && was[1][1] === row[1]) {
+      draw();
+      return editor.say(`slot ${d.slot.name} stays where it is`);
+    }
+    let ops: unknown[];
+    try {
+      ops = await slotOps(now, d.slot, col, row);
+    } catch (e) {
+      draw();
+      return editor.say(`the layout is as it was: ${said(e)}`);
+    }
+    const where = placed({ col, row });
+    const what = `slot ${d.slot.name} of ${now.layout.layout}${now.format ? ` in ${now.format}` : ""} → ${where}`;
+    const done = await editor.themeEdit?.(ops, what);
+    await relayout();
+    if (done) editor.say(`${what} · every state that uses it shows it moved · ⌘Z undoes it`);
+  }
+  /** The operations that put `slot` on cells `col` and `row`: where the layout writes it on the
+   * deck's own canvas; in a format, in that format's own slots, the layout's others carried along. */
+  async function slotOps(now: NonNullable<typeof slotting>, slot: SlotBox, col: [number, number], row: [number, number]) {
+    const text = await stage.themeText();
+    if (!text) throw new Error("the deck names no theme to edit");
+    const theme = JSON.parse(text.text);
+    const name = now.layout.layout;
+    const layout = theme.layouts?.[name];
+    if (!layout) throw new Error(`the theme has no layout ${name}`);
+    const cells = (v: [number, number]) => (v[0] === v[1] ? v[0] : v);
+    if (!now.format) {
+      return [
+        { op: "add", path: pointer("layouts", name, "slots", slot.name, "col"), value: cells(col) },
+        { op: "add", path: pointer("layouts", name, "slots", slot.name, "row"), value: cells(row) },
+      ];
+    }
+    const base = layout.slots?.[slot.name] ?? {};
+    const own = layout.formats?.[now.format]?.slots?.[slot.name];
+    const value = { ...base, ...(own ?? {}), col: cells(col), row: cells(row) };
+    if (!layout.formats) return [{ op: "add", path: pointer("layouts", name, "formats"), value: { [now.format]: { slots: { [slot.name]: value } } } }];
+    if (!layout.formats[now.format]) return [{ op: "add", path: pointer("layouts", name, "formats", now.format), value: { slots: { [slot.name]: value } } }];
+    if (!layout.formats[now.format].slots) return [{ op: "add", path: pointer("layouts", name, "formats", now.format, "slots"), value: { [slot.name]: value } }];
+    return [{ op: "add", path: pointer("layouts", name, "formats", now.format, "slots", slot.name), value }];
+  }
+  /** A layout added from the one shown, by a name asked for (PLAN 2.71): one `theme_edit` that
+   * copies it, then the state shown takes it, kept to that state, so it is the one edited. */
+  async function newLayout() {
+    if (!slotting) await layoutMode(true);
+    const now = slotting;
+    const shown = editor.shown();
+    if (!now || !shown) return;
+    const r = overlay.getBoundingClientRect();
+    const from = now.layout.layout;
+    const name = (await askWords([r.left + r.width / 2, r.top + 48], `${from}-2`, `The new layout's name: a copy of ${from}`))?.trim();
+    if (!name) return editor.say("no layout added");
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) return editor.say(`${name} is no layout's name: lower-case letters, digits, - and _`);
+    const text = await stage.themeText();
+    const theme = text && JSON.parse(text.text);
+    if (!theme?.layouts?.[from]) return editor.say(`the theme has no layout ${from}`);
+    if (theme.layouts[name]) return editor.say(`the theme has a layout ${name} already`);
+    const done = await editor.themeEdit?.([{ op: "add", path: pointer("layouts", name), value: theme.layouts[from] }], `layout ${name} added, a copy of ${from}`);
+    if (!done) return;
+    await change([{ op: "set_state", id: shown.state, prop: "layout", value: name, fork: true }], "choosing it…", `layout ${name} added, a copy of ${from}; ${shown.state} uses it`, null);
+    await relayout();
   }
 
   /** Say where the drag lands, and which states that changes. */
@@ -1871,6 +2093,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     righted = e.button === 2;
     if (e.button !== 0) return;
+    // A layout shown (PLAN 2.71): a press moves or resizes a slot, and nothing else.
+    if (slotting) {
+      e.preventDefault();
+      overlay.focus();
+      overlay.setPointerCapture(e.pointerId);
+      return slotPress(e);
+    }
     // Armed to draw (PLAN 2.48): a drag draws what is armed, and a click places it.
     if (armed) {
       e.preventDefault();
@@ -2127,6 +2356,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (turning) return turned(turning, at, e.shiftKey);
+    if (slotDrag) return slotMove(at);
     if (reshaping) return reshapeTo(reshaping, at, [e.clientX, e.clientY], e.altKey);
     if (carrying) {
       [carrying.at, carrying.alt] = [at, e.altKey];
@@ -2197,6 +2427,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       turning = undefined;
       return void inTurn(() => turnTo(t));
     }
+    if (slotDrag) {
+      slotMove(point(e));
+      return void inTurn(slotDrop);
+    }
     if (reshaping) {
       const r = reshaping;
       reshapeTo(r, point(e), [e.clientX, e.clientY], e.altKey);
@@ -2260,6 +2494,17 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     // The text typed in takes its own keys.
     if (text.node() !== undefined) return;
+    // A layout shown takes Escape, and leaves the rest alone (PLAN 2.71).
+    if (slotting && !(mod && ["z", "y"].includes(key))) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (slotDrag) {
+        slotDrag = undefined;
+        draw();
+        return editor.say("the slot stays where it was");
+      }
+      return void layoutMode(false);
+    }
     if (picking !== undefined && e.key === "Escape") {
       e.preventDefault();
       unpick();
@@ -2477,6 +2722,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     picked: () => picked?.mark,
     noted: () => noted?.note,
     banding: () => banding?.from,
+    /** The layout of the state shown as its slots, to edit, or not, as the Layout button does; a
+     * layout added from it, as the command does; and the layout shown (PLAN 2.71). */
+    layoutMode: (on?: boolean) => layoutMode(on),
+    newLayout,
+    slotting: () => slotting?.layout,
     /** The outline of the shape selected, and the point of it picked (PLAN 2.68). */
     outlined: () => shaped?.outline,
     pointPicked: () => pointPicked,

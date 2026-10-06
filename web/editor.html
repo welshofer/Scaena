@@ -81,6 +81,11 @@
       #overlay .note-carried { fill: none; stroke: var(--info); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
       /* A shape's points and corners (PLAN 2.68): a point's handle, one picked, an edge's middle, a
          rect's corner, and the outline a drag leaves. */
+      /* A theme's layout on the canvas (PLAN 2.71): each slot, its name, and a format's own. */
+      #overlay .layout-slot { fill: rgb(156 196 228 / 0.08); stroke: var(--info); stroke-width: 1.5; stroke-dasharray: 6 3; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
+      #overlay .layout-slot.own { stroke: var(--warning); }
+      #overlay .slot-name { fill: var(--info); font-family: system-ui, sans-serif; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+      #layout-edit[aria-pressed="true"] { border-color: var(--info); color: var(--info); }
       #overlay .handle.point { cursor: move; }
       #overlay .handle.point.picked { fill: var(--info); }
       #overlay .handle.add { fill: var(--info); fill-opacity: 0.5; cursor: copy; }
@@ -466,6 +471,7 @@
             <button type="button" data-zoom="fit" title="The whole canvas (⌘0)">Fit</button>
           </span>
           <button type="button" id="grid" aria-pressed="false" title="The theme's grid over the canvas: its columns, rows, gutters, margins, and baseline grid (⌘')">Grid</button>
+          <button type="button" id="layout-edit" aria-pressed="false" title="The layout of the state shown as its slots, to move and resize on the theme's grid">Layout</button>
           <span id="status" role="status">loading…</span>
         </p>
         <nav id="tabs" role="tablist">

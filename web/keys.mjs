@@ -24,7 +24,7 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 /** The groups, in the order the sheet lists them (`GROUPS` in web/src/commands.ts). */
-const ORDER = ["Select", "Edit", "Arrange", "Move and resize", "Points and corners", "Type", "Draw and insert", "See", "States", "Layers", "The cue", "Find and replace", "The data", "Annotate", "Rehearse", "The source", "The editor"];
+const ORDER = ["Select", "Edit", "Arrange", "Move and resize", "Points and corners", "Type", "Draw and insert", "See", "States", "Layers", "The cue", "Find and replace", "The data", "Annotate", "Layouts", "Rehearse", "The source", "The editor"];
 
 const axe = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
 const site = await serve();

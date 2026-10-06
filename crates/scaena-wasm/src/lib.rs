@@ -527,6 +527,12 @@ impl Session {
         Ok(self.at_rest(state)?.callout_at(node, point))
     }
 
+    /// The layout `state` uses and its slots in the format shown (PLAN 2.71): what the canvas
+    /// draws to edit it. None for a state that names no layout.
+    pub fn layout(&mut self, state: &str) -> Result<Option<(String, Vec<scaena_engine::guides::SlotBox>)>, Error> {
+        Ok(scaena_engine::guides::layout(&self.deck, &self.theme, state, self.format.as_deref())?)
+    }
+
     /// Shape `node`'s outline in `state` at rest, in the format shown (PLAN 2.68): its points,
     /// a rect's corner radius, and the theme's radius steps. `None` for a node the state does
     /// not draw, or one that is no shape.
@@ -1644,6 +1650,16 @@ impl Player {
     #[wasm_bindgen(js_name = calloutAt)]
     pub fn callout_at(&mut self, state: &str, node: &str, x: f32, y: f32) -> Result<String, JsError> {
         serde_json::to_string(&self.0.callout_at(state, node, [x, y]).map_err(js)?).map_err(js)
+    }
+
+    /// The layout `state` uses and its slots in the format shown, as JSON (PLAN 2.71): `{
+    /// "layout", "slots": [{ "name", "rect", "col"?, "row"?, "own" }] }`, each slot's box in
+    /// canvas units, its cells as the theme writes them, and whether the format shown writes it
+    /// itself; `null` for a state that names no layout.
+    pub fn layout(&mut self, state: &str) -> Result<String, JsError> {
+        let found = self.0.layout(state).map_err(js)?;
+        let out = found.map(|(layout, slots)| serde_json::json!({ "layout": layout, "slots": slots }));
+        serde_json::to_string(&out).map_err(js)
     }
 
     /// Shape `node`'s outline in `state` at rest, as JSON (PLAN 2.68): `{ "node", "kind",

@@ -519,6 +519,11 @@ async function edit(source: Source) {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
     ruled: (on) => $("#grid").setAttribute("aria-pressed", String(on)),
+    themeEdit: async (ops, what) => {
+      const r = await themeEdit(ops, what);
+      return Boolean(r && !r.refused);
+    },
+    layouting: (on) => $("#layout-edit").setAttribute("aria-pressed", String(on)),
     // A finding's mark on the canvas (PLAN 2.49): its fix taken, or where the source writes it.
     fix: (f) => fix(f),
     go: (f) => go(f),
@@ -697,36 +702,35 @@ async function edit(source: Source) {
    * the source's history takes it as a change that carries the theme's text before and after, so
    * ⌘Z writes the theme back, as with a restore's data files. An inline theme is the deck's own:
    * its edit is a change of the source. */
-  const theming = themePanel(stage, $("#theming"), {
-    edit: async (ops, what) => {
-      if (assisting) return void say("theme not edited: the assistant is at work on the deck");
-      if (!showing()) return void say("theme not edited while the source does not compile");
-      try {
-        const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format());
-        const r = done.result;
-        if (r.refused || done.source === undefined || !done.edited) {
-          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
-          say(`theme not edited: ${why.join("; ") || "the deck would not validate in it"}`);
-          return r;
-        }
-        const effects = done.files.length ? [filesWritten.of(done.files)] : [];
-        if (done.source === view.state.doc.toString()) {
-          if (!effects.length) return void say(`theme: ${what}, as it was`);
-          view.dispatch({ effects, annotations: isolateHistory.of("full") });
-          wrote(done.edited);
-        } else {
-          taken = { source: done.source, edited: done.edited };
-          const changes = change(view.state.doc.toString(), done.source);
-          view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
-        }
-        const lint = r.added.length || r.removed.length ? ` · lint finds ${r.added.length} new, ${r.removed.length} gone` : "";
-        say(`theme: ${what}${lint} · ⌘Z undoes it`);
+  async function themeEdit(ops: unknown[], what: string) {
+    if (assisting) return void say("theme not edited: the assistant is at work on the deck");
+    if (!showing()) return void say("theme not edited while the source does not compile");
+    try {
+      const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format());
+      const r = done.result;
+      if (r.refused || done.source === undefined || !done.edited) {
+        const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+        say(`theme not edited: ${why.join("; ") || "the deck would not validate in it"}`);
         return r;
-      } catch (e) {
-        say(`theme not edited: ${said(e)}`);
       }
-    },
-  });
+      const effects = done.files.length ? [filesWritten.of(done.files)] : [];
+      if (done.source === view.state.doc.toString()) {
+        if (!effects.length) return void say(`theme: ${what}, as it was`);
+        view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        wrote(done.edited);
+      } else {
+        taken = { source: done.source, edited: done.edited };
+        const changes = change(view.state.doc.toString(), done.source);
+        view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
+      }
+      const lint = r.added.length || r.removed.length ? ` · lint finds ${r.added.length} new, ${r.removed.length} gone` : "";
+      say(`theme: ${what}${lint} · ⌘Z undoes it`);
+      return r;
+    } catch (e) {
+      say(`theme not edited: ${said(e)}`);
+    }
+  }
+  const theming = themePanel(stage, $("#theming"), { edit: themeEdit });
   /** Files an undo or a redo of a restore or a theme edit writes back (PLAN 2.60, 2.61), each to
    * its text after. Where the source did not change, it is `source`, which nothing compiles
    * again: the deck is shown and linted again here, as after a data file's edit. */
@@ -744,6 +748,7 @@ async function edit(source: Source) {
   };
   // The theme's grid over the canvas (PLAN 2.57), as ⌘' draws it.
   $("#grid").onclick = () => void board.rule();
+  $("#layout-edit").onclick = () => void board.layoutMode();
   /** The cue of the state shown (PLAN 2.44): a bar for its transition and each motion, which a
    * drag or a key times, each a patch; a press on its ruler shows the cue at that time. */
   cueing = cue(stage, $("#cue"), $("#preview"), {
@@ -1510,6 +1515,8 @@ async function edit(source: Source) {
         run: () => formatting.show(!formatting.open()),
       },
       { label: "Rehearse the deck", applies: () => last?.valid === true, run: () => void rehearsing.start() },
+      { label: "Edit the layout", applies: () => showing() !== undefined, run: () => void board.layoutMode(true) },
+      { label: "New layout from this one…", applies: () => showing() !== undefined, run: () => void board.newLayout() },
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
