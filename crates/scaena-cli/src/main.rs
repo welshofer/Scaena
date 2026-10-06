@@ -158,6 +158,15 @@ enum Cmd {
         /// slide shows, hidden. Needs `--state`.
         #[arg(long, requires = "state")]
         layers: bool,
+        /// NODE's look in the state (PLAN 2.58): each property of its type's look and the
+        /// value the state shows, as the editor's ⌥⌘C picks it up. Needs `--state`.
+        #[arg(long, value_name = "NODE", requires = "state")]
+        look: Option<String>,
+        /// Put `--look`'s look on these nodes: a `choose` for each property a node shows
+        /// otherwise, written where that node's own value lives (`scaena patch` takes them),
+        /// and the nodes that look so already or take none of it, with why.
+        #[arg(long, value_name = "NODES", value_delimiter = ',', requires = "look")]
+        onto: Option<Vec<String>>,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -498,6 +507,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             state_choices,
             inserts,
             layers,
+            look,
+            onto,
         } => {
             let views = Views {
                 resolved,
@@ -523,6 +534,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 state_choices,
                 inserts,
                 layers,
+                look,
+                onto,
             };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
@@ -1129,6 +1142,25 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(layers) = &i.layers {
             println!("  layers, topmost first:");
             print_layers(layers, 2);
+        }
+        if let Some(look) = &i.look {
+            println!("  the look of {}:", look.node);
+            for part in &look.props {
+                let value = part.value.as_ref().map_or_else(|| "the theme's".to_string(), |v| v.to_string());
+                println!("    {}: {value}", part.prop);
+            }
+        }
+        if let Some(put) = &i.put {
+            match put.patch.is_empty() {
+                true => println!("  put down: nothing to patch"),
+                false => println!("  put on {}: {}", put.took.join(", "), serde_json::to_string(&put.patch)?),
+            }
+            if !put.same.is_empty() {
+                println!("    {} look so already", put.same.join(", "));
+            }
+            for refused in &put.refused {
+                println!("    {}: {}", refused.node, refused.why);
+            }
         }
     }
     Ok(ExitCode::SUCCESS)

@@ -35,6 +35,8 @@ import type {
   Opened,
   Painter,
   Pasted,
+  Look,
+  Put,
   Grid,
   Grouped,
   Line,
@@ -195,6 +197,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
+      case "look":
+        current(data.source);
+        return post({ type: "look", id: data.id, look: JSON.parse(player.look(data.state, data.node)) as Look });
+      case "putting": {
+        current(data.source);
+        const put = JSON.parse(player.putting(data.state, JSON.stringify(data.look), data.nodes)) as Put;
+        return post({ type: "put", id: data.id, put });
+      }
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
       case "inserts":

@@ -12,6 +12,7 @@ use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::inserts::{Insert, Start, inserts};
 use scaena_core::layers::{Layer, layers};
+use scaena_core::looks::{self, Put};
 use scaena_core::model::values::SplitUnit;
 use scaena_core::patch::{SemanticOp, Timed};
 use scaena_core::timeline::{self, CubicBezier, Look};
@@ -130,6 +131,16 @@ pub struct Views {
     /// of its slide shows, hidden, each where the nearest state that shows it places it.
     #[serde(default)]
     pub layers: bool,
+    /// A node shown in the state inspected: its look (PLAN 2.58), each property of its type's
+    /// look with the value the state shows, as the editor's ⌥⌘C picks it up.
+    #[serde(default)]
+    pub look: Option<String>,
+    /// With `look`: nodes shown in the state to put it on, and what that makes: a `choose` for
+    /// each property of it a node shows otherwise, written where that node's own value lives
+    /// (what `deck_patch` takes), and the nodes that look so already or take none of it, with
+    /// why.
+    #[serde(default)]
+    pub onto: Option<Vec<String>>,
 }
 
 impl Views {
@@ -236,6 +247,12 @@ pub struct Inspected {
     /// Its layers, what stands on the canvas topmost first (`layers`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layers: Option<Vec<Layer>>,
+    /// The look of the node asked about (`look`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look: Option<looks::Look>,
+    /// That look put on the nodes `onto` names (`onto`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub put: Option<Put>,
 }
 
 /// Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.
@@ -495,9 +512,13 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
         || views.format.is_some()
         || views.choices.is_some()
         || views.state_choices
-        || views.inserts;
+        || views.inserts
+        || views.look.is_some();
     let theme = if themed { Some(crate::theme(b)?) } else { None };
-    let files = match (views.timeline || views.data || views.laid(), views.choices.is_some() || views.inserts) {
+    let files = match (
+        views.timeline || views.data || views.laid(),
+        views.choices.is_some() || views.inserts || views.look.is_some(),
+    ) {
         (true, _) => data_files(b)?,
         // What a chart may read is its data's columns: a file the bundle lacks offers none.
         (false, true) => data_files(b).unwrap_or_else(|_| DataFiles::new()),
@@ -555,6 +576,12 @@ pub fn inspect_deck(
     if views.inserts && state.is_none() {
         return Err(OpsError::new("`inserts` says what may be inserted in a state: name the state"));
     }
+    if views.look.is_some() && state.is_none() {
+        return Err(OpsError::new("`look` picks up a node's look in a state: name the state"));
+    }
+    if views.onto.is_some() && views.look.is_none() {
+        return Err(OpsError::new("`onto` puts a look on nodes: pick it up with `look`"));
+    }
     match (&views.targets, state, views.snap, views.to) {
         (Some(_), None, ..) => return Err(OpsError::new("`targets` names a node in a state: name the state")),
         (None, _, Some(_), _) => return Err(OpsError::new("`snap` snaps a node's box: name it with `targets`")),
@@ -606,7 +633,7 @@ pub fn inspect_deck(
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
-    let offers = views.choices.is_some() || views.state_choices;
+    let offers = views.choices.is_some() || views.state_choices || views.look.is_some();
     let theme = match (views.resolved || views.timeline || views.laid() || offers, theme) {
         (true, None) => {
             let what = match (views.resolved, views.timeline, views.laid()) {
@@ -648,6 +675,8 @@ pub fn inspect_deck(
             state_choices: None,
             inserts: None,
             layers: None,
+            look: None,
+            put: None,
         };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
@@ -681,6 +710,14 @@ pub fn inspect_deck(
         }
         if let (true, Some(theme)) = (views.state_choices, theme) {
             inspected.state_choices = Some(state_choices(deck, theme, &s.state_id).map_err(OpsError::new)?);
+        }
+        if let (Some(node), Some(theme)) = (&views.look, theme) {
+            let picked = looks::look(deck, theme, &s.state_id, node, files).map_err(OpsError::new)?;
+            if let Some(onto) = &views.onto {
+                let put = looks::putting(deck, theme, &s.state_id, &picked, onto, files).map_err(OpsError::new)?;
+                inspected.put = Some(put);
+            }
+            inspected.look = Some(picked);
         }
         if let (true, Some(theme), Some(engine)) = (views.laid(), theme, engine.as_deref_mut()) {
             // The deck is in its format already: lay it out as it stands.

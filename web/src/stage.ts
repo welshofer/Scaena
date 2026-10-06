@@ -42,6 +42,8 @@ import type {
   Carets,
   Choices,
   StateChoices,
+  Look,
+  Put,
 } from "./protocol";
 
 type Reply = Extract<
@@ -80,6 +82,8 @@ type Reply = Extract<
       | "made"
       | "choices"
       | "stateChoices"
+      | "look"
+      | "put"
       | "carets"
       | "characterChoices"
       | "bolding"
@@ -433,6 +437,19 @@ export class Stage {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
   }
 
+  /** `node`'s look as `state` shows it, in the deck `source` compiles to (PLAN 2.58): what ⌥⌘C
+   * picks up. */
+  look(source: string, state: string, node: string): Promise<Look> {
+    return this.request<"look">({ type: "look", id: ++this.asked, source, state, node }).then(({ look }) => look);
+  }
+
+  /** The patch that puts `look` on `nodes` in `state`, in the deck `source` compiles to (PLAN
+   * 2.58): one `choose` for each property a node shows otherwise, written where its own value
+   * lives; and which nodes it changes, which look so already, and which take none of it. */
+  putting(source: string, state: string, look: Look, nodes: string[]): Promise<Put> {
+    return this.request<"put">({ type: "putting", id: ++this.asked, source, state, look, nodes }).then(({ put }) => put);
+  }
+
   /** The states `ops` (a patch) would change, by id, with nothing made. */
   reach(ops: unknown[]): Promise<string[]> {
     return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
@@ -656,6 +673,8 @@ export class Stage {
       case "made":
       case "choices":
       case "stateChoices":
+      case "look":
+      case "put":
       case "carets":
       case "characterChoices":
       case "bolding":

@@ -288,6 +288,9 @@ jobs:
       # Guides: the theme's grid of the format shown on request, and a line where a dragged box
       # meets another, which a move off the grid snaps to (PLAN 2.57).
       - run: node web/guides.mjs
+      # A look copied from one node (⌥⌘C) and pasted on others (⌥⌘V), each written where its own
+      # lives (PLAN 2.58).
+      - run: node web/looks.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

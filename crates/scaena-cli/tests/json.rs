@@ -314,6 +314,36 @@ fn inspect_says_what_an_inspector_offers() {
 }
 
 #[test]
+fn inspect_picks_up_a_look_and_puts_it_on_other_nodes() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--look", "title", "--onto", "note,rev"]);
+    assert_eq!(code, 0, "{states:#}");
+    let look = &states[0]["look"];
+    assert_eq!((look["node"].as_str(), look["type"].as_str()), (Some("title"), Some("text")));
+    assert_eq!(look["props"][0], serde_json::json!({ "prop": "role", "value": "headline" }));
+    assert!(look["props"][1].get("value").is_none(), "the theme's family: {look:#}");
+    let put = &states[0]["put"];
+    assert_eq!(
+        put["patch"],
+        serde_json::json!([{ "op": "choose", "node": "note", "prop": "role", "value": "headline", "state": "revenue" }])
+    );
+    assert_eq!((put["took"].clone(), put["same"].clone()), (serde_json::json!(["note"]), serde_json::json!([])));
+    assert_eq!(put["refused"], serde_json::json!([{ "node": "rev", "why": "a chart takes none of a text's look" }]));
+
+    // It picks up a look in a state, and puts it down only once picked up.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--look", "title"]).status.code(), Some(2));
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--state", "revenue", "--onto", "note"]).status.code(), Some(2));
+
+    // For a person: each property and its value, then what it puts where, and what it does not.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--look", "title", "--onto", "note,rev"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("the look of title:\n    role: \"headline\"\n    style/family: the theme's"), "{text}");
+    assert!(
+        text.contains("put on note: [{\"op\":\"choose\"") && text.contains("rev: a chart takes none of a text's look"),
+        "{text}"
+    );
+}
+
+#[test]
 fn inspect_says_what_a_state_offers() {
     let (code, states) = json(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
     assert_eq!(code, 0, "{states:#}");

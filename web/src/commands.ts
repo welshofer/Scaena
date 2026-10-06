@@ -24,6 +24,8 @@ export type Where = "node" | "canvas" | "state" | "layer";
 /** The modifier key as this machine shows it: `⌘` on a Mac, `Ctrl+` elsewhere; and Shift. */
 export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 export const SHIFT = MOD === "⌘" ? "⇧" : "Shift+";
+/** ⌘ with Option, or Ctrl with Alt: what copies and pastes a look (PLAN 2.58). */
+export const MOD_ALT = MOD === "⌘" ? "⌥⌘" : "Ctrl+Alt+";
 
 /** The commands of `all` that apply now and name every word of `query`, in any order, case
  * folded: those whose label starts with the first word first, else in their order. */

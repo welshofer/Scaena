@@ -146,6 +146,25 @@ export interface Choices {
   fields: Field[];
 }
 
+/** A node's look as a state shows it (PLAN 2.58), as `scaena inspect --look` says it: each
+ * property of its type's look (a text's role and style, a shape's fill, stroke, and corners, …)
+ * with the value shown, absent where the theme's shows. What ⌥⌘C picks up. */
+export interface Look {
+  node: string;
+  type: string;
+  props: { prop: string; value?: unknown }[];
+}
+
+/** A look put down on nodes (PLAN 2.58), as `scaena inspect --look --onto` says it: one patch of
+ * `choose`s, each written where that node's own value lives; the nodes it changes, those that
+ * look so already, and those that take none of it, with why. */
+export interface Put {
+  patch: unknown[];
+  took: string[];
+  same: string[];
+  refused: { node: string; why: string }[];
+}
+
 /** What an inspector offers for a state itself (PLAN 2.36), as `scaena inspect --state-choices`
  * says it: its layout, each key of its transition, its hold, and its notes. */
 export interface StateChoices {
@@ -406,6 +425,11 @@ export type ToWorker =
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
   | { type: "stateChoices"; id: number; state: string }
+  /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
+  | { type: "look"; id: number; source: string; state: string; node: string }
+  /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
+   * to (PLAN 2.58). */
+  | { type: "putting"; id: number; source: string; state: string; look: Look; nodes: string[] }
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
@@ -820,6 +844,8 @@ export type FromWorker =
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
+  | { type: "look"; id: number; look: Look }
+  | { type: "put"; id: number; put: Put }
   | { type: "carets"; id: number; carets: Carets | null }
   | { type: "characterChoices"; id: number; choices: Choices }
   | { type: "bolding"; id: number; look: Record<string, unknown> }

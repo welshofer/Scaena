@@ -196,6 +196,10 @@ struct DeckInspect {
     inserts: bool,
     #[serde(default)]
     layers: bool,
+    #[serde(default)]
+    look: Option<String>,
+    #[serde(default)]
+    onto: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -343,6 +347,8 @@ impl Session {
                     state_choices: a.state_choices,
                     inserts: a.inserts,
                     layers: a.layers,
+                    look: a.look,
+                    onto: a.onto,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }

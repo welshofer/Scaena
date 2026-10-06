@@ -175,6 +175,17 @@
         "description": "The state inspected's layers (PLAN 2.50): its nodes nested as their containers and\ngroups hold them, topmost first, with those that leave in it and those another state\nof its slide shows, hidden, each where the nearest state that shows it places it.",
         "type": "boolean",
         "default": false
+      },
+      "look": {
+        "description": "A node shown in the state inspected: its look (PLAN 2.58), each property of its type's\nlook with the value the state shows, as the editor's ⌥⌘C picks it up.",
+        "type": ["string", "null"],
+        "default": null
+      },
+      "onto": {
+        "description": "With `look`: nodes shown in the state to put it on, and what that makes: a `choose` for\neach property of it a node shows otherwise, written where that node's own value lives\n(what `deck_patch` takes), and the nodes that look so already or take none of it, with\nwhy.",
+        "type": ["array", "null"],
+        "items": { "type": "string" },
+        "default": null
       }
     },
     "additionalProperties": false
@@ -259,6 +270,14 @@
             "description": "Its layers, what stands on the canvas topmost first (`layers`).",
             "type": ["array", "null"],
             "items": { "$ref": "#/$defs/Layer" }
+          },
+          "look": {
+            "description": "The look of the node asked about (`look`).",
+            "anyOf": [{ "$ref": "#/$defs/Look" }, { "type": "null" }]
+          },
+          "put": {
+            "description": "That look put on the nodes `onto` names (`onto`).",
+            "anyOf": [{ "$ref": "#/$defs/Put" }, { "type": "null" }]
           }
         },
         "required": ["state_id", "slide_id", "nodes", "entered", "exited"]
@@ -832,6 +851,60 @@
           }
         },
         "required": ["node", "type", "shown"]
+      },
+      "Look": {
+        "description": "A node's look as a state shows it: what ⌥⌘C picks up.",
+        "type": "object",
+        "properties": {
+          "node": { "description": "The node it was picked up from.", "type": "string" },
+          "type": { "$ref": "#/$defs/NodeType" },
+          "props": {
+            "description": "Each property of its type's look, with the value the state shows.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Part" }
+          }
+        },
+        "required": ["node", "type", "props"]
+      },
+      "Part": {
+        "description": "One property of a look.",
+        "type": "object",
+        "properties": {
+          "prop": { "type": "string" },
+          "value": {
+            "description": "As the deck sets it, tracked and then overridden; absent where nothing sets it and the\ntheme's shows."
+          }
+        },
+        "required": ["prop"]
+      },
+      "Put": {
+        "description": "What a look put down makes.",
+        "type": "object",
+        "properties": {
+          "patch": {
+            "description": "The patch: one `choose` (SPEC §7.3) for each property a node takes whose value it does\nnot show already, in the state the look is put down in. What `deck_patch` takes; empty\nwhen every node looks so already.",
+            "type": "array",
+            "items": true
+          },
+          "took": {
+            "description": "The nodes it changes, in the order asked.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "same": { "description": "The nodes that look so already.", "type": "array", "items": { "type": "string" } },
+          "refused": {
+            "description": "The nodes that take none of it, each with why.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Refused" }
+          }
+        },
+        "required": ["patch", "took", "same", "refused"]
+      },
+      "Refused": {
+        "description": "A node a look is not put on, and why.",
+        "type": "object",
+        "properties": { "node": { "type": "string" }, "why": { "type": "string" } },
+        "required": ["node", "why"]
       }
     },
     "type": "object",

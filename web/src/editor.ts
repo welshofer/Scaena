@@ -45,7 +45,7 @@ import { themes } from "@scaena/themes";
 import { panel } from "./assistant/panel";
 import { sourceOf } from "./bundle";
 import { canvas, placed } from "./canvas";
-import { type Command, MOD, menu, palette, SHIFT } from "./commands";
+import { type Command, MOD, MOD_ALT, menu, palette, SHIFT } from "./commands";
 import { cue } from "./cue";
 import { sheets } from "./data";
 import { finder } from "./find";
@@ -1066,6 +1066,9 @@ async function edit(source: Source) {
       pressing("Duplicate", `${MOD}D`, "d", mod()),
       { label: "Copy", keys: `${MOD}C`, where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, where: ["node", "layer"], applies: any, run: () => clip("cut") },
+      // A look copied and pasted (PLAN 2.58): Option makes ⌥C a character, so the key goes by its place.
+      pressing("Copy the look", `${MOD_ALT}C`, "c", mod({ altKey: true, code: "KeyC" }), one),
+      pressing("Paste the look", `${MOD_ALT}V`, "v", mod({ altKey: true, code: "KeyV" }), () => any() && board.copiedLook() !== undefined),
       pressing("Group", `${MOD}G`, "g", mod()),
       pressing("Ungroup", `${MOD}${SHIFT}G`, "g", mod({ shiftKey: true }), () => one() && typeOf(picked()[0]) === "group"),
       pressing("Bring forward", `${MOD}]`, "]", mod({ code: "BracketRight" })),

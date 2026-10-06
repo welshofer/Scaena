@@ -16,6 +16,7 @@
 //! - [`shader`] — what a shader op draws: each kind's CPU reference and its WGSL twin
 //!   (SPEC §3.8), here because every painter runs them.
 //! - [`lint`] — findings, rules, and the document-level rule set (SPEC §7.4–7.5).
+//! - [`looks`] — a node's look, picked up and put down on others as `choose`s (PLAN 2.58).
 //! - [`patch`] — JSON Patch, and the semantic ops that compile to it (SPEC §7.3).
 //! - [`reading`] — how a deck reads to someone who hears it: each node's part, and a state as
 //!   HTML (SPEC §3.12), for a tagged PDF, a single file, and the web player.
@@ -37,6 +38,7 @@ pub mod ids;
 pub mod inserts;
 pub mod layers;
 pub mod lint;
+pub mod looks;
 pub mod model;
 pub mod patch;
 pub mod pose;

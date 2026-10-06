@@ -50,9 +50,15 @@
 //   its middle, meets another's or the canvas's; off the grid (Shift), a box within a few pixels
 //   of one goes onto it, unless ⌘ (Ctrl) is held. The engine says where they meet; the page draws
 //   what it says.
+// - ⌥⌘C (Ctrl+Alt+C) copies the look of the node selected, as the state shown shows it: a text's
+//   role and style, a shape's fill, stroke, and corners, an image's corners, a shader's preset and
+//   palette, a chart's labels, a stack's or a grid's gap. ⌥⌘V (Ctrl+Alt+V) pastes it on each node
+//   selected that takes it, one patch of `choose`s, each written where that node's own value lives,
+//   as the inspector writes one; where the look's value is the theme's, the node's own is taken
+//   away. A node of another type takes what its look shares with it (PLAN 2.58).
 import { marks } from "./marks";
 import { CLIP } from "./protocol";
-import type { Added, Arrange, Edited, Finding, Grid, Insert, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import type { Stage } from "./stage";
 import { covered, type Selected, typing } from "./typing";
 
@@ -1247,6 +1253,54 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
+  /** The look ⌥⌘C copied last (PLAN 2.58): what ⌥⌘V pastes, until another is copied. */
+  let copiedLook: Look | undefined;
+  /** What a look sets, as the status says it: each value the deck sets, else the theme's. */
+  const lookSaid = (look: Look) => {
+    const set = look.props.flatMap((p) => (p.value === undefined ? [] : [`${p.prop} ${typeof p.value === "string" ? p.value : JSON.stringify(p.value)}`]));
+    return set.length ? set.join(", ") : "the theme's";
+  };
+
+  /** ⌥⌘C: the look of the node selected, as the state shown shows it, copied for ⌥⌘V. */
+  function copyLook() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      if (!shown || nodes.length !== 1) return editor.say("select one node to copy its look");
+      try {
+        const look = await stage.look(editor.source(), shown.state, nodes[0]);
+        if (!look.props.length) return editor.say(`a ${look.type} has no look of its own to copy`);
+        copiedLook = look;
+        editor.say(`${look.node}'s look copied (${lookSaid(look)}): ⌥⌘V pastes it on what is selected`);
+      } catch (e) {
+        editor.say(`no look copied: ${said(e)}`);
+      }
+    });
+  }
+
+  /** ⌥⌘V: the look copied pasted on each node selected that takes it, in the state shown, one
+   * patch: one step to undo. What is selected stays so; the status says which nodes looked so
+   * already and which take none of it. */
+  function pasteLook() {
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const nodes = chosen();
+      const look = copiedLook;
+      if (!look) return editor.say("no look is copied: ⌥⌘C copies the look of the node selected");
+      if (!shown || !nodes.length) return editor.say(`select what takes ${look.node}'s look`);
+      try {
+        const put = await stage.putting(editor.source(), shown.state, look, nodes);
+        const same = put.same.length ? [`${put.same.join(", ")} ${put.same.length > 1 ? "look" : "looks"} so already`] : [];
+        const others = [...same, ...put.refused.map((r) => `${r.node}: ${r.why}`)];
+        if (!put.patch.length) return editor.say(others.join("; ") || `nothing takes ${look.node}'s look`);
+        const done = [`${look.node}'s look pasted on ${put.took.join(", ")}`, ...others].join("; ");
+        await change(put.patch, "pasting the look…", done);
+      } catch (e) {
+        editor.say(`no look pasted: ${said(e)}`);
+      }
+    });
+  }
+
   /** Whether the canvas takes a copy, a cut, or a paste: it has the focus, and no text is typed
    * in, whose own clipboard it is; a copy or a cut, of a node selected. */
   const pastes = () => document.activeElement === overlay && text.node() === undefined && !drag && !starting;
@@ -1678,6 +1732,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       e.preventDefault();
       return key === "y" || e.shiftKey ? editor.redo() : editor.undo();
     }
+    // ⌥⌘C copies the look of the node selected, and ⌥⌘V pastes it on what is selected (PLAN 2.58):
+    // by the key's place, as Option makes ⌥C a character of its own.
+    if (mod && e.altKey && !e.shiftKey && (e.code === "KeyC" || e.code === "KeyV") && !drag && !starting) {
+      e.preventDefault();
+      return void (e.code === "KeyC" ? copyLook() : pasteLook());
+    }
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
@@ -1826,6 +1886,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     remove,
     /** Paste `clip`, the clipboard's text, as ⌘V does. */
     paste,
+    /** Copy the look of the node selected, as ⌥⌘C does, and paste it on what is selected, as ⌥⌘V
+     * does (PLAN 2.58); and the look copied, if any. */
+    copyLook,
+    pasteLook,
+    copiedLook: () => copiedLook,
     /** Give the characters selected in the text typed in `look`, as the inspector does (PLAN 2.38). */
     style: (look: Record<string, unknown>) => text.style(look),
     /** Make the characters selected bold, or not, as ⌘B does. */

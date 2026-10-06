@@ -738,6 +738,24 @@ impl Session {
         scaena_core::choices::choices(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
     }
 
+    /// `node`'s look as `state` shows it (PLAN 2.58): each property of its type's look and the
+    /// value shown, which ⌥⌘C picks up.
+    pub fn look(&self, state: &str, node: &str) -> Result<scaena_core::looks::Look, Error> {
+        scaena_core::looks::look(&self.deck, &self.theme, state, node, &*self.files).map_err(Error::Ops)
+    }
+
+    /// `look` put on `nodes` in `state` (PLAN 2.58): the patch of `choose`s that ⌥⌘V makes, each
+    /// written where that node's own value lives, and the nodes that look so already or take
+    /// none of it, with why.
+    pub fn putting(
+        &self,
+        state: &str,
+        look: &scaena_core::looks::Look,
+        nodes: &[String],
+    ) -> Result<scaena_core::looks::Put, Error> {
+        scaena_core::looks::putting(&self.deck, &self.theme, state, look, nodes, &*self.files).map_err(Error::Ops)
+    }
+
     /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
     /// `node`'s text as `state` shows it (PLAN 2.38): each look a run of its own takes, with
     /// the first character's, which a `style_text` patch sets.
@@ -1614,6 +1632,20 @@ impl Player {
     /// `{ node, type, state, fields }`, as `scaena inspect --choices` says it.
     pub fn choices(&self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.choices(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `node`'s look as `state` shows it, as JSON (PLAN 2.58): `{ node, type, props: [{ prop,
+    /// value? }] }`, as `scaena inspect --look` says it; what ⌥⌘C picks up.
+    pub fn look(&self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.look(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// `look` (JSON, as `look` gives it) put on `nodes` in `state`, as JSON (PLAN 2.58): `{
+    /// patch, took, same, refused: [{ node, why }] }`, as `scaena inspect --look --onto` says
+    /// it; what ⌥⌘V makes.
+    pub fn putting(&self, state: &str, look: &str, nodes: Vec<String>) -> Result<String, JsError> {
+        let look: scaena_core::looks::Look = serde_json::from_str(look).map_err(js)?;
+        serde_json::to_string(&self.0.putting(state, &look, &nodes).map_err(js)?).map_err(js)
     }
 
     /// What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
