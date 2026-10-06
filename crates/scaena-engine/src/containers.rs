@@ -7,11 +7,13 @@
 //! that box unless its `size` says otherwise. A root container lays its subtree out inside
 //! its box.
 //!
-//! Inside a stack, text and images take the room their content needs and containers wrap
-//! theirs, while shapes, charts, and shaders share what is left; everything stretches
-//! across the stack. Inside a grid container, children fill their cells and never widen
-//! a track (CSS's `min-width: 0`). Inside a frame,
-//! `at.rect` is relative to the frame's padding, and a child with no `rect` fills it.
+//! Inside a stack, text, tables, and images take the room their content needs and
+//! containers wrap theirs, while shapes, charts, and shaders share what is left;
+//! everything stretches across the stack. A table never takes more than the stack has
+//! left: short of room, it takes what is left and says what to cut (E100). Inside a grid
+//! container, children fill their cells and never widen a track (CSS's `min-width: 0`).
+//! Inside a frame, `at.rect` is relative to the frame's padding, and a child with no
+//! `rect` fills it.
 //!
 //! Layout is per snapshot (SPEC §5): this runs once when a scene is built, never per frame.
 //! Positions are not rounded to whole canvas units, as the theme grid's are not.
@@ -33,9 +35,9 @@ use taffy::{
     TaffyTree, TrackSizingFunction,
 };
 
-/// A text leaf's size, given what is known of it and the room available.
-pub type MeasureText<'m> =
-    dyn FnMut(&str, Size<Option<f32>>, Size<AvailableSpace>) -> Result<Size<f32>, EngineError> + 'm;
+/// The size of a leaf the engine typesets (a text node's lines, a table's rows and
+/// columns), given what is known of it and the room available.
+pub type Measure<'m> = dyn FnMut(&str, Size<Option<f32>>, Size<AvailableSpace>) -> Result<Size<f32>, EngineError> + 'm;
 
 /// Where every node of one snapshot goes.
 #[derive(Debug, Clone, Default)]
@@ -99,7 +101,7 @@ pub fn place(
     grid: &Grid,
     images: &BundleImages,
     snap: &Snapshot,
-    measure: &mut MeasureText,
+    measure: &mut Measure,
 ) -> Result<Placement, EngineError> {
     let kind = |id: &str| deck.nodes[id].node_type;
     let order_of = |id: &str| deck.nodes.get_index_of(id).expect("snapshot nodes are deck nodes");
@@ -221,7 +223,7 @@ pub fn place(
                         style,
                         |_, _| 0.0,
                         |known, available| match context {
-                            Some(Leaf::Text(id)) if failed.is_none() => match measure(id, known, available) {
+                            Some(Leaf::Typeset(id)) if failed.is_none() => match measure(id, known, available) {
                                 Ok(size) => size,
                                 Err(e) => {
                                     failed = Some(e);
@@ -249,12 +251,10 @@ fn taffy_error(e: taffy::TaffyError) -> EngineError {
 
 /// What a leaf measures by.
 enum Leaf {
-    Text(String),
+    /// What the engine typesets in it: a text node's lines, a table's rows and columns.
+    Typeset(String),
     /// The part of the image that shows, in pixels, taken as canvas units.
-    Image {
-        width: f32,
-        height: f32,
-    },
+    Image { width: f32, height: f32 },
 }
 
 /// An image's size: its natural size, scaled to keep its aspect ratio when one side is
@@ -362,8 +362,8 @@ impl Flow<'_> {
                 }
                 self.tree.new_with_children(style, &nodes).map_err(taffy_error)?
             }
-            NodeType::Text => {
-                self.tree.new_leaf_with_context(style, Leaf::Text(id.to_string())).map_err(taffy_error)?
+            NodeType::Text | NodeType::Table => {
+                self.tree.new_leaf_with_context(style, Leaf::Typeset(id.to_string())).map_err(taffy_error)?
             }
             NodeType::Image => match natural {
                 Some((width, height)) => {
@@ -374,9 +374,7 @@ impl Flow<'_> {
             NodeType::Group => {
                 return Err(in_node(id, "a group cannot sit in a stack, grid, or frame".into()));
             }
-            NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader => {
-                self.tree.new_leaf(style).map_err(taffy_error)?
-            }
+            NodeType::Shape | NodeType::Chart | NodeType::Shader => self.tree.new_leaf(style).map_err(taffy_error)?,
         };
         self.ids.insert(node, id.to_string());
         Ok(node)
@@ -425,10 +423,10 @@ fn natural_size(images: &BundleImages, props: &Props) -> Option<(f32, f32)> {
     (w > 0.0 && h > 0.0).then_some((w, h))
 }
 
-/// Shapes, charts, tables, and shaders have no size of their own: in a stack they share
-/// the room.
+/// Shapes, charts, and shaders have no size of their own: in a stack they share the room.
+/// A table has one, its rows and columns, as text does.
 fn grows(kind: NodeType) -> bool {
-    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Table | NodeType::Shader)
+    matches!(kind, NodeType::Shape | NodeType::Chart | NodeType::Shader)
 }
 
 /// What the node's own alignment says for one axis, `x` or `y`, when it places the node
@@ -515,8 +513,9 @@ fn item_style(
             let row = matches!(within, Within::Stack { row: true });
             let (main, cross, cross_alignment) = if row { (&w, &h, y_align) } else { (&h, &w, x_align) };
             // A root fills its cell, but on an axis its own alignment names, a root with a size
-            // of its own (a container's content, an image's picture) takes that size and
-            // aligns there. In a stack, a node with no size of its own shares the room.
+            // of its own (a container's content, an image's picture, a table's rows and
+            // columns) takes that size and aligns there. In a stack, a node with no size of its
+            // own shares the room.
             let placed = |axis| matches!(within, Within::Root) && !grows(kind) && own_align(props, axis).is_some();
             let default_share = (matches!(within, Within::Root) && !placed("y")) || grows(kind);
             match main {
@@ -767,15 +766,24 @@ mod tests {
         Deck::from_json(&deck.to_string()).unwrap()
     }
 
-    /// Text as 20 cu a character on 50 cu lines, wrapped at the width it gets.
-    fn fake_text(deck: &Deck) -> Box<MeasureText<'static>> {
+    /// Text as 20 cu a character on 50 cu lines, wrapped at the width it gets; a table as
+    /// 300 × 200 cu of columns and rows, never more than it is offered and needing none.
+    fn fake_measure(deck: &Deck) -> Box<Measure<'static>> {
         let chars: HashMap<String, f32> = deck
             .nodes
             .iter()
             .filter_map(|(id, n)| Some((id.clone(), n.props.get("text")?.as_str()?.chars().count() as f32 * 20.0)))
             .collect();
         Box::new(move |id, known, available| {
-            let wide = chars[id];
+            let Some(&wide) = chars.get(id) else {
+                let offered = |a: AvailableSpace, content: f32| match a {
+                    AvailableSpace::Definite(room) => content.min(room),
+                    AvailableSpace::MinContent => 0.0,
+                    AvailableSpace::MaxContent => content,
+                };
+                let width = known.width.unwrap_or(offered(available.width, 300.0));
+                return Ok(Size { width, height: known.height.unwrap_or(offered(available.height, 200.0)) });
+            };
             let room = known.width.or(match available.width {
                 AvailableSpace::Definite(w) => Some(w),
                 AvailableSpace::MinContent => Some(0.0),
@@ -797,7 +805,7 @@ mod tests {
         png.extend(200u32.to_be_bytes());
         png.extend([8, 6, 0, 0, 0]);
         images.register("assets/photo.png", &png).unwrap();
-        place(deck, &theme, &grid, &images, snap, &mut *fake_text(deck))
+        place(deck, &theme, &grid, &images, snap, &mut *fake_measure(deck))
     }
 
     fn boxes(nodes: Value) -> HashMap<String, Rect> {
@@ -818,6 +826,66 @@ mod tests {
         assert_eq!(b["rule"], [120.0, 180.0, 560.0, 4.0]);
         // The panel takes what is left: 460 tall inside, less 50 + 4 and two gaps.
         assert_eq!(b["panel"], [120.0, 194.0, 560.0, 386.0]);
+    }
+
+    #[test]
+    fn a_stack_gives_a_table_its_rows_and_never_more_than_it_has() {
+        // A 600-wide stack, `h` high: the table (`size` if any), a line of text, a shape.
+        let stack = |h: f32, size: Option<Value>| {
+            let mut table = json!({ "type": "table", "data": "@q", "at": { "parent": "col" } });
+            if let Some(size) = size {
+                table["size"] = size;
+            }
+            boxes(json!({
+                "col": { "type": "stack", "gap": 10, "at": { "rect": [0, 0, 600, h] } },
+                "t": table,
+                "total": { "type": "text", "text": "Total", "at": { "parent": "col" } },
+                "rest": { "type": "shape", "at": { "parent": "col" } }
+            }))
+        };
+        // Its rows, across the stack, as text takes its lines; what follows starts a gap
+        // under its last row, and the shape shares what is left.
+        let b = stack(500.0, Some(json!({ "h": "fit" })));
+        assert_eq!(b["t"], [0.0, 0.0, 600.0, 200.0]);
+        assert_eq!(b["total"], [0.0, 210.0, 600.0, 50.0]);
+        assert_eq!(b["rest"], [0.0, 270.0, 600.0, 230.0]);
+        // Without a size, the same: a table has a size of its own.
+        assert_eq!(stack(500.0, None), b);
+        // Short of room, it takes what is left, and the text keeps its line: 150 less two
+        // gaps and the line leaves 80 for 200 cu of rows, which lint reports (E100).
+        let b = stack(150.0, None);
+        assert_eq!(b["t"], [0.0, 0.0, 600.0, 80.0]);
+        assert_eq!(b["total"], [0.0, 90.0, 600.0, 50.0]);
+        // `fill` shares what is left, as a chart does: 500 less two gaps and the line is
+        // 430, half each. A length is that length.
+        let b = stack(500.0, Some(json!({ "h": "fill" })));
+        assert_eq!((b["t"][3], b["rest"][3]), (215.0, 215.0));
+        assert_eq!(stack(500.0, Some(json!({ "h": 120 })))["t"][3], 120.0);
+        // Across a row, its columns.
+        let b = boxes(json!({
+            "row": { "type": "stack", "axis": "x", "gap": 10, "at": { "rect": [0, 0, 1000, 400] } },
+            "t": { "type": "table", "data": "@q", "at": { "parent": "row" } },
+            "chart": { "type": "chart", "kind": "bar", "data": "@q", "at": { "parent": "row" } }
+        }));
+        assert_eq!(b["t"], [0.0, 0.0, 300.0, 400.0]);
+        assert_eq!(b["chart"], [310.0, 0.0, 690.0, 400.0]);
+    }
+
+    #[test]
+    fn a_root_table_that_fits_its_content_aligns_in_its_cell() {
+        let b = boxes(json!({
+            "t": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600] },
+                   "size": { "w": "fit", "h": "fit" }, "align": "center" },
+            "short": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 120] }, "size": { "h": "fit" } },
+            "sized": { "type": "table", "data": "@q", "at": { "rect": [0, 0, 1000, 600], "align": { "y": "end" } },
+                       "size": { "w": 500 } }
+        }));
+        assert_eq!(b["t"], [350.0, 200.0, 300.0, 200.0]);
+        // Never taller than its cell: its rows that do not fit are lint's to report.
+        assert_eq!(b["short"], [0.0, 0.0, 1000.0, 120.0]);
+        // Sized one way, it takes its rows on the axis its own alignment names, as an image
+        // takes its picture's.
+        assert_eq!(b["sized"], [0.0, 400.0, 500.0, 200.0]);
     }
 
     #[test]
