@@ -10,8 +10,8 @@ use scaena_ops::history::{Restored, Version, compare, differing, restored};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// A version as the page hands it over: the deck as deck.json's text, and the data files its
-/// sources name, by their paths, as their text.
+/// A version as the page hands it over: the deck as deck.json's text, and the files it is drawn
+/// from, its data files and its theme, by their paths, as their text.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Held {
     pub deck: String,
@@ -19,7 +19,8 @@ pub struct Held {
     pub files: BTreeMap<String, String>,
 }
 
-/// A data file a restore wrote: its text before and after, none where the bundle did not hold it.
+/// A file an edit wrote beside the deck, a data file or the theme: its text before and after,
+/// none where the bundle did not hold it. The editor's undo writes it back (PLAN 2.60, 2.61).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Rewritten {
     pub path: String,
@@ -72,13 +73,13 @@ impl Session {
         let (later, files) = match to {
             Some(to) => (deck(to)?, bytes(&to.files)),
             None => {
-                let named: Vec<&str> = self.deck.data.values().filter_map(|s| s.source.as_str()).collect();
+                let named = scaena_store::kept_paths(&self.deck);
                 let now = named.iter().filter_map(|path| Some((path.to_string(), self.files.get(*path)?.clone())));
                 (self.deck.clone(), now.collect())
             }
         };
         let (states, fields) = compare(&earlier, &later).map_err(|e| Error::Ops(e.to_string()))?;
-        let files = differing(&bytes(&from.files), &files);
+        let files = differing((&earlier, &bytes(&from.files)), (&later, &files));
         Ok(serde_json::json!({ "states": states, "deck": fields, "files": files }))
     }
 
@@ -95,14 +96,7 @@ impl Session {
         let (said, write) = restored(&self.bundle(), version, deck(held)?, bytes(&held.files))
             .map_err(|e| Error::Ops(e.to_string()))?;
         let Some(w) = write else { return Ok((said, Vec::new())) };
-        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
-        let rewritten: Vec<Rewritten> = (w.files.iter())
-            .map(|(path, after)| Rewritten {
-                path: path.clone(),
-                before: self.files.get(path).map(|b| text(b)),
-                after: Some(text(after)),
-            })
-            .collect();
+        let rewritten = self.rewritten(&w.files);
         // A file taken out since that the version reads comes back, to stay.
         for path in w.files.keys() {
             self.removed.remove(path);
@@ -113,8 +107,21 @@ impl Session {
         Ok((said, rewritten))
     }
 
-    /// Data files written back as an undo or a redo of a restore has them: each set to its text,
-    /// or taken out where it has none. The deck is the source's, which the editor compiles after.
+    /// Each of `files` as it is now and as it would be written, for the editor's undo.
+    pub(crate) fn rewritten(&self, files: &BTreeMap<String, Vec<u8>>) -> Vec<Rewritten> {
+        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+        (files.iter())
+            .map(|(path, after)| Rewritten {
+                path: path.clone(),
+                before: self.files.get(path).map(|b| text(b)),
+                after: Some(text(after)),
+            })
+            .collect()
+    }
+
+    /// Files written back as an undo or a redo of a restore or a theme edit has them: each set to
+    /// its text, or taken out where it has none. The deck is the source's, which the editor
+    /// compiles after.
     pub fn write_files(&mut self, files: Vec<Written>) {
         for Written { path, text } in files {
             match text {
@@ -176,7 +183,8 @@ mod tests {
         assert_eq!(s.compare_versions(&then, None).unwrap()["files"], serde_json::json!([]));
         // The next save takes the file as the bundle held it before for the bundle's own: the
         // restore wrote it, not something outside Scaena.
-        let changes: serde_json::Value = serde_json::from_str(&s.changes(&s.deck.clone(), None).unwrap()).unwrap();
+        let changes: serde_json::Value =
+            serde_json::from_str(&s.changes(&s.deck.clone(), &BTreeMap::new(), None).unwrap()).unwrap();
         assert_eq!(changes[0]["files"][CSV], now.as_str(), "{changes:#}");
 
         // An undo writes the file back; the deck is the source's, which the editor compiles.

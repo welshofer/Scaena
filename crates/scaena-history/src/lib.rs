@@ -55,8 +55,8 @@ pub fn listed(history: &[u8]) -> Result<String, String> {
 
 /// The version of the deck `history` names `id` (a change's id, as [`changes`] lists it), as
 /// JSON: `{ deck, files }`, the deck as deck.json's text as it was just after that change, and
-/// the data files its sources name, by their paths, as their text then (PLAN 2.60). An id the
-/// history does not hold says so.
+/// the files it was drawn from, its data files and its theme, by their paths, as their text then
+/// (PLAN 2.60, ADR-0016). An id the history does not hold says so.
 #[wasm_bindgen]
 pub fn at(history: &[u8], id: &str) -> Result<String, JsError> {
     version(history, id).map_err(|e| JsError::new(&e))
@@ -67,7 +67,7 @@ pub fn version(history: &[u8], id: &str) -> Result<String, String> {
     let doc = DeckDoc::load(history).map_err(|e| e.to_string())?;
     let then = doc.at(id).map_err(|e| e.to_string())?.ok_or_else(|| format!("the history holds no version {id}"))?;
     let deck = then.deck().map_err(|e| e.to_string())?;
-    let named: Vec<&str> = deck.data.values().filter_map(|source| source.source.as_str()).collect();
+    let named = scaena_store::kept_paths(&deck);
     let files: serde_json::Map<String, serde_json::Value> = (then.files().into_iter())
         .filter(|(path, _)| named.contains(&path.as_str()))
         .map(|(path, bytes)| (path, String::from_utf8_lossy(&bytes).into_owned().into()))

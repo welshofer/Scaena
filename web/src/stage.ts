@@ -36,8 +36,11 @@ import type {
   Source,
   Targets,
   Themed,
+  ThemeEdited,
+  ThemeText,
   Themes,
   Thumb,
+  Rewritten,
   ToWorker,
   Carets,
   Choices,
@@ -94,6 +97,8 @@ type Reply = Extract<
       | "compared"
       | "restored"
       | "filesWritten"
+      | "themeText"
+      | "themeEdited"
       | "carets"
       | "characterChoices"
       | "bolding"
@@ -406,8 +411,28 @@ export class Stage {
     });
   }
 
-  /** Data files written back, as an undo or a redo of a restore has them; with `edit`, the deck
-   * its source compiles to shown and linted again, as an edit is. */
+  /** The theme frames are drawn in, as its text (PLAN 2.61); null where the deck names none. */
+  themeText(): Promise<ThemeText | null> {
+    return this.request<"themeText">({ type: "themeText", id: ++this.asked }).then(({ theme }) => theme);
+  }
+
+  /** The theme the deck names edited by `ops` (RFC 6902) as one change by the user, the deck
+   * `source` compiles to drawn in it at slot `index` (PLAN 2.61, ADR-0016): what it did, the theme
+   * file it wrote, before and after, the source after, and what the edit came to. */
+  themeEdit(
+    source: string,
+    ops: unknown[],
+    index: number,
+    format?: string,
+  ): Promise<{ result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }> {
+    return this.request<"themeEdited">({ type: "themeEdit", id: ++this.asked, source, ops, index, format }).then((done) => {
+      if (done.edited) this.moved(done.edited);
+      return done;
+    });
+  }
+
+  /** Files written back, as an undo or a redo of a restore or a theme edit has them; with `edit`,
+   * the deck its source compiles to shown and linted again, as an edit is. */
   writeFiles(files: { path: string; text: string | null }[], edit?: { source: string; index: number; format?: string }): Promise<Edited | undefined> {
     return this.request<"filesWritten">({ type: "writeFiles", id: ++this.asked, files, edit }).then(({ edited }) => {
       if (edited) this.moved(edited);
@@ -740,6 +765,8 @@ export class Stage {
       case "compared":
       case "restored":
       case "filesWritten":
+      case "themeText":
+      case "themeEdited":
       case "carets":
       case "characterChoices":
       case "bolding":

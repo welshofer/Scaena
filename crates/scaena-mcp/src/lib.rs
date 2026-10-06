@@ -456,6 +456,18 @@ pub struct ThemeApply {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ThemeEdit {
+    /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
+    pub bundle: String,
+    #[serde(flatten)]
+    pub edit: scaena_ops::theme::ThemeEdit,
+    /// Say what would change, and write nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DataAttach {
     /// The bundle: a directory, a `.scaena` zip, or a `deck.json`.
     pub bundle: String,
@@ -776,6 +788,25 @@ impl Scaena {
         .map(Json)
     }
 
+    #[tool(description = "Edit the theme the deck names (ADR-0016): its colors, type roles, spacing, and the rest, \
+        by RFC 6902 operations on its JSON (`ops`, each path a JSON Pointer into the theme: \
+        `/tokens/color/accent`, `/type/roles/body/size`, `/grid/gutter`). Every node that names what the edit \
+        changes changes with it, so a look asked of the whole deck is an edit here, not a literal in each node. \
+        Checked as a re-theme is: an edit that would leave the deck invalid, as one that takes out a name it uses \
+        does, is refused (`refused`, and its errors in `added`), and nothing is written. Otherwise the theme file \
+        is written in canonical form (an inline theme, in the deck), and the delta in what lint finds is \
+        reported. A theme that ships is edited in the bundle's copy.")]
+    async fn theme_edit(
+        &self,
+        Parameters(a): Parameters<ThemeEdit>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<scaena_ops::theme::ThemeEdited>, String> {
+        let author = author(&context);
+        blocking(move || scaena_ops::theme::theme_edit(&open_by(&a.bundle, author)?, &a.edit, a.dry_run))
+            .await
+            .map(Json)
+    }
+
     #[tool(description = "Attach a CSV or JSON data file: copy it into the bundle's `data/` and declare it as a \
         source charts and tables name as `@id`, each column typed (inferred from its values without `schema`).")]
     async fn data_attach(
@@ -807,9 +838,10 @@ impl Scaena {
         oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after \
         one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the \
         deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` \
-        says them), the deck's own fields, and the data files whose bytes changed; with `restore`, that version \
-        made the deck again, with its data files as they were: one change, refused as a patch is where the deck \
-        would not validate in the bundle as it is (`dry_run` writes nothing).")]
+        says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes \
+        changed; with `restore`, that version made the deck again, with its data files and its theme as they \
+        were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
+        (`dry_run` writes nothing).")]
     async fn deck_history(
         &self,
         Parameters(a): Parameters<DeckHistory>,

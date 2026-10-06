@@ -57,8 +57,8 @@ pub fn rfc3339(secs: i64) -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", c.year, c.month, c.day, c.hour, c.minute, c.second)
 }
 
-/// The bundle's history, with the deck and data files as they are now taken in; an error that
-/// says how to begin one where it keeps none.
+/// The bundle's history, with the deck and the files it is drawn from as they are now taken in;
+/// an error that says how to begin one where it keeps none.
 fn kept(b: &Bundle) -> Result<DeckDoc, OpsError> {
     b.history()
         .context("reading the bundle's history")?
@@ -81,13 +81,15 @@ pub fn named<'a>(versions: &'a [Version], name: &str) -> Result<&'a Version, Ops
     })
 }
 
-/// The deck in `doc`'s version `v`, and the data files it names as the history held them then.
+/// The deck in `doc`'s version `v`, and the files it is drawn from, its data files and its
+/// theme, as the history held them then (ADR-0014, ADR-0016): a history from before it kept the
+/// theme holds none.
 pub fn then(doc: &DeckDoc, v: &Version) -> Result<(Deck, BTreeMap<String, Vec<u8>>), OpsError> {
     let at =
         doc.at(&v.id).context("reading the history")?.ok_or_else(|| OpsError::new(format!("no version {}", v.id)))?;
     let deck = at.deck().with_context(|| format!("the deck in version {}", v.n))?;
     let mut held = at.files();
-    let named: Vec<&str> = deck.data.values().filter_map(|source| source.source.as_str()).collect();
+    let named = scaena_store::kept_paths(&deck);
     held.retain(|path, _| named.contains(&path.as_str()));
     Ok((deck, held))
 }
@@ -102,7 +104,8 @@ pub struct Seen {
     /// With `scn`, the deck as it was, as `.scn` (SPEC §4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scn: Option<String>,
-    /// The data files its sources name that the history held then, by their paths.
+    /// The files it was drawn from that the history held then, its data files and its theme,
+    /// by their paths.
     pub files: Vec<String>,
 }
 
@@ -164,7 +167,8 @@ pub struct Compared {
     /// spine, …), each as the later version has it; null where it is gone. `order` is the
     /// later version's states, where those both have run in another order.
     pub deck: Fields,
-    /// The data files whose bytes changed, by their paths.
+    /// The files it is drawn from whose bytes changed, data files and the theme, by their
+    /// paths.
     pub files: Vec<String>,
 }
 
@@ -252,15 +256,20 @@ fn nodes(before: &IndexMap<String, Props>, after: &IndexMap<String, Props>) -> I
     out
 }
 
-/// The data files whose bytes differ between `a` and `b`, by their paths: one either holds
-/// and the other does not, too.
-pub fn differing(a: &BTreeMap<String, Vec<u8>>, b: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
-    let paths: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
-    paths.into_iter().filter(|p| a.get(*p) != b.get(*p)).cloned().collect()
+/// The files whose bytes differ between `a`, a deck and the files it is drawn from, and `b`, by
+/// their paths: one either holds and the other does not, too. A file a deck names whose bytes
+/// its side does not hold is not compared: a history from before it kept the theme (ADR-0016)
+/// says nothing of how the theme was.
+pub fn differing(a: (&Deck, &BTreeMap<String, Vec<u8>>), b: (&Deck, &BTreeMap<String, Vec<u8>>)) -> Vec<String> {
+    let unknown = |(deck, files): (&Deck, &BTreeMap<String, Vec<u8>>), path: &str| {
+        !files.contains_key(path) && scaena_store::kept_paths(deck).contains(&path)
+    };
+    let paths: BTreeSet<&String> = a.1.keys().chain(b.1.keys()).collect();
+    (paths.into_iter()).filter(|p| !unknown(a, p) && !unknown(b, p) && a.1.get(*p) != b.1.get(*p)).cloned().collect()
 }
 
 /// What changed from the version `from` names to the one `to` names, or, without `to`, to the
-/// deck and its data files as they are now.
+/// deck and the files it is drawn from as they are now.
 pub fn diff(b: &Bundle, from: &str, to: Option<&str>) -> Result<Compared, OpsError> {
     let doc = kept(b)?;
     let all = listed(&doc);
@@ -272,10 +281,10 @@ pub fn diff(b: &Bundle, from: &str, to: Option<&str>) -> Result<Compared, OpsErr
             let (deck, files) = then(&doc, &later)?;
             (Some(later), deck, files)
         }
-        None => (None, b.deck.clone(), b.data_files(&b.deck).into_iter().collect()),
+        None => (None, b.deck.clone(), b.kept_files(&b.deck, &BTreeMap::new()).into_iter().collect()),
     };
     let (states, deck) = compare(&then_deck, &now_deck)?;
-    let files = differing(&then_files, &now_files);
+    let files = differing((&then_deck, &then_files), (&now_deck, &now_files));
     Ok(Compared { from: earlier, to: later, states, deck, files })
 }
 
@@ -285,7 +294,7 @@ pub struct Restored {
     pub version: Version,
     /// Whether the bundle was written: not on a dry run, nor when the version is refused.
     pub applied: bool,
-    /// The data files written as the version held them, by their paths.
+    /// The files written as the version held them, data files and the theme, by their paths.
     pub files: Vec<String>,
     /// What `validate` and `lint` find after that they did not before.
     pub added: Vec<Finding>,
@@ -300,10 +309,10 @@ pub struct Restored {
     pub refused: bool,
 }
 
-/// Make the version `name` names the deck again, with the data files its sources name as the
-/// history held them: one change, by the bundle's author, refused as `patch` refuses one
-/// where the deck would not validate in the bundle as it is now (a file it names gone). A dry
-/// run writes nothing.
+/// Make the version `name` names the deck again, with the files it was drawn from, its data
+/// files and its theme, as the history held them: one change, by the bundle's author, refused
+/// as `patch` refuses one where the deck would not validate in the bundle as it is now (a file
+/// it names gone). A dry run writes nothing.
 pub fn restore(b: &Bundle, name: &str, dry_run: bool) -> Result<Restored, OpsError> {
     let (mut restored, write_it) = restoring(b, name)?;
     match write_it {
@@ -314,8 +323,8 @@ pub fn restore(b: &Bundle, name: &str, dry_run: bool) -> Result<Restored, OpsErr
 }
 
 /// [`restore`] with nothing written: what restoring does, and what to write, if it changes
-/// the deck or a data file and is not refused. A client that keeps its bundle in memory writes
-/// it there.
+/// the deck or a file it is drawn from and is not refused. A client that keeps its bundle in
+/// memory writes it there.
 pub fn restoring(b: &Bundle, name: &str) -> Result<(Restored, Option<Write>), OpsError> {
     let doc = kept(b)?;
     let all = listed(&doc);
@@ -324,7 +333,8 @@ pub fn restoring(b: &Bundle, name: &str) -> Result<(Restored, Option<Write>), Op
     restored(b, version, deck, held)
 }
 
-/// `deck`, version `version`'s, made the bundle's deck again with `held`, its data files.
+/// `deck`, version `version`'s, made the bundle's deck again with `held`, the files it was
+/// drawn from.
 pub fn restored(
     b: &Bundle,
     version: Version,
@@ -381,7 +391,8 @@ pub struct Ask {
     /// now, state by state.
     #[serde(default)]
     pub compare: Vec<String>,
-    /// Make this version the deck again, with its data files as they were: one change.
+    /// Make this version the deck again, with its data files and its theme as they were: one
+    /// change.
     #[serde(default)]
     pub restore: Option<String>,
     /// With `restore`, say what it would change, and write nothing.

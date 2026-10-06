@@ -134,9 +134,10 @@ impl Session {
     /// the page's edits as a change by `fs`.
     pub fn save(&self, now: &str, subset: bool, history: Option<&Recorder>) -> Result<Saving, Error> {
         let opts = SaveOptions { subset_fonts: subset, now: now.into(), history: false };
-        let record = |saved: &Deck| match (history, self.files.get(HISTORY)) {
+        let record = |saved: &Deck, written: &BTreeMap<String, Vec<u8>>| match (history, self.files.get(HISTORY)) {
             (Some(record), Some(held)) => {
-                let changes = self.changes(saved, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
+                let changes =
+                    self.changes(saved, written, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
                 record(held, &changes).map(Some).map_err(StoreError::History)
             }
             _ => Ok(None),
@@ -187,27 +188,28 @@ impl Session {
 
     /// What a save of `saved`, the deck as saved, records in the bundle's history, at `at`
     /// (PLAN 2.9): as JSON, the changes `scaena-history` records, in order.
-    /// - The bundle as it was opened, by `fs`: `deck.json` and the data files it names, each
-    ///   a change only if it says otherwise than the history, edited outside Scaena since it
-    ///   was recorded (SPEC §8.1, ADR-0014).
+    /// - The bundle as it was opened, by `fs`: `deck.json` and the files it is drawn from (its
+    ///   data files and its theme), each a change only if it says otherwise than the history,
+    ///   edited outside Scaena since it was recorded (SPEC §8.1, ADR-0014, ADR-0016).
     /// - Each edit an operation made since the bundle was opened or saved, after the deck as
     ///   it stood before it, which holds the user's edits until then
-    ///   ([`Session::keep`]), with the data files it wrote.
+    ///   ([`Session::keep`]), with the data files and the theme it wrote.
     /// - `saved`, by the user: the rest of their edits, the files the save renamed, and the
-    ///   data files it names as they are, a file dropped on the page among them.
+    ///   files it is drawn from as they are, a file dropped on the page among them, and the
+    ///   theme as the save writes it (`written`).
     ///
     /// Each is stamped when it was made, the first as the earliest: the history never
     /// stamps a change before the one it follows.
-    pub fn changes(&self, saved: &Deck, at: Option<i64>) -> Result<String, Error> {
+    pub fn changes(&self, saved: &Deck, written: &BTreeMap<String, Vec<u8>>, at: Option<i64>) -> Result<String, Error> {
         let held = self.files.get("deck.json").ok_or_else(|| Error::Missing("deck.json".into()))?;
         let held = String::from_utf8(held.clone()).map_err(|e| Error::Deck(e.to_string()))?;
         let opened = Deck::from_json(&held).map_err(|e| Error::Deck(e.to_string()))?;
         let first = self.recorded.first().map_or(at, |c| c.timestamp);
-        // Each data file as it was before an edit here wrote it.
-        let files = data_texts(&opened, |path| self.held.get(path).or_else(|| self.files.get(path)));
+        // Each file as it was before an edit here wrote it.
+        let files = kept_texts(&opened, |path| self.held.get(path).or_else(|| self.files.get(path)));
         let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), files, ..change(held, FS, first) }];
         changes.extend(self.recorded.iter().cloned());
-        let files = data_texts(saved, |path| self.files.get(path));
+        let files = kept_texts(saved, |path| written.get(path).or_else(|| self.files.get(path)));
         let saved = saved.to_json().map_err(|e| Error::Deck(e.to_string()))?;
         changes.push(Recorded { message: Some("save".into()), files, ..change(saved, USER, at) });
         serde_json::to_string(&changes).map_err(|e| Error::Deck(e.to_string()))
@@ -270,10 +272,10 @@ impl Session {
     }
 }
 
-/// The data files `deck`'s sources name, by their paths, as text: each as `bytes` gives it, where
-/// it does (ADR-0014).
-fn data_texts<'a>(deck: &Deck, bytes: impl Fn(&str) -> Option<&'a Vec<u8>>) -> BTreeMap<String, String> {
-    let paths = deck.data.values().filter_map(|source| source.source.as_str());
+/// The files a history keeps beside `deck` ([`scaena_store::kept_paths`]: its data files and its
+/// theme), by their paths, as text: each as `bytes` gives it, where it does (ADR-0014, ADR-0016).
+pub(crate) fn kept_texts<'a>(deck: &Deck, bytes: impl Fn(&str) -> Option<&'a Vec<u8>>) -> BTreeMap<String, String> {
+    let paths = scaena_store::kept_paths(deck).into_iter();
     paths.filter_map(|path| Some((path.to_string(), String::from_utf8_lossy(bytes(path)?).into_owned()))).collect()
 }
 
@@ -441,7 +443,7 @@ pub(crate) mod tests {
             let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
                 scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
             };
-            Ok(disk.saving_with(&opts, |_| Ok(None), subset)?.files)
+            Ok(disk.saving_with(&opts, |_, _| Ok(None), subset)?.files)
         };
         let (cli, _) =
             scaena_ops::export::standalone_with(&disk, None, page, "b1", &Progress::default(), saved).unwrap();
@@ -494,12 +496,12 @@ pub(crate) mod tests {
     }
 
     /// What records a save in a bundle's history, as the page's module does (PLAN 2.9).
-    fn recorder(held: &[u8], changes: &str) -> Result<Vec<u8>, String> {
+    pub(crate) fn recorder(held: &[u8], changes: &str) -> Result<Vec<u8>, String> {
         scaena_history::recorded(held, changes)
     }
 
     /// The revenue example saved with its history begun, and when that was.
-    fn begun() -> (BTreeMap<String, Vec<u8>>, i64) {
+    pub(crate) fn begun() -> (BTreeMap<String, Vec<u8>>, i64) {
         let begun = SaveOptions { subset_fonts: false, now: NOW.into(), history: true };
         let files = Bundle::in_memory(revenue()).unwrap().saving(&begun).unwrap().files;
         let at = DeckDoc::load(&files[HISTORY]).unwrap().changes()[0].timestamp;

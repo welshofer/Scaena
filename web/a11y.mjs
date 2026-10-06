@@ -215,6 +215,10 @@ try {
   await editor.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its data");
   await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#theming")) === JSON.stringify(["tab-theming", "tab-theming", false]), `→ again shows the theme: ${JSON.stringify(await tab("#theming"))}`);
+  await editor.waitForFunction(() => window.scaena.theme.theme() !== undefined, null, { timeout: 60000 }).catch(() => {});
+  await audit(editor, "the editor, its theme");
+  await editor.keyboard.press("ArrowRight");
   check(JSON.stringify(await tab("#files")) === JSON.stringify(["tab-files", "tab-files", false]), `→ again shows the bundle's files: ${JSON.stringify(await tab("#files"))}`);
   await editor.waitForFunction(() => window.scaena.files.listed().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its files");

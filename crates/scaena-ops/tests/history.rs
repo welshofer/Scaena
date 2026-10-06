@@ -117,3 +117,43 @@ fn a_data_files_edits_are_recorded_with_who_made_them() {
     assert_eq!(tail, [("fs", "data/q3-revenue.csv changed outside Scaena"), ("user", "patch: set_text")]);
     assert_eq!(held(&dir)["data/q3-revenue.csv"], std::fs::read(&csv).unwrap());
 }
+
+/// A theme edit (ADR-0016) is a change by its author with the theme's bytes: a version compares
+/// it as a file that changed, and restoring the version before it writes the theme back. A theme
+/// replaced outside Scaena goes in as a change by `fs`.
+#[test]
+fn a_theme_edit_is_a_version_compared_and_restored() {
+    let dir = scratch("theme");
+    keeping_history(&dir);
+    let theme = || std::fs::read(dir.join("themes/dusk.theme.json")).unwrap();
+    let was = theme();
+    let mut b = scaena_ops::open(&dir).unwrap();
+    b.author = "agent:test".into();
+    let ops = vec![json!({ "op": "replace", "path": "/type/roles/body/size", "value": 30 })];
+    let edited = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops }, false).unwrap();
+    assert!(edited.applied && !edited.refused, "{edited:?}");
+    let log = changes(&dir);
+    assert_eq!(
+        log.iter().map(|c| (c.0.as_str(), c.1.as_str())).collect::<Vec<_>>(),
+        [("user", "history begins"), ("agent:test", "theme_edit: type/roles/body/size")]
+    );
+
+    // Compared with the version before it: the theme's bytes, and nothing on a slide's own.
+    let b = scaena_ops::open(&dir).unwrap();
+    let compared = scaena_ops::history::diff(&b, "1", None).unwrap();
+    assert_eq!(compared.files, ["themes/dusk.theme.json"], "{compared:?}");
+    assert!(compared.states.is_empty() && compared.deck.is_empty(), "{compared:?}");
+
+    // Restored: the theme as it was, and the deck drawn in it again.
+    let restored = scaena_ops::history::restore(&b, "1", false).unwrap();
+    assert!(restored.applied && restored.files == ["themes/dusk.theme.json"], "{restored:?}");
+    assert_eq!(theme(), was);
+
+    // A theme replaced on disk is taken in as `fs`'s.
+    let mut text: Value = serde_json::from_slice(&theme()).unwrap();
+    text["grid"]["gutter"] = json!(32);
+    std::fs::write(dir.join("themes/dusk.theme.json"), serde_json::to_string_pretty(&text).unwrap()).unwrap();
+    let log = changes(&dir);
+    let last = log.last().map(|c| (c.0.as_str(), c.1.as_str()));
+    assert_eq!(last, Some(("fs", "themes/dusk.theme.json changed outside Scaena")), "{log:?}");
+}

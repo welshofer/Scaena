@@ -43,6 +43,8 @@ fn every_command_prints_one_json_value() {
     let svgs = dir.join("svgs");
     let spine = dir.join("projection").join("spine.json");
     let theme = "../../docs/examples/themes/dusk.theme.json".to_string();
+    let gutter = dir.join("gutter.json");
+    std::fs::write(&gutter, r#"[{ "op": "replace", "path": "/grid/gutter", "value": 32 }]"#).unwrap();
     let scn = "../../docs/examples/revenue.deck.scn";
     let cases: Vec<(Vec<&str>, i32, Check)> = vec![
         (vec!["validate", TORTURE], 0, |v| v.as_array().is_some_and(Vec::is_empty)),
@@ -86,6 +88,9 @@ fn every_command_prints_one_json_value() {
             },
         ),
         (vec!["theme", EXAMPLE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
+        (vec!["theme", EXAMPLE, "--edit", gutter.to_str().unwrap(), "--dry-run"], 0, |v| {
+            v["applied"] == false && v["paths"] == serde_json::json!(["/grid/gutter"]) && v["refused"] == false
+        }),
         (vec!["files", TORTURE], 0, |v| {
             v["files"].as_array().is_some_and(|f| f.iter().any(|x| x["path"] == "assets/test-card.png"))
         }),

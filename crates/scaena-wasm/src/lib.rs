@@ -48,6 +48,8 @@ pub mod editor;
 #[cfg(feature = "editor")]
 mod store;
 #[cfg(feature = "editor")]
+mod theme;
+#[cfg(feature = "editor")]
 mod versions;
 
 #[derive(Debug, thiserror::Error)]
@@ -300,6 +302,11 @@ impl Session {
             self.forget();
         }
         Arc::make_mut(&mut self.files).insert(path.to_string(), bytes);
+        // The theme the deck names, edited (ADR-0016): frames are drawn in it from now on.
+        if self.deck.theme.as_ref().and_then(|t| t.as_str()) == Some(path) {
+            self.follow_theme(&self.deck.clone());
+            self.forget();
+        }
     }
 
     /// The image files the deck names: each to hand over with [`Session::add_file`].
@@ -1688,6 +1695,15 @@ impl Player {
         serde_json::to_string(&serde_json::json!({ "current": current, "files": files })).map_err(js)
     }
 
+    /// The theme frames are drawn in, as JSON `{ theme, text }` (PLAN 2.61): the theme file the deck
+    /// names, by its path, or `(inline)` for one written in the deck, and its JSON as text; none
+    /// where the deck names no theme.
+    #[wasm_bindgen(js_name = themeText)]
+    pub fn theme_text(&self) -> Option<String> {
+        let (current, _) = self.0.themes();
+        Some(serde_json::json!({ "theme": current?, "text": self.0.theme_json }).to_string())
+    }
+
     /// What an inspector offers for `state` itself, as JSON (PLAN 2.36): `{ state, fields }`,
     /// as `scaena inspect --state-choices` says it.
     #[wasm_bindgen(js_name = stateChoices)]
@@ -1930,10 +1946,12 @@ impl Player {
             Err(e) => Err(Error::Ops(format!("{name}: the arguments are not JSON: {e}"))),
         };
         match called {
-            Ok(c) => ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame },
+            Ok(c) => {
+                ToolResult { json: c.result, error: false, edited: c.edited, frame: c.frame, rewritten: c.rewritten }
+            }
             Err(e) => {
                 let json = assistant::failure(&e).to_string();
-                ToolResult { json, error: true, edited: false, frame: None }
+                ToolResult { json, error: true, edited: false, frame: None, rewritten: Vec::new() }
             }
         }
     }
@@ -2061,8 +2079,29 @@ impl Player {
         serde_json::to_string(&serde_json::json!({ "restored": restored, "files": files })).map_err(js)
     }
 
-    /// Data files written back, as an undo or a redo of a restore has them: JSON `[{ path,
-    /// text }]`, `text` null for a file to take out.
+    /// Edit the theme the deck names by `edit` (JSON `{ ops }`, RFC 6902 operations on it,
+    /// ADR-0016), by `author` (`user` without one) at `at`, unless `dry_run`: refused as `scaena
+    /// theme --edit` refuses one. JSON `{ edited, files }`: what it did, and the theme file it
+    /// wrote, `{ path, before, after }`, for the editor's undo to write back.
+    #[wasm_bindgen(js_name = themeEdit)]
+    pub fn theme_edit(
+        &mut self,
+        edit: &str,
+        dry_run: bool,
+        author: Option<String>,
+        at: Option<String>,
+    ) -> Result<String, JsError> {
+        let edit: scaena_ops::theme::ThemeEdit = serde_json::from_str(edit).map_err(js)?;
+        let by = assistant::Caller {
+            author: author.as_deref().unwrap_or("user"),
+            at: at.as_deref().and_then(store::seconds),
+        };
+        let (edited, files) = self.0.theme_edit(&edit, dry_run, by).map_err(js)?;
+        serde_json::to_string(&serde_json::json!({ "edited": edited, "files": files })).map_err(js)
+    }
+
+    /// Files written back, as an undo or a redo of a restore or a theme edit has them: JSON
+    /// `[{ path, text }]`, `text` null for a file to take out.
     #[wasm_bindgen(js_name = writeFiles)]
     pub fn write_files(&mut self, files: &str) -> Result<(), JsError> {
         let files: Vec<versions::Written> = serde_json::from_str(files).map_err(js)?;
@@ -2102,6 +2141,7 @@ pub struct ToolResult {
     error: bool,
     edited: bool,
     frame: Option<scaena_paint::Raster>,
+    rewritten: Vec<versions::Rewritten>,
 }
 
 #[cfg(feature = "editor")]
@@ -2123,6 +2163,13 @@ impl ToolResult {
     #[wasm_bindgen(getter)]
     pub fn edited(&self) -> bool {
         self.edited
+    }
+
+    /// The files it wrote beside the deck that the editor's undo writes back, as JSON `[{ path,
+    /// before, after }]`: the theme `theme_edit` edited (ADR-0016); empty from any other tool.
+    #[wasm_bindgen(getter)]
+    pub fn rewritten(&self) -> String {
+        serde_json::to_string(&self.rewritten).unwrap_or_else(|_| "[]".into())
     }
 
     /// `deck_render`'s frame, `[width, height]` pixels.

@@ -85,6 +85,7 @@ import { worker } from "./spawn";
 import { Stage } from "./stage";
 import { strip } from "./strip";
 import type { Selected } from "./typing";
+import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
 
 const params = new URLSearchParams(location.search);
@@ -222,8 +223,9 @@ const failed = (e: unknown) => {
   console.error(e);
 };
 
-/** The data files a restore wrote (PLAN 2.60), carried by its change to the source: the undo of
- * that change writes each back as it was, and its redo as the restore left it. */
+/** The files an edit wrote beside the deck, carried by its change to the source: the data files a
+ * restore wrote (PLAN 2.60), or the theme a theme edit did (PLAN 2.61). The undo of that change
+ * writes each back as it was, and its redo as the edit left it. */
 const filesWritten = StateEffect.define<Rewritten[]>();
 /** A change that carries files written is undone with each file's texts swapped. */
 const rewrites = invertedEffects.of((tr) =>
@@ -342,8 +344,8 @@ async function edit(source: Source) {
               tell();
             }
           }
-          // An undo or a redo of a restore writes its data files back, before the deck is
-          // compiled again (PLAN 2.60).
+          // An undo or a redo of a restore or a theme edit writes its files back, before the deck
+          // is compiled again (PLAN 2.60, 2.61).
           const written = update.transactions.flatMap((tr) =>
             tr.isUserEvent("undo") || tr.isUserEvent("redo") ? tr.effects.filter((e) => e.is(filesWritten)).flatMap((e) => e.value) : [],
           );
@@ -574,9 +576,44 @@ async function edit(source: Source) {
     },
     say,
   });
-  /** Data files an undo or a redo of a restore writes back (PLAN 2.60), each to its text after.
-   * Where the source did not change, it is `source`, which nothing compiles again: the deck is
-   * shown and linted again here, as after a data file's edit. */
+  /** The deck's theme, edited (PLAN 2.61, ADR-0016): its colors, type roles, and spacing, each
+   * change one edit of the theme the deck names, the deck drawn in it. Refused, it says why; else
+   * the source's history takes it as a change that carries the theme's text before and after, so
+   * ⌘Z writes the theme back, as with a restore's data files. An inline theme is the deck's own:
+   * its edit is a change of the source. */
+  const theming = themePanel(stage, $("#theming"), {
+    edit: async (ops, what) => {
+      if (assisting) return void say("theme not edited: the assistant is at work on the deck");
+      if (!showing()) return void say("theme not edited while the source does not compile");
+      try {
+        const done = await stage.themeEdit(view.state.doc.toString(), ops, shown, format());
+        const r = done.result;
+        if (r.refused || done.source === undefined || !done.edited) {
+          const why = r.added.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
+          say(`theme not edited: ${why.join("; ") || "the deck would not validate in it"}`);
+          return r;
+        }
+        const effects = done.files.length ? [filesWritten.of(done.files)] : [];
+        if (done.source === view.state.doc.toString()) {
+          if (!effects.length) return void say(`theme: ${what}, as it was`);
+          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          wrote(done.edited);
+        } else {
+          taken = { source: done.source, edited: done.edited };
+          const changes = change(view.state.doc.toString(), done.source);
+          view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
+        }
+        const lint = r.added.length || r.removed.length ? ` · lint finds ${r.added.length} new, ${r.removed.length} gone` : "";
+        say(`theme: ${what}${lint} · ⌘Z undoes it`);
+        return r;
+      } catch (e) {
+        say(`theme not edited: ${said(e)}`);
+      }
+    },
+  });
+  /** Files an undo or a redo of a restore or a theme edit writes back (PLAN 2.60, 2.61), each to
+   * its text after. Where the source did not change, it is `source`, which nothing compiles
+   * again: the deck is shown and linted again here, as after a data file's edit. */
   function rewrite(files: Rewritten[], source?: string) {
     const written = files.map(({ path, after }) => ({ path, text: after }));
     const edit = source === undefined ? undefined : { source, index: shown, format: format() };
@@ -762,6 +799,7 @@ async function edit(source: Source) {
       void data.refresh();
       void filing.refresh();
       void versioning.edited();
+      void theming.edited();
       void board.refresh().then(() => select(source), failed);
       finding?.changed();
       void offer();
@@ -1102,12 +1140,19 @@ async function edit(source: Source) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
-    apply: (source, edited, touched) => {
+    apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
-      // An edit that leaves the source as it is wrote a data file (`data_edit`).
-      if (source === view.state.doc.toString()) return wrote(edited);
+      // A theme it edited goes in the source's history with the theme's text before and after,
+      // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
+      const effects = files.length ? [filesWritten.of(files)] : [];
+      // An edit that leaves the source as it is wrote a file beside it: a data file (`data_edit`),
+      // or the theme (`theme_edit`).
+      if (source === view.state.doc.toString()) {
+        if (effects.length) view.dispatch({ effects, annotations: isolateHistory.of("full") });
+        return wrote(edited);
+      }
       taken = { source, edited };
-      view.dispatch({ changes: change(view.state.doc.toString(), source), userEvent: "input.assistant" });
+      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
     },
     seeing,
     lock: (on) => {
@@ -1146,7 +1191,7 @@ async function edit(source: Source) {
   const picked = () => (ready() ? board.chosen() : []);
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
-  const tab = (id: "inspector" | "layers" | "data" | "files" | "versions" | "assistant") => {
+  const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "assistant") => {
     const button = $<HTMLButtonElement>(`#tab-${id}`);
     button.click();
     return button;
@@ -1301,6 +1346,7 @@ async function edit(source: Source) {
       { label: "Show the inspector", run: () => tab("inspector").focus() },
       { label: "Show the layers", run: () => tab("layers").focus() },
       { label: "Show the data", run: () => tab("data").focus() },
+      { label: "Edit the theme", run: () => tab("theming").focus() },
       { label: "Show the bundle's files", run: () => tab("files").focus() },
       { label: "Show the versions", run: () => tab("versions").focus() },
       { label: "Show the assistant", run: () => (tab("assistant"), $("#question").focus()) },
@@ -1547,6 +1593,8 @@ async function edit(source: Source) {
       /** The versions panel (PLAN 2.60): the versions as it lists them, one shown, compared, and
        * restored. */
       versions: versioning,
+      /** The theme panel (PLAN 2.61): the theme as it shows it, and an edit made there. */
+      theme: theming,
       /** The inspector's edits: what it offers for the node selected, and a choice made there. */
       look,
       /** The state strip: its states, thumbnails, and the patches it makes. */

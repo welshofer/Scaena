@@ -297,6 +297,9 @@ jobs:
       # The deck's versions from its history: one shown as it was, compared, and restored with its
       # data file as one change, which undoes and records as any other (PLAN 2.60).
       - run: node web/versions.mjs
+      # The deck's theme edited in its tab: colors, a role's size, each one edit undone with the
+      # theme written back, and recorded by the user (PLAN 2.61).
+      - run: node web/theme-edit.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

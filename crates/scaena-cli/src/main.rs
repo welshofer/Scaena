@@ -327,18 +327,24 @@ enum Cmd {
     },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
     /// changes in what `validate` and `lint` find. A theme that would leave the deck invalid
-    /// is refused.
+    /// is refused. Or edit the theme the deck names (`--edit`, ADR-0016): its colors, type,
+    /// and spacing, refused as a re-theme is where the deck would not validate in it.
     Theme {
         bundle: PathBuf,
         /// The theme file to apply. A theme outside the bundle is copied to `themes/`.
-        #[arg(long)]
-        apply: PathBuf,
+        #[arg(long, required_unless_present = "edit")]
+        apply: Option<PathBuf>,
+        /// The edit: a JSON array of RFC 6902 operations on the theme the deck names, each
+        /// path a JSON Pointer into it (`/tokens/color/accent`), or `-` for stdin. The theme
+        /// file is written in canonical form; an inline theme, in the deck.
+        #[arg(long, value_name = "OPS", conflicts_with = "apply")]
+        edit: Option<PathBuf>,
         /// Say what would change, and write nothing.
         #[arg(long)]
         dry_run: bool,
         /// Apply a theme that leaves the deck invalid. Without it, the deck keeps its theme,
         /// and the new one is copied in for a patch with the `retheme` op and the fixes.
-        #[arg(long)]
+        #[arg(long, requires = "apply")]
         force: bool,
     },
     /// The web player and editor on a bundle's folder, on this machine only (PLAN 2.11): a
@@ -655,7 +661,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let query = scaena_core::patch::Query { find: text, case, words };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
         }
-        Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+        Cmd::Theme { bundle, apply, edit, dry_run, force } => match (apply, edit) {
+            (Some(apply), _) => theme_apply(&bundle, &apply, dry_run, force, cli.json),
+            (None, Some(edit)) => theme_edit(&bundle, &edit, dry_run, cli.json),
+            (None, None) => unreachable!("clap asks for --apply or --edit"),
+        },
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
             scaena_mcp::stdio().context("serving MCP on stdio")?;
@@ -873,6 +883,40 @@ fn theme_apply(bundle: &Path, theme: &Path, dry_run: bool, force: bool, json: bo
         print_delta(&t.added, &t.removed);
     }
     Ok(if t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+/// `scaena theme --edit` (PLAN 2.61, ADR-0016): the theme the deck names, edited by RFC 6902
+/// operations, written in canonical form unless that adds a validation error to the deck.
+/// Reports where it wrote and the delta in what `validate` and `lint` find. An operation that
+/// does not apply exits 2 with its index, as a patch's op does; an edit that would make the deck
+/// invalid exits 1, refused. Either way, and under `--dry-run`, nothing is written.
+fn theme_edit(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let text = if ops == Path::new("-") {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).context("reading the ops from stdin")?;
+        text
+    } else {
+        std::fs::read_to_string(ops).with_context(|| format!("reading {}", ops.display()))?
+    };
+    let ops: Vec<serde_json::Value> = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a JSON array of JSON Patch operations (RFC 6902)", ops.display()))?;
+    let t = scaena_ops::theme::theme_edit(&b, &scaena_ops::theme::ThemeEdit { ops }, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&t)?);
+        return Ok(if t.refused || t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS });
+    }
+    let paths = t.paths.join(", ");
+    match (t.refused, dry_run) {
+        (true, _) => println!("refused: the edit would leave the deck invalid in {}; nothing was written", t.theme),
+        (false, true) => println!("would edit {} at {paths}", t.theme),
+        (false, false) => println!("edited {} at {paths}", t.theme),
+    }
+    for l in &t.listed {
+        println!("  fonts lists {l}");
+    }
+    print_delta(&t.added, &t.removed);
+    Ok(if t.refused || t.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
 /// A lint delta, a line a finding: `+` added, `-` removed.

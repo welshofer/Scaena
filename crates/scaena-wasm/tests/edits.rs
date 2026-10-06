@@ -13,7 +13,8 @@
 //!   player opens as it is (PLAN 2.24);
 //! - calls to the assistant's tools, each argument there, left out, of the wrong kind, or
 //!   past what the tool can do: a state the deck lacks, a raster no painter could hold, a
-//!   spine changed, a file that holds no data (PLAN 2.26).
+//!   spine changed, a file that holds no data (PLAN 2.26), a theme edited at any pointer
+//!   (ADR-0016).
 //!
 //! A deck that compiles is drawn at rest and through its cue, read, painted, and linted and
 //! inspected in a state. One that does not is handed to the player as a bundle's `deck.json`
@@ -320,6 +321,36 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
     Value::Array(ops)
 }
 
+/// RFC 6902 operations on a theme, as `theme_edit` takes them (ADR-0016): a value replaced by
+/// another the repository's decks and themes hold under its key, or a member added, taken out,
+/// moved, copied, or tested, at pointers the theme has and one it does not.
+fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) -> Value {
+    let (mut pointers, mut strings) = (Vec::new(), Vec::new());
+    walk_json(theme, String::new(), &mut pointers, &mut strings);
+    pointers.retain(|p| !p.is_empty());
+    let keys: Vec<&String> = values.keys().collect();
+    let mut ops = Vec::new();
+    for _ in 0..1 + r.below(3) {
+        let path = if r.below(8) == 0 { "/no/such".to_string() } else { r.pick(&pointers).clone() };
+        // A value its key holds elsewhere, most of the time.
+        let key = match path.rsplit('/').next().filter(|k| values.contains_key(*k) && r.below(4) > 0) {
+            Some(key) => key.to_string(),
+            None => r.pick(&keys).to_string(),
+        };
+        let value = r.pick(&values[&key]).clone();
+        let to = r.pick(&pointers).clone();
+        ops.push(match r.below(8) {
+            0 => json!({ "op": "remove", "path": path }),
+            1 => json!({ "op": "add", "path": path, "value": value }),
+            2 => json!({ "op": "move", "from": path, "path": to }),
+            3 => json!({ "op": "copy", "from": path, "path": to }),
+            4 => json!({ "op": "test", "path": path, "value": value }),
+            _ => json!({ "op": "replace", "path": path, "value": value }),
+        });
+    }
+    Value::Array(ops)
+}
+
 /// What a look for characters names: a run's own keys, and keys it does not take.
 const LOOKS: [&str; 9] =
     ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
@@ -478,6 +509,11 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("edits", if r.below(8) == 0 { junk(r) } else { Value::Array(edits) });
             set!("dry_run", flag(r));
         }
+        "theme_edit" => {
+            let theme: Value = serde_json::from_str(&b.theme).unwrap();
+            set!("ops", if r.below(6) == 0 { junk(r) } else { theme_ops(r, &theme, values) });
+            set!("dry_run", flag(r));
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {
@@ -616,7 +652,8 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                         if let Some(frame) = &called.frame {
                             assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
                         }
-                        if called.edited {
+                        // A theme edited draws every state in it from now on.
+                        if called.edited || !called.rewritten.is_empty() {
                             let compiled = s.compile(&s.source()).valid;
                             exercise(&mut r, s, compiled, &[]);
                         }

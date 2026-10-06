@@ -233,6 +233,25 @@
       #files .used { padding-left: 12px; color: var(--muted); }
       #files .used button { all: unset; cursor: pointer; color: var(--ink); text-decoration: underline; }
       #files .used button:focus-visible { outline: 2px solid var(--info); }
+      /* The theme (PLAN 2.61): its colors, type roles, and spacing, each change one edit of it. */
+      #theming { padding: 6px 12px; }
+      #theming [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; padding: 0; display: block; }
+      #theming h3 { font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
+      #theming ul { list-style: none; margin: 0; padding: 0; }
+      #theming [data-color] { display: grid; grid-template-columns: 2em 6.5em minmax(0, 1fr); gap: 2px 6px; align-items: center; padding: 2px 0; font-size: 12px; }
+      #theming [data-color] label { overflow-wrap: anywhere; }
+      #theming [data-color] .uses { grid-column: 2 / 4; color: var(--muted); font-size: 11px; }
+      #theming input[type="color"], #theming .swatch { width: 2em; height: 1.6em; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 4px; background-color: var(--panel); box-sizing: border-box; }
+      #theming input[type="text"], #theming input[type="number"], #theming select { font: inherit; font-size: 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; min-width: 0; box-sizing: border-box; }
+      #theming input[type="text"] { font-family: ui-monospace, monospace; width: 100%; }
+      #theming .theming-roles { overflow-x: auto; }
+      #theming table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      #theming th, #theming td { text-align: left; padding: 2px 4px 2px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      #theming thead th { color: var(--muted); font-weight: 500; }
+      #theming td input[type="number"] { width: 4.6em; }
+      #theming td select { max-width: 7em; }
+      #theming [data-spacing] { display: grid; grid-template-columns: max-content 6em; gap: 4px 8px; align-items: center; font-size: 12px; }
+      #theming [data-spacing] label { color: var(--muted); }
       /* The versions (PLAN 2.60): the history's changes, the newest first; one shown as it was. */
       #versions { padding: 6px 12px; }
       #versions [data-summary] { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
@@ -393,6 +412,7 @@
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
           <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>
           <button role="tab" id="tab-data" aria-selected="false" aria-controls="data">Data</button>
+          <button role="tab" id="tab-theming" aria-selected="false" aria-controls="theming">Theme</button>
           <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files</button>
           <button role="tab" id="tab-versions" aria-selected="false" aria-controls="versions">Versions</button>
           <button role="tab" id="tab-assistant" aria-selected="false" aria-controls="assistant">Assistant</button>
@@ -415,6 +435,20 @@
           </p>
           <div class="sheet"><table aria-label="The source's rows: each cell a field, Enter to set it, Escape to put it back"></table></div>
           <ul data-problems aria-label="Cells their column does not read"></ul>
+        </section>
+        <section id="theming" role="tabpanel" aria-labelledby="tab-theming" hidden>
+          <p data-summary></p>
+          <h3 id="theming-colors">Colors</h3>
+          <ul data-colors aria-labelledby="theming-colors"></ul>
+          <h3 id="theming-type">Type</h3>
+          <div class="theming-roles">
+            <table data-roles aria-labelledby="theming-type">
+              <thead><tr><th scope="col">Role</th><th scope="col">Family</th><th scope="col">Size</th><th scope="col">Weight</th><th scope="col">Leading</th><th scope="col">Tracking</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <h3 id="theming-spacing">Spacing</h3>
+          <div data-spacing role="group" aria-labelledby="theming-spacing"></div>
         </section>
         <section id="files" role="tabpanel" aria-labelledby="tab-files" hidden>
           <p class="files-head">

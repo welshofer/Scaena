@@ -284,7 +284,7 @@ fn standalone(
         let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
             scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
         };
-        Ok(b.saving_with(&opts, |_| Ok(None), subset)?.files)
+        Ok(b.saving_with(&opts, |_, _| Ok(None), subset)?.files)
     };
     standalone_with(b, states, page, &bundle_name(b), progress, saved)
 }

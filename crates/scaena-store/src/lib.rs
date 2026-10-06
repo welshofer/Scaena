@@ -12,7 +12,9 @@
 //!
 //! A bundle that keeps `history/deck.loro` keeps its history: whatever writes its deck
 //! records the change there too ([`Bundle::record`]), by the bundle's `author`, after taking
-//! in, as a change by `fs`, any edit made to `deck.json` outside Scaena since.
+//! in, as a change by `fs`, any edit made to `deck.json` outside Scaena since. It keeps the
+//! files the deck is drawn from beside it ([`kept_paths`]): its data files (ADR-0014) and its
+//! theme (ADR-0016).
 //!
 //! A bundle can also live in memory, as a page holds one (PLAN 2.4): opened from its files
 //! ([`Bundle::in_memory`]) or a `.scaena` zip's bytes ([`Bundle::from_zip`]), and saved to
@@ -197,23 +199,24 @@ impl Bundle {
     }
 
     /// The bundle's CRDT document, if it keeps one ([`HISTORY`]), with `deck.json` and the
-    /// data files its sources name as they are now taken in: a deck edited outside Scaena
-    /// since it was last written goes in as a change by `fs` (SPEC §8.1), and then so does a
-    /// data file replaced or edited outside it, or one the history does not hold yet
-    /// (ADR-0014).
+    /// files it is drawn from as they are now taken in: a deck edited outside Scaena since it
+    /// was last written goes in as a change by `fs` (SPEC §8.1), and then so does a data file
+    /// or a theme replaced or edited outside it, or one the history does not hold yet
+    /// (ADR-0014, ADR-0016).
     pub fn history(&self) -> Result<Option<DeckDoc>, StoreError> {
         if !self.files.exists(HISTORY) {
             return Ok(None);
         }
         let doc = DeckDoc::load(&self.read(HISTORY)?)?;
         let disk = Deck::from_json(&String::from_utf8_lossy(&self.read(&self.deck_file)?))?;
-        doc.outside(&disk, &self.data_files(&disk), None)?;
+        doc.outside(&disk, &self.kept_files(&disk, &BTreeMap::new()), None)?;
         Ok(Some(doc))
     }
 
     /// The history to write beside `deck`, if the bundle keeps one: with the change from
-    /// the deck it holds to `deck` recorded as `edit` says, and the data files `deck` names
-    /// that `written` holds, as they are written there, in the same change (ADR-0014).
+    /// the deck it holds to `deck` recorded as `edit` says, and the files the history keeps
+    /// beside `deck` ([`kept_paths`]) that `written` holds, as they are written there, in the
+    /// same change (ADR-0014, ADR-0016).
     pub fn record(
         &self,
         deck: &Deck,
@@ -221,17 +224,20 @@ impl Bundle {
         edit: &Edit,
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let Some(doc) = self.history()? else { return Ok(None) };
-        let files: Vec<(String, Vec<u8>)> = data_paths(deck)
+        let files: Vec<(String, Vec<u8>)> = kept_paths(deck)
+            .into_iter()
             .filter_map(|path| written.get(path).map(|bytes| (path.to_string(), bytes.clone())))
             .collect();
         doc.apply_with(deck, &files, edit)?;
         Ok(Some(doc.save()?))
     }
 
-    /// The data files `deck`'s sources name that the bundle holds, as (bundle path, bytes),
-    /// in deck order: what its history keeps of them (ADR-0014).
-    pub fn data_files(&self, deck: &Deck) -> Vec<(String, Vec<u8>)> {
-        data_paths(deck).filter_map(|path| Some((path.to_string(), self.read(path).ok()?))).collect()
+    /// The files the history keeps beside `deck` ([`kept_paths`]), as (bundle path, bytes), in
+    /// deck order: each as `written` has it, else as the bundle holds it; one neither holds is
+    /// left out.
+    pub fn kept_files(&self, deck: &Deck, written: &BTreeMap<String, Vec<u8>>) -> Vec<(String, Vec<u8>)> {
+        let bytes = |path: &str| written.get(path).cloned().or_else(|| self.read(path).ok());
+        kept_paths(deck).into_iter().filter_map(|path| Some((path.to_string(), bytes(path)?))).collect()
     }
 
     /// The deck's font files (`fonts[].file`) in deck order, as (bundle id, bytes). The
@@ -258,11 +264,18 @@ impl Bundle {
     }
 }
 
-/// The paths of the files `deck`'s data sources name (`data.*.source` strings), in deck
-/// order, each once.
-fn data_paths(deck: &Deck) -> impl Iterator<Item = &str> {
-    let mut seen = std::collections::BTreeSet::new();
-    deck.data.values().filter_map(|source| source.source.as_str()).filter(move |path| seen.insert(*path))
+/// The files a bundle's history keeps beside `deck`, by their paths, each once: those its data
+/// sources name (`data.*.source` strings), in deck order (ADR-0014), then the theme file it
+/// names (ADR-0016). An inline theme or inline rows are the deck's own.
+pub fn kept_paths(deck: &Deck) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    let data = deck.data.values().filter_map(|source| source.source.as_str());
+    for path in data.chain(deck.theme.as_ref().and_then(|theme| theme.as_str())) {
+        if !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
 }
 
 /// A bundle's deck file as text, unparsed, and the bundle's files: what `scaena validate`

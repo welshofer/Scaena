@@ -67,6 +67,7 @@ Three invariants decide who answers. Clients paint; they do not lay out (invaria
    | A state added in the strip | `add_state`: a step of the shown state's slide, tracking from it, or an empty slide (`mode: absolute`) after its slide |
    | A state dragged in the strip, renamed, or deleted | `move_state`, `rename_state`, `remove_state` |
    | Choosing a theme | `retheme`, as `scaena theme --apply` re-themes a bundle: a theme that ships written into the bundle with the fonts it names that the bundle lacks, or the bundle's own; refused, with why, where the deck would not validate in it |
+   | A theme's color, type role, or spacing changed in the Theme tab (PLAN 2.61) | Nothing in the deck: one `theme_edit` of the theme the deck names (ADR-0016), refused, with why, where the deck would not validate in it; the source takes it as one change that carries the theme's text, whose undo writes it back |
    | Choosing a state's look, with no node selected | `set_state`: its layout, from the theme's layouts with a slot for each node placed in one, written where it lives; its transition's keys, its hold, and its notes, its own (`inspect --state-choices`) |
    | A command run from the palette (⌘K) or a right click's menu (PLAN 2.53) | The patch of the key or the button it names, made by the same code: nothing of its own |
 

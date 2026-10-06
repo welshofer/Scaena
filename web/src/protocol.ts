@@ -379,7 +379,8 @@ export interface Restored {
   states: string[];
 }
 
-/** A data file a restore wrote: its text before and after, null where the bundle did not hold it. */
+/** A file an edit wrote beside the deck, a data file a restore wrote or the theme a theme edit
+ * did: its text before and after, null where the bundle did not hold it. */
 export interface Rewritten {
   path: string;
   before: string | null;
@@ -602,9 +603,15 @@ export type ToWorker =
    * where the deck would not validate in the bundle as it is. A source that does not compile
    * is no bar: restoring a version is a way back from one. */
   | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
-  /** Data files written back, as an undo or a redo of a restore has them: `text` null to take
-   * one out. With `edit`, the deck its source compiles to shown and linted again after, as an
-   * edit is: the source did not change, so nothing else compiles it. */
+  /** The theme frames are drawn in, as its text (PLAN 2.61). */
+  | { type: "themeText"; id: number }
+  /** The theme the deck names edited by `ops`, RFC 6902 operations on it, as one change by the
+   * user, the deck `source` compiles to drawn in it; refused where the deck would not validate in
+   * it (ADR-0016). */
+  | { type: "themeEdit"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** Files written back, as an undo or a redo of a restore or a theme edit has them: `text` null
+   * to take one out. With `edit`, the deck its source compiles to shown and linted again after,
+   * as an edit is: the source did not change, so nothing else compiles it. */
   | {
       type: "writeFiles";
       id: number;
@@ -683,7 +690,7 @@ export type AssistantEvent =
    * nothing of a source the assistant has moved past. `touched` are the nodes the question has
    * changed so far, in the deck's order: those whose own props, a state's delta for them, or
    * the deck's overrides of them differ from before it was asked, and those it added. */
-  | { kind: "edited"; source: string; edited: Edited; touched?: string[] }
+  | { kind: "edited"; source: string; edited: Edited; touched?: string[]; files?: Rewritten[] }
   /** Tokens in and out of one answer, as the provider counts them. */
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
@@ -717,6 +724,28 @@ export interface Opened {
 export interface Themes {
   current: string | null;
   files: string[];
+}
+
+/** The theme frames are drawn in (PLAN 2.61): the file the deck names, or `(inline)`, and its
+ * JSON as text. */
+export interface ThemeText {
+  theme: string;
+  text: string;
+}
+
+/** What a theme edit did, as `scaena theme --edit` says it (PLAN 2.61, ADR-0016). */
+export interface ThemeEdited {
+  /** The theme edited: its path in the bundle, or `(inline)`. */
+  theme: string;
+  /** Where in the theme the edit wrote: each operation's path, once. */
+  paths: string[];
+  applied: boolean;
+  /** Refused: the deck would not validate in the theme it leaves (in `added`). */
+  refused: boolean;
+  listed: string[];
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
 }
 
 /** What a re-theme did, as `scaena theme --apply` says it (PLAN 1.6, 2.39). */
@@ -991,6 +1020,10 @@ export type FromWorker =
    * deck's source after, and what the edit came to. */
   | { type: "restored"; id: number; restored: Restored; files: Rewritten[]; source?: string; edited?: Edited }
   | { type: "filesWritten"; id: number; edited?: Edited }
+  | { type: "themeText"; id: number; theme: ThemeText | null }
+  /** What a theme edit did; where it wrote, the theme file before and after (none for an inline
+   * theme), the deck's source after, and what the edit came to. */
+  | { type: "themeEdited"; id: number; result: ThemeEdited; files: Rewritten[]; source?: string; edited?: Edited }
   /** What `dataEdit` did; where it wrote, the deck's source after and what the edit of it came to. */
   | { type: "dataEdited"; id: number; result: DataEdited; source?: string; edited?: Edited }
   /** The source whose file an undo or redo wrote, and what the edit came to; none where there was

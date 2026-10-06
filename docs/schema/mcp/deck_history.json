@@ -1,6 +1,6 @@
 {
   "name": "deck_history",
-  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the data files whose bytes changed; with `restore`, that version made the deck again, with its data files as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing).",
+  "description": "A bundle's versions (SPEC §8): each change its history keeps, by author and time, oldest first, each named by its number as listed or by its id. With `at`, the deck as it was just after one (`scn` for source); with `compare`, what changed from one version to another, or, with one, to the deck as it is now: each state added, removed, or changed (its own fields, and its nodes as `deck_diff` says them), the deck's own fields, and the files it is drawn from, data files and the theme, whose bytes changed; with `restore`, that version made the deck again, with its data files and its theme as they were: one change, refused as a patch is where the deck would not validate in the bundle as it is (`dry_run` writes nothing).",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle"],
@@ -24,7 +24,7 @@
         "default": []
       },
       "restore": {
-        "description": "Make this version the deck again, with its data files as they were: one change.",
+        "description": "Make this version the deck again, with its data files and its theme as they were: one\nchange.",
         "type": ["string", "null"],
         "default": null
       },
@@ -69,7 +69,7 @@
           "deck": { "description": "The deck as it was, canonical." },
           "scn": { "description": "With `scn`, the deck as it was, as `.scn` (SPEC §4).", "type": ["string", "null"] },
           "files": {
-            "description": "The data files its sources name that the history held then, by their paths.",
+            "description": "The files it was drawn from that the history held then, its data files and its theme,\nby their paths.",
             "type": "array",
             "items": { "type": "string" }
           }
@@ -96,7 +96,7 @@
             "additionalProperties": true
           },
           "files": {
-            "description": "The data files whose bytes changed, by their paths.",
+            "description": "The files it is drawn from whose bytes changed, data files and the theme, by their\npaths.",
             "type": "array",
             "items": { "type": "string" }
           }
@@ -182,7 +182,7 @@
             "type": "boolean"
           },
           "files": {
-            "description": "The data files written as the version held them, by their paths.",
+            "description": "The files written as the version held them, data files and the theme, by their paths.",
             "type": "array",
             "items": { "type": "string" }
           },

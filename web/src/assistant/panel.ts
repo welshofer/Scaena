@@ -2,7 +2,7 @@
 // the user's key, a model the key can use), the conversation, and the question. The source is
 // read-only while the assistant works; each edit it makes comes into the source as it is made,
 // as a fix does, and undoes as one.
-import type { AssistantEvent, Edited, ProviderId, Seeing } from "../protocol";
+import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing } from "../protocol";
 import type { Stage } from "../stage";
 import * as keys from "./keys";
 
@@ -13,7 +13,7 @@ export interface Editor {
   /** Take `source`, which the assistant's edit made, and what the worker found compiling,
    * showing, and linting it; and select what the question has changed so far, `touched`, once
    * the canvas stands in it (PLAN 2.52). */
-  apply(source: string, edited: Edited, touched?: string[]): void;
+  apply(source: string, edited: Edited, touched?: string[], files?: Rewritten[]): void;
   /** What the editor shows: the state, what is selected there, and the characters selected in
    * a text typed in, which a question is about (PLAN 2.52). */
   seeing(): Seeing | undefined;
@@ -185,7 +185,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "edited":
-        return editor.apply(event.source, event.edited, event.touched);
+        return editor.apply(event.source, event.edited, event.touched, event.files);
       case "usage":
         used.input += event.input;
         used.output += event.output;

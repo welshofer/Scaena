@@ -54,6 +54,8 @@ import type {
   Source,
   StateChoices,
   Themed,
+  ThemeEdited,
+  ThemeText,
   Themes,
   ToHelper,
   ToWorker,
@@ -385,6 +387,26 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         shown = { index: data.index, format: data.format };
         const next = player.source();
         return post({ type: "restored", id: data.id, ...done, source: next, edited: await edit(next, data.index, data.format) });
+      }
+      case "themeText": {
+        const text = player.themeText();
+        return post({ type: "themeText", id: data.id, theme: text ? (JSON.parse(text) as ThemeText) : null });
+      }
+      case "themeEdit": {
+        // The deck the theme is edited under is the source's, which must compile and validate.
+        saveable(data.source);
+        player.setMoving([], 0, 0);
+        player.preview(undefined);
+        const done = JSON.parse(player.themeEdit(JSON.stringify({ ops: data.ops }), false, "user", new Date().toISOString())) as {
+          edited: ThemeEdited;
+          files: Rewritten[];
+        };
+        if (!done.edited.applied) return post({ type: "themeEdited", id: data.id, result: done.edited, files: [] });
+        latest++;
+        shown = { index: data.index, format: data.format };
+        // An inline theme is the deck's: its source changes. A theme file's edit leaves it as it is.
+        const next = player.source();
+        return post({ type: "themeEdited", id: data.id, result: done.edited, files: done.files, source: next, edited: await edit(next, data.index, data.format) });
       }
       case "writeFiles": {
         player.writeFiles(JSON.stringify(data.files));
@@ -807,10 +829,10 @@ async function ask(id: number, source: string, question: Asking) {
   // came to, and sends nothing back that the assistant has moved past. With it go the nodes the
   // question has changed so far, which the editor selects (PLAN 2.52).
   const before = deckRead();
-  const edited = async (source: string) => {
+  const edited = async (source: string, files: Rewritten[]) => {
     latest++;
     const touched = changed(before, deckRead());
-    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched });
+    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched, files });
   };
   try {
     await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
