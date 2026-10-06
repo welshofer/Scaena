@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.11.json",
+  "$id": "https://scaena.dev/schema/deck-0.12.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.11(\\.[0-9]+)?$"
+      "pattern": "^0\\.12(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -368,7 +368,12 @@
         "hangingPunctuation": { "type": "boolean" },
         "numeric": { "$ref": "#/$defs/Numeric" },
         "minLastLineWords": { "type": "integer", "minimum": 1 },
-        "split": { "$ref": "#/$defs/TextSplit" }
+        "split": { "$ref": "#/$defs/TextSplit" },
+        "list": {
+          "description": "Its paragraphs as a list's items (SPEC §3.5, ADR-0018): one entry for each paragraph a hard line break ends, in order, `null` for one that is no item. Paragraphs past its end are no items.",
+          "type": "array",
+          "items": { "anyOf": [{ "$ref": "#/$defs/ListItem" }, { "type": "null" }] }
+        }
       },
       "anyOf": [{ "required": ["text"] }, { "required": ["runs"] }]
     },
@@ -894,6 +899,17 @@
       "type": "string",
       "enum": ["lines", "words", "glyphs"]
     },
+    "ListItem": {
+      "description": "A paragraph of a text as an item of a list (SPEC §3.5, ADR-0018): bulleted or numbered, at a level, 0 the outermost. Its marker and indent are the theme's (`type.lists`).",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/ListKind" },
+        "level": { "type": "integer", "minimum": 0, "maximum": 8 }
+      }
+    },
+    "ListKind": { "type": "string", "enum": ["bullet", "number"] },
     "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
     "ImageFit": {
       "description": "How an image meets its box.",
@@ -1198,6 +1214,12 @@
         "numeric": { "anyOf": [{ "$ref": "#/$defs/Numeric" }, { "type": "null" }] },
         "minLastLineWords": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
         "split": { "anyOf": [{ "$ref": "#/$defs/TextSplit" }, { "type": "null" }] },
+        "list": {
+          "anyOf": [
+            { "items": { "anyOf": [{ "$ref": "#/$defs/ListItem" }, { "type": "null" }] }, "type": "array" },
+            { "type": "null" }
+          ]
+        },
         "kind": {
           "anyOf": [
             { "$ref": "#/$defs/ShapeKind" },

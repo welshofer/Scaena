@@ -1,10 +1,10 @@
 {
-  "scaena": "0.11",
+  "scaena": "0.12",
   "_comment": "W221 clean: body and caption snap at 40 and 24 cu, whole lines of the 8 cu grid, in both formats.",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],
   "theme": {
-    "scaena-theme": "0.9",
+    "scaena-theme": "0.10",
     "name": "Lint on a baseline grid",
     "description": "The lint bundle's theme with an 8 cu baseline grid: body and caption snap their baselines to it, at leadings of 5 and 3 grid lines (40/28 to float error), here and in 9:16.",
     "tokens": {

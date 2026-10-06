@@ -13,7 +13,7 @@
 //! before it. Text the engine sets in another case, or hyphenates, maps back to the
 //! characters as written ([`TextLayout::offsets`]).
 
-use crate::text::{SpanLook, TextAlign, TextLayout, sets_ink};
+use crate::text::{ListMark, SpanLook, TextAlign, TextLayout, sets_ink};
 use icu_segmenter::GraphemeClusterSegmenter;
 use scaena_core::displaylist::Rect;
 use std::collections::BTreeMap;
@@ -28,6 +28,9 @@ pub struct Carets {
     pub lines: Vec<CaretLine>,
     /// Its spans as written, in order, and the weight each is set in (PLAN 2.38).
     pub looks: Vec<SpanLook>,
+    /// Its paragraphs as a list's items (ADR-0018), by paragraph: what Enter, Tab, and the
+    /// list keys act on (PLAN 2.69). None past the last.
+    pub items: Vec<Option<ListMark>>,
 }
 
 /// The weight from which a text reads as bold: CSS's `bold` is 700, and 600 is the first
@@ -94,7 +97,7 @@ impl TextLayout {
         // Each cluster's left and right, its direction, and its line, by where it starts in
         // the text as laid out. The hyphen drawn at a break is no character's.
         let mut clusters: BTreeMap<usize, (f32, f32, bool)> = BTreeMap::new();
-        for run in self.runs.iter().filter(|r| !r.hyphen) {
+        for run in self.runs.iter().filter(|r| !r.hyphen && r.mark.is_none()) {
             for ((glyph, &start), &advance) in run.glyphs.iter().zip(&run.clusters).zip(&run.advances) {
                 let (left, right) = (glyph.x + ox, glyph.x + advance + ox);
                 let edges = clusters.entry(start).or_insert((left, right, run.rtl));
@@ -177,7 +180,7 @@ impl TextLayout {
         if let Some(last) = lines.last_mut() {
             last.end = self.written.len();
         }
-        Carets { text: self.written.clone(), lines, looks: self.looks.clone() }
+        Carets { text: self.written.clone(), lines, looks: self.looks.clone(), items: self.items.clone() }
     }
 
     /// Where line `index` is anchored, from the text's left edge: its start edge, its middle,

@@ -5,6 +5,7 @@
 
 use crate::displaylist::{DisplayList, Op};
 use crate::document::{NodeType, Props};
+use crate::model::values::{ListItem, ListKind};
 use crate::{Deck, Snapshot};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -37,6 +38,9 @@ pub struct Reading {
     pub alt: Option<String>,
     /// BCP 47, the node's `lang`, where it differs from the deck's.
     pub lang: Option<String>,
+    /// A text's paragraphs as a list's items (ADR-0018), one for each paragraph; empty for a
+    /// text that is no list, and for any other node.
+    pub items: Vec<Option<ListItem>>,
 }
 
 /// How each node `snap` shows reads, by id.
@@ -66,7 +70,14 @@ pub fn reading(t: NodeType, props: &Props) -> Reading {
         NodeType::Group => Kind::Group,
         NodeType::Stack | NodeType::Grid | NodeType::Frame => Kind::Artifact,
     };
-    Reading { kind, alt: alt.filter(|a| !a.is_empty()).map(str::to_string), lang: text("lang").map(str::to_string) }
+    let items = match (kind, props.get("list").cloned().map(serde_json::from_value::<Vec<Option<ListItem>>>)) {
+        (Kind::Heading(_) | Kind::Paragraph, Some(Ok(list))) if list.iter().any(Option::is_some) => {
+            crate::lists::items(&list, crate::lists::paragraphs(&words(props)).len())
+        }
+        _ => Vec::new(),
+    };
+    let alt = alt.filter(|a| !a.is_empty()).map(str::to_string);
+    Reading { kind, alt, lang: text("lang").map(str::to_string), items }
 }
 
 /// How the state `snap` resolves, drawn as `list` at rest, reads (SPEC §3.12), as HTML:
@@ -126,6 +137,12 @@ impl Reader<'_> {
         if words.trim().is_empty() {
             return;
         }
+        let items = reading.filter(|r| r.alt.is_none()).map_or(&[][..], |r| &r.items[..]);
+        if !items.is_empty() {
+            let _ =
+                write!(out, r#"<div data-node="{}"{}>{}</div>"#, attr(id), self.lang(reading), listed(&words, items));
+            return;
+        }
         let _ = write!(out, r#"<{tag} data-node="{}"{}>{}</{tag}>"#, attr(id), self.lang(reading), text(&words));
     }
 
@@ -171,6 +188,47 @@ impl Reader<'_> {
 }
 
 /// A text node's words: its `text`, or its runs' texts in turn.
+/// `words`' paragraphs as HTML (ADR-0018): each item an `li` of a `ul` or an `ol`, nested by
+/// level inside the item before it, and each paragraph that is no item a `p`.
+fn listed(words: &str, items: &[Option<ListItem>]) -> String {
+    let close = |kind: ListKind| if kind == ListKind::Bullet { "</li></ul>" } else { "</li></ol>" };
+    let open = |kind: ListKind| if kind == ListKind::Bullet { "<ul><li>" } else { "<ol><li>" };
+    let mut out = String::new();
+    let mut open_lists: Vec<(u8, ListKind)> = Vec::new();
+    for (range, item) in crate::lists::paragraphs(words).into_iter().zip(items) {
+        let said = text(&words[range]);
+        let Some(item) = item else {
+            while let Some((_, kind)) = open_lists.pop() {
+                out.push_str(close(kind));
+            }
+            let _ = write!(out, "<p>{said}</p>");
+            continue;
+        };
+        let level = item.depth();
+        while open_lists.last().is_some_and(|&(l, _)| l > level) {
+            out.push_str(close(open_lists.pop().map(|(_, k)| k).unwrap_or(ListKind::Bullet)));
+        }
+        match open_lists.last() {
+            Some(&(l, kind)) if l == level && kind == item.kind => out.push_str("</li><li>"),
+            Some(&(l, kind)) if l == level => {
+                out.push_str(close(kind));
+                open_lists.pop();
+                out.push_str(open(item.kind));
+                open_lists.push((level, item.kind));
+            }
+            _ => {
+                out.push_str(open(item.kind));
+                open_lists.push((level, item.kind));
+            }
+        }
+        out.push_str(&said);
+    }
+    while let Some((_, kind)) = open_lists.pop() {
+        out.push_str(close(kind));
+    }
+    out
+}
+
 fn words(props: &Props) -> String {
     match (props.get("text"), props.get("runs")) {
         (Some(Value::String(text)), _) => text.clone(),
@@ -219,6 +277,20 @@ mod tests {
     use crate::displaylist::{Blend, Color, FillRule, Glyph, IDENTITY, Paint, Path};
     use serde_json::json;
 
+    #[test]
+    fn a_list_reads_as_a_list() {
+        let props = json!({ "role": "body", "text": "A\nB\nC\nD\nE",
+            "list": [{ "kind": "bullet" }, { "kind": "number", "level": 1 }, { "kind": "number", "level": 1 }, { "kind": "bullet" }] });
+        let r = read(NodeType::Text, props);
+        assert_eq!(r.items.len(), 5);
+        assert_eq!(
+            listed("A\nB\nC\nD\nE", &r.items),
+            "<ul><li>A<ol><li>B</li><li>C</li></ol></li><li>D</li></ul><p>E</p>"
+        );
+        // A text that is no list, or one whose list marks no paragraph, reads as a paragraph.
+        assert!(read(NodeType::Text, json!({ "text": "A\nB", "list": [null] })).items.is_empty());
+    }
+
     fn read(t: NodeType, props: Value) -> Reading {
         let Value::Object(map) = props else { panic!("an object") };
         reading(t, &map.into_iter().collect())
@@ -238,7 +310,12 @@ mod tests {
             read(NodeType::Text, json!({ "role": "numeral", "alt": "four point two times", "lang": "en-GB" }));
         assert_eq!(
             numeral,
-            Reading { kind: Kind::Paragraph, alt: Some("four point two times".into()), lang: Some("en-GB".into()) }
+            Reading {
+                kind: Kind::Paragraph,
+                alt: Some("four point two times".into()),
+                lang: Some("en-GB".into()),
+                items: Vec::new()
+            }
         );
     }
 

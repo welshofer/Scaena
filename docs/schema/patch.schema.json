@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.11.json",
+  "$id": "https://scaena.dev/schema/patch-0.12.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -230,6 +230,26 @@
           }
         },
         {
+          "description": "A text's paragraphs as a list's items (ADR-0018, PLAN 2.69): each paragraph characters `from` to `to` of its text touch, counted as `replace_text` counts them, set to `kind` (`bullet`, `number`, or `none`, out of the list) at `level`, or each its own; or, with `by`, moved that many levels deeper (negative: shallower), from 0 to 8, a paragraph that is no item becoming a bullet as it goes deeper. Its `list` is written where it lives, as `choose` writes a property.",
+          "type": "object",
+          "required": ["op", "node", "from", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "from": { "type": "integer", "minimum": 0 },
+            "to": { "type": "integer", "minimum": 0 },
+            "kind": { "$ref": "#/$defs/Listing" },
+            "level": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "by": { "type": "integer", "minimum": -8, "maximum": 8 },
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever `list` lives now.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "list" }
+          }
+        },
+        {
           "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. `null` takes it away where it lives, so what is under it shows.",
           "type": "object",
           "required": ["op", "node", "prop", "value"],
@@ -390,6 +410,11 @@
         "area": { "type": "string" },
         "index": { "type": "integer", "minimum": 0 }
       }
+    },
+    "Listing": {
+      "description": "What `list` makes paragraphs: items of a kind, or none.",
+      "type": "string",
+      "enum": ["bullet", "number", "none"]
     },
     "Annotating": {
       "description": "What `annotate` gives a chart's annotation (PLAN 2.67): a whole one, to add, with its `kind` and `at`; or, for the one at an `index`, what changes in it.",
@@ -652,7 +677,12 @@
         "hangingPunctuation": { "type": "boolean" },
         "numeric": { "$ref": "#/$defs/Numeric" },
         "minLastLineWords": { "type": "integer", "minimum": 1 },
-        "split": { "$ref": "#/$defs/TextSplit" }
+        "split": { "$ref": "#/$defs/TextSplit" },
+        "list": {
+          "description": "Its paragraphs as a list's items (SPEC §3.5, ADR-0018): one entry for each paragraph a hard line break ends, in order, `null` for one that is no item. Paragraphs past its end are no items.",
+          "type": "array",
+          "items": { "anyOf": [{ "$ref": "#/$defs/ListItem" }, { "type": "null" }] }
+        }
       },
       "anyOf": [{ "required": ["text"] }, { "required": ["runs"] }]
     },
@@ -1178,6 +1208,17 @@
       "type": "string",
       "enum": ["lines", "words", "glyphs"]
     },
+    "ListItem": {
+      "description": "A paragraph of a text as an item of a list (SPEC §3.5, ADR-0018): bulleted or numbered, at a level, 0 the outermost. Its marker and indent are the theme's (`type.lists`).",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/ListKind" },
+        "level": { "type": "integer", "minimum": 0, "maximum": 8 }
+      }
+    },
+    "ListKind": { "type": "string", "enum": ["bullet", "number"] },
     "ShapeKind": { "type": "string", "enum": ["rect", "ellipse", "line", "arrow", "polygon", "path"] },
     "ImageFit": {
       "description": "How an image meets its box.",
@@ -1482,6 +1523,12 @@
         "numeric": { "anyOf": [{ "$ref": "#/$defs/Numeric" }, { "type": "null" }] },
         "minLastLineWords": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
         "split": { "anyOf": [{ "$ref": "#/$defs/TextSplit" }, { "type": "null" }] },
+        "list": {
+          "anyOf": [
+            { "items": { "anyOf": [{ "$ref": "#/$defs/ListItem" }, { "type": "null" }] }, "type": "array" },
+            { "type": "null" }
+          ]
+        },
         "kind": {
           "anyOf": [
             { "$ref": "#/$defs/ShapeKind" },

@@ -295,3 +295,32 @@ fn a_damaged_font_stops_a_pdf_with_an_error() {
     let error = pdf_document(&bundle, Some(&first), &whole).expect_err("no PDF of a damaged font").to_string();
     assert!(error.contains("damaged"), "{error}");
 }
+
+/// A text that is a list reads as one (ADR-0018): the torture deck's `lists` case, its bullets
+/// at three levels, each deeper list inside the item before it, and its numbers with a paragraph
+/// that is no item between two lists.
+#[test]
+fn a_list_reads_as_a_list() {
+    let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();
+    let (bytes, _) = exported(&bundle, Some(&["lists".to_string()]), &format!("{}", line!()));
+    let lines = structure(&bytes);
+    let tops: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].trim() == "L").collect();
+    let depth = |i: usize| lines[i].len() - lines[i].trim_start().len();
+    let outer: Vec<usize> = tops.iter().copied().filter(|&i| depth(i) == depth(tops[0])).collect();
+    // Bullets: three items at the first level, the second holding a list, which holds one.
+    assert_eq!(children(&lines, outer[0]), ["LI"; 3]);
+    let second = (outer[0] + 1..lines.len())
+        .filter(|&i| lines[i].trim() == "LI" && depth(i) == depth(outer[0]) + 2)
+        .nth(1)
+        .unwrap();
+    assert_eq!(children(&lines, second), ["Lbl", "LBody", "L"]);
+    // Numbers: a list of three, a paragraph, a list of two, side by side in their text.
+    let text = lines[..outer[1]].iter().rposition(|l| depth_of(l) < depth(outer[1])).unwrap();
+    assert_eq!(children(&lines, text), ["L", "P", "L"]);
+    assert_eq!(children(&lines, outer[1]), ["LI"; 3]);
+    assert_eq!(children(&lines, outer[2]), ["LI"; 2]);
+}
+
+fn depth_of(l: &str) -> usize {
+    l.len() - l.trim_start().len()
+}

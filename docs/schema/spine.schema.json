@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/spine-0.11.json",
+  "$id": "https://scaena.dev/schema/spine-0.12.json",
   "title": "Scaena spine projection",
   "description": "The spine projection: `export --format spine` writes it; `spine_read` returns it without timing or renders.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "The format of the deck it was projected from: its `scaena`.",
       "type": "string",
-      "pattern": "^0\\.11(\\.[0-9]+)?$"
+      "pattern": "^0\\.12(\\.[0-9]+)?$"
     },
     "title": { "type": "string" },
     "lang": { "description": "The deck's language (BCP 47), for a voice that reads it.", "type": "string" },

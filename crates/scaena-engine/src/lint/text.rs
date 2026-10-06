@@ -255,6 +255,17 @@ impl Rule for E120MissingGlyphs {
                 let mut missing: Vec<char> = Vec::new();
                 for t in layouts(&node.content) {
                     for run in &t.runs {
+                        // A list item's marker (ADR-0018) is the theme's characters, not the text's.
+                        if let Some(marker) = &run.mark {
+                            if run.glyphs.iter().any(|g| g.id == 0) {
+                                for c in marker.chars().filter(|c| !c.is_whitespace()) {
+                                    if !missing.contains(&c) {
+                                        missing.push(c);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
                         for (g, &cluster) in run.glyphs.iter().zip(&run.clusters) {
                             if g.id == 0
                                 && let Some(c) = t.text.get(cluster..).and_then(|s| s.chars().next())

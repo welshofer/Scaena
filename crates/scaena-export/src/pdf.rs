@@ -34,7 +34,8 @@ use krilla::paint::{
 };
 use krilla::surface::Surface;
 use krilla::tagging::{
-    Artifact, ArtifactType, ContentTag, Identifier, Node, TableHeaderScope, Tag, TagGroup, TagKind, TagTree,
+    Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, TableHeaderScope, Tag, TagGroup, TagKind,
+    TagTree,
 };
 use krilla::text::{Font, GlyphId};
 use krilla::{Document, SerializeSettings};
@@ -44,6 +45,7 @@ use scaena_core::displaylist::{
     Blend, Cap, Color, DisplayList, FillRule, FontRef, Join, Op, Paint, Path, PathEl, Quality,
 };
 use scaena_core::document::Section;
+use scaena_core::model::values::ListKind;
 use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
@@ -353,6 +355,38 @@ impl Cx<'_, '_> {
             let whole = *opacity < 1.0 || *blend != Blend::Normal;
             match reading.map_or(Kind::Group, |r| r.kind) {
                 Kind::Artifact => self.artifact(Artifact::new(ArtifactType::Layout, None), op, xf),
+                // A text that is a list (ADR-0018): each paragraph's marker and words, drawn in
+                // layers of their own, tagged as the list's labels and bodies.
+                Kind::Heading(_) | Kind::Paragraph
+                    if !whole && alt.is_none() && reading.is_some_and(|r| !r.items.is_empty()) =>
+                {
+                    let pushed = self.open(transform, *opacity, *blend, clip.as_ref());
+                    let xf = xf * affine(transform);
+                    let mut parts: BTreeMap<(u32, u32), Identifier> = BTreeMap::new();
+                    for child in inner {
+                        match child {
+                            Op::Layer { cell: Some([paragraph, part]), .. } => {
+                                let id = self.tagged(child, xf);
+                                parts.insert((*paragraph, *part), id);
+                            }
+                            _ => self.artifact(Artifact::new(ArtifactType::Layout, None), child, xf),
+                        }
+                    }
+                    self.close(pushed);
+                    let items = &reading.expect("a list's reading").items;
+                    let paras: Vec<Para> = items
+                        .iter()
+                        .enumerate()
+                        .map(|(k, item)| {
+                            let (label, body) = (parts.remove(&(k as u32, 0)), parts.remove(&(k as u32, 1)));
+                            match item {
+                                Some(item) => Para::Item(item.depth(), item.kind, label, body),
+                                None => Para::Plain(body),
+                            }
+                        })
+                        .collect();
+                    out.push(element(Tag::Div.into(), reading, list_nodes(&paras)));
+                }
                 kind @ (Kind::Heading(_) | Kind::Paragraph | Kind::Figure) => {
                     let id = self.tagged(op, xf);
                     let tag: TagKind = match kind {
@@ -695,6 +729,65 @@ fn jpeg(rgba: &[u8], w: u32, h: u32, quality: u8) -> Option<Vec<u8>> {
 }
 
 /// A node's element: `tag`, in the node's language, over `children`.
+/// A text's paragraph as a list reads it (ADR-0018): an item at its level, of its kind, with
+/// the content its marker and its words were drawn in; or a paragraph that is no item.
+enum Para {
+    Item(u8, ListKind, Option<Identifier>, Option<Identifier>),
+    Plain(Option<Identifier>),
+}
+
+/// `paras` as structure: each run of items a list (`L`) of items (`LI`), each its label
+/// (`Lbl`) and body (`LBody`), with the deeper items after it a list inside it; each paragraph
+/// that is no item a `P`.
+fn list_nodes(paras: &[Para]) -> Vec<Node> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < paras.len() {
+        match &paras[i] {
+            Para::Plain(body) => {
+                out.push(TagGroup::with_children(Tag::P, body.iter().map(|&id| id.into()).collect()).into());
+                i += 1;
+            }
+            &Para::Item(level, kind, ..) => {
+                let (list, next) = list_at(paras, i, level, kind);
+                out.push(list);
+                i = next;
+            }
+        }
+    }
+    out
+}
+
+/// The list of `kind` at `level` that starts at `paras[i]`, and where it ends.
+fn list_at(paras: &[Para], mut i: usize, level: u8, kind: ListKind) -> (Node, usize) {
+    let mut items = Vec::new();
+    while let Some(&Para::Item(l, k, label, body)) = paras.get(i) {
+        if l != level || k != kind {
+            break;
+        }
+        let mut item: Vec<Node> = Vec::new();
+        if let Some(id) = label {
+            item.push(TagGroup::with_children(Tag::Lbl, vec![id.into()]).into());
+        }
+        item.push(TagGroup::with_children(Tag::LBody, body.iter().map(|&id| id.into()).collect()).into());
+        i += 1;
+        while let Some(&Para::Item(deeper, k, ..)) = paras.get(i) {
+            if deeper <= level {
+                break;
+            }
+            let (inner, next) = list_at(paras, i, deeper, k);
+            item.push(inner);
+            i = next;
+        }
+        items.push(TagGroup::with_children(Tag::LI, item).into());
+    }
+    let numbering = match kind {
+        ListKind::Bullet => ListNumbering::Disc,
+        ListKind::Number => ListNumbering::Decimal,
+    };
+    (TagGroup::with_children(Tag::L(numbering), items).into(), i)
+}
+
 fn element(tag: TagKind, reading: Option<&Reading>, children: Vec<Node>) -> Node {
     let lang = reading.and_then(|r| r.lang.clone());
     TagGroup::with_children(tag.with_lang(lang), children).into()

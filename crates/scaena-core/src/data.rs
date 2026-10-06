@@ -399,7 +399,7 @@ mod tests {
 
     fn deck(data: &str) -> Deck {
         let json = format!(
-            r#"{{"scaena": "0.11", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
+            r#"{{"scaena": "0.12", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
         );
         Deck::from_json(&json).unwrap()
     }
@@ -490,7 +490,7 @@ mod tests {
         let err = load(&deck1, &files("d.csv", "day,month\nlast Tuesday,Mar 2025\n"), "q").unwrap_err().to_string();
         assert!(err.contains("column `day`") && err.contains("ISO 8601") && err.contains("parse"), "{err}");
         // Month names read in the deck's language.
-        let de = r#"{"scaena": "0.11", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
+        let de = r#"{"scaena": "0.12", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
             "data": {"q": {"source": {"inline": [{"m": "März 2025"}]}, "schema": {"m": "date"}, "parse": {"m": "%B %Y"}}},
             "nodes": {}, "states": []}"#;
         let t = load(&Deck::from_json(de).unwrap(), &BTreeMap::new(), "q").unwrap();

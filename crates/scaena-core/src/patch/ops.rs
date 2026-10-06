@@ -3,13 +3,13 @@
 //! says, with what to do instead: an op on a node that is not there, or a change in a state
 //! to a node not on screen there, which would make it enter.
 
-use super::{Annotating, JsonOp, Renamed, SemanticOp, Spot, Timed, esc};
+use super::{Annotating, JsonOp, Listing, Renamed, SemanticOp, Spot, Timed, esc};
 use crate::data;
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
-use crate::model::values::{Annotation, Duration};
+use crate::model::values::{Annotation, Duration, ListItem};
 use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -77,6 +77,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::StyleText { node, from, to, look, state, fork } => {
             style_text(&d, node, (*from as usize, *to as usize), look, state.as_deref(), *fork)?
+        }
+        SemanticOp::List { node, from, to, kind, level, by, state, fork } => {
+            mark_list(&d, node, (*from as usize, *to as usize), (*kind, *level, *by), state.as_deref(), *fork)?
         }
         SemanticOp::Choose { node, prop, value, state, fork } => match prop.as_str() {
             "data" if !value.is_null() && matches!(d.kind(node)?, "chart" | "table") => {
@@ -571,7 +574,60 @@ fn replace_text(
         None => Value::String(format!("{}{text}{}", &shown.written[..from], &shown.written[to..])),
     };
     let prop = shown.prop();
-    shown.write(d, node, state, fork, vec![(prop.into(), None, value)], prop)
+    let mut entries: Vec<Entry> = vec![(prop.into(), None, value)];
+    // Its list kept in step with its paragraphs (ADR-0018), written beside the text.
+    if let Some(list) = &shown.list {
+        let now = crate::lists::edited(list, &shown.written, from..to, text);
+        if now != trimmed(list) {
+            entries.push(("list".into(), None, serde_json::to_value(now).map_err(|e| e.to_string())?));
+        }
+    }
+    shown.write(d, node, state, fork, entries, prop)
+}
+
+/// `list` without the trailing paragraphs that are no items.
+fn trimmed(list: &[Option<ListItem>]) -> Vec<Option<ListItem>> {
+    let mut list = list.to_vec();
+    while list.last().is_some_and(Option::is_none) {
+        list.pop();
+    }
+    list
+}
+
+/// `list` (ADR-0018, PLAN 2.69): the paragraphs characters `from`..`to` of `node`'s text as
+/// `state` shows it touch, marked as `how` says, the text's `list` written where it lives.
+fn mark_list(
+    d: &Doc,
+    node: &str,
+    (from, to): (usize, usize),
+    how: (Option<Listing>, Option<u8>, Option<i32>),
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    use crate::lists::Marking;
+    use crate::model::values::ListKind;
+    let marking = match how {
+        (Some(_), _, Some(_)) => return Err("give a `kind` or move items `by` levels, not both".into()),
+        (Some(Listing::Bullet), level, None) => Marking::Kind(Some(ListKind::Bullet), level),
+        (Some(Listing::Number), level, None) => Marking::Kind(Some(ListKind::Number), level),
+        (Some(Listing::None), _, None) => Marking::Kind(None, None),
+        (None, None, Some(by)) => Marking::By(by),
+        (None, Some(_), None) => return Err("a `level` goes with a `kind`; `by` moves items a level".into()),
+        (None, None, None) => {
+            return Err("say how to mark the paragraphs: a `kind` (`bullet`, `number`, `none`) or `by`".into());
+        }
+        (None, Some(_), Some(_)) => return Err("give a `level` with a `kind`, or move items `by` levels".into()),
+    };
+    let shown = Shown::read(d, node, state, fork, "`list` makes a text node's paragraphs a list")?;
+    let (from, to) = shown.bytes(node, from, to)?;
+    let now = crate::lists::marked(shown.list.as_deref().unwrap_or_default(), &shown.written, from..to, marking);
+    // No items left: `list` is taken away, unless the node's own would show through.
+    let bare = d.node(node)?.get("list").is_none_or(Value::is_null);
+    let value = match now.is_empty() && (bare || shown.on_node(d, node, state, fork, "list")?) {
+        true => Value::Null,
+        false => serde_json::to_value(now).map_err(|e| e.to_string())?,
+    };
+    shown.write(d, node, state, fork, vec![("list".into(), None, value)], "list")
 }
 
 /// `style_text` (ADR-0013, PLAN 2.38): characters `from`..`to` of `node`'s text as `state`
@@ -642,6 +698,8 @@ struct Shown {
     runs: Option<Vec<Value>>,
     /// Its text: its `text`, or its runs' texts end to end.
     written: String,
+    /// Its paragraphs as list items (ADR-0018), if it has a `list`.
+    list: Option<Vec<Option<ListItem>>>,
 }
 
 impl Shown {
@@ -666,11 +724,13 @@ impl Shown {
             merge_props(&mut props, &over.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
         }
         let runs = props.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty()).cloned();
+        let list = props.get("list").filter(|l| !l.is_null()).map(|l| serde_json::from_value(l.clone())).transpose();
+        let list = list.map_err(|e| format!("`{node}`'s `list`: {e}"))?;
         let written: String = match &runs {
             Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect(),
             None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
         };
-        Ok(Shown { over, runs, written })
+        Ok(Shown { over, runs, written, list })
     }
 
     /// The property the text is: `runs`, or `text`.
@@ -688,6 +748,20 @@ impl Shown {
         }
         let byte = |chars: usize| self.written.char_indices().nth(chars).map_or(self.written.len(), |(i, _)| i);
         Ok((byte(from), byte(to)))
+    }
+
+    /// Whether `write` writes `prop` on the node itself: neither the overrides nor a state set it.
+    fn on_node(&self, d: &Doc, node: &str, state: Option<&str>, fork: bool, prop: &str) -> Result<bool, String> {
+        if self.over.as_ref().is_some_and(|o| o.contains_key(prop)) || fork {
+            return Ok(false);
+        }
+        Ok(match d.showing(node, state)? {
+            Some((i, _)) => {
+                let (deck, _) = d.snapshots()?;
+                matches!(lives(&deck, i, node, prop, &[]), Lives::Node)
+            }
+            None => true,
+        })
     }
 
     /// Ops that write `entries` where the text lives (`prop`, `text` or `runs`): in the deck's

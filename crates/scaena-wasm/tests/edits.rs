@@ -299,7 +299,7 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
         let state = states[k].clone();
         let key = r.pick(&keys).to_string();
         let value = r.pick(&values[&key]).clone();
-        ops.push(match r.below(12) {
+        ops.push(match r.below(13) {
             0 => json!({ "op": "add_node", "id": "added", "node": { "type": "text", "text": text(r, &strings) }, "state": state }),
             1 => json!({ "op": "remove_node", "id": node }),
             2 => json!({ "op": "rename_node", "id": node, "to": r.pick(&nodes).clone() }),
@@ -315,6 +315,12 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
                 let look = *r.pick(&LOOKS);
                 json!({ "op": "style_text", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "look": { look: value } })
             }
+            // A text's paragraphs as a list (PLAN 2.69): a kind, none, or levels in and out.
+            11 => match r.below(3) {
+                0 => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "kind": *r.pick(&["bullet", "number", "none"]) }),
+                1 => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "by": r.below(5) as i64 - 2 }),
+                _ => json!({ "op": "list", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "kind": "number", "level": r.below(10) }),
+            },
             _ => json!({ "op": "replace", "path": r.pick(&pointers).clone(), "value": value }),
         });
     }

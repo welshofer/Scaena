@@ -73,7 +73,9 @@ LICENSES = {  # OFL text shipped beside each font (OFL 1.1 requires it to travel
 }
 EXTRA_RANGES = [(0x20, 0x7E), (0xA0, 0x17F), (0x2010, 0x203A), (0x20AC, 0x20AC)]
 # Characters that select or join rather than draw; shaping consumes them.
-IGNORABLE = {0x200C, 0x200D, 0x2060, 0xFE0E, 0xFE0F, 0x00AD}
+# Hard line breaks end a line or a paragraph and set no glyph (SPEC §3.5): a list's items are
+# paragraphs (PLAN 2.69).
+IGNORABLE = {0x200C, 0x200D, 0x2060, 0xFE0E, 0xFE0F, 0x00AD, 0x000A, 0x000D, 0x2028, 0x2029}
 
 # Fonts each text node must end up using. Unlisted nodes must use only their role's own family:
 # a kill case that fell back would be testing fallback instead of its feature.

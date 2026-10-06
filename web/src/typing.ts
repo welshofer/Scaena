@@ -17,8 +17,8 @@
 //   the weight each is set in; ⌘I sets them in italic, or not, as each asks for it (PLAN 2.40); and
 //   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
 //   where the text lives, one step to undo.
-import { type Key, MOD } from "./commands";
-import type { CaretLine, Carets, Edited, Map6, Rect } from "./protocol";
+import { type Key, MOD, SHIFT } from "./commands";
+import type { CaretLine, Carets, Edited, ListMark, Map6, Rect } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What a text typed in answers that no command runs by name (PLAN 2.65), as the keys sheet lists
@@ -27,6 +27,8 @@ export const typingKeys = (): Key[] => [
   { keys: `${MOD}B`, label: "In a text typed in: the characters selected bold, or not", group: "Type" },
   { keys: `${MOD}I`, label: "In italic, or not", group: "Type" },
   { keys: "↑ ↓ Home End", label: "Go up or down a line, or to its start or end, as the text is set", group: "Type" },
+  { keys: "Enter", label: "In a list: a new item like it; in an empty item, the list ends", group: "Type" },
+  { keys: `Tab, ${SHIFT}Tab`, label: "In a list: the items selected a level in, or out", group: "Type" },
   { keys: "Escape", label: "Stop typing: the text stays selected", group: "Type" },
 ];
 
@@ -90,6 +92,30 @@ function back(m: Map6 | undefined, p: [number, number]): [number, number] {
   if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return p;
   const [x, y] = [p[0] - m[4], p[1] - m[5]];
   return [(m[3] * x - m[2] * y) / det, (m[0] * y - m[1] * x) / det];
+}
+
+/** The paragraphs of `text`, UTF-16 ranges without the break that ends each, as the deck counts
+ * them (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, U+2028, and U+2029 end one. */
+export function paragraphs(text: string): [number, number][] {
+  const out: [number, number][] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c !== "\n" && c !== "\r" && c !== "\u2028" && c !== "\u2029") continue;
+    out.push([start, i]);
+    if (c === "\r" && text[i + 1] === "\n") i++;
+    start = i + 1;
+  }
+  out.push([start, text.length]);
+  return out;
+}
+
+/** The paragraphs a selection from `from` to `to` (UTF-16) touches: the first's and the last's
+ * index. */
+export function touched(text: string, from: number, to: number): [number, number] {
+  const p = paragraphs(text);
+  const at = (o: number) => Math.max(0, p.findIndex(([, end]) => o <= end));
+  return [at(from), Math.max(at(from), at(to))];
 }
 
 /** How long a pause between two keys ends a burst of typing, ms: one step to undo each. */
@@ -407,6 +433,60 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     return style(look, look["style/italic"] === true ? "italic" : "upright");
   }
 
+  /** A list's keys (ADR-0018, PLAN 2.69), once what was typed is made: the paragraphs the selection
+   * touches made items of `kind`, or out of the list, or moved `by` levels; one `list` patch, one
+   * step to undo. `done` is what the status says. */
+  async function list(how: { kind?: "bullet" | "number" | "none"; by?: number }, done: string): Promise<boolean> {
+    await idle();
+    const now = open;
+    if (now && around.source() !== read) await sync();
+    if (!now || !carets || open !== now) return false;
+    const { from, to } = caret();
+    const op = {
+      op: "list",
+      node: now.node,
+      state: now.state,
+      from: points(carets.text, from),
+      to: points(carets.text, to),
+      ...how,
+      ...(now.fork ? { fork: true } : {}),
+    };
+    sending = true;
+    try {
+      const typed = await stage.type(around.source(), [op], { index: now.index, state: now.state, node: now.node }, around.format());
+      around.typed(typed.source, typed.edited, false);
+      made = undefined;
+      if (open === now) {
+        if (!typed.carets) leave();
+        else [carets, read] = [typed.carets, typed.source];
+      }
+      around.say(`${now.node}: ${done}`);
+      return true;
+    } catch (e) {
+      around.say(`not listed: ${said(e)}`);
+      return false;
+    } finally {
+      sending = false;
+      around.draw();
+      settle();
+    }
+  }
+
+  /** The items of the paragraphs the selection touches, as the engine last set them. */
+  function itemsSelected(): (ListMark | null)[] {
+    if (!carets) return [];
+    const { from, to } = caret();
+    const [first, last] = touched(carets.text, from, to);
+    return Array.from({ length: last - first + 1 }, (_, k) => carets?.items?.[first + k] ?? null);
+  }
+
+  /** ⌘⇧8 and ⌘⇧7: the paragraphs the selection touches bulleted, or numbered; all of that kind
+   * already, out of the list. */
+  function toggle(kind: "bullet" | "number"): Promise<boolean> {
+    const all = itemsSelected().every((i) => i?.kind === kind);
+    return list({ kind: all ? "none" : kind }, all ? "out of the list" : kind === "bullet" ? "bulleted" : "numbered");
+  }
+
   /** Stop typing: the node stays selected. */
   function leave() {
     if (!open) return;
@@ -590,7 +670,27 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       e.preventDefault();
       return void italic();
     }
+    // ⌘⇧8 bullets, ⌘⇧7 numbers, by the keys' places, as Shift makes them other characters.
+    if (mod && e.shiftKey && !e.altKey && (e.code === "Digit8" || e.code === "Digit7")) {
+      e.preventDefault();
+      return void toggle(e.code === "Digit8" ? "bullet" : "number");
+    }
     if (e.isComposing) return;
+    // In a list (ADR-0018): Tab and Shift+Tab move the items selected a level; Enter in an empty
+    // item ends the list there. Elsewhere they are the field's.
+    if ((e.key === "Tab" || e.key === "Enter") && !mod && !e.altKey && carets && area.value === carets.text) {
+      const [first] = touched(carets.text, caret().from, caret().to);
+      const item = carets.items?.[first];
+      if (item && e.key === "Tab") {
+        e.preventDefault();
+        return void list({ by: e.shiftKey ? -1 : 1 }, e.shiftKey ? "a level out" : "a level in");
+      }
+      const [start, end] = paragraphs(carets.text)[first] ?? [0, 0];
+      if (item && e.key === "Enter" && !e.shiftKey && start === end && caret().from === caret().to) {
+        e.preventDefault();
+        return void list({ kind: "none" }, "the list ends");
+      }
+    }
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
     if (e.key === "ArrowUp" && !mod && !e.altKey) return move(e, -1);
     if (e.key === "ArrowDown" && !mod && !e.altKey) return move(e, 1);
@@ -634,6 +734,8 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     style,
     bold,
     italic,
+    /** Bullets or numbers on the paragraphs the selection touches, as ⌘⇧8 and ⌘⇧7 do. */
+    toggle,
     /** The characters selected in the text typed in, if any are. */
     selection,
     /** Whether a text is typed in, and which. */

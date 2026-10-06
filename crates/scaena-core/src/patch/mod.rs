@@ -292,6 +292,32 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
     },
+    /// A text's paragraphs as a list's items (ADR-0018, PLAN 2.69): each paragraph characters
+    /// `from` to `to` of its text touch, counted as `replace_text` counts them, set to `kind`
+    /// (`bullet`, `number`, or `none`, out of the list) at `level`, or each its own; or, with
+    /// `by`, moved that many levels deeper (negative: shallower), from 0 to 8, a paragraph that
+    /// is no item becoming a bullet as it goes deeper. Its `list` is written where it lives, as
+    /// `choose` writes a property.
+    List {
+        #[schemars(with = "Id")]
+        node: String,
+        from: u32,
+        to: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<Listing>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 0, max = 8))]
+        level: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = -8, max = 8))]
+        by: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write it into `state`'s own props, wherever `list` lives now.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// One property of a node (`prop`: a property, or one key of an object property,
     /// `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the
     /// property lives. A value written out where the theme has names (a color, a text size, a
@@ -466,6 +492,7 @@ impl SemanticOp {
             SemanticOp::SetText { .. } => "set_text",
             SemanticOp::ReplaceText { .. } => "replace_text",
             SemanticOp::StyleText { .. } => "style_text",
+            SemanticOp::List { .. } => "list",
             SemanticOp::Choose { .. } => "choose",
             SemanticOp::Annotate { .. } => "annotate",
             SemanticOp::BindData { .. } => "bind_data",
@@ -479,6 +506,15 @@ impl SemanticOp {
             SemanticOp::Retheme { .. } => "retheme",
         }
     }
+}
+
+/// What `list` makes paragraphs: items of a kind, or none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Listing {
+    Bullet,
+    Number,
+    None,
 }
 
 /// Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col`

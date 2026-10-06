@@ -65,7 +65,7 @@ import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
-import { covered, type Selected, typing } from "./typing";
+import { covered, paragraphs, type Selected, typing } from "./typing";
 
 /** What the canvas answers that no command runs by name (PLAN 2.65): the pointer's gestures and the
  * keys held with them, and the keys that move what is selected. The keys sheet lists them with the
@@ -1006,6 +1006,26 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     const done = r.added ? `${o.node} has a point added${kept}` : `${o.node}'s point ${r.index + 1} moved${kept}`;
     await change([choose("points", r.points)], r.added ? "adding a point…" : "moving the point…", done, o.node);
+  }
+
+  /** Bullets or numbers on a text (ADR-0018, PLAN 2.69), as ⌘⇧8 and ⌘⇧7 do: typed in, on the
+   * paragraphs its selection touches; selected, on all of its paragraphs. Paragraphs all of that
+   * kind already leave the list. One `list` patch, one step to undo. */
+  function listing(kind: "bullet" | "number") {
+    if (text.node() !== undefined) return void text.toggle(kind);
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const node = selected;
+      if (!shown || node === undefined || also.length) return editor.say("select a text to make it a list");
+      const carets = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+      if (!carets) return editor.say(`${node} is no text: only a text is a list`);
+      const count = paragraphs(carets.text).length;
+      const all = Array.from({ length: count }, (_, k) => carets.items?.[k]?.kind).every((k) => k === kind);
+      const fork = keeping();
+      const op = { op: "list", node, state: shown.state, from: 0, to: [...carets.text].length, kind: all ? "none" : kind, ...(fork ? { fork } : {}) };
+      const what = all ? "out of the list" : kind === "bullet" ? "bulleted" : "numbered";
+      await change([op], "listing…", `${node}: ${what}${fork ? ` · kept to ${shown.state}` : ""}`, node);
+    });
   }
 
   /** Take the point picked away, unless the shape keeps no fewer: a line or an arrow two, a polygon three. */
@@ -2294,6 +2314,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         e.preventDefault();
         return void (also.length ? duplicateAll(chosen()) : duplicate(selected));
       }
+      // ⌘⇧8 bullets a text, ⌘⇧7 numbers it (PLAN 2.69), by the keys' places.
+      if (mod && e.shiftKey && !e.altKey && (e.code === "Digit8" || e.code === "Digit7")) {
+        e.preventDefault();
+        return void listing(e.code === "Digit8" ? "bullet" : "number");
+      }
       // ⌘G groups what is selected, and ⌘⇧G takes the group selected apart (PLAN 2.43).
       if (mod && key === "g" && !e.altKey) {
         e.preventDefault();
@@ -2504,6 +2529,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     style: (look: Record<string, unknown>) => text.style(look),
     /** Make the characters selected bold, or not, as ⌘B does. */
     bold: () => text.bold(),
+    /** Bullets or numbers on the text selected, or the paragraphs selected in it, as ⌘⇧8 and ⌘⇧7
+     * do (PLAN 2.69). */
+    list: listing,
     /** What the clipboard would hold of the node selected, once it is at hand: what a test
      * waits for before ⌘C. */
     held: () => held?.clip,

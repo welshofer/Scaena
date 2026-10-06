@@ -201,6 +201,15 @@ export interface Carets {
   /** The text as written: the node's `text`, or its runs' texts end to end. */
   text: string;
   lines: CaretLine[];
+  /** Its paragraphs as a list's items (ADR-0018, PLAN 2.69), by paragraph; none past the last. */
+  items?: (ListMark | null)[];
+}
+
+/** A paragraph as a list's item (ADR-0018): its kind, its level, 0 the outermost, and its marker. */
+export interface ListMark {
+  kind: "bullet" | "number";
+  level: number;
+  marker: string;
 }
 
 export interface CaretLine {

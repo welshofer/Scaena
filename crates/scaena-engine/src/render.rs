@@ -20,13 +20,14 @@ use crate::sample::{Content, Place, Policy, Scene, SceneNode, Timing, Transition
 use crate::shaders::ShaderNode;
 use crate::shapes::ShapeNode;
 use crate::tables;
-use crate::text::{GRID_EPSILON, Span, TextAlign, TextEngine, TextLayout, TextSpec};
+use crate::text::{GRID_EPSILON, ListMark, Span, TextAlign, TextEngine, TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox, Theme, Wrap};
 use scaena_core::displaylist::{Color, DisplayList, Rect};
 use scaena_core::document::{NodeType, Props};
 use scaena_core::model::Format;
 use scaena_core::model::nodes::TextFit;
 use scaena_core::model::theme::Snap;
+use scaena_core::model::values::ListItem;
 use scaena_core::model::values::{SplitUnit, Transform};
 use scaena_core::pose::Pose;
 use scaena_core::timeline::{Motion, Timeline};
@@ -740,6 +741,9 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             base_italic: role.italic,
         }],
     };
+    let written: String = spans.iter().map(|s| s.text.as_str()).collect();
+    let items = list_marks(theme, props, &written)?;
+    let (list_indent, list_gap, _, _) = theme.typography.lists.clone().unwrap_or_default().at(0);
     let features = props
         .get("features")
         .and_then(Value::as_object)
@@ -773,7 +777,36 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         optical_margins: props.get("opticalMargins").and_then(Value::as_bool).unwrap_or(optical),
         hyphenate: props.get("hyphenate").and_then(Value::as_bool).unwrap_or(hyphenate),
         line_grid,
+        items,
+        list_indent: list_indent as f32,
+        list_gap: list_gap as f32,
     })
+}
+
+/// A text's paragraphs as list items (ADR-0018): each item's level and marker, numbered as its
+/// list counts, by `written`'s paragraphs.
+fn list_marks(theme: &Theme, props: &Props, written: &str) -> Result<Vec<Option<ListMark>>, EngineError> {
+    if props.get("list").is_none_or(Value::is_null) {
+        return Ok(Vec::new());
+    }
+    let list = typed_prop::<Vec<Option<ListItem>>>(props, "list")?.unwrap_or_default();
+    let lists = theme.typography.lists.clone().unwrap_or_default();
+    if list.iter().all(Option::is_none) {
+        return Ok(Vec::new());
+    }
+    let items = scaena_core::lists::items(&list, scaena_core::lists::paragraphs(written).len());
+    let numbers = scaena_core::lists::numbers(&items);
+    Ok(items
+        .iter()
+        .zip(numbers)
+        .map(|(item, n)| {
+            item.map(|item| ListMark {
+                kind: item.kind,
+                level: item.depth(),
+                marker: scaena_core::lists::marker(&lists, item, n),
+            })
+        })
+        .collect())
 }
 
 fn typed_prop<T: serde::de::DeserializeOwned>(props: &Props, key: &str) -> Result<Option<T>, EngineError> {

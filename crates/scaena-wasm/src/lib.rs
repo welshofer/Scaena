@@ -1792,7 +1792,8 @@ impl Player {
     /// Where a caret stands in `node`'s text in `state` at rest, in the format shown, as JSON
     /// (ADR-0013, PLAN 2.32), its offsets in UTF-16 code units, as the page counts a string:
     /// `{ "text", "lines": [{ "top", "bottom", "x", "start", "end", "broken", "chars": [[offset,
-    /// lead, trail]] }] }`, canvas units; `null` for a node that is no text there.
+    /// lead, trail]] }], "items": [{ "kind", "level", "marker" } | null] }`, canvas units, `items`
+    /// each paragraph as a list's item (PLAN 2.69); `null` for a node that is no text there.
     pub fn carets(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         let Some(c) = self.0.carets(state, node).map_err(js)? else { return Ok("null".into()) };
         let units = utf16(&c.text);
@@ -1806,7 +1807,8 @@ impl Player {
                 })
             })
             .collect();
-        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines })).map_err(js)
+        // Each paragraph as a list's item (ADR-0018): what Enter, Tab, and the list keys act on.
+        serde_json::to_string(&serde_json::json!({ "text": c.text, "lines": lines, "items": c.items })).map_err(js)
     }
 
     /// What an inspector offers for `node` as `state` shows it, as JSON (ADR-0013, PLAN 2.33):
@@ -3897,7 +3899,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 52);
+        assert_eq!(s.states().len(), 53);
     }
 
     /// A chart's marks and the rows of its source (PLAN 2.64): each bar of the revenue chart is

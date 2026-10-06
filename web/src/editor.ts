@@ -1347,6 +1347,8 @@ async function edit(source: Source) {
     return [
       ...annotationCommands(),
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
+      { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
+      { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
       pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },
