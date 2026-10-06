@@ -253,7 +253,42 @@ impl Engine {
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &snapshots[state_index(&snapshots, req.state)?];
         let scene = self.scene(deck, theme, req.data, snap)?;
-        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node)
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)
+    }
+
+    /// Where `node` may go in `req.state` at rest `into` another container, or onto the
+    /// canvas for `None` (PLAN 2.50): as [`Engine::targets`] says it for a node that container
+    /// holds, the node's cell the box it stands in now.
+    pub fn targets_into(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        into: Option<&str>,
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, Some(into))
+    }
+
+    /// Where a node new to `req.state`, named `node`, would go at the root, laid out in
+    /// `req.format` (PLAN 2.34): the theme's grid and the template's slots there, its cell
+    /// `share` of the canvas's width and height ([`crate::geometry::room`]).
+    pub fn room(
+        &mut self,
+        req: &FrameRequest,
+        node: &str,
+        share: [f32; 2],
+    ) -> Result<crate::geometry::Targets, EngineError> {
+        let (deck, theme) = project(req.deck, req.theme, req.format)?;
+        let (deck, theme) = (deck.as_ref(), theme.as_ref());
+        let snapshots = scaena_core::resolve_states(deck)?;
+        let snap = &snapshots[state_index(&snapshots, req.state)?];
+        let scene = self.scene(deck, theme, req.data, snap)?;
+        let size = [share[0] * scene.canvas[0], share[1] * scene.canvas[1]];
+        crate::geometry::room(theme, &cascade::with_overrides(deck, snap), &scene, node, size)
     }
 
     /// One snapshot, laid out: every visible node in paint order.
@@ -435,8 +470,8 @@ impl Engine {
         };
         if text.synthesized {
             return Err(EngineError::Font(format!(
-                "node `{id}`: a run needs faux bold or oblique, which the display list cannot express; \
-                 use a weight or style the family provides"
+                "node `{id}`: a run needs faux bold, which the display list cannot express; \
+                 use a weight the family provides"
             )));
         }
         let overflow = !fits_box(&text);
@@ -619,7 +654,7 @@ fn children<'a>(deck: &Deck, snap: &'a Snapshot, id: &str) -> Vec<&'a str> {
         .filter(|(_, props)| parent(props) == Some(id))
         .map(|(kid, props)| (index(props).unwrap_or(0), order(kid), kid.as_str()))
         .collect();
-    kids.sort();
+    scaena_core::sort::sort(&mut kids);
     kids.into_iter().map(|(_, _, kid)| kid).collect()
 }
 
@@ -687,10 +722,20 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
             .iter()
             .map(|run| {
                 let text = run.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-                Ok(Span { text, style: cascade::run_role(theme, &role, run)? })
+                // What the run is set in without its own style: its role's, or the node's look.
+                let (base_weight, base_italic) = match run.get("role").and_then(Value::as_str) {
+                    Some(name) => theme.text_role(name).map(|r| (r.weight, r.italic))?,
+                    None => (role.weight, role.italic),
+                };
+                Ok(Span { text, style: cascade::run_role(theme, &role, run)?, base_weight, base_italic })
             })
             .collect::<Result<_, EngineError>>()?,
-        None => vec![Span { text: str_prop("text").unwrap_or_default().to_string(), style: role.clone() }],
+        None => vec![Span {
+            text: str_prop("text").unwrap_or_default().to_string(),
+            style: role.clone(),
+            base_weight: role.weight,
+            base_italic: role.italic,
+        }],
     };
     let features = props
         .get("features")

@@ -182,6 +182,11 @@ try {
   const editor = await open(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=${revenue}`, () => window.scaena?.last());
   await editor.waitForFunction(() => window.scaena.wholes().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its inspector");
+  // The node selected, its look chosen from the theme (PLAN 2.33).
+  await editor.evaluate(() => window.scaena.canvas.select("title"));
+  await editor.waitForSelector("#look .fields", { timeout: 30000 }).catch(() => {});
+  check((await editor.locator("#look select").count()) > 0, "the inspector shows the title's look to choose");
+  await audit(editor, "the editor, a node's look in its inspector");
   const source = await editor.evaluate(() => window.scaena.source());
   const long = "Revenue doubled, and then some";
   await editor.evaluate((t) => window.scaena.type(t), source.replace('"Revenue doubled"', `"${long}"`));
@@ -201,12 +206,15 @@ try {
   check((await gutter()) === line, `F8 goes to the next finding: line ${await gutter()}`);
   await editor.focus("#tab-inspector");
   await editor.keyboard.press("ArrowRight");
-  const tab = () =>
-    editor.evaluate(() => [document.activeElement?.id, document.querySelector('[role="tab"][aria-selected="true"]').id, document.querySelector("#assistant").hidden]);
-  check(JSON.stringify(await tab()) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ on the tabs shows the assistant: ${JSON.stringify(await tab())}`);
+  const tab = (panel) =>
+    editor.evaluate((p) => [document.activeElement?.id, document.querySelector('[role="tab"][aria-selected="true"]').id, document.querySelector(p).hidden], panel);
+  check(JSON.stringify(await tab("#layers")) === JSON.stringify(["tab-layers", "tab-layers", false]), `→ on the tabs shows the layers: ${JSON.stringify(await tab("#layers"))}`);
+  await audit(editor, "the editor, its layers");
+  await editor.keyboard.press("ArrowRight");
+  check(JSON.stringify(await tab("#assistant")) === JSON.stringify(["tab-assistant", "tab-assistant", false]), `→ again shows the assistant: ${JSON.stringify(await tab("#assistant"))}`);
   await audit(editor, "the editor, its assistant");
   await editor.keyboard.press("ArrowRight");
-  check((await tab())[0] === "tab-inspector", "→ again comes round to the inspector");
+  check((await tab("#inspector"))[0] === "tab-inspector", "→ again comes round to the inspector");
   await editor.close();
 
   // A single file, from its address on disk.

@@ -23,6 +23,7 @@ scaena-engine.workspace = true
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true
+base64.workspace = true
 indexmap.workspace = true
 schemars.workspace = true
 serde.workspace = true

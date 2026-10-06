@@ -27,14 +27,18 @@ const check = (ok, what) => {
   if (!ok) failures.push(what);
 };
 
-// A new deck from Dusk, as deck_create makes one: the theme, its fonts, and one empty state.
+// A new deck from Dusk, as deck_create makes one: the theme, its fonts (each family's own, and
+// its italic's), and one empty state.
 const bundle = "target/web-assistant/loop";
 const theme = JSON.parse(await readFile("docs/examples/themes/dusk.theme.json", "utf8"));
 const fonts = [];
 for (const family of Object.values(theme.type.families)) {
-  await mkdir(join(bundle, dirname(family.file)), { recursive: true });
-  await copyFile(join("docs/examples", family.file), join(bundle, family.file));
-  fonts.push({ family: family.family, file: family.file, ...(family.axes && { axes: family.axes }) });
+  for (const [face, style] of [[family, undefined], [family.italic, "italic"]]) {
+    if (!face) continue;
+    await mkdir(join(bundle, dirname(face.file)), { recursive: true });
+    await copyFile(join("docs/examples", face.file), join(bundle, face.file));
+    fonts.push({ family: family.family, file: face.file, ...(style && { style }), ...(face.axes && { axes: face.axes }) });
+  }
 }
 await mkdir(join(bundle, "themes"), { recursive: true });
 await copyFile("docs/examples/themes/dusk.theme.json", join(bundle, "themes/dusk.theme.json"));

@@ -2,7 +2,7 @@
 //! and say what that changes in what `validate` and `lint` find. A theme that would leave
 //! the deck invalid is refused, unless forced (PLAN 1.35).
 
-use crate::lint::{View, Why, errors, lint, lint_in, write_deck};
+use crate::lint::{View, Why, Write, errors, lint, lint_in, write_deck};
 use crate::{Bundle, Context, OpsError};
 use scaena_core::Finding;
 use scaena_core::document::FontRef;
@@ -50,23 +50,7 @@ pub struct Themed {
 /// as `patch` refuses an invalid deck, unless `force`: the deck keeps its theme, and the new
 /// one is copied in all the same, for one `patch` with the `retheme` op and the fixes.
 pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Result<Themed, OpsError> {
-    let mut text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
-    let mut parsed: serde_json::Value =
-        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", theme.display()))?;
-    let mut mapped = Vec::new();
-    for (key, family) in parsed.pointer_mut("/type/families").and_then(|f| f.as_object_mut()).into_iter().flatten() {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        if b.files.exists(file) {
-            continue;
-        }
-        if let Some(font) = b.deck.fonts.iter().find(|f| f.family == name && b.files.exists(&f.file)) {
-            mapped.push(format!("family `{key}`: {file} → {}", font.file));
-            family["file"] = serde_json::Value::String(font.file.clone());
-        }
-    }
-    if !mapped.is_empty() {
-        text = serde_json::to_string_pretty(&parsed)? + "\n";
-    }
+    let text = std::fs::read_to_string(theme).with_context(|| format!("reading {}", theme.display()))?;
     // Where it goes: where it already is inside a bundle directory, else `themes/`.
     let inside = match &b.files {
         scaena_store::Files::Dir(root) => match (root.canonicalize(), theme.canonicalize()) {
@@ -77,54 +61,114 @@ pub fn theme_apply(b: &Bundle, theme: &Path, dry_run: bool, force: bool) -> Resu
     };
     let name = theme.file_name().and_then(|n| n.to_str()).context("the theme has no file name")?;
     let rel = inside.clone().unwrap_or_else(|| format!("themes/{name}"));
+    let (themed, write) = theming(b, &rel, &text, &BTreeMap::new(), inside.is_none(), force)?;
+    if !dry_run {
+        if !themed.refused {
+            write_deck(b, &write.deck, write.files, &write.why)?;
+        } else if !write.files.is_empty() {
+            // The theme, copied in; the deck keeps the one it names.
+            b.write(&write.files).with_context(|| format!("writing {}", b.root.display()))?;
+        }
+    }
+    Ok(Themed { applied: !dry_run && !themed.refused, ..themed })
+}
+
+/// What a re-theme would do and what it writes, with nothing written: `theme_apply`'s twin,
+/// for a bundle held in memory (the web editor, PLAN 2.39). The theme is `text`, at `rel` in
+/// the bundle; with `copy`, it is written there. `fonts` are font files the caller can add,
+/// by the paths the theme gives them: a face (a family's own, or its italic) whose file the
+/// bundle lacks, and of whose family and style it holds no font, is set in the one offered.
+/// What to write comes back beside what it does: the deck naming the theme, or, refused, the
+/// deck as it is, with the theme to copy in all the same. `applied` says whether the write
+/// names the theme.
+pub fn theming(
+    b: &Bundle,
+    rel: &str,
+    text: &str,
+    fonts: &BTreeMap<String, Vec<u8>>,
+    copy: bool,
+    force: bool,
+) -> Result<(Themed, Write), OpsError> {
+    let mut parsed: serde_json::Value = serde_json::from_str(text).with_context(|| format!("{rel} is not JSON"))?;
+    let mut mapped = Vec::new();
+    let mut added = BTreeMap::new();
+    for (key, family) in parsed.pointer_mut("/type/families").and_then(|f| f.as_object_mut()).into_iter().flatten() {
+        let Some(name) = family["family"].as_str().map(String::from) else { continue };
+        // The family's own face, and its italic (PLAN 2.40).
+        for italic in [false, true] {
+            let face = if italic { family.get_mut("italic") } else { Some(&mut *family) };
+            let Some(face) = face else { continue };
+            let Some(file) = face.get("file").and_then(|f| f.as_str()).map(String::from) else { continue };
+            if b.files.exists(&file) {
+                continue;
+            }
+            let held = (b.deck.fonts.iter()).find(|f| {
+                f.family == name && (f.style.as_deref() == Some("italic")) == italic && b.files.exists(&f.file)
+            });
+            if let Some(font) = held {
+                let what = if italic { " italic" } else { "" };
+                mapped.push(format!("family `{key}`{what}: {file} → {}", font.file));
+                face["file"] = serde_json::Value::String(font.file.clone());
+            } else if let Some(bytes) = fonts.get(&file) {
+                added.insert(file, bytes.clone());
+            }
+        }
+    }
+    let text = match mapped.is_empty() {
+        true => text.to_string(),
+        false => serde_json::to_string_pretty(&parsed)? + "\n",
+    };
     let was = match &b.deck.theme {
         Some(serde_json::Value::String(path)) => Some(path.clone()),
         Some(_) => Some("(inline)".to_string()),
         None => None,
     };
+    let held = |file: &str| b.files.exists(file) || added.contains_key(file);
 
     let before = lint(b)?.findings;
     let mut deck = b.deck.clone();
-    deck.theme = Some(serde_json::Value::String(rel.clone()));
+    deck.theme = Some(serde_json::Value::String(rel.to_string()));
     let mut listed = Vec::new();
     for (key, family) in parsed.pointer("/type/families").and_then(|f| f.as_object()).into_iter().flatten() {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        if b.files.exists(file) && !deck.fonts.iter().any(|f| f.file == file) {
-            listed.push(format!("family `{key}`: {file}"));
-            let axes = serde_json::from_value(family["axes"].clone()).ok();
-            deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style: None, axes });
+        let Some(name) = family["family"].as_str() else { continue };
+        for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
+            let Some(file) = face["file"].as_str() else { continue };
+            if held(file) && !deck.fonts.iter().any(|f| f.file == file) {
+                let what = if style.is_some() { " italic" } else { "" };
+                listed.push(format!("family `{key}`{what}: {file}"));
+                let axes = serde_json::from_value(face["axes"].clone()).ok();
+                let style = style.map(String::from);
+                deck.fonts.push(FontRef { family: name.into(), file: file.into(), weight: None, style, axes });
+            }
         }
     }
-    let view = View::of(b).with(rel.clone(), text.clone().into_bytes());
+    let mut view = View::of(b).with(rel, text.clone().into_bytes());
+    for (path, bytes) in &added {
+        view = view.with(path.clone(), bytes.clone());
+    }
     let after = lint_in(&deck, &view)?.findings;
 
     let states: Vec<&str> = b.deck.states.iter().map(|s| s.id.as_str()).collect();
     let invalid = validate_bundle(&b.deck.to_json()?, &View::of(b))?;
     let invalid_after = validate_bundle(&deck.to_json()?, &view)?;
     let refused = !force && !delta(&invalid, &states, &invalid_after, &states, &[]).added.is_empty();
-    let Delta { added, removed } = delta(&before, &states, &after, &states, &[]);
-    let (added, removed) = (added.into_iter().cloned().collect(), removed.into_iter().cloned().collect());
-    if !dry_run {
-        let mut files = BTreeMap::new();
-        if inside.is_none() || !mapped.is_empty() {
-            files.insert(rel.clone(), text.into_bytes());
-        }
-        if !refused {
-            write_deck(b, &deck, files, &Why::new(format!("theme --apply {rel}")))?;
-        } else if !files.is_empty() {
-            // The theme, copied in; the deck keeps the one it names.
-            b.write(&files).with_context(|| format!("writing {}", b.root.display()))?;
-        }
+    let Delta { added: worse, removed: better } = delta(&before, &states, &after, &states, &[]);
+    let (worse, better) = (worse.into_iter().cloned().collect(), better.into_iter().cloned().collect());
+    let mut files = added;
+    if copy || !mapped.is_empty() {
+        files.insert(rel.to_string(), text.into_bytes());
     }
-    Ok(Themed {
-        theme: rel,
+    let themed = Themed {
+        theme: rel.to_string(),
         was,
-        applied: !dry_run && !refused,
+        applied: !refused,
         mapped,
         listed,
-        added,
-        removed,
+        added: worse,
+        removed: better,
         errors: errors(&after),
         refused,
-    })
+    };
+    let deck = if refused { b.deck.clone() } else { deck };
+    Ok((themed, Write { deck, files, why: Why::new(format!("theme --apply {rel}")) }))
 }

@@ -20,10 +20,12 @@
 //! - [`reading`] — how a deck reads to someone who hears it: each node's part, and a state as
 //!   HTML (SPEC §3.12), for a tagged PDF, a single file, and the web player.
 //! - [`spine`] — the spine projection the pipelines beyond the deck read (SPEC §10).
+//! - [`sort`] — stable sorts that share one compiled merge sort, for the browser's module.
 //! - [`validate`] — semantic validation (ids, references), surfaced as lint findings.
 //!
 //! Invariant: nothing in this crate reads a clock, a font, or the filesystem.
 
+pub mod choices;
 pub mod color;
 pub mod data;
 pub mod displaylist;
@@ -32,11 +34,14 @@ pub mod dsl;
 pub mod expr;
 pub mod format;
 pub mod ids;
+pub mod inserts;
+pub mod layers;
 pub mod lint;
 pub mod model;
 pub mod patch;
 pub mod reading;
 pub mod shader;
+pub mod sort;
 pub mod spine;
 pub mod timeline;
 pub mod tracking;
@@ -49,7 +54,7 @@ pub use tracking::{Snapshot, resolve_states};
 
 /// The `deck.json` format version this crate reads and writes (its `scaena` key). Bump per
 /// SPEC §3.1; `docs/schema/deck.schema.json` takes its `$id` and version pattern from it.
-pub const FORMAT_VERSION: &str = "0.10";
+pub const FORMAT_VERSION: &str = "0.11";
 
 /// The theme format version (a theme's `scaena-theme` key), versioned apart from decks.
-pub const THEME_FORMAT_VERSION: &str = "0.8";
+pub const THEME_FORMAT_VERSION: &str = "0.9";

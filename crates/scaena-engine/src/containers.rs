@@ -138,7 +138,7 @@ pub fn place(
     }
     let index = |id: &str| snap.nodes[id].get("at").and_then(|at| at.get("index")).and_then(Value::as_u64);
     for kids in children.values_mut() {
-        kids.sort_by_key(|id| (index(id).unwrap_or(0), order_of(id)));
+        scaena_core::sort::by_key(kids, |id| (index(id).unwrap_or(0), order_of(id)));
     }
     let z = |id: &str| snap.nodes[id].get("z").and_then(Value::as_i64).unwrap_or(0);
     let mut stack: Vec<(&str, Vec<(i64, usize)>)> = snap
@@ -148,7 +148,7 @@ pub fn place(
         .map(|id| (id.as_str(), vec![(z(id), order_of(id))]))
         .collect();
     // Depth first: popping from the end, so push in reverse paint order.
-    stack.sort_by(|a, b| b.1.cmp(&a.1));
+    scaena_core::sort::by(&mut stack, |a, b| b.1.cmp(&a.1));
     while let Some((id, key)) = stack.pop() {
         let mut kids: Vec<(&str, Vec<(i64, usize)>)> = children
             .get(id)
@@ -160,7 +160,7 @@ pub fn place(
                 (*kid, k)
             })
             .collect();
-        kids.sort_by(|a, b| b.1.cmp(&a.1));
+        scaena_core::sort::by(&mut kids, |a, b| b.1.cmp(&a.1));
         placement.order.push((id.to_string(), key));
         stack.extend(kids);
     }

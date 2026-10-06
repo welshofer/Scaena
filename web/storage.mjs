@@ -102,7 +102,8 @@ try {
   check(new URL(page.url()).searchParams.get("bundle") === "opfs:revenue", `the address names it: ${page.url()}`);
   const kept = await listing(page, "bundles/revenue");
   const fonts = Object.keys(kept).filter((p) => p.startsWith("fonts/"));
-  check(fonts.length === 3 && fonts.every((p) => /^fonts\/[A-Za-z]+-[0-9a-f]{16}\.ttf$/.test(p)), `its fonts are named by their content: ${fonts}`);
+  // Each family's font, and its italic's (PLAN 2.40).
+  check(fonts.length === 6 && fonts.every((p) => /^fonts\/[A-Za-z]+(-Italic)?-[0-9a-f]{16}\.ttf$/.test(p)) && fonts.filter((p) => p.includes("-Italic-")).length === 3, `its fonts are named by their content: ${fonts}`);
   check(["deck.json", "manifest.json", "data/q3-revenue.csv", "themes/dusk.theme.json"].every((p) => p in kept), `it holds its deck, manifest, data, and theme: ${Object.keys(kept)}`);
   check((await listing(page, "bundles/revenue", "deck.json")).includes("Revenue more than doubled"), "the edit is in its deck");
   const after = await page.evaluate(() => window.scaena.source());
@@ -111,7 +112,11 @@ try {
 
   await page.reload();
   await ready("revenue");
-  check((await page.evaluate(() => window.scaena.source())) === after, "reloaded, the page opens it from the browser's storage as it was saved");
+  // A save renames the fonts in the source as it was typed; reloaded, the page prints the deck
+  // as canonical source, which wraps a line the new names made long. The same words, in order.
+  const words = (text) => text.split(/\s+/).join(" ");
+  const reopened = await page.evaluate(() => window.scaena.source());
+  check(words(reopened) === words(after), "reloaded, the page opens it from the browser's storage as it was saved");
 
   const player = await context.newPage();
   await player.goto(`${server.origin}/web/dist/?painter=cpu&bundle=opfs:revenue`);
@@ -163,7 +168,7 @@ try {
   const subset = Object.keys(await listing(page, "bundles/downloaded")).filter((p) => p.startsWith("fonts/"));
   // The repository's example fonts are subset to the examples' text already, so a subset is
   // about their size; it is other bytes, under another name.
-  check(subset.length === 3 && subset.every((p) => !fonts.includes(p)), `its fonts are the subsetter's, named by their content: ${subset}`);
+  check(subset.length === 6 && subset.every((p) => !fonts.includes(p)), `its fonts are the subsetter's, named by their content: ${subset}`);
 
   // A damaged font stops the subsetter's module, a panic in it a trap the worker catches: the
   // download says which font, and with the font whole again the next one goes through (PLAN
@@ -217,7 +222,7 @@ try {
   check((await where()).where?.kind === "folder", "a folder opens as a folder");
   const inPlace = await page.evaluate(() => window.scaena.save());
   const plain = await listing(page, "plain");
-  check(inPlace?.renamed.length === 3, `a save names its fonts by their content: ${JSON.stringify(inPlace?.renamed)}`);
+  check(inPlace?.renamed.length === 6, `a save names its fonts by their content: ${JSON.stringify(inPlace?.renamed)}`);
   check(!("fonts/Inter-VF.ttf" in plain) && Object.keys(plain).some((p) => /^fonts\/Inter-[0-9a-f]{16}\.ttf$/.test(p)), `and removes the old names: ${Object.keys(plain)}`);
 } catch (e) {
   failures.push(String(e));

@@ -9,8 +9,8 @@
 //!
 //! Claude Code keeps an MCP result over 25,000 tokens in a file (`MAX_MCP_OUTPUT_TOKENS`),
 //! out of reach of an agent with no tools for files. So every resource arrives whole, under
-//! [`LIMIT`] as `resources/read` returns it: SPEC is served by section, a schema too large
-//! for that in parts, and JSON without its whitespace.
+//! [`LIMIT`] as `resources/read` returns it: SPEC is served by section, subsection, and
+//! part, a schema too large for that in parts, and JSON without its whitespace.
 
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -405,50 +405,61 @@ fn relink(v: &mut Value, elsewhere: &dyn Fn(&str) -> Option<String>) {
 
 // --- SPEC, by section -----------------------------------------------------------------
 
-/// A numbered heading of SPEC: its number (`3`, `3.7`), its title, and its text, the
-/// heading's line first.
+/// The levels of SPEC's numbered headings: a section, its subsections, and their parts.
+const LEVELS: [&str; 3] = ["## ", "### ", "#### "];
+
+/// A numbered heading of SPEC: its number (`3`, `3.7`, `9.2.4`), its title, and its text, the
+/// heading's line first; its numbered parts, the headings a level down, and how much of its
+/// text comes before the first of them.
 struct Heading {
     number: String,
     title: String,
     text: String,
-}
-
-/// A section of SPEC: its heading, its numbered subsections, and how much of its text comes
-/// before the first of them.
-struct Section {
-    heading: Heading,
-    subsections: Vec<Heading>,
+    parts: Vec<Heading>,
     intro: usize,
 }
 
+impl Heading {
+    fn new(number: String, title: String, line: &str) -> Heading {
+        Heading { number, title, text: line.into(), parts: vec![], intro: line.len() }
+    }
+
+    /// The next line of this heading's text, at `level` of [`LEVELS`] below it: a part of its
+    /// own where the line is a numbered heading under this one's number, else its last part's
+    /// next line, or, before its first part, its intro's.
+    fn push(&mut self, line: &str, level: usize, fenced: bool) {
+        self.text.push_str(line);
+        let part = LEVELS
+            .get(level)
+            .filter(|_| !fenced)
+            .and_then(|at| numbered(line, at))
+            .filter(|(number, _)| number.starts_with(&format!("{}.", self.number)));
+        if let Some((number, title)) = part {
+            self.parts.push(Heading::new(number, title, line));
+        } else if let Some(last) = self.parts.last_mut() {
+            last.push(line, level + 1, fenced);
+        } else {
+            self.intro = self.text.len();
+        }
+    }
+}
+
 /// What comes before SPEC's first section, and its sections.
-fn sections(spec: &str) -> (String, Vec<Section>) {
+fn sections(spec: &str) -> (String, Vec<Heading>) {
     let mut preamble = String::new();
-    let mut out: Vec<Section> = vec![];
+    let mut out: Vec<Heading> = vec![];
     let mut fenced = false;
     for line in spec.split_inclusive('\n') {
         if line.starts_with("```") {
             fenced = !fenced;
         }
-        if !fenced && let Some((number, title)) = numbered(line, "## ") {
-            let text = line.to_string();
-            out.push(Section { intro: text.len(), heading: Heading { number, title, text }, subsections: vec![] });
+        if !fenced && let Some((number, title)) = numbered(line, LEVELS[0]) {
+            out.push(Heading::new(number, title, line));
             continue;
         }
-        let Some(section) = out.last_mut() else {
-            preamble.push_str(line);
-            continue;
-        };
-        section.heading.text.push_str(line);
-        if !fenced
-            && let Some((number, title)) = numbered(line, "### ")
-            && number.starts_with(&format!("{}.", section.heading.number))
-        {
-            section.subsections.push(Heading { number, title, text: line.into() });
-        } else if let Some(sub) = section.subsections.last_mut() {
-            sub.text.push_str(line);
-        } else {
-            section.intro = section.heading.text.len();
+        match out.last_mut() {
+            Some(section) => section.push(line, 1, fenced),
+            None => preamble.push_str(line),
         }
     }
     (preamble, out)
@@ -465,48 +476,21 @@ fn numbered(line: &str, level: &str) -> Option<(String, String)> {
         .then(|| (number.to_string(), title.trim().to_string()))
 }
 
-/// SPEC by section: `scaena://spec` is its index, `scaena://spec/3` its §3, and
-/// `scaena://spec/3.7` its §3.7. A section too large to arrive whole holds its text up to
-/// its first subsection, then the uris of its subsections, which are listed too.
+/// SPEC by section: `scaena://spec` is its index, `scaena://spec/3` its §3,
+/// `scaena://spec/3.7` its §3.7, and `scaena://spec/9.2.4` a part of §9.2. A section too large
+/// to arrive whole holds its text up to its first subsection, then the uris of its subsections,
+/// which are listed too; and a subsection too large, its parts.
 fn spec(text: &str) -> Vec<Served> {
     let (preamble, sections) = sections(text);
     let mut index = preamble.trim_end().to_string();
     index.push_str(
         "\n\nThis is the index of the specification. Each section is a resource, and so is each numbered \
-         subsection: `scaena://spec/3.7` is §3.7.\n\n",
+         subsection and part: `scaena://spec/3.7` is §3.7.\n\n",
     );
     let mut out = vec![];
-    for Section { heading, subsections, intro } in &sections {
-        let uri = format!("scaena://spec/{}", heading.number);
-        index.push_str(&format!("- §{} {}: `{uri}`\n", heading.number, heading.title));
-        for sub in subsections {
-            index.push_str(&format!("  - §{} {}: `scaena://spec/{}`\n", sub.number, sub.title, sub.number));
-        }
-        let whole = weight(&heading.text) <= LIMIT || subsections.is_empty();
-        let text = if whole {
-            heading.text.clone()
-        } else {
-            let mut text = heading.text[..*intro].to_string();
-            text.push_str("This section is served by subsection:\n\n");
-            for sub in subsections {
-                text.push_str(&format!("- §{} {}: `scaena://spec/{}`\n", sub.number, sub.title, sub.number));
-            }
-            text
-        };
-        out.push(Served {
-            uri,
-            name: format!("SPEC §{} {}", heading.number, heading.title),
-            mime: MARKDOWN,
-            text,
-            listed: true,
-        });
-        out.extend(subsections.iter().map(|sub| Served {
-            uri: format!("scaena://spec/{}", sub.number),
-            name: format!("SPEC §{} {}", sub.number, sub.title),
-            mime: MARKDOWN,
-            text: sub.text.clone(),
-            listed: !whole,
-        }));
+    for section in &sections {
+        indexed(section, 0, &mut index);
+        serve(section, 0, true, &mut out);
     }
     out.insert(
         0,
@@ -515,9 +499,96 @@ fn spec(text: &str) -> Vec<Served> {
     out
 }
 
+/// What a heading too large to arrive whole says before the uris of what it is served by, at
+/// each depth: a section, its subsections; a subsection, its parts.
+const SERVED_BY: [&str; 2] = ["This section is served by subsection:\n\n", "This subsection is served by part:\n\n"];
+
+/// `heading` in SPEC's index, and its parts under it.
+fn indexed(heading: &Heading, depth: usize, index: &mut String) {
+    let indent = "  ".repeat(depth);
+    index.push_str(&format!("{indent}- §{} {}: `scaena://spec/{}`\n", heading.number, heading.title, heading.number));
+    for part in &heading.parts {
+        indexed(part, depth + 1, index);
+    }
+}
+
+/// `heading` as a resource, `listed` or not, then each of its parts: its text whole where it
+/// arrives whole or has no parts; else its text up to its first part, then their uris, and the
+/// parts are listed. A part is a resource of its own either way.
+fn serve(heading: &Heading, depth: usize, listed: bool, out: &mut Vec<Served>) {
+    let whole = weight(&heading.text) <= LIMIT || heading.parts.is_empty();
+    let text = if whole {
+        heading.text.clone()
+    } else {
+        let mut text = heading.text[..heading.intro].to_string();
+        text.push_str(SERVED_BY[depth.min(SERVED_BY.len() - 1)]);
+        for part in &heading.parts {
+            text.push_str(&format!("- §{} {}: `scaena://spec/{}`\n", part.number, part.title, part.number));
+        }
+        text
+    };
+    out.push(Served {
+        uri: format!("scaena://spec/{}", heading.number),
+        name: format!("SPEC §{} {}", heading.number, heading.title),
+        mime: MARKDOWN,
+        text,
+        listed,
+    });
+    for part in &heading.parts {
+        serve(part, depth + 1, !whole, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A subsection too large to arrive whole is served by its parts, as a section is by its
+    /// subsections, and the parts are listed; every heading is a resource of its own, and the
+    /// text each holds, read in order, is SPEC's.
+    #[test]
+    fn a_subsection_too_large_is_served_by_part() {
+        let words = |n: usize| "word ".repeat(n / 5) + "\n";
+        let text = format!(
+            "# SPEC\n\n## 1. One\n\nIntro.\n\n### 1.1 Small\n\n{}### 1.2 Large\n\n{}#### 1.2.1 First\n\n{}#### 1.2.2 Second\n\n{}## 2. Two\n\n{}",
+            words(100),
+            words(200),
+            words(LIMIT / 2),
+            words(LIMIT / 2),
+            words(100),
+        );
+        let served = spec(&text);
+        let at = |uri: &str| served.iter().find(|s| s.uri == uri).unwrap_or_else(|| panic!("{uri}"));
+        assert!(at("scaena://spec/1").text.contains(SERVED_BY[0]), "§1 by subsection");
+        assert!(at("scaena://spec/1.2").text.contains(SERVED_BY[1]), "§1.2 by part");
+        assert!(at("scaena://spec/1.2").text.ends_with("- §1.2.2 Second: `scaena://spec/1.2.2`\n"));
+        assert!(at("scaena://spec/1.2.1").listed && at("scaena://spec/1.2").listed && at("scaena://spec/1.1").listed);
+        assert!(!at("scaena://spec/1.1").text.contains(SERVED_BY[1]), "a small one arrives whole");
+        assert!(at("scaena://spec/2").listed && !at("scaena://spec/2").text.contains(SERVED_BY[0]));
+        for s in &served {
+            assert!(weight(&s.text) <= LIMIT, "{} weighs {}", s.uri, weight(&s.text));
+        }
+        // Read in order, intro then what it is served by, the resources are SPEC after its
+        // preamble.
+        fn whole(served: &[Served], uri: &str) -> String {
+            let text = &served.iter().find(|s| s.uri == uri).unwrap().text;
+            match SERVED_BY.iter().find_map(|by| text.split_once(by)) {
+                None => text.clone(),
+                Some((intro, rest)) => {
+                    let uris = rest.split('`').skip(1).step_by(2);
+                    intro.to_string() + &uris.map(|u| whole(served, u)).collect::<String>()
+                }
+            }
+        }
+        let rebuilt = whole(&served, "scaena://spec/1") + &whole(&served, "scaena://spec/2");
+        assert!(rebuilt == text[text.find("## 1.").unwrap()..], "nothing is lost");
+        // The index names every heading, each under the one it is part of.
+        let index = &at("scaena://spec").text;
+        assert!(
+            index.contains("\n  - §1.2 Large: `scaena://spec/1.2`\n    - §1.2.1 First: `scaena://spec/1.2.1`\n"),
+            "{index}"
+        );
+    }
 
     /// The module a page loads lists what `resources/list` lists and reads what
     /// `resources/read` reads.

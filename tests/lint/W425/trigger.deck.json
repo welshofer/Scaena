@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "_comment": "W425 trigger: two beats in a row claim the same thing.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -1,18 +1,27 @@
 // One canvas and the engine's worker that paints it (PLAN 2.1–2.4): the page's side of
 // `protocol.ts`. The player shows one; the presenter view, two; the editor, one.
 import type {
+  Added,
+  Arrange,
+  Arranged,
   Asking,
   AssistantEvent,
   At,
   Edited,
+  Found,
   FromWorker,
+  Grouped,
   Hit,
+  Insert,
   Inspected,
+  Layer,
   Linted,
   NodeBox,
   Opened,
   Painter,
+  Pasted,
   ProviderId,
+  Query,
   Rect,
   SaveTo,
   Slot,
@@ -20,8 +29,13 @@ import type {
   SnapMode,
   Source,
   Targets,
+  Themed,
+  Themes,
+  Thumb,
   ToWorker,
   Carets,
+  Choices,
+  StateChoices,
 } from "./protocol";
 
 type Reply = Extract<
@@ -44,12 +58,33 @@ type Reply = Extract<
       | "reloaded"
       | "boxes"
       | "hits"
+      | "viewed"
+      | "focal"
+      | "found"
+      | "replacement"
       | "targets"
       | "dragged"
-      | "placed"
+      | "arranged"
+      | "grouped"
+      | "made"
+      | "choices"
+      | "stateChoices"
       | "carets"
+      | "characterChoices"
+      | "bolding"
+      | "italicizing"
+      | "themes"
+      | "rethemed"
       | "reached"
-      | "typed";
+      | "typed"
+      | "inserts"
+      | "layers"
+      | "adding"
+      | "deleting"
+      | "copied"
+      | "pasted"
+      | "thumbnails"
+      | "addingState";
   }
 >;
 
@@ -140,9 +175,10 @@ export class Stage {
   }
 
   /** Play from slot `index`, `t` ms into its cue, until a state that waits comes to rest:
-   * `still`, each cue a cut to its state at rest, at the deck's pace (PLAN 2.8). */
-  run(index: number, t = 0, format?: string, still?: boolean) {
-    this.send({ type: "run", index, t, format, still });
+   * `still`, each cue a cut to its state at rest, at the deck's pace (PLAN 2.8); `alone`, that
+   * slot's cue alone, coming to rest at its end (PLAN 2.44). */
+  run(index: number, t = 0, format?: string, still?: boolean, alone?: boolean) {
+    this.send({ type: "run", index, t, format, still, alone });
   }
 
   /** Show slot `index` `t` ms into its cue (at rest without `t`), still. Resolves once it is
@@ -205,6 +241,33 @@ export class Stage {
     return this.request<"hits">({ type: "hit", id: ++this.asked, state, point, format }).then(({ hits }) => hits);
   }
 
+  /** Paint the preview through `view`, `[x, y, w, h]` canvas units: the part of the canvas a
+   * zoomed editor shows, at the size shown; the whole canvas with none (PLAN 2.46). Resolves once
+   * what is shown is painted so. */
+  view(view: [number, number, number, number] | undefined): Promise<void> {
+    return this.request<"viewed">({ type: "view", id: ++this.asked, view: view ?? null }).then(() => {});
+  }
+
+  /** Each text of the deck `source` compiles to that `query` matches, once for each place it is
+   * written, with the states that show it from there (PLAN 2.47). */
+  find(source: string, query: Query): Promise<Found[]> {
+    return this.request<"found">({ type: "find", id: ++this.asked, source, query }).then(({ found }) => found);
+  }
+
+  /** The patch that replaces what `query` matches in the deck `source` compiles to with `with`:
+   * every match, a `replace_text` where each text lives, or with `one`, `[text, match]` into
+   * what `find` gives, that match alone (PLAN 2.47). */
+  replacing(source: string, query: Query, with_: string, one?: [number, number]): Promise<unknown[]> {
+    return this.request<"replacement">({ type: "replacing", id: ++this.asked, source, query, with: with_, one }).then(({ ops }) => ops);
+  }
+
+  /** The point of image `node` under `point` in `state` at rest, in the deck `source` compiles
+   * to: fractions of its crop, which a focal point picked there names; `null` off the image
+   * (PLAN 2.45). */
+  focalAt(source: string, state: string, node: string, point: [number, number], format?: string): Promise<[number, number] | null> {
+    return this.request<"focal">({ type: "focalAt", id: ++this.asked, source, state, node, point, format }).then(({ at }) => at);
+  }
+
   /** Where `node` may go in `state` at rest. */
   targets(state: string, node: string, format?: string): Promise<Targets> {
     return this.request<"targets">({ type: "targets", id: ++this.asked, state, node, format }).then(({ targets }) => targets);
@@ -215,10 +278,23 @@ export class Stage {
   drag(
     state: string,
     node: string,
-    move: { by?: [number, number]; snap?: { how: SnapMode; to: Rect; fork: boolean }; preview?: boolean },
+    move: {
+      by?: [number, number];
+      snap?: { how: SnapMode; to: Rect; fork: boolean };
+      with?: string[];
+      together?: { by: [number, number]; free: boolean; fork: boolean };
+      preview?: boolean;
+    },
     format?: string,
   ): Promise<{ snapped?: Snapped | null; states?: string[] }> {
     return this.request<"dragged">({ type: "drag", id: ++this.asked, state, node, ...move, format });
+  }
+
+  /** `nodes`, children of one container, arranged `how` in `state` at rest (PLAN 2.42): where each
+   * lands and the patch that puts them there, kept to the state to `fork` it; `null` where nothing
+   * moves them so. */
+  arranging(state: string, nodes: string[], how: Arrange, fork: boolean, format?: string): Promise<Arranged | null> {
+    return this.request<"arranged">({ type: "arrange", id: ++this.asked, state, nodes, how, fork, format }).then(({ arranged }) => arranged);
   }
 
   /** A drag is over and changes nothing: `state` at rest as it stands. */
@@ -228,8 +304,8 @@ export class Stage {
 
   /** Make `ops` by the user on the deck `source` compiles to, and show slot `index` from it: the
    * deck's source after, and what the edit came to. */
-  place(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
-    return this.request<"placed">({ type: "place", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
+  make(source: string, ops: unknown[], index: number, format?: string): Promise<{ source: string; edited: Edited }> {
+    return this.request<"made">({ type: "make", id: ++this.asked, source, ops, index, format }).then(({ source, edited }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
@@ -244,9 +320,135 @@ export class Stage {
     return this.request<"carets">({ type: "carets", id: ++this.asked, source, state, node, format }).then(({ carets }) => carets);
   }
 
+  /** What an inspector offers for `node` as `state` shows it (PLAN 2.33): each property it edits,
+   * the value shown and where it lives, and the theme's names for it. */
+  choices(state: string, node: string): Promise<Choices> {
+    return this.request<"choices">({ type: "choices", id: ++this.asked, state, node }).then(({ choices }) => choices);
+  }
+
+  /** What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+   * `node`'s text as `state` shows it (PLAN 2.38): the looks a run takes, with the first
+   * character's, which `style_text` sets. */
+  characterChoices(state: string, node: string, from: number, to: number): Promise<Choices> {
+    const asked = { type: "characterChoices" as const, id: ++this.asked, state, node, from, to };
+    return this.request<"characterChoices">(asked).then(({ choices }) => choices);
+  }
+
+  /** What ⌘B gives the characters `from` to `to` (Unicode scalar values) of `node`'s text in
+   * `state`, on the deck the editor's `source` compiles to (PLAN 2.38): `style_text`'s `look`. */
+  bolding(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
+    const asked = { type: "bolding" as const, id: ++this.asked, source, state, node, from, to, format };
+    return this.request<"bolding">(asked).then(({ look }) => look);
+  }
+
+  /** What ⌘I gives the characters `from` to `to` of `node`'s text (PLAN 2.40): `style_text`'s
+   * `look`, from whether each of them asks for italic. */
+  italicizing(source: string, state: string, node: string, from: number, to: number, format?: string): Promise<Record<string, unknown>> {
+    const asked = { type: "italicizing" as const, id: ++this.asked, source, state, node, from, to, format };
+    return this.request<"italicizing">(asked).then(({ look }) => look);
+  }
+
+  /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
+  themes(): Promise<Themes> {
+    return this.request<"themes">({ type: "themes", id: ++this.asked }).then(({ themes }) => themes);
+  }
+
+  /** The deck `source` compiles to in another theme (PLAN 2.39): one that ships, by its name, or
+   * one the bundle holds, by its path. What it did, and unless it was refused, the deck's source
+   * now and what the edit came to. */
+  retheme(
+    source: string,
+    theme: { ships: string } | { path: string },
+    index: number,
+    format?: string,
+  ): Promise<{ themed: Themed; source?: string; edited?: Edited }> {
+    const asked = { type: "retheme" as const, id: ++this.asked, source, theme, index, format };
+    return this.request<"rethemed">(asked).then(({ themed, source, edited }) => {
+      if (edited?.at) {
+        this.at = edited.at;
+        this.onAt(edited.at);
+      }
+      return { themed, source, edited };
+    });
+  }
+
+  /** What an inspector offers for `state` itself (PLAN 2.36): its layout, each key of its
+   * transition, its hold, and its notes, each with its value and where it lives. */
+  stateChoices(state: string): Promise<StateChoices> {
+    return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
+  }
+
   /** The states `ops` (a patch) would change, by id, with nothing made. */
   reach(ops: unknown[]): Promise<string[]> {
     return this.request<"reached">({ type: "reach", id: ++this.asked, ops }).then(({ states }) => states);
+  }
+
+  /** `state`'s layers (PLAN 2.50): its nodes in paint order, nested as their containers and groups
+   * hold them, with those it does not show that leave in it or that another state of its slide
+   * shows. */
+  layers(state: string): Promise<Layer[]> {
+    return this.request<"layers">({ type: "layers", id: ++this.asked, state }).then(({ layers }) => layers);
+  }
+
+  /** What may be inserted in the deck (PLAN 2.34): a text in each of the theme's roles, each kind
+   * of shape, each image in the bundle, and each shader preset. */
+  inserts(): Promise<Insert[]> {
+    return this.request<"inserts">({ type: "inserts", id: ++this.asked }).then(({ inserts }) => inserts);
+  }
+
+  /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
+   * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
+  inserting(source: string, state: string, n: number, at: [number, number], format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format }).then(({ added }) => added);
+  }
+
+  /** The patch that draws what `inserts` offers `n`th, entering in `state`, in the box a drag
+   * from `from` to `to` covers (canvas units): snapped to the theme's grid as a resize snaps, or,
+   * `free`, where it was drawn (PLAN 2.48); on the deck `source` compiles to. */
+  drawing(source: string, state: string, n: number, [from, to]: [[number, number], [number, number]], free: boolean, format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "drawing", id: ++this.asked, source, state, n, from, to, free, format }).then(({ added }) => added);
+  }
+
+  /** The patch that copies `node` beside it in `state`, on the deck `source` compiles to. */
+  duplicating(source: string, state: string, node: string, format?: string): Promise<Added> {
+    return this.request<"adding">({ type: "duplicating", id: ++this.asked, source, state, node, format }).then(({ added }) => added);
+  }
+
+  /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
+   * where they stand, on the deck `source` compiles to (PLAN 2.43): its id and the patch. */
+  grouping(source: string, state: string, nodes: string[]): Promise<Grouped> {
+    return this.request<"grouped">({ type: "grouping", id: ++this.asked, source, state, nodes }).then(({ grouped }) => grouped);
+  }
+
+  /** What the clipboard holds of `nodes` as `state` shows them, on the deck `source` compiles to
+   * (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
+  copying(source: string, state: string, nodes: string[], format?: string): Promise<string> {
+    return this.request<"copied">({ type: "copying", id: ++this.asked, source, state, nodes, format }).then(({ clip }) => clip);
+  }
+
+  /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
+   * units), on the deck `source` compiles to (PLAN 2.37). The files it carries are in the bundle
+   * once it answers. */
+  pasting(source: string, state: string, clip: string, at: [number, number], format?: string): Promise<Pasted> {
+    return this.request<"pasted">({ type: "pasting", id: ++this.asked, source, state, clip, at, format }).then(({ pasted }) => pasted);
+  }
+
+  /** Each state at rest, `height` pixels high, in `format`, for the state strip (PLAN 2.35): with
+   * pixels where its drawing is not the one `known` holds. */
+  thumbnails(height: number, known: Record<string, string>, format?: string): Promise<Thumb[]> {
+    return this.request<"thumbnails">({ type: "thumbnails", id: ++this.asked, height, known, format }).then(({ thumbs }) => thumbs);
+  }
+
+  /** The patch that adds a state after `state`, a `step` of its slide or a `slide` of its own, on
+   * the deck `source` compiles to (PLAN 2.35). */
+  addingState(source: string, state: string, what: "step" | "slide"): Promise<{ id: string; patch: unknown[] }> {
+    return this.request<"addingState">({ type: "addingState", id: ++this.asked, source, state, what }).then(({ added }) => added);
+  }
+
+  /** The patch that takes `node`, with what it holds, out of `state` and the states after it, or,
+   * `everywhere`, out of the deck, on the deck `source` compiles to. */
+  deleting(source: string, state: string, node: string, everywhere: boolean): Promise<unknown[]> {
+    return this.request<"deleting">({ type: "deleting", id: ++this.asked, source, state, node, everywhere }).then(({ patch }) => patch);
   }
 
   /** Make `ops`, typed on the canvas, by the user on the deck `source` compiles to, and show slot
@@ -381,12 +583,33 @@ export class Stage {
       case "reloaded":
       case "boxes":
       case "hits":
+      case "viewed":
+      case "focal":
+      case "found":
+      case "replacement":
       case "targets":
       case "dragged":
-      case "placed":
+      case "arranged":
+      case "grouped":
+      case "made":
+      case "choices":
+      case "stateChoices":
       case "carets":
+      case "characterChoices":
+      case "bolding":
+      case "italicizing":
+      case "themes":
+      case "rethemed":
       case "reached":
       case "typed":
+      case "inserts":
+      case "layers":
+      case "adding":
+      case "deleting":
+      case "copied":
+      case "pasted":
+      case "thumbnails":
+      case "addingState":
         this.waiting.get(data.id)?.resolve(data);
         this.waiting.delete(data.id);
         return;
@@ -415,6 +638,11 @@ export class Stage {
         return this.help(data.count);
       case "ready":
         return;
+      default: {
+        // A reply the switch does not name would leave its request waiting: the compiler says so.
+        const unheard: never = data;
+        return unheard;
+      }
     }
   }
 }

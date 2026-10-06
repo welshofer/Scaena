@@ -109,6 +109,41 @@ pub fn lives(deck: &Deck, i: usize, node: &str, prop: &str, keys: &[&str]) -> Li
     Lives::Node
 }
 
+/// Where `deck.states[i]` gets its layout template from, which tracks like a property: the
+/// latest state that sets one, from state `i` back along what it tracks. `None` where none
+/// does.
+pub fn layout_lives(deck: &Deck, i: usize) -> Option<usize> {
+    let mut at = Some(i);
+    while let Some(j) = at {
+        if deck.states[j].layout.is_some() {
+            return Some(j);
+        }
+        // A state tracks from one before it; a `from` that does not is an error resolving.
+        at = tracks_from(deck, j).filter(|&k| k < j);
+    }
+    None
+}
+
+/// The states that take their layout from state `w`, were it to set one: `w`, and each state
+/// whose way back along what it tracks reaches `w` before a state that sets one.
+pub fn layout_takers(deck: &Deck, w: usize) -> Vec<usize> {
+    (0..deck.states.len())
+        .filter(|&j| {
+            let mut at = Some(j);
+            while let Some(k) = at {
+                if k == w {
+                    return true;
+                }
+                if deck.states[k].layout.is_some() {
+                    return false;
+                }
+                at = tracks_from(deck, k).filter(|&back| back < k);
+            }
+            false
+        })
+        .collect()
+}
+
 fn strip_non_tracking(nodes: &IndexMap<String, Props>) -> IndexMap<String, Props> {
     nodes
         .iter()
@@ -165,7 +200,8 @@ fn apply_state(
 /// Shallow-merge `delta` into `base`: top-level keys replace; object values merge
 /// one level (so `at: {col}` can override just `col`); `null` deletes a key. An object
 /// with nothing to merge into is taken as it is, less the keys it deletes. Deletes keep
-/// the order of what remains.
+/// the order of what remains. A text's `text` and `runs` are one property written two
+/// ways: a delta that sets either takes the other away.
 pub fn merge_props(base: &mut Props, delta: &Props) {
     for (k, v) in delta {
         match v {
@@ -188,9 +224,21 @@ pub fn merge_props(base: &mut Props, delta: &Props) {
                 }
             },
             _ => {
+                if let Some(other) = other_spelling(k) {
+                    base.shift_remove(other);
+                }
                 base.insert(k.clone(), v.clone());
             }
         }
+    }
+}
+
+/// The other way a text's words are written: `runs` for `text`, `text` for `runs`.
+pub fn other_spelling(prop: &str) -> Option<&'static str> {
+    match prop {
+        "text" => Some("runs"),
+        "runs" => Some("text"),
+        _ => None,
     }
 }
 
@@ -238,6 +286,24 @@ mod tests {
         let del: Props = serde_json::from_value(json!({"at": {"row": null}})).unwrap();
         merge_props(&mut base, &del);
         assert_eq!(base["at"], json!({"col": [7, 12], "align": "center"}));
+    }
+
+    #[test]
+    fn text_and_runs_are_one_property() {
+        let d = deck(
+            json!({ "t": { "type": "text", "runs": [{ "text": "bold", "style": { "weight": 700 } }] } }),
+            json!([
+                { "id": "a", "props": { "t": {} } },
+                { "id": "b", "props": { "t": { "text": "plain" } } },
+                { "id": "c", "props": { "t": { "runs": [{ "text": "low", "emphasis": "low" }] } } },
+            ]),
+        );
+        let snaps = resolve_states(&d).unwrap();
+        assert!(snaps[0].nodes["t"].contains_key("runs"));
+        assert_eq!(snaps[1].nodes["t"].get("runs"), None, "a state's text is shown over the runs it tracks");
+        assert_eq!(snaps[1].nodes["t"]["text"], json!("plain"));
+        assert_eq!(snaps[2].nodes["t"].get("text"), None, "and its runs over the text");
+        assert_eq!(snaps[2].nodes["t"]["runs"], json!([{ "text": "low", "emphasis": "low" }]));
     }
 
     #[test]

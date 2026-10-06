@@ -11,7 +11,12 @@
 //   to what the textarea holds. One is made at a time, and what is typed meanwhile goes in the
 //   next. A burst of typing is one step to undo, and a run of it one change in the bundle's
 //   history.
-// - Escape, a click outside the text, or focus elsewhere leaves it, the node still selected.
+// - Escape, a click outside the text, or focus elsewhere leaves it, the node still selected;
+//   focus in the inspector keeps it, so a look chosen there goes to the characters selected.
+// - Characters selected take a look (PLAN 2.38): ⌘B makes them bold, or not, as the engine reads
+//   the weight each is set in; ⌘I sets them in italic, or not, as each asks for it (PLAN 2.40); and
+//   a role or a color chosen in the inspector gives them that. Each is one `style_text`, written
+//   where the text lives, one step to undo.
 import type { CaretLine, Carets, Edited, Rect } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -31,8 +36,25 @@ export interface Around {
   draw(): void;
   /** Canvas units to a CSS pixel. */
   unit(): number;
+  /** Where the preview's view begins, canvas units: its top left corner, the canvas's own until it
+   * is zoomed in (PLAN 2.46). */
+  origin(): [number, number];
   /** Where `node` stands in the state shown: its box. */
   box(node: string): Rect | undefined;
+  /** The characters selected in the text typed in are now `selected`, or none are. */
+  chose(selected: Selected | undefined): void;
+  /** Whether focus gone to `to` keeps typing on: the inspector, which gives the characters
+   * selected a look. */
+  keeps(to: EventTarget | null): boolean;
+}
+
+/** Characters selected in a text typed in: from `from` to `to`, Unicode scalar values, as
+ * `style_text` counts them, in `state`. */
+export interface Selected {
+  node: string;
+  state: string;
+  from: number;
+  to: number;
 }
 
 /** A change to a text: the UTF-16 range of what it read that `text` takes the place of. */
@@ -225,8 +247,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
   }
 
   /** Begin typing in `node`, in the state shown, at the caret nearest `point` (the end without
-   * one); `fork` keeps what is typed to that state. False for a node that is no text. */
-  async function enter(node: string, point: [number, number] | undefined, fork: boolean): Promise<boolean> {
+   * one, or with `all` every character selected); `fork` keeps what is typed to that state. False
+   * for a node that is no text. */
+  async function enter(node: string, point: [number, number] | undefined, fork: boolean, all = false): Promise<boolean> {
     const shown = around.shown();
     if (!shown) return false;
     const source = around.source();
@@ -244,7 +267,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (point) {
       const [at, line] = caretNear(found, point);
       put(at, at, line);
-    } else put(found.text.length);
+    } else put(all ? 0 : found.text.length, found.text.length);
     void tellWhere();
     return true;
   }
@@ -261,6 +284,103 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     around.say(`typing in ${now.node} · ${where} · Escape leaves it${now.fork || n < 2 ? "" : `; Alt and a double click keep it to ${now.state}`}`);
   }
 
+  /** The characters selected, if any are. */
+  function selection(): Selected | undefined {
+    if (!open || !carets) return undefined;
+    const { from, to } = caret();
+    if (from === to) return undefined;
+    return { node: open.node, state: open.state, from: points(carets.text, from), to: points(carets.text, to) };
+  }
+
+  /** What the inspector was last told is selected, so it is told again only of a change. */
+  let told: string | undefined;
+  function tell() {
+    const now = selection();
+    const key = now && JSON.stringify(now);
+    if (key === told) return;
+    told = key;
+    around.chose(now);
+  }
+
+  /** Give the characters selected `look` (`style_text`, PLAN 2.38), once what was typed is made:
+   * one step to undo. Whether it was given. */
+  async function style(look: Record<string, unknown>, words?: string): Promise<boolean> {
+    await idle();
+    const now = open;
+    if (now && around.source() !== read) await sync();
+    const chosen = selection();
+    if (!now || !chosen || open !== now) {
+      around.say("select characters in a text to give them a look");
+      return false;
+    }
+    const op = { op: "style_text", node: now.node, state: now.state, from: chosen.from, to: chosen.to, look, ...(now.fork ? { fork: true } : {}) };
+    sending = true;
+    try {
+      const typed = await stage.type(around.source(), [op], { index: now.index, state: now.state, node: now.node }, around.format());
+      around.typed(typed.source, typed.edited, false);
+      made = undefined;
+      if (open === now) {
+        if (!typed.carets) leave();
+        else [carets, read] = [typed.carets, typed.source];
+      }
+      const what = words ?? Object.entries(look).map(([k, v]) => (v === null ? `${k} taken away` : `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`)).join(", ");
+      around.say(`${now.node}, characters ${chosen.from + 1}–${chosen.to}: ${what}`);
+      return true;
+    } catch (e) {
+      around.say(`no look given: ${said(e)}`);
+      return false;
+    } finally {
+      sending = false;
+      around.draw();
+      settle();
+      // The inspector reads the characters' look again.
+      told = undefined;
+      tell();
+    }
+  }
+
+  /** ⌘B: the characters selected bold, or, all bold already, not (PLAN 2.38), as the engine
+   * reads the weight it sets each in. */
+  async function bold(): Promise<boolean> {
+    await idle();
+    const now = open;
+    const chosen = selection();
+    if (!now || !chosen) {
+      around.say("select characters to make them bold");
+      return false;
+    }
+    let look: Record<string, unknown>;
+    try {
+      look = await stage.bolding(around.source(), now.state, now.node, chosen.from, chosen.to, around.format());
+    } catch (e) {
+      around.say(`not bold: ${said(e)}`);
+      return false;
+    }
+    if (open !== now) return false;
+    return style(look, look["style/weight"] === 700 ? "bold" : "not bold");
+  }
+
+  /** ⌘I: the characters selected in italic, or, all italic already, not (PLAN 2.40), as each
+   * asks for it: a family without an italic face sets them upright all the same (W231). */
+  async function italic(): Promise<boolean> {
+    await idle();
+    const now = open;
+    const chosen = selection();
+    if (!now || !chosen) {
+      around.say("select characters to set them in italic");
+      return false;
+    }
+    let look: Record<string, unknown>;
+    try {
+      look = await stage.italicizing(around.source(), now.state, now.node, chosen.from, chosen.to, around.format());
+    } catch (e) {
+      around.say(`not italic: ${said(e)}`);
+      return false;
+    }
+    if (open !== now) return false;
+    return style(look, look["style/italic"] === true ? "italic" : "upright");
+  }
+
   /** Stop typing: the node stays selected. */
   function leave() {
     if (!open) return;
@@ -270,6 +390,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     area.hidden = true;
     area.blur();
     wake();
+    tell();
     around.draw();
   }
 
@@ -420,10 +541,12 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     void send();
   });
   area.addEventListener("keydown", (e) => {
-    // The canvas's keys are not the text's.
-    e.stopPropagation();
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
+    // The canvas's keys are not the text's, but for its zoom and the deck's find, which no text
+    // takes (PLAN 2.46, 2.47).
+    if (mod && !e.altKey && ["=", "+", "-", "_", "0", "f"].includes(key)) return;
+    e.stopPropagation();
     if (mod && (key === "z" || key === "y")) {
       e.preventDefault();
       return history(key === "y" || e.shiftKey);
@@ -432,6 +555,14 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       e.preventDefault();
       leave();
       return around.say("typing done");
+    }
+    if (mod && key === "b" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      return void bold();
+    }
+    if (mod && key === "i" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      return void italic();
     }
     if (e.isComposing) return;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -442,15 +573,24 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     if (e.key.startsWith("Arrow") || e.key === "PageUp" || e.key === "PageDown") goal = on = undefined;
   });
   area.addEventListener("keyup", () => around.draw());
+  /** Whether focus at `at` keeps typing on: the text, the canvas, or the inspector. */
+  const keeping = (at: EventTarget | null) => at === area || at === overlay || around.keeps(at);
   area.addEventListener("blur", () => {
     // Focus gone elsewhere (the source, another control) ends typing. On the canvas itself, its
     // pointer says: in the text, typing goes on; outside it, it ends.
     setTimeout(() => {
-      if (open && document.activeElement !== area && document.activeElement !== overlay) leave();
+      if (open && !keeping(document.activeElement)) leave();
     });
   });
+  // From the inspector, focus may go on elsewhere without the text's losing it.
+  const wander = (e: FocusEvent) => {
+    if (open && !keeping(e.target)) leave();
+  };
+  document.addEventListener("focusin", wander);
   const selecting = () => {
-    if (open && document.activeElement === area) around.draw();
+    if (!open || document.activeElement !== area) return;
+    around.draw();
+    tell();
   };
   document.addEventListener("selectionchange", selecting);
 
@@ -458,6 +598,11 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     enter,
     leave,
     sync,
+    style,
+    bold,
+    italic,
+    /** The characters selected in the text typed in, if any are. */
+    selection,
     /** Whether a text is typed in, and which. */
     node: () => open?.node,
     /** What is typed, for a test: the text, the caret, the lines the engine set it in, and
@@ -521,8 +666,9 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const here = caretAt(carets, head, on);
       const line = carets.lines[here.line];
       const r = overlay.getBoundingClientRect();
-      area.style.left = `${Math.max(0, Math.min(r.width - 1, here.x / u))}px`;
-      area.style.top = `${Math.max(0, Math.min(r.height - 1, line.bottom / u))}px`;
+      const [ox, oy] = around.origin();
+      area.style.left = `${Math.max(0, Math.min(r.width - 1, (here.x - ox) / u))}px`;
+      area.style.top = `${Math.max(0, Math.min(r.height - 1, (line.bottom - oy) / u))}px`;
       if (from !== to) {
         return covered(carets, from, to).map(([x, y, w, h]) => `<rect class="text-selection" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
       }
@@ -533,6 +679,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
     close() {
       leave();
       document.removeEventListener("selectionchange", selecting);
+      document.removeEventListener("focusin", wander);
       area.remove();
     },
   };

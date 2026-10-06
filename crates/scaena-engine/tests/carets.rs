@@ -327,3 +327,29 @@ fn a_point_on_a_text_hits_a_character() {
     assert_eq!(text.offset, Some(ch.offset));
     assert!(scene.carets("nowhere").is_none());
 }
+
+#[test]
+fn bold_toggles_by_the_weight_each_character_is_set_in() {
+    // "Thin Regular Black Big small", each word a run in a role of its own weight.
+    let c = carets("mixed", "mixed-line");
+    let looks: Vec<(usize, f32, f32)> = c.looks.iter().map(|l| (l.end, l.weight, l.base)).collect();
+    assert_eq!(
+        looks,
+        [(5, 100.0, 100.0), (13, 400.0, 400.0), (19, 900.0, 900.0), (23, 400.0, 400.0), (28, 400.0, 400.0)]
+    );
+    let weight = |from: usize, to: usize| c.bolding(from, to)["style/weight"].clone();
+    // Not all bold: bold. "Black", set bold by its role, takes 400 to stop being bold.
+    assert_eq!(weight(0, 13), serde_json::json!(700));
+    assert_eq!(weight(10, 16), serde_json::json!(700));
+    assert_eq!(weight(13, 18), serde_json::json!(400));
+    // A weight a span sets itself over a role that is not bold is taken away.
+    let (deck, theme, _) = torture();
+    let mut fonts = BundleFonts::new();
+    for font in &deck.fonts {
+        fonts.register(&font.file, read(&font.file)).unwrap();
+    }
+    let mut spec = TextSpec::plain(theme.text_role("specimen").unwrap(), "Bold words");
+    spec.spans[0].style.weight = 700.0;
+    let c = TextEngine::new().layout(&mut fonts, &theme, &spec, 1600.0).unwrap().carets([0.0, 0.0]);
+    assert_eq!(c.bolding(0, 4)["style/weight"], serde_json::Value::Null);
+}

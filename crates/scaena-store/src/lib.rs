@@ -96,7 +96,7 @@ impl Files {
             Files::Dir(root) => {
                 let mut out = Vec::new();
                 walk(root, root, &mut out)?;
-                out.sort();
+                scaena_core::sort::sort(&mut out);
                 Ok(out)
             }
             Files::Zip(entries) => Ok(entries.keys().cloned().collect()),

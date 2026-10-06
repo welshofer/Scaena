@@ -341,7 +341,7 @@ impl Deck {
             .chain(self.states.iter().flat_map(|s| s.props.iter().filter(|(id, _)| images(id)).map(|(_, p)| p)))
             .chain(self.overrides.iter().filter(|(id, _)| images(id)).map(|(_, p)| p));
         let mut out: Vec<String> = props.filter_map(|p| p.get("src")?.as_str().map(String::from)).collect();
-        out.sort();
+        crate::sort::sort(&mut out);
         out.dedup();
         out
     }

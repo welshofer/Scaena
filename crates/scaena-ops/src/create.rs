@@ -285,13 +285,20 @@ pub fn creating(
     let rel = format!("themes/{name}");
     let mut fonts = Vec::new();
     for family in parsed.pointer("/type/families").and_then(Value::as_object).into_iter().flat_map(|f| f.values()) {
-        let (Some(file), Some(name)) = (family["file"].as_str(), family["family"].as_str()) else { continue };
-        files.insert(file.to_string(), font(file)?);
-        let mut entry = json!({ "family": name, "file": file });
-        if let Some(axes) = family.get("axes") {
-            entry["axes"] = axes.clone();
+        let Some(name) = family["family"].as_str() else { continue };
+        // The family's own face, and its italic (PLAN 2.40).
+        for (face, style) in [(family, None), (&family["italic"], Some("italic"))] {
+            let Some(file) = face["file"].as_str() else { continue };
+            files.insert(file.to_string(), font(file)?);
+            let mut entry = json!({ "family": name, "file": file });
+            if let Some(style) = style {
+                entry["style"] = json!(style);
+            }
+            if let Some(axes) = face.get("axes") {
+                entry["axes"] = axes.clone();
+            }
+            fonts.push(entry);
         }
-        fonts.push(entry);
     }
     files.insert(rel.clone(), theme.into_bytes());
     // The deck: given, compiled, or made here.
@@ -325,7 +332,7 @@ pub fn creating(
     let deck_json = serde_json::to_string_pretty(&doc)?;
     let invalid = validate_bundle(&deck_json, &view)?;
     let mut listed: Vec<String> = files.keys().cloned().chain(["deck.json".to_string()]).collect();
-    listed.sort();
+    scaena_core::sort::sort(&mut listed);
     if invalid.iter().any(|f| f.severity == scaena_core::Severity::Error) {
         return Ok((Created { created: false, files: listed, errors: errors(&invalid), findings: invalid }, None));
     }

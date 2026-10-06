@@ -1,14 +1,21 @@
 //! Inspect a deck (SPEC §7.1): each state's snapshot, tracking applied (SPEC §2.2); through
 //! the theme cascade (PLAN 1.6); its cue on the timeline (PLAN 1.14); the rows its charts and
 //! tables read; and, for a client that edits by pointing (ADR-0013), what stands where at
-//! rest and where a node may go. And what changes between two states.
+//! rest, where a node may go, and what an inspector offers for it. And what changes between
+//! two states.
 
+use crate::arrange::{self, Align, Arranged, Asked, Order, Spread};
 use crate::lint::{data_files, engine_with};
 use crate::{Bundle, Context, OpsError};
 use indexmap::IndexMap;
+use scaena_core::choices::{Choices, StateChoices, choices, state_choices};
 use scaena_core::document::{NodeType, Props};
+use scaena_core::inserts::{Insert, Start, inserts};
+use scaena_core::layers::{Layer, layers};
 use scaena_core::model::values::SplitUnit;
+use scaena_core::patch::{SemanticOp, Timed};
 use scaena_core::timeline::{self, CubicBezier, Look};
+use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Snapshot};
 use scaena_engine::cascade;
 use scaena_engine::data::{self, DataFiles, Datum};
@@ -58,16 +65,77 @@ pub struct Views {
     /// cell, moved or resized.
     #[serde(default)]
     pub to: Option<[f32; 4]>,
-    /// With `snap`: the patch keeps the placement to the state inspected, written into its
-    /// own props wherever it lives now (`place`'s `fork`).
+    /// With `snap` or `arrange`: the patch keeps what it changes to the state inspected,
+    /// written into its own props wherever it lives now (`place`'s and `choose`'s `fork`).
     #[serde(default)]
     pub fork: bool,
+    /// Several nodes shown in the state inspected, children of one container, arranged at
+    /// once (PLAN 2.42): with one of `align`, `spread`, `order`, or `by`, where each lands
+    /// and the patch that puts them there.
+    #[serde(default)]
+    pub arrange: Option<Vec<String>>,
+    /// With `arrange`: the edge, or the middle, they all take: the one all of them reach
+    /// farthest, or the middle of them all; on a grid, snapped to its tracks.
+    #[serde(default)]
+    pub align: Option<Align>,
+    /// With `arrange`: the first and the last stay, and the ones between move so the gaps
+    /// between them all are equal, `across` or `down`.
+    #[serde(default)]
+    pub spread: Option<Spread>,
+    /// With `arrange`: each goes `forward` in front of the next of its container's children
+    /// that it overlaps, `backward` behind the one before, or to the `front` or the `back` of
+    /// them all, by its `z`.
+    #[serde(default)]
+    pub order: Option<Order>,
+    /// With `arrange`, one node: listed just before this other node, as `layers` lists them
+    /// (PLAN 2.50): painted just over it, by the `z` that does it, or, in a stack, laid out
+    /// just before it. Held by another container, or by none, the node goes there with it,
+    /// placed as that container places what it holds.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// With `arrange`, one node: listed just after this other node: painted just under it, or,
+    /// in a stack, laid out just after it; into what holds it, as with `before`.
+    #[serde(default)]
+    pub after: Option<String>,
+    /// With `arrange`, one node: into this container, listed first among what it holds,
+    /// placed as it places what it holds (PLAN 2.50).
+    #[serde(default)]
+    pub into: Option<String>,
+    /// With `arrange`: moved together `[dx, dy]` canvas units: the first snapped as a drag of
+    /// it snaps, the rest as far as it went, each its own way.
+    #[serde(default)]
+    pub by: Option<[f32; 2]>,
+    /// With `by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.
+    #[serde(default)]
+    pub free: bool,
+    /// A node shown in the state inspected: what an inspector offers for it (ADR-0013). Each
+    /// property it edits, with the theme's names for it or what the schema allows, the value
+    /// the state shows, and where that value lives, which is where `choose` writes.
+    #[serde(default)]
+    pub choices: Option<String>,
+    /// What an inspector offers for the state inspected itself (PLAN 2.36): its layout (the
+    /// theme's layouts with a slot for each node placed in one), each key of its transition,
+    /// its hold, and its notes, each with the value it has and where it lives, which is where
+    /// `set_state` writes.
+    #[serde(default)]
+    pub state_choices: bool,
+    /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
+    /// theme's roles, each kind of shape, each image in the bundle, a chart and a table of
+    /// each data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with
+    /// the box it takes at first.
+    #[serde(default)]
+    pub inserts: bool,
+    /// The state inspected's layers (PLAN 2.50): its nodes nested as their containers and
+    /// groups hold them, topmost first, with those that leave in it and those another state
+    /// of its slide shows, hidden, each where the nearest state that shows it places it.
+    #[serde(default)]
+    pub layers: bool,
 }
 
 impl Views {
     /// Whether a view needs the state laid out, as a frame lays it out.
     fn laid(&self) -> bool {
-        self.boxes || self.at.is_some() || self.targets.is_some()
+        self.boxes || self.at.is_some() || self.targets.is_some() || self.arrange.is_some()
     }
 }
 
@@ -153,6 +221,21 @@ pub struct Inspected {
     /// Where the box dropped at `to` lands (`snap`), and the patch that puts the node there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapped: Option<Snapped>,
+    /// Where the nodes `arrange` names land, and the patch that puts them there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arranged: Option<Arranged>,
+    /// What an inspector offers for the node asked about (`choices`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Choices>,
+    /// What an inspector offers for the state itself (`state_choices`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_choices: Option<StateChoices>,
+    /// What may be inserted in this state (`inserts`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserts: Option<Vec<Insert>>,
+    /// Its layers, what stands on the canvas topmost first (`layers`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layers: Option<Vec<Layer>>,
 }
 
 /// Where a node may go in a state at rest (ADR-0013): what a drag shows as guides.
@@ -304,6 +387,18 @@ pub struct Motion {
     /// Each unit's.
     pub duration: f64,
     pub end: f64,
+    /// When its first unit starts to change and its last comes to rest: an `anim`'s from when
+    /// its first key falls.
+    pub moving: [f64; 2],
+    /// Its `delay` as written, what `time_motion` reads and sets (PLAN 2.44): a choreography
+    /// item's own, else its preset call's, and a node's own preset call's. A node's own `anim`
+    /// has none: it is when its first key falls.
+    pub delay: f64,
+    /// Where it is written, a JSON pointer into the deck: the choreography item
+    /// (`/states/2/choreography/0`), or the node's own property where it lives
+    /// (`/states/1/props/title/enter`, `/nodes/title/exit`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub written: Option<String>,
     pub curve: Curve,
     /// An entrance's look before it: what it changes from rest.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -386,18 +481,35 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
     if !snaps.iter().any(|s| state.is_none_or(|id| s.state_id == id)) {
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
-    let theme = match views.resolved || views.timeline || views.laid() || views.format.is_some() {
-        true => Some(crate::theme(b)?),
-        false => None,
+    let themed = views.resolved
+        || views.timeline
+        || views.laid()
+        || views.format.is_some()
+        || views.choices.is_some()
+        || views.state_choices
+        || views.inserts;
+    let theme = if themed { Some(crate::theme(b)?) } else { None };
+    let files = match (views.timeline || views.data || views.laid(), views.choices.is_some() || views.inserts) {
+        (true, _) => data_files(b)?,
+        // What a chart may read is its data's columns: a file the bundle lacks offers none.
+        (false, true) => data_files(b).unwrap_or_else(|_| DataFiles::new()),
+        (false, false) => DataFiles::new(),
     };
-    let files = if views.timeline || views.data || views.laid() { data_files(b)? } else { DataFiles::new() };
     // A cue on lines, words, or a chart's marks counts them after layout, and boxes are
     // layout's, so both need the engine, with the bundle's fonts and images, as `render` does.
     let mut engine = match (&theme, views.timeline || views.laid()) {
         (Some(theme), true) => Some(engine_with(b, theme, None)?),
         _ => None,
     };
-    inspect_deck(&b.deck, theme.as_ref(), &files, engine.as_mut(), state, &views)
+    let mut out = inspect_deck(&b.deck, theme.as_ref(), &files, engine.as_mut(), state, &views)?;
+    // What may be inserted is the theme's and the bundle's: the deck's own inspection has no
+    // list of the bundle's files.
+    if let (true, Some(theme)) = (views.inserts, &theme) {
+        let paths = b.files.list().context("the bundle's files")?;
+        let offered = inserts(&b.deck, theme, &paths, &files);
+        out.iter_mut().for_each(|i| i.inserts = Some(offered.clone()));
+    }
+    Ok(out)
 }
 
 /// Each state of `deck`, or the one named, inspected with the theme, data files, and engine
@@ -412,6 +524,11 @@ pub fn inspect_deck(
     state: Option<&str>,
     views: &Views,
 ) -> Result<Vec<Inspected>, OpsError> {
+    // Where each motion is written is the deck's as written, in whatever format it is inspected.
+    let doc = match views.timeline {
+        true => deck.to_value().context("the deck as JSON")?,
+        false => Value::Null,
+    };
     let projected = match (views.format.as_deref(), theme) {
         (Some(format), Some(theme)) => Some(project(deck, theme, Some(format))?),
         (Some(_), None) => return Err(OpsError::new("inspecting in a format needs the deck's theme")),
@@ -421,6 +538,15 @@ pub fn inspect_deck(
         Some((deck, theme)) => (deck.as_ref(), Some(theme.as_ref())),
         None => (deck, theme),
     };
+    if views.choices.is_some() && state.is_none() {
+        return Err(OpsError::new("`choices` names a node in a state: name the state"));
+    }
+    if views.state_choices && state.is_none() {
+        return Err(OpsError::new("`state_choices` says what an inspector offers for a state: name the state"));
+    }
+    if views.inserts && state.is_none() {
+        return Err(OpsError::new("`inserts` says what may be inserted in a state: name the state"));
+    }
     match (&views.targets, state, views.snap, views.to) {
         (Some(_), None, ..) => return Err(OpsError::new("`targets` names a node in a state: name the state")),
         (None, _, Some(_), _) => return Err(OpsError::new("`snap` snaps a node's box: name it with `targets`")),
@@ -428,8 +554,41 @@ pub fn inspect_deck(
         (_, _, None, Some(_)) => {
             return Err(OpsError::new("`to` is a box dropped on a node's targets: say how it snaps with `snap`"));
         }
-        (_, _, None, None) if views.fork => {
-            return Err(OpsError::new("`fork` keeps a snapped patch to its state: say how it snaps with `snap`"));
+        (_, _, None, None) if views.fork && views.arrange.is_none() => {
+            return Err(OpsError::new(
+                "`fork` keeps a snapped or arranged patch to its state: say how it snaps with `snap`, or arrange nodes with `arrange`",
+            ));
+        }
+        _ => {}
+    }
+    let ways = [
+        views.align.is_some(),
+        views.spread.is_some(),
+        views.order.is_some(),
+        views.before.is_some(),
+        views.after.is_some(),
+        views.into.is_some(),
+        views.by.is_some(),
+    ];
+    match (&views.arrange, state, ways.iter().filter(|w| **w).count()) {
+        (Some(_), None, _) => return Err(OpsError::new("`arrange` names nodes in a state: name the state")),
+        (Some(_), _, 0) => {
+            return Err(OpsError::new(
+                "`arrange` arranges nodes one way: give `align`, `spread`, `order`, `before`, `after`, `into`, or `by`",
+            ));
+        }
+        (Some(_), _, 2..) => {
+            return Err(OpsError::new(
+                "`arrange` arranges nodes one way: give one of `align`, `spread`, `order`, `before`, `after`, `into`, and `by`",
+            ));
+        }
+        (None, _, 1..) => {
+            return Err(OpsError::new(
+                "`align`, `spread`, `order`, `before`, `after`, `into`, and `by` arrange nodes: name them with `arrange`",
+            ));
+        }
+        _ if views.free && views.by.is_none() => {
+            return Err(OpsError::new("`free` moves nodes off the grid: move them with `arrange` and `by`"));
         }
         _ => {}
     }
@@ -439,12 +598,14 @@ pub fn inspect_deck(
         return Err(OpsError::new(format!("unknown state `{}`", state.unwrap_or_default())));
     }
     let needs = |what: &str| OpsError::new(format!("inspecting {what} needs the deck's theme"));
-    let theme = match (views.resolved || views.timeline || views.laid(), theme) {
+    let offers = views.choices.is_some() || views.state_choices;
+    let theme = match (views.resolved || views.timeline || views.laid() || offers, theme) {
         (true, None) => {
-            let what = match (views.resolved, views.timeline) {
-                (true, _) => "resolved values",
-                (_, true) => "the timeline",
-                _ => "where nodes stand",
+            let what = match (views.resolved, views.timeline, views.laid()) {
+                (true, ..) => "resolved values",
+                (_, true, _) => "the timeline",
+                (_, _, true) => "where nodes stand",
+                _ => "what an inspector offers",
             };
             return Err(needs(what));
         }
@@ -474,6 +635,11 @@ pub fn inspect_deck(
             hits: None,
             targets: None,
             snapped: None,
+            arranged: None,
+            choices: None,
+            state_choices: None,
+            inserts: None,
+            layers: None,
         };
         if let (true, Some(theme)) = (views.resolved, theme) {
             let (mut looks, mut overrides) = (IndexMap::new(), IndexMap::new());
@@ -493,10 +659,20 @@ pub fn inspect_deck(
         if let (Some(timeline), Some(theme), Some(engine)) = (&timeline, theme, engine.as_deref_mut()) {
             let slot = timeline.slot(&s.state_id).context("a state missing from the timeline")?;
             let cue = engine.transition(deck, theme, files, &s.state_id)?;
-            inspected.timeline = Some(cue_of(slot, &cue));
+            inspected.timeline = Some(cue_of(slot, &cue, &doc, &s.state_id));
         }
         if views.data {
             inspected.data = Some(rows(deck, files, &cascade::with_overrides(deck, s))?);
+        }
+        if views.layers {
+            let at = snaps.iter().position(|o| o.state_id == s.state_id).expect("a state of the deck");
+            inspected.layers = Some(layers(deck, &snaps, at));
+        }
+        if let (Some(node), Some(theme)) = (&views.choices, theme) {
+            inspected.choices = Some(choices(deck, theme, &s.state_id, node, files).map_err(OpsError::new)?);
+        }
+        if let (true, Some(theme)) = (views.state_choices, theme) {
+            inspected.state_choices = Some(state_choices(deck, theme, &s.state_id).map_err(OpsError::new)?);
         }
         if let (true, Some(theme), Some(engine)) = (views.laid(), theme, engine.as_deref_mut()) {
             // The deck is in its format already: lay it out as it stands.
@@ -533,6 +709,23 @@ pub fn inspect_deck(
                     inspected.snapped = Some(target);
                 }
                 inspected.targets = Some(Targets::from(found));
+            }
+            if let Some(nodes) = &views.arrange {
+                let found = nodes.iter().map(|n| engine.targets(&req, n)).collect::<Result<Vec<_>, _>>()?;
+                let asked = Asked {
+                    align: views.align,
+                    spread: views.spread,
+                    order: views.order,
+                    before: views.before.clone(),
+                    after: views.after.clone(),
+                    into: views.into.clone(),
+                    by: views.by,
+                    free: views.free,
+                };
+                let how = asked.how()?;
+                let (shown, boxes) = (cascade::with_overrides(deck, s), scene.boxes());
+                let mut into = |node: &str, holder: Option<&str>| Ok(engine.targets_into(&req, node, holder)?);
+                inspected.arranged = arrange::arrange(deck, &shown, &boxes, nodes, found, how, views.fork, &mut into)?;
             }
         }
         out.push(inspected);
@@ -579,7 +772,274 @@ pub fn snap(
     Ok(Some(Snapped { cell: target.cell, patch }))
 }
 
-fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition) -> Cue {
+/// A node a patch adds (PLAN 2.34): its id, where it lands, and the patch.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Added {
+    pub id: String,
+    /// Its box once placed, `[x, y, width, height]` in canvas units.
+    pub cell: [f32; 4],
+    /// `add_node`, the node entering in the state named, then the `place` ops that put it
+    /// there.
+    pub patch: Vec<Value>,
+}
+
+/// The patch that inserts `insert` in `state` as `room`'s node (PLAN 2.34): `add_node`, the
+/// node entering there, then `place`. A text or an image fills the template's slot under `at`
+/// (canvas units) where no node of the state's is placed in it; anything else, or a text where
+/// the slot is filled, takes the box it starts as, about `at`, snapped to the theme's grid as a
+/// drop snaps; a shader fills the slot it names. `room` is the engine's for the new node in
+/// `deck` (`Engine::room`), its cell the box `insert` starts as.
+pub fn inserting(
+    deck: &Deck,
+    room: &scaena_engine::geometry::Targets,
+    insert: &Insert,
+    state: &str,
+    at: [f32; 2],
+) -> Result<Added, OpsError> {
+    let target = match &insert.start {
+        Start::Box { .. } => {
+            let content = matches!(insert.node["type"].as_str(), Some("text" | "image"));
+            let empty = if content { empty_slot(deck, room, state, at)? } else { None };
+            match empty {
+                Some(rect) => room.snap(Snap::Slot, rect),
+                None => {
+                    let [_, _, w, h] = room.cell;
+                    room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h])
+                }
+            }
+        }
+        Start::Slot(name) => {
+            let slot = room.slots.iter().find(|(n, _)| n == name);
+            let (_, rect) = slot.ok_or_else(|| OpsError::new(format!("the state has no slot `{name}`")))?;
+            room.snap(Snap::Slot, *rect)
+        }
+    };
+    added(room, insert.node.clone(), state, target)
+}
+
+/// The patch that draws `insert` in `state` as `room`'s node (PLAN 2.48): `add_node`, the node
+/// entering there, then `place`. It takes the box a drag from `from` to `to` (canvas units)
+/// covers, each edge snapped to the nearest track's as a resize snaps, or, `free`, where it was
+/// drawn, in whole canvas units: a `rect` (W301). A line or an arrow runs across that box from
+/// the corner the drag began at to the one it ended at, or across its middle where the drag was
+/// nearly level or upright (`across`). What fills a slot, a shader, fills it as [`inserting`]
+/// puts it.
+pub fn drawing(
+    deck: &Deck,
+    room: &scaena_engine::geometry::Targets,
+    insert: &Insert,
+    state: &str,
+    [from, to]: [[f32; 2]; 2],
+    free: bool,
+) -> Result<Added, OpsError> {
+    if matches!(insert.start, Start::Slot(_)) {
+        return inserting(deck, room, insert, state, from);
+    }
+    let drawn = [from[0].min(to[0]), from[1].min(to[1]), (to[0] - from[0]).abs(), (to[1] - from[1]).abs()];
+    let target = room.snap(if free { Snap::Free } else { Snap::Resize }, drawn);
+    let mut node = insert.node.clone();
+    if matches!(node["kind"].as_str(), Some("line" | "arrow"))
+        && let Some(points) = across(from, to)
+    {
+        node["points"] = points;
+    }
+    added(room, node, state, target)
+}
+
+/// The points of a line drawn from `from` to `to`, as fractions of its box: from the corner the
+/// drag began at to the one it ended at, or across the middle where it was within 14° of level
+/// or upright, so a rule drawn by hand comes out straight. `None` for a line's own way, across
+/// the middle from left to right.
+fn across(from: [f32; 2], to: [f32; 2]) -> Option<Value> {
+    let [dx, dy] = [to[0] - from[0], to[1] - from[1]];
+    let ends = |d: f32| if d < 0.0 { (1, 0) } else { (0, 1) };
+    if dy.abs() * 4.0 <= dx.abs() {
+        return (dx < 0.0).then(|| serde_json::json!([[1, 0.5], [0, 0.5]]));
+    }
+    let (y0, y1) = ends(dy);
+    if dx.abs() * 4.0 <= dy.abs() {
+        return Some(serde_json::json!([[0.5, y0], [0.5, y1]]));
+    }
+    let (x0, x1) = ends(dx);
+    Some(serde_json::json!([[x0, y0], [x1, y1]]))
+}
+
+/// `add_node` for `node` as `room`'s, entering in `state`, then the `place` ops that put it on
+/// `target`.
+fn added(
+    room: &scaena_engine::geometry::Targets,
+    node: Value,
+    state: &str,
+    target: Option<scaena_engine::geometry::Target>,
+) -> Result<Added, OpsError> {
+    let target = target.ok_or_else(|| OpsError::new("the theme's grid has no tracks to place it on"))?;
+    let node = serde_json::from_value(node).context("an inserted node")?;
+    let add = SemanticOp::AddNode { id: room.node.clone(), node, state: Some(state.into()), props: None };
+    let ops: Vec<SemanticOp> = std::iter::once(add).chain(target.ops(Some(state), false)).collect();
+    let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    Ok(Added { id: room.node.clone(), cell: target.cell, patch })
+}
+
+/// The smallest of the template's slots under `at` that no node `state` shows is placed in.
+pub(crate) fn empty_slot(
+    deck: &Deck,
+    room: &scaena_engine::geometry::Targets,
+    state: &str,
+    at: [f32; 2],
+) -> Result<Option<[f32; 4]>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let filled: Vec<&str> = snap
+        .nodes
+        .values()
+        .filter_map(|p| p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str())
+        .collect();
+    let under = |&[x, y, w, h]: &[f32; 4]| x <= at[0] && at[0] <= x + w && y <= at[1] && at[1] <= y + h;
+    let free = room.slots.iter().filter(|(name, rect)| {
+        !matches!(name.as_str(), "canvas" | "grid") && !filled.contains(&name.as_str()) && under(rect)
+    });
+    Ok(free.map(|(_, rect)| *rect).min_by(|a, b| (a[2] * a[3]).total_cmp(&(b[2] * b[3]))))
+}
+
+/// The patch that copies `node`, as `state` shows it, with each node it holds there, beside it
+/// (PLAN 2.34): `add_node` for each, entering there, the copy as `found`'s node and each node it
+/// holds under the next id free, held by the copy; then `place`: the span the copy takes on the
+/// theme's grid, or a grid container's, moved one span right, down, left, or up. It goes to the
+/// first of those clear of the node and of what else draws there in front of the background
+/// (`boxes`, what stands where in `state`), or else the first clear of the node, or else the
+/// first that moves it at all, the grid's edge holding it in; elsewhere it takes the node's own
+/// placement. `found` is where `node` may go, its node the copy's id.
+pub fn duplicating(
+    deck: &Deck,
+    found: &scaena_engine::geometry::Targets,
+    node: &str,
+    state: &str,
+    boxes: &[scaena_engine::geometry::NodeBox],
+) -> Result<Added, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    if !snap.nodes.contains_key(node) {
+        return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
+    }
+    // The node first, then what it holds, each before what it holds in turn.
+    let mut copying = held(&[snap], node);
+    copying.reverse();
+    let mut taken: Vec<String> = deck.nodes.keys().cloned().chain([found.node.clone()]).collect();
+    let mut ids: IndexMap<String, String> = IndexMap::new();
+    for id in &copying {
+        let copy = if id == node { found.node.clone() } else { free_id(&taken, id) };
+        taken.push(copy.clone());
+        ids.insert(id.clone(), copy);
+    }
+    let mut ops = Vec::new();
+    for (id, copy) in &ids {
+        let mut props = serde_json::Map::new();
+        props.insert("type".into(), serde_json::to_value(deck.nodes[id].node_type).context("a node's type")?);
+        props.extend(snap.nodes[id].iter().map(|(k, v)| (k.clone(), v.clone())));
+        // Held by the copy of what held it.
+        let parent = props.get("at").and_then(|a| a.get("parent")).and_then(Value::as_str).and_then(|p| ids.get(p));
+        if let (Some(parent), Some(Value::Object(at))) = (parent.cloned(), props.get_mut("at")) {
+            at.insert("parent".into(), Value::String(parent));
+        }
+        let node_value = serde_json::from_value(Value::Object(props)).context("a copied node")?;
+        ops.push(SemanticOp::AddNode { id: copy.clone(), node: node_value, state: Some(state.into()), props: None });
+    }
+    let [x, y, w, h] = found.cell;
+    let clear_of = |c: &[f32; 4], [bx, by, bw, bh]: [f32; 4]| {
+        c[0] >= bx + bw || c[0] + c[2] <= bx || c[1] >= by + bh || c[1] + c[3] <= by
+    };
+    let z = |id: &str| snap.nodes.get(id).and_then(|p| p.get("z")).and_then(Value::as_f64).unwrap_or(0.0);
+    let parent = boxes.iter().find(|b| b.node == node).and_then(|b| b.parent.clone());
+    let others: Vec<[f32; 4]> = boxes
+        .iter()
+        .filter(|b| b.draws && b.parent == parent && !copying.contains(&b.node) && z(&b.node) >= 0.0)
+        .map(|b| b.rect)
+        .collect();
+    let target = match found.by {
+        By::Grid | By::Cells { .. } => {
+            let tried = [[x + w, y, w, h], [x, y + h, w, h], [x - w, y, w, h], [x, y - h, w, h]]
+                .map(|to| found.snap(Snap::Move, to));
+            let apart = |c: &[f32; 4]| clear_of(c, found.cell);
+            let alone = |c: &[f32; 4]| apart(c) && others.iter().all(|o| clear_of(c, *o));
+            let moved = |c: &[f32; 4]| c[..2] != found.cell[..2];
+            let first = |keep: &dyn Fn(&[f32; 4]) -> bool| tried.iter().flatten().find(|t| keep(&t.cell)).cloned();
+            first(&alone).or_else(|| first(&apart)).or_else(|| first(&moved))
+        }
+        _ => None,
+    };
+    ops.extend(target.iter().flat_map(|t| t.ops(Some(state), false)));
+    let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
+    Ok(Added { id: found.node.clone(), cell: target.map_or(found.cell, |t| t.cell), patch })
+}
+
+/// The first of `base`, `base-2`, `base-3`, … not in `taken`.
+pub(crate) fn free_id(taken: &[String], base: &str) -> String {
+    (1..)
+        .map(|n| if n == 1 { base.to_string() } else { format!("{base}-{n}") })
+        .find(|id| !taken.contains(id))
+        .expect("some number is free")
+}
+
+/// The patch that deletes `node` from `state` (PLAN 2.34), with each node it holds there: each
+/// leaves there and in the states after it (`hide_node`), and one that no state shows then goes
+/// from the deck (`remove_node`), so a node inserted and deleted leaves nothing behind. With
+/// `everywhere`, each goes from the deck, with each node it holds in any state. A node goes
+/// before what holds it. `files` is the bundle's, which the patch is made on.
+pub fn deleting(
+    deck: &Deck,
+    files: &dyn BundleFiles,
+    node: &str,
+    state: &str,
+    everywhere: bool,
+) -> Result<Vec<Value>, OpsError> {
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let snap =
+        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    if !snap.nodes.contains_key(node) {
+        return Err(OpsError::new(format!("`{node}` is not on screen in `{state}`")));
+    }
+    let holding: Vec<&Snapshot> = if everywhere { snaps.iter().collect() } else { vec![snap] };
+    let gone = held(&holding, node);
+    let remove = |id: &String| serde_json::json!({ "op": "remove_node", "id": id });
+    if everywhere {
+        return Ok(gone.iter().map(remove).collect());
+    }
+    let hide: Vec<Value> =
+        gone.iter().map(|id| serde_json::json!({ "op": "hide_node", "node": id, "state": state })).collect();
+    let doc = deck.to_value().context("the deck")?;
+    let hidden = scaena_core::patch::compile(&doc, &hide, files).map_err(|e| OpsError::new(e.message))?;
+    let after = Deck::from_value(&hidden.doc).map_err(OpsError::new)?;
+    let after = scaena_core::resolve_states(&after).context("tracking")?;
+    let shown = |id: &String| after.iter().any(|s| s.nodes.contains_key(id));
+    Ok(gone.iter().zip(hide).map(|(id, hide)| if shown(id) { hide } else { remove(id) }).collect())
+}
+
+/// `node` and each node it holds in `snaps`, at any depth: the deepest first, `node` last.
+pub(crate) fn held(snaps: &[&Snapshot], node: &str) -> Vec<String> {
+    let mut depth: IndexMap<String, usize> = IndexMap::new();
+    for snap in snaps {
+        let parent = |id: &str| snap.nodes.get(id)?.get("at")?.get("parent")?.as_str().map(String::from);
+        for id in snap.nodes.keys() {
+            let (mut up, mut steps) = (parent(id), 1);
+            while let Some(p) = up.filter(|_| steps <= snap.nodes.len()) {
+                if p == node {
+                    let d = depth.entry(id.clone()).or_default();
+                    *d = (*d).max(steps);
+                    break;
+                }
+                (up, steps) = (parent(&p), steps + 1);
+            }
+        }
+    }
+    let mut ids: Vec<(String, usize)> = depth.into_iter().collect();
+    scaena_core::sort::by_key(&mut ids, |(_, depth)| std::cmp::Reverse(*depth));
+    ids.into_iter().map(|(id, _)| id).chain(std::iter::once(node.to_string())).collect()
+}
+
+/// State `state`'s cue, each motion with where `doc`, the deck as written, writes it.
+fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition, doc: &Value, state: &str) -> Cue {
     let timing = cue.timing();
     Cue {
         start: ms(slot.start),
@@ -590,11 +1050,11 @@ fn cue_of(slot: &timeline::Slot, cue: &scaena_engine::sample::Transition) -> Cue
             curve: curve(&timing.curve),
             matched: if timing.matched { "id" } else { "none" }.to_string(),
         },
-        motions: cue.schedule().cues.iter().map(motion).collect(),
+        motions: cue.schedule().cues.iter().map(|p| motion(p, doc, state)).collect(),
     }
 }
 
-fn motion(p: &timeline::Placed) -> Motion {
+fn motion(p: &timeline::Placed, doc: &Value, state: &str) -> Motion {
     let mut m = Motion {
         node: p.node.clone(),
         motion: String::new(),
@@ -604,17 +1064,43 @@ fn motion(p: &timeline::Placed) -> Motion {
         stagger: ms(p.stagger),
         duration: ms(p.duration),
         end: ms(p.end()),
+        moving: [ms(p.start), ms(p.end())],
+        delay: 0.0,
+        written: None,
         curve: curve(&p.curve),
         from: None,
         to: None,
         peak: None,
         tracks: None,
     };
-    match &p.motion {
-        timeline::Motion::Enter(l) => (m.motion, m.from) = ("enter".into(), Some(change(l))),
-        timeline::Motion::Exit(l) => (m.motion, m.to) = ("exit".into(), Some(change(l))),
-        timeline::Motion::Emphasis(l) => (m.motion, m.peak) = ("emphasis".into(), Some(change(l))),
-        timeline::Motion::Keys(k) => (m.motion, m.tracks) = ("anim".into(), Some(tracks(k))),
+    let timed = match &p.motion {
+        timeline::Motion::Enter(l) => {
+            (m.motion, m.from) = ("enter".into(), Some(change(l)));
+            Timed::Enter
+        }
+        timeline::Motion::Exit(l) => {
+            (m.motion, m.to) = ("exit".into(), Some(change(l)));
+            Timed::Exit
+        }
+        timeline::Motion::Emphasis(l) => {
+            (m.motion, m.peak) = ("emphasis".into(), Some(change(l)));
+            Timed::Emphasis
+        }
+        timeline::Motion::Keys(k) => {
+            (m.motion, m.tracks) = ("anim".into(), Some(tracks(k)));
+            let first = [k.opacity.first().map(|k| k.t), k.translate.first().map(|k| k.t)]
+                .into_iter()
+                .chain([k.scale.first().map(|k| k.t), k.rotate.first().map(|k| k.t), k.progress.first().map(|k| k.t)])
+                .flatten()
+                .fold(f64::INFINITY, f64::min);
+            if first.is_finite() {
+                m.moving[0] = ms(p.start + first);
+            }
+            Timed::Anim
+        }
+    };
+    if let Ok(written) = scaena_core::patch::written(doc, state, &p.node, timed) {
+        (m.delay, m.written) = (ms(written.delay), Some(written.pointer));
     }
     m
 }

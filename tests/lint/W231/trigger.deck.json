@@ -1,0 +1,13 @@
+{
+  "scaena": "0.11",
+  "_comment": "W231 trigger: body text asks for italic, and the theme's Roboto Serif family names no italic face. None is synthesized: it is set upright.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "nodes": {
+    "t": {"type": "text", "role": "body", "text": "Set in italic", "style": {"italic": true}, "at": {"in": "main"}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"t": {}}}
+  ]
+}

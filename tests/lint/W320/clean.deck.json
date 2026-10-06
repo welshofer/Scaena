@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "_comment": "W320 clean: the same four, staggered so no more than three move at once.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

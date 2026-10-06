@@ -8,6 +8,7 @@
 //! them, and as a line and a column.
 
 use crate::{Error, Session};
+use scaena_core::model::Format;
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity, resolve_states};
 use scaena_ops::compile::{Compiled, compile, line_col};
@@ -73,7 +74,8 @@ impl Place {
     }
 }
 
-/// A finding, where it is in the source, and whether it has a fix.
+/// A finding, where it is in the source, whether it has a fix, and whether it holds in the
+/// format shown.
 #[derive(Debug, Clone, Serialize)]
 pub struct Located {
     #[serde(flatten)]
@@ -81,6 +83,29 @@ pub struct Located {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<Place>,
     pub fixable: bool,
+    /// Whether it holds in the format frames are laid out in, as the canvas shows it (PLAN
+    /// 2.49): see [`Shown::holds`].
+    pub shown: bool,
+}
+
+/// The format frames are laid out in, as the findings shown in it are told apart (PLAN 2.49).
+struct Shown {
+    format: Option<String>,
+    /// Whether it lays out as the deck's own canvas: it is the deck's own, or a listed format of
+    /// the same canvas, which lint does not lay out again (SPEC §7.4).
+    own: bool,
+}
+
+impl Shown {
+    /// Whether `f` holds in the format shown: one that names a format holds in that format; one
+    /// that laying the deck out found in its own canvas (`laid`), in a format laid out as it is;
+    /// the rest, validation's and the document rules', in every format.
+    fn holds(&self, f: &Finding, laid: bool) -> bool {
+        match &f.format {
+            Some(format) => self.format.as_ref() == Some(format),
+            None => !laid || self.own,
+        }
+    }
 }
 
 /// What compiling a source says: why it does not compile, or what validation finds in the
@@ -121,6 +146,14 @@ impl Session {
         self.edit.as_ref().is_some_and(|edit| edit.shown && edit.source == source)
     }
 
+    /// The format frames are laid out in, as findings are shown in it.
+    fn shown(&self) -> Shown {
+        let own = [self.deck.canvas.width, self.deck.canvas.height];
+        let format = self.format.clone();
+        let laid_out = |name: &String| Format::parse(name).is_some_and(|f| f.canvas(own) == own);
+        Shown { own: format.as_ref().is_none_or(laid_out), format }
+    }
+
     /// Compile `source` and validate it against the files handed over. A deck that
     /// validates becomes the session's: timelines and frames show it from now on.
     pub fn compile(&mut self, source: &str) -> Compiling {
@@ -128,12 +161,12 @@ impl Session {
             Ok(compiled) => compiled,
             Err(e) => {
                 let finding = Finding::new("E106", Severity::Error, e.message.clone());
-                let error = Located { finding, at: Some(Place::of(source, e.offset, e.len)), fixable: false };
+                let at = Some(Place::of(source, e.offset, e.len));
+                let error = Located { finding, at, fixable: false, shown: true };
                 self.edit = None;
                 return Compiling { error: Some(error), findings: Vec::new(), states: Vec::new(), valid: false };
             }
         };
-        let findings: Vec<Located> = compiled.findings.iter().map(|f| locate(source, &compiled, f)).collect();
         let states = (compiled.states().into_iter())
             .map(|(id, at)| {
                 let before = &source[..source.floor_char_boundary(at)];
@@ -146,6 +179,9 @@ impl Session {
         if let Some(deck) = deck {
             self.set_deck(deck);
         }
+        let shown = self.shown();
+        let findings =
+            (compiled.findings.iter()).map(|f| locate(source, &compiled, f, shown.holds(f, false))).collect();
         let found = compiled.findings.clone();
         self.edit = Some(Edit { source: source.to_string(), compiled, findings: found, shown: valid });
         Compiling { error: None, findings, states, valid }
@@ -161,29 +197,42 @@ impl Session {
     /// found there can be about that node, or owe something to it (a collision, or the
     /// contrast of text over it).
     pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
+        let shown = self.shown();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
-            let findings = edit.findings.iter().map(|f| locate(&edit.source, &edit.compiled, f)).collect();
-            return Ok(Linting { findings, laid: false, whole: only.is_none() });
+            let at = |f| locate(&edit.source, &edit.compiled, f, shown.holds(f, false));
+            return Ok(Linting {
+                findings: edit.findings.iter().map(at).collect(),
+                laid: false,
+                whole: only.is_none(),
+            });
         };
         self.build()?;
         let Session { engine, store, data, theme_json, laid, files, .. } = self;
         let engine = engine.as_mut().expect("built above");
         let mut fresh = None;
+        // What the layout rules found, this time and kept from the last: what holds only in the
+        // format it was laid out in.
+        let mut layout = Vec::new();
         let linted = lint_with(&deck, &Handed(files), Some(theme_json.as_str()), |theme| {
             let found = layout_rules(engine, &deck, theme, data, store, only)?;
             fresh = Some(found.clone());
-            let Some(only) = only else { return Ok(found) };
-            let now = nodes(&deck);
-            let keeps = |f: &&Finding| {
-                let Some(state) = f.state.as_deref() else { return false };
-                let listed = f.format.as_ref().is_none_or(|format| deck.formats.contains(format));
-                match (laid.nodes.get(state), now.get(state)) {
-                    (Some(then), Some(now)) => state != only && listed && then.is_subset(now),
-                    _ => false,
+            layout = match only {
+                None => found,
+                Some(only) => {
+                    let now = nodes(&deck);
+                    let keeps = |f: &&Finding| {
+                        let Some(state) = f.state.as_deref() else { return false };
+                        let listed = f.format.as_ref().is_none_or(|format| deck.formats.contains(format));
+                        match (laid.nodes.get(state), now.get(state)) {
+                            (Some(then), Some(now)) => state != only && listed && then.is_subset(now),
+                            _ => false,
+                        }
+                    };
+                    found.into_iter().chain(laid.findings.iter().filter(keeps).cloned()).collect()
                 }
             };
-            Ok(found.into_iter().chain(laid.findings.iter().filter(keeps).cloned()).collect())
+            Ok(layout.clone())
         })
         .map_err(|e| Error::Ops(e.message))?;
         match (fresh, only) {
@@ -194,8 +243,8 @@ impl Session {
         }
         let edit = self.edit.as_mut().expect("checked above");
         edit.findings = linted.findings;
-        let findings = edit.findings.iter().map(|f| locate(&edit.source, &edit.compiled, f)).collect();
-        Ok(Linting { findings, laid: linted.laid, whole: only.is_none() })
+        let at = |f| locate(&edit.source, &edit.compiled, f, shown.holds(f, layout.contains(f)));
+        Ok(Linting { findings: edit.findings.iter().map(at).collect(), laid: linted.laid, whole: only.is_none() })
     }
 
     /// The source compiled last with `patch`, a finding's fix, applied: the fixed deck as
@@ -224,10 +273,10 @@ impl Session {
     }
 }
 
-/// `f` in `source`, where `compiled` says it is.
-fn locate(source: &str, compiled: &Compiled, f: &Finding) -> Located {
+/// `f` in `source`, where `compiled` says it is; `shown`, whether it holds in the format shown.
+fn locate(source: &str, compiled: &Compiled, f: &Finding, shown: bool) -> Located {
     let at = compiled.span(f).map(|(offset, len)| Place::of(source, offset, len.max(1)));
-    Located { finding: f.clone(), at, fixable: f.fix.is_some() }
+    Located { finding: f.clone(), at, fixable: f.fix.is_some(), shown }
 }
 
 #[cfg(test)]
@@ -360,8 +409,8 @@ mod tests {
         assert!(!said(&one, "revenue").iter().any(|f| f.starts_with("E100")), "{:?}", said(&one, "revenue"));
     }
 
-    /// Each finding, as the page shows it.
-    fn shown(l: &Linting) -> Vec<String> {
+    /// Each finding, written out as the page reads it.
+    fn written(l: &Linting) -> Vec<String> {
         let mut found: Vec<String> = l.findings.iter().map(|f| serde_json::to_string(&f.finding).unwrap()).collect();
         found.sort();
         found
@@ -391,14 +440,14 @@ mod tests {
                 .map(|f| &f.finding)
                 .any(|f| f.code == code && f.state.as_deref() == Some(state) && f.node.as_deref() == Some(node))
         };
-        assert!(found("W311", "close", "bg"), "the shader behind the copy: {:#?}", shown(&whole));
-        assert!(found("E110", "revenue", "note"), "the note over the copy: {:#?}", shown(&whole));
+        assert!(found("W311", "close", "bg"), "the shader behind the copy: {:#?}", written(&whole));
+        assert!(found("E110", "revenue", "note"), "the note over the copy: {:#?}", written(&whole));
         // Undone, in `mix`: the lint of that state alone finds what the lint of every state does.
         assert!(s.compile(&original).valid);
         let one = s.lint(Some("mix")).unwrap();
         assert!(!one.whole);
-        assert!(!shown(&one).iter().any(|f| f.contains("rev-2")), "{:#?}", shown(&one));
-        assert_eq!(shown(&one), shown(&s.lint(None).unwrap()));
+        assert!(!written(&one).iter().any(|f| f.contains("rev-2")), "{:#?}", written(&one));
+        assert_eq!(written(&one), written(&s.lint(None).unwrap()));
     }
 
     /// A state an edit took out, with what the lint of every state found in it.
@@ -411,10 +460,10 @@ mod tests {
         let whole = s.lint(None).unwrap();
         let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
         let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
-        assert!(whole.findings.iter().any(overflow), "{:#?}", shown(&whole));
+        assert!(whole.findings.iter().any(overflow), "{:#?}", written(&whole));
         assert!(s.compile(&original).valid);
         let one = s.lint(Some("revenue")).unwrap();
-        assert!(!encore(&one), "{:#?}", shown(&one));
+        assert!(!encore(&one), "{:#?}", written(&one));
     }
 
     /// A format an edit took out of the deck's list, with what the lint of every state found
@@ -426,10 +475,56 @@ mod tests {
         assert!(s.compile(&copied).valid);
         let whole = s.lint(None).unwrap();
         let tall = |l: &Linting| l.findings.iter().any(|f| f.finding.format.as_deref() == Some("9:16"));
-        assert!(tall(&whole), "{:#?}", shown(&whole));
+        assert!(tall(&whole), "{:#?}", written(&whole));
         assert!(s.compile(&copied.replace("formats:[16:9, 9:16]", "formats:[16:9]")).valid);
         let one = s.lint(Some("intro")).unwrap();
-        assert!(!tall(&one), "{:#?}", shown(&one));
+        assert!(!tall(&one), "{:#?}", written(&one));
+    }
+
+    /// The canvas shows the findings that hold in the format shown (PLAN 2.49): one laying the
+    /// deck out found in a format holds there; one it found on the deck's own canvas, there and
+    /// in a listed format of the same canvas (`16:9` on revenue's 1920 × 1080); validation's and
+    /// the document rules', in every format.
+    #[test]
+    fn a_finding_is_shown_in_the_formats_it_holds_in() {
+        let mut s = revenue();
+        // A headline too long for its header in every format (E100, laid out), and a note placed
+        // by `rect` on a slide with a layout in a deck with formats (W301 and W302, document rules').
+        let source = (s.source().replace("\"Revenue doubled\"", "\"Revenue doubled, and then some, and more\""))
+            .replace("semantic:source\n    at:in(note)", "semantic:source\n    at:rect(1200, 980, 600, 60)");
+        assert!(s.compile(&source).valid);
+        // Each finding about `revenue`: its code, the format it names, and whether it is shown.
+        let found = |l: &Linting| -> Vec<(String, Option<String>, bool)> {
+            (l.findings.iter())
+                .filter(|f| f.finding.state.as_deref() == Some("revenue"))
+                .map(|f| (f.finding.code.clone(), f.finding.format.clone(), f.shown))
+                .collect()
+        };
+        let document = |code: &str| matches!(code, "W301" | "W302");
+        // On the deck's own canvas: what names no format.
+        let own = found(&s.lint(None).unwrap());
+        assert!(own.contains(&("E100".into(), None, true)) && own.contains(&("W301".into(), None, true)), "{own:?}");
+        assert!(own.contains(&("E100".into(), Some("9:16".into()), false)), "{own:?}");
+        assert!(own.iter().all(|(_, format, shown)| *shown == format.is_none()), "{own:?}");
+        // In `9:16`: what laying it out there found, and the document rules'.
+        s.set_format(Some("9:16")).unwrap();
+        let tall = found(&s.lint(Some("revenue")).unwrap());
+        assert!(
+            tall.contains(&("E100".into(), None, false)) && tall.contains(&("W301".into(), None, true)),
+            "{tall:?}"
+        );
+        let held = |(code, format, _): &(String, Option<String>, bool)| match format {
+            Some(format) => format == "9:16",
+            None => document(code),
+        };
+        assert!(tall.iter().all(|f| f.2 == held(f)), "{tall:?}");
+        // `16:9` lays out as the deck's own canvas, and lint does not lay it out again.
+        s.set_format(Some("16:9")).unwrap();
+        let wide = found(&s.lint(None).unwrap());
+        assert_eq!(wide, own);
+        // What compiling finds holds in every format.
+        let found = s.compile(&source.replace("@q3", "@q4")).findings;
+        assert!(!found.is_empty() && found.iter().all(|f| f.shown), "{found:?}");
     }
 
     #[test]

@@ -89,6 +89,16 @@ impl Scene {
         out
     }
 
+    /// The point of image `node` drawn under `point`, in fractions of the part its crop keeps:
+    /// what its `focal` names (PLAN 2.45). `None` where it is no image this state draws, or the
+    /// point is off the image.
+    pub fn image_point(&self, node: &str, point: [f32; 2]) -> Option<[f32; 2]> {
+        self.nodes.iter().find(|n| n.id == node).and_then(|n| match &n.content {
+            Content::Image(image) => image.point(point),
+            _ => None,
+        })
+    }
+
     /// Where a caret stands in `node`'s text, if it is a text this state draws: each
     /// character as written, on its line, between the edges of its glyphs.
     pub fn carets(&self, node: &str) -> Option<Carets> {
@@ -98,14 +108,14 @@ impl Scene {
         })
     }
 
-    /// The state at rest, its shaders `time` seconds into the global timeline, with `node`
-    /// and everything it holds drawn `by` canvas units from where they stand, over the rest:
+    /// The state at rest, its shaders `time` seconds into the global timeline, with `nodes`
+    /// and everything they hold drawn `by` canvas units from where they stand, over the rest:
     /// what a drag shows while it moves, held above the page. Only their layers move;
     /// nothing is laid out again (ADR-0013). A member of a group composited as one layer
     /// moves inside it, in its place.
-    pub fn moved(&self, time: f64, node: &str, by: [f32; 2]) -> DisplayList {
+    pub fn moved(&self, time: f64, nodes: &[&str], by: [f32; 2]) -> DisplayList {
         let mut dl = self.draw_at(time);
-        let mut held = vec![node];
+        let mut held = nodes.to_vec();
         let mut i = 0;
         while let Some(id) = held.get(i).copied() {
             held.extend(self.tree.get(id).into_iter().flat_map(|p| p.children.iter().map(String::as_str)));
@@ -266,51 +276,82 @@ impl Targets {
                 one(spot, [self.within[0] + x, self.within[1] + y, w, h])
             }
             (Snap::Order, By::Stack { across, .. }) => {
-                let ends = |r: &Rect| if *across { (r[0], r[0] + r[2]) } else { (r[1], r[1] + r[3]) };
-                let middle = |r: &Rect| {
-                    let (a, b) = ends(r);
-                    (a + b) / 2.0
-                };
-                let others: Vec<&(String, Rect, u32)> = self.flow.iter().filter(|(id, ..)| *id != self.node).collect();
-                let k = others.iter().filter(|(_, r, _)| middle(r) < middle(&cell)).count();
-                let mut order: Vec<&str> = others.iter().map(|(id, ..)| id.as_str()).collect();
-                order.insert(k, &self.node);
-                let now: Vec<&str> = self.flow.iter().map(|(id, ..)| id.as_str()).collect();
-                let spots = if order == now {
-                    Vec::new()
-                } else {
-                    let index = |id: &str| self.flow.iter().find(|(f, ..)| f == id).map_or(0, |(.., i)| *i);
-                    let moved = order.iter().enumerate().filter(|&(n, id)| index(id) != n as u32);
-                    moved.map(|(n, id)| (id.to_string(), Spot { index: Some(n as u32), ..Spot::default() })).collect()
-                };
-                // The guide: a line across the stack where the node goes.
-                let at = match (k.checked_sub(1).map(|i| &others[i].1), others.get(k).map(|o| &o.1)) {
-                    (Some(before), Some(after)) => (ends(before).1 + ends(after).0) / 2.0,
-                    (Some(before), None) => ends(before).1,
-                    (None, Some(after)) => ends(after).0,
-                    (None, None) => ends(&self.cell).0,
-                };
-                let w = self.within;
-                let line = if *across { [at, w[1], 0.0, w[3]] } else { [w[0], at, w[2], 0.0] };
-                Some(Target { cell: line, spots })
+                let middle = |r: &Rect| if *across { r[0] + r[2] / 2.0 } else { r[1] + r[3] / 2.0 };
+                let others = self.flow.iter().filter(|(id, ..)| *id != self.node);
+                self.ordered(others.filter(|(_, r, _)| middle(r) < middle(&cell)).count())
             }
             _ => None,
         }
     }
+
+    /// The cells `cell` stands in on the tracks this node takes (the theme grid's, or a grid
+    /// container's): on each axis the tracks it overlaps by half the shorter of the two or
+    /// more, else the one nearest its middle (PLAN 2.50). Where a node moved into a grid lands,
+    /// a box smaller than a track in the track it is in. `None` without tracks.
+    pub fn standing(&self, cell: Rect) -> Option<Target> {
+        let (cols, rows) = (&self.columns, &self.rows);
+        if !matches!(self.by, By::Grid | By::Cells { .. }) || cols.is_empty() || rows.is_empty() {
+            return None;
+        }
+        let (c, r) = (stands(cols, cell[0], cell[2]), stands(rows, cell[1], cell[3]));
+        let rect = [cols[c.0][0], rows[r.0][0], cols[c.1][1] - cols[c.0][0], rows[r.1][1] - rows[r.0][0]];
+        let spot = Spot { col: Some(range(c)), row: Some(range(r)), ..Spot::default() };
+        Some(Target { cell: rect, spots: vec![(self.node.clone(), spot)] })
+    }
+
+    /// The node `k`th among the other children of its stack, in the order the stack lays
+    /// them out (PLAN 2.50): each child whose `at.index` that changes, renumbered from 0, and
+    /// the guide, a line across the stack where the node goes. `None` outside a stack.
+    pub fn ordered(&self, k: usize) -> Option<Target> {
+        let By::Stack { across, .. } = &self.by else { return None };
+        let ends = |r: &Rect| if *across { (r[0], r[0] + r[2]) } else { (r[1], r[1] + r[3]) };
+        let others: Vec<&(String, Rect, u32)> = self.flow.iter().filter(|(id, ..)| *id != self.node).collect();
+        let k = k.min(others.len());
+        let mut order: Vec<&str> = others.iter().map(|(id, ..)| id.as_str()).collect();
+        order.insert(k, &self.node);
+        let now: Vec<&str> = self.flow.iter().map(|(id, ..)| id.as_str()).collect();
+        let spots = if order == now {
+            Vec::new()
+        } else {
+            let index = |id: &str| self.flow.iter().find(|(f, ..)| f == id).map_or(0, |(.., i)| *i);
+            let moved = order.iter().enumerate().filter(|&(n, id)| index(id) != n as u32);
+            moved.map(|(n, id)| (id.to_string(), Spot { index: Some(n as u32), ..Spot::default() })).collect()
+        };
+        // The guide: a line across the stack where the node goes.
+        let at = match (k.checked_sub(1).map(|i| &others[i].1), others.get(k).map(|o| &o.1)) {
+            (Some(before), Some(after)) => (ends(before).1 + ends(after).0) / 2.0,
+            (Some(before), None) => ends(before).1,
+            (None, Some(after)) => ends(after).0,
+            (None, None) => ends(&self.cell).0,
+        };
+        let w = self.within;
+        let line = if *across { [at, w[1], 0.0, w[3]] } else { [w[0], at, w[2], 0.0] };
+        Some(Target { cell: line, spots })
+    }
 }
 
 /// Where `node` may go in the state `snap` resolves (with its overrides), laid out as
-/// `scene` (ADR-0013).
+/// `scene` (ADR-0013): in what holds it; or, `into` another container (the canvas for
+/// `None`), there, its cell the box it stands in now (PLAN 2.50).
 pub(crate) fn targets(
     deck: &Deck,
     theme: &Theme,
     snap: &Snapshot,
     scene: &Scene,
     node: &str,
+    into: Option<Option<&str>>,
 ) -> Result<Targets, EngineError> {
-    let missing = || EngineError::Layout(format!("`{node}` is not on screen in state `{}`", scene.state));
-    let place = scene.tree.get(node).ok_or_else(missing)?;
-    let at = snap.nodes.get(node).ok_or_else(missing)?.get("at");
+    let missing = |id: &str| EngineError::Layout(format!("`{id}` is not on screen in state `{}`", scene.state));
+    let place = scene.tree.get(node).ok_or_else(|| missing(node))?;
+    let shown = snap.nodes.get(node).ok_or_else(|| missing(node))?;
+    // Into another container, the node's own placement places it no more.
+    let at = if into.is_some() { None } else { shown.get("at") };
+    if let Some(Some(holder)) = into {
+        scene.tree.get(holder).ok_or_else(|| missing(holder))?;
+        if !deck.nodes.get(holder).is_some_and(|h| h.node_type.is_container()) {
+            return Err(EngineError::Layout(format!("`{holder}` holds nothing: it is not a container")));
+        }
+    }
     let canvas = [0.0, 0.0, scene.canvas[0], scene.canvas[1]];
     let mut t = Targets {
         node: node.to_string(),
@@ -322,16 +363,14 @@ pub(crate) fn targets(
         flow: Vec::new(),
         within: canvas,
     };
-    let parent = place.parent.as_deref().filter(|p| deck.nodes[*p].node_type != NodeType::Group);
+    let held_by = into.unwrap_or(place.parent.as_deref());
+    let parent = held_by.filter(|p| deck.nodes[*p].node_type != NodeType::Group);
     let Some(parent) = parent else {
         let grid = Grid::from_theme(theme, scene.canvas)?;
         let template = snap.layout.as_deref();
-        t.cell = grid.cell(theme, template, at)?;
+        t.cell = if into.is_some() { place.rect } else { grid.cell(theme, template, at)? };
         (t.columns, t.rows) = (grid.columns(), grid.rows());
-        let slots = template.and_then(|name| theme.slots(name)).into_iter().flat_map(|slots| slots.keys());
-        for name in slots.map(String::as_str).chain(["canvas", "grid"]) {
-            t.slots.push((name.to_string(), grid.cell(theme, template, Some(&json!({ "in": name })))?));
-        }
+        t.slots = slots(theme, &grid, template)?;
         return Ok(t);
     };
     let holder = &scene.tree[parent];
@@ -382,14 +421,50 @@ pub(crate) fn targets(
             t.within = [w[0] + pad[3], w[1] + pad[0], w[2] - pad[1] - pad[3], w[3] - pad[0] - pad[2]];
             let rect: Option<[f32; 4]> =
                 at.and_then(|a| a.get("rect")).and_then(|r| serde_json::from_value(r.clone()).ok());
-            t.cell = match rect {
-                Some([x, y, w, h]) => [t.within[0] + x, t.within[1] + y, w, h],
-                None => t.within,
+            t.cell = match (into, rect) {
+                (Some(_), _) => place.rect,
+                (None, Some([x, y, w, h])) => [t.within[0] + x, t.within[1] + y, w, h],
+                (None, None) => t.within,
             };
         }
         _ => {}
     }
     Ok(t)
+}
+
+/// Where a node new to the state `snap` resolves would go at the root, laid out as `scene`
+/// (PLAN 2.34): the theme's grid in this format and the template's slots, as [`targets`]
+/// gives them for a node the grid holds, the new node named `node`. Its cell is `size` from
+/// the grid's corner, so a move snaps a box by as many tracks as `size` covers.
+pub(crate) fn room(
+    theme: &Theme,
+    snap: &Snapshot,
+    scene: &Scene,
+    node: &str,
+    size: [f32; 2],
+) -> Result<Targets, EngineError> {
+    let grid = Grid::from_theme(theme, scene.canvas)?;
+    let template = snap.layout.as_deref();
+    let (columns, rows) = (grid.columns(), grid.rows());
+    let corner = [columns.first().map_or(0.0, |c| c[0]), rows.first().map_or(0.0, |r| r[0])];
+    Ok(Targets {
+        node: node.to_string(),
+        by: By::Grid,
+        cell: [corner[0], corner[1], size[0], size[1]],
+        columns,
+        rows,
+        slots: slots(theme, &grid, template)?,
+        flow: Vec::new(),
+        within: [0.0, 0.0, scene.canvas[0], scene.canvas[1]],
+    })
+}
+
+/// The boxes a root takes by name in `template`: its slots in this format, then `canvas`
+/// and `grid`.
+fn slots(theme: &Theme, grid: &Grid, template: Option<&str>) -> Result<Vec<(String, Rect)>, EngineError> {
+    let named = template.and_then(|name| theme.slots(name)).into_iter().flat_map(|slots| slots.keys());
+    let names = named.map(String::as_str).chain(["canvas", "grid"]);
+    names.map(|name| Ok((name.to_string(), grid.cell(theme, template, Some(&json!({ "in": name })))?))).collect()
 }
 
 /// The tracks a 1-based range `n` or `[a, b]` spans, `[start, end]`, if the grid has them.
@@ -414,6 +489,22 @@ fn nearest(tracks: &[[f32; 2]], side: usize, at: f32, from: usize) -> usize {
 fn covered(tracks: &[[f32; 2]], at: f32, size: f32) -> (usize, usize) {
     let first = nearest(tracks, 0, at, 0);
     (first, nearest(tracks, 1, at + size, first))
+}
+
+/// The tracks a box from `at`, `size` long, stands in: those it overlaps by half the shorter
+/// of the two or more, first to last; else the one nearest its middle.
+fn stands(tracks: &[[f32; 2]], at: f32, size: f32) -> (usize, usize) {
+    let end = at + size;
+    let on: Vec<usize> = (0..tracks.len())
+        .filter(|&i| tracks[i][1].min(end) - tracks[i][0].max(at) >= 0.5 * (tracks[i][1] - tracks[i][0]).min(size))
+        .collect();
+    if let (Some(&first), Some(&last)) = (on.first(), on.last()) {
+        return (first, last);
+    }
+    let middle = at + size / 2.0;
+    let off = |[a, b]: [f32; 2]| (a - middle).max(middle - b).max(0.0);
+    let near = (0..tracks.len()).min_by(|&i, &j| off(tracks[i]).total_cmp(&off(tracks[j]))).unwrap_or(0);
+    (near, near)
 }
 
 /// `count` tracks from the one whose start is nearest `at`, as many as there are.
@@ -473,5 +564,21 @@ mod tests {
         assert!(!reaches(rule, [400.0, 493.0]) && !reaches(rule, [400.0, 508.0]));
         // Along its length it ends where it ends.
         assert!(!reaches(rule, [99.0, 500.0]) && !reaches(rule, [901.0, 500.0]));
+    }
+
+    #[test]
+    fn a_box_stands_in_the_tracks_it_overlaps_most() {
+        // Three tracks 90 long, 24 apart.
+        let tracks = [[0.0, 90.0], [114.0, 204.0], [228.0, 318.0]];
+        // A box smaller than a track, in the first, near the second's start: the first.
+        assert_eq!(stands(&tracks, 59.0, 30.0), (0, 0));
+        // Across the gutter, mostly in the second: the second; across half of each, both.
+        assert_eq!(stands(&tracks, 80.0, 100.0), (1, 1));
+        assert_eq!(stands(&tracks, 40.0, 130.0), (0, 1));
+        // In a gutter, overlapping neither: the one its middle is nearest.
+        assert_eq!(stands(&tracks, 92.0, 10.0), (0, 0));
+        assert_eq!(stands(&tracks, 106.0, 6.0), (1, 1));
+        // Past the last: the last.
+        assert_eq!(stands(&tracks, 400.0, 50.0), (2, 2));
     }
 }

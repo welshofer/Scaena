@@ -35,8 +35,28 @@ fn uris(text: &str) -> Vec<String> {
     text.split('`').skip(1).step_by(2).filter(|s| s.starts_with("scaena://")).map(String::from).collect()
 }
 
-/// What a section too large to arrive whole says before the uris of its subsections.
+/// What a section too large to arrive whole says before the uris of its subsections, and a
+/// subsection before those of its parts.
 const BY_SUBSECTION: &str = "This section is served by subsection:\n\n";
+const BY_PART: &str = "This subsection is served by part:\n\n";
+
+/// A resource of SPEC as SPEC writes it: where it is served by its subsections, or by its
+/// parts, its text before them, then each of them, read the same way.
+async fn whole(client: &Client, uri: &str) -> String {
+    let mut out = String::new();
+    let mut todo = vec![uri.to_string()];
+    while let Some(uri) = todo.pop() {
+        let text = read(client, &uri).await;
+        match text.split_once(BY_SUBSECTION).or_else(|| text.split_once(BY_PART)) {
+            None => out.push_str(&text),
+            Some((intro, rest)) => {
+                out.push_str(intro);
+                todo.extend(uris(rest).into_iter().rev());
+            }
+        }
+    }
+    out
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_resource_arrives_whole() {
@@ -174,16 +194,7 @@ async fn spec_is_served_by_section_and_nothing_is_lost() {
     assert!(index.starts_with("# Scaena"), "{index}");
     let mut rebuilt = String::new();
     for line in index.lines().filter(|l| l.starts_with("- §")) {
-        let text = read(&client, &uris(line)[0]).await;
-        match text.split_once(BY_SUBSECTION) {
-            None => rebuilt.push_str(&text),
-            Some((intro, subsections)) => {
-                rebuilt.push_str(intro);
-                for uri in uris(subsections) {
-                    rebuilt.push_str(&read(&client, &uri).await);
-                }
-            }
-        }
+        rebuilt.push_str(&whole(&client, &uris(line)[0]).await);
     }
     let start = spec.find("\n## 0. ").unwrap() + 1;
     assert!(rebuilt == spec[start..], "the sections, in order, are SPEC after its preamble");
@@ -195,5 +206,9 @@ async fn spec_is_served_by_section_and_nothing_is_lost() {
     let listed: Vec<String> = client.list_all_resources().await.unwrap().into_iter().map(|r| r.uri).collect();
     let has = |uri: &str| listed.iter().any(|u| u == uri);
     assert!(has("scaena://spec/3.7") && has("scaena://spec/7.2") && !has("scaena://spec/8.2"));
+    // A subsection's numbered parts are resources too: §9.2's, listed once it is served by them.
+    let canvas = read(&client, "scaena://spec/9.2.4").await;
+    assert!(canvas.starts_with("#### 9.2.4 The canvas\n"), "{canvas}");
+    assert!(read(&client, "scaena://spec").await.contains("\n    - §9.2.4 The canvas: `scaena://spec/9.2.4`\n"));
     client.cancel().await.unwrap();
 }

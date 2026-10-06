@@ -24,6 +24,7 @@ use serde_json::{Map, Value, json};
 pub const TOOLS: &[&str] = &[
     "deck_read",
     "deck_patch",
+    "deck_find",
     "deck_lint",
     "deck_inspect",
     "deck_diff",
@@ -108,6 +109,20 @@ struct DeckPatch {
     dry_run: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeckFind {
+    find: String,
+    #[serde(default)]
+    case: bool,
+    #[serde(default)]
+    words: bool,
+    #[serde(default)]
+    replace: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum SeverityArg {
@@ -153,6 +168,32 @@ struct DeckInspect {
     to: Option<[f32; 4]>,
     #[serde(default)]
     fork: bool,
+    #[serde(default)]
+    arrange: Option<Vec<String>>,
+    #[serde(default)]
+    align: Option<scaena_ops::arrange::Align>,
+    #[serde(default)]
+    spread: Option<scaena_ops::arrange::Spread>,
+    #[serde(default)]
+    order: Option<scaena_ops::arrange::Order>,
+    #[serde(default)]
+    before: Option<String>,
+    #[serde(default)]
+    after: Option<String>,
+    #[serde(default)]
+    into: Option<String>,
+    #[serde(default)]
+    by: Option<[f32; 2]>,
+    #[serde(default)]
+    free: bool,
+    #[serde(default)]
+    choices: Option<String>,
+    #[serde(default)]
+    state_choices: bool,
+    #[serde(default)]
+    inserts: bool,
+    #[serde(default)]
+    layers: bool,
 }
 
 #[derive(Deserialize)]
@@ -230,6 +271,16 @@ impl Session {
                 let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
                 Ok(Called { edited, ..Called::of(patched)? })
             }
+            "deck_find" => {
+                let a: DeckFind = args(name, a)?;
+                let query = scaena_core::patch::Query { find: a.find, case: a.case, words: a.words };
+                let (mut searched, deck) = scaena_ops::find::searching(&b, &query, a.replace.as_deref())?;
+                if let Some(replaced) = &mut searched.replaced {
+                    replaced.applied &= !a.dry_run;
+                }
+                let edited = self.write(deck.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited, ..Called::of(searched)? })
+            }
             "deck_lint" => {
                 let a: DeckLint = args(name, a)?;
                 let min = match a.severity {
@@ -267,6 +318,19 @@ impl Session {
                     snap: a.snap,
                     to: a.to,
                     fork: a.fork,
+                    arrange: a.arrange,
+                    align: a.align,
+                    spread: a.spread,
+                    order: a.order,
+                    before: a.before,
+                    after: a.after,
+                    into: a.into,
+                    by: a.by,
+                    free: a.free,
+                    choices: a.choices,
+                    state_choices: a.state_choices,
+                    inserts: a.inserts,
+                    layers: a.layers,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
@@ -363,10 +427,17 @@ mod tests {
     fn dusk() -> Session {
         let dir = Path::new("../../docs/examples");
         let theme = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
-        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
-            .iter()
-            .map(|f| (format!("fonts/{f}"), std::fs::read(dir.join("fonts").join(f)).unwrap()))
-            .collect();
+        let fonts: BTreeMap<String, Vec<u8>> = [
+            "Fraunces-VF.ttf",
+            "Inter-VF.ttf",
+            "JetBrainsMono-VF.ttf",
+            "Fraunces-Italic-VF.ttf",
+            "Inter-Italic-VF.ttf",
+            "JetBrainsMono-Italic-VF.ttf",
+        ]
+        .iter()
+        .map(|f| (format!("fonts/{f}"), std::fs::read(dir.join("fonts").join(f)).unwrap()))
+        .collect();
         Session::create("dusk.theme.json", &theme, &fonts, "Agent loop").unwrap()
     }
 
@@ -482,6 +553,8 @@ mod tests {
         assert_eq!(json.result["deck"]["states"][1]["id"], "next");
         let inspected = call(&mut s, "deck_inspect", json!({ "state": "next", "resolved": true }));
         assert_eq!(inspected.result["states"][0]["looks"]["title"]["role"], "headline", "{}", inspected.result);
+        let layered = call(&mut s, "deck_inspect", json!({ "state": "next", "layers": true }));
+        assert_eq!(layered.result["states"][0]["layers"][0]["node"], "title", "{}", layered.result);
         let diff = call(&mut s, "deck_diff", json!({ "from": "start", "to": "next" }));
         assert!(diff.result["changes"]["title"].is_object(), "{}", diff.result);
         let spine = call(&mut s, "spine_read", json!({}));

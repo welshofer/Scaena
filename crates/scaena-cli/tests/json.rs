@@ -186,12 +186,17 @@ fn inspect_timeline_places_each_motion_on_its_states_clock() {
     let dot = on("mo-dot");
     assert_eq!(dot["motion"], "emphasis");
     assert_eq!(dot["peak"]["scale"], serde_json::json!([1.25, 1.25]));
+    // Where each is written, and its delay there: what `time_motion` sets (PLAN 2.44).
+    assert_eq!((title["written"].as_str(), title["delay"].as_f64()), (Some("/states/41/choreography/0"), Some(0.0)));
+    assert_eq!((dot["written"].as_str(), dot["delay"].as_f64()), (Some("/states/41/choreography/3"), Some(900.0)));
+    assert_eq!(title["moving"], serde_json::json!([0.0, 720.0]));
 
     // Case 42: a look that tints toward a theme color, and one that draws an outline on.
     let (_, morph) = json(&["inspect", TORTURE, "--state", "morph", "--timeline"]);
     let motions = morph[0]["timeline"]["motions"].as_array().unwrap();
     let arrow = motions.iter().find(|m| m["node"] == "mf-arrow").unwrap();
     assert_eq!(arrow["from"], serde_json::json!({ "progress": 0.0 }));
+    assert_eq!(arrow["written"], "/states/43/props/mf-arrow/enter", "the arrow's own entrance, where it lives");
     let badge = motions.iter().find(|m| m["node"] == "mf-badge").unwrap();
     assert!(badge["peak"]["tint"]["color"].as_str().is_some_and(|c| c.starts_with('#')), "{badge:#}");
 
@@ -268,6 +273,118 @@ fn inspect_says_what_stands_where() {
         text.contains(", topmost first:") && text.contains("    card-tag-label (in card), a caret after "),
         "{text}"
     );
+}
+
+#[test]
+fn inspect_says_what_an_inspector_offers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--choices", "title"]);
+    assert_eq!(code, 0, "{states:#}");
+    let c = &states[0]["choices"];
+    assert_eq!(
+        (c["node"].as_str(), c["type"].as_str(), c["state"].as_str()),
+        (Some("title"), Some("text"), Some("revenue"))
+    );
+    let role = &c["fields"][0];
+    assert_eq!(role["prop"], "role");
+    assert_eq!(role["takes"]["kind"], "name");
+    assert_eq!(role["takes"]["of"], "text-role");
+    assert_eq!(
+        (role["value"].as_str(), &role["lives"]),
+        (Some("headline"), &serde_json::json!({ "state": "revenue" }))
+    );
+    let color = c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == "style/color").unwrap();
+    assert_eq!(color["takes"]["overrides"], true, "{color:#}");
+    assert!(color.get("value").is_none() && color.get("lives").is_none(), "the role's color shows: {color:#}");
+
+    // It names a node in a state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--choices", "title"]).status.code(), Some(2));
+    let (code, err) = json(&["inspect", EXAMPLE, "--state", "intro", "--choices", "rev"]);
+    assert_ne!(code, 0);
+    assert!(err["error"]["message"].as_str().is_some_and(|m| m.contains("not on screen in `intro`")), "{err:#}");
+
+    // For a person: a line per property, what it shows and where it lives, and what it takes.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--choices", "title"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("choices for title (text):"), "{text}");
+    assert!(text.contains("role           headline, in revenue's delta · display, headline, title"), "{text}");
+}
+
+#[test]
+fn inspect_says_what_a_state_offers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
+    assert_eq!(code, 0, "{states:#}");
+    let c = &states[0]["state_choices"];
+    assert_eq!(c["state"], "mix");
+    let field = |prop: &str| c["fields"].as_array().unwrap().iter().find(|f| f["prop"] == prop).unwrap().clone();
+    let layout = field("layout");
+    assert_eq!(layout["takes"]["of"], "layout");
+    assert_eq!(layout["takes"]["names"], serde_json::json!(["full", "figure", "narrow-figure"]), "{layout:#}");
+    assert_eq!(
+        (layout["value"].as_str(), &layout["lives"]),
+        (Some("figure"), &serde_json::json!({ "state": "revenue" })),
+        "`mix` takes its layout from `revenue`"
+    );
+    assert_eq!(field("transition/duration")["value"], "slow");
+    assert_eq!(field("hold")["takes"]["kind"], "number");
+    assert_eq!(field("notes")["takes"]["kind"], "text");
+
+    // It says what a state offers: name the state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--state-choices"]).status.code(), Some(2));
+
+    // For a person: a line per property, its value and where it is set, and what it takes.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("choices for state mix:"), "{text}");
+    assert!(text.contains("layout               figure, set in revenue · full, figure, narrow-figure"), "{text}");
+    assert!(text.contains("transition/ease      not set · standard, in, out, linear"), "{text}");
+}
+
+#[test]
+fn inspect_says_what_may_be_inserted() {
+    let (code, states) = json(&["inspect", TORTURE, "--state", "axes", "--inserts"]);
+    assert_eq!(code, 0, "{states:#}");
+    let offered = states[0]["inserts"].as_array().unwrap();
+    let of = |kind: &str| offered.iter().filter(|i| i["node"]["type"] == kind).count();
+    assert!(of("text") > 0 && of("image") > 0 && of("shader") > 0, "{offered:#?}");
+    assert_eq!(of("shape"), 4, "a rectangle, an ellipse, a line, and an arrow");
+    let rect = offered.iter().find(|i| i["label"] == "Shape · rect").unwrap();
+    assert_eq!(rect["id"], "rect");
+    assert!(rect["start"]["box"]["w"].as_f64().is_some_and(|w| w > 0.0), "{rect:#}");
+    let shader = offered.iter().find(|i| i["node"]["type"] == "shader").unwrap();
+    assert_eq!(
+        (&shader["start"]["slot"], &shader["node"]["z"]),
+        (&serde_json::json!("canvas"), &serde_json::json!(-1))
+    );
+
+    // It says what may be inserted in a state.
+    assert_eq!(scaena(&["inspect", TORTURE, "--inserts"]).status.code(), Some(2));
+
+    // For a person: a line per insert, the node it adds and the box it takes.
+    let out = scaena(&["inspect", TORTURE, "--state", "axes", "--inserts"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("  inserts:\n"), "{text}");
+    assert!(text.contains("    Shape · rect as rect…: "), "{text}");
+}
+
+#[test]
+fn inspect_says_a_states_layers() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--layers"]);
+    assert_eq!(code, 0, "{states:#}");
+    // Topmost first; the background and the subtitle leave in `revenue`, listed as `intro`
+    // places them, hidden.
+    let said: Vec<String> = (states[0]["layers"].as_array().unwrap().iter())
+        .map(|l| format!("{} {} {}", l["node"].as_str().unwrap(), l["type"].as_str().unwrap(), l["shown"]))
+        .collect();
+    assert_eq!(said, ["note text true", "rev chart true", "subtitle text false", "title text true", "bg shader false"]);
+
+    // It says a state's layers: name the state.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--layers"]).status.code(), Some(2));
+
+    // For a person: a line per node, under what holds it, those hidden marked.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--layers"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("  layers, topmost first:\n    note (text)\n    rev (chart)\n"), "{text}");
+    assert!(text.contains("    bg (shader, hidden)\n"), "{text}");
 }
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -390,6 +507,126 @@ fn inspect_says_where_a_node_may_go() {
         text.contains("targets: on the theme's grid") && text.contains("    right ") && text.contains("patch: [{"),
         "{text}"
     );
+}
+
+/// `inspect --arrange` puts several of one container's children in place at once (PLAN 2.42):
+/// aligned, spread, moved together, or ordered, each one patch that `scaena patch` applies.
+#[test]
+fn inspect_arranges_several_nodes_at_once() {
+    let arranged = |args: &[&str]| {
+        let mut all = vec!["inspect", TORTURE, "--state", "containers", "--arrange"];
+        all.extend_from_slice(args);
+        let (code, states) = json(&all);
+        assert_eq!(code, 0, "{args:?}: {states:#}");
+        states[0]["arranged"].clone()
+    };
+    let place = |node: &str, at: serde_json::Value| serde_json::json!({ "op": "place", "node": node, "at": at, "state": "containers" });
+    // The card takes the tally's left edge, a column of the grid; the tally, there already,
+    // keeps its placement as it is.
+    let left = arranged(&["tally,card", "--align", "left"]);
+    assert_eq!(left["patch"], serde_json::json!([place("card", serde_json::json!({ "col": [1, 4], "row": [6, 8] }))]));
+    assert_eq!(left["landed"].as_array().map(Vec::len), Some(2));
+    // Up a row together.
+    let up = arranged(&["tally,card", "--by", "0,-114"]);
+    assert_eq!(
+        up["patch"],
+        serde_json::json!([
+            place("tally", serde_json::json!({ "col": [1, 11], "row": 4 })),
+            place("card", serde_json::json!({ "col": [9, 12], "row": [5, 7] })),
+        ])
+    );
+    // The tally stands at the grid's left edge, so the two go no farther left at all.
+    assert_eq!(arranged(&["card,tally", "--by=-150,0"])["patch"], serde_json::json!([]));
+    // In front of what it overlaps in the card, and the card behind the rest: by `z`.
+    let z = |node: &str, z: i64| serde_json::json!({ "op": "choose", "node": node, "prop": "z", "value": z, "state": "containers", "fork": false });
+    assert_eq!(arranged(&["card-photo", "--order", "front"])["patch"], serde_json::json!([z("card-photo", 2)]));
+    assert_eq!(arranged(&["card", "--order", "back"])["patch"], serde_json::json!([z("card", -1)]));
+    // Listed before or after another of its container's children (PLAN 2.50): over or under
+    // it by `z`, or, in a stack, before or after it in its order.
+    assert_eq!(
+        arranged(&["card-photo", "--before", "card-tag-label"])["patch"],
+        serde_json::json!([z("card-photo", 2)])
+    );
+    assert_eq!(
+        arranged(&["card-tag-label", "--after", "card-photo"])["patch"],
+        serde_json::json!([z("card-tag-label", -1)])
+    );
+    let index = |node: &str, i: u32| place(node, serde_json::json!({ "index": i }));
+    assert_eq!(
+        arranged(&["stat-c", "--before", "stat-a"])["patch"],
+        serde_json::json!([index("stat-a", 1), index("stat-b", 2)]),
+        "the third first: the others renumbered after it"
+    );
+    // Before a child of another container, or into one: into it (`place` with `parent`),
+    // placed as it places what it holds. Into another stack, at its place in the order.
+    assert_eq!(
+        arranged(&["tally-label", "--before", "stat-a-label"])["patch"],
+        serde_json::json!([
+            place("tally-label", serde_json::json!({ "parent": "stat-a", "index": 1 })),
+            index("stat-a-label", 2)
+        ])
+    );
+    // Onto the canvas, in the cells it stood in, and just over the card.
+    let out = arranged(&["card-tag-label", "--before", "card"])["patch"].clone();
+    assert_eq!(out[0], place("card-tag-label", serde_json::json!({ "parent": null, "col": 9, "row": 6 })), "{out:#}");
+    assert_eq!(out[1], z("card-tag-label", 0), "{out:#}");
+    // Into a frame, first among what it holds, by a `rect` inside its padding.
+    let into = arranged(&["marks-dot", "--into", "card"])["patch"].clone();
+    assert_eq!(into[0]["at"]["parent"], "card", "{into:#}");
+    let rect: Vec<f64> = serde_json::from_value(into[0]["at"]["rect"].clone()).unwrap();
+    assert!(rect[0] >= 0.0 && rect[1] >= 0.0, "inside the padding: {rect:?}");
+    assert_eq!(into[1], z("marks-dot", 1), "{into:#}");
+
+    // Applied, a patch moves what it says: the card now stands over the board, which lint
+    // says, and nothing else.
+    let bundle = scratch("arrange").join("torture.scaena");
+    copy_dir(Path::new(TORTURE), &bundle);
+    let b = bundle.to_str().unwrap();
+    let ops = bundle.parent().unwrap().join("ops.json");
+    std::fs::write(&ops, left["patch"].to_string()).unwrap();
+    let (_, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(patched["applied"], true, "{patched:#}");
+    let added: Vec<&str> = patched["added"].as_array().unwrap().iter().filter_map(|f| f["code"].as_str()).collect();
+    assert!(!added.is_empty() && added.iter().all(|c| *c == "E101"), "{patched:#}");
+    let (_, boxes) = json(&["inspect", b, "--state", "containers", "--boxes"]);
+    assert_eq!(boxes[0]["boxes"]["card"]["rect"][0], 96.0);
+    // Moved into another stack, the label is listed there, and the deck stays valid.
+    let moved = arranged(&["tally-label", "--before", "stat-a-label"]);
+    std::fs::write(&ops, moved["patch"].to_string()).unwrap();
+    let (_, patched) = json(&["patch", b, "--ops", ops.to_str().unwrap()]);
+    assert_eq!(patched["applied"], true, "{patched:#}");
+    let (_, listed) = json(&["inspect", b, "--state", "containers", "--layers"]);
+    let stat_a =
+        listed[0]["layers"].as_array().unwrap().iter().find(|l| l["node"] == "stats").unwrap()["children"][0].clone();
+    let held: Vec<&str> = stat_a["children"].as_array().unwrap().iter().filter_map(|l| l["node"].as_str()).collect();
+    assert_eq!(held, ["stat-a-figure", "tally-label", "stat-a-label"], "{stat_a:#}");
+
+    // Children of two containers, a stack's children, and two ways at once are errors that
+    // say why.
+    let refused = |args: &[&str], says: &str| {
+        let mut all = vec!["inspect", TORTURE, "--state", "containers", "--arrange"];
+        all.extend_from_slice(args);
+        let (code, err) = json(&all);
+        assert_ne!(code, 0, "{args:?}");
+        let message = err["error"]["message"].as_str().unwrap_or_default().to_string();
+        assert!(message.contains(says), "{args:?}: {message}");
+    };
+    refused(&["tally,card-photo", "--align", "left"], "`card-photo` by `card`: arrange what one container holds");
+    refused(&["stat-a,stat-b", "--align", "top"], "the stack `stats` places what it holds in its order");
+    refused(&["tally,card", "--align", "left", "--order", "front"], "one way");
+    refused(&["case,stats", "--spread", "down"], "three nodes or more");
+    refused(&["tally,nobody", "--align", "left"], "`nobody`");
+    refused(&["stat-a,stat-b", "--before", "stat-c"], "one node goes before or after another at a time");
+    refused(&["card", "--before", "card-tag"], "a node goes into nothing it holds");
+    refused(&["stats", "--into", "stat-a"], "a node goes into nothing it holds");
+    refused(&["tally", "--into", "case"], "`case` holds nothing");
+    refused(&["stat-a,stat-b", "--into", "card"], "one node goes into a container at a time");
+    assert_eq!(scaena(&["inspect", TORTURE, "--arrange", "tally,card", "--align", "left"]).status.code(), Some(2));
+
+    // For a person: where each lands, and the patch.
+    let out = scaena(&["inspect", TORTURE, "--state", "containers", "--arrange", "tally,card", "--align", "left"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("arranged:") && text.contains("card lands at x 96") && text.contains("patch: [{"), "{text}");
 }
 
 #[test]

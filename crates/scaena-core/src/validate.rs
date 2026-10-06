@@ -4,20 +4,19 @@
 //! their generated schemas ([`crate::model::check`]), then what a schema cannot say.
 //! [`validate`] is the semantic part on a parsed deck alone: ids and references.
 
-use crate::data::{self, ColumnType, DataError, Datum, SourceFiles, Table};
+use crate::data::{self, ColumnType, DataError, Datum, Table};
 use crate::document::{Deck, MAX_NESTING, NodeType, Props};
 use crate::format::{DateFormat, NumberFormat};
 use crate::ids::is_valid_id;
 use crate::lint::{Finding, Severity};
 use crate::model::check::{Checker, Kind, Violation};
-use crate::model::theme::Grid;
+use crate::model::theme::{Grid, Vocabulary};
 use crate::model::values::{Annotation, Duration, Easing, Range};
 use crate::model::{Format, Theme};
 use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
@@ -494,27 +493,21 @@ impl LoadedTheme {
     /// What the theme has of the kind `what` names, for a finding about a name it lacks:
     /// `, which has a, b, c`, or `, which has none`. Long lists end in their count.
     fn has(&self, what: &str) -> String {
-        fn listed<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<&'a str> {
-            keys.map(String::as_str).collect()
-        }
-        let t = &self.theme;
-        let shaders = t.shaders.as_ref();
-        let names: Vec<&str> = match what {
-            "text role" => listed(t.typography.roles.keys()),
-            "layout" => listed(t.layouts.keys()),
-            "font family" => listed(t.typography.families.keys()),
-            "color" => listed(t.tokens.roles.keys().chain(t.tokens.color.keys())),
-            "shader palette" => listed(shaders.and_then(|s| s.palettes.as_ref()).into_iter().flat_map(|p| p.keys())),
-            "shader preset" => listed(shaders.and_then(|s| s.presets.as_ref()).into_iter().flat_map(|p| p.keys())),
-            "data palette" => {
-                ["categorical", "sequential", "diverging"].into_iter().filter(|p| self.data_palette(p)).collect()
-            }
-            "motion preset" => listed(t.motion.presets.keys()),
-            "duration" => listed(t.motion.durations.keys()),
-            "easing" => listed(t.motion.easings.keys()),
-            "spring" => listed(t.motion.springs.keys()),
+        let of = match what {
+            "text role" => Vocabulary::TextRole,
+            "layout" => Vocabulary::Layout,
+            "font family" => Vocabulary::FontFamily,
+            "color" => Vocabulary::Color,
+            "shader palette" => Vocabulary::ShaderPalette,
+            "shader preset" => Vocabulary::ShaderPreset,
+            "data palette" => Vocabulary::DataPalette,
+            "motion preset" => Vocabulary::MotionPreset,
+            "duration" => Vocabulary::Duration,
+            "easing" => Vocabulary::Easing,
+            "spring" => Vocabulary::Spring,
             _ => return String::new(),
         };
+        let names = self.theme.names(of);
         const SHOWN: usize = 24;
         match names.len() {
             0 => ", which has none".into(),
@@ -631,21 +624,30 @@ fn missing_files(deck: &Deck, theme: Option<&LoadedTheme>, files: &dyn BundleFil
     }
     if let Some(theme) = theme {
         for (key, family) in &theme.theme.typography.families {
-            if !files.exists(&family.file) {
-                let message = format!("font file `{}` is not in the bundle", family.file);
-                out.push(theme.finding("E102", message, &format!("/type/families/{}/file", esc(key))));
-            }
-            // Rendering registers the fonts the deck lists, and needs every family's.
-            if !deck.fonts.iter().any(|f| f.file == family.file) {
-                let message =
-                    format!("theme family `{key}` is set in `{}`, which the deck's `fonts` does not list", family.file);
-                let font = json!({ "family": family.family, "file": family.file });
-                out.push(
-                    Finding::new("E102", Severity::Error, message)
-                        .at("/fonts")
-                        .hint("Rendering registers only the fonts the deck lists.")
-                        .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
-                );
+            // The family's own file, and its italic face's (PLAN 2.40).
+            let italic = family.italic.as_ref().map(|face| (face.file.as_str(), "/italic/file", Some("italic")));
+            for (file, at, style) in std::iter::once((family.file.as_str(), "/file", None)).chain(italic) {
+                if !files.exists(file) {
+                    let message = format!("font file `{file}` is not in the bundle");
+                    out.push(theme.finding("E102", message, &format!("/type/families/{}{at}", esc(key))));
+                }
+                // Rendering registers the fonts the deck lists, and needs every family's.
+                if !deck.fonts.iter().any(|f| f.file == file) {
+                    let face = if style.is_some() { "'s italic" } else { "" };
+                    let message = format!(
+                        "theme family `{key}`{face} is set in `{file}`, which the deck's `fonts` does not list"
+                    );
+                    let mut font = json!({ "family": family.family, "file": file });
+                    if let Some(style) = style {
+                        font["style"] = json!(style);
+                    }
+                    out.push(
+                        Finding::new("E102", Severity::Error, message)
+                            .at("/fonts")
+                            .hint("Rendering registers only the fonts the deck lists.")
+                            .fix(vec![json!({ "op": "add", "path": "/fonts/-", "value": font })]),
+                    );
+                }
             }
         }
     }
@@ -871,16 +873,10 @@ fn containers(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 /// field in the state: its delta, or the node. A chart with a `dataTransform` reads
 /// columns the transform makes, so its fields are checked once transforms run (PLAN 1.9e).
 fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Vec<Finding> {
-    struct Text<'a>(&'a dyn BundleFiles);
-    impl SourceFiles for Text<'_> {
-        fn bytes(&self, path: &str) -> Option<Cow<'_, [u8]>> {
-            self.0.read_text(path).map(|t| Cow::Owned(t.into_bytes()))
-        }
-    }
     let mut out = Vec::new();
     let mut tables: BTreeMap<&str, Table> = BTreeMap::new();
     for name in deck.data.keys() {
-        match data::load(deck, &Text(files), name) {
+        match data::load(deck, &data::Texts(files), name) {
             Ok(table) => {
                 tables.insert(name, table);
             }

@@ -320,6 +320,52 @@ impl Rule for W200Widow {
     }
 }
 
+/// W231: text that asks for italic, set upright: a family it is set in has no italic face,
+/// and none is synthesized (SPEC §3.5, PLAN 2.40).
+pub struct W231Upright;
+impl Rule for W231Upright {
+    fn code(&self) -> &'static str {
+        "W231"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let mut out = Vec::new();
+        for state in cx.states {
+            for (id, placed, _) in texts(state) {
+                let upright = &placed.text.upright;
+                if upright.is_empty() {
+                    continue;
+                }
+                // A theme family by its key and name; a fallback's font by its file.
+                let named: Vec<String> = (upright.iter())
+                    .map(|f| match cx.theme.families().get(f) {
+                        Some(def) => format!("`{f}` ({})", def.family),
+                        None => format!("`{f}`"),
+                    })
+                    .collect();
+                let has = if named.len() == 1 { "has" } else { "have" };
+                let message = format!(
+                    "text `{id}` asks for italic, but {} {has} no italic face: it is set upright",
+                    named.join(" and ")
+                );
+                out.push(
+                    cx.finding(self.code(), self.severity(), state, message)
+                        .at(cx.node_path(id))
+                        .node(id)
+                        .measure(json!({ "upright": upright }))
+                        .hint(
+                            "Name the family's italic face in the theme (`italic: { \"file\": … }`) and add its file to \
+                             the bundle, or take `italic` away.",
+                        ),
+                );
+            }
+        }
+        out
+    }
+}
+
 /// W201: a line wider than its measure: a word too long to break at it. One wider than
 /// its box is E100's.
 pub struct W201Measure;
@@ -532,7 +578,7 @@ impl Rule for W312ChartTextSize {
                         None => by_size.push((*size, vec![part.name()])),
                     }
                 }
-                by_size.sort_by(|a, b| a.0.total_cmp(&b.0));
+                scaena_core::sort::by(&mut by_size, |a, b| a.0.total_cmp(&b.0));
                 let said: Vec<String> = by_size
                     .iter()
                     .map(|(size, names)| {

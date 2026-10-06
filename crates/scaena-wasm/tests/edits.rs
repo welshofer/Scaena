@@ -298,7 +298,7 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
         let state = states[k].clone();
         let key = r.pick(&keys).to_string();
         let value = r.pick(&values[&key]).clone();
-        ops.push(match r.below(10) {
+        ops.push(match r.below(12) {
             0 => json!({ "op": "add_node", "id": "added", "node": { "type": "text", "text": text(r, &strings) }, "state": state }),
             1 => json!({ "op": "remove_node", "id": node }),
             2 => json!({ "op": "rename_node", "id": node, "to": r.pick(&nodes).clone() }),
@@ -308,11 +308,21 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
             6 => json!({ "op": "set_text", "node": node, "text": text(r, &strings), "state": state }),
             7 => json!({ "op": "move_state", "id": state, "before": r.pick(&states).clone() }),
             8 => json!({ "op": "remove_state", "id": state }),
+            // Typing and a look for characters, over offsets in the text and past it.
+            9 => json!({ "op": "replace_text", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "text": text(r, &strings) }),
+            10 => {
+                let look = *r.pick(&LOOKS);
+                json!({ "op": "style_text", "node": node, "state": state, "from": r.below(8), "to": r.below(24), "look": { look: value } })
+            }
             _ => json!({ "op": "replace", "path": r.pick(&pointers).clone(), "value": value }),
         });
     }
     Value::Array(ops)
 }
+
+/// What a look for characters names: a run's own keys, and keys it does not take.
+const LOOKS: [&str; 9] =
+    ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
 
 /// Values no tool takes where they are put.
 const JUNK: &[&str] = &["null", "[]", "{}", "-1", "1e308", "\"\"", "true", "18446744073709551615", "[[[[[[]]]]]]"];

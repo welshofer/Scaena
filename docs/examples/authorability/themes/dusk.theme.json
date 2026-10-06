@@ -1,5 +1,5 @@
 {
-  "scaena-theme": "0.8",
+  "scaena-theme": "0.9",
   "name": "Dusk",
   "description": "Dark surface, warm paper-white ink, one accent. Display type set tight with optical sizing; body set loose.",
   "tokens": {
@@ -32,9 +32,14 @@
   },
   "type": {
     "families": {
-      "display": { "family": "Fraunces", "file": "fonts/Fraunces-VF.ttf", "axes": { "wght": [100, 900], "opsz": [9, 144], "SOFT": [0, 100], "WONK": [0, 1] }, "fallback": ["body"] },
-      "body":    { "family": "Inter", "file": "fonts/Inter-VF.ttf", "axes": { "wght": [100, 900], "opsz": [14, 32] }, "features": { "cv11": true, "ss01": false } },
-      "mono":    { "family": "JetBrains Mono", "file": "fonts/JetBrainsMono-VF.ttf", "axes": { "wght": [100, 800] } }
+      "display": { "family": "Fraunces", "file": "fonts/Fraunces-VF.ttf", "axes": { "wght": [100, 900], "opsz": [9, 144], "SOFT": [0, 100], "WONK": [0, 1] },
+                   "italic": { "file": "fonts/Fraunces-Italic-VF.ttf", "axes": { "wght": [100, 900], "opsz": [9, 144], "SOFT": [0, 100], "WONK": [0, 1] } },
+                   "fallback": ["body"] },
+      "body":    { "family": "Inter", "file": "fonts/Inter-VF.ttf", "axes": { "wght": [100, 900], "opsz": [14, 32] },
+                   "italic": { "file": "fonts/Inter-Italic-VF.ttf", "axes": { "wght": [100, 900], "opsz": [14, 32] } },
+                   "features": { "cv11": true, "ss01": false } },
+      "mono":    { "family": "JetBrains Mono", "file": "fonts/JetBrainsMono-VF.ttf", "axes": { "wght": [100, 800] },
+                   "italic": { "file": "fonts/JetBrainsMono-Italic-VF.ttf", "axes": { "wght": [100, 800] } } }
     },
     "scale": { "ratio": 1.25, "base": 32 },
     "roles": {

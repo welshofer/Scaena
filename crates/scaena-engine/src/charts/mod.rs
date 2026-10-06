@@ -370,7 +370,7 @@ impl SeriesPath {
     /// it. A series with nothing projected is one stretch.
     pub fn stretches(&self, marks: &[(Shape, bool)]) -> Vec<(bool, Path)> {
         let mut marks: Vec<&(Shape, bool)> = marks.iter().collect();
-        marks.sort_by(|a, b| a.0.center_x().total_cmp(&b.0.center_x()));
+        scaena_core::sort::by(&mut marks, |a, b| a.0.center_x().total_cmp(&b.0.center_x()));
         let Some(&&(_, first)) = marks.first() else { return Vec::new() };
         let projected = |i: usize| marks[i].1 || marks[i + 1].1;
         // Each stretch's first and last mark.

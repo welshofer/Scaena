@@ -61,16 +61,54 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - It snaps to the theme's grid and the layout's slots, and the move becomes a change to your source: one ⌘Z undoes it, in the preview or the source.
   - Before you let go, the status says in how many states the move shows. Hold Alt to keep it to the state shown, and Shift to place it freely, off the grid, which lint flags as an override (W301).
   - Handles resize it by the grid's tracks. The arrow keys move it a track at a time, and Shift with an arrow resizes it. Escape selects what holds it.
+- **Several at once.** Shift-click to add an object beside the one selected, or take it away; they must sit in the same place, side by side on the slide or in the same container. Or drag across an empty part of the slide to select what the box encloses.
+  - Drag them, or press an arrow key, and they move together, keeping where they stand about each other. Delete, ⌘D, ⌘C, and ⌘X act on all of them, and a paste puts them down as they stood.
+  - The inspector aligns them by their left, right, top, or bottom edges or their middles, on the grid's tracks, and spreads three or more evenly. It offers what all of them have, and what you choose there is theirs.
+  - ⌘] brings what is selected in front of the next thing it overlaps, and ⌘[ sends it behind; with Shift, in front of or behind everything beside it. Each is one ⌘Z.
+  - ⌘G (Ctrl+G) puts what is selected in a group, which moves, fades, and enters as one; ⌘⇧G takes a group apart again. Nothing moves either way. The objects in a stack or a grid are already held together, and stay as they are.
+- **Zoom.** ⌘+ and ⌘− (Ctrl on Windows and Linux), or the zoom's buttons beside the Insert menu, bring the slide closer, up to eight times, and ⌘0 shows it whole again. Pinch, or turn the wheel with ⌘ held, to zoom about the pointer. Zoomed in, the wheel moves what you see, and so does a drag with Space held. The slide is painted again at each size, so text and edges stay sharp, and everything you do zoomed in, a drag, a resize, typing, lands as it would at the whole slide.
+- **Find and replace.** ⌘F (Ctrl+F), or Find, opens a bar above the slide that finds words in every slide's text. Enter goes to the next one and shows it, marked; Replace changes it, and Replace All changes every one at once, one step to undo. A text that several slides show is changed once, where it is written, so it reads the same in all of them. Match case and Whole words narrow what is found. On the command line, `scaena find deck "Q3" --replace "Q4"` does the same.
+- **Time the build.** Under the preview, the state's cue is a timeline: the transition, then a bar for each thing that moves.
+  - Drag a bar to start it later or sooner, and drag its end to make it longer or shorter. Each change is written where the motion is set, in the state's choreography or on the object itself, and one ⌘Z undoes it. A motion on a spring lasts as long as it takes to settle, so its end stays put.
+  - Add a motion picks one of the theme's presets for the object selected: as it comes on, or for emphasis. Objects that leave in this state can be given one as they go.
+  - Press or drag along the ruler to see the cue at that moment, and Play to watch it run. Click the slide to edit it at rest again.
 - **Type.** Double-click a text in the preview, or press Enter with it selected, and type where it stands.
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.
   - Each burst of typing is one ⌘Z. The text reflows as you type, and lint says at once if it no longer fits. Escape, or a click outside the text, stops typing.
+  - Select some words and press ⌘B (Ctrl+B) to make them bold, or, bold already, not. ⌘I (Ctrl+I) sets them in italic, or not: the italic is the family's own, and a theme whose family has none sets them upright and says so (W231). With words selected, the inspector shows their look instead of the text's: choose a role or a color there and only those words take it. Each is one ⌘Z.
+- **Choose a look.** With an object selected, the inspector shows what your theme offers for it: a text's role, family, weight, color, and fit, a shape's fill and stroke, a chart's kind, an entrance and an exit, and more.
+  - Each choice is one ⌘Z, and goes where the value is set: in the state that sets it, or in the object itself. The status says in how many states it shows. Tick "only in" to keep it to the state shown.
+  - A color or a length you write out yourself, and any text size, is an override: it goes in the deck's `overrides`, holds in every state, and a new theme does not change it. The inspector marks it so. The × beside a value takes it away where it is set, so what is under it shows.
+  - A chart shows what it reads: its data, the column on each axis (offered from the columns its data has, numbers for a value), the series, and how it reads them. Choose another source and the chart reads it: where that source lacks an axis's column, the axis reads another of the same kind, a name for a name and a number for a number, and the chart drops whatever else the source has no column for (a series, say). "Only in" makes it a data update: this state reads the new numbers, and the chart moves to them from the state before.
+  - An image shows its fit, its focal point, and its crop. Press Pick, then click the image where its subject is: that point stays in view however the box is shaped, as cover crops it. Escape leaves it as it was. A crop is a part of the image, as fractions of it: x, y, width, and height. Drag an image file from your computer onto an image in the preview to put it in that image's place: it joins the bundle, and one ⌘Z puts the old one back.
+- **Add, copy, delete.** The Insert menu under the preview offers what your theme and bundle have: a text in each of the theme's roles, a rectangle, an ellipse, a line, an arrow, each image in the bundle, a chart and a table of each data source, and each of the theme's shader backgrounds. The chart is made from the columns the data has: a line over dates, bars over names, grouped where a name repeats.
+  - Or draw it: press T (a text), R (a rectangle), O (an ellipse), L (a line), or A (an arrow) on the preview, and drag where it goes. It lands on the grid's cells you covered, or with Shift exactly where you dragged; a line runs the way you dragged. A click puts it where you clicked, a text you draw is ready to type into, and Escape stops drawing.
+  - What you choose goes where you last clicked in the preview, or in its middle, snapped to the grid. A text or an image clicked into an empty slot of the layout fills the slot, so it follows the deck into its other formats. A shader fills the canvas, behind everything. It appears from the state shown on, selected, ready to drag or type in.
+  - Delete (or Backspace) takes the object selected, and what it holds, out of the state shown and the states after it. Something that no state shows any more leaves the deck, so adding and deleting leaves nothing behind. Shift+Delete takes it out of the deck. ⌘D (Ctrl+D) puts a copy beside it, with copies of what it holds.
+  - ⌘C (Ctrl+C) copies the object selected, with what it holds, and ⌘X cuts it. ⌘V pastes it where you last clicked, in this deck or another, bringing the data and images it reads. What the other deck's theme lacks, a color or a role, is left out, and the status says what; a text in a role the theme lacks takes the nearest role it has. Text copied from anywhere else comes in as body text.
+  - Each is one ⌘Z.
+- **Layers.** The Layers tab beside the inspector lists the objects of the state shown, topmost first, inside what holds them. Click one to select it, even one under the rest. Those dimmed are not shown here: they leave in this state, another step of the slide shows them, or no state shows them any more.
+  - The eye hides an object in this state, or shows one hidden here. A double click on a name, or F2, renames it everywhere the deck names it.
+  - Drag an object up or down among those beside it to put it in front of or behind them; in a stack, to lay it out earlier or later. Alt with ↑ or ↓ moves the one focused a place.
+  - Drag it beside an object another container holds, or out among the slide's own, and it goes there; drop it on a container's middle and it goes in, at the top. It keeps its place on the slide where it can: in the grid cells it stands in, inside a frame, at its spot in a stack's order, or after a grid's last cell. Alt with ← takes it out of its container, and Alt with → puts it into the container just above it.
+  - Each is one ⌘Z.
+- **Theme.** The theme menu beside the format menu lists the themes your bundle holds, the deck's own chosen, and the themes that ship. Choose one to see the deck in it: one ⌘Z takes it back. A theme that lacks a role or a color your deck uses is refused, and the status says which.
+- **States.** The strip under the preview shows each state of the deck, small, and how long its cue runs. Click one, or use the arrow keys, to show it.
+  - **+ Step** adds a state after the one shown that shows what it shows: change it, and the deck builds from one to the other. **+ Slide** adds an empty slide after the shown one's, in its layout, ready to fill from the Insert menu.
+  - Drag a state to move it, or hold Alt and press an arrow key. F2, or a double click on its name, renames it, and Delete removes it. A state another builds on stays; the status says which.
+  - Each is one ⌘Z.
+- **A state's look.** With nothing selected (Escape, until the status says so), the inspector shows the state itself: its layout, how it comes in, how long it holds, and your notes.
+  - The layouts offered are those with a place for each object on the slide. A layout goes where it is set, so the states of a build change together, and the status says how many; tick "layout only in" to keep it to the state shown.
+  - How it comes in is a duration from the theme (or a cut), an ease, or a spring. A hold is in seconds: how long the state stays before the deck goes on by itself.
+  - Each choice is one ⌘Z.
 - **See.** The preview on the right shows the state the cursor is in, at rest.
   - **Play** opens the player in a new tab, with the motion, on the deck as last saved. A folder opened from disk has no Play: the player cannot open it. A new deck has none until its first save.
   - In the player, → and ← step, and F is fullscreen. **Presenter** opens your notes, the next state, and a clock in a second window, and **Edit** goes back to the editor.
 - **Check.** Each edit lints the state shown, and every state once you stop typing.
   - Findings stand in the gutter at the line they are about, and in the list under the source. F8 goes to the next one.
-  - A finding that has a fix offers it as one click. Only the lines the fix changes change.
+  - On the preview, a mark at the corner of an object counts the findings about it, red for an error, yellow for a warning. A mark at the top left counts those about the state itself. The strip counts each state's. Click a mark to read its findings and take a fix; "In the source" goes to the line.
+  - A finding that has a fix offers it as one click, one ⌘Z. Only the lines the fix changes change.
   - The **Inspector** tab shows the state's timing, its objects, and each text's resolved look.
 - **Save.** Where the deck goes depends on where it came from:
 
@@ -175,12 +213,12 @@ Source that does not parse exits 2, at the line and column:
 E106
 
   × unknown property `sise`; did you mean `size`?
-    ╭─[deck.scn:23:46]
- 22 │   -claim
- 23 │   title "Pro drove the growth" role:headline sise:12 semantic:claim at:in(header)
+    ╭─[deck.scn:26:46]
+ 25 │   -claim
+ 26 │   title "Pro drove the growth" role:headline sise:12 semantic:claim at:in(header)
     ·                                              ───┬───
     ·                                                 ╰── /states/1/props/title/sise
- 24 │   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
+ 27 │   rev chart:bar data:@q3 x:{field: quarter, type: ordinal}
     ╰────
 ```
 
@@ -201,7 +239,7 @@ A valid deck can still be shown badly. `scaena lint` lays out every state, in ev
 | Codes | Family | For example |
 |---|---|---|
 | E100–E120 | mechanical: it cannot be shown | text that does not fit its box (E100), objects that collide (E101), text that does not contrast with what is painted behind it (E110, E111), characters the font has no glyph for (E120) |
-| W200–W230 | typography and fonts | a widow (W200), too many words on screen (W210), a font whose license forbids what a bundle does with it (W230) |
+| W200–W231 | typography and fonts | a widow (W200), too many words on screen (W210), a font whose license forbids what a bundle does with it (W230), italic asked of a family with no italic face (W231) |
 | W300–W322 | the theme, charts, motion | a literal where a theme name goes (W300), chart text too small to read (W312), too much moving at once (W320) |
 | W401–W426 | the argument | a state no beat names (W401), a slide with evidence and no claim (W421), two claims on screen (W424) |
 | I400–I402 | information | a state that changes nothing (I400) |
@@ -220,6 +258,9 @@ deck "Q3 Review" theme:"themes/dusk.theme.json" canvas:1920x1080 lang:en-US
 font Fraunces "fonts/Fraunces-VF.ttf" axes:{wght: [100, 900], opsz: [9, 144]}
 font Inter "fonts/Inter-VF.ttf" axes:{wght: [100, 900], opsz: [14, 32]}
 font "JetBrains Mono" "fonts/JetBrainsMono-VF.ttf" axes:{wght: [100, 800]}
+font Fraunces "fonts/Fraunces-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [9, 144]}
+font Inter "fonts/Inter-Italic-VF.ttf" style:italic axes:{wght: [100, 900], opsz: [14, 32]}
+font "JetBrains Mono" "fonts/JetBrainsMono-Italic-VF.ttf" style:italic axes:{wght: [100, 800]}
 
 data q3 "data/q3-revenue.csv"
   schema:{quarter: string, product: string, revenue: number, customers: number}
@@ -250,7 +291,7 @@ state mix slide:revenue
 
 Line by line:
 - **The header.** `deck "Q3 Review" theme:… canvas:1920x1080` names the theme and the canvas in canvas units, which the painters scale to any size. Add `formats:[9:16, 1:1]` to lay the deck out again in other shapes.
-- **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
+- **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
 - **`state cover layout:title`** is the first click, on the theme's `title` layout.
   - `title text role:display "Q3 Review" … at:in(title)` declares an object where it first appears: its id, its type, its text, its role, and its slot.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.10.json",
+  "$id": "https://scaena.dev/schema/deck-0.11.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.10(\\.[0-9]+)?$"
+      "pattern": "^0\\.11(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -849,6 +849,10 @@
         "family": { "description": "Key in the theme's `type.families`.", "type": "string" },
         "size": { "type": "number", "exclusiveMinimum": 0 },
         "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "italic": {
+          "description": "Set in the family's italic face (SPEC §3.5), or, `false`, upright. None is synthesized: a family without one sets the text upright (lint W231).",
+          "type": "boolean"
+        },
         "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
         "tracking": { "description": "Em units; negative tightens.", "type": "number" },
         "opsz": { "type": "number" },
@@ -1408,6 +1412,7 @@
         "family": { "type": ["string", "null"] },
         "size": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
         "weight": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 1000 }, { "type": "null" }] },
+        "italic": { "type": ["boolean", "null"] },
         "leading": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
         "tracking": { "type": ["number", "null"] },
         "opsz": { "type": ["number", "null"] },

@@ -3,8 +3,11 @@
 // beside the pages, and the worker fetches them only to make a deck. A single-file export's
 // worker is built with `no-themes.ts`: its page plays a bundle, and never makes one.
 import daybreak from "../../docs/examples/authorability/themes/daybreak.theme.json?url";
+import frauncesItalic from "../../docs/examples/fonts/Fraunces-Italic-VF.ttf?url";
 import fraunces from "../../docs/examples/fonts/Fraunces-VF.ttf?url";
+import interItalic from "../../docs/examples/fonts/Inter-Italic-VF.ttf?url";
 import inter from "../../docs/examples/fonts/Inter-VF.ttf?url";
+import monoItalic from "../../docs/examples/fonts/JetBrainsMono-Italic-VF.ttf?url";
 import mono from "../../docs/examples/fonts/JetBrainsMono-VF.ttf?url";
 import dusk from "../../docs/examples/themes/dusk.theme.json?url";
 import ember from "../../docs/examples/themes/ember.theme.json?url";
@@ -16,9 +19,13 @@ export const themes: Record<string, { file: string; url: string }> = {
   Ember: { file: "ember.theme.json", url: ember },
 };
 
-/** The fonts the themes name, by the paths they give them, and where the page has each. */
+/** The fonts the themes name, by the paths they give them, and where the page has each: each
+ * family's, and its italic's (PLAN 2.40). */
 export const fonts: Record<string, string> = {
   "fonts/Fraunces-VF.ttf": fraunces,
   "fonts/Inter-VF.ttf": inter,
   "fonts/JetBrainsMono-VF.ttf": mono,
+  "fonts/Fraunces-Italic-VF.ttf": frauncesItalic,
+  "fonts/Inter-Italic-VF.ttf": interItalic,
+  "fonts/JetBrainsMono-Italic-VF.ttf": monoItalic,
 };

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.10",
+  "scaena": "0.11",
   "_comment": "E111 clean: display text in its role's color.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

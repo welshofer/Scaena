@@ -97,6 +97,9 @@ pub fn refine(role: &mut TextRole, style: Option<&TextStyle>) {
     if let Some(weight) = s.weight {
         role.weight = f32::from(weight);
     }
+    if let Some(italic) = s.italic {
+        role.italic = italic;
+    }
     if let Some(leading) = s.leading {
         role.leading = leading as f32;
     }

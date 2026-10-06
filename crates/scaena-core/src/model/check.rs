@@ -141,6 +141,43 @@ impl Checker {
             .unwrap_or_default()
     }
 
+    /// What the schema allows a node of type `tag` for `prop`: one of its properties
+    /// (`fit`), or one key of an object property (`style/color`), references followed.
+    /// `None` for a property the type does not have.
+    pub fn property(&self, tag: &str, prop: &str) -> Option<&Value> {
+        let (def, _) = self.node_types().into_iter().find(|(_, t)| t == tag)?;
+        let mut at = self.defs.get(&def)?;
+        for name in prop.split('/') {
+            at = self.member(self.follow(at), name)?;
+        }
+        Some(self.follow(at))
+    }
+
+    /// What the schema allows definition `def` (`State`, `TransitionSpec`) for its property
+    /// `prop`, references followed. `None` for a property it does not have.
+    pub fn def_property(&self, def: &str, prop: &str) -> Option<&Value> {
+        Some(self.follow(self.member(self.defs.get(def)?, prop)?))
+    }
+
+    /// `name` among the properties of `schema`, else of the definition it refers to: a
+    /// node's own properties, then those every node has.
+    fn member<'s>(&'s self, schema: &'s Value, name: &str) -> Option<&'s Value> {
+        let own = schema.get("properties").and_then(|p| p.get(name));
+        own.or_else(|| self.member(self.defs.get(def_of(schema.get("$ref")?.as_str()?))?, name))
+    }
+
+    /// The definition `schema` only refers to (`{"$ref": …}`, perhaps with a description or
+    /// a default), followed to what it says.
+    fn follow<'s>(&'s self, schema: &'s Value) -> &'s Value {
+        let only = schema
+            .as_object()
+            .is_some_and(|s| s.keys().all(|k| matches!(k.as_str(), "$ref" | "description" | "default")));
+        match schema.get("$ref").and_then(Value::as_str).and_then(|r| self.defs.get(def_of(r))) {
+            Some(target) if only => self.follow(target),
+            _ => schema,
+        }
+    }
+
     fn run(&self, schema: &Value, value: &Value, path: &str, def: Option<&str>) -> Outcome {
         let mut out = Outcome::default();
         let schema = match schema {

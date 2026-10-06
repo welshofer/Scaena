@@ -59,16 +59,23 @@ export function summary(name: string, json: string, error: boolean): string {
   }
   if (error) return `stopped: ${r.message ?? json}`;
   const codes = (findings: { code: string }[] | undefined) => [...new Set((findings ?? []).map((f) => f.code))].join(", ");
-  const delta = () => {
+  const delta = (p = r) => {
     const parts = [];
-    if (r.added?.length) parts.push(`+${codes(r.added)}`);
-    if (r.removed?.length) parts.push(`−${codes(r.removed)}`);
+    if (p.added?.length) parts.push(`+${codes(p.added)}`);
+    if (p.removed?.length) parts.push(`−${codes(p.removed)}`);
     return parts.length ? ` (${parts.join(" ")})` : "";
   };
   switch (name) {
     case "deck_patch":
     case "spine_update":
       return (r.applied ? "applied" : r.added?.length ? "refused" : "not applied (a dry run)") + delta();
+    case "deck_find": {
+      const texts = r.found?.length ?? 0;
+      const found = `${r.matches ?? 0} match${r.matches === 1 ? "" : "es"} in ${texts} text${texts === 1 ? "" : "s"}`;
+      const p = r.replaced;
+      if (!p) return found;
+      return `${found}; ${p.applied ? "replaced" : p.added?.length ? "refused" : "not replaced (a dry run)"}${delta(p)}`;
+    }
     case "data_attach":
       return (r.attached ? `attached ${r.source}: ${r.rows} rows` : "refused") + delta();
     case "deck_lint": {

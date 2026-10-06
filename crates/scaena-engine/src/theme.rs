@@ -34,6 +34,8 @@ pub struct TextRole {
     pub family: String,
     pub size: f32,
     pub weight: f32,
+    /// Asks for the family's italic face (SPEC §3.5); a family without one sets it upright.
+    pub italic: bool,
     /// Line height as a multiple of `size`.
     pub leading: f32,
     /// Letter spacing in em; negative tightens.
@@ -66,6 +68,7 @@ impl TextRole {
             family: r.family.clone(),
             size: r.size as f32,
             weight: f32::from(r.weight),
+            italic: r.italic.unwrap_or(false),
             leading: r.leading as f32,
             tracking: r.tracking.unwrap_or(0.0) as f32,
             opsz: r.opsz.map(|v| v as f32),
@@ -215,6 +218,12 @@ impl Theme {
     /// Every font family, in theme order.
     pub fn families(&self) -> &IndexMap<String, model::Family> {
         &self.typography.families
+    }
+
+    /// Whether the family keyed `key` has an italic face (PLAN 2.40): what text it sets in
+    /// italic takes. Without one, such text is set upright.
+    pub fn has_italic(&self, key: &str) -> bool {
+        self.families().get(key).is_some_and(|f| f.italic.is_some())
     }
 
     /// The font stack for a family key: the family, then its fallbacks in order, as

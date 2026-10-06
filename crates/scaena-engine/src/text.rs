@@ -51,9 +51,9 @@ use crate::theme::{Numeric, TextBox, TextRole, Theme, Wrap};
 use parley::layout::BreakReason;
 use parley::setting::Tag;
 use parley::{
-    Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontVariation,
-    FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap, PositionedLayoutItem,
-    StyleProperty, WordBreak,
+    Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontFeature, FontFeatures, FontStyle,
+    FontVariation, FontVariations, FontWeight, Language, Layout, LayoutContext, LineHeight, OverflowWrap,
+    PositionedLayoutItem, StyleProperty, WordBreak,
 };
 use scaena_core::displaylist::{Color, FontRef, Glyph};
 use scaena_core::model::theme::Case;
@@ -87,6 +87,28 @@ const HYPHEN_PENALTY: f32 = 5.0;
 pub struct Span {
     pub text: String,
     pub style: TextRole,
+    /// The weight it is set in without its own `style.weight`: its own role's, or the
+    /// node's look's. What taking that weight away leaves (ADR-0013, ⌘B).
+    pub base_weight: f32,
+    /// Whether it asks for italic without its own `style.italic`: its own role's, or the
+    /// node's look's. What taking that away leaves (⌘I, PLAN 2.40).
+    pub base_italic: bool,
+}
+
+/// A span of the text as written, as an editor reads its look (ADR-0013, PLAN 2.38).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct SpanLook {
+    /// Where it ends in the text as written, bytes; it starts where the one before ends.
+    pub end: usize,
+    /// The weight it is set in.
+    pub weight: f32,
+    /// The weight it is set in without its own `style.weight` ([`Span::base_weight`]).
+    pub base: f32,
+    /// Whether it asks for italic (PLAN 2.40), as its look says: a family without an
+    /// italic face sets it upright all the same.
+    pub italic: bool,
+    /// Whether it would without its own `style.italic` ([`Span::base_italic`]).
+    pub base_italic: bool,
 }
 
 /// A text node after the cascade, ready to lay out.
@@ -273,8 +295,12 @@ pub struct TextLayout {
     /// the paragraph has that many, and breaking could not give it more (lint W200).
     pub widow: bool,
     pub rtl: bool,
-    /// Some run asked for faux bold or oblique, which the display list cannot express.
+    /// Some run asked for faux bold, which the display list cannot express.
     pub synthesized: bool,
+    /// What set text upright that asked for italic (PLAN 2.40, lint W231): each theme family,
+    /// by its key, that has no italic face, and each font a fallback took that has none, by
+    /// its file. No italic is synthesized.
+    pub upright: Vec<String>,
     /// How its lines align across the box.
     pub align: TextAlign,
     /// Where its lines break: the box's width, or its `measure` if that is narrower. A
@@ -283,6 +309,9 @@ pub struct TextLayout {
     /// The weight its look sets it in, before any span's own: what makes it bold text
     /// for contrast (lint E110, E111).
     pub weight: f32,
+    /// Its spans as written, in order, and the weight each is set in: what ⌘B reads
+    /// (ADR-0013, PLAN 2.38).
+    pub looks: Vec<SpanLook>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -447,7 +476,12 @@ impl TextSpec {
     /// `text` in one look, with no node-level settings.
     pub fn plain(role: TextRole, text: impl Into<String>) -> TextSpec {
         TextSpec {
-            spans: vec![Span { text: text.into(), style: role.clone() }],
+            spans: vec![Span {
+                text: text.into(),
+                base_weight: role.weight,
+                base_italic: role.italic,
+                style: role.clone(),
+            }],
             role,
             features: BTreeMap::new(),
             axes: BTreeMap::new(),
@@ -583,6 +617,7 @@ impl TextEngine {
             widow,
             line_grid: spec.line_grid,
             weight: spec.role.weight,
+            upright: upright(theme, spec),
         };
         let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
         if empty {
@@ -594,6 +629,19 @@ impl TextEngine {
         }
         read.written = spec.spans.iter().map(|s| s.text.as_str()).collect();
         read.offsets = offsets(&spec.spans, &cased);
+        let mut end = 0;
+        read.looks = (spec.spans.iter())
+            .map(|s| {
+                end += s.text.len();
+                SpanLook {
+                    end,
+                    weight: s.style.weight,
+                    base: s.base_weight,
+                    italic: s.style.italic,
+                    base_italic: s.base_italic,
+                }
+            })
+            .collect();
         Ok(read)
     }
 
@@ -725,6 +773,18 @@ fn tag(name: &str) -> Result<Tag, EngineError> {
     Ok(Tag::from_bytes(bytes))
 }
 
+/// The theme families `spec`'s spans ask italic of that have no italic face: set upright
+/// (PLAN 2.40, lint W231), each once, in order.
+fn upright(theme: &Theme, spec: &TextSpec) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for span in spec.spans.iter().filter(|s| s.style.italic && !s.text.is_empty()) {
+        if !theme.has_italic(&span.style.family) && !out.contains(&span.style.family) {
+            out.push(span.style.family.clone());
+        }
+    }
+    out
+}
+
 /// parley style properties for text set in `role`, with the node's settings on top.
 fn style_props(
     theme: &Theme,
@@ -772,6 +832,12 @@ fn style_props(
     let variations: Vec<FontVariation> =
         axes.iter().map(|(k, v)| Ok(FontVariation::new(tag(k)?, *v))).collect::<Result<_, EngineError>>()?;
 
+    // Italic only where the family has an italic face: none is synthesized (PLAN 2.40).
+    let style = match role.italic && theme.has_italic(&role.family) {
+        true => FontStyle::Italic,
+        false => FontStyle::Normal,
+    };
+
     let color_name = role.color.as_deref().unwrap_or("onSurface");
     let ink = theme.color(color_name)?.0;
     let locale = match &spec.lang {
@@ -783,6 +849,7 @@ fn style_props(
         StyleProperty::FontFamily(family),
         StyleProperty::FontSize(role.size),
         StyleProperty::FontWeight(FontWeight::new(role.weight)),
+        StyleProperty::FontStyle(style),
         StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))),
         StyleProperty::FontVariations(FontVariations::List(Cow::Owned(variations))),
         StyleProperty::LetterSpacing(role.tracking * role.size),
@@ -1368,6 +1435,8 @@ struct Paragraph {
     line_grid: Option<f32>,
     /// Its look's weight.
     weight: f32,
+    /// The theme families its spans ask italic of that have no italic face.
+    upright: Vec<String>,
 }
 
 impl Paragraph {
@@ -1387,6 +1456,7 @@ impl Paragraph {
             widow: false,
             line_grid: None,
             weight: 400.0,
+            upright: Vec::new(),
         }
     }
 }
@@ -1411,6 +1481,7 @@ fn read_layout(
     let mut lines = Vec::new();
     let mut runs = Vec::new();
     let mut synthesized = false;
+    let mut upright = p.upright;
     let mut top = 0.0_f32;
     // On a line grid, how far the lines so far have moved down: each gap between
     // baselines rounded up to whole grid lines, the room above the line that moved.
@@ -1469,7 +1540,15 @@ fn read_layout(
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
             let run = glyph_run.run();
             let synthesis = run.synthesis();
-            synthesized |= synthesis.embolden() || synthesis.skew().is_some();
+            synthesized |= synthesis.embolden();
+            // A family asked for italic that has no italic face of its own: a fallback's. Its
+            // glyphs are drawn as they are, upright, and never slanted (PLAN 2.40).
+            if synthesis.skew().is_some() {
+                let font = fonts.font_ref(run.font())?.id;
+                if !upright.contains(&font) {
+                    upright.push(font);
+                }
+            }
             if cap_height.is_none() {
                 cap_height = run.metrics().cap_height;
                 x_height = run.metrics().x_height;
@@ -1553,8 +1632,10 @@ fn read_layout(
         widow: p.widow,
         rtl: p.rtl,
         synthesized,
+        upright,
         align: p.align,
         measure: p.measure,
         weight: p.weight,
+        looks: Vec::new(),
     })
 }

@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use scaena_core::{Finding, Severity};
 use scaena_engine::EngineError;
 use scaena_ops::OpsError;
+use scaena_ops::arrange::{Align, Order, Spread};
 use scaena_ops::inspect::{SnapMode, Views};
 use scaena_ops::lint::Linted;
 use scaena_ops::render::Painter;
@@ -93,10 +94,70 @@ enum Cmd {
         /// The box a drag left, `X,Y,W,H` in canvas units: NODE's cell, moved or resized.
         #[arg(long, value_name = "X,Y,W,H", value_parser = rect, requires = "snap")]
         to: Option<[f32; 4]>,
-        /// Keep the snapped patch to the state: the placement goes into its own props,
-        /// wherever it lives now (`place`'s `fork`).
-        #[arg(long, requires = "snap")]
+        /// Keep the snapped or arranged patch to the state: what it changes goes into the
+        /// state's own props, wherever it lives now (`place`'s and `choose`'s `fork`).
+        #[arg(long)]
         fork: bool,
+        /// Several nodes in the state, children of one container, arranged at once (PLAN
+        /// 2.42): with `--align`, `--spread`, `--order`, or `--by`, where each lands and the
+        /// patch that puts them there. Needs `--state`.
+        #[arg(long, value_name = "NODES", value_delimiter = ',', requires = "state")]
+        arrange: Option<Vec<String>>,
+        /// The edge, or the middle, the nodes `--arrange` names all take: left, center,
+        /// right, top, middle, or bottom; on a grid, snapped to its tracks.
+        #[arg(long, value_name = "EDGE", requires = "arrange")]
+        align: Option<Align>,
+        /// Spread the nodes `--arrange` names so the gaps between them are equal, the first
+        /// and the last staying: across or down.
+        #[arg(long, value_name = "WAY", requires = "arrange")]
+        spread: Option<Spread>,
+        /// Order the nodes `--arrange` names among their container's children, by `z`:
+        /// forward or backward past the next each overlaps, or to the front or the back.
+        #[arg(long, value_name = "HOW", requires = "arrange")]
+        order: Option<Order>,
+        /// The node `--arrange` names, listed just before NODE, as `--layers` lists them (PLAN
+        /// 2.50): painted just over it, or, in a stack, laid out just before it. Held by
+        /// another container, or by none, the node goes there with it, placed as that one
+        /// places what it holds.
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        before: Option<String>,
+        /// The node `--arrange` names, listed just after NODE: painted just under it, or, in a
+        /// stack, laid out just after it; into what holds it, as with `--before`.
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        after: Option<String>,
+        /// The node `--arrange` names, into the container NODE, listed first among what it
+        /// holds, placed as it places what it holds (PLAN 2.50).
+        #[arg(long, value_name = "NODE", requires = "arrange")]
+        into: Option<String>,
+        /// Move the nodes `--arrange` names together `DX,DY` canvas units: the first snapped
+        /// as a drag of it snaps, the rest as far as it went.
+        #[arg(long, value_name = "DX,DY", value_parser = point, requires = "arrange", allow_hyphen_values = true)]
+        by: Option<[f32; 2]>,
+        /// With `--by`: off the grid, each to whole canvas units (a `rect`), as Shift drags.
+        #[arg(long, requires = "by")]
+        free: bool,
+        /// What an inspector offers for NODE in the state (ADR-0013): each property it
+        /// edits, the value shown and where it lives, and the theme's names for it. Needs
+        /// `--state`.
+        #[arg(long, value_name = "NODE", requires = "state")]
+        choices: Option<String>,
+        /// What an inspector offers for the state itself (PLAN 2.36): its layout, from the
+        /// theme's layouts with a slot for each node placed in one; each key of its
+        /// transition; its hold; and its notes, each with its value and where it lives, which
+        /// is where `set_state` writes. Needs `--state`.
+        #[arg(long, requires = "state")]
+        state_choices: bool,
+        /// What may be inserted in the state (PLAN 2.34): a text in each of the theme's
+        /// roles, each kind of shape, each image in the bundle, a chart and a table of each
+        /// data source, and each shader preset, as `add_node` adds each, with the box it
+        /// takes at first. Needs `--state`.
+        #[arg(long, requires = "state")]
+        inserts: bool,
+        /// The state's layers (PLAN 2.50): its nodes nested as their containers and groups hold
+        /// them, topmost first, with those that leave in it and those another state of its
+        /// slide shows, hidden. Needs `--state`.
+        #[arg(long, requires = "state")]
+        layers: bool,
     },
     /// What changes between two states (resolved).
     Diff {
@@ -179,6 +240,26 @@ enum Cmd {
         ops: PathBuf,
         /// Say what would change, and write nothing.
         #[arg(long)]
+        dry_run: bool,
+    },
+    /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
+    /// once for each place the text is written, and the states that show it. With `--replace`,
+    /// every match is replaced in one patch, a `replace_text` where each text lives.
+    Find {
+        bundle: PathBuf,
+        /// The characters sought.
+        text: String,
+        /// Upper and lower case apart.
+        #[arg(long)]
+        case: bool,
+        /// Whole words only.
+        #[arg(long)]
+        words: bool,
+        /// Replace every match with this, as `patch` applies a patch.
+        #[arg(long, value_name = "TEXT")]
+        replace: Option<String>,
+        /// With `--replace`: say what would change, and write nothing.
+        #[arg(long, requires = "replace")]
         dry_run: bool,
     },
     /// Re-theme: point the deck at another theme, copied into the bundle, and say what
@@ -373,8 +454,58 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let has_errors = findings.iter().any(|f| f.severity == Severity::Error);
             Ok(if has_errors { ExitCode::from(1) } else { ExitCode::SUCCESS })
         }
-        Cmd::Inspect { bundle, state, resolved, timeline, data, boxes, at, format, targets, snap, to, fork } => {
-            let views = Views { resolved, timeline, data, boxes, at, format, targets, snap, to, fork };
+        Cmd::Inspect {
+            bundle,
+            state,
+            resolved,
+            timeline,
+            data,
+            boxes,
+            at,
+            format,
+            targets,
+            snap,
+            to,
+            fork,
+            arrange,
+            align,
+            spread,
+            order,
+            before,
+            after,
+            into,
+            by,
+            free,
+            choices,
+            state_choices,
+            inserts,
+            layers,
+        } => {
+            let views = Views {
+                resolved,
+                timeline,
+                data,
+                boxes,
+                at,
+                format,
+                targets,
+                snap,
+                to,
+                fork,
+                arrange,
+                align,
+                spread,
+                order,
+                before,
+                after,
+                into,
+                by,
+                free,
+                choices,
+                state_choices,
+                inserts,
+                layers,
+            };
             inspect(&open(&bundle)?, state.as_deref(), views, cli.json)
         }
         Cmd::Diff { bundle, from, to } => {
@@ -447,6 +578,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Render(args) => render(args, cli.json),
         Cmd::Patch { bundle, ops, dry_run } => patch(&bundle, &ops, dry_run, cli.json),
+        Cmd::Find { bundle, text, case, words, replace, dry_run } => {
+            let query = scaena_core::patch::Query { find: text, case, words };
+            find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
+        }
         Cmd::Theme { bundle, apply, dry_run, force } => theme_apply(&bundle, &apply, dry_run, force, cli.json),
         Cmd::Serve { bundle, port } => serve(&bundle, port, cli.json),
         Cmd::Mcp => {
@@ -719,6 +854,47 @@ fn patch(bundle: &Path, ops: &Path, dry_run: bool, json: bool) -> Result<ExitCod
     Ok(if p.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
+/// `scaena find` (PLAN 2.47): each text the query matches, once for each place it is written,
+/// with the states that show it and its matches; with `--replace`, every match replaced in
+/// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
+fn find(
+    bundle: &Path,
+    query: &scaena_core::patch::Query,
+    replace: Option<&str>,
+    dry_run: bool,
+    json: bool,
+) -> Result<ExitCode> {
+    let b = open(bundle)?;
+    let searched = scaena_ops::find::search(&b, query, replace, dry_run)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&searched)?);
+    } else {
+        let texts = searched.found.len();
+        println!(
+            "{} {} in {texts} {}",
+            searched.matches,
+            if searched.matches == 1 { "match" } else { "matches" },
+            if texts == 1 { "text" } else { "texts" }
+        );
+        for f in &searched.found {
+            let quoted: Vec<String> = f.matches.iter().map(|&[from, to]| format!("{from}..{to}")).collect();
+            println!("  {} in {} ({}): {:?} at {}", f.node, f.states.join(", "), f.lives, f.text, quoted.join(", "));
+        }
+        if let Some(p) = &searched.replaced {
+            match (p.refused, dry_run) {
+                (true, _) => println!("refused: replacing them would make the deck invalid; nothing was written"),
+                (false, true) => println!("would replace them, {} ops as JSON Patch", p.patch.len()),
+                (false, false) => println!("replaced them, {} ops as JSON Patch", p.patch.len()),
+            }
+            print_delta(&p.added, &p.removed);
+        }
+    }
+    Ok(match &searched.replaced {
+        Some(p) if p.errors > 0 => ExitCode::from(1),
+        _ => ExitCode::SUCCESS,
+    })
+}
+
 /// `scaena lint --fix`: apply every fix lint offers (each checked by laying its state out
 /// with it, never a change of content), write the deck, and lint again. Under `--json`:
 /// `{ "fixed": [findings], "findings": [what remains] }`.
@@ -839,8 +1015,135 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
                 false => println!("    patch: {}", serde_json::to_string(&snapped.patch)?),
             }
         }
+        if let Some(arranged) = &i.arranged {
+            println!("  arranged:");
+            for landed in &arranged.landed {
+                let [x, y, w, h] = landed.cell.map(|v| num(f64::from(v)));
+                println!("    {} lands at x {x}, y {y}, {w} × {h}", landed.node);
+            }
+            match arranged.patch.is_empty() {
+                true => println!("    where they are: nothing to patch"),
+                false => println!("    patch: {}", serde_json::to_string(&arranged.patch)?),
+            }
+        }
+        if let Some(c) = &i.choices {
+            print_choices(c);
+        }
+        if let Some(c) = &i.state_choices {
+            print_state_choices(c);
+        }
+        if let Some(offered) = &i.inserts {
+            print_inserts(offered);
+        }
+        if let Some(layers) = &i.layers {
+            println!("  layers, topmost first:");
+            print_layers(layers, 2);
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `inspect --layers`, for a person: each node as a layers panel lists it, under what holds it,
+/// and those the state does not show marked hidden.
+fn print_layers(layers: &[scaena_core::layers::Layer], depth: usize) {
+    for l in layers {
+        let kind = serde_json::to_value(l.kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+        let hidden = if l.shown { "" } else { ", hidden" };
+        println!("{:width$}{} ({kind}{hidden})", "", l.node, width = depth * 2);
+        print_layers(&l.children, depth + 1);
+    }
+}
+
+/// `inspect --inserts`, for a person: what may be inserted, each with the node it adds and
+/// the box it takes at first.
+fn print_inserts(offered: &[scaena_core::inserts::Insert]) {
+    use scaena_core::inserts::Start;
+    println!("  inserts:");
+    for insert in offered {
+        let start = match &insert.start {
+            Start::Box { w, h } => format!("{:.0}% × {:.0}% of the canvas, at the pointer", w * 100.0, h * 100.0),
+            Start::Slot(slot) => format!("the {slot} slot, under the rest"),
+        };
+        println!("    {} as {}…: {}; {start}", insert.label, insert.id, insert.node);
+    }
+}
+
+/// `inspect --choices`, for a person: each property an inspector edits, the value the state
+/// shows and where it lives, and what it takes.
+fn print_choices(c: &scaena_core::choices::Choices) {
+    use scaena_core::choices::Where;
+    let kind = serde_json::to_value(c.node_type).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    println!("  choices for {} ({kind}):", c.node);
+    for f in &c.fields {
+        let shown = match (&f.value, &f.lives) {
+            (Some(v), Some(lives)) => {
+                let v = v.as_str().map_or_else(|| v.to_string(), String::from);
+                let at = match lives {
+                    Where::Overrides => "the deck's overrides, an override".to_string(),
+                    Where::State(state) => format!("{state}'s delta"),
+                    Where::Node => "the node".to_string(),
+                };
+                let written = if f.literal && *lives != Where::Overrides { ", written out (W300)" } else { "" };
+                format!("{v}, in {at}{written}")
+            }
+            _ => "the theme's".to_string(),
+        };
+        println!("    {:<14} {shown} · {}", f.prop, takes(&f.takes));
+    }
+}
+
+/// What a property takes, for a person.
+fn takes(takes: &scaena_core::choices::Takes) -> String {
+    use scaena_core::choices::Takes;
+    match takes {
+        Takes::Name { names, overrides, .. } => {
+            const SHOWN: usize = 8;
+            let more = names.len().saturating_sub(SHOWN);
+            let mut said = names.iter().take(SHOWN).cloned().collect::<Vec<_>>().join(", ");
+            if more > 0 {
+                said += &format!(", … ({} in all)", names.len());
+            }
+            if *overrides {
+                said += ", or a value written out, an override";
+            }
+            said
+        }
+        Takes::Word { words } => words.join(", "),
+        Takes::Number { min, above, max, whole, overrides } => {
+            let what = if *whole { "a whole number" } else { "a number" };
+            let from = match (min, above) {
+                (Some(min), _) => format!(" from {}", num(*min)),
+                (_, Some(above)) => format!(" above {}", num(*above)),
+                _ => String::new(),
+            };
+            let to = max.map(|m| format!(" to {}", num(m))).unwrap_or_default();
+            let over = if *overrides { ", an override" } else { "" };
+            format!("{what}{from}{to}{over}")
+        }
+        Takes::Flag => "yes or no".to_string(),
+        Takes::Text => "words".to_string(),
+        Takes::Fractions { names } => format!("fractions of the image, {}", names.join(", ")),
+    }
+}
+
+/// `inspect --state-choices`, for a person: the state's layout, transition, hold, and notes,
+/// each with its value and where it lives, and what it takes.
+fn print_state_choices(c: &scaena_core::choices::StateChoices) {
+    use scaena_core::choices::Where;
+    println!("  choices for state {}:", c.state);
+    for f in &c.fields {
+        let shown = match (&f.value, &f.lives) {
+            (Some(v), Some(Where::State(state))) => {
+                let v = v.as_str().map_or_else(|| v.to_string(), String::from);
+                let v =
+                    if v.chars().count() > 40 { format!("{}…", v.chars().take(40).collect::<String>()) } else { v };
+                format!("{v}, set in {state}")
+            }
+            _ if f.prop == "layout" => "none".to_string(),
+            _ => "not set".to_string(),
+        };
+        println!("    {:<20} {shown} · {}", f.prop, takes(&f.takes));
+    }
 }
 
 /// `inspect --targets`, for a person: what holds the node, its cell, and what a drag snaps

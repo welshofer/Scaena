@@ -26,8 +26,9 @@ pub struct Patched {
     pub removed: Vec<Finding>,
     /// The findings that are errors, after.
     pub errors: usize,
-    /// The states it changes what shows in, by id: each whose nodes, resolved with the
-    /// deck's overrides, are not as they were, and each it adds. None when it is refused.
+    /// The states it changes, by id: each whose nodes, resolved with the deck's overrides,
+    /// or whose layout, transition, choreography, hold, or notes are not as they were, and
+    /// each it adds. None when it is refused.
     pub states: Vec<String>,
     /// Refused: the patch would have added a validation finding (in `added`).
     #[serde(skip)]
@@ -137,14 +138,23 @@ pub fn reach(deck: &Deck, files: &dyn BundleFiles, ops: &[Value]) -> Result<Vec<
     changed(deck, &Deck::from_value(&compiled.doc).map_err(OpsError::new)?)
 }
 
-/// The states of `after` whose nodes, resolved with its overrides, differ from the same
-/// state's in `before`, and those `before` does not have, in `after`'s order.
+/// The states of `after` that show otherwise than the same state of `before`, and those
+/// `before` does not have, in `after`'s order: its nodes, resolved with the overrides, or its
+/// layout; or how it comes in and holds, its own transition, choreography, hold, and notes.
 fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsError> {
     let was = scaena_core::resolve_states(before).context("tracking")?;
     let is = scaena_core::resolve_states(after).context("tracking")?;
+    let own = |deck: &Deck, id: &str| {
+        let s = deck.states.iter().find(|s| s.id == id)?;
+        Some((s.transition.clone(), s.choreography.clone(), s.hold, s.notes.clone()))
+    };
     let differs = |s: &scaena_core::Snapshot| {
         let then = was.iter().find(|w| w.state_id == s.state_id);
-        then.is_none_or(|w| with_overrides(before, w).nodes != with_overrides(after, s).nodes)
+        then.is_none_or(|w| {
+            w.layout != s.layout
+                || own(before, &w.state_id) != own(after, &s.state_id)
+                || with_overrides(before, w).nodes != with_overrides(after, s).nodes
+        })
     };
     Ok(is.iter().filter(|s| differs(s)).map(|s| s.state_id.clone()).collect())
 }

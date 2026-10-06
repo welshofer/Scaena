@@ -16,19 +16,31 @@
 import init, { Canvas, Player, engineModule, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
+  Added,
   Asking,
   AssistantEvent,
   Carets,
+  Choices,
   Edited,
   Finding,
   FromHelper,
   FromWorker,
+  Insert,
+  Layer,
+  Thumb,
   Opened,
   Painter,
+  Pasted,
+  Grouped,
   Section,
   Slot,
   Snapped,
+  Arrange,
+  Arranged,
   Source,
+  StateChoices,
+  Themed,
+  Themes,
   ToHelper,
   ToWorker,
   Where,
@@ -93,7 +105,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "reading", id: data.id, html: player.reading(data.state) });
       case "run":
         layOut(data.format);
-        return run(data.index, data.t, ++latest, data.still);
+        return run(data.index, data.t, ++latest, data.still, data.alone);
       case "seek": {
         latest++;
         layOut(data.format);
@@ -130,25 +142,87 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "hit":
         layOut(data.format);
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "view": {
+        viewing = data.view ? Float32Array.from(data.view) : null;
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t);
+        return post({ type: "viewed", id: data.id });
+      }
+      case "find":
+        current(data.source);
+        return post({ type: "found", id: data.id, found: JSON.parse(player.find(JSON.stringify(data.query))) });
+      case "replacing": {
+        current(data.source);
+        const one = data.one ? Uint32Array.from(data.one) : undefined;
+        return post({ type: "replacement", id: data.id, ops: JSON.parse(player.replacing(JSON.stringify(data.query), data.with, one)) });
+      }
+      case "focalAt":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "focal", id: data.id, at: JSON.parse(player.focalAt(data.state, data.node, ...data.point)) });
       case "targets":
         layOut(data.format);
         return post({ type: "targets", id: data.id, targets: JSON.parse(player.targets(data.state, data.node)) });
       case "drag":
         layOut(data.format);
         return post({ type: "dragged", id: data.id, ...(await drag(data)) });
+      case "arrange":
+        layOut(data.format);
+        return post({ type: "arranged", id: data.id, arranged: arranging(data.state, data.nodes, data.how, data.fork) });
       case "rest": {
         latest++;
         layOut(data.format);
-        player.setMoving(undefined, 0, 0);
+        player.setMoving([], 0, 0);
         player.preview(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
         return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
       }
-      case "place":
-        return post({ type: "placed", id: data.id, ...(await place(data.source, data.ops, data.index, data.format)) });
+      case "make":
+        return post({ type: "made", id: data.id, ...(await make(data.source, data.ops, data.index, data.format)) });
+      case "choices":
+        return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
+      case "stateChoices":
+        return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
+      case "inserts":
+        return post({ type: "inserts", id: data.id, inserts: JSON.parse(player.inserts()) as Insert[] });
+      case "layers":
+        return post({ type: "layers", id: data.id, layers: JSON.parse(player.layers(data.state)) as Layer[] });
+      case "inserting":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.inserting(data.state, data.n, ...data.at)) as Added });
+      case "drawing":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.drawing(data.state, data.n, ...data.from, ...data.to, data.free)) as Added });
+      case "duplicating":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.duplicating(data.state, data.node)) as Added });
+      case "grouping":
+        current(data.source);
+        return post({ type: "grouped", id: data.id, grouped: JSON.parse(player.grouping(data.state, data.nodes)) as Grouped });
+      case "copying":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "copied", id: data.id, clip: player.copying(data.state, data.nodes) });
+      case "pasting":
+        current(data.source);
+        layOut(data.format);
+        return post({ type: "pasted", id: data.id, pasted: JSON.parse(player.pasting(data.clip, data.state, ...data.at)) as Pasted });
+      case "thumbnails": {
+        layOut(data.format);
+        const thumbs = await thumbnails(data.height, data.known);
+        return post({ type: "thumbnails", id: data.id, thumbs }, thumbs.flatMap((t) => (t.pixels ? [t.pixels] : [])));
+      }
+      case "addingState":
+        current(data.source);
+        return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
+      case "deleting":
+        current(data.source);
+        return post({ type: "deleting", id: data.id, patch: JSON.parse(player.deleting(data.state, data.node, data.everywhere)) as unknown[] });
       case "carets": {
         // The source as it stands, where the deck shown is not yet the one it compiles to: an
         // undo, or the source changed under the text.
@@ -156,6 +230,28 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         if (behind) saveable(data.source);
         layOut(data.format, behind);
         return post({ type: "carets", id: data.id, carets: JSON.parse(player.carets(data.state, data.node)) as Carets | null });
+      }
+      case "themes":
+        return post({ type: "themes", id: data.id, themes: JSON.parse(player.themes()) as Themes });
+      case "retheme":
+        return post({ type: "rethemed", id: data.id, ...(await retheme(data.source, data.theme, data.index, data.format)) });
+      case "characterChoices": {
+        const choices = JSON.parse(player.characterChoices(data.state, data.node, data.from, data.to)) as Choices;
+        return post({ type: "characterChoices", id: data.id, choices });
+      }
+      case "bolding": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        const look = JSON.parse(player.bolding(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
+        return post({ type: "bolding", id: data.id, look });
+      }
+      case "italicizing": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        layOut(data.format, behind);
+        const look = JSON.parse(player.italicizing(data.state, data.node, data.from, data.to)) as Record<string, unknown>;
+        return post({ type: "italicizing", id: data.id, look });
       }
       case "type": {
         const typed = await type(data.source, data.ops, data.index, data.format);
@@ -363,10 +459,9 @@ async function fetched(deck: string): Promise<Player> {
   return fetchedPlayer;
 }
 
-/** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
- * `theme` and the fonts it names, which the page carries (`themes.ts`) and fetches now, and one
- * state with nothing on it. */
-async function made(theme: string, title: string): Promise<Player> {
+/** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
+ * name, its text, and the fonts it names, by the paths its families give them. */
+async function shipped(theme: string): Promise<{ file: string; text: string; fonts: Map<string, Uint8Array> }> {
   const { themes, fonts } = await import("@scaena/themes");
   const chosen = themes[theme];
   if (!chosen) throw new Error(`no theme ships as ${theme}: ${Object.keys(themes).join(", ") || "none here"}`);
@@ -376,14 +471,49 @@ async function made(theme: string, title: string): Promise<Player> {
     return response;
   };
   const text = await (await fetched(chosen.url)).text();
-  const families = (JSON.parse(text) as { type?: { families?: Record<string, { file?: string }> } }).type?.families;
+  type Face = { file?: string };
+  const families = (JSON.parse(text) as { type?: { families?: Record<string, Face & { italic?: Face }> } }).type?.families;
   const given = new Map<string, Uint8Array>();
-  for (const { file } of Object.values(families ?? {})) {
+  // Each family's font, and its italic's (PLAN 2.40).
+  for (const file of Object.values(families ?? {}).flatMap((f) => [f.file, f.italic?.file])) {
     if (!file || given.has(file)) continue;
     if (!fonts[file]) throw new Error(`${theme} names a font the page does not carry: ${file}`);
     given.set(file, new Uint8Array(await (await fetched(fonts[file])).arrayBuffer()));
   }
-  return Player.create(chosen.file, text, title, given);
+  return { file: chosen.file, text, fonts: given };
+}
+
+/** A new deck titled `title` (PLAN 2.12), as `deck_create` makes one: the theme that ships as
+ * `theme` and the fonts it names, and one state with nothing on it. */
+async function made(theme: string, title: string): Promise<Player> {
+  const { file, text, fonts } = await shipped(theme);
+  return Player.create(file, text, title, fonts);
+}
+
+/** The deck `source` compiles to, in another theme, by the user (PLAN 2.39), as `theme --apply`
+ * re-themes it: one that ships, fetched with its fonts, or one the bundle holds. Refused, it says
+ * why and changes nothing; else the deck's source after is compiled, shown at slot `index`, and
+ * linted, as an edit of it is. */
+async function retheme(
+  source: string,
+  theme: { ships: string } | { path: string },
+  index: number,
+  at: string | undefined,
+): Promise<{ themed: Themed; source?: string; edited?: Edited }> {
+  saveable(source);
+  player.setMoving([], 0, 0);
+  player.preview(undefined);
+  const when = new Date().toISOString();
+  let themed: Themed;
+  if ("ships" in theme) {
+    const { file, text, fonts } = await shipped(theme.ships);
+    themed = JSON.parse(player.retheme(`themes/${file}`, text, fonts, when)) as Themed;
+  } else themed = JSON.parse(player.retheme(theme.path, undefined, new Map(), when)) as Themed;
+  if (themed.refused) return { themed };
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { themed, source: next, edited: await edit(next, index, at) };
 }
 
 /** A bundle's name for a deck titled `title`: lowercase, its words joined by `-`. */
@@ -547,6 +677,44 @@ function timeline(): Slot[] {
 const size = () => Array.from(player.canvasSize(), Math.round) as [number, number];
 
 /** Lay frames out in `next` from now on; `again` after the deck has changed. */
+/** The strip's thumbnails are asked for again: the last one asked stops. */
+let thumbing = 0;
+
+/** Each state of the timeline at rest, `height` pixels high, for the state strip (PLAN 2.35):
+ * pixels for each whose drawing (its display list's digest) is not the one `known` holds. A
+ * state at a time, the worker answering what else is asked between them; a newer request stops
+ * it with what it has. A state the deck no longer has, changed meanwhile, is left out. */
+async function thumbnails(height: number, known: Record<string, string>): Promise<Thumb[]> {
+  const mine = ++thumbing;
+  const [w, h] = player.canvasSize();
+  const width = Math.max(1, Math.round((height * w) / h));
+  const thumbs: Thumb[] = [];
+  for (const { state } of slots) {
+    if (mine !== thumbing) break;
+    try {
+      const digest = player.digest(state);
+      if (known[state] === digest) {
+        thumbs.push({ state, digest });
+        continue;
+      }
+      const pixels = player.pixels(state, Infinity, width);
+      thumbs.push({ state, digest, width, height: pixels.length / 4 / width, pixels: pixels.buffer as ArrayBuffer });
+    } catch {
+      continue;
+    }
+    await new Promise((go) => setTimeout(go, 0));
+  }
+  return thumbs;
+}
+
+/** The deck the editor's `source` compiles to: compiled first where the deck shown is not yet that
+ * one, after an undo or while the source is typed in. */
+function current(source: string) {
+  if (player.compiledFrom(source)) return;
+  saveable(source);
+  layOut(format, true);
+}
+
 function layOut(next: string | undefined, again = false) {
   if (next === format && !again) return;
   player.setFormat(next);
@@ -607,9 +775,17 @@ let reached: { patch: string; states: string[] } | undefined;
 async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?: Snapped | null; states?: string[] }> {
   let snapped: Snapped | null | undefined;
   let states: string[] | undefined;
-  if (d.snap) {
+  const nodes = [d.node, ...(d.with ?? [])];
+  if (d.together) {
+    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does.
+    const { by, free, fork } = d.together;
+    const arranged = arranging(d.state, nodes, { by, free }, fork);
+    snapped = arranged && { cell: arranged.landed[0]?.cell ?? [0, 0, 0, 0], patch: arranged.patch, landed: arranged.landed };
+  } else if (d.snap) {
     const [x, y, w, h] = d.snap.to;
     snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork)) as Snapped | null;
+  }
+  if (d.together || d.snap) {
     states = [];
     if (snapped?.patch.length) {
       const patch = JSON.stringify(snapped.patch);
@@ -620,20 +796,25 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
   if (d.by || d.preview) {
     latest++;
     const [dx, dy] = d.by ?? [0, 0];
-    player.setMoving(d.by ? d.node : undefined, dx, dy);
+    player.setMoving(d.by ? nodes : [], dx, dy);
     player.preview(d.preview && snapped?.patch.length ? JSON.stringify(snapped.patch) : undefined);
     await paint(d.state, Infinity);
   }
   return { snapped, states };
 }
 
-/** Make `ops`, the patch a gesture on the editor's canvas ended in, by the user, on the deck
- * `source` compiles to, which must validate (ADR-0013). The deck's source after is compiled,
- * shown at slot `index`, and linted, as an edit of it is. A patch the deck refuses, or one that
- * changes nothing, is an error that says why. */
-async function place(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
+/** `nodes` arranged `how` in `state` at rest (PLAN 2.42): where each lands and the patch. */
+function arranging(state: string, nodes: string[], how: Arrange, fork: boolean): Arranged | null {
+  return JSON.parse(player.arranging(state, nodes, JSON.stringify(how), fork)) as Arranged | null;
+}
+
+/** Make `ops`, the patch a gesture on the editor's canvas or a choice in its inspector ended in,
+ * by the user, on the deck `source` compiles to, which must validate (ADR-0013). The deck's
+ * source after is compiled, shown at slot `index`, and linted, as an edit of it is. A patch the
+ * deck refuses, or one that changes nothing, is an error that says why. */
+async function make(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
   saveable(source);
-  player.setMoving(undefined, 0, 0);
+  player.setMoving([], 0, 0);
   player.preview(undefined);
   const made = player.tool("deck_patch", JSON.stringify({ ops }), "user", new Date().toISOString());
   const [json, failed, changed] = [made.json, made.error, made.edited];
@@ -654,7 +835,7 @@ async function place(source: string, ops: unknown[], index: number, at: string |
  * after is compiled, shown at slot `index`, and linted, as an edit of it is. */
 async function type(source: string, ops: unknown[], index: number, at: string | undefined): Promise<{ source: string; edited: Edited }> {
   saveable(source);
-  player.setMoving(undefined, 0, 0);
+  player.setMoving([], 0, 0);
   player.preview(undefined);
   if (!player.typed(JSON.stringify(ops), new Date().toISOString())) throw new Error("it reads so already");
   latest++;
@@ -663,6 +844,13 @@ async function type(source: string, ops: unknown[], index: number, at: string | 
   return { source: next, edited: await edit(next, index, at) };
 }
 
+/** What the preview last painted: what a new view paints again (PLAN 2.46). */
+let lastPainted: { state: string; t: number } | undefined;
+/** The part of the canvas the editor's preview shows zoomed in, `[x, y, w, h]` canvas units, or
+ * `null` for all of it; `undefined` until the editor first asks, as the player's page never does
+ * (PLAN 2.46). Each paint sets it on the engine, whichever the bundle is now: a reload makes another. */
+let viewing: Float32Array | null | undefined;
+
 /** The CPU painter's frame in flight: the next waits for it, since the module holds one frame
  * for its shaders at a time, and a reload waits for it before it lets the engine go. */
 let painting: Promise<void> = Promise.resolve();
@@ -670,11 +858,13 @@ let painting: Promise<void> = Promise.resolve();
 /** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
  * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
 async function paint(state: string, t: number) {
+  lastPainted = { state, t };
   const [width, height] = size();
   if (canvas.width !== width || canvas.height !== height) {
     [canvas.width, canvas.height] = [width, height];
     gpu?.resize(width, height);
   }
+  if (viewing !== undefined) player.setView(viewing);
   if (gpu) return player.paint(gpu, state, t);
   const before = painting;
   let done = () => {};
@@ -818,9 +1008,10 @@ function help(port: MessagePort) {
 /** The deck from slot `index`, `t` ms in, a frame each time the display takes one. A state
  * that holds, short of the last, gives way to the next when its cue and hold are over; one
  * that does not hold, and the last, comes to rest and waits. `still`: each cue is a cut, the
- * state painted at rest once, and the clock waits out its cue and hold without frames. */
-function run(index: number, t: number, run: number, still = false) {
-  const goesOn = (i: number) => slots[i].hold > 0 && i < slots.length - 1;
+ * state painted at rest once, and the clock waits out its cue and hold without frames.
+ * `alone`: slot `index`'s cue alone, which comes to rest and waits. */
+function run(index: number, t: number, run: number, still = false, alone = false) {
+  const goesOn = (i: number) => !alone && slots[i].hold > 0 && i < slots.length - 1;
   const start = performance.now();
   /** Where the clock started, from the slot it is in now. */
   let offset = t;

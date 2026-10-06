@@ -193,16 +193,16 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
-      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
-      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
-      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
+      - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
       # The CRDT, which the editor loads to save a bundle that keeps a history (PLAN 2.9).
-      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
       # What the assistant reads, which the editor loads the first time it is asked (PLAN 2.6).
-      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
+      - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
       # The player's engine alone, which a single-file export carries (PLAN 2.5).
-      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
-      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+      - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.
       - name: WASM size
@@ -231,6 +231,37 @@ jobs:
       # The preview as a canvas: select, drag, resize, and the keys, each a patch to undo (PLAN 2.31).
       - run: node web/canvas.mjs
       - run: node web/typing.mjs
+      - run: node web/inspector.mjs
+      # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
+      - run: node web/insert.mjs
+      # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).
+      - run: node web/draw.mjs
+      # Lint's findings on the canvas, the strip's counts, and a fix taken from a mark (PLAN 2.49).
+      - run: node web/findings.mjs
+      # The layers: listed topmost first, a node selected, shown or hidden, and renamed (PLAN 2.50).
+      - run: node web/layers.mjs
+      # The clipboard: a node and what it holds copied, cut, and pasted, into this deck or another (PLAN 2.37).
+      - run: node web/clipboard.mjs
+      # A chart and a table inserted from a data source, and what a chart reads chosen in the inspector (PLAN 2.41).
+      - run: node web/charts.mjs
+      # Several nodes at once: selected, moved, aligned, ordered, deleted, copied, and pasted, each a patch (PLAN 2.42).
+      - run: node web/several.mjs
+      # Group and ungroup: a group where the nodes stand, and taken apart to the deck as it was (PLAN 2.43).
+      - run: node web/group.mjs
+      # The cue under the preview: a motion's delay and duration dragged, a motion added, the ruler, Play (PLAN 2.44).
+      - run: node web/cue.mjs
+      # An image from the inspector: its focal point picked on it, its crop and fit, an image file dropped on it (PLAN 2.45).
+      - run: node web/image.mjs
+      # The preview zoomed and panned: painted at the size shown, every pointer read through the view (PLAN 2.46).
+      - run: node web/zoom.mjs
+      # Find and replace across the deck's texts: each match shown, marked, and replaced where its text lives (PLAN 2.47).
+      - run: node web/find.mjs
+      # Characters selected in a text take a look: ⌘B, and a role or color from the inspector (PLAN 2.38).
+      - run: node web/runs.mjs
+      # A theme chosen in the editor: one that ships, or the bundle's own; refused with why (PLAN 2.39).
+      - run: node web/theme.mjs
+      # The state strip: thumbnails, and states added, moved, renamed, and removed (PLAN 2.35).
+      - run: node web/strip.mjs
       - run: node web/storage.mjs
       # The assistant runs PLAN 1.19's agent loop against a scripted server for each provider (PLAN 2.6).
       - run: node web/assistant.mjs

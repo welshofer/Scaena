@@ -62,6 +62,29 @@ export interface NodeBox {
   draws: boolean;
 }
 
+/** What is sought across the deck's texts (PLAN 2.47). */
+export interface Query {
+  find: string;
+  /** Upper and lower case apart. */
+  case?: boolean;
+  /** Whole words only. */
+  words?: boolean;
+}
+
+/** A text the deck shows that a query matches, once for each place it is written (PLAN 2.47):
+ * the node's own, a state's delta, or the deck's overrides (`lives`, a JSON pointer), with the
+ * states that show it from there. `matches` are `[from, to]` in characters (Unicode scalar
+ * values), as `replace_text` counts them. */
+export interface Found {
+  node: string;
+  /** The first state that shows it, where a replacement is made. */
+  state: string;
+  states: string[];
+  lives: string;
+  text: string;
+  matches: [number, number][];
+}
+
 /** A node that draws at a point, with the containers and groups it sits in, innermost first. */
 export interface Hit {
   node: string;
@@ -93,6 +116,52 @@ export interface CaretLine {
    * and one after it, the right edge first in right-to-left text. */
   chars: [number, number, number][];
 }
+
+/** What an inspector offers for a node as a state shows it (ADR-0013, PLAN 2.33), as `scaena
+ * inspect --choices` says it. */
+export interface Choices {
+  node: string;
+  type: string;
+  state: string;
+  /** Each property the inspector edits: the node type's own, then those every node has. */
+  fields: Field[];
+}
+
+/** What an inspector offers for a state itself (PLAN 2.36), as `scaena inspect --state-choices`
+ * says it: its layout, each key of its transition, its hold, and its notes. */
+export interface StateChoices {
+  state: string;
+  /** What `set_state` names. A state that sets no key of its transition cuts in. */
+  fields: Field[];
+}
+
+/** One property an inspector edits. */
+export interface Field {
+  /** A property, or one key of an object property (`style/color`): what `choose` names. */
+  prop: string;
+  takes: Takes;
+  /** The value the state shows, as the deck sets it; absent where the theme's shows. */
+  value?: unknown;
+  /** Where that value lives: where a choice is written. */
+  lives?: Lives;
+  /** The value is written out where the theme has names: an override, or lint W300's. */
+  literal?: boolean;
+}
+
+/** What a property takes: one of the theme's names of a kind (with `overrides`, or a value written
+ * out, which is an override), one of some words, a number in range, or yes or no. */
+export type Takes =
+  | { kind: "name"; of: string; names: string[]; overrides?: boolean }
+  | { kind: "word"; words: string[] }
+  | { kind: "number"; min?: number; above?: number; max?: number; whole?: boolean; overrides?: boolean }
+  | { kind: "flag" }
+  | { kind: "text" }
+  /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
+   * `w`, and `h` (PLAN 2.45). */
+  | { kind: "fractions"; names: string[] };
+
+/** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
+export type Lives = "overrides" | "node" | { state: string };
 
 /** How a box dropped by a drag snaps (`scaena inspect --snap`): moved as many cells as it spans,
  * resized to the nearest tracks, into the slot or area it covers most, where it was dropped as a
@@ -126,7 +195,93 @@ export interface Targets {
 export interface Snapped {
   cell: Rect;
   patch: unknown[];
+  /** With several nodes moved together (PLAN 2.42): where each lands. */
+  landed?: Landed[];
 }
+
+/** Where a node arranged with others lands (PLAN 2.42). */
+export interface Landed {
+  node: string;
+  cell: Rect;
+}
+
+/** How several nodes are arranged (PLAN 2.42): one of these. */
+export type Arrange =
+  | { align: "left" | "center" | "right" | "top" | "middle" | "bottom" }
+  | { spread: "across" | "down" }
+  | { order: "forward" | "backward" | "front" | "back" }
+  /** One node, listed just before or just after another (PLAN 2.50): into what holds that one,
+   * if it is another container; or into a container, listed first there. */
+  | { before: string }
+  | { after: string }
+  | { into: string }
+  | { by: [number, number]; free?: boolean };
+
+/** Several nodes arranged: where each lands, and the patch that puts them there. */
+export interface Arranged {
+  landed: Landed[];
+  patch: unknown[];
+}
+
+/** A node of a state's layers (PLAN 2.50), as `scaena inspect --layers` says it: each list the
+ * topmost first (a stack's in the order it lays them out), with what it holds. */
+export interface Layer {
+  node: string;
+  type: string;
+  /** Whether the state shows it: one it does not leaves in it, another state of its slide shows
+   * it, or no state does. */
+  shown: boolean;
+  children?: Layer[];
+}
+
+/** Something the editor may insert (PLAN 2.34), as `scaena inspect --inserts` says it: a node the
+ * theme or the bundle names, as `add_node` adds it, unplaced. */
+export interface Insert {
+  /** What a menu says: the node's type, and the name it is made from. */
+  label: string;
+  node: { type: string } & Record<string, unknown>;
+  /** What its id starts from. */
+  id: string;
+  /** The box it takes at first: about the pointer, each side a share of the canvas's; or a slot
+   * it fills, under what is there. */
+  start: { box: { w: number; h: number } } | { slot: string };
+}
+
+/** A state at rest, painted small for the state strip (PLAN 2.35): what identifies its drawing,
+ * and, where that is not what the strip holds, its pixels (straight-alpha RGBA, row by row). */
+export interface Thumb {
+  state: string;
+  digest: string;
+  width?: number;
+  height?: number;
+  pixels?: ArrayBuffer;
+}
+
+/** A node a patch adds: its id, where it lands, and the patch. */
+export interface Added {
+  id: string;
+  cell: Rect;
+  patch: unknown[];
+}
+
+/** What a paste makes (PLAN 2.37): the copy of the node copied, where it lands, and the patch;
+ * the copies of the others copied with it (PLAN 2.42); the files the clip carried that the
+ * bundle lacked, now in it; and what the copies named that the theme lacks, each taken out of
+ * them. */
+export interface Pasted extends Added {
+  also?: string[];
+  files: string[];
+  findings: Finding[];
+}
+
+/** What grouping makes (PLAN 2.43): the new group's id, and the patch that makes it. */
+export interface Grouped {
+  id: string;
+  patch: unknown[];
+}
+
+/** The media type a clip goes on the clipboard as, beside its text (PLAN 2.37). */
+export const CLIP = "application/x-scaena+json";
 
 /** The page to the worker. */
 export type ToWorker =
@@ -145,7 +300,7 @@ export type ToWorker =
    * not hold, and the last, comes to rest and waits there. `still`, for a reader who asks for
    * less motion (PLAN 2.8): each cue is a cut to its state at rest, and the deck keeps its
    * pace, a state that holds going on when its cue and hold are over. */
-  | { type: "run"; index: number; t: number; format?: string; still?: boolean }
+  | { type: "run"; index: number; t: number; format?: string; still?: boolean; alone?: boolean }
   /** Slot `index`, `t` ms into its cue (at rest without `t`), still. */
   | { type: "seek"; id: number; index: number; t?: number; format?: string }
   /** Stop where the deck is. */
@@ -169,6 +324,17 @@ export type ToWorker =
   | { type: "boxes"; id: number; state: string; format?: string }
   /** The nodes that draw at `point` in `state` at rest, topmost first. */
   | { type: "hit"; id: number; state: string; point: [number, number]; format?: string }
+  /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
+   * canvas with none; and paint what is shown again so (PLAN 2.46). */
+  | { type: "view"; id: number; view: [number, number, number, number] | null }
+  /** Each text of the deck `source` compiles to that `query` matches (PLAN 2.47). */
+  | { type: "find"; id: number; source: string; query: Query }
+  /** The patch that replaces what `query` matches with `with`: every match, or with `one`,
+   * `[text, match]` into what `find` gives, that one (PLAN 2.47). */
+  | { type: "replacing"; id: number; source: string; query: Query; with: string; one?: [number, number] }
+  /** The point of image `node` under `point` in `state` at rest, in fractions of its crop:
+   * what a focal point picked there is (PLAN 2.45). */
+  | { type: "focalAt"; id: number; source: string; state: string; node: string; point: [number, number]; format?: string }
   /** Where `node` may go in `state` at rest. */
   | { type: "targets"; id: number; state: string; node: string; format?: string }
   /** A drag's move (ADR-0013). With `by`, `state` painted at rest with `node`, and what it holds,
@@ -181,22 +347,77 @@ export type ToWorker =
       id: number;
       state: string;
       node: string;
+      /** The nodes moved with it, children of what holds it (PLAN 2.42). */
+      with?: string[];
       by?: [number, number];
       snap?: { how: SnapMode; to: Rect; fork: boolean };
+      /** With `with`: where they all land, moved `by` together, `free` off the grid. */
+      together?: { by: [number, number]; free: boolean; fork: boolean };
       preview?: boolean;
       format?: string;
     }
+  /** `nodes`, children of one container, arranged in `state` at rest (PLAN 2.42): where each
+   * lands and the patch that puts them there, kept to the state to `fork` it. */
+  | { type: "arrange"; id: number; state: string; nodes: string[]; how: Arrange; fork: boolean; format?: string }
   /** A drag is over, and changes nothing: `state` painted at rest as it stands. */
   | { type: "rest"; id: number; state: string; format?: string }
-  /** Make `ops`, the patch a gesture on the canvas ends in, by the user, on the deck the editor's
-   * `source` compiles to (ADR-0013); then the deck's source, compiled, shown at slot `index`, and
-   * linted, as an edit of it is. */
-  | { type: "place"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** Make `ops`, the patch a gesture on the canvas or a choice in the inspector ends in, by the
+   * user, on the deck the editor's `source` compiles to (ADR-0013); then the deck's source,
+   * compiled, shown at slot `index`, and linted, as an edit of it is. */
+  | { type: "make"; id: number; source: string; ops: unknown[]; index: number; format?: string }
+  /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
+  | { type: "choices"; id: number; state: string; node: string }
+  | { type: "stateChoices"; id: number; state: string }
   /** Where a caret stands in `node`'s text in `state` at rest (PLAN 2.32), in the deck the
    * editor's `source` compiles to: compiled first, if the deck shown is not. */
   | { type: "carets"; id: number; source: string; state: string; node: string; format?: string }
+  /** What an inspector offers for the characters `from` to `to` (Unicode scalar values) of
+   * `node`'s text as `state` shows it (PLAN 2.38): the looks a run takes, which `style_text`
+   * sets, with the first character's. */
+  | { type: "characterChoices"; id: number; state: string; node: string; from: number; to: number }
+  /** What ⌘B gives those characters, from the weight the engine sets each in, in the deck the
+   * editor's `source` compiles to, laid out in `format` (PLAN 2.38): `style_text`'s `look`. */
+  | { type: "bolding"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
+  | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
+  /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
+  | { type: "themes"; id: number }
+  /** The deck the editor's `source` compiles to, in another theme (PLAN 2.39): one that ships, by
+   * its name, or one the bundle holds, by its path. Then, unless it is refused, the deck's source,
+   * compiled, shown at slot `index`, and linted, as an edit of it is. */
+  | { type: "retheme"; id: number; source: string; theme: { ships: string } | { path: string }; index: number; format?: string }
   /** The states `ops` (a patch) would change, with nothing made (ADR-0013). */
   | { type: "reach"; id: number; ops: unknown[] }
+  /** What may be inserted in the deck (PLAN 2.34). */
+  | { type: "inserts"; id: number }
+  | { type: "layers"; id: number; state: string }
+  /** A patch to add or take away a node, with nothing made, on the deck the editor's `source`
+   * compiles to (PLAN 2.34): what `inserts` offers `n`th, entering in `state` about `at` (canvas
+   * units); a copy of `node` beside it in `state`; or `node` taken out of `state` and the states
+   * after it, with what it holds, or, `everywhere`, out of the deck. */
+  | { type: "inserting"; id: number; source: string; state: string; n: number; at: [number, number]; format?: string }
+  /** What `inserts` offers `n`th, drawn in the box a drag from `from` to `to` covers (canvas
+   * units), snapped to the theme's grid as a resize snaps, or, `free`, where it was drawn (PLAN
+   * 2.48). */
+  | { type: "drawing"; id: number; source: string; state: string; n: number; from: [number, number]; to: [number, number]; free: boolean; format?: string }
+  | { type: "duplicating"; id: number; source: string; state: string; node: string; format?: string }
+  | { type: "deleting"; id: number; source: string; state: string; node: string; everywhere: boolean }
+  /** The patch that puts `nodes`, children of one container as `state` shows them, in a new group
+   * where they stand, on the deck the editor's `source` compiles to (PLAN 2.43). */
+  | { type: "grouping"; id: number; source: string; state: string; nodes: string[] }
+  /** What the clipboard holds of `nodes` as `state` shows them, on the deck the editor's `source`
+   * compiles to (PLAN 2.37, 2.42): the clip, as JSON text. The first is the node copied. */
+  | { type: "copying"; id: number; source: string; state: string; nodes: string[]; format?: string }
+  /** The patch that pastes `clip`, the clipboard's text, entering in `state` about `at` (canvas
+   * units), on the deck the editor's `source` compiles to: a clip pastes what it holds, other
+   * text a text in the theme's body role (PLAN 2.37). */
+  | { type: "pasting"; id: number; source: string; state: string; clip: string; at: [number, number]; format?: string }
+  /** Each state at rest in `format`, painted by the CPU painter `height` pixels high, for the
+   * state strip (PLAN 2.35): only those whose drawing is not the one `known` holds (each state's
+   * digest, as the strip last had it) come with pixels. */
+  | { type: "thumbnails"; id: number; height: number; known: Record<string, string>; format?: string }
+  /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
+   * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
+  | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
   /** Text typed on the canvas (PLAN 2.32): `ops`, a `replace_text`, made by the user on the deck
    * the editor's `source` compiles to, validated but not linted; then the deck's source, shown
    * at slot `index` and linted as an edit of it is, and where a caret stands in `node`'s text in
@@ -302,6 +523,30 @@ export interface Opened {
   adapter: string;
 }
 
+/** The theme the deck names (a path in the bundle, `(inline)`, or `null`), and the theme files
+ * the bundle holds (PLAN 2.39). */
+export interface Themes {
+  current: string | null;
+  files: string[];
+}
+
+/** What a re-theme did, as `scaena theme --apply` says it (PLAN 1.6, 2.39). */
+export interface Themed {
+  /** The theme's path in the bundle. */
+  theme: string;
+  was?: string | null;
+  /** The deck names it now; a refused theme leaves the deck in its own. */
+  applied: boolean;
+  refused: boolean;
+  mapped: string[];
+  listed: string[];
+  /** What validation and lint find in the theme that they did not before, and what they no
+   * longer find. */
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+}
+
 /** A section of the spine, as a reader goes through it (PLAN 2.8). */
 export interface Section {
   title?: string;
@@ -350,6 +595,9 @@ export interface Finding {
   fix?: unknown[];
   at?: Place;
   fixable: boolean;
+  /** Whether it holds in the format shown (PLAN 2.49): one lint found laying a format out holds
+   * there, and the rest in every format. */
+  shown: boolean;
 }
 
 /** What an edit came to (PLAN 2.3). */
@@ -392,13 +640,46 @@ export interface Inspected {
   nodes: Record<string, Record<string, unknown>>;
   looks?: Record<string, { role: string; family: string; size: number; weight: number; leading: number; tracking: number; color: string; hex: string }>;
   overrides?: Record<string, string[]>;
-  timeline?: {
-    start: number;
-    span: number;
-    hold: number;
-    transition: { duration: number; match: string };
-    motions: { node: string; motion: string; units: number; start: number; end: number }[];
-  };
+  /** The nodes that come on screen in this state, and those that leave it (SPEC §2.2). */
+  entered?: string[];
+  exited?: string[];
+  timeline?: Cue;
+}
+
+/** A state's cue, as `scaena inspect --timeline` places it (SPEC §2.4, §3.9), ms: where it falls
+ * on the deck's timeline, its transition, and each motion on the state's clock. */
+export interface Cue {
+  start: number;
+  span: number;
+  hold: number;
+  transition: { duration: number; match: string; curve: Curve };
+  motions: Motion[];
+}
+
+/** An easing as its cubic Bézier, or a spring as its constants. */
+export type Curve = { ease: [number, number, number, number] } | { spring: { stiffness: number; damping: number; mass: number } };
+
+/** One motion on one node, placed on its state's clock (PLAN 2.44). */
+export interface Motion {
+  node: string;
+  motion: "enter" | "exit" | "emphasis" | "anim";
+  /** What it moves one at a time: lines, words, glyphs, children, or marks. */
+  split?: string | null;
+  units: number;
+  start: number;
+  /** From one unit's start to the next's. */
+  stagger: number;
+  /** Each unit's. */
+  duration: number;
+  end: number;
+  /** When its first unit starts to change and its last comes to rest: an `anim`'s from its
+   * first key. */
+  moving: [number, number];
+  /** Its `delay` as written: what `time_motion` reads and sets. */
+  delay: number;
+  /** Where it is written: a JSON pointer into the deck. */
+  written?: string;
+  curve: Curve;
 }
 
 /** The worker to the page. */
@@ -423,13 +704,43 @@ export type FromWorker =
   /** Each visible node's box in the state asked about, and the canvas's size, canvas units. */
   | { type: "boxes"; id: number; boxes: NodeBox[]; size: [number, number] }
   | { type: "hits"; id: number; hits: Hit[] }
+  /** The preview is painted through the view asked for. */
+  | { type: "viewed"; id: number }
+  | { type: "found"; id: number; found: Found[] }
+  /** The ops of a replacement, a `replace_text` for each match it replaces. */
+  | { type: "replacement"; id: number; ops: unknown[] }
+  /** Where a focal point picked there would be; `null` off the image. */
+  | { type: "focal"; id: number; at: [number, number] | null }
   | { type: "targets"; id: number; targets: Targets }
   /** Where a drag's box would land (`null`: nowhere that way), and the states its patch changes. */
   | { type: "dragged"; id: number; snapped?: Snapped | null; states?: string[] }
+  | { type: "arranged"; id: number; arranged: Arranged | null }
   /** The patch is made: the deck's source now, and what the edit came to. */
-  | { type: "placed"; id: number; source: string; edited: Edited }
+  | { type: "made"; id: number; source: string; edited: Edited }
+  | { type: "choices"; id: number; choices: Choices }
+  | { type: "stateChoices"; id: number; choices: StateChoices }
   | { type: "carets"; id: number; carets: Carets | null }
+  | { type: "characterChoices"; id: number; choices: Choices }
+  | { type: "bolding"; id: number; look: Record<string, unknown> }
+  | { type: "italicizing"; id: number; look: Record<string, unknown> }
+  | { type: "themes"; id: number; themes: Themes }
+  /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
+   * deck's source now and what the edit came to. */
+  | { type: "rethemed"; id: number; themed: Themed; source?: string; edited?: Edited }
   | { type: "reached"; id: number; states: string[] }
+  | { type: "inserts"; id: number; inserts: Insert[] }
+  | { type: "layers"; id: number; layers: Layer[] }
+  /** The patch that adds a node: an insert, or a copy. */
+  | { type: "adding"; id: number; added: Added }
+  /** The patch that takes a node away. */
+  | { type: "deleting"; id: number; patch: unknown[] }
+  /** A node as the clipboard holds it, and what pasting a clip makes. */
+  | { type: "copied"; id: number; clip: string }
+  | { type: "pasted"; id: number; pasted: Pasted }
+  | { type: "grouped"; id: number; grouped: Grouped }
+  | { type: "thumbnails"; id: number; thumbs: Thumb[] }
+  /** The patch that adds a state, and the state's id. */
+  | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
   /** The text is typed: the deck's source now, what the edit came to, and the text's carets. */
   | { type: "typed"; id: number; source: string; edited: Edited; carets: Carets | null }
   /** The bundle is saved `where`, and the session goes on from it: the files the save

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.10.json",
+  "$id": "https://scaena.dev/schema/patch-0.11.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -134,6 +134,25 @@
           }
         },
         {
+          "description": "A new group, `id`, holding `nodes` where they stand (ADR-0008, ADR-0013). They are children of one container, the slide or a group, as `state` shows them (else as their own `at` places them), and take the group as their container wherever that one is written. A group lays nothing out, so nothing moves. It sits where they sat, at the highest `z` among them (0 for one that sets none), last among what stands there; and it shows in each state that shows one of them in it, and only there.",
+          "type": "object",
+          "required": ["op", "id", "nodes"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "nodes": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "minItems": 1 },
+            "state": { "$ref": "#/$defs/Id" },
+            "op": { "type": "string", "const": "group" }
+          }
+        },
+        {
+          "description": "A group's children taken out to the group's own container where they stand, each keeping its own `z`, and the group gone with everything that names it: its deltas, its exits, its choreography, and its overrides. Its look goes with it.",
+          "type": "object",
+          "required": ["op", "group"],
+          "additionalProperties": false,
+          "properties": { "group": { "$ref": "#/$defs/Id" }, "op": { "type": "string", "const": "ungroup" } }
+        },
+        {
           "description": "One property (`kind`), or one key of an object property (`at/in`), set to `value`: in a state, as its delta, or in the node's defaults. `null` takes it away: from the node's defaults, or, in a state, from what the node tracks (SPEC §2.2).",
           "type": "object",
           "required": ["op", "node", "prop", "value"],
@@ -147,7 +166,7 @@
           }
         },
         {
-          "description": "A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`, and the rest of them go. They are written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own `at`. Without `state`, in the node's own unless the overrides set it. The node stays in its container (`at.parent`), which says what places it: the theme's grid places a root or a group's member by cells, slot, or `rect`; a grid container by cells or `area`; a stack by `index`; a frame by `rect`.",
+          "description": "A node's place (ADR-0013), as a drag in an editor moves it: the keys of its `at` that say where it goes (`col`, `row`, `in`, `rect`, `area`, `index`) become those of `at`, and the rest of them go. They are written where the placement lives: in the deck's `overrides` if they set it; else in the latest delta that sets it, from `state` back along what it tracks; else in the node's own `at`. Without `state`, in the node's own unless the overrides set it. Its container (`at.parent`) is part of its placement: the node stays in it unless `at` names another, or `null` for the canvas (PLAN 2.50). What holds it says what places it: the theme's grid places a root or a group's member by cells, slot, or `rect`; a grid container by cells, `area`, or `index`; a stack by `index`; a frame by `rect`.",
           "type": "object",
           "required": ["op", "node", "at"],
           "additionalProperties": false,
@@ -193,6 +212,41 @@
           }
         },
         {
+          "description": "The look of characters selected in a text node (ADR-0013, PLAN 2.38): characters `from` to `to` of its text as `state` shows it, counted as `replace_text` counts them, take each key of `look`: a run's `role`, `emphasis`, or `lang`, or one key of its `style` (`style/weight`, `style/color`); a key set to `null` is taken away, so the node's own look shows there. The text becomes runs split at `from` and `to`; neighbors left alike are joined, and runs that all read as the node does are its `text` again. It is written where the text lives, as `replace_text` writes typing. A size, and a color written out, are refused: a size comes with a role, and a run takes the theme's names.",
+          "type": "object",
+          "required": ["op", "node", "from", "to", "look"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "from": { "type": "integer", "minimum": 0 },
+            "to": { "type": "integer", "minimum": 0 },
+            "look": { "type": "object", "minProperties": 1, "additionalProperties": true },
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever the text lives now, as `replace_text`'s `fork` does.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "style_text" }
+          }
+        },
+        {
+          "description": "One property of a node (`prop`: a property, or one key of an object property, `style/color`), as an inspector chooses it (ADR-0013): `value` is written where the property lives. A value written out where the theme has names (a color, a text size, a length in canvas units: lint W300's) goes in the deck's `overrides`, the only place it is legal, and so does any value where the overrides set the property, since they win in every state. Else it goes in the latest delta that sets it, from `state` back along what it tracks, else in the node's own; without `state`, in the node's own. `null` takes it away where it lives, so what is under it shows.",
+          "type": "object",
+          "required": ["op", "node", "prop", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "prop": { "type": "string", "pattern": "^[^/]+(/[^/]+)?$" },
+            "value": true,
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write it into `state`'s own props, wherever it lives now: it shows there, and in the states that track it as they take the rest of its props, and the others show what they did. Refused for a value that goes in the deck's `overrides`, which hold in every state.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "choose" }
+          }
+        },
+        {
           "description": "A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data update, morphed by key) or in its defaults. `source` declares it, or replaces it if the deck has it.",
           "type": "object",
           "required": ["op", "node", "data"],
@@ -216,6 +270,20 @@
             "motion": { "$ref": "#/$defs/Motion" },
             "state": { "$ref": "#/$defs/Id" },
             "op": { "type": "string", "const": "apply_preset" }
+          }
+        },
+        {
+          "description": "When a motion of `node`'s in `state` starts and how long it runs (PLAN 2.44): its `delay`, ms, and its `duration`, ms or a theme duration, each per unit, written where the motion is written. That is the state's choreography item that moves the node so, else the node's own preset or `anim` where it lives.",
+          "type": "object",
+          "required": ["op", "node", "motion", "state"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "motion": { "$ref": "#/$defs/Timed" },
+            "state": { "$ref": "#/$defs/Id" },
+            "delay": { "$ref": "#/$defs/NonNegative" },
+            "duration": { "$ref": "#/$defs/Duration" },
+            "op": { "type": "string", "const": "time_motion" }
           }
         },
         {
@@ -262,6 +330,22 @@
           }
         },
         {
+          "description": "One property of state `id`, as an inspector chooses it (PLAN 2.36): its `layout`, its `transition` or one key of it (`transition/ease`), its `hold`, or its `notes`. A layout tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it, from `id` back along what it tracks, and each state that takes it from there changes with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a bare duration, or none, stays bare while its duration is all it sets, and becomes an object to take another key. `null` takes a value away where it lives: a layout taken away shows what is under it, and a transition left with nothing cuts.",
+          "type": "object",
+          "required": ["op", "id", "prop", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/Id" },
+            "prop": { "type": "string", "pattern": "^(layout|hold|notes|transition(/(duration|ease|spring|match))?)$" },
+            "value": true,
+            "fork": {
+              "description": "Write a layout into `id` itself, wherever it lives now: it shows there, and in the states that track `id`, and the others show what they did. The rest are `id`'s own with or without it.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "set_state" }
+          }
+        },
+        {
           "description": "The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in), or a theme inline.",
           "type": "object",
           "required": ["op", "theme"],
@@ -271,10 +355,14 @@
       ]
     },
     "Spot": {
-      "description": "Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col` and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`.",
+      "description": "Where `place` puts a node: one placement, keyed as `at` keys it (SPEC §3.4). Cells (`col` and `row`, each 1-based and inclusive, either alone spanning its grid), a slot of the state's layout template (`in`), a `rect`, a grid container's `area`, or a stack's `index`; in its container, or in another (`parent`).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "parent": {
+          "description": "The container the node goes into, or `null` for the canvas; unsaid, it stays in its own (PLAN 2.50).",
+          "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }]
+        },
         "col": { "$ref": "#/$defs/Range" },
         "row": { "$ref": "#/$defs/Range" },
         "in": { "description": "A slot of the state's layout template, or `canvas` or `grid`.", "type": "string" },
@@ -290,6 +378,11 @@
       "description": "The motion a motion preset is for.",
       "type": "string",
       "enum": ["enter", "exit", "emphasis"]
+    },
+    "Timed": {
+      "description": "A motion `time_motion` times: a preset's, or `anim` tracks.",
+      "type": "string",
+      "enum": ["enter", "exit", "emphasis", "anim"]
     },
     "MeshParams": {
       "description": "The `mesh` shader's params (SPEC §3.8).",
@@ -1006,6 +1099,10 @@
         "family": { "description": "Key in the theme's `type.families`.", "type": "string" },
         "size": { "type": "number", "exclusiveMinimum": 0 },
         "weight": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "italic": {
+          "description": "Set in the family's italic face (SPEC §3.5), or, `false`, upright. None is synthesized: a family without one sets the text upright (lint W231).",
+          "type": "boolean"
+        },
         "leading": { "description": "Line height as a multiple of size.", "type": "number", "exclusiveMinimum": 0 },
         "tracking": { "description": "Em units; negative tightens.", "type": "number" },
         "opsz": { "type": "number" },
@@ -1565,6 +1662,7 @@
         "family": { "type": ["string", "null"] },
         "size": { "anyOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }] },
         "weight": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 1000 }, { "type": "null" }] },
+        "italic": { "type": ["boolean", "null"] },
         "leading": { "anyOf": [{ "exclusiveMinimum": 0, "type": "number" }, { "type": "null" }] },
         "tracking": { "type": ["number", "null"] },
         "opsz": { "type": ["number", "null"] },

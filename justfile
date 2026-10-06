@@ -102,16 +102,17 @@ spike: wasm-smoke
 # into crates/scaena-resources/pkg (PLAN 2.6),
 # and the player's engine alone, without the editor's operations, into crates/scaena-wasm/player:
 # what a single-file HTML export carries (PLAN 2.5). Cargo keeps each feature set's build, so
-# building one after the other rebuilds neither.
+# building one after the other rebuilds neither. All of them by the `wasm` profile (Cargo.toml):
+# release's, with what runs as a deck is read or edited, not each frame, built for size (SPEC §15).
 # Needs `cargo install wasm-bindgen-cli --version 0.2.129` (the version in Cargo.lock).
 wasm:
-    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --release --locked
-    wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/release/scaena_wasm.wasm
-    wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/release/scaena_subset.wasm
-    wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/release/scaena_history.wasm
-    wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/release/scaena_resources.wasm
-    cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --release --locked
-    wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/release/scaena_wasm.wasm
+    cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources --target wasm32-unknown-unknown --profile wasm --locked
+    wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-history/pkg target/wasm32-unknown-unknown/wasm/scaena_history.wasm
+    wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
+    cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+    wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
 
 # The WebGPU page in headless Chromium: WASM display lists hash to the native digests and
 # every torture state paints (PLAN 0.8). Needs Node and Playwright with its Chromium.
@@ -145,6 +146,8 @@ web-dev:
 # with the network off (PLAN 2.5); and the parity harness holds all three to the goldens. Then
 # the player's controls and presenter view (PLAN 2.2), the source editor (PLAN 2.3), its canvas,
 # where a node is moved and resized (PLAN 2.31) and text typed where it stands (PLAN 2.32), its
+# inspector, where a node's look is chosen from the theme (PLAN 2.33), nodes inserted, copied,
+# and deleted (PLAN 2.34), its state strip (PLAN 2.35), its
 # storage: open, save, download, and drop (PLAN 2.4), its assistant, against a scripted server
 # for each provider (PLAN 2.6), its saves recorded in a bundle's history (PLAN 2.9), and the
 # pages on a folder `scaena serve` serves (PLAN 2.11). Then
@@ -158,6 +161,22 @@ web-smoke: site
     node web/editor.mjs
     node web/canvas.mjs
     node web/typing.mjs
+    node web/inspector.mjs
+    node web/insert.mjs
+    node web/draw.mjs
+    node web/findings.mjs
+    node web/layers.mjs
+    node web/clipboard.mjs
+    node web/charts.mjs
+    node web/several.mjs
+    node web/group.mjs
+    node web/cue.mjs
+    node web/image.mjs
+    node web/zoom.mjs
+    node web/find.mjs
+    node web/runs.mjs
+    node web/theme.mjs
+    node web/strip.mjs
     node web/storage.mjs
     node web/assistant.mjs
     node web/history.mjs

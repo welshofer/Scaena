@@ -247,10 +247,17 @@ mod tests {
     #[test]
     fn a_new_deck_from_each_theme_that_ships_lints_with_no_error() {
         let examples = Path::new("../../docs/examples");
-        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
-            .iter()
-            .map(|f| (format!("fonts/{f}"), std::fs::read(examples.join("fonts").join(f)).unwrap()))
-            .collect();
+        let fonts: BTreeMap<String, Vec<u8>> = [
+            "Fraunces-VF.ttf",
+            "Inter-VF.ttf",
+            "JetBrainsMono-VF.ttf",
+            "Fraunces-Italic-VF.ttf",
+            "Inter-Italic-VF.ttf",
+            "JetBrainsMono-Italic-VF.ttf",
+        ]
+        .iter()
+        .map(|f| (format!("fonts/{f}"), std::fs::read(examples.join("fonts").join(f)).unwrap()))
+        .collect();
         for theme in ["themes/dusk.theme.json", "authorability/themes/daybreak.theme.json", "themes/ember.theme.json"] {
             let text = std::fs::read_to_string(examples.join(theme)).unwrap();
             let file = Path::new(theme).file_name().unwrap().to_str().unwrap();
