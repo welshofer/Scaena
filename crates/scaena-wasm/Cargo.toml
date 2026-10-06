@@ -22,6 +22,10 @@ gpu = ["scaena-paint/gpu", "dep:vello", "dep:web-sys", "dep:wasm-bindgen-futures
 # its `Uint8Array` once, and a frame goes onto a canvas's 2D context from the module's memory
 # (PLAN 2.28).
 cpu = ["scaena-paint/cpu", "dep:js-sys", "dep:web-sys", "web-sys/ImageData", "web-sys/OffscreenCanvasRenderingContext2d"]
+# The seventeen languages' hyphenation patterns compiled in: the player's module, which a
+# single-file export carries offline (PLAN 2.5). The editor's leaves them out, and its page
+# hands a language's patterns over the first time a text hyphenates in it (ADR-0015).
+hyphenation = ["scaena-engine/hyphenation"]
 # The source editor (PLAN 2.3): compile `.scn`, lint with fixes, inspect, by `scaena-ops`'
 # operations (ADR-0009). Its lint judges contrast over what the CPU painter paints. It opens
 # and saves bundles in memory with `scaena-store` (PLAN 2.4), and starts new ones from a theme
@@ -46,5 +50,7 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "console"] }
 
 [dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }
 # What a page loads to record a save in a bundle's history (PLAN 2.9), called here as Rust.
 scaena-history.workspace = true

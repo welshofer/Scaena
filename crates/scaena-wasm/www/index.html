@@ -12,10 +12,21 @@
 <canvas id="stage"></canvas>
 <p><select id="state"></select> <select id="format"><option value="">own canvas</option></select> <span id="status">loading…</span></p>
 <script type="module">
-  import init, { Player, Canvas } from "./pkg/scaena_wasm.js";
+  import init, { Player, Canvas, setHyphenation } from "./pkg/scaena_wasm.js";
   const status = document.getElementById("status");
   try {
     await init();
+    // The hyphenation patterns this module leaves out (ADR-0015), from the repository, the first
+    // time a text hyphenates in a language: asked in the middle of a layout, so fetched at once.
+    // A page's own thread takes no binary response to a request that waits, so the bytes come
+    // as text in a charset that keeps each one.
+    setHyphenation((code) => {
+      const request = new XMLHttpRequest();
+      request.open("GET", `../../scaena-engine/hyphenation/${code}.bin`, false);
+      request.overrideMimeType("text/plain; charset=x-user-defined");
+      request.send();
+      return request.status === 200 ? Uint8Array.from(request.responseText, (c) => c.charCodeAt(0) & 0xff) : undefined;
+    });
     const bundle = new URLSearchParams(location.search).get("bundle") ?? "../../../tests/fixtures/torture.scaena";
     const get = async (path) => {
       const r = await fetch(`${bundle}/${path}`);

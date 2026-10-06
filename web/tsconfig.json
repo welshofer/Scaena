@@ -17,7 +17,8 @@
       "@scaena/resources": ["../crates/scaena-resources/pkg/scaena_resources.d.ts"],
       "@scaena/pdf": ["../crates/scaena-pdf/pkg/scaena_pdf.d.ts"],
       "@scaena/assistant": ["./src/assistant/index.ts"],
-      "@scaena/themes": ["./src/themes.ts"]
+      "@scaena/themes": ["./src/themes.ts"],
+      "@scaena/hyphenation": ["./src/hyphenation.ts"]
     }
   },
   "include": ["src"],

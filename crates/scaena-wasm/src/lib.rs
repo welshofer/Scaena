@@ -1241,6 +1241,21 @@ pub fn shader_rows_js(spec: &[u8], first: u32, rows: u32) -> Result<Vec<u8>, JsE
     shader_rows(spec, first, rows).map_err(js)
 }
 
+/// Where this thread's engine gets a language's hyphenation patterns that its module leaves out
+/// (ADR-0015): `loader`, given the language's code (`de`), returns the bytes of its file
+/// (`hyphenation/de.bin`) as a `Uint8Array`, or anything else where it has none. It is asked the
+/// first time a text hyphenates in that language, in the middle of a layout, so it answers at
+/// once. What it returns is held to the file's SHA-256. The player's module has every language
+/// compiled in, and never asks.
+#[cfg(feature = "cpu")]
+#[wasm_bindgen(js_name = setHyphenation)]
+pub fn set_hyphenation(loader: js_sys::Function) {
+    scaena_engine::hyphen::set_loader(move |code| {
+        let bytes = loader.call1(&JsValue::NULL, &JsValue::from_str(code)).ok()?;
+        bytes.dyn_into::<js_sys::Uint8Array>().ok().map(|bytes| bytes.to_vec())
+    });
+}
+
 /// The module this is, compiled: a page hands it to the workers it starts beside the
 /// engine's, which instantiate it rather than fetch and compile it again (PLAN 2.28).
 #[wasm_bindgen(js_name = engineModule)]

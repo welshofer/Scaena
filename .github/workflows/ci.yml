@@ -155,7 +155,8 @@ jobs:
       # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
       # must keep compiling for the browser (PLAN 0.1, 0.8).
       - run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf --all-features --target wasm32-unknown-unknown --locked -- -D warnings
-      # The player's engine alone, as a single-file export carries it (PLAN 2.5).
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
+      # without its hyphenation patterns, as the editor's module leaves them out (ADR-0015).
       - run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   wasm:
     # PLAN 0.8: the engine as WASM in headless Chromium. Every torture state's display list must
@@ -202,8 +203,9 @@ jobs:
       - run: wasm-bindgen --target web --out-dir crates/scaena-resources/pkg target/wasm32-unknown-unknown/wasm/scaena_resources.wasm
       # The PDF painter, which the editor loads the first time it exports a PDF (PLAN 2.54).
       - run: wasm-bindgen --target web --out-dir crates/scaena-pdf/pkg target/wasm32-unknown-unknown/wasm/scaena_pdf.wasm
-      # The player's engine alone, which a single-file export carries (PLAN 2.5).
-      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --profile wasm --locked
+      # The player's engine alone, which a single-file export carries (PLAN 2.5), with every
+      # language's hyphenation patterns, since its page plays offline (ADR-0015).
+      - run: cargo build -p scaena-wasm --no-default-features --features gpu,cpu,hyphenation --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/player target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       # SPEC §15: the engine as WASM, without fonts, is at most 3.0 MB gzipped. The font
       # subsetter, which a page loads only to download a bundle, is recorded beside it.

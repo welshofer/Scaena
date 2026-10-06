@@ -38,7 +38,9 @@ authors = ["Jay Welshofer"]
 [workspace.dependencies]
 # internal
 scaena-core   = { path = "crates/scaena-core" }
-scaena-engine = { path = "crates/scaena-engine" }
+# Without its hyphenation patterns, which the editor's module leaves out (ADR-0015): a crate
+# that lays out natively asks for them.
+scaena-engine = { path = "crates/scaena-engine", default-features = false }
 scaena-paint  = { path = "crates/scaena-paint" }
 scaena-export = { path = "crates/scaena-export" }
 scaena-store  = { path = "crates/scaena-store" }

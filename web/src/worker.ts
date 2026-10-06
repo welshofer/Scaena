@@ -13,7 +13,8 @@
 // The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
-import init, { Canvas, Player, engineModule, shaderRows } from "@scaena/wasm";
+import { hyphenation } from "@scaena/hyphenation";
+import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
   Added,
@@ -330,6 +331,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   }
 };
 
+/** Language `code`'s hyphenation patterns, which the editor's module leaves out (ADR-0015). The
+ * engine asks the first time a text hyphenates in it, in the middle of a layout, so they are
+ * fetched at once, as a worker may. The player's module has every language, and never asks. */
+function patterns(code: string): Uint8Array | undefined {
+  const url = hyphenation[code];
+  if (!url) return undefined;
+  const request = new XMLHttpRequest();
+  request.open("GET", url, false);
+  request.responseType = "arraybuffer";
+  try {
+    request.send();
+  } catch {
+    return undefined;
+  }
+  return request.status === 200 ? new Uint8Array(request.response as ArrayBuffer) : undefined;
+}
+
 interface DeckFiles {
   theme: string;
   fonts?: { file: string }[];
@@ -340,6 +358,7 @@ interface DeckFiles {
 
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
+  setHyphenation(patterns);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other

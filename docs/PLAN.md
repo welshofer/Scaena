@@ -963,7 +963,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Text parity across painters | Phase 0 task 0.9 | glyph positions in the display list; painters never shape; fallback to `harfrust` + own line breaker |
 | `parley` line-breaking quality (`pretty`/`balance`) | 0.4 | own Knuth–Plass pass over parley's clusters if needed |
 | WebGPU availability/quality | 0.8 | CPU painter fallback; measure Firefox |
-| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; load hyphenation patterns on demand, on every target alike (ADR-0004 finding 11). `wasm-opt -Oz` grew the gzip size, so it is off. |
+| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; the editor's 2.99 MB at 2.55, then 2.65 MB with the patterns handed over; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; the hyphenation patterns handed to the editor's module as a text needs them, compiled in natively and in the player's, the same breaks on every target (done, ADR-0015). `wasm-opt -Oz` grew the gzip size, so it is off. |
 | Loro API friction with rich text/tree | 1.23 | Automerge fallback (ADR-0002) |
 | Chart grammar scope creep | 1.9 | fixed kind list; everything else is annotations or deferred |
 | Agent output quality | 1.15–1.19 | lint + render loop; roles not pixels; skills |

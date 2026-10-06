@@ -161,6 +161,7 @@ just site tests/bench/b1.scaena  # another demo deck: a bundle's directory or a 
 - `src/worker.ts` holds the bundle, the engine (`crates/scaena-wasm`), the canvas, and the deck's clock. It paints with `vello` on WebGPU (`Canvas.attachOffscreen`, `Player.paint`) or with `vello_cpu`, whose pixels (`Player.pixels`) go onto the canvas by its 2D context (`putImageData`).
   - The worker asks for a WebGPU adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other painter.
   - If WebGPU fails anyway, the page starts over on a new canvas with the CPU painter.
+  - The editor's module leaves out the hyphenation patterns (ADR-0015). The worker hands the engine a loader (`setHyphenation`), and the engine asks it for a language's trie the first time a text hyphenates in that language, in the middle of a layout. The worker fetches the file at once, a request that waits, which a worker may make. The build copies the 17 files beside the pages (`src/hyphenation.ts`), and inlines the smallest. The engine holds each to its SHA-256. A single-file export's worker is built with `src/no-hyphenation.ts`: its module has every trie compiled in.
 - `src/protocol.ts` is what the page and the worker say to each other:
   - `show`: a frame, a state at rest or a time into its cue.
   - `run`, `seek`, `pause`: the clock. A run plays from a state and a time in it, cue by cue and hold by hold, and the worker says where the deck is (`at`) with each frame. A `still` run cuts to each state at rest, says so once, and waits out its cue and hold without frames.

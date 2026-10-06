@@ -64,6 +64,8 @@ export default defineConfig({
       "@scaena/history": join(web, "src/no-history.ts"),
       "@scaena/assistant": join(web, "src/no-assistant.ts"),
       "@scaena/themes": join(web, "src/no-themes.ts"),
+      // The player's module has every language's hyphenation patterns compiled in (ADR-0015).
+      "@scaena/hyphenation": join(web, "src/no-hyphenation.ts"),
     },
   },
   worker: { format: "iife" },

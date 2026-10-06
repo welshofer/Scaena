@@ -8,7 +8,8 @@
 // and `intro` alone into <out-dir>/standalone/ (default out-dir target/web-smoke). Then:
 // - The engine the file carries (the player's module alone) paints every frame the golden
 //   rasters hold byte for byte as the web player's engine (the editor's module) does, run in
-//   Node: the pixels each makes, before a browser shows them.
+//   Node: the pixels each makes, before a browser shows them. The one has the hyphenation
+//   patterns compiled in, and the other is handed them (ADR-0015).
 // - The torture deck's file shows every golden frame, painted by the CPU painter in the file's
 //   own worker, saved as <out-dir>/standalone-cpu/<frame>.png, where the parity harness holds
 //   them to the goldens (SPEC §13.5; `just web-smoke` runs it). A browser's screenshots of one
@@ -58,6 +59,9 @@ async function painted(dir, frames) {
   walk(bundle);
   const glue = await import(pathToFileURL(resolve(dir, "scaena_wasm.js")).href);
   await glue.default({ module_or_path: readFileSync(join(dir, "scaena_wasm_bg.wasm")) });
+  // The editor's module is handed the hyphenation patterns it leaves out, here from the
+  // repository, as its page hands them over (ADR-0015); the player's has them compiled in.
+  glue.setHyphenation((code) => readFileSync(`crates/scaena-engine/hyphenation/${code}.bin`));
   const deck = readFileSync(join(bundle, "deck.json"), "utf8");
   const theme = JSON.parse(deck).theme;
   const player = new glue.Player(deck, readFileSync(join(bundle, theme), "utf8"));

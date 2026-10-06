@@ -31,6 +31,7 @@ pub mod data;
 pub mod error;
 pub mod fonts;
 pub mod geometry;
+pub mod hyphen;
 pub mod images;
 pub mod layout;
 pub mod lint;
