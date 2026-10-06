@@ -309,13 +309,20 @@ fn the_guides_deck_and_recipes_compile_and_lint_as_it_says() {
     assert!(out.status.success(), "the guide's deck compiles:\n{}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(lint(&dir), Vec::<String>::new(), "the guide's deck lints with no findings");
     // Each recipe adds to the deck. A new state that no beat names is W401, which the guide
-    // says how to fix; lint finds nothing else.
+    // says how to fix. A recipe that holds makes the deck run on its own, and the guide says
+    // that W323 then names the states that would show for 0 ms. Lint finds nothing else.
     assert!(recipes.len() >= 5, "the guide's recipes");
     for recipe in recipes {
         let out = compile(&dir, &format!("{deck}\n{recipe}"));
         assert!(out.status.success(), "{recipe}compiles:\n{}", String::from_utf8_lossy(&out.stderr));
         let codes = lint(&dir);
-        assert!(codes.iter().all(|c| c == "W401"), "{recipe}lints with no more than W401: {codes:?}");
+        let holds = recipe.contains(" hold:");
+        assert!(
+            codes.iter().all(|c| c == "W401" || (holds && c == "W323")),
+            "{recipe}lints with no more than W401{}: {codes:?}",
+            if holds { " and W323" } else { "" }
+        );
+        assert!(!holds || codes.iter().any(|c| c == "W323"), "{recipe}is W323 where a state does not hold: {codes:?}");
     }
 }
 

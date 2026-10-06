@@ -66,6 +66,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
      - **W320:** more nodes moving at once than `motion.maxConcurrent`. It counts nodes, not the marks or units a split moves, so judge those by eye.
      - **W321:** a state's motions running past `motion.maxBuild`.
      - **W322:** a motion that moves nothing, such as an entrance on a node that does not enter, or a draw-on on a node with no outline.
+     - **W323:** in a deck with holds, a state with no cue and no hold, which shows for 0 ms. Give it the hold the finding suggests (step 9).
    - Then render frames inside the cue (`--t`):
      - the transition's middle;
      - the middle of each motion `--timeline` lists;
@@ -74,7 +75,7 @@ The theme names what you may use, under `motion` in the theme file the deck name
 9. **Holds.**
    - A `hold` is how long a state rests before the timeline moves on. Video export and a player both advance by it (SPEC §2.4), so give holds to a deck that runs on its own, not to one presented live.
    - Size each to its reading: about four words a second, plus 1.5 to 2 seconds for each figure.
-   - `inspect --timeline` shows the timeline the holds make, and `export --format mp4` plays it: each state's cue, then its hold. A state with neither has no frame in a video.
+   - `inspect --timeline` shows the timeline the holds make, and `export --format mp4` plays it: each state's cue, then its hold. A state with neither has no frame in a video (W323).
 
 ## Rules
 
