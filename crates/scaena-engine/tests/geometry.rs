@@ -148,6 +148,79 @@ fn boxes_are_where_the_frame_draws() {
     }
 }
 
+/// `p` through the map `m`, `[a, b, c, d, e, f]`.
+fn apply(m: [f32; 6], p: [f32; 2]) -> [f32; 2] {
+    [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]]
+}
+
+fn near(a: [f32; 2], b: [f32; 2]) -> bool {
+    (a[0] - b[0]).abs() < 1e-2 && (a[1] - b[1]).abs() < 1e-2
+}
+
+/// A node drawn through its `transform` (PLAN 2.51) is found where it is drawn: its box
+/// carries the map its layer draws, a point over what is drawn hits it and one over its box
+/// as laid out does not, and its carets and its image read a point back through the map.
+#[test]
+fn a_turned_node_is_found_where_it_is_drawn() {
+    let (deck, theme, mut engine) = torture();
+    let data = DataFiles::new();
+    let state = "transforms";
+    let req = FrameRequest { deck: &deck, theme: &theme, data: &data, state, t_ms: f64::INFINITY, format: None };
+    let scene = engine.at_rest(&req).unwrap();
+    let boxes = scene.boxes();
+    let dl = engine.frame(&req).unwrap().display_list;
+    let layer = |id: &str| {
+        let found = dl.ops.iter().find_map(|op| match op {
+            Op::Layer { node: Some(n), transform, .. } if n == id => Some(*transform),
+            _ => None,
+        });
+        found.unwrap_or_else(|| panic!("no layer for `{id}`"))
+    };
+
+    // The headline, turned 6° anticlockwise: its box and its layer turn alike.
+    let title = find(&boxes, "tf-title");
+    let m = title.transform.expect("the headline is turned");
+    assert!((m[1] - (-6f32).to_radians().sin()).abs() < 1e-6, "{m:?}");
+    assert_eq!(layer("tf-title")[..4], m[..4]);
+    // Its box's top right corner rises above the box laid out, and a point just inside it is
+    // the headline's; at its top left, which the turn lowers, the box laid out is empty.
+    let [x, y, w, _] = title.rect;
+    let corner = apply(m, [x + w - 4.0, y + 4.0]);
+    assert!(corner[1] < y, "{corner:?}");
+    assert_eq!(scene.hit(corner).first().map(|h| h.node.as_str()), Some("tf-title"));
+    assert!(scene.hit([x + 4.0, y + 4.0]).iter().all(|h| h.node != "tf-title"));
+    // A point drawn over its words is a caret where the words are as laid out.
+    let carets = scene.carets("tf-title").unwrap();
+    let line = &carets.lines[0];
+    let word = [line.x + 300.0, (line.top + line.bottom) / 2.0];
+    let hit = scene.hit(apply(m, word));
+    assert_eq!(hit[0].offset, Some(carets.at(word).0));
+    assert_eq!(scene.laid_out("tf-title", apply(m, word)).map(|p| near(p, word)), Some(true));
+
+    // A frame turns what it holds: its label's and its dot's maps are the card's.
+    let card = find(&boxes, "tf-card").transform.unwrap();
+    for child in ["tf-card-label", "tf-card-dot"] {
+        let held = find(&boxes, child);
+        assert_eq!(held.transform, Some(card), "{child}");
+        assert_eq!(scene.hit(apply(card, center(held.rect)))[0].node, child);
+    }
+    // A group's members are drawn in its turned layer: theirs is the group's.
+    let pair = find(&boxes, "tf-pair").transform.unwrap();
+    assert_eq!(find(&boxes, "tf-pair-b").transform, Some(pair));
+
+    // The leaning photo's middle, where it is drawn, is the middle of the picture.
+    let photo = find(&boxes, "tf-photo");
+    let focal = scene.image_point("tf-photo", apply(photo.transform.unwrap(), center(photo.rect))).unwrap();
+    assert!((focal[0] - 0.5).abs() < 0.01 && (focal[1] - 0.5).abs() < 0.01, "{focal:?}");
+
+    // The note, a quarter larger from its top left corner: that corner stays put.
+    let note = find(&boxes, "tf-note");
+    let at = [note.rect[0], note.rect[1]];
+    assert!(near(apply(note.transform.unwrap(), at), at));
+    // What nothing moves has no map.
+    assert_eq!(find(&boxes, "tf-ghost").transform, None);
+}
+
 /// In another format the same nodes stand where that format lays them out.
 #[test]
 fn boxes_follow_the_format() {

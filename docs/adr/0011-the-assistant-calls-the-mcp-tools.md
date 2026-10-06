@@ -28,6 +28,7 @@ Four facts shape it:
 
    The page lists the models the key can use, and names none itself.
 5. **Keys stay in the page.** A key is kept for the tab by default. When the user asks, it is kept on the device, encrypted with a key the browser keeps and never hands out. It goes to its provider and nowhere else.
+6. **A question carries what the editor shows** (PLAN 2.52): the state shown, the nodes selected, and the characters selected in a text, as a line in brackets before the question's words, in the conversation the provider is sent. It is not a tool: the model reads it without a call, and what the user saw then stays said beside what they asked. What the question changes is selected after each edit: the page tells it apart from the deck as it was when asked.
 
 ## Consequences
 

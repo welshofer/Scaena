@@ -12,6 +12,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
 | preview the swap | `scaena theme <bundle> --apply <theme.json> --dry-run --json` | `theme_apply` with `dry_run` |
 | swap | the same, without `--dry-run` | `theme_apply` |
 | swap with the fixes, all or none | `scaena patch <bundle> --ops ops.json` | `deck_patch` |
+| change one look of the deck's own theme | `scaena theme <bundle> --edit ops.json --dry-run --json`, then without `--dry-run` | `theme_edit`, with `dry_run` first |
 | see each text node's new look | `scaena inspect <bundle> --state <id> --resolved` | `deck_inspect` with `resolved` |
 | check | `scaena lint <bundle> --json` | `deck_lint` |
 | look | `scaena render <bundle> --state <id> --out frame.png` | `deck_render` |
@@ -40,7 +41,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - **E100:** text that no longer fits. A larger type scale wants tighter copy (the `tighten-copy` skill) or `fit: shrink`, not overrides.
    - **E110 and E111:** text whose contrast with what is painted behind it drops below WCAG's line. A palette with less contrast wants a different color *role*, not a literal.
    - **W210:** density, if the theme's `maxWordsPerState` is lower.
-   - **W221:** a role that snaps to the new theme's baseline grid at a leading off it. Its finding points into the theme file: the theme's to fix, not the deck's.
+   - **W221:** a role that snaps to the new theme's baseline grid at a leading off it. Its finding points into the theme file: the theme's to fix, not the deck's, with `--edit` (step 8).
    - **W310:** chart labels that now collide.
    - **W320 and W321:** motion past the new theme's limits.
 5. **Look.**
@@ -50,3 +51,7 @@ A theme change is a pure re-render: swap `theme`, and the next frame is in the n
    - Report every node with overrides: `--resolved` lists them, and lint I402 names them.
    - Propose removing them.
 7. **Report:** what changed visually, in one paragraph; the lint delta; and remaining overrides.
+8. **Or edit the theme the deck has.** When the ask is one look across the whole deck ("our brand's blue", "larger headlines", "more room between columns"), edit the theme rather than swap it, and never write the value into each node.
+   - The edit is JSON Patch on the theme's JSON, its paths into it: `/tokens/color/accent`, `/type/roles/headline/size`, `/grid/gutter`. Read the theme first, from the file the deck names, to see what is there.
+   - It is checked as a swap is: an edit that takes out a name the deck uses (E102), or writes a value the theme's schema refuses (E106), is refused, and nothing is written. Otherwise the delta says what the new look breaks, as in step 4.
+   - A theme that ships is edited in the bundle's copy, never where it ships. The bundle's history keeps each edit, by its author.

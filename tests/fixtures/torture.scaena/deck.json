@@ -3494,6 +3494,394 @@
       },
       "alt": "Revenue by product, 2021 to 2027, stacked: actual to 2025, the estimates lighter.",
       "semantic": "evidence"
+    },
+    "tf-title": {
+      "type": "text",
+      "role": "headline",
+      "text": "Turned six degrees",
+      "semantic": "claim",
+      "transform": {
+        "rotate": -6
+      },
+      "at": {
+        "col": [
+          1,
+          7
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-ghost": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          8,
+          9
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-panel": {
+      "type": "shape",
+      "kind": "rect",
+      "radius": "radius.3",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "transform": {
+        "scale": 0.5,
+        "anchor": [
+          0,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          8,
+          9
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-photo": {
+      "type": "image",
+      "src": "assets/test-card.png",
+      "fit": "contain",
+      "semantic": "evidence",
+      "alt": "The test card, leaning 12 degrees.",
+      "transform": {
+        "skew": [
+          -12,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "tf-card": {
+      "type": "frame",
+      "fill": "surface-2",
+      "stroke": {
+        "paint": "line",
+        "width": "hairline"
+      },
+      "radius": "radius.3",
+      "padding": "space.4",
+      "semantic": "evidence",
+      "transform": {
+        "rotate": 8
+      },
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          5,
+          8
+        ]
+      }
+    },
+    "tf-card-label": {
+      "type": "text",
+      "role": "body",
+      "text": "Held, and turned with its frame",
+      "semantic": "annotation",
+      "at": {
+        "parent": "tf-card",
+        "rect": [
+          0,
+          0,
+          420,
+          120
+        ]
+      }
+    },
+    "tf-card-dot": {
+      "type": "shape",
+      "kind": "ellipse",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-card",
+        "rect": [
+          0,
+          200,
+          96,
+          96
+        ]
+      }
+    },
+    "tf-pair": {
+      "type": "group",
+      "opacity": 0.6,
+      "semantic": "decoration",
+      "transform": {
+        "rotate": 45
+      }
+    },
+    "tf-pair-a": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "accent",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-pair",
+        "col": [
+          6,
+          7
+        ],
+        "row": [
+          5,
+          6
+        ]
+      }
+    },
+    "tf-pair-b": {
+      "type": "shape",
+      "kind": "rect",
+      "fill": "ink",
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "parent": "tf-pair",
+        "col": [
+          7,
+          8
+        ],
+        "row": [
+          6,
+          7
+        ]
+      }
+    },
+    "tf-arrow": {
+      "type": "shape",
+      "kind": "arrow",
+      "stroke": {
+        "paint": "accent",
+        "width": "thick"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "transform": {
+        "scale": [
+          -1,
+          1
+        ]
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          5,
+          5
+        ]
+      }
+    },
+    "tf-flag": {
+      "type": "shape",
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0.5
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "fill": "accent",
+      "stroke": {
+        "paint": "onSurface",
+        "width": "thin",
+        "join": "round"
+      },
+      "semantic": "decoration",
+      "alt": "",
+      "at": {
+        "col": [
+          10,
+          10
+        ],
+        "row": [
+          6,
+          7
+        ]
+      }
+    },
+    "tf-note": {
+      "type": "text",
+      "role": "body",
+      "text": "Scaled up",
+      "semantic": "annotation",
+      "transform": {
+        "scale": 1.25,
+        "anchor": [
+          0,
+          0
+        ]
+      },
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          8,
+          8
+        ]
+      }
+    },
+    "photo-baseline": {
+      "type": "image",
+      "src": "assets/baseline-420.jpg",
+      "fit": "contain",
+      "alt": "A baseline JPEG, its color sampled at half each way: the gradient, the red block, the green disc, and the blue diagonal.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          3
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-progressive": {
+      "type": "image",
+      "src": "assets/progressive-444.jpg",
+      "fit": "contain",
+      "alt": "The same picture as a progressive JPEG in ten scans, its color sampled in full, with Huffman tables of its own.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          4,
+          6
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-gray": {
+      "type": "image",
+      "src": "assets/gray-progressive.jpg",
+      "fit": "contain",
+      "alt": "The same picture in gray, as a progressive JPEG.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          7,
+          9
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-turned": {
+      "type": "image",
+      "src": "assets/orientation-6.jpg",
+      "fit": "contain",
+      "alt": "The same picture stored on its side and turned upright by its EXIF orientation: the yellow corner at its top right.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          5
+        ]
+      }
+    },
+    "photo-restart": {
+      "type": "image",
+      "src": "assets/restart-progressive.jpg",
+      "alt": "The same picture as a progressive JPEG with a restart marker every row of blocks.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "photo-sampled": {
+      "type": "image",
+      "src": "assets/sampled-411.jpg",
+      "alt": "The same picture, its color sampled at a quarter across: each color sample repeated four times.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          5,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "photo-large": {
+      "type": "image",
+      "src": "assets/large-420.jpg",
+      "alt": "A larger picture of the same kind, 300 by 200, as a progressive JPEG.",
+      "semantic": "evidence",
+      "at": {
+        "col": [
+          9,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -4446,6 +4834,98 @@
         }
       },
       "notes": "Pass in the transition (frame @0.5): each line and area slides a year over by key, 2021 leaving on the left and 2028 coming in on the right. 2026 comes in as actual: from halfway on, each line runs solid to 2026 and dashed after it, and each area is half as strong only from 2026. The values at the line's ends fade, the estimates' with their notes, rather than count; 2028's rides in with its point from past the plot's edge, clipped until it arrives."
+    },
+    {
+      "id": "transforms",
+      "name": "Transforms",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "48 · Transforms · recorded"
+        },
+        "tf-title": {},
+        "tf-ghost": {},
+        "tf-panel": {},
+        "tf-photo": {},
+        "tf-card": {},
+        "tf-card-label": {},
+        "tf-card-dot": {},
+        "tf-pair": {},
+        "tf-pair-a": {},
+        "tf-pair-b": {},
+        "tf-arrow": {},
+        "tf-flag": {},
+        "tf-note": {}
+      },
+      "notes": "Pass: each node is laid out, then drawn through its transform about its own box: scale, then lean, then turn, about its anchor (its middle unless it says), then move. Rows 2-3: the headline turned 6° anticlockwise about its middle; in columns 8-9 an accent panel at half its size in the top left corner of its box, whose outline is drawn at full size; in columns 10-12 the test card leaning 12° to the right. Rows 5-8: a framed card turned 8° clockwise, its label and dot turning with it inside it; a group of an accent square and an ink square at 0.6, turned 45° as one layer, so only the ink square shows where they overlap; an arrow mirrored to point left; a pennant pointing right; and, on row 8, a note a quarter larger, grown from its top left corner. Nothing is laid out again, and the glyphs are the same glyphs."
+    },
+    {
+      "id": "transforms-next",
+      "name": "Transforms: they move",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "49 · Transforms: they move · recorded"
+        },
+        "tf-title": {
+          "transform": {
+            "rotate": 6
+          }
+        },
+        "tf-panel": {
+          "transform": {
+            "scale": 1,
+            "anchor": [
+              0,
+              0
+            ]
+          }
+        },
+        "tf-photo": {
+          "transform": {
+            "skew": [
+              12,
+              0
+            ]
+          }
+        },
+        "tf-card": {
+          "transform": {
+            "rotate": -8
+          }
+        },
+        "tf-pair": {
+          "transform": {
+            "rotate": 90
+          }
+        },
+        "tf-flag": {
+          "transform": {
+            "rotate": 350
+          }
+        }
+      },
+      "notes": "Pass in the transition (frame @0.25): each transform moves part by part, never as a matrix. The headline turns from 6° anticlockwise to 6° clockwise, level halfway; the accent panel grows from its top left corner to fill its outline; the test card leans the other way, upright halfway; the card turns from 8° to -8° with its label and dot inside it; the pair turns on to 90°; the pennant turns 350° clockwise, most of the way round, not 10° back: a quarter into the cue it has turned past half a turn and points up and to the left. The arrow stays mirrored and the note stays scaled."
+    },
+    {
+      "id": "photos",
+      "name": "Photos",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "50 · Photos · recorded"
+        },
+        "photo-baseline": {},
+        "photo-progressive": {},
+        "photo-gray": {},
+        "photo-turned": {},
+        "photo-restart": {},
+        "photo-sampled": {},
+        "photo-large": {}
+      },
+      "notes": "Pass: seven JPEGs, each read by another path of the one decoder (ADR-0017), each the same bytes in every painter natively and in the browser. Top row, each whole: baseline with its color sampled at half each way; progressive in ten scans with its color in full; gray, progressive; and the same picture stored on its side, turned upright by its EXIF orientation, so its yellow corner is at its top right. Bottom row, each covering its box: progressive with a restart marker every row of blocks; color sampled at a quarter across, each sample repeated; and a 300 × 200 progressive photo."
     }
   ],
   "overrides": {

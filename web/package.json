@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json",
-    "build": "npm run typecheck && vite build && vite build --config vite.standalone.config.ts && node pages.mjs"
+    "build": "npm run typecheck && vite build --config vite.standalone.config.ts && vite build && node pages.mjs"
   },
   "devDependencies": {
     "axe-core": "4.13.0",

@@ -5,6 +5,7 @@
 // server's resources, `scaena-resources`) as a WASM module of its own: the editor's engine
 // carries neither.
 import initResources, { list, text } from "@scaena/resources";
+import type { Rewritten, Seeing } from "../protocol";
 import { converse, type Event } from "./converse";
 import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
 import { type Listed, system } from "./prompt";
@@ -23,6 +24,8 @@ export interface Session {
   file(path: string): Uint8Array | undefined;
   states(): string[];
   formats(): string[];
+  /** The theme frames are drawn in, as JSON `{ theme, text }`; none where the deck names none. */
+  themeText(): string | undefined;
 }
 
 /** What a tool returned (`ToolResult`). */
@@ -30,18 +33,22 @@ export interface Called {
   readonly json: string;
   readonly error: boolean;
   readonly edited: boolean;
+  /** The files it wrote beside the deck, before and after, as JSON: the theme `theme_edit` edited. */
+  readonly rewritten: string;
   readonly size: Uint32Array | number[] | undefined;
   pixels(): Uint8ClampedArray;
   free(): void;
 }
 
-/** A question for the assistant, and who answers it. */
+/** A question for the assistant, and who answers it; and what the editor shows as it is asked
+ * (PLAN 2.52). */
 export interface Asking {
   provider: ProviderId;
   model: string;
   key: string;
   base?: string;
   text: string;
+  seeing?: Seeing;
 }
 
 /** The conversation, kept between questions until the page forgets it. */
@@ -55,13 +62,14 @@ export function forget() {
 
 /** Ask `asking.text` of the model, which works on `session` with the tools `names` until it
  * answers, `signal` stops it, or it has called tools as many rounds as one question allows.
- * `edited` hears the deck's source after each call that changes it, before the next call. */
+ * `edited` hears the deck's source after each call that changes it or a file beside it (the
+ * theme), with that file before and after, before the next call. */
 export async function ask(
   session: Session,
   names: string[],
   asking: Asking,
   emit: (e: Event) => void,
-  edited: (source: string) => Promise<void>,
+  edited: (source: string, files: Rewritten[]) => Promise<void>,
   signal: AbortSignal,
 ) {
   loaded ??= initResources();
@@ -69,7 +77,7 @@ export async function ask(
   const listed = JSON.parse(list()) as Listed[];
   const bundleSkills = session.files().flatMap((path) => /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1] ?? []);
   const prompt = system(facts(session), listed, bundleSkills, text("scaena://skills/author-deck") ?? "");
-  conversation.push({ role: "user", text: asking.text });
+  conversation.push({ role: "user", text: seen(asking.seeing) + asking.text });
   await converse({
     provider: providers[asking.provider],
     model: asking.model,
@@ -82,6 +90,20 @@ export async function ask(
     emit,
     signal,
   });
+}
+
+/** What the editor shows as a question is asked (PLAN 2.52), as the question's first line, in
+ * brackets: the system prompt says how to read it. The conversation keeps it with the question,
+ * so what was selected then stays said. */
+export function seen(seeing: Seeing | undefined): string {
+  if (!seeing) return "";
+  const format = seeing.format ? ` in ${seeing.format}` : "";
+  const nodes = seeing.nodes.length
+    ? `selected: ${seeing.nodes.map((n) => (n.type ? `${n.node} (${n.type})` : n.node)).join(", ")}`
+    : "nothing selected";
+  const c = seeing.characters;
+  const characters = c ? `; in ${c.node}, characters ${c.from} to ${c.to} selected: ${JSON.stringify(c.text)}` : "";
+  return `[In the editor: state ${seeing.state} shown${format}; ${nodes}${characters}.]\n\n`;
 }
 
 /** The open deck, in a few facts: its title, states, formats, and theme. */
@@ -97,12 +119,13 @@ function facts(session: Session) {
 }
 
 /** Run `call` on the session as `author`: what it returned, and a line saying what that came
- * to. A call that changes the deck tells `edited` its source before it returns. A call that
- * fails says why to the model, as an MCP tool's error result does: every call has an answer. */
+ * to. A call that changes the deck, or the theme beside it, tells `edited` its source, and the
+ * file it wrote, before it returns. A call that fails says why to the model, as an MCP tool's
+ * error result does: every call has an answer. */
 async function run(
   session: Session,
   call: Call,
-  edited: (source: string) => Promise<void>,
+  edited: (source: string, files: Rewritten[]) => Promise<void>,
   author: string,
 ): Promise<{ result: Result; summary: string }> {
   const answer = (json: string, error: boolean): { result: Result; summary: string } => ({
@@ -112,12 +135,14 @@ async function run(
   if (call.name === "resource_read") return answer(...read(session, call.args));
   let out: { result: Result; summary: string };
   let changed: boolean;
+  let files: Rewritten[] = [];
   let frame: { pixels: Uint8ClampedArray; width: number; height: number } | undefined;
   try {
     const called = session.tool(call.name, JSON.stringify(call.args ?? {}), author, new Date().toISOString());
     try {
       out = answer(called.json, called.error);
       changed = called.edited;
+      files = JSON.parse(called.rewritten || "[]") as Rewritten[];
       if (called.size) frame = { pixels: called.pixels(), width: called.size[0], height: called.size[1] };
     } finally {
       called.free();
@@ -126,7 +151,7 @@ async function run(
     return answer(JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true);
   }
   if (frame) out.result.png = await png(frame.pixels, frame.width, frame.height);
-  if (changed) await edited(session.source());
+  if (changed || files.length) await edited(session.source(), files);
   return out;
 }
 
@@ -135,7 +160,11 @@ function read(session: Session, args: unknown): [string, boolean] {
   const uri = (args as { uri?: unknown } | undefined)?.uri;
   if (typeof uri !== "string") return [JSON.stringify({ message: "resource_read takes `uri`, a string" }), true];
   const skill = /^bundle:\/\/skills\/([^/]+)$/.exec(uri)?.[1];
-  if (skill) {
+  // The theme the deck is drawn in, as theme_edit edits it (PLAN 2.61).
+  if (uri === "bundle://theme") {
+    const held = session.themeText();
+    if (held) return [(JSON.parse(held) as { text: string }).text, false];
+  } else if (skill) {
     const bytes = session.file(`skills/${skill}/SKILL.md`);
     if (bytes) return [new TextDecoder().decode(bytes), false];
   } else {

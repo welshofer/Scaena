@@ -543,8 +543,13 @@ impl Rule for W312ChartTextSize {
         for state in cx.states {
             for node in &state.scene.nodes {
                 let Content::Chart { chart, .. } = &node.content else { continue };
+                // As drawn: a chart scaled down sets its text smaller; one flattened sets none.
+                let scale = scaena_core::pose::stretch(&state.scene.posed(&node.id, true))[1] as f32;
+                if scale <= 0.0 {
+                    continue;
+                }
                 for (part, label) in chart.texts() {
-                    let size = label.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min);
+                    let size = label.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
                     if size >= floor - 1.0e-3 {
                         continue;
                     }

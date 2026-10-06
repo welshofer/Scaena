@@ -247,6 +247,23 @@
           }
         },
         {
+          "description": "One of a chart's annotations (SPEC §3.7, PLAN 2.67), as the editor makes it from a mark: `annotation` added after the chart's others; or, with `index`, merged into the one at that place among them, what it gives replacing what that one has (`at` whole, and a `null` `text` or `role` taken away); or, `null` with `index`, that one taken away. The chart's `annotations` as `state` shows them are written where they live, as `choose` writes them; with `fork`, into `state`'s own props. An annotation must stand where its kind can, as validation says.",
+          "type": "object",
+          "required": ["op", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "node": { "$ref": "#/$defs/Id" },
+            "index": { "type": "integer", "minimum": 0 },
+            "annotation": { "anyOf": [{ "$ref": "#/$defs/Annotating" }, { "type": "null" }] },
+            "state": { "$ref": "#/$defs/Id" },
+            "fork": {
+              "description": "Write the chart's annotations into `state`'s own props, wherever they live now: they show so there, and in the states that track it.",
+              "type": "boolean"
+            },
+            "op": { "type": "string", "const": "annotate" }
+          }
+        },
+        {
           "description": "A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data update, morphed by key) or in its defaults. `source` declares it, or replaces it if the deck has it.",
           "type": "object",
           "required": ["op", "node", "data"],
@@ -372,6 +389,23 @@
         },
         "area": { "type": "string" },
         "index": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Annotating": {
+      "description": "What `annotate` gives a chart's annotation (PLAN 2.67): a whole one, to add, with its `kind` and `at`; or, for the one at an `index`, what changes in it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/AnnotationKind" },
+        "at": { "description": "Where it stands, whole (SPEC §3.7).", "$ref": "#/$defs/AnnotationAt" },
+        "text": {
+          "description": "What it says; `null` takes it away.",
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "role": {
+          "description": "Its text's role; `null` takes it away, leaving the theme's `charts.annotation.role`.",
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        }
       }
     },
     "Motion": {
@@ -640,7 +674,7 @@
       }
     },
     "ImageNode": {
-      "description": "An image from the bundle, placed in its box (SPEC §3.3). PNG in v1.",
+      "description": "An image from the bundle, a PNG or a JPEG, placed in its box (SPEC §3.3).",
       "$ref": "#/$defs/NodeProps",
       "type": "object",
       "required": ["type", "src"],

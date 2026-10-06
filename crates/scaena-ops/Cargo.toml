@@ -31,6 +31,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# Its hyphenation patterns, which the tests' decks hyphenate by (ADR-0015).
+scaena-engine = { workspace = true, features = ["hyphenation"] }
 hayro.workspace = true
 # Rasterizes SVGs to compare with the painters (PLAN 1.21). Without its text feature: an
 # SVG's text is the transparent layer a reader selects, which no painter draws.

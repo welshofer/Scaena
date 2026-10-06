@@ -21,8 +21,9 @@ fn the_crates_the_modules_carry_sort_through_one_compiled_sort() {
         walk(&root.join("crates").join(krate).join("src"), &mut files);
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
-            // A file's tests come last, in `mod tests`.
-            let code = text.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
+            // A file's tests come last, in `mod tests`, which other tests may share.
+            let tests = ["#[cfg(test)]\nmod tests", "#[cfg(test)]\npub(crate) mod tests"];
+            let code = tests.iter().filter_map(|t| text.find(t)).min().map_or(text.as_str(), |at| &text[..at]);
             for (n, line) in code.lines().enumerate() {
                 let line = line.trim_start();
                 if !line.starts_with("//") && SORTS.iter().any(|s| line.contains(s)) {

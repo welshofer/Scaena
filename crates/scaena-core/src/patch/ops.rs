@@ -3,13 +3,13 @@
 //! says, with what to do instead: an op on a node that is not there, or a change in a state
 //! to a node not on screen there, which would make it enter.
 
-use super::{JsonOp, Renamed, SemanticOp, Spot, Timed, esc};
+use super::{Annotating, JsonOp, Renamed, SemanticOp, Spot, Timed, esc};
 use crate::data;
 use crate::document::{Deck, Props};
 use crate::ids::is_valid_id;
 use crate::lint::literal;
 use crate::model::theme::Theme;
-use crate::model::values::Duration;
+use crate::model::values::{Annotation, Duration};
 use crate::tracking::{Lives, Snapshot, layout_lives, lives, merge_props, other_spelling, resolve_states, tracks_from};
 use crate::validate::BundleFiles;
 use serde_json::{Map, Value};
@@ -84,6 +84,9 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             }
             _ => choose(&d, node, prop, value, state.as_deref(), *fork)?,
         },
+        SemanticOp::Annotate { node, index, annotation, state, fork } => {
+            annotate(&d, node, *index, annotation.as_ref(), state.as_deref(), *fork)?
+        }
         SemanticOp::BindData { node, data, source, state } => {
             let kind = d.kind(node)?;
             if !matches!(kind, "chart" | "table") {
@@ -877,6 +880,103 @@ fn choose(
         Some(j) if value.is_null() && !fork => Ok(unset(d, node, j, &name, key.as_deref())),
         _ => set(d, node, vec![(name, key, value.clone())], at),
     }
+}
+
+/// `annotate` (PLAN 2.67): one of chart `node`'s annotations added, changed, or taken away,
+/// and the chart's `annotations` as `state` shows them (its overrides', where they set them)
+/// written where they live, as `choose` writes them. An annotation added or changed must stand
+/// where its kind can ([`Annotation::check`]); validation says whether its place is in the
+/// data. A list emptied where nothing is under it goes, and elsewhere stays, empty, so that
+/// what is under it does not show.
+fn annotate(
+    d: &Doc,
+    node: &str,
+    index: Option<u32>,
+    annotation: Option<&Option<Annotating>>,
+    state: Option<&str>,
+    fork: bool,
+) -> Result<Vec<JsonOp>, String> {
+    let kind = d.kind(node)?;
+    if kind != "chart" {
+        return Err(format!("`{node}` is a {kind} node; a chart takes annotations"));
+    }
+    if fork && state.is_none() {
+        return Err("`fork` keeps the annotations to a state: name it (`state`)".into());
+    }
+    let showing = d.showing(node, state)?;
+    let shown: Props = match &showing {
+        Some((_, props)) => props.clone(),
+        None => d.node(node)?.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    let over = d.0.get("overrides").and_then(|o| o.get(node));
+    let read = |name: &str| over.and_then(|o| o.get(name)).or_else(|| shown.get(name));
+    let mut list: Vec<Value> = match read("annotations") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(list)) => list.clone(),
+        Some(_) => return Err(format!("`{node}`'s `annotations` is not a list")),
+    };
+    let count = list.len();
+    let place = |i: u32| -> Result<usize, String> {
+        match i as usize {
+            i if i < count => Ok(i),
+            _ => Err(match count {
+                0 => format!("`{node}` has no annotations: add one, without an `index`"),
+                1 => format!("`{node}` has one annotation, at `index` 0"),
+                n => format!("`{node}` has {n} annotations, at `index` 0 to {}", n - 1),
+            }),
+        }
+    };
+    let changed = match (index, annotation) {
+        (_, None) => {
+            return Err(
+                "give `annotation`: one to add; with `index`, what changes in that one, or `null` to take it away"
+                    .into(),
+            );
+        }
+        (None, Some(None)) => return Err("`null` takes an annotation away: say which by its `index`".into()),
+        (None, Some(Some(given))) => {
+            if given.kind.is_none() || given.at.is_none() {
+                return Err("an annotation added has a `kind` and an `at` (SPEC §3.7)".into());
+            }
+            list.push(Value::Object(Map::new()));
+            Some(list.len() - 1)
+        }
+        (Some(i), Some(None)) => {
+            list.remove(place(i)?);
+            None
+        }
+        (Some(i), Some(Some(_))) => Some(place(i)?),
+    };
+    if let (Some(i), Some(Some(given))) = (changed, annotation) {
+        let Value::Object(note) = &mut list[i] else { return Err(format!("annotation {i} is not an object")) };
+        if let Some(kind) = given.kind {
+            note.insert("kind".into(), serde_json::to_value(kind).map_err(|e| e.to_string())?);
+        }
+        if let Some(at) = &given.at {
+            note.insert("at".into(), crate::dsl::whole(&serde_json::to_value(at).map_err(|e| e.to_string())?));
+        }
+        for (key, value) in [("text", &given.text), ("role", &given.role)] {
+            match value {
+                None => {}
+                Some(None) => drop(note.shift_remove(key)),
+                Some(Some(text)) => drop(note.insert(key.into(), Value::String(text.clone()))),
+            }
+        }
+        let checked: Annotation =
+            serde_json::from_value(list[i].clone()).map_err(|e| format!("annotation {i}: {e}"))?;
+        let donut = read("kind").and_then(Value::as_str) == Some("donut");
+        checked.check(donut).map_err(|e| format!("annotation {i}: {e}"))?;
+    }
+    // Emptied on the node itself, the list goes; in a delta or the overrides, an empty one
+    // stays, since taking it away there would show what is under it.
+    let on_node = over.and_then(|o| o.get("annotations")).is_none()
+        && !fork
+        && match &showing {
+            Some((i, _)) => matches!(lives(&d.snapshots()?.0, *i, node, "annotations", &[]), Lives::Node),
+            None => true,
+        };
+    let value = if list.is_empty() && on_node { Value::Null } else { Value::Array(list) };
+    choose(d, node, "annotations", &value, state, fork)
 }
 
 /// A chart's or a table's source, chosen (`choose` with `data`, PLAN 2.41): written where its

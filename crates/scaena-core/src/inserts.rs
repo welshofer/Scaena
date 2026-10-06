@@ -6,7 +6,7 @@
 //!   wide, its text the role's name.
 //! - **A shape** of each kind that needs no points: a rectangle and an ellipse, filled with the
 //!   theme's accent (or its first color); a line and an arrow, the theme's rule.
-//! - **An image** of each PNG in the bundle.
+//! - **An image** of each PNG and JPEG in the bundle.
 //! - **A chart and a table** of each of the deck's data sources (PLAN 2.41), from the columns
 //!   it has, half the canvas each way; the table its first rows, as many as that holds.
 //! - **A shader** of each preset, filling the canvas, under what is there.
@@ -76,7 +76,8 @@ pub fn inserts(deck: &Deck, theme: &Theme, files: &[String], sources: &dyn Sourc
             start: Start::Box { w: 0.25, h: 1.0 / 12.0 },
         });
     }
-    for path in files.iter().filter(|p| p.to_ascii_lowercase().ends_with(".png")) {
+    let picture = |p: &str| [".png", ".jpg", ".jpeg"].iter().any(|e| p.to_ascii_lowercase().ends_with(e));
+    for path in files.iter().filter(|p| picture(p)) {
         let name = path.rsplit('/').next().unwrap_or(path);
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
         let node = json!({ "type": "image", "src": path });
@@ -225,10 +226,23 @@ mod tests {
         let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
         let theme: Theme = serde_json::from_str(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
         let sha = format!("assets/{}.png", "7130f10a".repeat(8));
-        let offered = inserts(&deck, &theme, &[sha.clone(), "assets/Team Photo.png".into()], &BTreeMap::new());
+        let photo = format!("assets/{}.jpg", "0c9ad21e".repeat(8));
+        let offered = inserts(
+            &deck,
+            &theme,
+            &[sha.clone(), photo, "assets/Team Photo.png".into(), "assets/notes.txt".into()],
+            &BTreeMap::new(),
+        );
         let images: Vec<(&str, &str)> =
             offered.iter().filter(|i| i.node["type"] == "image").map(|i| (i.label.as_str(), i.id.as_str())).collect();
-        assert_eq!(images, [("Image · 7130f10a…", "image-7130f10a"), ("Image · Team Photo.png", "team-photo")]);
+        assert_eq!(
+            images,
+            [
+                ("Image · 7130f10a…", "image-7130f10a"),
+                ("Image · 0c9ad21e…", "image-0c9ad21e"),
+                ("Image · Team Photo.png", "team-photo")
+            ]
+        );
         assert_eq!(sentence("title"), "Title");
         // A source the bundle does not hand over offers nothing to insert.
         assert!(!offered.iter().any(|i| i.node["type"] == "chart" || i.node["type"] == "table"));

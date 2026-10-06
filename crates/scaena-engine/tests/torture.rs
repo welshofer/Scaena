@@ -32,8 +32,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// color that comes and goes. Case 44 adds charts whose marks grow in turn: stacks that
 /// build member on member, a ring that sweeps open, and lines that rise series by series.
 /// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
-/// there from halfway.
-const MORPH: [(&str, f64); 18] = [
+/// there from halfway. Case 49 adds transforms that move (PLAN 2.51): turns, a lean, a
+/// scale from a corner, and a frame turning what it holds, each part on its own.
+const MORPH: [(&str, f64); 19] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -52,6 +53,7 @@ const MORPH: [(&str, f64); 18] = [
     ("stagger", 0.3),
     ("stagger", 0.6),
     ("forecast-next", 0.5),
+    ("transforms-next", 0.25),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and
@@ -429,6 +431,39 @@ fn a_shader_drifts_on_through_a_transition() {
     }
     let (_, t, _) = mesh_op(&fx.frame("mesh").unwrap());
     assert!((t - (start + (d / 1000.0) as f32)).abs() < 1e-6, "at rest: t = {t}");
+}
+
+/// The transform of `node`'s layer in `dl`, wherever it sits.
+fn layer_map(ops: &[Op], node: &str) -> Option<[f32; 6]> {
+    ops.iter().find_map(|op| match op {
+        Op::Layer { node: Some(n), transform, .. } if n == node => Some(*transform),
+        Op::Layer { ops, .. } => layer_map(ops, node),
+        _ => None,
+    })
+}
+
+/// Case 49 (PLAN 2.51): between two states a transform moves part by part, about the box
+/// as it stands, never as a matrix. A quarter into the cue, eased, the pennant has turned
+/// past half a turn clockwise on its way to 350°, not back toward −10°; the panel growing
+/// from its top left corner keeps that corner; and the card's label turns with the card.
+#[test]
+fn transforms_move_part_by_part_between_states() {
+    let mut fx = fixture();
+    let rest = fx.frame("transforms").unwrap();
+    let t = 0.25 * fx.duration("transforms-next");
+    let dl = fx.frame_at("transforms-next", t).unwrap();
+    let map =
+        |dl: &DisplayList, node: &str| layer_map(&dl.ops, node).unwrap_or_else(|| panic!("no layer for `{node}`"));
+    let flag = map(&dl, "tf-flag");
+    let turned = flag[1].atan2(flag[0]).to_degrees().rem_euclid(360.0);
+    assert!(turned > 180.0 && turned < 270.0, "the pennant has turned {turned}°");
+    let (panel, still) = (map(&dl, "tf-panel"), map(&rest, "tf-panel"));
+    assert!(panel[0] > 0.5 && panel[0] < 1.0, "{panel:?}");
+    assert!((panel[4] - still[4]).abs() < 1e-3 && (panel[5] - still[5]).abs() < 1e-3, "{panel:?} {still:?}");
+    assert_eq!(map(&dl, "tf-card-label")[..4], map(&dl, "tf-card")[..4]);
+    // Level halfway: the headline turns from −6° through 0° to 6°.
+    let title = map(&dl, "tf-title");
+    assert!(title[1].abs() < (6f32).to_radians().sin(), "{title:?}");
 }
 
 #[test]

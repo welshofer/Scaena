@@ -5,7 +5,7 @@
 //
 //   a new deck from Dusk → a headline too long for its one-row slot (deck_patch) → the E100
 //   lint finds, with its fix (deck_lint) → the fix (deck_lint with `fix`) → no errors
-//   (deck_lint) → the state drawn (deck_render) → an answer.
+//   (deck_lint) → the state drawn (deck_render) → a cooler accent (theme_edit) → an answer.
 //
 //   node web/assistant.mjs     (after `just web`; from the repository's root)
 //
@@ -13,7 +13,8 @@
 // Anthropic's opt-in header for a browser), the system prompt with the author-deck skill, the
 // tools as the MCP server's less `bundle`, each call's result as the model reads it, and the
 // frame as an image; that Gemini's thought signatures go back as they came; that the editor's
-// source takes each edit and lints clean at the end; and that a question stops when asked to.
+// source takes each edit and lints clean at the end; that the theme's edit is one step of the
+// source's undo, the theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's storage: for the tab, or on the device, encrypted, and forgotten.
 // Exits 1 on any failure.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -75,6 +76,7 @@ const SCRIPT = [
   { name: "deck_lint", args: { fix: true } },
   { name: "deck_lint", args: {} },
   { name: "deck_render", args: { state: "start", size: "960x540" } },
+  { name: "theme_edit", args: { ops: [{ op: "replace", path: "/tokens/color/accent", value: "#2E86E4" }] } },
 ];
 const ANSWER = "The headline fits its slot now, and the deck lints clean.";
 
@@ -236,7 +238,7 @@ try {
     const tools = wire.tools(first.body);
     const names = tools.map((t) => t.name);
     check(
-      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "resource_read"].every((n) => names.includes(n)),
+      ["deck_read", "deck_patch", "deck_lint", "deck_inspect", "deck_diff", "deck_render", "spine_read", "spine_update", "data_attach", "data_edit", "theme_edit", "resource_read"].every((n) => names.includes(n)),
       `${id}: the tools: ${names.join(", ")}`,
     );
     check(
@@ -257,6 +259,11 @@ try {
     const png = frame.png && decode(Buffer.from(frame.png, "base64"));
     check(png?.width === 960 && png?.height === 540, `${id}: deck_render's frame reaches the model as an image, ${png?.width}×${png?.height}`);
     check(JSON.parse(frame.json ?? "{}").digest?.length === 16, `${id}: with the frame's facts`);
+    const themed = parsed(6);
+    check(
+      themed.applied === true && themed.theme === "themes/dusk.theme.json" && themed.paths?.[0] === "/tokens/color/accent",
+      `${id}: theme_edit edits the bundle's copy of Dusk (${result(6).json?.slice(0, 160)})`,
+    );
     if (id === "gemini") {
       const model = requests[1].body.contents.find((c) => c.role === "model");
       check(model?.parts?.[0]?.thoughtSignature === "signature-0", "gemini: a call's thought signature goes back as it came");
@@ -274,6 +281,18 @@ try {
     );
     const shown = await page.$eval("#transcript img", (img) => img.naturalWidth).catch(() => 0);
     check(shown === 960, `${id}: and the frame the model saw`);
+
+    // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
+    // theme back (PLAN 2.61).
+    const accent = () => page.evaluate(() => window.scaena.theme.theme()?.tokens?.color?.accent);
+    await page.click("#tab-theming");
+    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#2E86E4", null, { timeout: 30000 }).catch(() => {});
+    check((await accent()) === "#2E86E4", `${id}: the Theme tab shows the assistant's edit: ${await accent()}`);
+    await page.locator("#code .cm-content").focus();
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#FF6A3D", null, { timeout: 30000 }).catch(() => {});
+    check((await accent()) === "#FF6A3D" && (await page.evaluate(() => window.scaena.source())) === after, `${id}: ⌘Z writes the theme back, the source as it was`);
+    await page.click("#tab-assistant");
     const usage = await page.evaluate(() => window.scaena.assistant.usage());
     check(usage.input === 1000 * SCRIPT.length + 1200, `${id}: tokens counted: ${usage.input} in, ${usage.output} out`);
 

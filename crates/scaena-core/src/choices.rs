@@ -134,9 +134,17 @@ enum Source {
 use Source::{Columns, Data, Fractions, Names, Schema};
 use Vocabulary as V;
 
-/// What an inspector edits on every node.
-const EVERY: [(&str, Source); 3] =
-    [("opacity", Schema(false)), ("enter", Names(V::MotionPreset, false)), ("exit", Names(V::MotionPreset, false))];
+/// What an inspector edits on every node: how far it is turned is its `transform`'s
+/// `rotate`, in degrees, clockwise (PLAN 2.51); and what a reader hears of it (PLAN 2.56,
+/// SPEC §3.12), its description (`alt`) and its part in the story (`semantic`).
+const EVERY: [(&str, Source); 6] = [
+    ("opacity", Schema(false)),
+    ("transform/rotate", Schema(false)),
+    ("enter", Names(V::MotionPreset, false)),
+    ("exit", Names(V::MotionPreset, false)),
+    ("alt", Schema(false)),
+    ("semantic", Schema(false)),
+];
 
 /// What an inspector edits on a node of a type, besides what every node has.
 fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {

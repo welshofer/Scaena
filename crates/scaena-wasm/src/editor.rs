@@ -86,6 +86,10 @@ pub struct Located {
     /// Whether it holds in the format frames are laid out in, as the canvas shows it (PLAN
     /// 2.49): see [`Shown::holds`].
     pub shown: bool,
+    /// The formats it holds in, as the format menu names them: `""` for the deck's own canvas,
+    /// then each of the deck's `formats` (PLAN 2.62). What the formats shown side by side count
+    /// on each.
+    pub formats: Vec<String>,
 }
 
 /// The format frames are laid out in, as the findings shown in it are told apart (PLAN 2.49).
@@ -148,10 +152,24 @@ impl Session {
 
     /// The format frames are laid out in, as findings are shown in it.
     fn shown(&self) -> Shown {
+        self.shown_in(self.format.clone())
+    }
+
+    /// `format` as findings are told apart in it: `None`, the deck's own canvas.
+    fn shown_in(&self, format: Option<String>) -> Shown {
         let own = [self.deck.canvas.width, self.deck.canvas.height];
-        let format = self.format.clone();
         let laid_out = |name: &String| Format::parse(name).is_some_and(|f| f.canvas(own) == own);
         Shown { own: format.as_ref().is_none_or(laid_out), format }
+    }
+
+    /// Every format the deck is laid out in, as findings are told apart in each (PLAN 2.62): its
+    /// own canvas, then each of its `formats`.
+    fn every(&self) -> Every {
+        let named = self.deck.formats.iter().map(|f| (f.clone(), self.shown_in(Some(f.clone()))));
+        Every {
+            shown: self.shown(),
+            each: std::iter::once((String::new(), self.shown_in(None))).chain(named).collect(),
+        }
     }
 
     /// Compile `source` and validate it against the files handed over. A deck that
@@ -162,7 +180,8 @@ impl Session {
             Err(e) => {
                 let finding = Finding::new("E106", Severity::Error, e.message.clone());
                 let at = Some(Place::of(source, e.offset, e.len));
-                let error = Located { finding, at, fixable: false, shown: true };
+                let formats = self.every().each.into_iter().map(|(name, _)| name).collect();
+                let error = Located { finding, at, fixable: false, shown: true, formats };
                 self.edit = None;
                 return Compiling { error: Some(error), findings: Vec::new(), states: Vec::new(), valid: false };
             }
@@ -179,9 +198,8 @@ impl Session {
         if let Some(deck) = deck {
             self.set_deck(deck);
         }
-        let shown = self.shown();
-        let findings =
-            (compiled.findings.iter()).map(|f| locate(source, &compiled, f, shown.holds(f, false))).collect();
+        let every = self.every();
+        let findings = (compiled.findings.iter()).map(|f| every.locate(source, &compiled, f, false)).collect();
         let found = compiled.findings.clone();
         self.edit = Some(Edit { source: source.to_string(), compiled, findings: found, shown: valid });
         Compiling { error: None, findings, states, valid }
@@ -197,10 +215,10 @@ impl Session {
     /// found there can be about that node, or owe something to it (a collision, or the
     /// contrast of text over it).
     pub fn lint(&mut self, only: Option<&str>) -> Result<Linting, Error> {
-        let shown = self.shown();
+        let every = self.every();
         let edit = self.edit.as_ref().ok_or(Error::NothingCompiled)?;
         let Some(deck) = edit.compiled.deck() else {
-            let at = |f| locate(&edit.source, &edit.compiled, f, shown.holds(f, false));
+            let at = |f| every.locate(&edit.source, &edit.compiled, f, false);
             return Ok(Linting {
                 findings: edit.findings.iter().map(at).collect(),
                 laid: false,
@@ -243,7 +261,7 @@ impl Session {
         }
         let edit = self.edit.as_mut().expect("checked above");
         edit.findings = linted.findings;
-        let at = |f| locate(&edit.source, &edit.compiled, f, shown.holds(f, layout.contains(f)));
+        let at = |f| every.locate(&edit.source, &edit.compiled, f, layout.contains(f));
         Ok(Linting { findings: edit.findings.iter().map(at).collect(), laid: linted.laid, whole: only.is_none() })
     }
 
@@ -273,10 +291,27 @@ impl Session {
     }
 }
 
-/// `f` in `source`, where `compiled` says it is; `shown`, whether it holds in the format shown.
-fn locate(source: &str, compiled: &Compiled, f: &Finding, shown: bool) -> Located {
-    let at = compiled.span(f).map(|(offset, len)| Place::of(source, offset, len.max(1)));
-    Located { finding: f.clone(), at, fixable: f.fix.is_some(), shown }
+/// The format shown, and every format the deck is laid out in, by the name the format menu gives
+/// it, as findings are told apart in each (PLAN 2.49, 2.62).
+struct Every {
+    shown: Shown,
+    each: Vec<(String, Shown)>,
+}
+
+impl Every {
+    /// `f` in `source`, where `compiled` says it is, with the formats it holds in; `laid`,
+    /// whether laying the deck out found it.
+    fn locate(&self, source: &str, compiled: &Compiled, f: &Finding, laid: bool) -> Located {
+        let at = compiled.span(f).map(|(offset, len)| Place::of(source, offset, len.max(1)));
+        let formats = (self.each.iter()).filter(|(_, shown)| shown.holds(f, laid)).map(|(name, _)| name.clone());
+        Located {
+            finding: f.clone(),
+            at,
+            fixable: f.fix.is_some(),
+            shown: self.shown.holds(f, laid),
+            formats: formats.collect(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -506,6 +541,20 @@ mod tests {
         assert!(own.contains(&("E100".into(), None, true)) && own.contains(&("W301".into(), None, true)), "{own:?}");
         assert!(own.contains(&("E100".into(), Some("9:16".into()), false)), "{own:?}");
         assert!(own.iter().all(|(_, format, shown)| *shown == format.is_none()), "{own:?}");
+        // Each finding lists the formats it holds in, as the format menu names them (PLAN 2.62):
+        // the one it names, else the deck's own canvas and `16:9` for what laying it out there
+        // found, and every format for the document rules'.
+        let listed = |l: &Linting| -> Vec<(String, Option<String>, Vec<String>)> {
+            (l.findings.iter())
+                .filter(|f| f.finding.state.as_deref() == Some("revenue"))
+                .map(|f| (f.finding.code.clone(), f.finding.format.clone(), f.formats.clone()))
+                .collect()
+        };
+        let every = listed(&s.lint(None).unwrap());
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert!(every.contains(&("E100".into(), None, names(&["", "16:9"]))), "{every:?}");
+        assert!(every.contains(&("E100".into(), Some("9:16".into()), names(&["9:16"]))), "{every:?}");
+        assert!(every.contains(&("W301".into(), None, names(&["", "16:9", "9:16"]))), "{every:?}");
         // In `9:16`: what laying it out there found, and the document rules'.
         s.set_format(Some("9:16")).unwrap();
         let tall = found(&s.lint(Some("revenue")).unwrap());
@@ -525,6 +574,7 @@ mod tests {
         // What compiling finds holds in every format.
         let found = s.compile(&source.replace("@q3", "@q4")).findings;
         assert!(!found.is_empty() && found.iter().all(|f| f.shown), "{found:?}");
+        assert!(found.iter().all(|f| f.formats == names(&["", "16:9", "9:16"])), "{found:?}");
     }
 
     #[test]

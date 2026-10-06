@@ -14,6 +14,7 @@ use crate::{Error, Session};
 use scaena_core::{Deck, Severity};
 use scaena_ops::OpsError;
 use scaena_ops::create::{Create, creating};
+use scaena_ops::export::Progress;
 use scaena_ops::lint::Why;
 use scaena_store::crdt::{FS, OUTSIDE, Recorded};
 use scaena_store::subset::SubsetError;
@@ -133,14 +134,24 @@ impl Session {
     /// the page's edits as a change by `fs`.
     pub fn save(&self, now: &str, subset: bool, history: Option<&Recorder>) -> Result<Saving, Error> {
         let opts = SaveOptions { subset_fonts: subset, now: now.into(), history: false };
-        let record = |saved: &Deck| match (history, self.files.get(HISTORY)) {
+        let record = |saved: &Deck, written: &BTreeMap<String, Vec<u8>>| match (history, self.files.get(HISTORY)) {
             (Some(record), Some(held)) => {
-                let changes = self.changes(saved, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
+                let changes =
+                    self.changes(saved, written, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
                 record(held, &changes).map(Some).map_err(StoreError::History)
             }
             _ => Ok(None),
         };
-        let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| match self.subsets.get(font) {
+        let subsets = |font: &str, _: &[u8], chars: &BTreeSet<char>| self.subset(font, chars);
+        let mut saving = self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))?;
+        // What the Files panel took out goes where the bundle is kept too (PLAN 2.59).
+        saving.replaced.extend(self.removed.iter().cloned());
+        Ok(saving)
+    }
+
+    /// `font`'s subset for `chars`, as the page handed it over ([`Session::add_subset`]).
+    fn subset(&self, font: &str, chars: &BTreeSet<char>) -> Result<Vec<u8>, StoreError> {
+        match self.subsets.get(font) {
             Some((kept, bytes)) if kept.chars().eq(chars.iter().copied()) => Ok(bytes.clone()),
             kept => {
                 let why = if kept.is_some() {
@@ -150,36 +161,70 @@ impl Session {
                 };
                 Err(StoreError::Subset(font.to_string(), SubsetError::Subset(format!("{why}: subset it again"))))
             }
-        };
-        self.bundle().saving_with(&opts, record, subsets).map_err(|e| Error::Ops(e.to_string()))
+        }
+    }
+
+    /// The deck's pages laid out for its PDF (PLAN 2.54): each at rest on the deck's canvas, as
+    /// `scaena export --format pdf` orders them, with the fonts and images the frames name, as
+    /// bytes the PDF's own module (`scaena-pdf`) draws. This module carries no PDF writer: only
+    /// an export draws one (SPEC §15).
+    pub fn pdf_laid_out(&self) -> Result<Vec<u8>, Error> {
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&self.bundle(), None, &Progress::default())
+            .map_err(|e| Error::Ops(e.to_string()))?;
+        laid.to_bytes().map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file player's
+    /// page, filled in with the bundle as `scaena export --format html` fills it, named `name`:
+    /// the bundle as a save that subsets writes it, its fonts the subsets handed over
+    /// ([`Session::subsetting`]).
+    pub fn standalone(&self, page: &str, name: &str) -> Result<String, Error> {
+        let saved = || self.save("", true, None).map(|saving| saving.files).map_err(|e| OpsError::new(e.to_string()));
+        let (html, _) =
+            scaena_ops::export::standalone_with(&self.bundle(), None, page, name, &Progress::default(), saved)
+                .map_err(|e| Error::Ops(e.to_string()))?;
+        Ok(html)
     }
 
     /// What a save of `saved`, the deck as saved, records in the bundle's history, at `at`
     /// (PLAN 2.9): as JSON, the changes `scaena-history` records, in order.
-    /// - `deck.json` as the bundle holds it, by `fs`: a change only if it says otherwise than
-    ///   the history, edited outside Scaena since it was recorded (SPEC §8.1).
+    /// - The bundle as it was opened, by `fs`: `deck.json` and the files it is drawn from (its
+    ///   data files and its theme), each a change only if it says otherwise than the history,
+    ///   edited outside Scaena since it was recorded (SPEC §8.1, ADR-0014, ADR-0016).
     /// - Each edit an operation made since the bundle was opened or saved, after the deck as
     ///   it stood before it, which holds the user's edits until then
-    ///   ([`Session::keep`]).
-    /// - `saved`, by the user: the rest of their edits, and the files the save renamed.
+    ///   ([`Session::keep`]), with the data files and the theme it wrote.
+    /// - `saved`, by the user: the rest of their edits, the files the save renamed, and the
+    ///   files it is drawn from as they are, a file dropped on the page among them, and the
+    ///   theme as the save writes it (`written`).
     ///
     /// Each is stamped when it was made, the first as the earliest: the history never
     /// stamps a change before the one it follows.
-    pub fn changes(&self, saved: &Deck, at: Option<i64>) -> Result<String, Error> {
+    pub fn changes(&self, saved: &Deck, written: &BTreeMap<String, Vec<u8>>, at: Option<i64>) -> Result<String, Error> {
         let held = self.files.get("deck.json").ok_or_else(|| Error::Missing("deck.json".into()))?;
         let held = String::from_utf8(held.clone()).map_err(|e| Error::Deck(e.to_string()))?;
+        let opened = Deck::from_json(&held).map_err(|e| Error::Deck(e.to_string()))?;
         let first = self.recorded.first().map_or(at, |c| c.timestamp);
-        let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), ..change(held, FS, first) }];
+        // Each file as it was before an edit here wrote it.
+        let files = kept_texts(&opened, |path| self.held.get(path).or_else(|| self.files.get(path)));
+        let mut changes = vec![Recorded { message: Some(OUTSIDE.into()), files, ..change(held, FS, first) }];
         changes.extend(self.recorded.iter().cloned());
+        let files = kept_texts(saved, |path| written.get(path).or_else(|| self.files.get(path)));
         let saved = saved.to_json().map_err(|e| Error::Deck(e.to_string()))?;
-        changes.push(Recorded { message: Some("save".into()), ..change(saved, USER, at) });
+        changes.push(Recorded { message: Some("save".into()), files, ..change(saved, USER, at) });
         serde_json::to_string(&changes).map_err(|e| Error::Deck(e.to_string()))
     }
 
-    /// Keep `deck`, which an operation `by` called wrote for `why`, for the next save to
-    /// record, after the deck shown before it: the user's edits until then. Only a bundle
-    /// that keeps a history records anything.
-    pub(crate) fn keep(&mut self, deck: &Deck, why: &Why, by: Caller) -> Result<(), Error> {
+    /// Keep `deck`, which an operation `by` called wrote for `why`, and `files`, the data files it
+    /// wrote, as their text, for the next save to record, after the deck shown before it: the
+    /// user's edits until then. Only a bundle that keeps a history records anything.
+    pub(crate) fn keep(
+        &mut self,
+        deck: &Deck,
+        files: &BTreeMap<String, String>,
+        why: &Why,
+        by: Caller,
+    ) -> Result<(), Error> {
         if !self.files.contains_key(HISTORY) {
             return Ok(());
         }
@@ -197,6 +242,7 @@ impl Session {
             self.recorded.push(Recorded { message: Some("edit".into()), ..change(before, USER, by.at) });
         }
         self.recorded.push(Recorded {
+            files: files.clone(),
             message: Some(why.message.clone()),
             renamed_nodes: why.renamed_nodes.clone(),
             renamed_states: why.renamed_states.clone(),
@@ -217,15 +263,27 @@ impl Session {
             let source = next.source();
             next.compile(&source);
         }
+        // A save writes each data file as it is, under its own name: the Data panel's undo
+        // goes on undoing what it did.
+        next.done = std::mem::take(&mut self.done);
+        next.undone = std::mem::take(&mut self.undone);
         *self = next;
         Ok(())
     }
+}
+
+/// The files a history keeps beside `deck` ([`scaena_store::kept_paths`]: its data files and its
+/// theme), by their paths, as text: each as `bytes` gives it, where it does (ADR-0014, ADR-0016).
+pub(crate) fn kept_texts<'a>(deck: &Deck, bytes: impl Fn(&str) -> Option<&'a Vec<u8>>) -> BTreeMap<String, String> {
+    let paths = scaena_store::kept_paths(deck).into_iter();
+    paths.filter_map(|path| Some((path.to_string(), String::from_utf8_lossy(bytes(path)?).into_owned()))).collect()
 }
 
 /// `deck`'s change by `author`, at `at`, saying nothing yet.
 fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
     Recorded {
         deck,
+        files: Default::default(),
         author: author.into(),
         message: None,
         timestamp: at,
@@ -235,7 +293,7 @@ fn change(deck: String, author: &str, at: Option<i64>) -> Recorded {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use scaena_store::crdt::DeckDoc;
     use serde_json::json;
@@ -285,7 +343,7 @@ mod tests {
     }
 
     /// The revenue example's files: its deck, theme, fonts, and data, as a bundle of its own.
-    fn revenue() -> BTreeMap<String, Vec<u8>> {
+    pub(crate) fn revenue() -> BTreeMap<String, Vec<u8>> {
         let bundle = Bundle::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let mut files: BTreeMap<String, Vec<u8>> =
             bundle.read_fonts().unwrap().into_iter().chain(bundle.read_data().unwrap()).collect();
@@ -350,6 +408,48 @@ mod tests {
         assert!(stale.contains("its subset keeps other characters"), "{stale}");
     }
 
+    /// What the editor exports (PLAN 2.54) is what `scaena export` writes for the same bundle:
+    /// a state as a PNG at the size asked, the pages its PDF draws, and the single file, its
+    /// fonts subset by the page's subsetter.
+    #[test]
+    fn the_editor_exports_what_scaena_export_writes() {
+        let path = "../../tests/bench/b1.scaena";
+        let disk = Bundle::open(Path::new(path)).unwrap();
+        let mut s = Session::open(files(path)).unwrap();
+        let state = s.states()[1].clone();
+        let dir = std::env::temp_dir().join(format!("scaena-wasm-png-{}", std::process::id()));
+        let req = scaena_ops::export::Request {
+            format: "png".into(),
+            states: Some(vec![state.clone()]),
+            out: Some(dir.clone()),
+            size: Some("960x540".into()),
+            ..Default::default()
+        };
+        scaena_ops::export::export(&disk, &req).unwrap();
+        let cli = std::fs::read(dir.join(format!("{state}.png"))).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(s.png(&state, 960).unwrap() == cli, "{state}: the PNG differs from the CLI's");
+        assert!(s.png("nowhere", 960).is_err());
+
+        let (laid, _) = scaena_ops::export::pdf_laid_out(&disk, None, &Progress::default()).unwrap();
+        assert!(s.pdf_laid_out().unwrap() == laid.to_bytes().unwrap(), "the PDF's pages differ from the CLI's");
+
+        let page = r#"<html lang="__SCAENA_LANG__"><title>__SCAENA_TITLE__</title><body><!--__SCAENA_DECK__--></body>"#;
+        let unsubset = s.standalone(page, "b1").unwrap_err().to_string();
+        assert!(unsubset.contains("no subset of it was handed over"), "{unsubset}");
+        subset_all(&mut s);
+        let saved = || {
+            let opts = SaveOptions { subset_fonts: true, now: String::new(), history: false };
+            let subset = |font: &str, bytes: &[u8], chars: &BTreeSet<char>| {
+                scaena_store::subset::subset(bytes, chars).map_err(|e| StoreError::Subset(font.to_string(), e))
+            };
+            Ok(disk.saving_with(&opts, |_, _| Ok(None), subset)?.files)
+        };
+        let (cli, _) =
+            scaena_ops::export::standalone_with(&disk, None, page, "b1", &Progress::default(), saved).unwrap();
+        assert!(s.standalone(page, "b1").unwrap() == cli, "the single file differs from the CLI's");
+    }
+
     #[test]
     fn a_save_writes_the_deck_as_edited_and_the_page_goes_on_from_it() {
         let mut s = Session::open(revenue()).unwrap();
@@ -396,12 +496,12 @@ mod tests {
     }
 
     /// What records a save in a bundle's history, as the page's module does (PLAN 2.9).
-    fn recorder(held: &[u8], changes: &str) -> Result<Vec<u8>, String> {
+    pub(crate) fn recorder(held: &[u8], changes: &str) -> Result<Vec<u8>, String> {
         scaena_history::recorded(held, changes)
     }
 
     /// The revenue example saved with its history begun, and when that was.
-    fn begun() -> (BTreeMap<String, Vec<u8>>, i64) {
+    pub(crate) fn begun() -> (BTreeMap<String, Vec<u8>>, i64) {
         let begun = SaveOptions { subset_fonts: false, now: NOW.into(), history: true };
         let files = Bundle::in_memory(revenue()).unwrap().saving(&begun).unwrap().files;
         let at = DeckDoc::load(&files[HISTORY]).unwrap().changes()[0].timestamp;
@@ -522,6 +622,123 @@ mod tests {
         assert!(deck.contains("Net Revenue doubled!!?"), "{deck}");
     }
 
+    const CSV: &str = "data/q3-revenue.csv";
+
+    /// `edits` of the revenue example's source, `q3`, as a page sends them.
+    fn q3(edits: serde_json::Value) -> scaena_ops::data::DataEdit {
+        serde_json::from_value(json!({ "source": "q3", "edits": edits })).unwrap()
+    }
+
+    /// A cell set in the Data panel (PLAN 2.55): the file written with that one field changed, and
+    /// the chart that reads it drawn again; an edit refused writes nothing; the file put back by
+    /// the panel's undo and written again by its redo, before a save and after it.
+    #[test]
+    fn a_cell_set_from_the_page_is_drawn_and_undone() {
+        let mut s = Session::open(revenue()).unwrap();
+        let original = s.file(CSV).unwrap().to_vec();
+        let before = drawn(&mut s, &[]);
+        let user = Caller { author: USER, at: None };
+        let set = q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }]));
+        let (edited, wrote) = s.data_edit(&set, false, user).unwrap();
+        assert!(wrote && edited.edited && edited.file.as_deref() == Some(CSV), "{edited:?}");
+        let expected = String::from_utf8_lossy(&original).replace("Enterprise,4.4,38", "Enterprise,4.6,38");
+        assert_eq!(String::from_utf8_lossy(s.file(CSV).unwrap()), expected);
+        assert_eq!(s.data_sheet("q3").unwrap().0.rows[2][2], "4.6");
+        let after = drawn(&mut s, &[]);
+        assert_ne!(after, before, "the chart that reads it is drawn again");
+
+        // A second Core in 2025-Q4 makes two marks of one key (E103): refused, nothing written.
+        let twice = q3(json!([{ "op": "set", "row": 1, "column": "product", "value": "Core" }]));
+        let (refused, wrote) = s.data_edit(&twice, false, user).unwrap();
+        assert!(refused.refused && !wrote && refused.added.iter().any(|f| f.code == "E103"), "{refused:?}");
+        assert_eq!(String::from_utf8_lossy(s.file(CSV).unwrap()), expected);
+
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice());
+        assert_eq!(drawn(&mut s, &[]), before, "undone, the chart is drawn as it was");
+        assert_eq!(s.data_undo(false, user).unwrap(), None, "nothing more to undo");
+        assert_eq!(s.data_undo(true, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(drawn(&mut s, &[]), after);
+        assert_eq!(s.data_undo(true, user).unwrap(), None, "nothing more to redo");
+
+        // A save writes the file as it is, and the panel goes on undoing what it did.
+        let saved = s.save(NOW, false, None).unwrap();
+        assert_eq!(String::from_utf8_lossy(&saved.files[CSV]), expected);
+        s.adopt(&saved).unwrap();
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice());
+    }
+
+    /// An editor undoes its own changes, never a file's (SPEC §8.2): the Data panel undoes the
+    /// assistant's edit of a file, as the source's undo does its edits of the deck, then the
+    /// user's; a file changed by other means, dropped on the page, has nothing left to undo.
+    #[test]
+    fn the_data_panel_undoes_the_editors_own_edits_and_never_a_files() {
+        let mut s = Session::open(revenue()).unwrap();
+        let original = s.file(CSV).unwrap().to_vec();
+        let user = Caller { author: USER, at: None };
+        let agent = Caller { author: "agent:scripted", at: None };
+        s.data_edit(&q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }])), false, user).unwrap();
+        let users = s.file(CSV).unwrap().to_vec();
+        let edits = json!([{ "op": "set", "row": 0, "column": "customers", "value": 1211 }]);
+        let called = s.tool("data_edit", json!({ "source": "q3", "edits": edits }), agent).unwrap();
+        assert!(called.edited, "{}", called.result);
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), users.as_slice(), "the assistant's edit undone");
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("q3"));
+        assert_eq!(s.file(CSV).unwrap(), original.as_slice(), "then the user's");
+
+        s.data_edit(&q3(json!([{ "op": "remove", "row": 11 }])), false, user).unwrap();
+        s.add_file(CSV, users.clone());
+        let changed = s.data_undo(false, user).unwrap_err().to_string();
+        assert!(changed.contains("has changed since"), "{changed}");
+        assert_eq!(s.file(CSV).unwrap(), users.as_slice());
+        assert_eq!((s.data_undo(false, user).unwrap(), s.data_undo(true, user).unwrap()), (None, None));
+    }
+
+    /// A save records each version of a data file as each edit wrote it, by its author (ADR-0014):
+    /// the file as it was opened, changed outside Scaena, first, by `fs`; then the user's cell, the
+    /// assistant's row, the user's next cell, and its undo. The history ends holding the file as
+    /// saved, so the next command that records takes in nothing.
+    #[test]
+    fn a_save_records_each_version_of_a_data_file_by_its_author() {
+        let (mut files, t0) = begun();
+        let outside = String::from_utf8(files[CSV].clone()).unwrap().replace("2026-Q3,Core,23.9", "2026-Q3,Core,24.1");
+        files.insert(CSV.into(), outside.into_bytes());
+        let mut s = Session::open(files).unwrap();
+        let user = |at: i64| Caller { author: USER, at: Some(t0 + at) };
+        s.data_edit(&q3(json!([{ "op": "set", "row": 2, "column": "revenue", "value": "4.6" }])), false, user(10))
+            .unwrap();
+        let row = json!({ "op": "add", "values": { "quarter": "2026-Q4", "product": "Core", "revenue": 25.2, "customers": 1600 } });
+        let agent = Caller { author: "agent:scripted", at: Some(t0 + 20) };
+        let called = s.tool("data_edit", json!({ "source": "q3", "edits": [row] }), agent).unwrap();
+        assert!(called.edited, "{}", called.result);
+        s.data_edit(&q3(json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.3" }])), false, user(30))
+            .unwrap();
+        assert_eq!(s.data_undo(false, user(40)).unwrap().as_deref(), Some("q3"));
+        // A dry run writes nothing, and records nothing.
+        let dry = json!({ "source": "q3", "edits": [{ "op": "remove", "row": 0 }], "dry_run": true });
+        assert!(!s.tool("data_edit", dry, agent).unwrap().edited);
+
+        let saved = s.save(&rfc3339(t0 + 60), false, Some(&recorder)).unwrap();
+        let history = &saved.files[HISTORY];
+        assert_eq!(
+            said(history, 1),
+            [
+                by(FS, &format!("{CSV} changed outside Scaena"), t0 + 10),
+                by("user", "data_edit q3: revenue of row 2", t0 + 10),
+                by("agent:scripted", "data_edit q3: a row added", t0 + 20),
+                by("user", "data_edit q3: revenue of row 0", t0 + 30),
+                by("user", "undo data_edit q3: revenue of row 0", t0 + 40),
+            ]
+        );
+        let doc = DeckDoc::load(history).unwrap();
+        assert_eq!(doc.files()[CSV], saved.files[CSV]);
+        assert!(String::from_utf8_lossy(&saved.files[CSV]).ends_with("2026-Q4,Core,25.2,1600\n"));
+        let next = Bundle::in_memory(saved.files.clone()).unwrap().history().unwrap().unwrap();
+        assert_eq!(next.changes().len(), 6, "the file as saved is the history's");
+    }
+
     #[test]
     fn a_bundle_without_a_history_records_nothing() {
         let mut s = Session::open(revenue()).unwrap();
@@ -557,5 +774,36 @@ mod tests {
         let images =
             |dl: &scaena_core::displaylist::DisplayList| serde_json::to_string(dl).unwrap().matches("sha256:").count();
         assert_eq!(images(&drawn), 1);
+    }
+
+    /// The Files panel (PLAN 2.59): the bundle's images, fonts, and data and what uses each; a
+    /// file nothing names taken out, one step the panel undoes and redoes; one something names
+    /// refused, with why; and a save takes out what was taken out where the bundle is kept.
+    #[test]
+    fn a_file_nothing_names_is_taken_out_and_put_back_and_a_save_takes_it_out() {
+        let mut files = revenue();
+        files.insert("assets/stray.png".into(), b"not drawn".to_vec());
+        let mut s = Session::open(files).unwrap();
+        let listed = s.bundle_files().unwrap();
+        let stray = listed.iter().find(|f| f.path == "assets/stray.png").unwrap();
+        assert!(stray.named.is_empty() && stray.bytes == 9);
+        let q3 = listed.iter().find(|f| f.path == "data/q3-revenue.csv").unwrap();
+        assert_eq!(q3.used.first().map(|u| u.node.as_str()), Some("rev"));
+
+        let refused = s.remove_file("data/q3-revenue.csv").unwrap_err().to_string();
+        assert!(refused.contains("data source q3 names it"), "{refused}");
+        assert!(s.remove_file("deck.json").is_err() && s.file("data/q3-revenue.csv").is_some());
+
+        s.remove_file("assets/stray.png").unwrap();
+        assert!(s.file("assets/stray.png").is_none());
+        assert!(s.bundle_files().unwrap().iter().all(|f| f.path != "assets/stray.png"));
+        let user = Caller { author: "user", at: None };
+        assert_eq!(s.data_undo(false, user).unwrap().as_deref(), Some("assets/stray.png"));
+        assert_eq!(s.file("assets/stray.png"), Some(&b"not drawn"[..]));
+        assert_eq!(s.data_undo(true, user).unwrap().as_deref(), Some("assets/stray.png"));
+        assert!(s.file("assets/stray.png").is_none());
+
+        let saved = s.save(NOW, false, None).unwrap();
+        assert!(!saved.files.contains_key("assets/stray.png") && saved.replaced.contains("assets/stray.png"));
     }
 }

@@ -61,6 +61,53 @@ fn a_theme_that_has_every_name_the_deck_uses_changes_no_finding() {
     assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
 }
 
+/// `theme --edit` (PLAN 2.61, ADR-0016): the theme the deck names, edited by RFC 6902 operations
+/// and written in canonical form, the deck as it was; refused, exit 1, where the deck would not
+/// validate in it; exit 2 at an op that does not apply, which it names.
+#[test]
+fn a_theme_is_edited_where_the_deck_names_it_and_refused_where_the_deck_needs_what_it_takes() {
+    let dir = example("edit");
+    let deck_before = std::fs::read(dir.join("deck.json")).unwrap();
+    let ops = dir.join("ops.json");
+    let edit = |ops_json: &str, json: bool| {
+        std::fs::write(&ops, ops_json).unwrap();
+        let mut args = vec!["theme", dir.to_str().unwrap(), "--edit", ops.to_str().unwrap()];
+        if json {
+            args.insert(0, "--json");
+        }
+        scaena(&args)
+    };
+    let out = edit(
+        r##"[{"op": "replace", "path": "/tokens/color/accent", "value": "#2E86E4"},
+             {"op": "replace", "path": "/grid/gutter", "value": 32}]"##,
+        false,
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("edited themes/dusk.theme.json at /tokens/color/accent, /grid/gutter"), "{stdout}");
+    let text = std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap();
+    let theme: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(theme["tokens"]["color"]["accent"], "#2E86E4");
+    assert_eq!(theme["grid"]["gutter"], 32);
+    assert_eq!(text, serde_json::to_string_pretty(&theme).unwrap() + "\n", "written in canonical form");
+    assert_eq!(std::fs::read(dir.join("deck.json")).unwrap(), deck_before, "the deck is as it was");
+    assert_eq!(scaena(&["validate", dir.to_str().unwrap()]).status.code(), Some(0));
+
+    // A role the deck uses, taken out: refused, and nothing written.
+    let out = edit(r#"[{"op": "remove", "path": "/type/roles/headline"}]"#, true);
+    assert_eq!(out.status.code(), Some(1));
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((said["refused"].as_bool(), said["applied"].as_bool()), (Some(true), Some(false)), "{said:#}");
+    assert!(said["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{said:#}");
+    assert_eq!(std::fs::read_to_string(dir.join("themes/dusk.theme.json")).unwrap(), text);
+
+    // An op that does not apply.
+    let out = edit(r#"[{"op": "replace", "path": "/no/such", "value": 1}]"#, true);
+    assert_eq!(out.status.code(), Some(2));
+    let failed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(failed["error"]["op"], 0, "{failed:#}");
+}
+
 #[test]
 fn a_theme_that_lacks_names_the_deck_uses_says_which_and_exits_1() {
     let dir = example("lacking");

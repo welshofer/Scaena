@@ -19,6 +19,7 @@ use scaena_paint::Raster;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The tools a page's assistant has, by their MCP names.
 pub const TOOLS: &[&str] = &[
@@ -32,6 +33,8 @@ pub const TOOLS: &[&str] = &[
     "spine_read",
     "spine_update",
     "data_attach",
+    "data_edit",
+    "theme_edit",
 ];
 
 /// Who calls a tool, and when, in seconds since 1970: an edit it makes is theirs in the
@@ -53,11 +56,14 @@ pub struct Called {
     pub frame: Option<Raster>,
     /// Whether it changed the deck: the page takes the source again.
     pub edited: bool,
+    /// The theme file `theme_edit` wrote, before and after, for the editor's undo (ADR-0016).
+    pub rewritten: Vec<crate::versions::Rewritten>,
 }
 
 impl Called {
     fn of(result: impl Serialize) -> Result<Called, Error> {
-        Ok(Called { result: serde_json::to_string(&result).map_err(ops)?, frame: None, edited: false })
+        let result = serde_json::to_string(&result).map_err(ops)?;
+        Ok(Called { result, frame: None, edited: false, rewritten: Vec::new() })
     }
 }
 
@@ -99,6 +105,8 @@ fn ops(e: impl std::fmt::Display) -> Error {
 struct DeckRead {
     #[serde(default)]
     scn: bool,
+    #[serde(default)]
+    files: bool,
 }
 
 #[derive(Deserialize)]
@@ -194,6 +202,10 @@ struct DeckInspect {
     inserts: bool,
     #[serde(default)]
     layers: bool,
+    #[serde(default)]
+    look: Option<String>,
+    #[serde(default)]
+    onto: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -213,6 +225,24 @@ struct DeckRender {
     format: Option<String>,
     #[serde(default)]
     size: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DataEdit {
+    source: String,
+    #[serde(default)]
+    edits: Vec<scaena_ops::data::RowEdit>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThemeEdit {
+    ops: Vec<Value>,
+    #[serde(default)]
+    dry_run: bool,
 }
 
 #[derive(Deserialize)]
@@ -261,7 +291,7 @@ impl Session {
         match name {
             "deck_read" => {
                 let a: DeckRead = args(name, a)?;
-                Called::of(scaena_ops::read::read(&b, a.scn)?)
+                Called::of(scaena_ops::read::read(&b, a.scn, a.files)?)
             }
             "deck_patch" => {
                 let a: DeckPatch = args(name, a)?;
@@ -331,6 +361,8 @@ impl Session {
                     state_choices: a.state_choices,
                     inserts: a.inserts,
                     layers: a.layers,
+                    look: a.look,
+                    onto: a.onto,
                 };
                 Called::of(Inspected { states: scaena_ops::inspect::inspect(&b, a.state.as_deref(), views)? })
             }
@@ -363,17 +395,56 @@ impl Session {
                 let edited = self.write(deck, by)?;
                 Ok(Called { edited, ..Called::of(attached)? })
             }
+            "data_edit" => {
+                let a: DataEdit = args(name, a)?;
+                let req = scaena_ops::data::DataEdit { source: a.source, edits: a.edits };
+                let (mut edited, made) = scaena_ops::data::editing(&b, &req, true)?;
+                edited.edited &= !a.dry_run;
+                let wrote = self.write(made.filter(|_| !a.dry_run), by)?;
+                Ok(Called { edited: wrote, ..Called::of(edited)? })
+            }
+            "theme_edit" => {
+                let a: ThemeEdit = args(name, a)?;
+                let edit = scaena_ops::theme::ThemeEdit { ops: a.ops };
+                let (edited, rewritten) = self.theme_edit(&edit, a.dry_run, by)?;
+                // An inline theme is the deck's: its edit changes the source.
+                let inline = edited.applied && edited.theme == "(inline)";
+                Ok(Called { edited: inline, rewritten, ..Called::of(edited)? })
+            }
             _ => Err(ops(format!("no tool `{name}`: the tools are {}", TOOLS.join(", ")))),
         }
     }
 
     /// Write what an operation `by` called computed into the session: its files, then its
-    /// deck, which frames show from now on, kept for the next save to record. Whether there
-    /// was anything to write.
+    /// deck, which frames show from now on, kept for the next save to record with the files it
+    /// wrote that the deck is drawn from, its data files and its theme (ADR-0014, ADR-0016).
+    /// Whether there was anything to write.
+    ///
+    /// Each such file it changed is kept as the bundle held it before the first such write, for
+    /// the next save to record as the bundle's own. A data file's change is a step the Data
+    /// panel undoes (PLAN 2.55): the editor's own edit, its user's or its assistant's, as the
+    /// source's undo takes the assistant's edits too, and never a file's (SPEC §8.2).
     pub(crate) fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
         let Some(w) = w else { return Ok(false) };
-        self.keep(&w.deck, &w.why, by)?;
+        let kept: BTreeSet<&str> = scaena_store::kept_paths(&w.deck).into_iter().collect();
+        let data: BTreeSet<&str> = w.deck.data.values().filter_map(|source| source.source.as_str()).collect();
+        let texts: BTreeMap<String, String> = (w.files.iter())
+            .filter(|(path, _)| kept.contains(path.as_str()))
+            .map(|(path, bytes)| (path.clone(), String::from_utf8_lossy(bytes).into_owned()))
+            .collect();
+        self.keep(&w.deck, &texts, &w.why, by)?;
         for (path, bytes) in w.files {
+            if let Some(before) = self.files.get(&path).filter(|before| texts.contains_key(&path) && **before != bytes)
+            {
+                self.held.entry(path.clone()).or_insert_with(|| before.clone());
+                if data.contains(path.as_str()) {
+                    let why = w.why.message.clone();
+                    let (before, after) = (Some(before.clone()), Some(bytes.clone()));
+                    let written = crate::data::Written { path: path.clone(), before, after, why };
+                    self.undone.clear();
+                    self.done.push(written);
+                }
+            }
             self.add_file(&path, bytes);
         }
         self.set_deck(w.deck);

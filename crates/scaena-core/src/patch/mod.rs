@@ -19,7 +19,7 @@ pub use find::{Found, Query, find, replacing};
 pub use ops::{Written, written};
 
 use crate::document::{DataSource, Node, Props, State};
-use crate::model::values::{Duration, NonNegative, Range, Rect};
+use crate::model::values::{AnnotationAt, AnnotationKind, Duration, NonNegative, Range, Rect};
 use crate::model::{Id, StateDeltaRef, ThemeRef};
 use crate::validate::BundleFiles;
 use schemars::JsonSchema;
@@ -316,6 +316,29 @@ pub enum SemanticOp {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
     },
+    /// One of a chart's annotations (SPEC §3.7, PLAN 2.67), as the editor makes it from a
+    /// mark: `annotation` added after the chart's others; or, with `index`, merged into the one
+    /// at that place among them, what it gives replacing what that one has (`at` whole, and a
+    /// `null` `text` or `role` taken away); or, `null` with `index`, that one taken away. The
+    /// chart's `annotations` as `state` shows them are written where they live, as `choose`
+    /// writes them; with `fork`, into `state`'s own props. An annotation must stand where its
+    /// kind can, as validation says.
+    Annotate {
+        #[schemars(with = "Id")]
+        node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
+        #[serde(default, deserialize_with = "said", skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "annotation_or_none")]
+        annotation: Option<Option<Annotating>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        state: Option<String>,
+        /// Write the chart's annotations into `state`'s own props, wherever they live now:
+        /// they show so there, and in the states that track it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fork: bool,
+    },
     /// A chart or a table reads the data source `data` (`q4` or `@q4`), in a state (a data
     /// update, morphed by key) or in its defaults. `source` declares it, or replaces it if
     /// the deck has it.
@@ -444,6 +467,7 @@ impl SemanticOp {
             SemanticOp::ReplaceText { .. } => "replace_text",
             SemanticOp::StyleText { .. } => "style_text",
             SemanticOp::Choose { .. } => "choose",
+            SemanticOp::Annotate { .. } => "annotate",
             SemanticOp::BindData { .. } => "bind_data",
             SemanticOp::ApplyPreset { .. } => "apply_preset",
             SemanticOp::TimeMotion { .. } => "time_motion",
@@ -503,6 +527,38 @@ fn container_or_canvas(generator: &mut schemars::SchemaGenerator) -> schemars::S
 /// A value that may be `null`, said: `null` is not the same as unsaid.
 fn said<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
+}
+
+/// What `annotate` gives a chart's annotation (PLAN 2.67): a whole one, to add, with its
+/// `kind` and `at`; or, for the one at an `index`, what changes in it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Annotating {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AnnotationKind>,
+    /// Where it stands, whole (SPEC §3.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<AnnotationAt>,
+    /// What it says; `null` takes it away.
+    #[serde(default, deserialize_with = "said", skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "text_or_none")]
+    pub text: Option<Option<String>>,
+    /// Its text's role; `null` takes it away, leaving the theme's `charts.annotation.role`.
+    #[serde(default, deserialize_with = "said", skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "text_or_none")]
+    pub role: Option<Option<String>>,
+}
+
+/// An `annotate`'s `annotation`: what it gives, or `null` to take the one at `index` away, a
+/// `null` that says something, which the schema keeps (`x-null`, `model::finish`).
+fn annotation_or_none(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let given = generator.subschema_for::<Annotating>();
+    schemars::json_schema!({ "anyOf": [given, { "type": "null" }], "x-null": true })
+}
+
+/// Text, or `null` to take it away.
+fn text_or_none(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "anyOf": [{ "type": "string" }, { "type": "null" }], "x-null": true })
 }
 
 /// The motion a motion preset is for.

@@ -1,4 +1,4 @@
-//! Image nodes (SPEC §3.3): a bundle's PNGs, placed in their box.
+//! Image nodes (SPEC §3.3): a bundle's PNGs and JPEGs, placed in their box.
 //!
 //! The engine needs only each image's size and its content id; painters decode the
 //! pixels (`scaena_paint::Resources`). `fit` says how the image meets its box: `cover`
@@ -9,7 +9,9 @@
 //! image to `[x, y, w, h]`, fractions of it, before anything else, so a sharper file of
 //! the same picture keeps the crop. `radius` rounds the corners of what shows.
 //!
-//! Images are PNG in v1: one pure-Rust decoder, the same pixels everywhere (SPEC §13).
+//! Images are PNGs and JPEGs, each read by one decoder in Rust alone, the same pixels everywhere
+//! (SPEC §13): a JPEG by `scaena_core::jpeg`, in integers (ADR-0017). A JPEG's size is its size as
+//! seen, turned by its EXIF orientation, as its pixels are.
 
 use crate::EngineError;
 use crate::charts::{RoundRect, lerp};
@@ -31,19 +33,21 @@ pub struct ImageInfo {
 }
 
 impl ImageInfo {
-    /// A PNG's id and size, from its header; the pixels are the painters' to decode.
+    /// A PNG's or a JPEG's id and size, from its header; the pixels are the painters' to decode.
     pub fn read(bytes: &[u8]) -> Result<ImageInfo, String> {
         const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-        if !bytes.starts_with(SIGNATURE) {
-            let what = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { "a JPEG" } else { "not a PNG" };
-            return Err(format!("{what}; images are PNG in v1 (SPEC §3.3)"));
-        }
-        // The first chunk is IHDR: length, type, then width and height, big-endian.
-        let ihdr = bytes.get(8..24).filter(|h| &h[4..8] == b"IHDR").ok_or("a PNG with no IHDR chunk")?;
-        let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-        let (width, height) = (be(&ihdr[8..12]), be(&ihdr[12..16]));
+        let (width, height) = if bytes.starts_with(SIGNATURE) {
+            // The first chunk is IHDR: length, type, then width and height, big-endian.
+            let ihdr = bytes.get(8..24).filter(|h| &h[4..8] == b"IHDR").ok_or("a PNG with no IHDR chunk")?;
+            let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+            (be(&ihdr[8..12]), be(&ihdr[12..16]))
+        } else if scaena_core::jpeg::is_jpeg(bytes) {
+            scaena_core::jpeg::Header::read(bytes).map_err(|e| e.to_string())?.size()
+        } else {
+            return Err("neither a PNG nor a JPEG; images are PNGs and JPEGs (SPEC §3.3)".into());
+        };
         if width == 0 || height == 0 {
-            return Err("a PNG with no pixels".into());
+            return Err("an image with no pixels".into());
         }
         if width.max(height) > MAX_IMAGE_SIDE {
             return Err(format!("{width} × {height} px; images are at most {MAX_IMAGE_SIDE} px a side (SPEC §3.3)"));
@@ -239,7 +243,14 @@ mod tests {
         let info = ImageInfo::read(&png(400, 200)).unwrap();
         assert_eq!((info.width, info.height), (400, 200));
         assert!(info.id.starts_with("sha256:") && info.id.len() == 7 + 64);
+        // A JPEG's size is as it is seen: this one is stored 67 × 45 and turned a quarter.
+        let photo = include_bytes!("../../../tests/fixtures/jpeg/orientation-6.jpg");
+        let info = ImageInfo::read(photo).unwrap();
+        assert_eq!((info.width, info.height), (45, 67));
         assert!(ImageInfo::read(&[0xFF, 0xD8, 0xFF, 0xE0]).unwrap_err().contains("JPEG"));
+        let cmyk = include_bytes!("../../../tests/fixtures/jpeg/cmyk.jpg");
+        assert!(ImageInfo::read(cmyk).unwrap_err().contains("CMYK"));
+        assert!(ImageInfo::read(b"GIF89a").unwrap_err().contains("neither a PNG nor a JPEG"));
         assert!(ImageInfo::read(&png(8192, 1)).is_ok());
         assert!(ImageInfo::read(&png(8193, 1)).unwrap_err().contains("at most 8192 px a side"));
         assert!(ImageInfo::read(&png(0, 1)).unwrap_err().contains("no pixels"));

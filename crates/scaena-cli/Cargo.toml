@@ -19,7 +19,7 @@ gpu = ["scaena-ops/gpu", "scaena-mcp/gpu", "scaena-paint/gpu"]
 
 [dependencies]
 scaena-core.workspace = true
-scaena-engine.workspace = true
+scaena-engine = { workspace = true, features = ["hyphenation"] }
 scaena-paint.workspace = true
 scaena-export.workspace = true
 scaena-store.workspace = true

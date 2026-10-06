@@ -18,8 +18,16 @@
 //   - Alt with ↑ or ↓ moves it past the one before or after it; Alt with ← takes it out of its
 //     container, listed just before it; Alt with → puts it into the container listed just
 //     before it, last among what that holds.
+import { ALT, type Key } from "./commands";
 import type { Arrange, Edited, Layer } from "./protocol";
 import type { Stage } from "./stage";
+
+/** What a layer answers, focused (PLAN 2.65), as the keys sheet lists it; F2 renames it, a command. */
+export const layerKeys = (): Key[] => [
+  { keys: `${ALT}↑ ${ALT}↓`, label: "In the layers: move it before or after the one beside it", group: "Layers" },
+  { keys: `${ALT}←`, label: "Take it out of what holds it", group: "Layers" },
+  { keys: `${ALT}→`, label: "Put it in the container listed just before it", group: "Layers" },
+];
 
 /** What the panel asks of the editor around it. */
 export interface LayersEditor {
@@ -304,6 +312,8 @@ export function layers(stage: Stage, into: HTMLElement, editor: LayersEditor) {
         all.map((l) => `${l.node}${l.shown ? "" : " (hidden)"}${l.children?.length ? ` [${say(l.children).join(", ")}]` : ""}`);
       return shown ? say(shown.layers) : [];
     },
+    /** `node`'s type, as the layers of `state` list it, where they are those listed. */
+    type: (node: string, state: string) => (shown?.state === state ? find(shown.layers, node)?.type : undefined),
     /** The changes made through the panel, for a test: once they are. */
     settled: () => making,
     toggle,

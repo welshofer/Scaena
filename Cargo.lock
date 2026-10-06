@@ -3081,6 +3081,7 @@ dependencies = [
  "indexmap",
  "rmcp",
  "scaena-core",
+ "scaena-engine",
  "scaena-ops",
  "scaena-resources",
  "scaena-store",
@@ -3123,6 +3124,17 @@ dependencies = [
  "thiserror 2.0.21",
  "vello",
  "vello_cpu 0.2.0",
+]
+
+[[package]]
+name = "scaena-pdf"
+version = "0.1.0"
+dependencies = [
+ "scaena-engine",
+ "scaena-export",
+ "scaena-ops",
+ "scaena-store",
+ "wasm-bindgen",
 ]
 
 [[package]]

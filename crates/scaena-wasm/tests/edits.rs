@@ -13,7 +13,8 @@
 //!   player opens as it is (PLAN 2.24);
 //! - calls to the assistant's tools, each argument there, left out, of the wrong kind, or
 //!   past what the tool can do: a state the deck lacks, a raster no painter could hold, a
-//!   spine changed, a file that holds no data (PLAN 2.26).
+//!   spine changed, a file that holds no data (PLAN 2.26), a theme edited at any pointer
+//!   (ADR-0016).
 //!
 //! A deck that compiles is drawn at rest and through its cue, read, painted, and linted and
 //! inspected in a state. One that does not is handed to the player as a bundle's `deck.json`
@@ -320,6 +321,36 @@ fn patch(r: &mut Rng, doc: &Value, values: &BTreeMap<String, Vec<Value>>) -> Val
     Value::Array(ops)
 }
 
+/// RFC 6902 operations on a theme, as `theme_edit` takes them (ADR-0016): a value replaced by
+/// another the repository's decks and themes hold under its key, or a member added, taken out,
+/// moved, copied, or tested, at pointers the theme has and one it does not.
+fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) -> Value {
+    let (mut pointers, mut strings) = (Vec::new(), Vec::new());
+    walk_json(theme, String::new(), &mut pointers, &mut strings);
+    pointers.retain(|p| !p.is_empty());
+    let keys: Vec<&String> = values.keys().collect();
+    let mut ops = Vec::new();
+    for _ in 0..1 + r.below(3) {
+        let path = if r.below(8) == 0 { "/no/such".to_string() } else { r.pick(&pointers).clone() };
+        // A value its key holds elsewhere, most of the time.
+        let key = match path.rsplit('/').next().filter(|k| values.contains_key(*k) && r.below(4) > 0) {
+            Some(key) => key.to_string(),
+            None => r.pick(&keys).to_string(),
+        };
+        let value = r.pick(&values[&key]).clone();
+        let to = r.pick(&pointers).clone();
+        ops.push(match r.below(8) {
+            0 => json!({ "op": "remove", "path": path }),
+            1 => json!({ "op": "add", "path": path, "value": value }),
+            2 => json!({ "op": "move", "from": path, "path": to }),
+            3 => json!({ "op": "copy", "from": path, "path": to }),
+            4 => json!({ "op": "test", "path": path, "value": value }),
+            _ => json!({ "op": "replace", "path": path, "value": value }),
+        });
+    }
+    Value::Array(ops)
+}
+
 /// What a look for characters names: a run's own keys, and keys it does not take.
 const LOOKS: [&str; 9] =
     ["role", "emphasis", "lang", "style/weight", "style/italic", "style/color", "style/family", "style/size", "fit"];
@@ -427,6 +458,62 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("schema", json!({ column: *r.pick(&["number", "date", "boolean", "nope"]) }));
             set!("parse", json!({ column: *r.pick(&["%Y", "%", "%Q", "%Y%Y%Y%Y%Y%Y", ""]) }));
         }
+        "data_edit" => {
+            let sources: Vec<Value> = match b.deck.get("data").and_then(Value::as_object) {
+                Some(data) => data.keys().map(|k| json!(k)).collect(),
+                None => Vec::new(),
+            };
+            let source = match r.below(5) {
+                0 => json!("no-such-source"),
+                1 => junk(r),
+                _ if sources.is_empty() => json!("q3"),
+                _ => r.pick(&sources).clone(),
+            };
+            set!("source", source);
+            // Rows at an edge, columns there or not, values a column reads or does not.
+            let rows = [json!(0), json!(1), json!(11), json!(12), json!(4096), json!(-1), json!(1.5), junk(r)];
+            let columns = [json!("quarter"), json!("product"), json!("revenue"), json!(""), json!("nope"), junk(r)];
+            let cells = [
+                json!("19.8"),
+                json!(19.8),
+                json!("n/a"),
+                json!(""),
+                json!(null),
+                json!(true),
+                json!("2026-Q1"),
+                json!("Core"),
+                json!("a,\"quoted\"\nvalue"),
+                json!("1e308"),
+                junk(r),
+            ];
+            let mut edits = Vec::new();
+            for _ in 0..r.below(4) {
+                let mut edit = Map::new();
+                let op = *r.pick(&["set", "add", "remove", "move", ""]);
+                edit.insert("op".into(), json!(op));
+                if r.below(5) > 0 {
+                    edit.insert("row".into(), r.pick(&rows).clone());
+                }
+                if op == "set" || r.below(8) == 0 {
+                    edit.insert("column".into(), r.pick(&columns).clone());
+                    edit.insert("value".into(), r.pick(&cells).clone());
+                }
+                if op == "add" && r.below(2) == 0 {
+                    edit.insert(
+                        "values".into(),
+                        json!({ "quarter": r.pick(&cells).clone(), "revenue": r.pick(&cells).clone() }),
+                    );
+                }
+                edits.push(Value::Object(edit));
+            }
+            set!("edits", if r.below(8) == 0 { junk(r) } else { Value::Array(edits) });
+            set!("dry_run", flag(r));
+        }
+        "theme_edit" => {
+            let theme: Value = serde_json::from_str(&b.theme).unwrap();
+            set!("ops", if r.below(6) == 0 { junk(r) } else { theme_ops(r, &theme, values) });
+            set!("dry_run", flag(r));
+        }
         _ => set!("state", state(r)),
     }
     if r.below(12) == 0 {
@@ -468,6 +555,24 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
         }
     }
     let _ = s.set_format(None);
+    // Each format beside the canvas, as the editor paints them (PLAN 2.62): at rest and inside the
+    // cue, a format the deck no longer lists among them.
+    let span = timeline.slot(one).map_or(0.0, |slot| slot.span);
+    for format in s.formats().iter().map(|f| Some(f.as_str())).chain([None, Some("4:5")]) {
+        let _ = s.pixels_in(format, one, f64::INFINITY, 24);
+        if span > 0.0 && span.is_finite() {
+            let _ = s.pixels_in(format, one, span * 0.5, 24);
+        }
+    }
+    // The mark a point names, and what a source's rows draw (PLAN 2.64): at points on and off
+    // the canvas, and for each source's first rows and a row past any.
+    for _ in 0..4 {
+        let point = [r.below(2400) as f32 - 200.0, r.below(1400) as f32 - 200.0];
+        let _ = s.mark_at(one, point);
+    }
+    for (source, _) in s.data_sources() {
+        let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
+    }
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);
@@ -552,7 +657,8 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                 if !s.compile(&sources[i]).valid {
                     return;
                 }
-                let by = Caller { author: "agent:test", at: None };
+                // The user's calls are the Data panel's (PLAN 2.55), which it undoes and redoes.
+                let by = Caller { author: if r.below(3) == 0 { "user" } else { "agent:test" }, at: None };
                 for _ in 0..1 + r.below(3) {
                     let states = s.states();
                     if states.is_empty() {
@@ -560,13 +666,23 @@ fn any_edit_leaves_a_deck_the_engine_draws_or_refuses() {
                     }
                     let (name, args) = tool_call(&mut r, b, &states, &values);
                     said.push(format!("{name} {}", short(&args)));
-                    let Ok(called) = s.tool(&name, args, by) else { continue };
-                    if let Some(frame) = &called.frame {
-                        assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
+                    if let Ok(called) = s.tool(&name, args, by) {
+                        if let Some(frame) = &called.frame {
+                            assert!(frame.width as u64 * frame.height as u64 <= scaena_paint::MAX_PIXELS);
+                        }
+                        // A theme edited draws every state in it from now on.
+                        if called.edited || !called.rewritten.is_empty() {
+                            let compiled = s.compile(&s.source()).valid;
+                            exercise(&mut r, s, compiled, &[]);
+                        }
                     }
-                    if called.edited {
-                        let compiled = s.compile(&s.source()).valid;
-                        exercise(&mut r, s, compiled, &[]);
+                    if r.below(4) == 0 {
+                        let redo = r.below(2) == 0;
+                        said.push(format!("data {}", if redo { "redo" } else { "undo" }));
+                        if s.data_undo(redo, by).is_ok_and(|undone| undone.is_some()) {
+                            let compiled = s.compile(&s.source()).valid;
+                            exercise(&mut r, s, compiled, &[]);
+                        }
                     }
                 }
                 let compiled = s.compile(&s.source()).valid;

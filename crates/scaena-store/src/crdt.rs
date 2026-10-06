@@ -18,17 +18,20 @@
 //! - `spine` (tree): sections, with their beats under them.
 //! - A text node's `text` and the `notes` of a state or a beat are text, so concurrent edits
 //!   to one string merge by character; `runs` is rich text, its runs marked over it.
+//! - `files` (map): each data file a data source names, by its path, its bytes as they are now
+//!   (ADR-0014). An edit to one sets them, in the change that edits the deck, if it does; an
+//!   undo sets them back, from the history, which keeps every version.
 //!
 //! Every other value is JSON text: replaced whole, the last writer winning, with its keys in
 //! their order. A map whose keys the deck shows in an order keeps that order beside them.
 
 use loro::{
-    CommitOptions, Container, ContainerTrait, ExpandType, ExportMode, ID, LoroDoc, LoroMap, LoroMovableList, LoroText,
-    LoroValue, StyleConfig, StyleConfigMap, TreeID, UndoManager, ValueOrContainer,
+    CommitOptions, Container, ContainerTrait, ExpandType, ExportMode, Frontiers, ID, LoroDoc, LoroMap, LoroMovableList,
+    LoroText, LoroValue, StyleConfig, StyleConfigMap, TreeID, UndoManager, ValueOrContainer,
 };
 use scaena_core::Deck;
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 /// Where a map keeps the order of its keys: JSON text of the list.
@@ -46,6 +49,8 @@ const RUN: &str = "run";
 pub const FS: &str = "fs";
 /// What such a change says.
 pub const OUTSIDE: &str = "deck.json changed outside Scaena";
+/// Where the data files are kept, each by its path (ADR-0014).
+const FILES: &str = "files";
 
 #[derive(Debug, Error)]
 pub enum CrdtError {
@@ -66,6 +71,9 @@ type Result<T> = std::result::Result<T, CrdtError>;
 /// One change to the document, as its history keeps it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
+    /// What names it for as long as the history lasts: its first operation's id,
+    /// `counter@peer`. [`DeckDoc::at`] takes it.
+    pub id: String,
     /// Who made it: `user`, `agent:<name>`, or `fs` (SPEC §8.2); none if it does not say.
     pub author: Option<String>,
     pub message: Option<String>,
@@ -100,12 +108,17 @@ impl<'a> Edit<'a> {
 }
 
 /// A change for a history to record, as one module hands it to another (PLAN 2.9): the
-/// deck it leaves, as deck.json's text, and the [`Edit`] that made it. A page's engine keeps
-/// no CRDT, so it hands its changes, as JSON, to the module that does (`scaena-history`).
+/// deck it leaves, as deck.json's text, the data files it writes, and the [`Edit`] that made
+/// it. A page's engine keeps no CRDT, so it hands its changes, as JSON, to the module that
+/// does (`scaena-history`). One by `fs` is the bundle's files as the page opened them, which
+/// the history takes in as it takes in what a command finds on disk ([`DeckDoc::outside`]).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Recorded {
     pub deck: String,
+    /// The data files it writes, by their paths, as their text (PLAN 2.55, ADR-0014).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, String>,
     pub author: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -149,8 +162,14 @@ impl DeckDoc {
 
     /// A document holding `deck`: its first change, `edit`'s. Each node is keyed by its id.
     pub fn from_deck(deck: &Deck, edit: &Edit) -> Result<Self> {
+        DeckDoc::begin(deck, &[], edit)
+    }
+
+    /// A document holding `deck` and its data files, `files`, by their paths: its first
+    /// change, `edit`'s.
+    pub fn begin(deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit) -> Result<Self> {
         let me = DeckDoc::wrap(LoroDoc::new());
-        me.write(deck, edit, true)?;
+        me.write(deck, files, edit, true)?;
         Ok(me)
     }
 
@@ -159,7 +178,7 @@ impl DeckDoc {
         let doc = LoroDoc::new();
         doc.set_peer_id(peer)?;
         let me = DeckDoc::wrap(doc);
-        me.write(deck, edit, true)?;
+        me.write(deck, &[], edit, true)?;
         Ok(me)
     }
 
@@ -196,14 +215,59 @@ impl DeckDoc {
     /// Makes the document say what `deck` says, as one change by `edit`'s author, touching
     /// only what differs. Whether anything did.
     pub fn apply(&self, deck: &Deck, edit: &Edit) -> Result<bool> {
-        self.write(deck, edit, false)
+        self.write(deck, &[], edit, false)
     }
 
-    /// [`DeckDoc::apply`]s each of `changes` in order: one that leaves the deck as it was is
-    /// no change. How many were.
+    /// [`DeckDoc::apply`], with each of `files`, data files by their paths, held as those
+    /// bytes, in the same change (ADR-0014).
+    pub fn apply_with(&self, deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit) -> Result<bool> {
+        self.write(deck, files, edit, false)
+    }
+
+    /// Each data file the document holds, by its path: its bytes now (ADR-0014). A history
+    /// from before them holds none.
+    pub fn files(&self) -> BTreeMap<String, Vec<u8>> {
+        let map = self.doc.get_map(FILES);
+        let mut out = BTreeMap::new();
+        for key in map.keys() {
+            if let Some(ValueOrContainer::Value(LoroValue::Binary(bytes))) = map.get(&key) {
+                out.insert(key.to_string(), bytes.to_vec());
+            }
+        }
+        out
+    }
+
+    /// What the files say, taken in by `fs` (SPEC §8.1, ADR-0014): `disk`, the deck deck.json
+    /// holds, as one change, then each of `files`, data files by their paths, whose bytes say
+    /// otherwise than the document's, as another that names them. Each at `timestamp`, now
+    /// without it. How many changes that made.
+    pub fn outside(&self, disk: &Deck, files: &[(String, Vec<u8>)], timestamp: Option<i64>) -> Result<usize> {
+        let outside = Edit { message: Some(OUTSIDE), timestamp, ..Edit::by(FS) };
+        let mut made = usize::from(self.apply(disk, &outside)?);
+        let held = self.files();
+        let changed: Vec<(String, Vec<u8>)> =
+            files.iter().filter(|(path, bytes)| held.get(path) != Some(bytes)).cloned().collect();
+        if !changed.is_empty() {
+            let paths: Vec<&str> = changed.iter().map(|(path, _)| path.as_str()).collect();
+            let message = format!("{} changed outside Scaena", paths.join(", "));
+            let edit = Edit { message: Some(&message), timestamp, ..Edit::by(FS) };
+            made += usize::from(self.apply_with(disk, &changed, &edit)?);
+        }
+        Ok(made)
+    }
+
+    /// [`DeckDoc::apply_with`]s each of `changes` in order: one that leaves the deck and its
+    /// files as they were is no change. A change by `fs` is what the files say, taken in as
+    /// [`DeckDoc::outside`] takes them, whatever it says of itself. How many changes were made.
     pub fn record(&self, changes: &[Recorded]) -> Result<usize> {
         let mut recorded = 0;
         for change in changes {
+            let files: Vec<(String, Vec<u8>)> =
+                change.files.iter().map(|(path, text)| (path.clone(), text.as_bytes().to_vec())).collect();
+            if change.author == FS {
+                recorded += self.outside(&Deck::from_json(&change.deck)?, &files, change.timestamp)?;
+                continue;
+            }
             let edit = Edit {
                 author: &change.author,
                 message: change.message.as_deref(),
@@ -211,16 +275,19 @@ impl DeckDoc {
                 renamed_nodes: &change.renamed_nodes,
                 renamed_states: &change.renamed_states,
             };
-            recorded += usize::from(self.apply(&Deck::from_json(&change.deck)?, &edit)?);
+            recorded += usize::from(self.apply_with(&Deck::from_json(&change.deck)?, &files, &edit)?);
         }
         Ok(recorded)
     }
 
-    /// Every change, oldest first.
+    /// Every change, oldest first. A commit the history keeps in pieces (a large one, as the
+    /// first of a long deck is) is one change: each piece goes on where the one before it ends,
+    /// by the same author, with the same message, at the same time.
     pub fn changes(&self) -> Vec<Change> {
-        let mut out = Vec::new();
+        let mut out: Vec<Change> = Vec::new();
         for (&peer, &end) in self.doc.oplog_vv().iter() {
             let mut counter = 0;
+            let mut last: Option<usize> = None;
             while counter < end {
                 let Some(meta) = self.doc.get_change(ID::new(peer, counter)) else { break };
                 let (author, message) = match meta.message.as_deref() {
@@ -231,12 +298,38 @@ impl DeckDoc {
                     None => (None, None),
                 };
                 let (timestamp, lamport, ops) = (meta.timestamp, meta.lamport, meta.len);
-                out.push(Change { author, message, timestamp, peer, lamport, ops });
+                let piece = last.map(|i| &mut out[i]).filter(|was| {
+                    was.lamport + was.ops as u32 == lamport
+                        && (&was.author, &was.message, was.timestamp) == (&author, &message, timestamp)
+                });
+                match piece {
+                    Some(was) => was.ops += ops,
+                    None => {
+                        out.push(Change { id: meta.id.to_string(), author, message, timestamp, peer, lamport, ops });
+                        last = Some(out.len() - 1);
+                    }
+                }
                 counter = meta.id.counter + meta.len as i32;
             }
         }
         scaena_core::sort::by_key(&mut out, |c| (c.lamport, c.peer));
         out
+    }
+
+    /// The document as it was just after the change `id` names ([`Change::id`], or any of its
+    /// operations' ids): what it held then, and its history up to there (PLAN 2.60). After a
+    /// merge, that is what the change's editor had seen: the changes before it, not those made
+    /// beside it. None where the history holds no such change.
+    pub fn at(&self, id: &str) -> Result<Option<DeckDoc>> {
+        let Ok(id) = ID::try_from(id) else { return Ok(None) };
+        let holds = |c: &Change| {
+            let first = ID::try_from(c.id.as_str()).map_or(i32::MAX, |first| first.counter);
+            c.peer == id.peer && (first..first + c.ops as i32).contains(&id.counter)
+        };
+        let Some(change) = self.changes().into_iter().find(holds) else { return Ok(None) };
+        let first = ID::try_from(change.id.as_str())?;
+        let last = ID::new(change.peer, first.counter + change.ops as i32 - 1);
+        Ok(Some(DeckDoc { doc: self.doc.fork_at(&Frontiers::from(last))? }))
     }
 
     /// Undo and redo for this document's own changes (SPEC §8.2): each [`DeckDoc::apply`]
@@ -680,7 +773,7 @@ const BEAT_FIELDS: [&str; 6] = ["id", "claim", "evidence", "states", "duration",
 const DECK_FIELDS: [&str; 6] = ["scaena", "canvas", "formats", "theme", "fonts", "_comment"];
 
 impl DeckDoc {
-    fn write(&self, deck: &Deck, edit: &Edit, fresh: bool) -> Result<bool> {
+    fn write(&self, deck: &Deck, files: &[(String, Vec<u8>)], edit: &Edit, fresh: bool) -> Result<bool> {
         let Value::Object(v) = serde_json::to_value(deck)? else {
             return Err(CrdtError::Shape("a deck is an object".into()));
         };
@@ -710,7 +803,21 @@ impl DeckDoc {
         let overrides = field("overrides").and_then(Value::as_object).unwrap_or(&empty);
         put_deltas(&self.doc.get_map("overrides"), overrides, &keys)?;
         self.write_spine(field("spine"))?;
+        self.write_files(files)?;
         Ok(self.commit(edit))
+    }
+
+    /// Each of `files` held as its bytes: set where they differ from what the document holds.
+    fn write_files(&self, files: &[(String, Vec<u8>)]) -> Result<()> {
+        let map = self.doc.get_map(FILES);
+        for (path, bytes) in files {
+            no_reserved([path])?;
+            let held = matches!(map.get(path), Some(ValueOrContainer::Value(LoroValue::Binary(b))) if **b == *bytes);
+            if !held {
+                map.insert(path, bytes.clone())?;
+            }
+        }
+        Ok(())
     }
 
     fn write_meta(&self, meta: Option<&Value>) -> Result<()> {

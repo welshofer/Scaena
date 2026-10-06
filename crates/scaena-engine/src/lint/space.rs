@@ -5,16 +5,18 @@
 //! paint paths part: their own in one container, or the containers they are in, so a card
 //! in a stack collides with a note beside the stack when the stack and the note share a
 //! `z`. Text counts by its lines as set, not its cell, so a short title in a tall slot
-//! collides only where its words are.
+//! collides only where its words are. A box is where it is drawn: through its `transform`
+//! and those of what holds it (SPEC §3.3), so a turned label collides where it turns to.
 //!
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
 
 use super::{Cx, Rule};
-use crate::sample::{Content, SceneNode};
+use crate::sample::{Content, Scene, SceneNode};
 use scaena_core::displaylist::Rect;
 use scaena_core::lint::{Finding, Severity};
+use scaena_core::pose;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -42,6 +44,67 @@ fn overlap(a: Rect, b: Rect) -> Option<[f32; 2]> {
     let w = (a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0]);
     let h = (a[1] + a[3]).min(b[1] + b[3]) - a[1].max(b[1]);
     (w > SLACK && h > SLACK).then_some([w, h])
+}
+
+/// A box as laid out, and the map that draws it where a transform moves it.
+type Drawn = (Rect, Option<[f64; 6]>);
+
+/// A box of `scene`'s node `id`, where it is drawn.
+fn drawn(scene: &Scene, id: &str, rect: Rect) -> Drawn {
+    let map = scene.posed(id, true);
+    (rect, (map != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).then_some(map))
+}
+
+/// How far two boxes overlap as they are drawn: as [`overlap`] where nothing moves either,
+/// else the width and height of what their drawn outlines share.
+fn meets(a: Drawn, b: Drawn) -> Option<[f32; 2]> {
+    if let ((a, None), (b, None)) = (a, b) {
+        return overlap(a, b);
+    }
+    // A node flattened to a line or a point draws nothing to collide with.
+    if [a.1, b.1].iter().flatten().any(|map| pose::invert(map).is_none()) {
+        return None;
+    }
+    let outline = |(rect, map): Drawn| pose::corners(&map.unwrap_or(IDENTITY), rect).to_vec();
+    let shared = clip(outline(a), &outline(b));
+    let (x0, x1) = shared.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, r), p| (l.min(p[0]), r.max(p[0])));
+    let (y0, y1) = shared.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(t, b), p| (t.min(p[1]), b.max(p[1])));
+    let [w, h] = [(x1 - x0) as f32, (y1 - y0) as f32];
+    (shared.len() >= 3 && w > SLACK && h > SLACK).then_some([w, h])
+}
+
+const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+/// What of the convex outline `subject` lies inside the convex outline `by` (Sutherland and
+/// Hodgman): each of `by`'s sides cuts away what lies outside it. Either may run either way
+/// round.
+fn clip(subject: Vec<[f64; 2]>, by: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let cross = |o: [f64; 2], a: [f64; 2], p: [f64; 2]| (a[0] - o[0]) * (p[1] - o[1]) - (a[1] - o[1]) * (p[0] - o[0]);
+    // Which side is inside: the side the outline's own points lie on.
+    let area: f64 = (0..by.len()).map(|i| cross([0.0, 0.0], by[i], by[(i + 1) % by.len()])).sum();
+    let inside = |o, a, p| if area >= 0.0 { cross(o, a, p) >= 0.0 } else { cross(o, a, p) <= 0.0 };
+    let mut out = subject;
+    for i in 0..by.len() {
+        let (o, a) = (by[i], by[(i + 1) % by.len()]);
+        let points = std::mem::take(&mut out);
+        for (k, &p) in points.iter().enumerate() {
+            let q = points[(k + 1) % points.len()];
+            let (pin, qin) = (inside(o, a, p), inside(o, a, q));
+            if pin {
+                out.push(p);
+            }
+            if pin != qin {
+                // Where `p` to `q` crosses the side's line.
+                let (dp, dq) = (cross(o, a, p), cross(o, a, q));
+                let t = dp / (dp - dq);
+                out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+            }
+        }
+        if out.is_empty() {
+            break;
+        }
+    }
+    out
 }
 
 /// Where two nodes' paint paths part: the first entry they differ in.
@@ -76,7 +139,7 @@ impl Rule for E101Collision {
         // what stacks for each where their paint paths part: the node, or a container it is in.
         let mut pairs: BTreeMap<(String, String), (Pair, [String; 2])> = BTreeMap::new();
         for state in cx.states {
-            let content: Vec<(&SceneNode, Rect)> = state
+            let content: Vec<(&SceneNode, Drawn)> = state
                 .scene
                 .nodes
                 .iter()
@@ -84,14 +147,14 @@ impl Rule for E101Collision {
                     let props = state.snapshot.nodes.get(&n.id);
                     props.and_then(|p| p.get("semantic")).and_then(Value::as_str) != Some("decoration")
                 })
-                .filter_map(|n| Some((n, ink(n)?)))
+                .filter_map(|n| Some((n, drawn(&state.scene, &n.id, ink(n)?))))
                 .collect();
             for (i, (a, ra)) in content.iter().enumerate() {
                 for (b, rb) in &content[i + 1..] {
                     if !one_level(a, b) {
                         continue;
                     }
-                    let Some(by) = overlap(*ra, *rb) else { continue };
+                    let Some(by) = meets(*ra, *rb) else { continue };
                     let (a, b) = if a.id < b.id { (a, b) } else { (b, a) };
                     let at = parting(a, b);
                     let stacks =
@@ -150,12 +213,12 @@ impl Rule for W311ShaderBehindData {
         let mut pairs: BTreeMap<(String, String), (&str, Pair)> = BTreeMap::new();
         for state in cx.states {
             // Scene nodes come in paint order: a shader before a chart is under it.
-            let mut shaders: Vec<(&SceneNode, Rect)> = Vec::new();
+            let mut shaders: Vec<(&SceneNode, Drawn)> = Vec::new();
             for node in &state.scene.nodes {
                 let (what, cell) = match &node.content {
                     Content::Shader(s) => {
                         if node.opacity > 0.0 {
-                            shaders.push((node, s.rect));
+                            shaders.push((node, drawn(&state.scene, &node.id, s.rect)));
                         }
                         continue;
                     }
@@ -163,8 +226,9 @@ impl Rule for W311ShaderBehindData {
                     Content::Table { cell, .. } => ("table", *cell),
                     _ => continue,
                 };
+                let cell = drawn(&state.scene, &node.id, cell);
                 for (shader, rect) in &shaders {
-                    let Some(by) = overlap(*rect, cell) else { continue };
+                    let Some(by) = meets(*rect, cell) else { continue };
                     let key = (shader.id.clone(), node.id.clone());
                     let first = Pair { first: state.index, overlap: by, states: Vec::new() };
                     let (_, pair) = pairs.entry(key).or_insert((what, first));
@@ -222,8 +286,10 @@ impl Rule for W313ChartSquashed {
         for state in cx.states {
             for node in &state.scene.nodes {
                 let Content::Chart { cell, chart } = &node.content else { continue };
-                let [_, _, w, h] = chart.plot;
-                if w.min(h) >= floor || node.opacity <= 0.0 {
+                // As drawn: a chart scaled down squashes its plot; one flattened draws none.
+                let [along, across] = pose::stretch(&state.scene.posed(&node.id, true)).map(|k| k as f32);
+                let [w, h] = [chart.plot[2] * along, chart.plot[3] * across];
+                if w.min(h) >= floor || w.min(h) <= 0.0 || node.opacity <= 0.0 {
                     continue;
                 }
                 let entry = squashed.entry(node.id.clone()).or_insert_with(|| Squashed {

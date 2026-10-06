@@ -20,6 +20,8 @@ use crate::theme::Theme;
 use scaena_core::Deck;
 use scaena_core::displaylist::{Color, FontRef, Glyph, Path, PathEl, Point};
 use scaena_core::format::{DateFormat, Locale, MINUS, NumberFormat};
+use scaena_core::model::values::{AnnotationKind, Scalar};
+use std::collections::BTreeMap;
 
 /// Bézier handle length for a quarter circle of radius 1: 4/3 · (√2 − 1).
 const KAPPA: f32 = 0.552_284_8;
@@ -433,6 +435,11 @@ pub struct Note {
     /// Its kind and axis, and its place among the chart's annotations of both: what it
     /// matches in the next state, so a rule moves to its next value.
     pub key: String,
+    /// Its place among the chart's `annotations` (PLAN 2.67): what the editor names it by.
+    pub index: usize,
+    pub kind: AnnotationKind,
+    /// What it says, as written.
+    pub text: Option<String>,
     /// A band's box, `[x, y, w, h]`, and its fill.
     pub band: Option<([f32; 4], Color)>,
     /// A rule, or a callout's leader.
@@ -725,6 +732,31 @@ pub struct ChartLayout {
     pub covers: Vec<(String, String)>,
     /// Annotations: bands under the gridlines, rules and callouts over the marks.
     pub notes: Vec<Note>,
+    /// The data source it reads, as the deck names it.
+    pub source: String,
+    /// Each mark's rows of its source, by the mark's key: the rows its datum was made from,
+    /// through the chart's `dataTransform`, from 0 as the source's sheet numbers them
+    /// (PLAN 2.64).
+    pub rows: BTreeMap<String, Vec<usize>>,
+    /// What an annotation names each mark by, by the mark's key (PLAN 2.67).
+    pub places: BTreeMap<String, MarkPlace>,
+    /// Along a categorical x, each category as an annotation names it, with its band across,
+    /// `[start, end]` relative to the chart, in order (PLAN 2.67); none along a continuous x,
+    /// and none for a donut.
+    pub categories: Vec<(Scalar, [f32; 2])>,
+    /// Each highlight, by its place among the chart's `annotations`, with the keys of the
+    /// marks it picks out (PLAN 2.67).
+    pub highlights: Vec<(usize, Vec<String>)>,
+}
+
+/// What an annotation names a mark by (SPEC §3.7, PLAN 2.67): its x as an annotation writes
+/// it (a category as its datum reads, a number, or a date in ISO 8601), its value on the
+/// value axis, and its series.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkPlace {
+    pub x: Scalar,
+    pub value: f64,
+    pub series: Option<String>,
 }
 
 /// What a chart's text is for (lint names it).

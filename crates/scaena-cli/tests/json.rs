@@ -43,6 +43,8 @@ fn every_command_prints_one_json_value() {
     let svgs = dir.join("svgs");
     let spine = dir.join("projection").join("spine.json");
     let theme = "../../docs/examples/themes/dusk.theme.json".to_string();
+    let gutter = dir.join("gutter.json");
+    std::fs::write(&gutter, r#"[{ "op": "replace", "path": "/grid/gutter", "value": 32 }]"#).unwrap();
     let scn = "../../docs/examples/revenue.deck.scn";
     let cases: Vec<(Vec<&str>, i32, Check)> = vec![
         (vec!["validate", TORTURE], 0, |v| v.as_array().is_some_and(Vec::is_empty)),
@@ -63,6 +65,7 @@ fn every_command_prints_one_json_value() {
         (vec!["save", TORTURE, "--to", kept.to_str().unwrap(), "--history"], 0, |v| {
             v["manifest"]["files"].get("history/deck.loro").is_some()
         }),
+        (vec!["history", kept.to_str().unwrap()], 0, |v| v["versions"].as_array().is_some_and(|v| v.len() == 1)),
         (vec!["export", EXAMPLE, "--format", "spine"], 0, |v| v["format"] == "spine" && v["spine"].is_object()),
         // Written, the spine is in its file, and the result names its renders.
         (vec!["export", EXAMPLE, "--format", "spine", "--out", spine.to_str().unwrap()], 0, |v| {
@@ -85,6 +88,15 @@ fn every_command_prints_one_json_value() {
             },
         ),
         (vec!["theme", EXAMPLE, "--apply", &theme, "--dry-run"], 0, |v| v["applied"] == false),
+        (vec!["theme", EXAMPLE, "--edit", gutter.to_str().unwrap(), "--dry-run"], 0, |v| {
+            v["applied"] == false && v["paths"] == serde_json::json!(["/grid/gutter"]) && v["refused"] == false
+        }),
+        (vec!["files", TORTURE], 0, |v| {
+            v["files"].as_array().is_some_and(|f| f.iter().any(|x| x["path"] == "assets/test-card.png"))
+        }),
+        (vec!["data", EXAMPLE, "q3"], 0, |v| {
+            v["edited"] == false && v["sheet"]["rows"].as_array().is_some_and(|r| r.len() == 12)
+        }),
         (vec!["patch", EXAMPLE, "--ops", PATCH, "--dry-run"], 0, |v| {
             v["applied"] == false
                 && v["patch"].as_array().is_some_and(|p| p.len() == 9)
@@ -108,6 +120,7 @@ fn a_command_that_stops_prints_an_error_object() {
     .unwrap();
     for (args, exit, plan) in [
         (vec!["inspect", TORTURE, "--state", "nope"], 2, None),
+        (vec!["data", EXAMPLE, "q4"], 2, None),
         (vec!["render", TORTURE, "--state", "pretty", "--size", "wide"], 2, None),
         (vec!["validate", "no/such/bundle"], 2, None),
         (vec!["export", EXAMPLE, "--format", "spine", "--states", "intro"], 2, None),
@@ -310,6 +323,36 @@ fn inspect_says_what_an_inspector_offers() {
 }
 
 #[test]
+fn inspect_picks_up_a_look_and_puts_it_on_other_nodes() {
+    let (code, states) = json(&["inspect", EXAMPLE, "--state", "revenue", "--look", "title", "--onto", "note,rev"]);
+    assert_eq!(code, 0, "{states:#}");
+    let look = &states[0]["look"];
+    assert_eq!((look["node"].as_str(), look["type"].as_str()), (Some("title"), Some("text")));
+    assert_eq!(look["props"][0], serde_json::json!({ "prop": "role", "value": "headline" }));
+    assert!(look["props"][1].get("value").is_none(), "the theme's family: {look:#}");
+    let put = &states[0]["put"];
+    assert_eq!(
+        put["patch"],
+        serde_json::json!([{ "op": "choose", "node": "note", "prop": "role", "value": "headline", "state": "revenue" }])
+    );
+    assert_eq!((put["took"].clone(), put["same"].clone()), (serde_json::json!(["note"]), serde_json::json!([])));
+    assert_eq!(put["refused"], serde_json::json!([{ "node": "rev", "why": "a chart takes none of a text's look" }]));
+
+    // It picks up a look in a state, and puts it down only once picked up.
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--look", "title"]).status.code(), Some(2));
+    assert_eq!(scaena(&["inspect", EXAMPLE, "--state", "revenue", "--onto", "note"]).status.code(), Some(2));
+
+    // For a person: each property and its value, then what it puts where, and what it does not.
+    let out = scaena(&["inspect", EXAMPLE, "--state", "revenue", "--look", "title", "--onto", "note,rev"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("the look of title:\n    role: \"headline\"\n    style/family: the theme's"), "{text}");
+    assert!(
+        text.contains("put on note: [{\"op\":\"choose\"") && text.contains("rev: a chart takes none of a text's look"),
+        "{text}"
+    );
+}
+
+#[test]
 fn inspect_says_what_a_state_offers() {
     let (code, states) = json(&["inspect", EXAMPLE, "--state", "mix", "--state-choices"]);
     assert_eq!(code, 0, "{states:#}");
@@ -385,6 +428,158 @@ fn inspect_says_a_states_layers() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("  layers, topmost first:\n    note (text)\n    rev (chart)\n"), "{text}");
     assert!(text.contains("    bg (shader, hidden)\n"), "{text}");
+}
+
+/// `scaena files` (PLAN 2.59) says what uses each of a bundle's images, fonts, and data, and
+/// takes out what nothing names, all or none: from a directory, and from a zip and its
+/// manifest.
+#[test]
+fn files_says_what_uses_each_and_takes_out_what_nothing_names() {
+    let dir = scratch("files").join("torture.scaena");
+    copy_dir(Path::new(TORTURE), &dir);
+    std::fs::write(dir.join("assets/stray.png"), b"not drawn").unwrap();
+    std::fs::write(dir.join("data/old.csv"), b"a,b\n1,2\n").unwrap();
+    let bundle = dir.to_str().unwrap();
+    let (code, listed) = json(&["files", bundle]);
+    assert_eq!(code, 0, "{listed:#}");
+    let file = |path: &str| listed["files"].as_array().unwrap().iter().find(|f| f["path"] == path).cloned().unwrap();
+    let card = file("assets/test-card.png");
+    assert!(card["named"].as_array().unwrap().contains(&serde_json::json!({ "by": "node", "node": "image-cover" })));
+    assert!(
+        card["used"].as_array().unwrap().contains(&serde_json::json!({ "node": "image-cover", "states": ["images"] }))
+    );
+    assert_eq!(
+        (file("assets/stray.png")["named"].clone(), file("data/old.csv")["type"].clone()),
+        (serde_json::json!([]), "data".into())
+    );
+    assert!(
+        listed["files"].as_array().unwrap().iter().all(|f| f["path"] != "deck.json" && f["path"] != "fonts/SOURCES.md")
+    );
+
+    // One something names stops them all; so does a file that is not one of them, or not there.
+    let (code, r) = json(&["files", bundle, "--remove", "assets/stray.png,assets/test-card.png,deck.json,nope.png"]);
+    assert_eq!((code, r["applied"].clone(), r["removed"].clone()), (1, false.into(), serde_json::json!([])), "{r:#}");
+    let why: Vec<&str> = r["refused"].as_array().unwrap().iter().map(|f| f["why"].as_str().unwrap()).collect();
+    assert!(why[0].starts_with("image ") && why[0].ends_with("names it: take that out of the deck first"), "{why:?}");
+    assert_eq!(
+        why[1..],
+        ["deck.json is not one of the bundle's images, fonts, or data", "the bundle holds no nope.png"]
+    );
+    assert!(dir.join("assets/stray.png").is_file());
+
+    // A dry run says so, and writes nothing; then they go.
+    let (code, r) = json(&["files", bundle, "--remove", "assets/stray.png,data/old.csv", "--dry-run"]);
+    assert_eq!((code, r["applied"].clone()), (0, false.into()), "{r:#}");
+    assert!(dir.join("assets/stray.png").is_file());
+    let out = scaena(&["files", bundle, "--remove", "assets/stray.png,data/old.csv"]);
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "took out assets/stray.png, data/old.csv\n");
+    assert!(!dir.join("assets/stray.png").exists() && !dir.join("data/old.csv").exists());
+
+    // From a saved zip, which lists it in its manifest: the manifest lists it no more.
+    std::fs::write(dir.join("assets/stray.png"), b"not drawn").unwrap();
+    let zip = dir.with_extension("saved.scaena");
+    assert!(scaena(&["save", bundle, "--to", zip.to_str().unwrap()]).status.success());
+    let zipped = zip.to_str().unwrap();
+    let (code, r) = json(&["files", zipped, "--remove", "assets/stray.png"]);
+    assert_eq!((code, r["applied"].clone()), (0, true.into()), "{r:#}");
+    let (_, listed) = json(&["files", zipped]);
+    assert!(listed["files"].as_array().unwrap().iter().all(|f| f["path"] != "assets/stray.png"));
+    assert!(scaena(&["validate", zipped]).status.success());
+    let bundle = scaena_store::Bundle::open(&zip).unwrap();
+    let manifest: Value = serde_json::from_slice(&bundle.read("manifest.json").unwrap()).unwrap();
+    assert!(
+        manifest["files"].get("assets/stray.png").is_none()
+            && manifest["files"].as_object().is_some_and(|f| !f.is_empty())
+    );
+
+    // For a person: each with what names it and where it draws, and what nothing names.
+    let text = String::from_utf8(scaena(&["files", TORTURE]).stdout).unwrap();
+    assert!(text.starts_with("images\n  assets/") && text.contains("\n  assets/test-card.png  "), "{text}");
+    assert!(text.contains("    image-cover in images\n"), "{text}");
+}
+
+/// A bundle's versions (PLAN 2.60): listed by author and time; the deck as it was after one,
+/// by number or by id; two compared, and one with the deck now; one restored, with its data
+/// file, as one change; and one whose deck names a file gone since refused.
+#[test]
+fn history_lists_shows_compares_and_restores_versions() {
+    use serde_json::json as j;
+    let dir = scratch("history");
+    let b = dir.join("talk");
+    assert!(scaena(&["save", EXAMPLE, "--to", b.to_str().unwrap(), "--history"]).status.success());
+    let bundle = b.to_str().unwrap();
+    let ops = dir.join("ops.json");
+    let patch = |ops_json: &str| {
+        std::fs::write(&ops, ops_json).unwrap();
+        assert!(scaena(&["patch", bundle, "--ops", ops.to_str().unwrap()]).status.success(), "{ops_json}");
+    };
+    patch(r#"[{"op": "set_text", "node": "title", "text": "Revenue tripled"}]"#);
+    let edits = dir.join("edits.json");
+    std::fs::write(&edits, r#"[{"op": "set", "row": 0, "column": "revenue", "value": "9"}]"#).unwrap();
+    assert!(scaena(&["data", bundle, "q3", "--edits", edits.to_str().unwrap()]).status.success());
+
+    let (code, listed) = json(&["history", bundle]);
+    assert_eq!(code, 0, "{listed:#}");
+    let versions = listed["versions"].as_array().unwrap().clone();
+    let said: Vec<(i64, &str)> =
+        versions.iter().map(|v| (v["n"].as_i64().unwrap(), v["message"].as_str().unwrap_or(""))).collect();
+    assert_eq!(said, [(1, "history begins"), (2, "patch: set_text"), (3, "data_edit q3: revenue of row 0")]);
+    assert!(versions.iter().all(|v| v["author"] == "user" && v["at"].as_str().is_some_and(|t| t.ends_with('Z'))));
+
+    // The deck as it was, by number or by id.
+    let (_, seen) = json(&["history", bundle, "--at", "1"]);
+    assert_eq!(seen["seen"]["deck"]["nodes"]["title"]["text"], "Q3 Review", "{seen:#}");
+    let (_, seen) = json(&["history", bundle, "--at", versions[1]["id"].as_str().unwrap(), "--scn"]);
+    assert!(seen["seen"]["scn"].as_str().unwrap().contains("Revenue tripled"));
+
+    // Compared with the deck now, and two with each other.
+    let (_, c) = json(&["history", bundle, "--diff", "1"]);
+    let c = &c["compared"];
+    assert_eq!(c["states"]["intro"]["changed"]["nodes"]["title"]["change"]["text"], "Revenue tripled", "{c:#}");
+    assert_eq!((c["files"].clone(), c["to"].clone()), (j!(["data/q3-revenue.csv"]), Value::Null));
+    let (_, c) = json(&["history", bundle, "--diff", "2,3"]);
+    assert_eq!(
+        (c["compared"]["states"].clone(), c["compared"]["files"].clone()),
+        (j!({}), j!(["data/q3-revenue.csv"]))
+    );
+
+    // Restored: the deck and its data file, as one change; a dry run writes nothing.
+    let csv = std::fs::read(b.join("data/q3-revenue.csv")).unwrap();
+    let (code, r) = json(&["history", bundle, "--restore", "1", "--dry-run"]);
+    assert_eq!((code, r["restored"]["applied"].clone()), (0, false.into()), "{r:#}");
+    assert_eq!(std::fs::read(b.join("data/q3-revenue.csv")).unwrap(), csv);
+    let (code, r) = json(&["history", bundle, "--restore", "1"]);
+    let restored = &r["restored"];
+    assert_eq!(
+        (code, restored["applied"].clone(), restored["files"].clone()),
+        (0, true.into(), j!(["data/q3-revenue.csv"]))
+    );
+    let (_, c) = json(&["history", bundle, "--diff", "1"]);
+    assert_eq!((c["compared"]["states"].clone(), c["compared"]["files"].clone()), (j!({}), j!([])), "{c:#}");
+    let (_, listed) = json(&["history", bundle]);
+    let last = listed["versions"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["message"], format!("history --restore {}", versions[0]["id"].as_str().unwrap()));
+
+    // A version whose deck names a file taken out since is refused, and says why.
+    std::fs::create_dir_all(b.join("assets")).unwrap();
+    std::fs::copy(Path::new(TORTURE).join("assets/test-card.png"), b.join("assets/card.png")).unwrap();
+    patch(r#"[{"op": "add_node", "id": "photo", "node": {"type": "image", "src": "assets/card.png"}}]"#);
+    patch(r#"[{"op": "remove_node", "id": "photo"}]"#);
+    assert!(scaena(&["files", bundle, "--remove", "assets/card.png"]).status.success());
+    let (_, listed) = json(&["history", bundle]);
+    let shown = (listed["versions"].as_array().unwrap().len() - 1).to_string();
+    let (code, r) = json(&["history", bundle, "--restore", &shown]);
+    assert_eq!((code, r["restored"]["applied"].clone()), (1, false.into()), "{r:#}");
+    assert!(r["restored"]["added"].as_array().unwrap().iter().any(|f| f["code"] == "E102"), "{r:#}");
+
+    // Ask one thing at a time; and a bundle without a history says how to begin one.
+    let (code, e) = json(&["history", bundle, "--diff", "1,2,3"]);
+    assert_eq!(code, 2, "{e:#}");
+    let (code, e) = json(&["history", EXAMPLE]);
+    assert_eq!(code, 2);
+    assert!(e["error"]["message"].as_str().unwrap().contains("scaena save --history"), "{e:#}");
+    let text = String::from_utf8(scaena(&["history", bundle, "--diff", "1,2"]).stdout).unwrap();
+    assert_eq!(text, "from version 1 to version 2\n  state intro:\n    title: text \"Revenue tripled\"\n");
 }
 
 fn copy_dir(from: &Path, to: &Path) {

@@ -16,4 +16,7 @@ pub enum EngineError {
     Layout(String),
     #[error("data: {0}")]
     Data(String),
+    /// A language's hyphenation patterns that could not be had (`hyphen`).
+    #[error("hyphenation: {0}")]
+    Hyphenation(String),
 }

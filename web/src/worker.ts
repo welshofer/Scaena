@@ -13,7 +13,8 @@
 // The CPU painter shares a shader's rows with helpers, each a worker started as this one was,
 // holding the engine's module and no deck (PLAN 2.28): a worker whose first message is `help`
 // is one.
-import init, { Canvas, Player, engineModule, shaderRows } from "@scaena/wasm";
+import { hyphenation } from "@scaena/hyphenation";
+import init, { Canvas, Player, engineModule, setHyphenation, shaderRows } from "@scaena/wasm";
 import { keptBundle, newBundle, readAll, remove, write } from "./folders";
 import type {
   Added,
@@ -21,7 +22,10 @@ import type {
   AssistantEvent,
   Carets,
   Choices,
+  DataEdited,
+  DataSource,
   Edited,
+  Export,
   Finding,
   FromHelper,
   FromWorker,
@@ -31,8 +35,18 @@ import type {
   Opened,
   Painter,
   Pasted,
+  Look,
+  Put,
+  BundleFile,
+  Compared,
+  Restored,
+  Rewritten,
+  Grid,
   Grouped,
+  Line,
+  RowEdit,
   Section,
+  Sheet,
   Slot,
   Snapped,
   Arrange,
@@ -40,6 +54,8 @@ import type {
   Source,
   StateChoices,
   Themed,
+  ThemeEdited,
+  ThemeText,
   Themes,
   ToHelper,
   ToWorker,
@@ -85,7 +101,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         await painting;
         was.free();
         format = undefined;
-        slots = timeline();
+        slots = opening();
         [canvas.width, canvas.height] = size();
         gpu?.resize(canvas.width, canvas.height);
         return post({ type: "reloaded", id: data.id, ...opened() });
@@ -111,6 +127,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         const slot = slots[data.index];
         if (!slot) throw new Error(`the deck has no slot ${data.index}: it has ${slots.length}`);
+        shown = { index: data.index, format: data.format };
         const t = data.t ?? slot.span;
         await paint(slot.state, t);
         return post({ type: "at", id: data.id, index: data.index, t, global: slot.start + t, playing: false });
@@ -142,9 +159,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "hit":
         layOut(data.format);
         return post({ type: "hits", id: data.id, hits: JSON.parse(player.hit(data.state, ...data.point)) });
+      case "markAt": {
+        layOut(data.format);
+        const mark = JSON.parse(player.markAt(data.state, ...data.point));
+        return post({ type: "marked", id: data.id, marks: mark ? [mark] : [] });
+      }
+      case "marksOf":
+        layOut(data.format);
+        return post({ type: "marked", id: data.id, marks: JSON.parse(player.marksOf(data.state, data.source, Uint32Array.from(data.rows))) });
+      case "noteAt":
+        layOut(data.format);
+        return post({ type: "noted", id: data.id, note: JSON.parse(player.noteAt(data.state, ...data.point)) });
+      case "calloutAt":
+        layOut(data.format);
+        return post({ type: "calledOut", id: data.id, at: JSON.parse(player.calloutAt(data.state, data.node, ...data.point)) });
       case "view": {
         viewing = data.view ? Float32Array.from(data.view) : null;
-        if (lastPainted) await paint(lastPainted.state, lastPainted.t);
+        if (lastPainted) await paint(lastPainted.state, lastPainted.t, "keep");
         return post({ type: "viewed", id: data.id });
       }
       case "find":
@@ -162,6 +193,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "targets":
         layOut(data.format);
         return post({ type: "targets", id: data.id, targets: JSON.parse(player.targets(data.state, data.node)) });
+      case "grid":
+        layOut(data.format);
+        return post({ type: "grid", id: data.id, grid: JSON.parse(player.grid()) as Grid });
       case "drag":
         layOut(data.format);
         return post({ type: "dragged", id: data.id, ...(await drag(data)) });
@@ -183,6 +217,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
+      case "look":
+        current(data.source);
+        return post({ type: "look", id: data.id, look: JSON.parse(player.look(data.state, data.node)) as Look });
+      case "putting": {
+        current(data.source);
+        const put = JSON.parse(player.putting(data.state, JSON.stringify(data.look), data.nodes)) as Put;
+        return post({ type: "put", id: data.id, put });
+      }
       case "reach":
         return post({ type: "reached", id: data.id, states: JSON.parse(player.reach(JSON.stringify(data.ops))) as string[] });
       case "inserts":
@@ -286,11 +328,106 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
           saved.free();
         }
       }
+      case "export": {
+        saveable(data.source);
+        const bytes = (await exporting(data.as)).slice().buffer as ArrayBuffer;
+        return post({ type: "exported", id: data.id, bytes }, [bytes]);
+      }
       case "drop": {
         const bytes = new Uint8Array(data.bytes);
         const path = Player.place(data.name, bytes);
         player.addFile(path, bytes);
         return post({ type: "dropped", id: data.id, path });
+      }
+      case "sheet":
+        return post({ type: "sheet", id: data.id, ...sheet(data.source, data.name) });
+      case "dataEdit":
+        return post({ type: "dataEdited", id: data.id, ...(await dataEdit(data.source, data.name, data.edits, data.index, data.format)) });
+      case "dataUndo":
+        return post({ type: "dataUndone", id: data.id, ...(await dataUndo(data.source, data.redo, data.index, data.format)) });
+      case "bundleFiles":
+        current(data.source);
+        return post({ type: "bundleFiles", id: data.id, files: JSON.parse(player.bundleFiles()) as BundleFile[] });
+      case "removeFile": {
+        compiles(data.source);
+        player.removeFile(data.path);
+        latest++;
+        shown = { index: data.index, format: data.format };
+        return post({ type: "removed", id: data.id, edited: await edit(player.source(), data.index, data.format) });
+      }
+      case "versions": {
+        const module = await history();
+        if (!module) return post({ type: "versions", id: data.id, versions: null });
+        const changes = JSON.parse(module.changes(player.file(HISTORY)!)) as Change[];
+        const at = (s: number) => (s > 0 ? new Date(s * 1000).toISOString() : null);
+        const versions = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
+        return post({ type: "versions", id: data.id, versions });
+      }
+      case "version": {
+        const held = await version(data.version);
+        const states = JSON.parse(player.viewVersion(held)) as string[];
+        const state = data.state !== undefined && states.includes(data.state) ? data.state : states[0];
+        // A version that cannot be drawn in the bundle as it is still lists its states, and why.
+        let png: ArrayBuffer | undefined;
+        let why: string | undefined;
+        try {
+          png = player.versionPng(state, data.width).slice().buffer as ArrayBuffer;
+        } catch (e) {
+          why = said(e);
+        }
+        return post({ type: "version", id: data.id, states, state, png, why }, png ? [png] : []);
+      }
+      case "compareVersions": {
+        const from = await version(data.from);
+        const to = data.to === undefined ? undefined : await version(data.to);
+        // The deck now is the one the source compiles to.
+        if (to === undefined) compiles(data.source);
+        return post({ type: "compared", id: data.id, compared: JSON.parse(player.compareVersions(from, to)) as Compared });
+      }
+      case "restoreVersion": {
+        // The deck before is the source's, or, where it does not compile, the last that did.
+        try {
+          compiles(data.source);
+        } catch {
+          // Restoring a version is a way back from a source that does not compile.
+        }
+        const held = await version(data.version.id);
+        const done = JSON.parse(player.restoreVersion(held, JSON.stringify(data.version), "user", new Date().toISOString())) as {
+          restored: Restored;
+          files: Rewritten[];
+        };
+        if (!done.restored.applied) return post({ type: "restored", id: data.id, restored: done.restored, files: [] });
+        latest++;
+        shown = { index: data.index, format: data.format };
+        const next = player.source();
+        return post({ type: "restored", id: data.id, ...done, source: next, edited: await edit(next, data.index, data.format) });
+      }
+      case "themeText": {
+        const text = player.themeText();
+        return post({ type: "themeText", id: data.id, theme: text ? (JSON.parse(text) as ThemeText) : null });
+      }
+      case "themeEdit": {
+        // The deck the theme is edited under is the source's, which must compile and validate.
+        saveable(data.source);
+        player.setMoving([], 0, 0);
+        player.preview(undefined);
+        const done = JSON.parse(player.themeEdit(JSON.stringify({ ops: data.ops }), false, "user", new Date().toISOString())) as {
+          edited: ThemeEdited;
+          files: Rewritten[];
+        };
+        if (!done.edited.applied) return post({ type: "themeEdited", id: data.id, result: done.edited, files: [] });
+        latest++;
+        shown = { index: data.index, format: data.format };
+        // An inline theme is the deck's: its source changes. A theme file's edit leaves it as it is.
+        const next = player.source();
+        return post({ type: "themeEdited", id: data.id, result: done.edited, files: done.files, source: next, edited: await edit(next, data.index, data.format) });
+      }
+      case "writeFiles": {
+        player.writeFiles(JSON.stringify(data.files));
+        if (!data.edit) return post({ type: "filesWritten", id: data.id });
+        latest++;
+        shown = { index: data.edit.index, format: data.edit.format };
+        return post({ type: "filesWritten", id: data.id, edited: await edit(data.edit.source, data.edit.index, data.edit.format) });
       }
       case "ask":
         return await ask(data.id, data.source, data.ask);
@@ -305,6 +442,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "helpers":
         await Promise.all(data.ports.map(join));
         return;
+      case "besides": {
+        besides = data.besides.map(({ format, canvas }) => ({ format, canvas, context: canvas.getContext("2d")! }));
+        besideHeight = Math.max(1, Math.round(data.height));
+        // A frame in flight finishes first: the formats show what the canvas shows.
+        await painting;
+        if (lastPainted) paintBesides(lastPainted.state, lastPainted.t, true);
+        return;
+      }
       case "help":
         return help(data.port);
     }
@@ -312,6 +457,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
     post({ type: "error", id, message: said(e) });
   }
 };
+
+/** Language `code`'s hyphenation patterns, which the editor's module leaves out (ADR-0015). The
+ * engine asks the first time a text hyphenates in it, in the middle of a layout, so they are
+ * fetched at once, as a worker may. The player's module has every language, and never asks. */
+function patterns(code: string): Uint8Array | undefined {
+  const url = hyphenation[code];
+  if (!url) return undefined;
+  const request = new XMLHttpRequest();
+  request.open("GET", url, false);
+  request.responseType = "arraybuffer";
+  try {
+    request.send();
+  } catch {
+    return undefined;
+  }
+  return request.status === 200 ? new Uint8Array(request.response as ArrayBuffer) : undefined;
+}
 
 interface DeckFiles {
   theme: string;
@@ -323,6 +485,7 @@ interface DeckFiles {
 
 async function open(source: Source, painter: Painter, target: OffscreenCanvas, engine?: WebAssembly.Module) {
   await init(engine && { module_or_path: engine });
+  setHyphenation(patterns);
   canvas = target;
   if (painter !== "cpu") {
     // Ask for an adapter before WebGPU takes the canvas: a canvas WebGPU holds takes no other
@@ -343,7 +506,7 @@ async function open(source: Source, painter: Painter, target: OffscreenCanvas, e
   }
   from = source;
   await load(source);
-  slots = timeline();
+  slots = opening();
   [canvas.width, canvas.height] = size();
   gpu?.resize(canvas.width, canvas.height);
   post({ type: "ready", ...opened() });
@@ -573,10 +736,69 @@ async function subsetFonts() {
   }
 }
 
-/** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save needs it:
- * the bundle keeps one (`history/deck.loro`). The engine's module leaves the CRDT out. */
+/** What `export` asks for (PLAN 2.54), each as `scaena export` writes it. The PDF's own
+ * module draws a PDF, loaded the first time one is asked for: the engine's module lays the
+ * pages out and leaves the PDF writer out (SPEC §15). A single file's fonts are subset first,
+ * as a download's are. */
+async function exporting(what: Export): Promise<Uint8Array> {
+  switch (what.kind) {
+    case "png":
+      layOut(what.format);
+      return player.png(what.state, what.width);
+    case "pdf": {
+      const laid = player.pdfLaidOut();
+      const module = await import("@scaena/pdf");
+      await module.default();
+      try {
+        return module.pdf(laid);
+      } catch (e) {
+        // A damaged font can stop krilla: a panic in the module is a trap here.
+        throw new Error(`the PDF could not be drawn (${said(e)}): a font file may be damaged`);
+      }
+    }
+    case "html":
+      await subsetFonts();
+      return new TextEncoder().encode(player.standalone(what.page, what.name));
+  }
+}
+
+/** Where a bundle keeps its history (SPEC §8). */
+const HISTORY = "history/deck.loro";
+
+/** A change as the history's module lists it (PLAN 2.60). */
+interface Change {
+  id: string;
+  author?: string | null;
+  message?: string | null;
+  timestamp: number;
+  ops: number;
+}
+
+/** Versions read, by their ids, the last read last: a version is the deck as it was after one
+ * change, which no later change alters, and its id names that change in any history. */
+const versionsRead = new Map<string, string>();
+
+/** Version `id` of the deck, as the history's module reads it: JSON `{ deck, files }`. */
+async function version(id: string): Promise<string> {
+  const read = versionsRead.get(id);
+  if (read !== undefined) {
+    versionsRead.delete(id);
+    versionsRead.set(id, read);
+    return read;
+  }
+  const module = await history();
+  if (!module) throw new Error("the bundle keeps no history: `scaena save --history` begins one");
+  const held = module.at(player.file(HISTORY)!, id);
+  versionsRead.set(id, held);
+  for (const old of versionsRead.keys()) if (versionsRead.size > 8) versionsRead.delete(old);
+  return held;
+}
+
+/** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save, or the
+ * versions (PLAN 2.60), needs it: the bundle keeps one (`history/deck.loro`). The engine's
+ * module leaves the CRDT out. */
 async function history() {
-  if (!player.files().includes("history/deck.loro")) return undefined;
+  if (!player.files().includes(HISTORY)) return undefined;
   const module = await import("@scaena/history");
   await module.default();
   return module;
@@ -611,7 +833,8 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
 
 /** The assistant's question being answered, to stop. */
 let asking: AbortController | undefined;
-/** Where the editor shows the deck: the slot and format of its last edit. */
+/** Where the editor shows the deck: the slot and format it last showed or edited, where the
+ * assistant's edits are shown. */
 let shown: { index: number; format?: string } = { index: 0 };
 
 /** Ask the assistant `question` about the deck `source` says (PLAN 2.6), which must compile
@@ -625,10 +848,13 @@ async function ask(id: number, source: string, question: Asking) {
   const emit = (event: AssistantEvent) => post({ type: "assistant", id, event });
   // Each edit the assistant makes is compiled, shown, and linted here, as the editor's edit of
   // its source would be, before its next call: the editor takes the source and what the edit
-  // came to, and sends nothing back that the assistant has moved past.
-  const edited = async (source: string) => {
+  // came to, and sends nothing back that the assistant has moved past. With it go the nodes the
+  // question has changed so far, which the editor selects (PLAN 2.52).
+  const before = deckRead();
+  const edited = async (source: string, files: Rewritten[]) => {
     latest++;
-    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format) });
+    const touched = changed(before, deckRead());
+    emit({ kind: "edited", source, edited: await edit(source, shown.index, shown.format), touched, files });
   };
   try {
     await assistant.ask(player, Player.toolNames(), question, emit, edited, stop.signal);
@@ -637,6 +863,39 @@ async function ask(id: number, source: string, question: Asking) {
   } finally {
     if (asking === stop) asking = undefined;
   }
+}
+
+/** The deck, as the assistant's tools read it: what a question's edits are told apart by. */
+interface Read {
+  nodes?: Record<string, unknown>;
+  states?: { id: string; props?: Record<string, unknown> }[];
+  overrides?: Record<string, unknown>;
+}
+
+function deckRead(): Read | undefined {
+  const read = player.tool("deck_read", "{}");
+  try {
+    return read.error ? undefined : (JSON.parse(read.json) as { deck?: Read }).deck;
+  } catch {
+    return undefined;
+  } finally {
+    read.free();
+  }
+}
+
+/** The nodes `now` changes from `was` (PLAN 2.52), in its order: those it adds, and those whose
+ * own props, the deck's overrides of them, or a state's delta for them differ. A state is told
+ * apart by its id; one taken away changes nothing it showed. */
+function changed(was: Read | undefined, now: Read | undefined): string[] {
+  if (!was || !now) return [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const states = new Map((was.states ?? []).map((s) => [s.id, s.props ?? {}]));
+  return Object.keys(now.nodes ?? {}).filter(
+    (node) =>
+      !same(was.nodes?.[node], now.nodes?.[node]) ||
+      !same(was.overrides?.[node], now.overrides?.[node]) ||
+      (now.states ?? []).some((s) => !same(states.get(s.id)?.[node], s.props?.[node])),
+  );
 }
 
 /** The spine as a reader goes through it (SPEC §3.11–3.12): its sections in order, each
@@ -671,6 +930,18 @@ function notes(files: DeckFiles): Map<string, string> {
 function timeline(): Slot[] {
   const all = JSON.parse(player.timeline()) as Slot[];
   return only ? only.flatMap((state) => all.filter((slot) => slot.state === state)) : all;
+}
+
+/** The timeline of a bundle just opened; where the engine cannot lay the deck out to time it, as
+ * when a data file holds a cell its column does not read (E103), each state at an instant. The
+ * editor opens on such a bundle, to mend it (PLAN 2.55), and the player says why when it paints. */
+function opening(): Slot[] {
+  try {
+    return timeline();
+  } catch {
+    const states = player.states();
+    return (only ? only.filter((state) => states.includes(state)) : states).map((state) => ({ state, start: 0, span: 0, hold: 0 }));
+  }
 }
 
 /** The canvas frames are laid out on now, in whole pixels. */
@@ -760,6 +1031,7 @@ async function edit(source: string, index: number, at: string | undefined): Prom
     laid: linted?.laid ?? false,
     whole: linted?.whole ?? true,
     slots,
+    formats: player.formats(),
     at: where,
     ms: { compile: compiledAt - start, paint: paintedAt - compiledAt, lint: lintedAt - paintedAt },
   };
@@ -777,13 +1049,14 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
   let states: string[] | undefined;
   const nodes = [d.node, ...(d.with ?? [])];
   if (d.together) {
-    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does.
-    const { by, free, fork } = d.together;
-    const arranged = arranging(d.state, nodes, { by, free }, fork);
-    snapped = arranged && { cell: arranged.landed[0]?.cell ?? [0, 0, 0, 0], patch: arranged.patch, landed: arranged.landed };
+    // Several, moved together (PLAN 2.42): the first's box lands as a drag of it alone does, and
+    // the box around them meets others (PLAN 2.57).
+    const { by, free, fork, reach } = d.together;
+    const moved = JSON.parse(player.together(d.state, nodes, by[0], by[1], free, fork, reach ?? 0)) as (Arranged & { guides?: Line[] }) | null;
+    snapped = moved && { cell: moved.landed[0]?.cell ?? [0, 0, 0, 0], patch: moved.patch, landed: moved.landed, guides: moved.guides };
   } else if (d.snap) {
     const [x, y, w, h] = d.snap.to;
-    snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork)) as Snapped | null;
+    snapped = JSON.parse(player.snap(d.state, d.node, d.snap.how, x, y, w, h, d.snap.fork, d.snap.reach ?? 0)) as Snapped | null;
   }
   if (d.together || d.snap) {
     states = [];
@@ -798,7 +1071,8 @@ async function drag(d: Extract<ToWorker, { type: "drag" }>): Promise<{ snapped?:
     const [dx, dy] = d.by ?? [0, 0];
     player.setMoving(d.by ? nodes : [], dx, dy);
     player.preview(d.preview && snapped?.patch.length ? JSON.stringify(snapped.patch) : undefined);
-    await paint(d.state, Infinity);
+    // The formats beside show the deck as it is until the drag ends in a patch.
+    await paint(d.state, Infinity, "keep");
   }
   return { snapped, states };
 }
@@ -830,6 +1104,67 @@ async function make(source: string, ops: unknown[], index: number, at: string | 
   return { source: next, edited: await edit(next, index, at) };
 }
 
+/** Compile `source` into the deck a data edit works on (PLAN 2.55), which need not validate: a
+ * cell its column does not read (E103) leaves the deck invalid, and the edit is what fixes it. */
+function compiles(source: string) {
+  if (player.compiledFrom(source)) return;
+  const compiled = JSON.parse(player.compile(source)) as { error?: Finding };
+  if (!compiled.error) return;
+  const where = compiled.error.at ? ` (line ${compiled.error.at.line})` : "";
+  throw new Error(`the source does not compile: ${compiled.error.message}${where}`);
+}
+
+/** The deck `source` compiles to's data sources, and source `name` as a sheet (PLAN 2.55): the
+ * first without it; or why it does not read as one. */
+function sheet(source: string, name: string | undefined): { sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string } {
+  compiles(source);
+  const sources = JSON.parse(player.dataSources()) as DataSource[];
+  const shown = sources.find((s) => s.name === name)?.name ?? sources[0]?.name;
+  if (shown === undefined) return { sources };
+  try {
+    const { sheet, file } = JSON.parse(player.dataSheet(shown)) as { sheet: Sheet; file?: string | null };
+    return { sources, name: shown, sheet, file: file ?? undefined };
+  } catch (e) {
+    return { sources, name: shown, why: said(e) };
+  }
+}
+
+/** `edits` of data source `name`, by the user (PLAN 2.55), on the deck `source` compiles to: one
+ * write of its file, or one patch of rows written inline. Where they wrote, the deck's source
+ * after is compiled, shown at slot `index`, and linted, as an edit of it is. A value its column
+ * does not read is an error that says why; edits the deck refuses say so in what they did. */
+async function dataEdit(
+  source: string,
+  name: string,
+  edits: RowEdit[],
+  index: number,
+  at: string | undefined,
+): Promise<{ result: DataEdited; source?: string; edited?: Edited }> {
+  compiles(source);
+  player.setMoving([], 0, 0);
+  player.preview(undefined);
+  const { result, wrote } = JSON.parse(player.dataEdit(JSON.stringify({ source: name, edits }), "user", new Date().toISOString())) as {
+    result: DataEdited;
+    wrote: boolean;
+  };
+  if (!wrote) return { result };
+  latest++;
+  shown = { index, format: at };
+  const next = player.source();
+  return { result, source: next, edited: await edit(next, index, at) };
+}
+
+/** The last edit of a data file undone, or with `redo` made again (PLAN 2.55): its file written as
+ * it was, by the user, then the deck shown at slot `index` and linted, as an edit is. */
+async function dataUndo(source: string, redo: boolean, index: number, at: string | undefined): Promise<{ name?: string; edited?: Edited }> {
+  compiles(source);
+  const name = redo ? player.dataRedo("user", new Date().toISOString()) : player.dataUndo("user", new Date().toISOString());
+  if (name === undefined) return {};
+  latest++;
+  shown = { index, format: at };
+  return { name, edited: await edit(player.source(), index, at) };
+}
+
 /** Make `ops`, text typed on the editor's canvas (PLAN 2.32), by the user, on the deck `source`
  * compiles to, which must validate: validated as a patch is, but not linted. The deck's source
  * after is compiled, shown at slot `index`, and linted, as an edit of it is. */
@@ -855,9 +1190,15 @@ let viewing: Float32Array | null | undefined;
  * for its shaders at a time, and a reload waits for it before it lets the engine go. */
 let painting: Promise<void> = Promise.resolve();
 
-/** `state` `t` ms into its cue, on the canvas, sized to the format first. Past its span, it
- * is at rest; its shaders keep the timeline's time (SPEC §3.8). */
-async function paint(state: string, t: number) {
+/** How a frame of the canvas takes the formats beside it along (PLAN 2.62): `paint`ed with it,
+ * at the `pace` `BESIDE_MS` allows while a cue plays, or `keep`ing what they show, where only the
+ * canvas changes (a drag, a zoom). */
+type Beside = "paint" | "pace" | "keep";
+
+/** `state` `t` ms into its cue, on the canvas, sized to the format first, then in each format
+ * beside it as `beside` says. Past its span, it is at rest; its shaders keep the timeline's time
+ * (SPEC §3.8). */
+async function paint(state: string, t: number, beside: Beside = "paint") {
   lastPainted = { state, t };
   const [width, height] = size();
   if (canvas.width !== width || canvas.height !== height) {
@@ -865,16 +1206,52 @@ async function paint(state: string, t: number) {
     gpu?.resize(width, height);
   }
   if (viewing !== undefined) player.setView(viewing);
-  if (gpu) return player.paint(gpu, state, t);
+  if (gpu) {
+    player.paint(gpu, state, t);
+    if (beside !== "keep") paintBesides(state, t, beside === "paint");
+    return;
+  }
   const before = painting;
   let done = () => {};
   painting = new Promise((resolve) => (done = resolve));
   try {
     await before;
     await painted(player, state, t, width);
+    if (beside !== "keep") paintBesides(state, t, beside === "paint");
   } finally {
     done();
   }
+}
+
+/** The formats painted beside the canvas (PLAN 2.62): each its own canvas, the deck's own
+ * canvas where `format` is unset, all `besideHeight` pixels high. */
+let besides: { format?: string; canvas: OffscreenCanvas; context: OffscreenCanvasRenderingContext2D }[] = [];
+let besideHeight = 1;
+/** When they were last painted, by the worker's clock. */
+let besidesAt = -Infinity;
+/** How often they are painted at most while a cue plays: the canvas's own frames come first. */
+const BESIDE_MS = 1000 / 30;
+
+/** `state` `t` ms into its cue in each format beside the canvas, as the canvas would show it
+ * there, by the CPU painter (`Player.pixelsIn`): each format lays a state out once. `force`: this
+ * frame, however soon after the last; else none sooner than `BESIDE_MS` after it. A format the
+ * deck cannot be drawn in keeps what it showed. */
+function paintBesides(state: string, t: number, force: boolean) {
+  if (!besides.length) return;
+  const now = performance.now();
+  if (!force && now - besidesAt < BESIDE_MS) return;
+  besidesAt = now;
+  for (const { format, canvas, context } of besides) {
+    try {
+      const pixels = player.pixelsIn(format, state, t, besideHeight);
+      const width = pixels.length / 4 / besideHeight;
+      if (canvas.width !== width || canvas.height !== besideHeight) [canvas.width, canvas.height] = [width, besideHeight];
+      context.putImageData(new ImageData(pixels as Uint8ClampedArray<ArrayBuffer>, width, besideHeight), 0, 0);
+    } catch (e) {
+      console.warn(`the ${format ?? "deck's own"} format could not be drawn: ${said(e)}`);
+    }
+  }
+  post({ type: "besides", state, t });
 }
 
 /** The workers a shader's rows are spread over, this one among them (PLAN 2.28): the cores the
@@ -1033,7 +1410,8 @@ function run(index: number, t: number, run: number, still = false, alone = false
     if (rested !== index) {
       const began = performance.now();
       try {
-        await paint(slot.state, shown);
+        // The formats beside the canvas follow it as often as they can, and come to rest with it.
+        await paint(slot.state, shown, playing ? "pace" : "paint");
       } catch (e) {
         return post({ type: "error", message: said(e) });
       }

@@ -37,7 +37,7 @@ async fn ok(client: &Client, tool: &str, args: Value) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn scaena_mcp_serves_on_stdio_until_the_client_goes() {
     let (client, mut child) = serve().await;
-    assert_eq!(client.list_all_tools().await.unwrap().len(), 13);
+    assert_eq!(client.list_all_tools().await.unwrap().len(), 16);
     let spine = ok(&client, "spine_read", json!({ "bundle": "../../docs/examples/revenue.deck.json" })).await;
     assert_eq!(spine["title"], "Q3 Review");
     client.cancel().await.unwrap();

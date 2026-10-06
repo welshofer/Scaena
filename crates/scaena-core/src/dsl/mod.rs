@@ -8,6 +8,7 @@
 mod lex;
 mod parse;
 mod print;
+pub(crate) use print::whole;
 
 use crate::document::Deck;
 use crate::model::check::Checker;

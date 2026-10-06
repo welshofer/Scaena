@@ -1,6 +1,6 @@
 # ADR-0008: A child names its container; containers lay out with `taffy`
 
-**Status:** proposed · **Date:** 2026-10-02
+**Status:** proposed · **Date:** 2026-10-02 · **Amended:** 2026-10-02 (PLAN 1.9: a table takes its rows in a stack, as text takes its lines)
 
 ## Context
 
@@ -21,11 +21,12 @@ Three spellings of one fact can disagree, and an agent has to keep them in step.
 2. **`children` and the node-level `parent` are removed.** That is deck format 0.4, and every document in the repository moves with it. The engine never read either, so no frame changes.
 3. **Within a container, `at` places in the container's terms.** In a grid container, `at.area` or `at.col`/`at.row` are the container's own tracks. In a frame, `at.rect` is measured from its padding edge. A stack places its children itself. A group lays nothing out: its children are placed on the slide by the rest of their `at`, then drawn together.
 4. **`taffy` lays containers out, once per snapshot** (SPEC §5).
-   - The engine builds one tree per root container. It measures text with parley and images by the part of the picture they show.
+   - The engine builds one tree per root container. It measures text with parley, images by the part of the picture they show, and tables by their rows and columns as set.
    - Positions are not rounded to whole canvas units, as the theme grid's are not.
    - taffy's layout uses only IEEE add, multiply, divide, and min/max, so the boxes are the same bits on every platform. The display-list goldens and their digests hold this, on macOS and on Linux.
 5. **Defaults follow content, not CSS's `auto` alone.**
-   - In a stack, text and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders have no size of their own, so they share the room that is left. Everything stretches across the stack.
+   - In a stack, text, tables, and images take the room their content needs, and containers wrap theirs. Shapes, charts, and shaders have no size of their own, so they share the room that is left. Everything stretches across the stack.
+   - A table asks for no more room than it is offered and needs none of it, where CSS's automatic minimum would keep its rows. Short of room, it takes what is left and says what to cut (E100 for rows), instead of pushing what follows past the stack's end.
    - A root fills the box `at` gives it unless its `size` says otherwise, which is what every node did before containers.
    - Text in a row stack stays the row's height. So `align: { y: "baseline" }` puts a row's last baselines on one line: a big figure and its label line up typographically, which CSS's `align-items: baseline` does only for first baselines.
 6. **Panels and paint order.**

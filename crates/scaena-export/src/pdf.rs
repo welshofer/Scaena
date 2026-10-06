@@ -47,6 +47,7 @@ use scaena_core::document::Section;
 use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU16;
@@ -80,6 +81,112 @@ impl Default for PdfSettings {
     }
 }
 
+/// A deck's pages laid out for a PDF (PLAN 2.54): the deck, each page's state and frame, and the
+/// bytes of the fonts and images the frames name. Where no engine is, as in the PDF's own module
+/// in the browser, [`prepared`] draws it: the editor's module lays the pages out, and hands this
+/// over as bytes ([`Prepared::to_bytes`]).
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    pub deck: Deck,
+    pub pages: Vec<Page>,
+    /// Font files, by the id the frames name each by.
+    pub fonts: BTreeMap<String, Vec<u8>>,
+    /// PNG files, by their content id.
+    pub images: BTreeMap<String, Vec<u8>>,
+}
+
+/// What [`Prepared::to_bytes`] begins with.
+const PREPARED: &[u8; 4] = b"SPDF";
+
+/// [`Prepared`]'s header, as JSON: the deck, and each page's state, then each font's id and
+/// each image's, each with the length of its bytes.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Header {
+    deck: String,
+    pages: Vec<(String, usize)>,
+    fonts: Vec<(String, usize)>,
+    images: Vec<(String, usize)>,
+}
+
+impl Prepared {
+    /// As bytes: `SPDF`; the length of a JSON header, four bytes, little-endian; the header,
+    /// which holds the deck, and each page's state and each file's id, each with the length of
+    /// its bytes; then each page's frame (postcard, as the engine's module hands frames over),
+    /// each font's bytes, and each image's, in the header's order.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ExportError> {
+        let bad = |e: &dyn std::fmt::Display| ExportError::Pdf(e.to_string());
+        let deck = self.deck.to_json().map_err(|e| bad(&e))?;
+        let lists: Vec<Vec<u8>> =
+            (self.pages.iter()).map(|p| p.list.to_postcard()).collect::<Result<_, _>>().map_err(|e| bad(&e))?;
+        let pages = self.pages.iter().zip(&lists).map(|(p, list)| (p.state.clone(), list.len())).collect();
+        let sized = |files: &BTreeMap<String, Vec<u8>>| files.iter().map(|(id, b)| (id.clone(), b.len())).collect();
+        let header = Header { deck, pages, fonts: sized(&self.fonts), images: sized(&self.images) };
+        let header = serde_json::to_vec(&header).map_err(|e| bad(&e))?;
+        let length = u32::try_from(header.len()).map_err(|_| bad(&"the deck is over 4 GB as JSON"))?;
+        let blobs: Vec<&[u8]> = (lists.iter().map(Vec::as_slice))
+            .chain(self.fonts.values().map(Vec::as_slice))
+            .chain(self.images.values().map(Vec::as_slice))
+            .collect();
+        let mut out = Vec::with_capacity(8 + header.len() + blobs.iter().map(|b| b.len()).sum::<usize>());
+        out.extend_from_slice(PREPARED);
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&header);
+        for blob in blobs {
+            out.extend_from_slice(blob);
+        }
+        Ok(out)
+    }
+
+    /// From [`Prepared::to_bytes`]' bytes; any others are an error that says why.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Prepared, ExportError> {
+        let bad = |why: &str| ExportError::Pdf(format!("not a deck laid out for a PDF: {why}"));
+        let rest = bytes.strip_prefix(PREPARED).ok_or_else(|| bad("it does not begin `SPDF`"))?;
+        let (length, rest) = rest.split_first_chunk::<4>().ok_or_else(|| bad("it ends early"))?;
+        let length = u32::from_le_bytes(*length) as usize;
+        let (header, mut blobs) = rest.split_at_checked(length).ok_or_else(|| bad("its header ends early"))?;
+        let header: Header = serde_json::from_slice(header).map_err(|e| bad(&e.to_string()))?;
+        let deck = Deck::from_json(&header.deck).map_err(|e| bad(&e.to_string()))?;
+        let mut take = |what: &str, n: usize| -> Result<&[u8], ExportError> {
+            let (blob, next) = blobs.split_at_checked(n).ok_or_else(|| bad(&format!("{what} ends early")))?;
+            blobs = next;
+            Ok(blob)
+        };
+        let mut pages = Vec::with_capacity(header.pages.len());
+        for (state, n) in header.pages {
+            let list = DisplayList::from_postcard(take(&format!("`{state}`'s frame"), n)?)
+                .map_err(|e| bad(&format!("`{state}`'s frame: {e}")))?;
+            pages.push(Page { state, list });
+        }
+        let mut files = |sized: Vec<(String, usize)>| -> Result<BTreeMap<String, Vec<u8>>, ExportError> {
+            let mut taken = BTreeMap::new();
+            for (id, n) in sized {
+                let file = take(&format!("`{id}`"), n)?.to_vec();
+                taken.insert(id, file);
+            }
+            Ok(taken)
+        };
+        let fonts = files(header.fonts)?;
+        let images = files(header.images)?;
+        if !blobs.is_empty() {
+            return Err(bad(&format!("it goes on past its last file ({} B)", blobs.len())));
+        }
+        Ok(Prepared { deck, pages, fonts, images })
+    }
+}
+
+/// `prepared` as a tagged PDF: [`pdf`], drawing from the fonts and images it carries.
+pub fn prepared(prepared: &Prepared, settings: &PdfSettings) -> Result<Vec<u8>, ExportError> {
+    let mut assets = Assets::new();
+    for (id, bytes) in &prepared.fonts {
+        assets.insert_font(id, bytes.clone());
+    }
+    for (id, bytes) in &prepared.images {
+        assets.insert_image(id, bytes).map_err(|e| ExportError::Pdf(format!("{id}: {e}")))?;
+    }
+    pdf(&prepared.deck, &prepared.pages, &assets, settings)
+}
+
 /// `deck` as a tagged PDF of `pages`, in order, drawing from `assets`. krilla reads each font
 /// with a reader of its own and subsets it as the document finishes, and neither expects a
 /// damaged font: a panic in either is an error that says so (PLAN 2.25).
@@ -97,6 +204,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let snapshots = scaena_core::resolve_states(deck).map_err(|e| ExportError::Pdf(e.to_string()))?;
     let mut document = Document::new_with(SerializeSettings::default());
     let mut fonts = Fonts::default();
+    let mut photos = HashMap::new();
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
     for page in pages {
         let dl = &page.list;
@@ -121,6 +229,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             quality: settings.shader_quality,
             readings: &readings,
             page: KRect::from_xywh(0.0, 0.0, w, h),
+            photos: &mut photos,
             error: None,
         };
         let nodes = cx.read(&dl.ops, Affine::scale(f64::from(scale)));
@@ -214,6 +323,8 @@ struct Cx<'a, 's> {
     readings: &'a HashMap<String, Reading>,
     /// The page, in points: what its background covers.
     page: Option<KRect>,
+    /// Each photo as the document carries it, by its id and whether it is filtered: made once.
+    photos: &'a mut HashMap<(String, bool), Image>,
     /// The first thing that did not draw. Drawing goes on past it, so that every push
     /// is popped and every tagged section ended.
     error: Option<ExportError>,
@@ -486,14 +597,35 @@ impl Cx<'_, '_> {
         self.fonts.get(self.assets, font, coords)
     }
 
-    /// The `src` part of image `asset` drawn into `dst`, clipped to it.
+    /// The `src` part of image `asset` drawn into `dst`, clipped to it. A photo goes in as its
+    /// own JPEG, what it says beyond its picture left out, turned as it is seen (ADR-0017); any
+    /// other image, as its pixels.
     fn image(&mut self, asset: &str, src: [f32; 4], dst: [f32; 4], quality: Quality) -> Result<(), ExportError> {
         let picture = self.assets.image(asset).map_err(|e| ExportError::Pdf(e.to_string()))?;
-        let image = Image::from_custom(Pixels::of_picture(asset, picture), quality == Quality::High)
-            .map_err(ExportError::Pdf)?;
-        let (Some(clip), Some(size)) =
-            (path(&Path::rect(dst)), Size::from_wh(picture.width as f32, picture.height as f32))
-        else {
+        let filtered = quality == Quality::High;
+        let (image, size, turn) = match &picture.jpeg {
+            Some(jpeg) => {
+                let key = (asset.to_string(), filtered);
+                let image = match self.photos.get(&key) {
+                    Some(image) => image.clone(),
+                    None => {
+                        let bare = scaena_core::jpeg::stripped(jpeg.bytes.data())
+                            .map_err(|e| ExportError::Pdf(format!("{asset}: {e}")))?;
+                        let image = Image::from_jpeg(bare.into(), filtered).map_err(ExportError::Pdf)?;
+                        self.photos.insert(key, image.clone());
+                        image
+                    }
+                };
+                let (w, h) = (jpeg.width as f32, jpeg.height as f32);
+                (image, Size::from_wh(w, h), turned(jpeg.orientation, w, h))
+            }
+            None => {
+                let image =
+                    Image::from_custom(Pixels::of_picture(asset, picture), filtered).map_err(ExportError::Pdf)?;
+                (image, Size::from_wh(picture.width as f32, picture.height as f32), Transform::identity())
+            }
+        };
+        let (Some(clip), Some(size)) = (path(&Path::rect(dst)), size) else {
             return Ok(());
         };
         let [sx, sy, sw, sh] = src;
@@ -501,7 +633,9 @@ impl Cx<'_, '_> {
         let (kx, ky) = (dw / sw, dh / sh);
         self.surface.push_clip_path(&clip, &KRule::NonZero);
         self.surface.push_transform(&Transform::from_row(kx, 0.0, 0.0, ky, dx - sx * kx, dy - sy * ky));
+        self.surface.push_transform(&turn);
         self.surface.draw_image(image, size);
+        self.surface.pop();
         self.surface.pop();
         self.surface.pop();
         Ok(())
@@ -527,6 +661,21 @@ impl Cx<'_, '_> {
         self.surface.pop();
         self.surface.pop();
         Ok(())
+    }
+}
+
+/// What turns a JPEG stored `w` × `h` to be seen by EXIF orientation `o`: the stored picture's
+/// space onto the space of the picture as seen, which is `h` × `w` where `o` turns it a quarter.
+fn turned(o: u8, w: f32, h: f32) -> Transform {
+    match o {
+        2 => Transform::from_row(-1.0, 0.0, 0.0, 1.0, w, 0.0),
+        3 => Transform::from_row(-1.0, 0.0, 0.0, -1.0, w, h),
+        4 => Transform::from_row(1.0, 0.0, 0.0, -1.0, 0.0, h),
+        5 => Transform::from_row(0.0, 1.0, 1.0, 0.0, 0.0, 0.0),
+        6 => Transform::from_row(0.0, 1.0, -1.0, 0.0, h, 0.0),
+        7 => Transform::from_row(0.0, -1.0, -1.0, 0.0, h, w),
+        8 => Transform::from_row(0.0, -1.0, 1.0, 0.0, 0.0, w),
+        _ => Transform::identity(),
     }
 }
 

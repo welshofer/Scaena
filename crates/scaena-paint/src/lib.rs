@@ -44,6 +44,8 @@ pub enum PaintError {
     Size(f32, f32),
     #[error("png: {0}")]
     Png(String),
+    #[error("jpeg: {0}")]
+    Jpeg(String),
     #[error("cannot compare a {}×{} raster with a {}×{} one", a.0, a.1, b.0, b.1)]
     Mismatch { a: (u32, u32), b: (u32, u32) },
     #[error("gpu: {0}")]
@@ -69,15 +71,27 @@ pub struct Assets {
     images: BTreeMap<String, Arc<Picture>>,
 }
 
-/// A decoded image: straight (unpremultiplied) sRGB RGBA8, row-major.
+/// A decoded image: straight (unpremultiplied) sRGB RGBA8, row-major, as it is seen.
 #[derive(Debug)]
 pub struct Picture {
     pub width: u32,
     pub height: u32,
     pub rgba: Blob<u8>,
+    /// A JPEG's own file, for an export that carries the file and not its pixels (a PDF).
+    pub jpeg: Option<Jpeg>,
     /// Premultiplied, as `vello_cpu` paints it; made on first use.
     #[cfg(feature = "cpu")]
     pixmap: std::sync::OnceLock<Arc<vello_cpu::Pixmap>>,
+}
+
+/// A JPEG as its file holds it (ADR-0017): its bytes, its size as stored, and the EXIF
+/// orientation that turns it to be seen.
+#[derive(Debug, Clone)]
+pub struct Jpeg {
+    pub bytes: Blob<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub orientation: u8,
 }
 
 impl Assets {
@@ -90,8 +104,8 @@ impl Assets {
         self.blobs.insert(id.to_string(), Blob::new(Arc::new(bytes)));
     }
 
-    /// Decode the PNG `bytes` and keep it under `id`, the content id display lists name
-    /// it by (`sha256:…`). Images are PNG in v1 (SPEC §3.3).
+    /// Decode the PNG or JPEG `bytes` and keep it under `id`, the content id display lists
+    /// name it by (`sha256:…`, SPEC §3.3).
     pub fn insert_image(&mut self, id: &str, bytes: &[u8]) -> Result<(), PaintError> {
         self.images.insert(id.to_string(), Arc::new(Picture::decode(bytes)?));
         Ok(())
@@ -110,9 +124,14 @@ impl Assets {
 }
 
 impl Picture {
-    /// A PNG, expanded to 8-bit RGBA: palettes and gray to color, 16 bits to 8, a
-    /// missing alpha to opaque. Color profiles are not applied: pixels are sRGB.
+    /// A PNG or a JPEG, as 8-bit RGBA. A PNG is expanded: palettes and gray to color, 16 bits
+    /// to 8, a missing alpha to opaque. A JPEG is decoded by `scaena_core::jpeg`, in integers,
+    /// the same pixels on every target, and turned by its EXIF orientation (ADR-0017). Color
+    /// profiles are not applied: pixels are sRGB.
     pub fn decode(bytes: &[u8]) -> Result<Picture, PaintError> {
+        if scaena_core::jpeg::is_jpeg(bytes) {
+            return Picture::jpeg(bytes);
+        }
         let bad = |e: png::DecodingError| PaintError::Png(e.to_string());
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
@@ -136,6 +155,26 @@ impl Picture {
             width: info.width,
             height: info.height,
             rgba: Blob::new(Arc::new(rgba)),
+            jpeg: None,
+            #[cfg(feature = "cpu")]
+            pixmap: std::sync::OnceLock::new(),
+        })
+    }
+
+    fn jpeg(bytes: &[u8]) -> Result<Picture, PaintError> {
+        let bad = |e: scaena_core::jpeg::JpegError| PaintError::Jpeg(e.to_string());
+        let header = scaena_core::jpeg::Header::read(bytes).map_err(bad)?;
+        let seen = scaena_core::jpeg::decode(bytes).map_err(bad)?;
+        Ok(Picture {
+            width: seen.width,
+            height: seen.height,
+            rgba: Blob::new(Arc::new(seen.rgba)),
+            jpeg: Some(Jpeg {
+                bytes: Blob::new(Arc::new(bytes.to_vec())),
+                width: header.width,
+                height: header.height,
+                orientation: header.orientation,
+            }),
             #[cfg(feature = "cpu")]
             pixmap: std::sync::OnceLock::new(),
         })
@@ -204,6 +243,31 @@ mod picture_tests {
             assert_eq!((p.width, p.height), (1, 1), "{name}");
             assert_eq!(p.rgba.data(), expect(name), "{name}");
         }
+    }
+
+    /// A JPEG is decoded as it is seen (ADR-0017): turned by its EXIF orientation, its file
+    /// kept for a PDF to carry; one this decoder cannot read is an error that says why.
+    #[test]
+    fn a_jpeg_decodes_as_it_is_seen() {
+        let fixture = |name: &str| std::fs::read(format!("../../tests/fixtures/jpeg/{name}")).unwrap();
+        let stored = Picture::decode(&fixture("baseline-420.jpg")).unwrap();
+        let turned = Picture::decode(&fixture("orientation-6.jpg")).unwrap();
+        assert_eq!((stored.width, stored.height), (67, 45));
+        assert_eq!((turned.width, turned.height), (45, 67));
+        let jpeg = turned.jpeg.as_ref().unwrap();
+        assert_eq!((jpeg.width, jpeg.height, jpeg.orientation), (67, 45, 6));
+        assert!(stored.jpeg.as_ref().is_some_and(|j| j.orientation == 1));
+        // Turned a quarter clockwise, the stored picture's top-left corner, a yellow square, is
+        // seen at the top right.
+        let at = |p: &Picture, x: u32, y: u32| {
+            let i = ((y * p.width + x) * 4) as usize;
+            p.rgba.data()[i..i + 4].to_vec()
+        };
+        let yellow = |px: Vec<u8>| px[0] > 200 && px[1] > 200 && px[2] < 90;
+        assert!(yellow(at(&stored, 1, 1)), "{:?}", at(&stored, 1, 1));
+        assert!(yellow(at(&turned, 43, 1)), "{:?}", at(&turned, 43, 1));
+        let Err(PaintError::Jpeg(e)) = Picture::decode(&fixture("cmyk.jpg")) else { panic!("decoded a CMYK JPEG") };
+        assert!(e.contains("CMYK"), "{e}");
     }
 
     #[test]

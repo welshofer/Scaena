@@ -141,7 +141,7 @@ pub fn reach(deck: &Deck, files: &dyn BundleFiles, ops: &[Value]) -> Result<Vec<
 /// The states of `after` that show otherwise than the same state of `before`, and those
 /// `before` does not have, in `after`'s order: its nodes, resolved with the overrides, or its
 /// layout; or how it comes in and holds, its own transition, choreography, hold, and notes.
-fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsError> {
+pub(crate) fn changed(before: &Deck, after: &Deck) -> Result<Vec<String>, OpsError> {
     let was = scaena_core::resolve_states(before).context("tracking")?;
     let is = scaena_core::resolve_states(after).context("tracking")?;
     let own = |deck: &Deck, id: &str| {

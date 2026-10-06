@@ -31,6 +31,10 @@
 //! | `video_gpu` | the same, painted by vello on the GPU, each frame while the ones before it are read back (`--features gpu`, an adapter) | ≥ 2× realtime |
 //! | `probe/cpu` | sort a fixed list: how fast the machine is, not the code | — |
 //!
+//! The decks are read from this checkout, or, where `SCAENA_BENCH_DECKS` names a directory,
+//! from that one, laid out as the repository's root. CI times a pull request's build on its
+//! base's decks, so the two builds run the same work.
+//!
 //! SPEC's CPU paint budget is for 8 threads. The painter paints a frame on one; the video
 //! stage paints its frames on every core.
 
@@ -57,6 +61,14 @@ const DECKS: [(&str, &str); 4] = [
     ("b3", "tests/bench/b3.scaena"),
     ("b4", "tests/fixtures/torture.scaena"),
 ];
+
+/// The directory the decks' paths are under: `SCAENA_BENCH_DECKS`, or this checkout's root.
+fn root() -> PathBuf {
+    match std::env::var_os("SCAENA_BENCH_DECKS") {
+        Some(dir) => PathBuf::from(dir),
+        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+    }
+}
 
 /// Frames sampled from each cue, and a video's frames a second.
 const FRAMES: u32 = 60;
@@ -87,7 +99,7 @@ struct Deck {
 
 impl Deck {
     fn open(name: &'static str, rel: &str) -> Deck {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+        let path = root().join(rel);
         let bundle = Bundle::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let theme = scaena_ops::theme(&bundle).unwrap();
         let data = scaena_ops::lint::data_files(&bundle).unwrap();

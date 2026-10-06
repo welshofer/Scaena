@@ -143,6 +143,15 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
     for node in &state.scene.nodes {
         let opacity = f64::from(node.opacity) * composite(&node.id);
         let at = |cell: &[f32; 4], o: [f32; 2]| [cell[0] + o[0], cell[1] + o[1]];
+        // Where its transform and its containers' draw it (SPEC §3.3): each run over the
+        // pixels around it there, at the size it is drawn.
+        let map = state.scene.posed(&node.id, true);
+        let moved = map != [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let scale = scaena_core::pose::stretch(&map)[1] as f32;
+        // Flattened to a line or a point, it sets nothing to read.
+        if moved && scaena_core::pose::invert(&map).is_none() {
+            continue;
+        }
         // Each text the node sets: where, at what opacity of its own, and in a chart,
         // what it is for.
         let placed: Vec<(&TextLayout, [f32; 2], f32, Option<ChartText>)> = match &node.content {
@@ -162,7 +171,8 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
         for (t, origin, own, part) in placed {
             let said = part.map(|_| t.text.replace('\u{AD}', ""));
             for (rect, color, size) in runs(t, origin) {
-                let px = size * screen;
+                let rect = if moved { scaena_core::pose::bounds(&map, rect) } else { rect };
+                let px = size * scale * screen;
                 let [r, g, b, a] = color.0.map(|c| f64::from(c) / 255.0);
                 out.push(Run {
                     subject: (node.id.clone(), part),
