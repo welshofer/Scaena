@@ -133,7 +133,7 @@ pub struct Session {
     /// What the layout rules found in every state the last time they ran on all of them:
     /// kept for the states a lint of one state does not lay out.
     #[cfg(feature = "editor")]
-    laid: Vec<scaena_core::Finding>,
+    laid: editor::Laid,
     /// Fonts subset by the page's subsetter for a save, by path: the characters each keeps,
     /// and its bytes (PLAN 2.4).
     #[cfg(feature = "editor")]
@@ -231,7 +231,7 @@ impl Session {
             #[cfg(feature = "editor")]
             edit: None,
             #[cfg(feature = "editor")]
-            laid: Vec::new(),
+            laid: editor::Laid::default(),
             #[cfg(feature = "editor")]
             subsets: BTreeMap::new(),
             #[cfg(feature = "editor")]
@@ -1519,7 +1519,8 @@ impl Player {
 
     /// Lint the deck compiled last, laid out by this engine: `{ findings, laid, whole }`.
     /// With `state`, the layout rules run on that state alone, the one being edited, and
-    /// the other states keep what they found when they last ran on every state.
+    /// the other states keep what they found when they last ran on every state, in the
+    /// formats the deck still lists, each while it has every node it had then.
     pub fn lint(&mut self, state: Option<String>) -> Result<String, JsError> {
         serde_json::to_string(&self.0.lint(state.as_deref()).map_err(js)?).map_err(js)
     }
