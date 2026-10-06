@@ -109,6 +109,12 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - A donut's slice offers its highlight alone.
   - Click a callout, a rule, or a band to select it. Drag a callout to another bar, double-click it to change what it says, or press Delete to take it away.
   - Each is one edit, written where the chart's annotations are: on the chart, or in the state that changes them. Check **only in** in the inspector, or hold Alt as you drag, to keep it to this state. In the source, they are the chart's `annotations`.
+- **A shape's points and corners.** Select a line, an arrow, or a polygon, and each of its points has a handle, with a smaller one at each edge's middle. A line that gives no points shows the two it draws, across its box.
+  - Drag a point to move it. It stays inside the shape's box, at a hundredth of the box.
+  - Click an edge's middle to add a point there, or drag from it to put the new point where you let go.
+  - Click a point to pick it, and press Delete to take it away. A line or an arrow keeps two points, and a polygon three; the status says so.
+  - A rectangle has a handle inside its top-left corner. Drag it in to round the corners, or out to square them. It snaps to the theme's radius steps, `radius.0`, `radius.1`, and so on, and the status names the step.
+  - Each is one edit, written where the shape's `points` or `radius` are: on the shape, or in the state that changes them. Hold Alt as you drag, or check **only in**, to keep it to this state. Escape leaves the shape as it was.
 - **Files.** The Files tab lists what your bundle holds besides the deck: its images, fonts, and data files, each with its size, what in the deck names it, and the objects drawn from it, slide by slide. Click an object there to go to the first slide that shows it, selected.
   - Drag an image from the list onto an image on the slide to show it there instead, or onto an empty spot to add it there. **Insert** adds it where you last clicked the slide. Drop it on the source and its path goes there. Each is one ⌘Z.
   - A file nothing names says so. **Remove** takes it out of the bundle, and the deck looks the same. Undo puts it back, and the next save takes it out where the bundle is kept. A file something names stays, and the status says what names it.

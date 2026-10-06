@@ -200,6 +200,7 @@ web-smoke: site
     node web/rows.mjs
     node web/keys.mjs
     node web/annotate.mjs
+    node web/points.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs

@@ -79,6 +79,13 @@
       #overlay .band-from { fill: rgb(156 196 228 / 0.2); stroke: var(--info); stroke-width: 2; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
       #overlay .noted { fill: none; stroke: var(--info); stroke-width: 2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
       #overlay .note-carried { fill: none; stroke: var(--info); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+      /* A shape's points and corners (PLAN 2.68): a point's handle, one picked, an edge's middle, a
+         rect's corner, and the outline a drag leaves. */
+      #overlay .handle.point { cursor: move; }
+      #overlay .handle.point.picked { fill: var(--info); }
+      #overlay .handle.add { fill: var(--info); fill-opacity: 0.5; cursor: copy; }
+      #overlay .handle.corner { cursor: nwse-resize; }
+      #overlay .reshape { fill: none; stroke: var(--info); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
       input.note-words {
         position: fixed; transform: translate(-50%, calc(-100% - 6px)); z-index: 30; min-width: 16em;
         font: inherit; padding: 4px 6px; border: 1px solid var(--info); border-radius: 4px; background: var(--panel); color: var(--ink);

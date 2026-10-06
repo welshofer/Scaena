@@ -488,3 +488,40 @@ fn a_drag_moves_a_node_and_what_it_holds_and_nothing_else() {
     // Not there: the frame as it was.
     assert_eq!(scene.moved(time, &["nowhere"], by), still);
 }
+
+/// A shape's outline as a pointer edits it (PLAN 2.68), on the `shapes` case: a polygon's
+/// points as written, a line's two across its box's middle where it gives none, an arrow's,
+/// and a rect's corners at the theme's radius step, each step clamped to half its shorter side.
+#[test]
+fn a_shapes_outline_is_its_points_and_its_corners() {
+    let scene = at_rest("shapes", None);
+    let (_, theme, _) = torture();
+    let boxes = scene.boxes();
+
+    let tri = scene.outline("shape-tri", &theme).unwrap();
+    assert_eq!((tri.kind, tri.fewest, tri.radius), ("polygon", 3, None));
+    assert_eq!(tri.points, [[0.5, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+    assert_eq!(tri.rect, find(&boxes, "shape-tri").rect);
+    assert!(tri.radii.is_empty());
+
+    let rule = scene.outline("shape-rule", &theme).unwrap();
+    assert_eq!((rule.kind, rule.fewest), ("line", 2));
+    assert_eq!(rule.points, [[0.0, 0.5], [1.0, 0.5]]);
+
+    let arrow = scene.outline("shape-arrow", &theme).unwrap();
+    assert_eq!((arrow.kind, arrow.points.as_slice()), ("arrow", [[0.0, 1.0], [1.0, 0.0]].as_slice()));
+
+    let panel = scene.outline("shape-panel", &theme).unwrap();
+    let half = panel.rect[2].min(panel.rect[3]) / 2.0;
+    assert_eq!(panel.kind, "rect");
+    assert_eq!(panel.radii, [0.0, 4.0, 8.0, 16.0, 32.0, half.min(999.0)]);
+    assert_eq!(panel.radius, Some(16.0));
+    let pill = scene.outline("shape-pill", &theme).unwrap();
+    assert_eq!(pill.radius, Some(pill.rect[2].min(pill.rect[3]) / 2.0), "radius.5 is a pill");
+
+    assert_eq!(scene.outline("shape-ring", &theme).unwrap().kind, "ellipse");
+    // What is no shape, or not drawn, has none.
+    assert!(scene.outline("nowhere", &theme).is_none());
+    let text = scene.nodes.iter().find(|n| !matches!(n.content, scaena_engine::sample::Content::Shape(_))).unwrap();
+    assert!(scene.outline(&text.id, &theme).is_none());
+}

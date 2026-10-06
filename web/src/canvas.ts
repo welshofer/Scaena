@@ -61,7 +61,7 @@
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
 import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
-import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Rect, SnapMode, Snapped, Targets } from "./protocol";
+import type { Added, Arrange, DataMark, Edited, Finding, Grid, Insert, Look, Map6, NodeBox, NoteMark, Outline, Rect, SnapMode, Snapped, Targets } from "./protocol";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
@@ -84,6 +84,11 @@ export const canvasKeys = (): Key[] => [
   { keys: "Drag the round handle", label: "Turn it", group: "Move and resize" },
   { keys: `${SHIFT}Drag the round handle`, label: "Turn it by 15°", group: "Move and resize" },
   { keys: "Escape", label: "Cancel the drag, the turn, or the drawing under way", group: "Move and resize" },
+  { keys: "Drag a point of the shape selected", label: "Move it within the shape's box: a line's, an arrow's, or a polygon's", group: "Points and corners" },
+  { keys: `${ALT}Drag a point`, label: "Keep the move to the state shown", group: "Points and corners" },
+  { keys: "Click an edge's middle", label: "Add a point there; a drag from it places the point", group: "Points and corners" },
+  { keys: "Click a point, then Delete", label: "Take it away, though never below the two or three its kind keeps", group: "Points and corners" },
+  { keys: "Drag a rect's corner", label: "Round its corners to the theme's radius steps", group: "Points and corners" },
   { keys: "Double-click a text", label: "Type in it where it was clicked", group: "Type" },
   { keys: `${ALT}Double-click, ${ALT}Enter`, label: "Type in it, what is typed kept to the state shown", group: "Type" },
   { keys: "Space Drag, Wheel", label: "Pan what is zoomed in", group: "See" },
@@ -228,6 +233,25 @@ interface Press {
   within?: boolean;
   /** On an annotation of the chart selected: a drag moves a callout. */
   note?: NoteMark;
+}
+
+/** A shape's point, or a rect's corner, dragged by its handle (PLAN 2.68): the shape's outline when
+ * the press began, where it pressed (canvas units and client px), whether it has moved past the
+ * slop, and Alt. A point dragged is `index` among `points`, as they will be written (`added`: put
+ * there by the press, at an edge's middle); a corner dragged, the theme's radius step it rounds to,
+ * `step`. */
+interface Reshape {
+  state: string;
+  outline: Outline;
+  from: Point;
+  client: Point;
+  moved: boolean;
+  alt: boolean;
+  version: number;
+  points: Point[];
+  index?: number;
+  added?: boolean;
+  step?: number;
 }
 
 /** A drag asking where its node may go: the pointer as it is now, the keys held, and whether it
@@ -390,6 +414,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let banding: { state: string; from: DataMark } | undefined;
   /** A callout dragged (PLAN 2.67): where it was pressed and where the pointer is, canvas units. */
   let carrying: { state: string; note: NoteMark; from: Point; at: Point; alt: boolean } | undefined;
+  /** The outline of the shape selected (PLAN 2.68): its points' handles, and a rect's corner's. */
+  let shaped: { state: string; outline: Outline } | undefined;
+  /** A point of the shape selected, picked by a click: what Delete takes away. */
+  let pointPicked: number | undefined;
+  /** A point, or a rect's corner, dragged by its handle. */
+  let reshaping: Reshape | undefined;
   /** The format the view is of: another shows the whole canvas again. */
   let framed: string | undefined;
   let boxes: NodeBox[] = [];
@@ -596,6 +626,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     selected = node;
     also = [];
     aim = undefined;
+    [shaped, pointPicked] = [undefined, undefined];
     editor.selected(node, []);
     if (node !== undefined) {
       editor.say(`${node} selected: drag it, or move it with the arrow keys`);
@@ -612,6 +643,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     letGo(undefined);
     [selected, also] = [nodes[0], nodes.slice(1)];
     aim = undefined;
+    [shaped, pointPicked] = [undefined, undefined];
     editor.selected(selected, also);
     editor.say(`${nodes.length} selected, ${nodes.join(", ")}: drag them, move them with the arrow keys, or align them in the inspector`);
     hold();
@@ -670,6 +702,16 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         draw();
       })
       .catch(() => (aim = undefined));
+    // A shape's points and corners (PLAN 2.68).
+    stage
+      .outline(shown.state, node, editor.format())
+      .then((o) => {
+        if (selected !== node) return;
+        shaped = o && { state: shown.state, outline: o };
+        if (pointPicked !== undefined && pointPicked >= (o?.points.length ?? 0)) pointPicked = undefined;
+        draw();
+      })
+      .catch(() => (shaped = undefined));
   }
 
   /** Draw the theme's grid of the format shown over the canvas, or stop (PLAN 2.57): `on`, or
@@ -759,7 +801,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         return [x + by[0], y + by[1]];
       };
       const [x, y, w, h] = first.rect;
-      const still = !drag && !typed && !turning && also.length === 0;
+      const still = !drag && !typed && !turning && !reshaping && also.length === 0;
       if (still && aim && snapOf(aim, editor.at(first.node), true, false)) {
         const s = 8 * u;
         const spot: Record<Edge, [number, number]> = {
@@ -781,9 +823,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         parts.push(line(tx, ty, hx, hy, "turn-arm"));
         parts.push(`<circle class="handle turn" data-turn="1" cx="${hx}" cy="${hy}" r="${5 * u}"><title>Turn ${first.node}; Shift by 15°</title></circle>`);
       }
+      // A shape's points and corners (PLAN 2.68), over its box's handles.
+      const o = shaped?.state === boxed && shaped?.outline.node === first.node ? shaped?.outline : undefined;
+      if (o && still && !marquee && !armed) parts.push(...shapeHandles(o, u));
     }
+    if (reshaping && reshaping.state === boxed) parts.push(reshaped(reshaping));
     const over = box(hovered);
-    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning) parts.push(shape(over, [0, 0], "hover"));
+    if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
       const [[fx, fy], [ax, ay]] = [sketch.from, sketch.at];
       if (sketch.cell) parts.push(rect(sketch.cell, "landing"));
@@ -816,6 +862,167 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     svg.innerHTML = parts.join("");
     pins.aside(Boolean(drag || sketch || marquee));
     pins.draw();
+  }
+
+  /** A shape's points and corners (PLAN 2.68). A line's, an arrow's, or a polygon's points have
+   * handles of their own: one dragged moves within the shape's box, and one clicked is picked, which
+   * Delete takes away; a handle at an edge's middle adds a point there. A rect's corner handle rounds
+   * it to the theme's radius steps. Each is one `choose` of `points` or `radius`, written where it
+   * lives, or kept to the state shown with Alt or the inspector's "Only in this state". */
+  /** Point `f`, fractions of outline `o`'s box, where it is drawn on the canvas. */
+  const onOutline = (o: Outline, [fx, fy]: Point): Point => {
+    const [x, y, w, h] = o.rect;
+    const p: Point = [x + fx * w, y + fy * h];
+    return o.transform ? apply(o.transform, p) : p;
+  };
+  /** Canvas point `at` as `o`'s box lays it out, through its transform. */
+  const inOutline = (o: Outline, at: Point): Point | undefined => {
+    if (!o.transform) return at;
+    const m = invert(o.transform);
+    return m && apply(m, at);
+  };
+  /** A fraction to a hundredth, as a person would write it, kept to the box. */
+  const hundredth = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+  /** The edges a shape's points make: a polygon's closes. */
+  const edgesOf = (o: Outline) => (o.kind === "polygon" ? o.points.length : Math.max(0, o.points.length - 1));
+  /** How far in from its top-left corner a rect's corner handle stands, canvas units: at its radius,
+   * clear of the corner's resize handle, inside its box. */
+  const cornerAt = (o: Outline, u: number) => Math.min(Math.max(o.radius ?? 0, 12 * u), Math.min(o.rect[2], o.rect[3]) / 2);
+  /** The radius step nearest `r`: the first of those as near. */
+  const nearest = (radii: number[], r: number) => radii.reduce((best, v, i) => (Math.abs(v - r) < Math.abs(radii[best] - r) - 1e-3 ? i : best), 0);
+
+  function shapeHandles(o: Outline, u: number): string[] {
+    const parts: string[] = [];
+    const n = o.points.length;
+    if (o.kind === "line" || o.kind === "arrow" || o.kind === "polygon") {
+      for (let i = 0; i < edgesOf(o); i++) {
+        const [a, b] = [o.points[i], o.points[(i + 1) % n]];
+        const [cx, cy] = onOutline(o, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+        parts.push(`<circle class="handle add" data-add="${i}" cx="${cx}" cy="${cy}" r="${3.5 * u}"><title>Add a point to ${o.node} here</title></circle>`);
+      }
+      o.points.forEach((p, i) => {
+        const [cx, cy] = onOutline(o, p);
+        const cls = i === pointPicked ? "handle point picked" : "handle point";
+        parts.push(`<circle class="${cls}" data-point="${i}" cx="${cx}" cy="${cy}" r="${5 * u}"><title>Point ${i + 1} of ${o.node}: drag it, or click it and press Delete</title></circle>`);
+      });
+    }
+    if (o.kind === "rect" && o.radii.length) {
+      const [x, y] = o.rect;
+      const d = cornerAt(o, u);
+      const [cx, cy] = o.transform ? apply(o.transform, [x + d, y + d]) : [x + d, y + d];
+      parts.push(`<circle class="handle corner" data-radius="1" cx="${cx}" cy="${cy}" r="${4.5 * u}"><title>Round ${o.node}'s corners to the theme's radius steps</title></circle>`);
+    }
+    return parts;
+  }
+
+  /** The outline `r` leaves, drawn as it is dragged: its points joined, or the rect rounded. */
+  function reshaped(r: Reshape): string {
+    const o = r.outline;
+    const map = o.transform ? ` transform="matrix(${o.transform.join(" ")})"` : "";
+    if (r.index === undefined) {
+      const [x, y, w, h] = o.rect;
+      const radius = o.radii[r.step ?? 0] ?? 0;
+      return `<rect class="reshape" x="${x}" y="${y}" width="${w}" height="${h}" rx="${radius}" ry="${radius}"${map}/>`;
+    }
+    const [x, y, w, h] = o.rect;
+    const points = r.points.map(([fx, fy]) => `${x + fx * w},${y + fy * h}`).join(" ");
+    return `<${o.kind === "polygon" ? "polygon" : "polyline"} class="reshape" points="${points}"${map}/>`;
+  }
+
+  /** A press on handle `handle` of the shape selected, at `from`: a point or a corner dragged, or a
+   * point added at an edge's middle. */
+  function reshape(handle: Element, from: Point, client: Point, alt: boolean) {
+    const s = shaped!;
+    const o = s.outline;
+    const points = o.points.map(([x, y]) => [x, y] as Point);
+    const r: Reshape = { state: s.state, outline: o, from, client, moved: false, alt, version: editor.version(), points };
+    const [point, add] = [handle.getAttribute("data-point"), handle.getAttribute("data-add")];
+    if (point !== null) r.index = Number(point);
+    else if (add !== null) {
+      const i = Number(add);
+      const [a, b] = [points[i], points[(i + 1) % points.length]];
+      points.splice(i + 1, 0, [hundredth((a[0] + b[0]) / 2), hundredth((a[1] + b[1]) / 2)]);
+      [r.index, r.added] = [i + 1, true];
+    } else r.step = nearest(o.radii, o.radius ?? 0);
+    reshaping = r;
+    pointPicked = undefined;
+    draw();
+  }
+
+  /** The pointer at `at` in reshape `r`: the point goes there, kept to the box, or the corner's
+   * radius goes as far as the pointer went along its diagonal, to the nearest step. */
+  function reshapeTo(r: Reshape, at: Point, client: Point, alt: boolean) {
+    r.alt = alt;
+    if (!r.moved && Math.hypot(client[0] - r.client[0], client[1] - r.client[1]) < SLOP) return;
+    r.moved = true;
+    const o = r.outline;
+    const kept = keeping(alt) ? ` · kept to ${r.state}` : "";
+    const p = inOutline(o, at);
+    if (!p) return;
+    const [x, y, w, h] = o.rect;
+    if (r.index !== undefined) {
+      const f: Point = [w > 0 ? hundredth((p[0] - x) / w) : 0, h > 0 ? hundredth((p[1] - y) / h) : 0];
+      r.points[r.index] = f;
+      editor.say(`${o.node}'s point ${r.index + 1} → ${f.join(", ")}${kept}`);
+    } else {
+      const from = inOutline(o, r.from) ?? r.from;
+      const half = Math.min(w, h) / 2;
+      const radius = Math.min(half, Math.max(0, (o.radius ?? 0) + (p[0] - from[0] + p[1] - from[1]) / 2));
+      r.step = nearest(o.radii, radius);
+      editor.say(`${o.node}'s corners round to radius.${r.step}${kept}`);
+    }
+    draw();
+  }
+
+  /** Reshape `r` let go: one `choose` of the shape's `points` or `radius`; a point pressed and let
+   * go where it was is picked. */
+  async function reshapeEnd(r: Reshape) {
+    const shown = editor.shown();
+    const o = r.outline;
+    if (!shown || shown.state !== r.state) return draw();
+    if (editor.version() !== r.version) {
+      draw();
+      return editor.say("the source changed under the drag: nothing is changed");
+    }
+    const fork = keeping(r.alt);
+    const kept = fork ? ` · kept to ${r.state}` : "";
+    const choose = (prop: string, value: unknown) => ({ op: "choose", node: o.node, prop, value, state: r.state, ...(fork ? { fork } : {}) });
+    if (r.index === undefined) {
+      const step = r.step ?? 0;
+      if (!r.moved || Math.abs((o.radius ?? 0) - (o.radii[step] ?? 0)) < 0.01) {
+        draw();
+        return editor.say(r.moved ? `${o.node}'s corners stay as they are` : `drag ${o.node}'s corner handle to round it to the theme's radius steps`);
+      }
+      return change([choose("radius", `radius.${step}`)], "rounding…", `${o.node}'s corners round to radius.${step}${kept}`, o.node);
+    }
+    if (!r.moved && !r.added) {
+      pointPicked = r.index;
+      draw();
+      return editor.say(`${o.node}'s point ${r.index + 1} picked: Delete takes it away, a drag moves it`);
+    }
+    if (!r.added && r.points.every(([px, py], i) => px === o.points[i][0] && py === o.points[i][1])) {
+      draw();
+      return editor.say(`${o.node}'s point ${r.index + 1} stays where it is`);
+    }
+    const done = r.added ? `${o.node} has a point added${kept}` : `${o.node}'s point ${r.index + 1} moved${kept}`;
+    await change([choose("points", r.points)], r.added ? "adding a point…" : "moving the point…", done, o.node);
+  }
+
+  /** Take the point picked away, unless the shape keeps no fewer: a line or an arrow two, a polygon three. */
+  function unpoint() {
+    return inTurn(async () => {
+      const [shown, s, i] = [editor.shown(), shaped, pointPicked];
+      if (!shown || !s || i === undefined) return;
+      const o = s.outline;
+      if (o.points.length <= o.fewest) {
+        const kind = o.kind === "arrow" ? "an arrow" : `a ${o.kind}`;
+        return editor.say(`${kind} keeps ${o.fewest === 2 ? "two" : "three"} points: ${o.node}'s point ${i + 1} stays`);
+      }
+      pointPicked = undefined;
+      const fork = keeping();
+      const op = { op: "choose", node: o.node, prop: "points", value: o.points.filter((_, k) => k !== i), state: shown.state, ...(fork ? { fork } : {}) };
+      await change([op], "taking the point away…", `${o.node}'s point ${i + 1} taken away${fork ? ` · kept to ${shown.state}` : ""}`, o.node);
+    });
   }
 
   /** Say where the drag lands, and which states that changes. */
@@ -1686,6 +1893,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown || drag) return editor.say(shown ? "" : "the canvas waits for a source that compiles");
     overlay.setPointerCapture(e.pointerId);
     const client: [number, number] = [e.clientX, e.clientY];
+    // A shape's point, an edge's middle, or a rect's corner (PLAN 2.68).
+    const handle = (e.target as Element).closest?.("[data-point],[data-add],[data-radius]");
+    if (handle && selected !== undefined && shaped?.outline.node === selected) {
+      e.preventDefault();
+      return reshape(handle, from, client, e.altKey);
+    }
     const edge = (e.target as Element).closest?.("[data-edge]")?.getAttribute("data-edge") as Edge | null;
     if (edge && selected !== undefined) {
       press = { node: selected, edge, from, client };
@@ -1894,6 +2107,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return;
     }
     if (turning) return turned(turning, at, e.shiftKey);
+    if (reshaping) return reshapeTo(reshaping, at, [e.clientX, e.clientY], e.altKey);
     if (carrying) {
       [carrying.at, carrying.alt] = [at, e.altKey];
       return draw();
@@ -1963,6 +2177,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       turning = undefined;
       return void inTurn(() => turnTo(t));
     }
+    if (reshaping) {
+      const r = reshaping;
+      reshapeTo(r, point(e), [e.clientX, e.clientY], e.altKey);
+      reshaping = undefined;
+      return void inTurn(() => reshapeEnd(r));
+    }
     if (marquee) {
       marquee.at = point(e);
       return finish();
@@ -1990,6 +2210,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
 
   overlay.onpointercancel = () => {
     press = starting = marquee = undefined;
+    if (reshaping) {
+      reshaping = undefined;
+      draw();
+    }
     if (sketch) disarm("not drawn: the drag was cancelled");
     if (drag) void still("the drag was cancelled");
   };
@@ -2060,8 +2284,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (selected !== undefined && !drag && !starting) {
       if ((e.key === "Delete" || e.key === "Backspace") && !mod && !e.altKey) {
         e.preventDefault();
-        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67).
+        // An annotation of the chart selected goes, and the chart stays (PLAN 2.67); so does a point
+        // of the shape selected (PLAN 2.68).
         if (noted?.note.node === selected && !also.length) return void unnote();
+        if (pointPicked !== undefined && shaped?.outline.node === selected && !also.length) return void unpoint();
         return void (also.length ? removeAll(chosen(), e.shiftKey) : remove(selected, e.shiftKey));
       }
       if (mod && key === "d" && !e.shiftKey && !e.altKey) {
@@ -2087,6 +2313,21 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         carrying = undefined;
         draw();
         return editor.say(`${noteName(c.note)} of ${c.note.node} stays where it is`);
+      }
+      // A point or a corner dragged is left as it was, and a point picked is let go before the shape
+      // is (PLAN 2.68).
+      if (reshaping) {
+        e.preventDefault();
+        const r = reshaping;
+        reshaping = undefined;
+        draw();
+        return editor.say(`${r.outline.node} stays as it is`);
+      }
+      if (pointPicked !== undefined) {
+        e.preventDefault();
+        pointPicked = undefined;
+        draw();
+        return editor.say(`${selected ?? "nothing"} selected`);
       }
       // A mark picked, or an annotation selected, is let go before the chart is (PLAN 2.67).
       if (picked || noted) {
@@ -2211,6 +2452,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     picked: () => picked?.mark,
     noted: () => noted?.note,
     banding: () => banding?.from,
+    /** The outline of the shape selected, and the point of it picked (PLAN 2.68). */
+    outlined: () => shaped?.outline,
+    pointPicked: () => pointPicked,
     /** Pick what is at `at` of the chart selected, as a click there does. */
     pickAt: (at: Point) => pickAt(at),
     /** What `rows` of data source `source` draw in the state shown, and the annotation drawn at
@@ -2278,7 +2522,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       return shown ? stage.targets(shown.state, node, editor.format()) : Promise.reject(new Error("nothing is shown"));
     },
     /** Whether a drag is under way, or its request with the worker. */
-    busy: () => busy || drag !== undefined || starting !== undefined,
+    busy: () => busy || drag !== undefined || starting !== undefined || reshaping !== undefined,
     /** The text typed in, if one is. */
     typing: () => text.node(),
     /** What is typed in it, for a test. */

@@ -315,6 +315,9 @@ jobs:
       # value, or band from it to another; a callout dragged to another bar, reworded, and deleted
       # (PLAN 2.67).
       - run: node web/annotate.mjs
+      # A shape's points dragged, added at an edge's middle, and taken away with Delete, and a rect's
+      # corner rounded to the theme's radius steps (PLAN 2.68).
+      - run: node web/points.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).

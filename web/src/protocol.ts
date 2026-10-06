@@ -176,6 +176,24 @@ export interface NoteMark {
   transform?: [number, number, number, number, number, number];
 }
 
+/** A shape's outline as a pointer edits it (PLAN 2.68): its kind, its box at rest, its points as
+ * fractions of the box, and a rect's corner radius with the theme's radius steps, canvas units. */
+export interface Outline {
+  node: string;
+  kind: "rect" | "ellipse" | "line" | "arrow" | "polygon" | "path";
+  rect: Rect;
+  transform?: Map6;
+  /** A line's, an arrow's, or a polygon's points as it draws them: a line or an arrow that gives
+   * none draws two across its box's middle. */
+  points: [number, number][];
+  /** The fewest points its kind takes: two for a line or an arrow, three for a polygon. */
+  fewest: number;
+  /** A rect's corner radius as it draws: at most half its shorter side. */
+  radius?: number;
+  /** The theme's radius steps, `radius.0` on, each as this rect would draw it. */
+  radii: number[];
+}
+
 /** Where a caret stands in a text at rest (ADR-0013, PLAN 2.32): each character as written, as a
  * reader counts it, on its line, from the glyphs the engine set. Offsets are UTF-16 code units of
  * `text`, as the page counts a string; x and y are canvas units. */
@@ -520,6 +538,8 @@ export type ToWorker =
   | { type: "marksOf"; id: number; state: string; source: string; rows: number[]; format?: string }
   /** The chart annotation drawn at `point` in `state` at rest (PLAN 2.67). */
   | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
+  /** Shape `node`'s outline in `state` at rest (PLAN 2.68). */
+  | { type: "outline"; id: number; state: string; node: string; format?: string }
   /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
   | { type: "calloutAt"; id: number; state: string; node: string; point: [number, number]; format?: string }
   /** Paint the preview through `view`, `[x, y, w, h]` canvas units, at the size shown, or the whole
@@ -1041,6 +1061,7 @@ export type FromWorker =
   | { type: "marked"; id: number; marks: DataMark[] }
   | { type: "noted"; id: number; note: NoteMark | null }
   | { type: "calledOut"; id: number; at: AnnotationAt | null }
+  | { type: "outlined"; id: number; outline: Outline | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }
   | { type: "found"; id: number; found: Found[] }

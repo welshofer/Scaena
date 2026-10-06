@@ -208,6 +208,19 @@ impl ShapeNode {
         Ok(ShapeNode { rect, geometry, fill, stroke, progress: 1.0 })
     }
 
+    /// Its kind as it draws, its points as fractions of its box, and a rect's corner radius in
+    /// canvas units (PLAN 2.68): what a pointer edits it by. A line or an arrow that gives no
+    /// points has the two it draws, across the box's middle.
+    pub fn outline(&self) -> (&'static str, &[[f32; 2]], Option<f32>) {
+        match &self.geometry {
+            Geometry::Rect(radius) => ("rect", &[], Some(*radius)),
+            Geometry::Ellipse => ("ellipse", &[], None),
+            Geometry::Line { points, arrow } => (if *arrow { "arrow" } else { "line" }, points, None),
+            Geometry::Polygon(points) => ("polygon", points, None),
+            Geometry::Path(_) | Geometry::Between(..) => ("path", &[], None),
+        }
+    }
+
     /// Whether this shape can become `other` point by point (SPEC §3.3): the same kind,
     /// with as many points (a line, an arrow, a polygon) or the same commands in the same
     /// order (a path); a fill and a stroke on both sides or neither, their paints both

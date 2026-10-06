@@ -25,6 +25,7 @@ import type {
   NodeBox,
   NoteMark,
   Opened,
+  Outline,
   Painter,
   Pasted,
   ProviderId,
@@ -82,6 +83,7 @@ type Reply = Extract<
       | "marked"
       | "noted"
       | "calledOut"
+      | "outlined"
       | "viewed"
       | "focal"
       | "found"
@@ -307,6 +309,12 @@ export class Stage {
    * `annotations`; none where the topmost node there is no chart, or off its annotations (PLAN 2.67). */
   noteAt(state: string, point: [number, number], format?: string): Promise<NoteMark | undefined> {
     return this.request<"noted">({ type: "noteAt", id: ++this.asked, state, point, format }).then(({ note }) => note ?? undefined);
+  }
+
+  /** Shape `node`'s outline in `state` at rest: its points and a rect's corners, with the theme's
+   * radius steps; none for a node that is no shape, or not drawn there (PLAN 2.68). */
+  outline(state: string, node: string, format?: string): Promise<Outline | undefined> {
+    return this.request<"outlined">({ type: "outline", id: ++this.asked, state, node, format }).then(({ outline }) => outline ?? undefined);
   }
 
   /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand: on the mark
@@ -791,6 +799,7 @@ export class Stage {
       case "marked":
       case "noted":
       case "calledOut":
+      case "outlined":
       case "viewed":
       case "focal":
       case "found":

@@ -527,6 +527,15 @@ impl Session {
         Ok(self.at_rest(state)?.callout_at(node, point))
     }
 
+    /// Shape `node`'s outline in `state` at rest, in the format shown (PLAN 2.68): its points,
+    /// a rect's corner radius, and the theme's radius steps. `None` for a node the state does
+    /// not draw, or one that is no shape.
+    pub fn outline(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::geometry::Outline>, Error> {
+        self.at_rest(state)?;
+        let scene = &self.rest.as_ref().expect("laid out above").1;
+        Ok(scene.outline(node, &self.theme))
+    }
+
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
     /// part its crop keeps: what a focal point picked there is (PLAN 2.45). `None` off the image,
     /// or for a node that is no image.
@@ -1620,6 +1629,14 @@ impl Player {
         serde_json::to_string(&self.0.callout_at(state, node, [x, y]).map_err(js)?).map_err(js)
     }
 
+    /// Shape `node`'s outline in `state` at rest, as JSON (PLAN 2.68): `{ "node", "kind",
+    /// "rect", "transform"?, "points", "fewest", "radius"?, "radii" }`, its points fractions of
+    /// its box, a rect's radius and the theme's radius steps in canvas units; `null` for a node
+    /// the state does not draw, or one that is no shape.
+    pub fn outline(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.outline(state, node).map_err(js)?).map_err(js)
+    }
+
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,
     /// fractions of the part its crop keeps, which a focal point picked there names; `null` off
     /// the image (PLAN 2.45).
@@ -2698,6 +2715,29 @@ mod tests {
         assert_eq!(held("card"), ["card-tag-label", "card-tag", "card-photo"]);
         assert!(layers.iter().all(|l| l.shown || l.node.starts_with("image-")), "{layers:?}");
         assert!(matches!(s.layers("nowhere"), Err(Error::Engine(EngineError::UnknownState(_)))));
+    }
+
+    /// A shape's outline is what a pointer edits it by (PLAN 2.68): a polygon's points, a
+    /// line's two where it gives none, a rect's radius among the theme's steps; in 9:16 too,
+    /// in the box that format gives it. What is no shape has none.
+    #[test]
+    fn a_shapes_outline_is_where_the_state_draws_it() {
+        let mut s = torture();
+        let tri = s.outline("shapes", "shape-tri").unwrap().unwrap();
+        assert_eq!((tri.kind, tri.points.len(), tri.fewest), ("polygon", 3, 3));
+        let rule = s.outline("shapes", "shape-rule").unwrap().unwrap();
+        assert_eq!(rule.points, [[0.0, 0.5], [1.0, 0.5]]);
+        let panel = s.outline("shapes", "shape-panel").unwrap().unwrap();
+        assert_eq!((panel.radius, panel.radii.len()), (Some(panel.radii[3]), 6));
+        let boxed =
+            |s: &mut Session, node: &str| s.boxes("shapes").unwrap().into_iter().find(|b| b.node == node).unwrap();
+        assert_eq!(tri.rect, boxed(&mut s, "shape-tri").rect);
+        assert!(s.outline("shapes", "nowhere").unwrap().is_none());
+        if let Some(format) = s.formats().first().cloned() {
+            s.set_format(Some(&format)).unwrap();
+            let there = s.outline("shapes", "shape-tri").unwrap().unwrap();
+            assert_eq!(there.rect, boxed(&mut s, "shape-tri").rect);
+        }
     }
 
     /// The point of an image under a press is the image's own, in fractions of its crop: what

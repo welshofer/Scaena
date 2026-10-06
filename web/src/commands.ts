@@ -15,6 +15,7 @@ export const GROUPS = [
   "Edit",
   "Arrange",
   "Move and resize",
+  "Points and corners",
   "Type",
   "Draw and insert",
   "See",

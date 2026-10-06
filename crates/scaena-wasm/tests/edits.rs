@@ -573,6 +573,11 @@ fn exercise(r: &mut Rng, s: &mut Session, compiled: bool, touched: &[String]) {
     for (source, _) in s.data_sources() {
         let _ = s.marks_of(one, &source, &[0, 1, r.below(40), usize::MAX]);
     }
+    // Each shape's outline, and a node that is none (PLAN 2.68).
+    for b in s.boxes(one).unwrap_or_default().iter().take(8) {
+        let _ = s.outline(one, &b.node);
+    }
+    let _ = s.outline(one, "nowhere");
     if compiled {
         let _ = s.lint(Some(one));
         let _ = s.inspect(one);
