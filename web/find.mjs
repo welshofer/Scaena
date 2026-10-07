@@ -69,12 +69,13 @@ try {
 
   // Enter goes to each match in turn: its state, its node, its characters marked.
   await page.keyboard.press("Enter");
-  check(await saying("1 of 3"), `Enter: ${await says()}`);
+  check(await saying("1 of 5"), `Enter: ${await says()}`);
   await page.waitForFunction(() => document.querySelectorAll("#overlay svg rect.found").length > 0, null, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "intro" && (await selected()) === "title" && (await marks()) > 0, `the first in intro's title, marked: ${await shownState()}, ${await selected()}, ${await marks()}`);
   await page.keyboard.press("Enter");
   check(await saying("2 of 5"), `Enter again: ${await says()}`);
-  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()][0] === "revenue", null, { timeout: 30000 }).catch(() => {});
+  // The status says where it is once its state is shown.
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("beat doubled's claim"), null, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "revenue" && (await status()).startsWith("beat doubled's claim in revenue"), `the second in the beat's claim, its state shown: ${await shownState()} · ${await status()}`);
   await page.keyboard.press("Enter");
   check(await saying("3 of 5"), `Enter again: ${await says()}`);
@@ -82,7 +83,7 @@ try {
   check((await shownState()) === "revenue" && (await selected()) === "title", `the third in revenue's title: ${await shownState()}, ${await selected()}`);
   await page.keyboard.press("Enter");
   check(await saying("4 of 5"), `Enter again: ${await says()}`);
-  await page.waitForFunction(() => window.scaena.canvas.selected() === "rev", null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#status").textContent.startsWith("rev's description"), null, { timeout: 30000 }).catch(() => {});
   check((await selected()) === "rev" && (await status()).startsWith("rev's description in revenue"), `the fourth in the chart's description, the chart selected: ${await selected()} · ${await status()}`);
   for (const k of [3, 2, 1]) {
     await page.keyboard.press("Shift+Enter");
