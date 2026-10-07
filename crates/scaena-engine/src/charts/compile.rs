@@ -990,7 +990,7 @@ fn compile_in(
         (_, Some((d, dates))) if continuous => dates.iter().map(|t| Some(d.period(*t))).collect(),
         _ => Vec::new(),
     };
-    let one_period = periods.iter().flatten().collect::<BTreeSet<_>>().len() <= 1;
+    let one_period = scaena_core::sort::set(periods.iter().flatten()).len() <= 1;
     let x_texts: Vec<(String, TextLayout)> = match (x_show, continuous) {
         (false, _) => Vec::new(),
         (true, false) => (categories.iter().zip(&category_dates))

@@ -17,7 +17,7 @@ use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 /// Validate `deck` and return every problem as an E-finding.
@@ -1238,8 +1238,8 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             if kind == "slope"
                 && let (Some(x), Some(y)) = (x, field("y").and_then(|f| table.column(f)))
             {
-                let states: BTreeSet<String> =
-                    table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| row[x].label()).collect();
+                let states =
+                    crate::sort::set(table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| row[x].label()));
                 if states.len() != 2 {
                     let message = format!(
                         "a slope compares two states, and `{}` has {} in {read}: filter it to two",
