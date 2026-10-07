@@ -9,7 +9,8 @@
 // - Enter on a shape goes to its points, on an image to its crop's sides and focal point, on a
 //   chart to its marks: Tab steps through them, an arrow moves a handle, each move the patch its drag
 //   makes, one step to undo; + adds a point, and a mark reached is picked, so its menu annotates it.
-// - [ and ] turn what is selected; ⌘A selects all beside it.
+// - [ and ] turn what is selected; ⌘A selects all beside it. Space, Tab, and Space build a
+//   selection by keys, a node at a time, and Escape stops (PLAN 2.89).
 // - In a layout shown, Tab keys a slot and an arrow moves it a track: one theme edit.
 // - The keys sheet lists the keys, and axe-core finds nothing with a handle keyed.
 // Exits 1 on any failure.
@@ -191,6 +192,31 @@ try {
   await press(rev, "Control+a");
   const all = await rev.evaluate(() => window.scaena.canvas.chosen());
   check(all.length > 2, `⌘A selects all on the canvas: ${all.join(", ")}`);
+  // A selection made by keys (PLAN 2.89): Space keys the node selected, Tab the next beside it,
+  // and Space puts each in the selection or takes it out; Escape stops, what is selected staying.
+  await press(rev, "Escape");
+  while ((await rev.evaluate(() => window.scaena.canvas.chosen().length)) > 0) await press(rev, "Escape");
+  await press(rev, "Tab");
+  const one = await selected(rev);
+  await press(rev, "Space");
+  await press(rev, "Tab");
+  await press(rev, "Space");
+  const two = await rev.evaluate(() => window.scaena.canvas.chosen());
+  check(two.length === 2 && two[0] === one, `Space, Tab, Space puts the next node in the selection: ${two.join(", ")} · ${await status(rev)}`);
+  check((await rev.locator("#overlay svg .keyed").count()) === 1, "the node the keys are on is outlined");
+  await press(rev, "Tab");
+  await press(rev, "Space");
+  const three = await rev.evaluate(() => window.scaena.canvas.chosen());
+  check(three.length === 3, `and the one after it: ${three.join(", ")}`);
+  await press(rev, "Shift+Tab");
+  await press(rev, "Space");
+  const less = await rev.evaluate(() => window.scaena.canvas.chosen());
+  check(less.length === 2 && !less.includes(two[1]), `Shift+Tab, Space takes one out: ${less.join(", ")}`);
+  await press(rev, "Escape");
+  check(
+    JSON.stringify(await rev.evaluate(() => window.scaena.canvas.chosen())) === JSON.stringify(less) && (await rev.locator("#overlay svg .keyed").count()) === 0,
+    "Escape stops, what is selected staying",
+  );
   // The layout: Tab keys a slot, → moves it a track.
   await press(rev, "Escape");
   await rev.click("#layout-edit");
