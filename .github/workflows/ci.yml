@@ -371,6 +371,7 @@ jobs:
             target/wasm-smoke/
             target/web-smoke/
             target/first-deck/
+            target/edit-deck/
           if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest
