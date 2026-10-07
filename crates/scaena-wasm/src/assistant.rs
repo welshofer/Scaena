@@ -19,7 +19,6 @@ use scaena_paint::Raster;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// The tools a page's assistant has, by their MCP names.
 pub const TOOLS: &[&str] = &[
