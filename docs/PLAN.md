@@ -1173,6 +1173,16 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
         - `scaena-engine` at `z` is 156 KB smaller, but every frame without a shader paints 7% slower: 8.6 ms against 8.0, in two runs of each.
         - Neither is worth it while gate 2's first criterion, frames a second in a real machine's browsers, is still to be read.
         - `SemanticOp`'s deserializer, at 117 KB the largest function, is an internally tagged enum: serde buffers each op whichever deserializer reads it, so it stays as it is.
+- [x] 2.92 Suggested layouts: the inspector draws the state shown in each layout it may take, judged by lint, best first, and one click gives it that layout (the parent session, 2026-10-07, at Jay's "ever forward").
+    - Done. `scaena_ops::layouts` takes each layout `state_choices` offers the state, makes its `set_state`, written where the layout lives, lints the state in every format the deck lists, and draws it at rest. The layouts come fewest errors first, then fewest warnings; of those alike, the one the state takes now, then the theme's order. Each carries its patch and the states it changes.
+    - A suggestion draws the state otherwise, or it is none. A layout drawn as one before it, with the same counts, is that one's `alike`: on trails' budget slide, `poster` and `full` set its note where `figure` does, so the slide is offered `figure` and `narrow-figure`. A state that places no node in a slot is offered none: a layout is its slots.
+    - `scaena inspect --state S --layouts` lists them, and the MCP server's `deck_inspect` gives them with `layouts`, the assistant's too.
+    - In the editor, with nothing selected, they stand above the state's fields (`Player.layoutSuggestions`), where there are two or more. Each is drawn at rest in the format shown, 72 pixels high, by the CPU painter in the worker, and says what lint finds there and which layouts draw it alike; the one the state takes now is pressed.
+        - A pointer over one, or the focus on it, shows the state laid out in it on the canvas, nothing made (`Player.preview`), until the pointer or the focus leaves.
+        - A click or Enter chooses it as the layout field does: one `set_state` by `user`, kept to the state with "layout only in", one step to undo.
+        - They are judged again once edits pause, after the lint of every state, and when another state shows: typing never starts a round.
+        - A round is the worker's longest task, so it judges a layout at a time (`Player.layoutsBegin`, `layoutsStep`) and answers what else the page asks between them; an edit meanwhile ends it. In headless Chromium on 4 cores, a round on the trails and revenue examples takes 80–430 ms, about 25–100 ms a layout. B1's edit round trip stays at a 28 ms median.
+    - Tests: `crates/scaena-ops/tests/layouts.rs` (trails' budget slide offered figure, which poster and full draw alike, then narrow-figure in errors; storm a clean narrow-figure; the agenda one layout that every other draws alike; the change slide, its cards on the grid, none; `inspect` names the state), the WASM session's `a_states_layouts_come_judged_and_painted_best_first` (the CLI's list, painted, no two alike), and `web/suggest.mjs` (28 checks).
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*

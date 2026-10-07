@@ -147,6 +147,12 @@ enum Cmd {
         /// is where `set_state` writes. Needs `--state`.
         #[arg(long, requires = "state")]
         state_choices: bool,
+        /// The layouts the state may take, best first (PLAN 2.92): each of the theme's layouts
+        /// that `--state-choices` offers, with what lint finds in the state laid out in it
+        /// (fewest errors, then fewest warnings, then the theme's order), the states the change
+        /// reaches, and the `set_state` patch that makes it. Needs `--state`.
+        #[arg(long, requires = "state")]
+        layouts: bool,
         /// What may be inserted in the state (PLAN 2.34): a text in each of the theme's
         /// roles, each kind of shape, each image in the bundle, a chart and a table of each
         /// data source, and each shader preset, as `add_node` adds each, with the box it
@@ -549,6 +555,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             free,
             choices,
             state_choices,
+            layouts,
             inserts,
             layers,
             look,
@@ -576,6 +583,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 free,
                 choices,
                 state_choices,
+                layouts,
                 inserts,
                 layers,
                 look,
@@ -1370,6 +1378,9 @@ fn inspect(b: &Bundle, state: Option<&str>, views: Views, json: bool) -> Result<
         if let Some(c) = &i.state_choices {
             print_state_choices(c);
         }
+        if let Some(suggested) = &i.layouts {
+            print_layouts(suggested);
+        }
         if let Some(offered) = &i.inserts {
             print_inserts(offered);
         }
@@ -1500,6 +1511,34 @@ fn print_state_choices(c: &scaena_core::choices::StateChoices) {
             _ => "not set".to_string(),
         };
         println!("    {:<20} {shown} · {}", f.prop, takes(&f.takes));
+    }
+}
+
+/// `inspect --layouts`, for a person: each layout the state may take, best first, with what
+/// lint finds in the state laid out in it and the states the change reaches.
+fn print_layouts(suggested: &[scaena_ops::layouts::Suggestion]) {
+    let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+    if suggested.is_empty() {
+        return println!("  layouts: none to suggest; the state places no node in a slot");
+    }
+    println!("  layouts, best first:");
+    for s in suggested {
+        let reach = match (s.current, s.reach.len()) {
+            (true, _) => "the layout it takes now".to_string(),
+            (false, 1) => "changes this state".to_string(),
+            (false, n) => format!("changes {n} states"),
+        };
+        let alike = match s.alike.as_slice() {
+            [] => String::new(),
+            [one] => format!(" · {one} draws it alike"),
+            more => format!(" · {} draw it alike", more.join(", ")),
+        };
+        println!(
+            "    {:<16} {}, {} · {reach}{alike}",
+            s.layout,
+            count(s.errors, "error"),
+            count(s.warnings, "warning")
+        );
     }
 }
 

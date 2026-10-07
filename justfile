@@ -167,6 +167,7 @@ web-smoke: site
     node web/canvas.mjs
     node web/typing.mjs
     node web/inspector.mjs
+    node web/suggest.mjs
     node web/insert.mjs
     node web/draw.mjs
     node web/findings.mjs

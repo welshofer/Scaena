@@ -32,6 +32,7 @@ import type {
   FromWorker,
   Insert,
   Layer,
+  LayoutSuggestion,
   Thumb,
   Opened,
   Painter,
@@ -235,6 +236,28 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({ type: "choices", id: data.id, choices: JSON.parse(player.choices(data.state, data.node)) as Choices });
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
+      case "layoutSuggestions": {
+        layOut(data.format);
+        // A layout at a time, each a lint of the state in every format and a frame: what else the
+        // page asks is answered between them. An edit meanwhile ends the round, an error.
+        player.layoutsBegin(data.state);
+        do {
+          await new Promise((next) => setTimeout(next));
+        } while (player.layoutsStep());
+        const listed = JSON.parse(player.layoutSuggestions(data.height)) as Omit<LayoutSuggestion, "pixels">[];
+        const suggestions = listed.map((s, i) => ({ ...s, pixels: player.layoutPixels(i).buffer as ArrayBuffer }));
+        return post({ type: "layoutSuggestions", id: data.id, suggestions }, suggestions.map((s) => s.pixels));
+      }
+      case "preview": {
+        latest++;
+        layOut(data.format);
+        player.setMoving([], 0, 0);
+        player.preview(JSON.stringify(data.ops));
+        const start = performance.now();
+        // The formats beside show the deck as it is: nothing is made.
+        await paint(data.state, Infinity, "keep");
+        return post({ type: "shown", id: data.id, size: [canvas.width, canvas.height], ms: performance.now() - start });
+      }
       case "look":
         current(data.source);
         return post({ type: "look", id: data.id, look: JSON.parse(player.look(data.state, data.node)) as Look });

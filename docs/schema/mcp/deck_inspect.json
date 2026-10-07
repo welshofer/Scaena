@@ -166,6 +166,11 @@
         "type": "boolean",
         "default": false
       },
+      "layouts": {
+        "description": "The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's\nlayouts that `state_choices` offers, with what lint finds in the state laid out in it,\nfewest errors, then fewest warnings, then the theme's order; the states its patch\nchanges; and that patch, one `set_state`. Those that draw the state alike, in `format`\nor on the deck's canvas, are one, which names the rest (`alike`).",
+        "type": "boolean",
+        "default": false
+      },
       "inserts": {
         "description": "What may be inserted in the state inspected (PLAN 2.34): a text in each of the\ntheme's roles, each kind of shape, each image in the bundle, a chart and a table of\neach data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with\nthe box it takes at first.",
         "type": "boolean",
@@ -260,6 +265,11 @@
           "state_choices": {
             "description": "What an inspector offers for the state itself (`state_choices`).",
             "anyOf": [{ "$ref": "#/$defs/StateChoices" }, { "type": "null" }]
+          },
+          "layouts": {
+            "description": "The layouts the state may take, best first (`layouts`).",
+            "type": ["array", "null"],
+            "items": { "$ref": "#/$defs/Suggestion" }
           },
           "inserts": {
             "description": "What may be inserted in this state (`inserts`).",
@@ -791,6 +801,36 @@
           }
         },
         "required": ["state", "fields"]
+      },
+      "Suggestion": {
+        "description": "One layout a state may take, and what lint finds in the state laid out in it.",
+        "type": "object",
+        "properties": {
+          "layout": { "type": "string" },
+          "current": { "description": "The layout the state takes now.", "type": "boolean" },
+          "errors": {
+            "description": "What lint finds in the state laid out in it, in every format the deck lists.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": { "type": "integer", "minimum": 0 },
+          "alike": {
+            "description": "The layouts that draw the state as this one does, where it is drawn, with what lint\nfinds alike: choosing one shows nothing new, so each is left out, in the theme's order.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "reach": {
+            "description": "The states the patch changes, by id: a layout lives where it is set, and each state\nthat takes it from there takes the new one. None for the layout the state takes now.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "patch": {
+            "description": "The patch that gives the state this layout: one `set_state`, or none for the layout\nit takes now.",
+            "type": "array",
+            "items": true
+          }
+        },
+        "required": ["layout", "errors", "warnings", "reach", "patch"]
       },
       "Insert": {
         "description": "One thing an editor may insert.",

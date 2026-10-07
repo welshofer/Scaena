@@ -1007,8 +1007,10 @@ async function edit(source: Source) {
     if (read !== version || !last) return;
     last = { ...last, findings: linted.findings, laid: linted.laid, whole: true };
     report(linted.findings, last, linted.ms);
-    // Every state is laid out: the strip's thumbnails that changed are painted again.
+    // Every state is laid out: the strip's thumbnails that changed are painted again, and the
+    // layouts the inspector suggests are judged again (PLAN 2.92).
     void states.paint();
+    look.linted();
     view.dispatch(setDiagnostics(view.state, linted.findings.map((f) => diagnostic(f, view.state.doc.length))));
   }
 

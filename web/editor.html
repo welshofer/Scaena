@@ -261,6 +261,17 @@
       #look .reads li { margin: 2px 0; }
       #look .reads button { font-size: 12px; padding: 0 5px; }
       #look .reads .kind { color: var(--muted); }
+      /* The layouts the state shown may take, each drawn and judged by lint, best first (PLAN 2.92). */
+      #look .layouts { padding: 0 0 8px; }
+      #look .layouts h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      #look .suggested { display: flex; flex-wrap: wrap; gap: 6px; }
+      #look .suggested button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 3px; font-size: 11px; text-align: left; }
+      #look .suggested button[aria-pressed="true"] { border-color: var(--info); }
+      #look .suggested button:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+      #look .suggested canvas { display: block; height: 72px; width: auto; background: #000; }
+      #look .suggested .verdict, #look .suggested .alike { color: var(--muted); }
+      #look .suggested .error { color: var(--error); }
+      #look .suggested .warning { color: var(--warning); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
       #tabs { display: flex; flex-wrap: wrap; flex: none; gap: 0 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;

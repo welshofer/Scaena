@@ -238,6 +238,8 @@ jobs:
       - run: node web/canvas.mjs
       - run: node web/typing.mjs
       - run: node web/inspector.mjs
+      # The layouts a state may take, drawn and judged by lint, previewed and chosen (PLAN 2.92).
+      - run: node web/suggest.mjs
       # Nodes inserted from the theme and the bundle, copied, and deleted, each a patch (PLAN 2.34).
       - run: node web/insert.mjs
       # A key arms the canvas to draw; a drag draws over the cells it covers, a line the way it went (PLAN 2.48).

@@ -136,6 +136,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each is one ⌘Z.
 - **A state's look.** With nothing selected (Escape, until the status says so), the inspector shows the state itself: its layout, how it comes in, how long it holds, and your notes.
   - The layouts offered are those with a place for each object on the slide. A layout goes where it is set, so the states of a build change together, and the status says how many; tick "layout only in" to keep it to the state shown.
+  - Above them, the inspector draws the state in each layout it may take, best first: fewest errors, then fewest warnings, each saying what lint finds there. Layouts that would show it alike are one picture, which names the others. Point at one, or Tab to it, and the slide shows in it, nothing changed until you click it or press Enter. `scaena inspect BUNDLE --state S --layouts` lists the same. A slide whose objects stand on the grid, in no layout's places, has no pictures: every layout would show it alike.
   - How it comes in is a duration from the theme (or a cut), an ease, or a spring. A hold is in seconds: how long the state stays before the deck goes on by itself.
   - Each choice is one ⌘Z.
 - **See.** The preview on the right shows the state the cursor is in, at rest.

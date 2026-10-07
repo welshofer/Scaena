@@ -198,6 +198,8 @@ struct DeckInspect {
     #[serde(default)]
     state_choices: bool,
     #[serde(default)]
+    layouts: bool,
+    #[serde(default)]
     inserts: bool,
     #[serde(default)]
     layers: bool,
@@ -358,6 +360,7 @@ impl Session {
                     free: a.free,
                     choices: a.choices,
                     state_choices: a.state_choices,
+                    layouts: a.layouts,
                     inserts: a.inserts,
                     layers: a.layers,
                     look: a.look,

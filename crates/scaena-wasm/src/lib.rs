@@ -138,6 +138,14 @@ pub struct Session {
     /// and its bytes (PLAN 2.4).
     #[cfg(feature = "editor")]
     subsets: BTreeMap<String, (String, Vec<u8>)>,
+    /// The layouts a state may take, being judged a step at a time (PLAN 2.92): let go with
+    /// what was laid out.
+    #[cfg(feature = "editor")]
+    suggesting: Option<editor::Suggesting>,
+    /// The pictures `layoutSuggestions` painted last, each until `layoutPixels` takes it
+    /// (PLAN 2.92).
+    #[cfg(feature = "editor")]
+    suggested: Vec<Vec<u8>>,
     /// What the next save records in the bundle's history, if it keeps one, besides the save:
     /// each edit an operation made since the bundle was opened or saved, after the deck
     /// before it (PLAN 2.9).
@@ -238,6 +246,10 @@ impl Session {
             laid: editor::Laid::default(),
             #[cfg(feature = "editor")]
             subsets: BTreeMap::new(),
+            #[cfg(feature = "editor")]
+            suggesting: None,
+            #[cfg(feature = "editor")]
+            suggested: Vec::new(),
             #[cfg(feature = "editor")]
             recorded: Vec::new(),
             #[cfg(feature = "editor")]
@@ -355,6 +367,7 @@ impl Session {
         #[cfg(feature = "editor")]
         {
             self.previewing = None;
+            self.suggesting = None;
         }
     }
 
@@ -1502,6 +1515,51 @@ impl Player {
         height: u32,
     ) -> Result<wasm_bindgen::Clamped<Vec<u8>>, JsError> {
         Ok(wasm_bindgen::Clamped(self.0.pixels_in(format.as_deref(), state, t_ms, height).map_err(js)?.rgba))
+    }
+
+    /// Begin judging the layouts `state` may take (PLAN 2.92): how many there are. Each is
+    /// judged by a `layoutsStep`, so that the worker answers what else it is asked between them.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = layoutsBegin)]
+    pub fn layouts_begin(&mut self, state: &str) -> Result<usize, JsError> {
+        self.0.layouts_begin(state).map_err(js)
+    }
+
+    /// Judge the next layout: the state laid out in it, linted in every format, and drawn in
+    /// the format shown. Whether any is left. A deck, its files, or the format changed since
+    /// `layoutsBegin` ends the round, an error.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = layoutsStep)]
+    pub fn layouts_step(&mut self) -> Result<bool, JsError> {
+        self.0.layouts_step().map_err(js)
+    }
+
+    /// The layouts judged since `layoutsBegin`, best first, each painted at rest `height`
+    /// pixels high in the format shown, and the round ends: JSON, an array of `scaena inspect
+    /// --layouts`' suggestions, each with its picture's `width` and `height`. `layoutPixels(i)`
+    /// takes the `i`th picture's pixels, as `pixels` gives a frame's.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = layoutSuggestions)]
+    pub fn layout_suggestions(&mut self, height: u32) -> Result<String, JsError> {
+        let painted = self.0.layouts_end(height).map_err(js)?;
+        self.0.suggested.clear();
+        let mut listed = Vec::with_capacity(painted.len());
+        for (suggestion, picture) in painted {
+            let mut value = serde_json::to_value(&suggestion).map_err(js)?;
+            value["width"] = picture.width.into();
+            value["height"] = picture.height.into();
+            listed.push(value);
+            self.0.suggested.push(picture.rgba);
+        }
+        serde_json::to_string(&listed).map_err(js)
+    }
+
+    /// The pixels of the `i`th picture `layoutSuggestions` painted last, taken: a second call
+    /// gives none.
+    #[cfg(feature = "editor")]
+    #[wasm_bindgen(js_name = layoutPixels)]
+    pub fn layout_pixels(&mut self, i: usize) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.0.suggested.get_mut(i).map(std::mem::take).unwrap_or_default())
     }
 }
 

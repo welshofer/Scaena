@@ -22,6 +22,7 @@ import type {
   Insert,
   Inspected,
   Layer,
+  LayoutSuggestion,
   LayoutSlots,
   LinkTarget,
   Linted,
@@ -131,7 +132,8 @@ type Reply = Extract<
       | "copied"
       | "pasted"
       | "thumbnails"
-      | "addingState";
+      | "addingState"
+      | "layoutSuggestions";
   }
 >;
 
@@ -605,6 +607,21 @@ export class Stage {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
   }
 
+  /** The layouts `state` may take, best first, in the deck shown (PLAN 2.92), as `stateChoices`
+   * offers them: each judged by lint, with the patch that gives it, and painted at rest `height`
+   * pixels high. The deck the worker holds: a request on a timer never takes it back to a source
+   * an edit has moved past. */
+  layoutSuggestions(state: string, height: number, format?: string): Promise<LayoutSuggestion[]> {
+    return this.request<"layoutSuggestions">({ type: "layoutSuggestions", id: ++this.asked, state, height, format }).then(
+      ({ suggestions }) => suggestions,
+    );
+  }
+
+  /** `state` at rest as the patch `ops` would make it, nothing made, until `rest` (PLAN 2.92). */
+  preview(state: string, ops: unknown[], format?: string): Promise<void> {
+    return this.request<"shown">({ type: "preview", id: ++this.asked, state, ops, format }).then(() => {});
+  }
+
   /** `node`'s look as `state` shows it, in the deck `source` compiles to (PLAN 2.58): what ⌥⌘C
    * picks up. */
   look(source: string, state: string, node: string): Promise<Look> {
@@ -885,6 +902,7 @@ export class Stage {
       case "pasted":
       case "thumbnails":
       case "addingState":
+      case "layoutSuggestions":
       case "sheet":
       case "dataEdited":
       case "dataUndone":
