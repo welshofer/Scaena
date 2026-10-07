@@ -13,8 +13,9 @@
 // Anthropic's opt-in header for a browser), the system prompt with the author-deck skill, the
 // tools as the MCP server's less `bundle`, each call's result as the model reads it, and the
 // frame as an image; that Gemini's thought signatures go back as they came; that the editor's
-// source takes each edit and lints clean at the end; that the theme's edit is one step of the
-// source's undo, the theme written back (PLAN 2.61); and that a question stops when asked to.
+// source takes each edit and lints clean at the end; that each edit shows the states it drew
+// anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
+// theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's storage: for the tab, or on the device, encrypted, and forgotten.
 // Exits 1 on any failure.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -281,6 +282,23 @@ try {
     );
     const shown = await page.$eval("#transcript img", (img) => img.naturalWidth).catch(() => 0);
     check(shown === 960, `${id}: and the frame the model saw`);
+    // Under each call that changed what a state draws, that state before and after (PLAN 2.93):
+    // the patch drew the headline on start, and lint's fix set it to fit, the first's after the
+    // second's before; a lint and a render draw nothing anew.
+    const changes = await page.evaluate(() =>
+      [...document.querySelectorAll("#transcript li.call")].map((li) =>
+        [...li.querySelectorAll(".changed .change")].map((b) => {
+          const sum = (c) => (c ? [...c.getContext("2d").getImageData(0, 0, c.width, c.height).data].reduce((a, v) => (a * 31 + v) % 1000000007, 0) : null);
+          const [before, after] = [...b.querySelectorAll("canvas")];
+          return { state: b.dataset.state, before: sum(before), after: sum(after) };
+        }),
+      ),
+    );
+    const of = (i) => changes[i] ?? [];
+    const [patched2, fixed2] = [of(0)[0], of(2)[0]];
+    check(of(0).length === 1 && patched2.state === "start" && patched2.before !== null && patched2.before !== patched2.after, `${id}: the patch shows start before and after: ${JSON.stringify(of(0))}`);
+    check(of(2).length === 1 && fixed2.state === "start" && fixed2.before === patched2.after && fixed2.after !== fixed2.before, `${id}: lint's fix shows start as the patch left it, then fixed: ${JSON.stringify(of(2))}`);
+    check([1, 3, 4].every((i) => of(i).length === 0), `${id}: a lint and a render show nothing drawn anew`);
 
     // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
     // theme back (PLAN 2.61).

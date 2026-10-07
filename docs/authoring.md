@@ -217,7 +217,7 @@ scaena render talk --state revenue --out revenue.png && open revenue.png
 
 ## An assistant
 
-The editor's **Assistant** tab works on the open deck with your own key: Anthropic, OpenAI, or Gemini. Ask in plain words, such as "put the headline 'Revenue doubled' on the second slide and fix what lint finds". It edits through the same operations, lints, renders, and shows you each step. Each of its edits shows in the source as it happens, and undoes as one.
+The editor's **Assistant** tab works on the open deck with your own key: Anthropic, OpenAI, or Gemini. Ask in plain words, such as "put the headline 'Revenue doubled' on the second slide and fix what lint finds". It edits through the same operations, lints, renders, and shows you each step. Each of its edits shows in the source as it happens, and undoes as one. Under each step that changed a slide, the tab shows that slide before and after; click it to go there.
 
 Any MCP client can do the same from outside the browser. `scaena mcp` serves the operations as tools, and the format, SPEC, and lint catalog as resources (SPEC §7.2).
 
