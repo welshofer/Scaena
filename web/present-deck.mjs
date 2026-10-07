@@ -67,6 +67,10 @@ try {
    * through the state's hold (`playing`), so at rest is past the cue's span. */
   const rests = (page, index, what = `state ${index} at rest`) =>
     until(page, what, ([i, span]) => window.scaena.at().index === i && window.scaena.at().t >= span, [index, slots[index]?.span ?? 0]);
+  /** Once `page`'s deck shows state `index`, playing or at rest. A page behind another window
+   * may get no frames, so its cue may not play out while the presenter view is in front: the
+   * state it went to is what steering it says. */
+  const goes = (page, index, what = `state ${index}`) => until(page, what, (i) => window.scaena.at().index === i, index);
   const step = async (name, page, act) => {
     const started = Date.now();
     try {
@@ -182,30 +186,34 @@ try {
     const clock = await presenter.textContent("#clock");
     await until(presenter, "its clock runs", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
     check(true, `its clock runs: ${clock} → ${await presenter.textContent("#clock")}`);
-    // Its keys steer the player, and it follows.
+    // Its keys steer the player, and it follows. Each going on starts at rest: during a cue,
+    // on finishes the cue instead, and a player behind the presenter view's window may get no
+    // frames to finish it by. Going back, End, and Home come to rest at once.
     await presenter.bringToFront();
     await presenter.keyboard.press("ArrowRight");
-    await rests(player, 1, "the presenter view's → steers the player");
+    await goes(player, 1, "the presenter view's → steers the player");
     await followed(1);
-    await presenter.keyboard.press(" ");
-    await rests(player, 2, "the presenter view's Space steers the player");
     await presenter.keyboard.press("ArrowLeft");
-    await rests(player, 1, "the presenter view's ← steers the player");
-    check(true, "its →, Space, and ← steer the player");
+    await goes(player, 0, "the presenter view's ← steers the player");
+    await presenter.keyboard.press(" ");
+    await goes(player, 1, "the presenter view's Space steers the player");
+    await presenter.keyboard.press("ArrowLeft");
+    await goes(player, 0, "and back");
+    check(true, "its →, ←, and Space steer the player");
     await presenter.click("#on");
-    await rests(player, 2, "its ▶");
+    await goes(player, 1, "its ▶");
     await presenter.click("#back");
-    await rests(player, 1, "its ◀");
+    await goes(player, 0, "its ◀");
     check(true, "its ▶ and ◀ steer the player");
     await presenter.keyboard.press("End");
-    await rests(player, states.length - 1, "the presenter view's End");
+    await goes(player, states.length - 1, "the presenter view's End");
     await presenter.keyboard.press("Home");
-    await rests(player, 0, "the presenter view's Home");
+    await goes(player, 0, "the presenter view's Home");
     check(true, "its End and Home go to the last and the first, as the player's do");
     // The player steered by its own keys: the presenter view follows it there.
     await player.bringToFront();
     await player.keyboard.press("ArrowRight");
-    await rests(player, 1);
+    await goes(player, 1);
     await followed(1);
     check((await presenter.textContent("#notes")) === notesOf(states[1]) && (await presenter.textContent("#nextName")) === `Next: ${states[2]}`, `it follows the player to ${states[1]}: its notes, and ${states[2]} next`);
     await snap(presenter, "presenter-view");
