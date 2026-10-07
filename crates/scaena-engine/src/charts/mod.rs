@@ -425,6 +425,9 @@ pub struct SeriesPath {
     pub dash: [f32; 2],
     /// A projected stretch of an area: its fill, a fraction of the area's.
     pub fade: f32,
+    /// Its ends are flat, where its values end, as a range's interval's are (PLAN 1.30); a
+    /// line's are round.
+    pub flat: bool,
 }
 
 impl SeriesPath {

@@ -350,9 +350,9 @@
       ]}}
     ]}},
     {"layer":{"node":"rg-poll","cell":null,"transform":[1.0,0.0,0.0,1.0,1410.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L414 -210L414 870L0 870Z","ops":[
-      {"stroke":{"path":"M69 136.65625L69 246.85938L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M207 329.51563L207 439.70313L207 219.3125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M345 660.1094L345 742.75L345 577.4531","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M69 246.85938L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M207 439.70313L207 219.3125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M345 742.75L345 577.4531","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"fill":{"path":"M69 130.65625C72.3125 130.65625 75 133.34375 75 136.65625C75 139.96875 72.3125 142.65625 69 142.65625C65.6875 142.65625 63 139.96875 63 136.65625C63 133.34375 65.6875 130.65625 69 130.65625Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M207 323.51563C210.3125 323.51563 213 326.1875 213 329.51563C213 332.82813 210.3125 335.51563 207 335.51563C203.6875 335.51563 201 332.82813 201 329.51563C201 326.1875 203.6875 323.51563 207 323.51563Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M345 654.1094C348.3125 654.1094 351 656.7969 351 660.1094C351 663.4219 348.3125 666.1094 345 666.1094C341.6875 666.1094 339 663.4219 339 660.1094C339 656.7969 341.6875 654.1094 345 654.1094Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},

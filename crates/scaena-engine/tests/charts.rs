@@ -2042,7 +2042,9 @@ fn a_range_draws_each_value_with_its_interval_and_its_value_over_it() {
     for (option, lo, hi) in [("A", 38.0, 46.0), ("B", 31.0, 39.0), ("C", 20.0, 26.0)] {
         let path = layout.paths.iter().find(|p| p.key == format!("{option}\u{1f}interval")).unwrap();
         let (low, high) = (format!("{option}\u{1f}low"), format!("{option}\u{1f}high"));
-        assert_eq!(path.marks, [low.clone(), option.to_string(), high.clone()]);
+        // From end to end, flat at each: where its values end, and alike on the GPU and the CPU.
+        assert_eq!(path.marks, [low.clone(), high.clone()]);
+        assert!(path.flat, "{option}'s interval ends flat");
         let Shape::Dot { x, y: y_low, r: 0.0 } = shape_of(&layout, &low) else { panic!("an end is a point") };
         let Shape::Dot { y: y_high, .. } = shape_of(&layout, &high) else { panic!("an end is a point") };
         let Shape::Dot { x: x_point, .. } = shape_of(&layout, option) else { panic!("a value is a dot") };

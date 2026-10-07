@@ -459,9 +459,9 @@
       ]}}
     ]}},
     {"layer":{"node":"rg-poll","cell":null,"transform":[1.0,0.0,0.0,1.0,1410.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L414 -210L414 870L0 870Z","ops":[
-      {"stroke":{"path":"M69 90.21875L69 153.98438L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M207 390.45313L207 454.21875L207 326.6875","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M345 682.3594L345 742.75L345 621.9531","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M69 153.98438L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M207 454.21875L207 326.6875","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M345 742.75L345 621.9531","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"fill":{"path":"M69 84.21875C72.3125 84.21875 75 86.90625 75 90.21875C75 93.546875 72.3125 96.21875 69 96.21875C65.6875 96.21875 63 93.546875 63 90.21875C63 86.90625 65.6875 84.21875 69 84.21875Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M207 384.45313C210.3125 384.45313 213 387.14063 213 390.45313C213 393.76563 210.3125 396.45313 207 396.45313C203.6875 396.45313 201 393.76563 201 390.45313C201 387.14063 203.6875 384.45313 207 384.45313Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M345 676.3594C348.3125 676.3594 351 679.0469 351 682.3594C351 685.6719 348.3125 688.3594 345 688.3594C341.6875 688.3594 339 685.6719 339 682.3594C339 679.0469 341.6875 676.3594 345 676.3594Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},

@@ -1472,10 +1472,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         key: format!("{}\u{1f}interval", r.key),
                         color,
                         stroke: Some(line_width),
-                        marks: vec![low, r.key.clone(), high],
+                        // From end to end, so each ends flat: a path through the point
+                        // turned back at an end, round where it joined.
+                        marks: vec![low, high],
                         projected: Vec::new(),
                         dash,
                         fade,
+                        flat: true,
                     });
                 } else {
                     // A line's first value ends at its point and its last begins there,
@@ -1517,6 +1520,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         projected: Vec::new(),
                         dash,
                         fade,
+                        flat: false,
                     });
                 }
             }
@@ -1534,6 +1538,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         projected: members.iter().filter(|r| r.projected).map(|r| r.key.clone()).collect(),
                         dash,
                         fade,
+                        flat: false,
                     });
                 }
             }

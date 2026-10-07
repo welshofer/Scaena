@@ -362,9 +362,9 @@
       ]}}
     ]}},
     {"layer":{"node":"rg-poll","cell":null,"transform":[1.0,0.0,0.0,1.0,1410.0,210.0],"opacity":1.0,"blend":"normal","clip":"M0 -210L414 -210L414 870L0 870Z","ops":[
-      {"stroke":{"path":"M69 83.765625L69 141.0625L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M207 398.9375L207 456.23438L207 341.625","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
-      {"stroke":{"path":"M345 685.4531L345 742.75L345 628.15625","paint":{"solid":"#333333FF"},"width":2.0,"cap":"round","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M69 141.0625L69 26.453125","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M207 456.23438L207 341.625","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
+      {"stroke":{"path":"M345 742.75L345 628.15625","paint":{"solid":"#333333FF"},"width":2.0,"cap":"butt","join":"round","miterLimit":4.0,"dash":[],"dashOffset":0.0}},
       {"fill":{"path":"M69 77.765625C72.3125 77.765625 75 80.453125 75 83.765625C75 87.078125 72.3125 89.765625 69 89.765625C65.6875 89.765625 63 87.078125 63 83.765625C63 80.453125 65.6875 77.765625 69 77.765625Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M207 392.9375C210.3125 392.9375 213 395.625 213 398.9375C213 402.25 210.3125 404.9375 207 404.9375C203.6875 404.9375 201 402.25 201 398.9375C201 395.625 203.6875 392.9375 207 392.9375Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},
       {"fill":{"path":"M345 679.4531C348.3125 679.4531 351 682.1406 351 685.4531C351 688.7656 348.3125 691.4531 345 691.4531C341.6875 691.4531 339 688.7656 339 685.4531C339 682.1406 341.6875 679.4531 345 679.4531Z","rule":"nonzero","paint":{"solid":"#333333FF"}}},

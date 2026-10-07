@@ -527,7 +527,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *Its values nudge apart by default, and its names stand past the widest second value, level with their own.*
       - *Its marks are keyed by series and state, so a slope moved to another pair of states tilts its lines rather than scrolling them.*
     - *A range with a series is a dumbbell: each category's dots joined from the lowest to the highest by a stroke in the axis color, the lowest value under its dot.*
-      - *With `interval`, each value is a dot with its interval stroked in its color, its value riding the interval's top. The interval's ends are marks of no datum (`charts::datum_key`): a click on one, or on the value, is its point's, and the keys and the Data tab reach the points alone.*
+      - *With `interval`, each value is a dot with its interval stroked in its color, square at each end where its values are (a round end, partway down a pixel, broke SPEC §13.5 between vello's GPU and CPU painters), its value riding the interval's top. The interval's ends are marks of no datum (`charts::datum_key`): a click on one, or on the value, is its point's, and the keys and the Data tab reach the points alone.*
       - *A range's new dots open where they stand. A range with no series, color, or interval, and `interval` on another kind, are E106; an end that is no column of numbers is E103.*
     - *`ValueLabel` gains `beside`, so a value stands beside a dot. The inspector offers a range's `interval/low` and `interval/high` from the columns of numbers (`choices`, `data::readable`).*
     - *Torture cases 55 and 56 (`slopes`, `slopes-next@0.5`):*

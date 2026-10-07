@@ -2430,8 +2430,10 @@ fn path_ops(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: 
             path,
             paint: Paint::Solid(fade(color, alpha)),
             width,
-            // A dash ends square, where a whole line ends round.
-            cap: if projected { Cap::Butt } else { Cap::Round },
+            // A dash ends square, where a whole line ends round. An interval ends flat, where
+            // its values do: vello's GPU and CPU painters shade a round end that stops partway
+            // down a pixel too far apart for SPEC §13.5.
+            cap: if projected || series.flat { Cap::Butt } else { Cap::Round },
             join: Join::Round,
             miter_limit: 4.0,
             dash: if projected { series.dash.to_vec() } else { Vec::new() },
@@ -2796,6 +2798,7 @@ mod tests {
             projected: Vec::new(),
             dash: [6.0, 4.0],
             fade: 0.5,
+            flat: false,
         };
         let before =
             chart(ChartKind::Line, vec![dot("q1", 0.0, 80.0), dot("q2", 100.0, 40.0)], vec![path(&["q1", "q2"])]);
@@ -2843,6 +2846,7 @@ mod tests {
             projected: Vec::new(),
             dash: [6.0, 4.0],
             fade: 0.5,
+            flat: false,
         };
         let design = [dot("d\u{1f}w", 50.0, 60.0), dot("d\u{1f}m", 50.0, 40.0)];
         let one = chart(ChartKind::Range, design.to_vec(), vec![path("d", &["d\u{1f}w", "d\u{1f}m"])]);
@@ -3068,6 +3072,7 @@ mod tests {
             projected: Vec::new(),
             dash: [6.0, 4.0],
             fade: 0.5,
+            flat: false,
         };
         let lines = chart(
             ChartKind::Line,
