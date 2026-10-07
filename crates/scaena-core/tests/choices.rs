@@ -174,6 +174,16 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
     let mut lines = example();
     lines["nodes"]["rev"]["kind"] = json!("line");
     assert!(offered(&lines, "revenue", "rev").fields.iter().all(|f| f.prop != "orient"));
+    // A range's values have intervals, each end a column of numbers (PLAN 1.30); no other
+    // kind's do.
+    assert!(rev.fields.iter().all(|f| !f.prop.starts_with("interval/")));
+    let mut ranges = example();
+    ranges["nodes"]["rev"]["kind"] = json!("range");
+    let ranges = offered(&ranges, "revenue", "rev");
+    for end in ["interval/low", "interval/high"] {
+        let Takes::Word { words } = &field(&ranges, end).takes else { panic!("{end} offers columns") };
+        assert_eq!(words, &["revenue", "customers"], "{end}");
+    }
     assert_eq!(
         (field(&rev, "data").value.clone(), field(&rev, "data").lives.clone()),
         (Some(json!("@q3")), Some(Where::Node))

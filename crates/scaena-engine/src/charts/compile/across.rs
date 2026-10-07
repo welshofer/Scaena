@@ -418,6 +418,7 @@ pub(in crate::charts) fn layout(parts: Parts) -> Result<ChartLayout, EngineError
                 offset: if below { -gap } else { gap },
                 align: if below { 1.0 } else { 0.0 },
                 drop: 0.5 * cap(&text),
+                beside: 0.0,
             };
             let [ax, baseline] = at.anchor(&shape);
             let origin = [ax - at.align * text.width, baseline - text.lines[0].baseline];

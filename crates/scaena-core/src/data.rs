@@ -133,13 +133,13 @@ pub fn read(deck: &Deck, files: &dyn SourceFiles, props: &Props) -> Result<Table
 }
 
 /// The columns of `table` a chart's channel `channel` (`x`, `y`, `series`, `color`,
-/// `sizeEncoding`; or `key`) can read, as `props` declares the channel's `type`: numbers for a
-/// quantitative one, and for a `y` or a size that declares none; dates for a temporal one;
-/// any column for the rest.
+/// `sizeEncoding`, a range's `interval`; or `key`) can read, as `props` declares the channel's
+/// `type`: numbers for a quantitative one, and for a `y`, a size, or an interval's end that
+/// declares none; dates for a temporal one; any column for the rest.
 pub fn readable<'t>(table: &'t Table, props: &Props, channel: &str) -> Vec<&'t str> {
     let declared = props.get(channel).and_then(|e| e.get("type")).and_then(Value::as_str);
     let wants = match (channel, declared) {
-        (_, Some("quantitative")) | ("y" | "sizeEncoding", None) => Some(ColumnType::Number),
+        (_, Some("quantitative")) | ("y" | "sizeEncoding" | "interval", None) => Some(ColumnType::Number),
         (_, Some("temporal")) => Some(ColumnType::Date),
         _ => None,
     };
@@ -399,7 +399,7 @@ mod tests {
 
     fn deck(data: &str) -> Deck {
         let json = format!(
-            r#"{{"scaena": "0.14", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
+            r#"{{"scaena": "0.15", "canvas": {{"width": 1920, "height": 1080}}, "data": {data}, "nodes": {{}}, "states": []}}"#
         );
         Deck::from_json(&json).unwrap()
     }
@@ -490,7 +490,7 @@ mod tests {
         let err = load(&deck1, &files("d.csv", "day,month\nlast Tuesday,Mar 2025\n"), "q").unwrap_err().to_string();
         assert!(err.contains("column `day`") && err.contains("ISO 8601") && err.contains("parse"), "{err}");
         // Month names read in the deck's language.
-        let de = r#"{"scaena": "0.14", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
+        let de = r#"{"scaena": "0.15", "meta": {"lang": "de-DE"}, "canvas": {"width": 1920, "height": 1080},
             "data": {"q": {"source": {"inline": [{"m": "März 2025"}]}, "schema": {"m": "date"}, "parse": {"m": "%B %Y"}}},
             "nodes": {}, "states": []}"#;
         let t = load(&Deck::from_json(de).unwrap(), &BTreeMap::new(), "q").unwrap();

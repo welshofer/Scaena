@@ -364,6 +364,10 @@ pub enum ChartKind {
     Scatter,
     Dot,
     Donut,
+    /// Two states compared, a line a series (PLAN 1.30).
+    Slope,
+    /// A span on the value axis at each category (PLAN 1.30).
+    Range,
 }
 
 impl ChartKind {
@@ -536,6 +540,9 @@ pub struct ValueLabel {
     /// From the anchor down to the baseline: a slice's label centers its cap height on
     /// its point, and a label nudged off its neighbors moves (`labels.collide`).
     pub drop: f32,
+    /// From a dot's middle across to the anchor: a slope's values stand beside their
+    /// points (PLAN 1.30).
+    pub beside: f32,
 }
 
 impl ValueLabel {
@@ -551,7 +558,9 @@ impl ValueLabel {
                 let end = if self.below { r.bottom() } else { r.top() };
                 [r.center_x(), end + self.offset + self.drop]
             }
-            Shape::Dot { x, y, r } => [x, if self.below { y + r } else { y - r } + self.offset + self.drop],
+            Shape::Dot { x, y, r } => {
+                [x + self.beside, if self.below { y + r } else { y - r } + self.offset + self.drop]
+            }
             Shape::Span { x, top, .. } => [x, top + self.offset + self.drop],
             Shape::Arc { cx, cy, outer, start, end, .. } => {
                 let (mid, r) = (0.5 * (start + end) * core::f32::consts::TAU, outer + self.offset);
@@ -909,6 +918,7 @@ pub struct Ctx<'a> {
 }
 
 mod compile;
+pub(crate) use compile::datum_key;
 pub use compile::{color_keys, compile};
 
 #[cfg(test)]
@@ -956,7 +966,7 @@ mod tests {
         assert_eq!((flat.x, flat.w, flat.y, flat.h, flat.top_radius), (0.0, 0.0, 0.0, 10.0, 0.0));
         // It moves along its category axis, down the chart, and a value rides past its end.
         assert_eq!((bar.shifted(5.0).y, bar.along(), Shape::Bar(bar).along()), (5.0, 5.0, 5.0));
-        let value = ValueLabel { value: 3.0, below: false, offset: 8.0, align: 0.0, drop: 4.0 };
+        let value = ValueLabel { value: 3.0, below: false, offset: 8.0, align: 0.0, drop: 4.0, beside: 0.0 };
         assert_eq!(value.anchor(&Shape::Bar(bar)), [48.0, 9.0]);
         let left = ValueLabel { below: true, offset: -8.0, align: 1.0, ..value };
         assert_eq!(left.anchor(&Shape::Bar(bar)), [-8.0, 9.0]);

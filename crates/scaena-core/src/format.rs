@@ -405,6 +405,12 @@ impl NumberFormat {
         NumberFormat { precision: Some(places), trim: false, kind: Kind::Fixed, ..NumberFormat::plain() }
     }
 
+    /// This format with a sign on every value, as `+` asks: a change, which says which way
+    /// it went (`+$19`, `−$4`).
+    pub fn signed(&self) -> NumberFormat {
+        NumberFormat { sign: Sign::Plus, ..self.clone() }
+    }
+
     /// Every character besides the digits that this format can print in `locale`: what a
     /// counting label must have glyphs for.
     pub fn alphabet(&self, locale: &Locale) -> String {

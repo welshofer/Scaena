@@ -351,6 +351,10 @@ node! {
         pub color: Option<Encoding>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub size_encoding: Option<Encoding>,
+        /// A `range`'s interval about each value (PLAN 1.30): the fields that hold its low
+        /// and high ends. Any other kind is E106.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub interval: Option<Interval>,
         /// Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub projected: Option<Projected>,
@@ -416,7 +420,10 @@ pub enum ColumnAlign {
     End,
 }
 
-/// v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.
+/// v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two
+/// states, a line a series from the first to the second, both ends labeled and the change
+/// said; a `range` spans the value axis at each category, a dumbbell between its series or
+/// each value with its `interval` (PLAN 1.30).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ChartKind {
@@ -427,6 +434,18 @@ pub enum ChartKind {
     Scatter,
     Dot,
     Donut,
+    Slope,
+    Range,
+}
+
+/// The fields that hold each value's interval on a `range` (SPEC §3.7, PLAN 1.30).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Interval {
+    /// The field of its low end.
+    pub low: String,
+    /// The field of its high end.
+    pub high: String,
 }
 
 /// Which way a chart's bars run (SPEC §3.7, PLAN 1.29).

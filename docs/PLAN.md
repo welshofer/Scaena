@@ -505,7 +505,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
   PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Done: the last, `st-line` in 9:16, and 1.28's `fc-line` in `forecast-next`, which showed the same, were first values short of room. The plot took their room out of the chart's whole width, not out of the plot the series' names left beside it, so in a narrow plot the side clamped each value and pushed it in over its own line. The room is now taken from the plot the right side leaves, again until it holds, and each first value ends at its point. Both findings left the golden, and no E111 in it is a chart's. A test in `charts.rs` fails without the change.)*
 
 ### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay scheduled them 2026-10-07)
-*Not gate-1 work. Jay scheduled them on 2026-10-07, to be done in order. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
+*Not gate-1 work. Jay scheduled them on 2026-10-07, to be done in order. 1.30 lifts PLAN 1.9's deferral of `slope` and `range`.*
 - [x] 1.28 Forecasts and estimates read as such. A line's or an area's rows can be marked projected (a field the encoding names). The line runs dashed from the last actual point, and its end value says it is an estimate. SPEC §3.7; schema; a torture case. *(The guide: "distinguish actual and forecast".)*
   *(Done: a chart's `projected` names a field, and the value that marks a projected row, or none for a true boolean (deck format 0.10). SPEC §3.7 says how it draws.*
     - *A line runs dashed from its last actual point, three line widths on and two off, with square ends. An area fills at half strength under the same stretch.*
@@ -520,7 +520,20 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *In motion they move as bars that stand up, turned: a bar grows across from the baseline and a stack opens across. Bars that regroup go lengths first into a stack and thicknesses first out of one. A change of `orient` cross-fades the chart.*
     - *The inspector offers `orient` on a bar chart only. The chart skill and `docs/authoring.md` say when to reach for it: a ranking, or long names.*
     - *Torture cases 53 and 54 (`across`, `across-next@0.25` and `@0.75`): a ranking with a goal rule, sorted between states, and stacks across that come apart into their series' bars on a value axis that rescales. Nine engine tests (`charts.rs`, `sample.rs`, `charts/mod.rs`), a marks test, a validation test, and the choices test's `orient`. The editor's module is 2,911.80 kB gzipped, as Vite reports it: 20.5 kB more, the most any task has added, which leaves 88 kB under SPEC §15's 3 MB. Of the 57 kB it grows uncompressed, `across::layout` is 35 kB: the chart compiler is built at opt-level 3 with the engine, which samples every frame.)*
-- [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
+- [x] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
+  *(Done: `slope` and `range` are v1 kinds, and a range takes `interval: { low, high }` (deck format 0.15). Both lay out through the chart compiler's own path for points, not a module of their own.*
+    - *A slope's `x` holds exactly two states among the rows it draws, else E103.*
+      - *Each series is a line from its first state on the plot's left side to its second on its right. Each first value ends a space before its point, and each second begins a space past it, level with it, and says the change: `$135 (+$75)` (`NumberFormat::signed`).*
+      - *Its values nudge apart by default, and its names stand past the widest second value, level with their own.*
+      - *Its marks are keyed by series and state, so a slope moved to another pair of states tilts its lines rather than scrolling them.*
+    - *A range with a series is a dumbbell: each category's dots joined from the lowest to the highest by a stroke in the axis color, the lowest value under its dot.*
+      - *With `interval`, each value is a dot with its interval stroked in its color, its value riding the interval's top. The interval's ends are marks of no datum (`charts::datum_key`): a click on one, or on the value, is its point's, and the keys and the Data tab reach the points alone.*
+      - *A range's new dots open where they stand. A range with no series, color, or interval, and `interval` on another kind, are E106; an end that is no column of numbers is E103.*
+    - *`ValueLabel` gains `beside`, so a value stands beside a dot. The inspector offers a range's `interval/low` and `interval/high` from the columns of numbers (`choices`, `data::readable`).*
+    - *Torture cases 55 and 56 (`slopes`, `slopes-next@0.5`):*
+      - *a slope with a highlight, a dumbbell, and intervals;*
+      - *then the slope moved to 2025, the dumbbell's values moving, Design's women's pay passing men's, and the intervals narrowing.*
+    - *Tests: five engine tests (`charts.rs`), a sampler test, a marks test, a validation test, and the choices test's interval. The editor's module is 2,921.43 kB gzipped, as Vite reports it: 9.6 kB more than after 1.29, which leaves 79 kB under SPEC §15's 3 MB.)*
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
 
 ### 1I What gate 1's agent runs found (2026-10-03)

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "W427 clean: the headline's quoted figure, and the claim's, are what the data gives.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

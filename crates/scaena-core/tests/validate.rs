@@ -382,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.14",
+        "scaena": "0.15",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -426,7 +426,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.14",
+        "scaena": "0.15",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -464,7 +464,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.14",
+        "scaena": "0.15",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -482,6 +482,51 @@ fn only_a_bar_charts_bars_turn() {
         ]
     });
     assert_eq!(findings(&deck.to_string()), ["E106 /nodes/line/orient", "E106 /states/1/props/later/orient"]);
+}
+
+#[test]
+fn a_slope_compares_two_states_and_a_range_spans_something() {
+    // PLAN 1.30: a slope's x holds two states among the rows it draws (E103); `interval` is a
+    // range's, each end a column of numbers (E106, E103); a range with no series, color, or
+    // interval spans nothing (E106).
+    let deck = serde_json::json!({
+        "scaena": "0.15",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": { "source": { "inline": [
+                    { "y": "2024", "s": "A", "v": 1, "lo": 0, "hi": 2, "note": "x" },
+                    { "y": "2025", "s": "A", "v": 2, "lo": 1, "hi": 3, "note": "x" },
+                    { "y": "2026", "s": "A", "v": null, "lo": 1, "hi": 3, "note": "x" }
+                 ] },
+                 "schema": { "v": "number", "lo": "number", "hi": "number" } } },
+        "nodes": {
+            "two": { "type": "chart", "kind": "slope", "data": "@r", "x": { "field": "y" }, "y": { "field": "v" },
+                     "series": { "field": "s" }, "key": "s", "alt": "", "at": { "in": "main" } },
+            "three": { "type": "chart", "kind": "slope", "data": "@r", "x": { "field": "y" }, "y": { "field": "lo" },
+                       "alt": "", "at": { "in": "main" } },
+            "spans": { "type": "chart", "kind": "range", "data": "@r", "x": { "field": "y" }, "y": { "field": "v" },
+                       "interval": { "low": "lo", "high": "note" }, "alt": "", "at": { "in": "main" } },
+            "nothing": { "type": "chart", "kind": "range", "data": "@r", "x": { "field": "y" }, "y": { "field": "v" },
+                         "alt": "", "at": { "in": "main" } },
+            "bars": { "type": "chart", "kind": "bar", "data": "@r", "x": { "field": "y" }, "y": { "field": "v" },
+                      "interval": { "low": "lo", "high": "gone" }, "alt": "", "at": { "in": "main" } }
+        },
+        "states": [{ "id": "a", "layout": "full",
+                     "props": { "two": {}, "three": {}, "spans": {}, "nothing": {}, "bars": {} } }]
+    });
+    // `two` draws two states (the third's value is a gap) and keys its lines by series, its
+    // `key` aside; `three` draws three.
+    assert_eq!(
+        findings(&deck.to_string()),
+        [
+            "E103 /nodes/bars/interval/high",
+            "E103 /nodes/spans/interval/high",
+            "E103 /nodes/three/x/field",
+            "E106 /nodes/bars/interval",
+            "E106 /nodes/nothing/kind"
+        ]
+    );
 }
 
 /// A node's layout in its formats (ADR-0020): only in a format the deck lays out anew, only what

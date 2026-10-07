@@ -1876,3 +1876,198 @@ fn bars_that_turn_between_states_cross_fade_and_bars_that_regroup_across_morph()
     assert_eq!(layers("stacked"), 1, "grouped bars across regroup into stacks across, mark by mark");
     assert_eq!(layers("up"), 2, "bars that stand up from bars across cross-fade");
 }
+
+// --- slopes and ranges (PLAN 1.30) ---------------------------------------------------------
+
+/// Pay by role and group: a dumbbell's data.
+fn pay() -> Value {
+    json!([
+        { "role": "Engineering", "group": "Women", "pay": 98 }, { "role": "Engineering", "group": "Men", "pay": 112 },
+        { "role": "Design", "group": "Women", "pay": 84 }, { "role": "Design", "group": "Men", "pay": 88 },
+        { "role": "Sales", "group": "Women", "pay": 71 }, { "role": "Sales", "group": "Men", "pay": 85 }
+    ])
+}
+
+/// A poll's estimates with their intervals.
+fn poll() -> Value {
+    json!([
+        { "option": "A", "est": 42, "lo": 38, "hi": 46 }, { "option": "B", "est": 35, "lo": 31, "hi": 39 },
+        { "option": "C", "est": 23, "lo": 20, "hi": 26 }
+    ])
+}
+
+fn range_deck(rows: Value, chart: Value) -> Deck {
+    let schema = json!({ "pay": "number", "est": "number", "lo": "number", "hi": "number" });
+    deck("en-US", rows, schema, Value::Null, chart)
+}
+
+fn label_of<'l>(layout: &'l ChartLayout, key: &str) -> &'l charts::Label {
+    layout.labels.iter().find(|l| l.key == key).unwrap_or_else(|| panic!("no label {key}"))
+}
+
+/// The middle of a label's cap height, down the chart.
+fn cap_middle(l: &charts::Label) -> f32 {
+    let (top, baseline) = cap_box(l);
+    0.5 * (top + baseline)
+}
+
+#[test]
+fn a_slope_joins_each_series_from_its_first_state_to_its_second_and_says_the_change() {
+    let quarters = json!([{ "filter": "q in ['Q1', 'Q4']" }]);
+    let d = series_deck("slope", json!({ "dataTransform": quarters, "y": { "field": "rev", "format": "$,.0f" } }));
+    let layout = compile(&d);
+    let [left, _, width, _] = layout.plot;
+    // A line a series, from the plot's left side to its right, keyed by series and state.
+    for product in ["Core", "Cloud", "Edge"] {
+        let path = layout.paths.iter().find(|p| p.key == product).unwrap();
+        assert_eq!(path.marks, [format!("{product}\u{1f}0"), format!("{product}\u{1f}1")]);
+        assert!(path.stroke.is_some());
+        let (Shape::Dot { x: x0, .. }, Shape::Dot { x: x1, .. }) =
+            (shape_of(&layout, &path.marks[0]), shape_of(&layout, &path.marks[1]))
+        else {
+            panic!("a slope's points are dots")
+        };
+        assert_eq!((x0, x1), (left, left + width), "{product}'s states stand on the plot's sides");
+    }
+    // Both ends labeled, the second with the change; each a space beside its point, level
+    // with it.
+    assert_eq!(
+        texts(&layout.labels),
+        ["$12", "$22 (+$10)", "$6", "$19 (+$13)", "$3", "$7 (+$4)"],
+        "every value prints, and each second one says the change"
+    );
+    for m in &layout.marks {
+        let Shape::Dot { x, y, .. } = m.shape else { unreachable!() };
+        let l = label_of(&layout, &m.key);
+        let first = m.key.ends_with('0');
+        let edge = if first { l.origin[0] + l.text.width } else { l.origin[0] };
+        assert!((edge - (x + if first { -UNIT } else { UNIT })).abs() < 0.01, "{}: a space from its point", m.key);
+        assert!((cap_middle(l) - y).abs() < 0.01, "{}: level with its point", m.key);
+        assert_eq!(l.noted, !first, "{}: a value that says its change cross-fades", m.key);
+    }
+    // Names past the widest second value, each level with its line's.
+    let widest = (layout.labels.iter().filter(|l| l.key.ends_with('1')))
+        .map(|l| l.origin[0] + l.text.width)
+        .fold(0.0_f32, f32::max);
+    for e in &layout.legend {
+        assert!(e.label.origin[0] >= widest + UNIT - 0.01, "{} stands past the second values", e.key);
+        let second = label_of(&layout, &format!("{}\u{1f}1", e.key));
+        assert!((cap_middle(&e.label) - cap_middle(second)).abs() < 0.01, "{} is level with its value", e.key);
+    }
+    // The states are named under their points.
+    let ticks: Vec<(String, f32)> =
+        layout.ticks.iter().map(|t| (t.text.text.clone(), t.origin[0] + 0.5 * t.text.width)).collect();
+    assert_eq!(ticks.iter().map(|t| t.0.as_str()).collect::<Vec<_>>(), ["Q1", "Q4"]);
+    assert!((ticks[0].1 - left).abs() < 0.01 && (ticks[1].1 - (left + width)).abs() < 0.01);
+}
+
+#[test]
+fn a_slope_compares_two_states_and_moved_to_another_pair_tilts_its_lines() {
+    let err = try_compile(&series_deck("slope", json!({}))).unwrap_err();
+    assert!(err.contains("a slope compares two states, and `q` has 4"), "{err}");
+    // Q1 to Q3, then Q1 to Q4: the same marks, so the lines tilt rather than scroll.
+    let mut d = series_deck("slope", json!({ "dataTransform": [{ "filter": "q in ['Q1', 'Q3']" }] }));
+    let mut next: Value = serde_json::to_value(&d.states[0]).unwrap();
+    next["id"] = json!("q4");
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["props"]["c"] = json!({ "dataTransform": [{ "filter": "q in ['Q1', 'Q4']" }] });
+    d.states.push(serde_json::from_value(next).unwrap());
+    let [q3, q4] = <[ChartLayout; 2]>::try_from(scenes(&d)).unwrap();
+    let keys = |c: &ChartLayout| c.marks.iter().map(|m| m.key.clone()).collect::<Vec<_>>();
+    assert_eq!(keys(&q3), keys(&q4));
+    assert_ne!(shape_of(&q3, "Edge\u{1f}1"), shape_of(&q4, "Edge\u{1f}1"), "Edge's line tilts to its Q4 value");
+}
+
+#[test]
+fn a_slopes_values_nudge_apart_and_its_names_stay_level_with_them() {
+    let rows = json!([
+        { "q": "Before", "product": "Core", "rev": 10 }, { "q": "After", "product": "Core", "rev": 20.0 },
+        { "q": "Before", "product": "Cloud", "rev": 12 }, { "q": "After", "product": "Cloud", "rev": 20.4 },
+        { "q": "Before", "product": "Edge", "rev": 30 }, { "q": "After", "product": "Edge", "rev": 5 }
+    ]);
+    let chart = json!({ "type": "chart", "kind": "slope", "data": "@q", "x": { "field": "q" }, "y": { "field": "rev" },
+                        "series": { "field": "product" } });
+    let layout = compile(&deck("en-US", rows, json!({ "rev": "number" }), Value::Null, chart));
+    let core = label_of(&layout, "Core\u{1f}1");
+    let cloud = label_of(&layout, "Cloud\u{1f}1");
+    let (core_box, cloud_box) = (cap_box(core), cap_box(cloud));
+    assert!(
+        core_box.0 >= cloud_box.1 || cloud_box.0 >= core_box.1,
+        "20 and 20.4 nudge apart: {core_box:?} {cloud_box:?}"
+    );
+    for e in &layout.legend {
+        let second = label_of(&layout, &format!("{}\u{1f}1", e.key));
+        assert!((cap_middle(&e.label) - cap_middle(second)).abs() < 0.01, "{} stays level with its value", e.key);
+    }
+    assert!(layout.collisions.is_empty(), "{:?}", layout.collisions);
+}
+
+#[test]
+fn a_dumbbell_joins_each_categorys_series_from_the_lowest_to_the_highest() {
+    let chart = json!({ "type": "chart", "kind": "range", "data": "@q", "x": { "field": "role" }, "y": { "field": "pay" },
+                        "series": { "field": "group" } });
+    let layout = compile(&range_deck(pay(), chart));
+    // The value axis spans the values, not from zero.
+    assert_eq!(layout.y_scale.domain, [71.0, 112.0]);
+    for (role, low, high) in [("Engineering", "Women", "Men"), ("Design", "Women", "Men"), ("Sales", "Women", "Men")] {
+        let path = layout.paths.iter().find(|p| p.key == format!("{role}\u{1f}range")).unwrap();
+        let (low, high) = (format!("{role}\u{1f}{low}"), format!("{role}\u{1f}{high}"));
+        assert_eq!(path.marks, [low.clone(), high.clone()], "{role}: from its lowest dot to its highest");
+        let (Shape::Dot { x: x0, y: y0, r }, Shape::Dot { x: x1, y: y1, .. }) =
+            (shape_of(&layout, &low), shape_of(&layout, &high))
+        else {
+            panic!("a range's values are dots")
+        };
+        assert_eq!((x0, r), (x1, 6.0), "{role}: one category, dots of the theme's dot radius");
+        // The lowest value under its dot, the highest over its.
+        let (under, over) = (label_of(&layout, &low), label_of(&layout, &high));
+        assert!(under.value.unwrap().below && cap_box(under).0 > y0 + r, "{role}: its lowest value under its dot");
+        assert!(!over.value.unwrap().below && cap_box(over).1 < y1 - r, "{role}: its highest over its");
+    }
+    // Under the plot, the lowest value clears the categories' names.
+    let lowest = label_of(&layout, "Sales\u{1f}Women");
+    let names_top = layout.ticks.iter().map(|t| cap_box(t).0).fold(f32::INFINITY, f32::min);
+    assert!(lowest.origin[1] + lowest.text.lines[0].baseline <= names_top - UNIT + 0.01);
+}
+
+#[test]
+fn a_range_draws_each_value_with_its_interval_and_its_value_over_it() {
+    let chart = json!({ "type": "chart", "kind": "range", "data": "@q", "x": { "field": "option" },
+                        "y": { "field": "est" }, "interval": { "low": "lo", "high": "hi" } });
+    let layout = compile(&range_deck(poll(), chart));
+    assert_eq!(layout.y_scale.domain, [20.0, 46.0], "the intervals' ends widen the value axis");
+    // The data's marks first, a mark a value; the intervals' ends after them.
+    let keys: Vec<&str> = layout.marks.iter().map(|m| m.key.as_str()).collect();
+    assert_eq!(&keys[..3], ["A", "B", "C"]);
+    for (option, lo, hi) in [("A", 38.0, 46.0), ("B", 31.0, 39.0), ("C", 20.0, 26.0)] {
+        let path = layout.paths.iter().find(|p| p.key == format!("{option}\u{1f}interval")).unwrap();
+        let (low, high) = (format!("{option}\u{1f}low"), format!("{option}\u{1f}high"));
+        assert_eq!(path.marks, [low.clone(), option.to_string(), high.clone()]);
+        let Shape::Dot { x, y: y_low, r: 0.0 } = shape_of(&layout, &low) else { panic!("an end is a point") };
+        let Shape::Dot { y: y_high, .. } = shape_of(&layout, &high) else { panic!("an end is a point") };
+        let Shape::Dot { x: x_point, .. } = shape_of(&layout, option) else { panic!("a value is a dot") };
+        assert_eq!(x, x_point);
+        assert!((layout.y_scale.invert(y_low) - lo).abs() < 1e-6 && (layout.y_scale.invert(y_high) - hi).abs() < 1e-6);
+        // Its value rides the interval's top.
+        let label = label_of(&layout, &high);
+        assert_eq!(label.value.unwrap().value, layout.places[option].value);
+        assert!(cap_box(label).1 < y_high, "{option}'s value stands over its interval");
+    }
+    // Several series stand side by side in their band; a range spans something.
+    let rows = json!([
+        { "option": "A", "who": "Now", "est": 42, "lo": 38, "hi": 46 }, { "option": "A", "who": "Then", "est": 30, "lo": 27, "hi": 33 }
+    ]);
+    let chart = json!({ "type": "chart", "kind": "range", "data": "@q", "x": { "field": "option" }, "y": { "field": "est" },
+                        "series": { "field": "who" }, "interval": { "low": "lo", "high": "hi" } });
+    let side = compile(&range_deck(rows, chart));
+    let (Shape::Dot { x: now, .. }, Shape::Dot { x: then, .. }) =
+        (shape_of(&side, "A\u{1f}Now"), shape_of(&side, "A\u{1f}Then"))
+    else {
+        panic!("a range's values are dots")
+    };
+    assert!(now < then, "each series takes its slot of the band");
+    let alone =
+        json!({ "type": "chart", "kind": "range", "data": "@q", "x": { "field": "option" }, "y": { "field": "est" } });
+    let err = try_compile(&range_deck(poll(), alone)).unwrap_err();
+    assert!(err.contains("give it a `series` or an `interval`"), "{err}");
+}

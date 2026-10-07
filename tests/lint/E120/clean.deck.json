@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "E120 clean: Latin only.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
