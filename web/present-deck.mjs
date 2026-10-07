@@ -325,9 +325,9 @@ try {
     check(pages.length === states.length, `a page for each slide: ${pages.length}`);
     const sections = deck.spine.sections.map((s) => s.title);
     check(JSON.stringify(outline.map((o) => o.title)) === JSON.stringify(sections), `its outline is the spine's sections: ${outline.map((o) => o.title).join(" · ")}`);
-    // Each text the slide reads is on its page, as it copies: whitespace, the hyphens a line
-    // break adds, and case aside (a role in capitals draws them, and the page copies what it draws).
-    const bare = (s) => s.replace(/[\s\u00ad-]+/g, "").toLowerCase();
+    // Each text the slide reads is on its page, as it copies: whitespace and the hyphens a line
+    // break adds aside. A role in capitals copies as written (PLAN 2.88).
+    const bare = (s) => s.replace(/[\s\u00ad-]+/g, "");
     const missing = [];
     pages.forEach((page, i) => {
       for (const { node, text } of readings[i] ?? []) if (texts.has(node) && !bare(page.text).includes(bare(text))) missing.push(`${states[i]}: ${node} "${text}"`);

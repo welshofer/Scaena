@@ -352,3 +352,25 @@ fn a_link_is_a_link_in_the_pdf() {
     assert_eq!(uris, ["https://example.com/scaena/method"; 2], "one for each line the link is on");
     assert_eq!(dests, 1, "the state's link goes to a page");
 }
+
+/// A role set in capitals copies from the PDF as written (PLAN 2.88): the trails deck's cover
+/// shows ANNUAL MEETING · OCTOBER 2026, and its words are a span whose actual text is "Annual
+/// meeting · October 2026", which a copy, a search, and a screen reader take.
+#[test]
+fn text_in_capitals_reads_as_written() {
+    let bundle = scaena_ops::open(Path::new("../../docs/examples/trails.deck.json")).unwrap();
+    let (bytes, _) = exported(&bundle, Some(&["cover".to_string()]), "capitals");
+    let pdf = hayro::hayro_syntax::Pdf::new(Arc::new(bytes)).expect("the PDF parses");
+    let page = pdf.pages().iter().next().expect("a page");
+    let content = String::from_utf8_lossy(page.page_stream().expect("its content"));
+    let actual: Vec<&str> =
+        content.match_indices("/ActualText").map(|(i, _)| &content[i..(i + 160).min(content.len())]).collect();
+    let utf16 = |s: &str| s.encode_utf16().flat_map(u16::to_be_bytes).map(|b| format!("{b:02X}")).collect::<String>();
+    let written = "Annual meeting · October 2026";
+    assert!(
+        actual.iter().any(|a| a.contains(written) || a.contains(&utf16(written))),
+        "the kicker's actual text is its words as written: {actual:?}"
+    );
+    // Only where case sets the words otherwise: the cover's title is written as it shows.
+    assert_eq!(actual.len(), 1, "{actual:?}");
+}

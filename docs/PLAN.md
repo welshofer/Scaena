@@ -1121,6 +1121,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - `scaena-history`'s `record`, handed an empty history, begins one with the first change it is given (`scaena_history::recorded`).
     - Tests: the WASM session's `a_page_begins_a_history_with_a_save` (no history unless asked; begun with the deck and its data file; the next save records on it), and `web/versions.mjs`, which presses Keep a history on the revenue example opened from its URL and finds one version, `history begins` by `user`.
 
+- [x] 2.88 A role in capitals copies from a PDF as written: the PDF carries the text as written beneath the capitals it shows (Jay, 2026-10-07: as the 2.78 walk recommended).
+    - Done. A text a role sets in other letters' case draws its glyphs as before, and its words in the PDF are a span whose actual text is the node's text as written (`ActualText`, krilla's `SpanTag`): the trails cover's ANNUAL MEETING · OCTOBER 2026 copies, searches, and reads as "Annual meeting · October 2026", as the single file and the player's reader say it. Where a text's glyphs say the same words in another case, and only there, the PDF takes its words as written (`scaena_export::pdf`'s `by_case`); the display list is unchanged.
+    - `web/pdf.mjs` reads a span's actual text in place of its glyphs, as a PDF reader does, so the present-deck walk now holds each page's text to its slide's as written, case and all.
+    - Tests: `crates/scaena-ops/tests/pdf.rs`'s `text_in_capitals_reads_as_written`, and the present-deck walk.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

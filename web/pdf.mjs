@@ -1,5 +1,6 @@
 // A PDF read as far as the walks need it, with Node's zlib alone (PLAN 2.78): its pages, the text
-// each copies as (by each font's ToUnicode map, through the forms a page draws), and its outline.
+// each copies as (by each font's ToUnicode map, through the forms a page draws, a span's ActualText in
+// place of what its glyphs show), and its outline.
 // It reads what krilla writes for `scaena export --format pdf` and the editor's Export…: objects
 // written out, not in object streams; streams by `/Length` and `FlateDecode`; text in Type0 fonts
 // whose codes the ToUnicode map gives. It is no general PDF reader.
@@ -214,6 +215,9 @@ export function readPdf(bytes) {
     return out;
   };
 
+  // A PDF text string: UTF-16 after its byte order mark, else one byte a character.
+  const text = (s) => (s[0] === 0xfe && s[1] === 0xff ? Buffer.from(s.subarray(2)).swap16().toString("utf16le") : s.toString("latin1"));
+
   // A content stream's text: a line for each line of text it sets, through the forms it draws.
   const draw = (content, resources, lines, seen = new Set()) => {
     const { value, skip } = parser(content);
@@ -225,6 +229,10 @@ export function readPdf(bytes) {
       line = "";
     };
     const stack = [];
+    // Marked content open, innermost last: a span's actual text (PLAN 2.88) stands for the text
+    // its glyphs show, as a reader that copies takes it.
+    const marked = [];
+    const actual = () => marked.some((m) => m !== undefined);
     for (let i = skip(0); i < content.length; i = skip(i)) {
       const [v, j] = value(i);
       i = j;
@@ -256,13 +264,30 @@ export function readPdf(bytes) {
           end();
           lastY = undefined;
           break;
+        case "BMC":
+          marked.push(undefined);
+          break;
+        case "BDC": {
+          const said = args[1]?.ActualText;
+          marked.push(Buffer.isBuffer(said) && !actual() ? text(said) : undefined);
+          break;
+        }
+        case "EMC": {
+          const said = marked.pop();
+          if (said !== undefined) {
+            end();
+            line = said;
+            end();
+          }
+          break;
+        }
         case "Tj":
         case "'":
         case '"':
-          if (font) line += decode(font, args.at(-1));
+          if (font && !actual()) line += decode(font, args.at(-1));
           break;
         case "TJ":
-          if (font) for (const part of args[0]) if (Buffer.isBuffer(part)) line += decode(font, part);
+          if (font && !actual()) for (const part of args[0]) if (Buffer.isBuffer(part)) line += decode(font, part);
           break;
         case "Do": {
           const xobject = get(get(get(resources)?.XObject)?.[args[0]?.name]);
@@ -286,11 +311,9 @@ export function readPdf(bytes) {
   });
 
   // The outline: each item's title and the items under it.
-  const title = (s) =>
-    s[0] === 0xfe && s[1] === 0xff ? Buffer.from(s.subarray(2)).swap16().toString("utf16le") : s.toString("latin1");
   const items = (first) => {
     const out = [];
-    for (let item = get(first); item; item = get(item.Next)) out.push({ title: title(item.Title), kids: items(item.First) });
+    for (let item = get(first); item; item = get(item.Next)) out.push({ title: text(item.Title), kids: items(item.First) });
     return out;
   };
   const outline = trailer.Outlines ? items(get(trailer.Outlines).First) : [];
