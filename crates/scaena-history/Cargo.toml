@@ -12,9 +12,8 @@ authors.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+scaena-core.workspace = true
 scaena-store.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
 
-[dev-dependencies]
-scaena-core.workspace = true

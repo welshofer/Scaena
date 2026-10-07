@@ -18,6 +18,8 @@ export interface VersionsEditor {
   source(): string;
   /** Make `version` the deck again, as Restore does: what it did, said. */
   restore(version: Version): Promise<Restored | undefined>;
+  /** Begin a history: save the bundle, the deck as saved its first version (PLAN 2.87). */
+  keep(): Promise<void>;
   say(text: string): void;
 }
 
@@ -79,6 +81,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   const why = detail.querySelector<HTMLElement>("[data-why]")!;
   const changed = detail.querySelector<HTMLUListElement>("[data-changes]")!;
   const restore = detail.querySelector<HTMLButtonElement>("[data-restore]")!;
+  const keep = into.querySelector<HTMLButtonElement>("[data-keep]")!;
   /** The versions as the history last listed them, oldest first; null where it keeps none. */
   let versions: Version[] | null = [];
   /** The version shown, by its id. */
@@ -121,8 +124,10 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   }
 
   function draw() {
+    keep.hidden = versions !== null;
     if (versions === null) {
-      head.textContent = "This bundle keeps no history: `scaena save --history` begins one, and each save after records the edits since the last.";
+      head.textContent =
+        "This bundle keeps no history. Keep a history saves it now, as its first version, and each save after records the edits since the last.";
       list.replaceChildren();
       return;
     }
@@ -233,6 +238,12 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   });
   against.addEventListener("change", () => void settle(compared()));
   restore.addEventListener("click", () => void settle(restoring()));
+  // A history begun with a save, the deck as saved its first version (PLAN 2.87); listed then.
+  keep.addEventListener("click", () => {
+    keep.disabled = true;
+    void settle(editor.keep().then(refresh, (e) => editor.say(`no history begun: ${said(e)}`)))
+      .finally(() => (keep.disabled = false));
+  });
   new MutationObserver(() => {
     if (!into.hidden) void refresh();
   }).observe(into, { attributes: true, attributeFilter: ["hidden"] });

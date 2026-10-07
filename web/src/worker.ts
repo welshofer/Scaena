@@ -320,6 +320,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "save":
         saveable(data.source);
+        if (data.keep) player.keepHistory();
         return post({ type: "saved", id: data.id, ...(await save()) });
       case "saveAs": {
         saveable(data.source);
@@ -813,7 +814,7 @@ async function version(id: string): Promise<string> {
     return read;
   }
   const module = await history();
-  if (!module) throw new Error("the bundle keeps no history: `scaena save --history` begins one");
+  if (!module) throw new Error("the bundle keeps no history: Keep a history, in Versions, begins one with a save");
   const held = module.at(player.file(HISTORY)!, id);
   versionsRead.set(id, held);
   for (const old of versionsRead.keys()) if (versionsRead.size > 8) versionsRead.delete(old);
@@ -823,8 +824,8 @@ async function version(id: string): Promise<string> {
 /** The module that keeps a bundle's history (PLAN 2.9), loaded the first time a save, or the
  * versions (PLAN 2.60), needs it: the bundle keeps one (`history/deck.loro`). The engine's
  * module leaves the CRDT out. */
-async function history() {
-  if (!player.files().includes(HISTORY)) return undefined;
+async function history(begins = false) {
+  if (!player.files().includes(HISTORY) && !(begins && player.keepsHistory())) return undefined;
   const module = await import("@scaena/history");
   await module.default();
   return module;
@@ -840,7 +841,8 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
     home = keptIn(dir, "opfs");
     name = dir.name;
   }
-  const recorder = await history();
+  // A history the person asked to keep begins with this save (PLAN 2.87).
+  const recorder = await history(true);
   const saved = player.save(new Date().toISOString(), false, recorder);
   try {
     const paths = saved.paths();

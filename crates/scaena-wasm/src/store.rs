@@ -30,6 +30,8 @@ pub type Recorder<'a> = dyn Fn(&[u8], &str) -> Result<Vec<u8>, String> + 'a;
 /// Who makes the page's own edits: what the user types, a finding's fix they click, and the
 /// save (SPEC §8.2).
 const USER: &str = "user";
+/// The message of a history's first change, as `scaena save --history` writes it.
+const BEGINS: &str = "history begins";
 /// What a run of typing on the canvas is called in the bundle's history (PLAN 2.32).
 pub(crate) const TYPED: &str = "type";
 
@@ -139,6 +141,15 @@ impl Session {
                 let changes =
                     self.changes(saved, written, seconds(now)).map_err(|e| StoreError::History(e.to_string()))?;
                 record(held, &changes).map(Some).map_err(StoreError::History)
+            }
+            // Begun as `scaena save --history` begins one: the deck as saved, and the files it is
+            // drawn from, as the history's first version (PLAN 2.87).
+            (Some(record), None) if self.begins => {
+                let files = kept_texts(saved, |path| written.get(path).or_else(|| self.files.get(path)));
+                let saved = saved.to_json().map_err(|e| StoreError::History(e.to_string()))?;
+                let begun = Recorded { message: Some(BEGINS.into()), files, ..change(saved, USER, seconds(now)) };
+                let changes = serde_json::to_string(&[begun]).map_err(|e| StoreError::History(e.to_string()))?;
+                record(&[], &changes).map(Some).map_err(StoreError::History)
             }
             _ => Ok(None),
         };
@@ -571,6 +582,29 @@ pub(crate) mod tests {
         s.adopt(&saved).unwrap();
         let again = s.save(&rfc3339(t0 + 180), false, Some(&recorder)).unwrap();
         assert_eq!(said(&again.files[HISTORY], 4), []);
+    }
+
+    /// A page that keeps no history begins one when asked, with its next save, as `scaena save
+    /// --history` begins one: the deck as saved and its data file its first version, by the
+    /// user, and each save after records the edits since (PLAN 2.87).
+    #[test]
+    fn a_page_begins_a_history_with_a_save() {
+        let mut s = Session::open(revenue()).unwrap();
+        let t0 = 1_791_064_457;
+        let saved = s.save(&rfc3339(t0), false, Some(&recorder)).unwrap();
+        assert!(!saved.files.contains_key(HISTORY), "none unless asked");
+        s.begins = true;
+        let saved = s.save(&rfc3339(t0), false, Some(&recorder)).unwrap();
+        assert_eq!(said(&saved.files[HISTORY], 0), [by("user", "history begins", t0)]);
+        let begun = Bundle::in_memory(saved.files.clone()).unwrap().history().unwrap().unwrap();
+        assert_eq!(begun.deck().unwrap().to_json().unwrap() + "\n", String::from_utf8_lossy(&saved.files["deck.json"]));
+        assert!(begun.files().contains_key("data/q3-revenue.csv"), "with the data it is drawn from");
+        // The page goes on from the save, and its edits go in at the next.
+        s.adopt(&saved).unwrap();
+        let typed = s.source().replace("Q3 Review", "Third-quarter review");
+        assert!(s.compile(&typed).valid);
+        let again = s.save(&rfc3339(t0 + 60), false, Some(&recorder)).unwrap();
+        assert_eq!(said(&again.files[HISTORY], 1), [by("user", "save", t0 + 60)]);
     }
 
     #[test]

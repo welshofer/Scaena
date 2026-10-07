@@ -669,6 +669,10 @@ async function edit(source: Source) {
   const versioning = versionsPanel(stage, $("#versions"), {
     shown: showing,
     source: () => view.state.doc.toString(),
+    keep: async () => {
+      if (assisting) return void say("no history begun: the assistant is at work on the deck");
+      await save(true);
+    },
     restore: async (version) => {
       if (assisting) return void say("not restored: the assistant is at work on the deck");
       try {
@@ -1181,13 +1185,14 @@ async function edit(source: Source) {
 
   /** Save the source as it stands where the bundle is kept, or into the browser's storage. A
    * source that does not compile is not saved, and the status says why. The paths the save
-   * renamed are renamed in the source too, and nothing else in it changes. */
-  async function save() {
+   * renamed are renamed in the source too, and nothing else in it changes. With `keep`, a bundle
+   * that keeps no history begins one with this save (PLAN 2.87). */
+  async function save(keep = false) {
     const at = edits;
     status.textContent = "saving…";
     let done: Extract<FromWorker, { type: "saved" }>;
     try {
-      done = await stage.save(view.state.doc.toString());
+      done = await stage.save(view.state.doc.toString(), keep);
     } catch (e) {
       status.textContent = `not saved: ${said(e)}`;
       return;

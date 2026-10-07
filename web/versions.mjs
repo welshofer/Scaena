@@ -13,7 +13,7 @@
 //   records the restore in the history, by the user.
 // - A version whose deck names a file the bundle no longer holds is refused, and says why.
 // - axe-core finds nothing against WCAG 2.1 AA with a version shown; a bundle that keeps no
-//   history says how to begin one.
+//   history says so, and Keep a history begins one with a save (PLAN 2.87).
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
@@ -64,11 +64,20 @@ try {
     return page;
   };
 
-  // A bundle that keeps no history says how to begin one.
+  // A bundle that keeps no history says so, and Keep a history begins one with a save, here into
+  // the browser's storage: the deck as saved its first version, by the user (PLAN 2.87).
   {
     const page = await open("/docs/examples/revenue.deck.json");
     const said = await page.locator("#versions [data-summary]").textContent();
-    check(said.includes("keeps no history") && said.includes("scaena save --history"), `a bundle without a history says how to begin one: ${said}`);
+    const keep = page.locator("#versions [data-keep]");
+    check(said.includes("keeps no history") && (await keep.isVisible()), `a bundle without a history says so, and offers to keep one: ${said}`);
+    await keep.click();
+    await page.waitForFunction(() => window.scaena.versions.listed()?.length > 0, null, { timeout: 60000 }).catch(() => {});
+    const begun = await page.evaluate(() => window.scaena.versions.listed());
+    check(
+      begun?.length === 1 && begun[0].message === "history begins" && begun[0].author === "user" && !(await keep.isVisible()),
+      `Keep a history saves the bundle, its first version the deck as saved: ${JSON.stringify(begun?.map((v) => `${v.message} · ${v.author}`))} · ${await page.locator("#status").textContent()}`,
+    );
     await page.close();
   }
 

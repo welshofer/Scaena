@@ -711,9 +711,10 @@ export class Stage {
   }
 
   /** Save the bundle with the deck `source` compiles to where it is kept, or into the
-   * browser's storage (PLAN 2.4). The session goes on from the save. */
-  save(source: string): Promise<Extract<FromWorker, { type: "saved" }>> {
-    return this.request<"saved">({ type: "save", id: ++this.asked, source });
+   * browser's storage (PLAN 2.4). The session goes on from the save. With `keep`, a bundle that
+   * keeps no history begins one with it (PLAN 2.87). */
+  save(source: string, keep = false): Promise<Extract<FromWorker, { type: "saved" }>> {
+    return this.request<"saved">({ type: "save", id: ++this.asked, source, keep });
   }
 
   /** Save as (PLAN 2.12): `source` saved `to` a place of its own, where the bundle is kept from
