@@ -436,7 +436,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const turn = ++suggesting;
     const format = around.format();
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const got = await stage.layoutSuggestions(around.source(), now.state, Math.round(PICTURE * ratio), format).catch(() => undefined);
+    const got = await stage.layoutSuggestions(now.state, Math.round(PICTURE * ratio), format).catch(() => undefined);
     if (turn !== suggesting || !got || around.shown()?.state !== now.state) return;
     const layouts = got.map((suggestion) => ({
       suggestion,

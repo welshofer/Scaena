@@ -607,10 +607,12 @@ export class Stage {
     return this.request<"stateChoices">({ type: "stateChoices", id: ++this.asked, state }).then(({ choices }) => choices);
   }
 
-  /** The layouts `state` may take, best first, in the deck `source` compiles to (PLAN 2.92): each
-   * judged by lint, with the patch that gives it, and painted at rest `height` pixels high. */
-  layoutSuggestions(source: string, state: string, height: number, format?: string): Promise<LayoutSuggestion[]> {
-    return this.request<"layoutSuggestions">({ type: "layoutSuggestions", id: ++this.asked, source, state, height, format }).then(
+  /** The layouts `state` may take, best first, in the deck shown (PLAN 2.92), as `stateChoices`
+   * offers them: each judged by lint, with the patch that gives it, and painted at rest `height`
+   * pixels high. The deck the worker holds: a request on a timer never takes it back to a source
+   * an edit has moved past. */
+  layoutSuggestions(state: string, height: number, format?: string): Promise<LayoutSuggestion[]> {
+    return this.request<"layoutSuggestions">({ type: "layoutSuggestions", id: ++this.asked, state, height, format }).then(
       ({ suggestions }) => suggestions,
     );
   }

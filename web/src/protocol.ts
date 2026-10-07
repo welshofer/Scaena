@@ -684,7 +684,7 @@ export type ToWorker =
   | { type: "stateChoices"; id: number; state: string }
   /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
    * deck the editor's `source` compiles to (PLAN 2.92). */
-  | { type: "layoutSuggestions"; id: number; source: string; state: string; height: number; format?: string }
+  | { type: "layoutSuggestions"; id: number; state: string; height: number; format?: string }
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }

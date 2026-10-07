@@ -237,7 +237,6 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "stateChoices":
         return post({ type: "stateChoices", id: data.id, choices: JSON.parse(player.stateChoices(data.state)) as StateChoices });
       case "layoutSuggestions": {
-        current(data.source);
         layOut(data.format);
         // A layout at a time, each a lint of the state in every format and a frame: what else the
         // page asks is answered between them. An edit meanwhile ends the round, an error.
