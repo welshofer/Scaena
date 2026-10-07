@@ -676,8 +676,8 @@ pub fn compile(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Co
         && let Ok(deck) = crate::Deck::from_value(&work)
     {
         let mut stale = crate::quotes::stale(&deck, &work, &crate::data::Texts(files));
-        // A claim follows a figure the same quote gave before, set again; words a patch first makes
-        // a quote were no figure, and a claim that says them is the claim's own (ADR-0019).
+        // Words follow a figure the same quote gave before, set again; words a patch first makes a
+        // quote were no figure, and a claim or a note that says them is its own (ADR-0019).
         let before: Vec<(&str, &Value, &str)> = crate::quotes::quoted(doc)
             .into_iter()
             .map(|q| (q.node, &q.run["quote"], q.run.get("text").and_then(Value::as_str).unwrap_or_default()))
@@ -685,7 +685,7 @@ pub fn compile(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Co
         for s in &mut stale {
             let quote = work.pointer(&s.path).map(|run| &run["quote"]);
             if !before.iter().any(|(node, was, text)| *node == s.node && Some(*was) == quote && *text == s.was) {
-                s.claims.clear();
+                s.words.clear();
             }
         }
         for json in crate::quotes::requote(&stale) {

@@ -1126,6 +1126,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - `web/pdf.mjs` reads a span's actual text in place of its glyphs, as a PDF reader does, so the present-deck walk now holds each page's text to its slide's as written, case and all.
     - Tests: `crates/scaena-ops/tests/pdf.rs`'s `text_in_capitals_reads_as_written`, and the present-deck walk.
 
+- [x] 2.90 A quoted figure's words follow it beyond claims: where the figure shows, a state's notes, a beat's notes, and a node's description that say the old figure as a word are set again with it, and W427 finds and fixes them (Jay, 2026-10-07: from the 2.72 gaps).
+    - Done. `scaena_core::quotes::stale` gives each stale figure the words that say it (`Said`: where each is written, the words set again, and what they are): each beat's claim and notes whose states show the figure, each such state's notes, and the `alt` of each node those states show, in its own props, a state's delta, or the overrides. "Where the figure shows" is now the states whose text carries the quote, not every state that shows the node: a slide that shows the title without the figure keeps its notes. `requote` sets them all in the same change as the figure; W427 says which words hold the old figure ("rev's description says $19.4…") and fixes each. A claim still follows only word for word, as before.
+    - Tests: `crates/scaena-ops/tests/data.rs`'s `notes_and_descriptions_that_say_a_figure_follow_it` (a data edit sets the slide's notes, the beat's notes, and the chart's description again, and leaves a slide's notes where the figure does not show), with the claim's test as it was.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
