@@ -863,29 +863,40 @@ fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
     out
 }
 
-/// E106: `projected` marks the rows of a line or an area (SPEC §3.7); a chart of another
-/// kind draws nothing projected. Each finding points at what set it in the state.
+/// E106: what a chart of some kinds alone takes (SPEC §3.7). `projected` marks the rows of a
+/// line or an area, and a chart of another kind draws nothing projected; `orient` turns a
+/// `bar`'s or a `stackedBar`'s bars, and another kind has none. Each finding points at what
+/// set it in the state.
 fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
+    const ONLY: [(&str, &[&str], &str); 2] = [
+        ("projected", &["line", "area"], "marks the rows of a line or an area; a `{kind}` chart draws none"),
+        ("orient", &["bar", "stackedBar"], "turns a bar chart's bars; a `{kind}` chart has none"),
+    ];
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for (i, (state, snapshot)) in deck.states.iter().zip(snapshots).enumerate() {
         for (id, props) in &snapshot.nodes {
-            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Chart) || props.get("projected").is_none() {
+            if deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Chart) {
                 continue;
             }
             let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
-            if matches!(kind, "line" | "area") {
-                continue;
-            }
-            let path = match state.props.get(id).and_then(|d| d.get("projected")) {
-                Some(_) => format!("/states/{i}/props/{}/projected", esc(id)),
-                None => format!("/nodes/{}/projected", esc(id)),
-            };
-            let message = format!("`projected` marks the rows of a line or an area; a `{kind}` chart draws none");
-            if seen.insert(path.clone()) {
-                out.push(
-                    Finding::new("E106", Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
-                );
+            for (prop, kinds, says) in ONLY {
+                if props.get(prop).is_none() || kinds.contains(&kind) {
+                    continue;
+                }
+                let path = match state.props.get(id).and_then(|d| d.get(prop)) {
+                    Some(_) => format!("/states/{i}/props/{}/{prop}", esc(id)),
+                    None => format!("/nodes/{}/{prop}", esc(id)),
+                };
+                let message = format!("`{prop}` {}", says.replace("{kind}", kind));
+                if seen.insert(path.clone()) {
+                    out.push(
+                        Finding::new("E106", Severity::Error, message)
+                            .at(path)
+                            .state(state.id.clone())
+                            .node(id.clone()),
+                    );
+                }
             }
         }
     }

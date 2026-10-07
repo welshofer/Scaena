@@ -1,5 +1,5 @@
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -3998,6 +3998,105 @@
           8
         ]
       }
+    },
+    "x-rank": {
+      "type": "chart",
+      "kind": "bar",
+      "orient": "horizontal",
+      "data": "@regions",
+      "x": {
+        "field": "region"
+      },
+      "y": {
+        "field": "growth",
+        "format": "+.1%"
+      },
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "formats": {
+        "9:16": {
+          "at": {
+            "col": [
+              1,
+              12
+            ],
+            "row": [
+              2,
+              5
+            ]
+          }
+        }
+      },
+      "annotations": [
+        {
+          "kind": "rule",
+          "at": {
+            "y": 0.1
+          },
+          "text": "Goal: 10%"
+        }
+      ],
+      "alt": "Growth by region, across: Asia Pacific up 27%, North America 12%, Latin America 8%, Europe down 3.1%, against a 10% goal.",
+      "semantic": "evidence"
+    },
+    "x-stack": {
+      "type": "chart",
+      "kind": "stackedBar",
+      "orient": "horizontal",
+      "data": "@rev",
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "product"
+      },
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "formats": {
+        "9:16": {
+          "at": {
+            "col": [
+              1,
+              12
+            ],
+            "row": [
+              6,
+              8
+            ]
+          }
+        }
+      },
+      "axes": {
+        "y": {
+          "show": true,
+          "gridlines": true
+        }
+      },
+      "labels": {
+        "show": "all"
+      },
+      "alt": "Revenue by quarter across, stacked by product, totals past each stack.",
+      "semantic": "evidence"
     }
   },
   "states": [
@@ -5069,6 +5168,46 @@
         "link-text": {}
       },
       "notes": "Pass: two links in one text (PLAN 2.70), each underlined at the font's own underline position and thickness, in its words' color. The first, to a web address, wraps: each line's part is underlined on its own line, and nothing between. The second goes to the `shapes` case. The display list carries a `link` op for each underlined stretch, its area the words' box on the line; the player follows a click there, and the PDF carries both as link annotations."
+    },
+    {
+      "id": "across",
+      "name": "Bars across",
+      "slide": "across",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "53 · Bars across · recorded"
+        },
+        "x-rank": {},
+        "x-stack": {}
+      },
+      "notes": "Pass: two charts whose bars run across (PLAN 1.29). Left, growth by region in data order down the side, each name right-aligned a space before the plot and level with its bar's middle; the bars run from a baseline at zero down the plot, North America, Asia Pacific, and Latin America right, Europe left, each rounded at its free end, each value a space past it (“+12.0%” after its bar, “-3.1%” before Europe's, clear of the names). A goal rule runs up the plot at 10%, “Goal: 10%” beside its top. Right, revenue by quarter stacked across by product, Core then Cloud then Edge left to right, only the outermost segment rounded, each stack's total a space past it; the value axis runs under the plot, its ticks centered on gridlines up the plot, and the key stands over the plot, since stacks across have no column past their ends to name their series in."
+    },
+    {
+      "id": "across-next",
+      "name": "Bars across: they move",
+      "slide": "across",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "54 · Bars across: they move · recorded"
+        },
+        "x-rank": {
+          "dataTransform": [
+            {
+              "sort": "-growth"
+            }
+          ]
+        },
+        "x-stack": {
+          "kind": "bar"
+        }
+      },
+      "notes": "Pass in the transition (frames @0.25 and @0.75): left, the regions sort by growth, each bar sliding down or up the chart to its new place with its name and its value, Asia Pacific to the top and Europe to the foot; the goal rule stays. Right, the stacks come apart in two stages, as bars that stand up regroup: first the widths, each segment thinning to its place in its quarter's band while it stays where it stood in its stack, then the lengths, each sliding back to the baseline beside the others, so no two cross. The value axis rescales from $0–$60 to $0–$30, its ticks moving and fading. Each stack's total counts down to its Edge segment's own value, riding that bar, as Core's and Cloud's values count in past their bars; the key stays over the plot."
     }
   ],
   "overrides": {

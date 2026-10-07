@@ -382,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.13",
+        "scaena": "0.14",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -426,7 +426,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.13",
+        "scaena": "0.14",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -449,6 +449,39 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
             "E106 /nodes/bars/projected"
         ]
     );
+}
+
+#[test]
+fn only_a_bar_charts_bars_turn() {
+    // PLAN 1.29: `orient` turns a `bar`'s or a `stackedBar`'s bars, set on the node or in a
+    // state; on any other kind it is E106 where it is set.
+    let chart = |kind: &str, orient: Option<&str>| {
+        let mut c = serde_json::json!({ "type": "chart", "kind": kind, "data": "@r", "x": { "field": "y" },
+            "y": { "field": "v" }, "alt": "", "at": { "in": "main" } });
+        if let Some(o) = orient {
+            c["orient"] = serde_json::json!(o);
+        }
+        c
+    };
+    let deck = serde_json::json!({
+        "scaena": "0.14",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": { "source": { "inline": [{ "y": "2025", "v": 1 }, { "y": "2026", "v": 2 }] },
+                         "schema": { "v": "number" } } },
+        "nodes": {
+            "bars": chart("bar", Some("horizontal")),
+            "stack": chart("stackedBar", Some("vertical")),
+            "line": chart("line", Some("horizontal")),
+            "later": chart("line", None)
+        },
+        "states": [
+            { "id": "a", "layout": "full", "props": { "bars": {}, "stack": {}, "line": {}, "later": {} } },
+            { "id": "b", "layout": "full", "props": { "later": { "orient": "horizontal" } } }
+        ]
+    });
+    assert_eq!(findings(&deck.to_string()), ["E106 /nodes/line/orient", "E106 /states/1/props/later/orient"]);
 }
 
 /// A node's layout in its formats (ADR-0020): only in a format the deck lays out anew, only what

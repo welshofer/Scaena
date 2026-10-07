@@ -22,6 +22,8 @@ use std::collections::BTreeSet;
 
 use super::ChartKind as Kind;
 
+mod across;
+
 impl Kind {
     fn parse(v: Option<&Value>) -> Result<Kind, EngineError> {
         Ok(match v.and_then(Value::as_str) {
@@ -218,6 +220,13 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
     let kind = Kind::parse(props.get("kind"))?;
+    // A bar chart's bars run up from the baseline, or across it (PLAN 1.29); validation
+    // reports `orient` on any other kind (E106), which draws as it would without it.
+    let horizontal = match props.get("orient").and_then(Value::as_str) {
+        None | Some("vertical") => false,
+        Some("horizontal") => matches!(kind, Kind::Bar | Kind::StackedBar),
+        Some(other) => return Err(EngineError::Layout(format!("orient `{other}`: expected vertical or horizontal"))),
+    };
     let encoding = |name: &str| props.get(name).and_then(Value::as_object);
     let required = |name: &str| encoding(name).ok_or_else(|| EngineError::Layout(format!("chart has no `{name}`")));
     let (x, y) = (required("x")?, required("y")?);
@@ -462,7 +471,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // the theme does, else names each series where it ends (`direct`): beside its last
     // point, dot, or stack, or, on a donut, each slice beside its value. Bars grouped
     // side by side have no end to stand a name by, so their key stands over the plot.
-    let grouped = kind == Kind::Bar && series.len() > 1;
+    // Nor have bars across a column past their ends to stand the names in.
+    let grouped = (kind == Kind::Bar && series.len() > 1) || horizontal;
     let auto = match charts.and_then(|c| c.legend.as_ref()).and_then(|l| l.place) {
         Some(LegendPlace::Top) => "top",
         Some(LegendPlace::Bottom) => "bottom",
@@ -505,6 +515,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
         Some(other) => return Err(EngineError::Layout(format!("legend {other}: expected a place or an object"))),
     };
+    if legend_place == "direct" && horizontal {
+        return Err(EngineError::Layout(
+            "bars across have no ends in a column to name their series by; place the legend `top`, `bottom`, or \
+             `right`"
+                .into(),
+        ));
+    }
     if legend_place == "direct" && legend_title.is_some() {
         return Err(EngineError::Layout(
             "a `direct` legend names each series where it ends, and takes no title; place a titled legend `top`, \
@@ -800,6 +817,55 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         })
         .collect::<Result<_, EngineError>>()?;
 
+    // Bars across lay out their own way (PLAN 1.29).
+    if horizontal {
+        let signal = match notes.iter().any(|n| n.kind == AnnotationKind::Highlight) {
+            true => Some(theme.color(charts.and_then(|c| c.signal.as_deref()).unwrap_or("accent"))?),
+            false => None,
+        };
+        let colors: Vec<Color> = rows.iter().map(color_of).collect();
+        return across::layout(across::Parts {
+            size,
+            kind,
+            colors,
+            categories,
+            series,
+            totals,
+            values,
+            numerals,
+            domain: [lo, hi],
+            ticks: tick_labels,
+            grid: [x_grid, y_grid],
+            titles,
+            legend_place,
+            legend_title,
+            legend_texts,
+            names: x_texts,
+            longs: x_longs,
+            periods,
+            unit: date_labels.as_ref().map(|d| d.unit),
+            ordered: matches!(table.types[xc], ColumnType::Date | ColumnType::Number),
+            notes,
+            note_texts,
+            collide: labels.and_then(|l| l.get("collide")).and_then(Value::as_str),
+            chosen,
+            source,
+            x_field,
+            style: across::Style {
+                gap,
+                corner,
+                bar_gap,
+                group_gap,
+                axis: (axis_width, axis_color),
+                grid: (grid_width, grid_color),
+                note: (note_width, rule_color, band_color),
+                dimmed,
+                signal,
+            },
+            rows,
+        });
+    }
+
     // The plot is what the text leaves.
     let cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| l.cap_height.unwrap_or(l.ascent));
     let below_cap = |t: &TextLayout| t.lines.first().map_or(0.0, |l| t.height - (l.baseline - cap(t)));
@@ -1006,6 +1072,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let zero_ruled = !donut && lo <= 0.0 && 0.0 <= hi;
     let mut out = ChartLayout {
         kind,
+        horizontal: false,
         base,
         baseline: zero_ruled.then_some(Rule {
             from: [left, base],
@@ -1122,6 +1189,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 h: swatch,
                 top_radius: corner.min(0.5 * swatch),
                 bottom_radius: corner.min(0.5 * swatch),
+                across: false,
             };
             let origin = [x0 + swatch.w + 0.5 * gap, baseline - first.baseline];
             x0 = origin[0] + text.width + 2.0 * gap;
@@ -1209,8 +1277,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     || rows.iter().rposition(|o| o.category == r.category && (o.y >= 0.0) == (r.y >= 0.0)) == Some(i);
                 let radius = if outermost { corner.min(0.5 * w).min(bottom - top) } else { 0.0 };
                 let (top_radius, bottom_radius) = if below { (0.0, radius) } else { (radius, 0.0) };
-                let shape =
-                    Shape::Bar(RoundRect { x: cx - 0.5 * w, y: top, w, h: bottom - top, top_radius, bottom_radius });
+                let shape = Shape::Bar(RoundRect {
+                    x: cx - 0.5 * w,
+                    y: top,
+                    w,
+                    h: bottom - top,
+                    top_radius,
+                    bottom_radius,
+                    across: false,
+                });
                 let v = match kind {
                     Kind::StackedBar => totals.iter().find(|(k, _)| *k == r.category).map_or(r.y, |t| t.1),
                     _ => r.y,
@@ -1395,8 +1470,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     };
                     let origin = [ax - align * text.width, y];
                     let baseline = y + text.lines[0].baseline;
-                    let swatch =
-                        RoundRect { x: origin[0], y: baseline, w: 0.0, h: 0.0, top_radius: 0.0, bottom_radius: 0.0 };
+                    let swatch = RoundRect {
+                        x: origin[0],
+                        y: baseline,
+                        w: 0.0,
+                        h: 0.0,
+                        top_radius: 0.0,
+                        bottom_radius: 0.0,
+                        across: false,
+                    };
                     let label = Label::new(r.label.clone(), origin, text, None);
                     out.legend.push(LegendEntry { key: r.label.clone(), swatch, color, label });
                 }
@@ -1456,8 +1538,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         for ((key, color), mut label) in names.into_iter().zip(placed) {
             label.origin[1] += shift;
             let baseline = label.origin[1] + label.text.lines[0].baseline;
-            let swatch =
-                RoundRect { x: label.origin[0], y: baseline, w: 0.0, h: 0.0, top_radius: 0.0, bottom_radius: 0.0 };
+            let swatch = RoundRect {
+                x: label.origin[0],
+                y: baseline,
+                w: 0.0,
+                h: 0.0,
+                top_radius: 0.0,
+                bottom_radius: 0.0,
+                across: false,
+            };
             out.legend.push(LegendEntry { key, swatch, color, label });
         }
     }

@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -359,6 +359,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
   "type": "chart",
   "kind": "bar",                       // v1: bar | stackedBar | line | area | scatter | dot | donut
                                        // deferred (not v1, not scheduled): slope | waffle | range | heatmap
+  "orient": "horizontal",              // bar | stackedBar: bars across, categories down the side (PLAN 1.29)
   "data": "@q3",                       // data source ref, optionally through a transform pipeline (§3.10)
   "dataTransform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
   "x": { "field": "quarter", "type": "ordinal" },
@@ -405,6 +406,14 @@ Rules:
   - A projected value says it is an estimate: its label is the value, a no-break space, and `projected.note`, else `charts.projected.note`, else `est.` (`$31 est.`). In a transition it cross-fades where a value alone counts.
   - In a transition, a row that turns actual, or projected, does so halfway.
   - A `field` the data lacks is E103. So is a `value` its column cannot hold, and, with no `value`, a column that is not `boolean`. `projected` on any other kind of chart is E106.
+- **Bars across** (`orient`, PLAN 1.29; deck format 0.14). `"orient": "horizontal"` runs a `bar`'s or a `stackedBar`'s bars across from a baseline at zero, right for a value above it and left for one below, its categories down the side in data order, a band each; `vertical`, the default, stands them up. `orient` on any other kind is **E106**. The channels keep their meanings, and so do `axes.x` and `axes.y`, annotations, keys, and colors: `x` is the category, `y` the value.
+  - A bar is `1 − charts.barGap` of its band thick, square on the baseline and rounded at its free end; a series shares the band, one under another, as bars that stand up share theirs side by side, and a stack's segments go in series order out from the baseline.
+  - Each category's name stands in a gutter at the plot's left, right-aligned a space before the plot (before the values of bars below zero), the middle of its cap height level with its band's middle. Dates print as on a category axis; dates and numbers that would come within a space unit of each other keep every k-th name, as there, and text that overlaps is W310.
+  - A value stands a space past its bar's free end, the middle of its cap height level with the bar's middle; a stack's total stands past its last segment. The plot leaves room at its right for the widest value past a bar above zero and a callout's words, and at its left for the values past bars below it.
+  - The value axis (`axes.y.show`) prints its ticks under the plot, each centered on its tick inside the plot's sides; `axes.y.gridlines` rule each up the plot, and the baseline at zero runs down it. `axes.x.gridlines` rule between the categories' bands. The category axis's title stands over the names at the chart's left; the value axis's is centered under its labels.
+  - Bars across have no column past their ends to name their series in: `auto` places their legend `top`, and `direct` is an error.
+  - Annotations turn with the bars. A `y` rule runs up the plot, its words beside its top; an `x` rule runs across through its category's middle, its words over it, clear of the marks and words behind them. A band of values runs up the plot from top to foot, one of categories across it. A callout's leader runs on from its bar's value end, past the value, to its words, which stand past every mark and word in their row, the middle of their cap height level with the leader.
+  - In motion they move as bars that stand up, turned: a bar grows from the baseline across, a stack opens across, a window of categories scrolls down the chart, and bars that regroup do so in two stages: into a stack, lengths and then thicknesses; out of one, thicknesses and then lengths. A change of `orient` cross-fades the chart.
 - **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else by the step's unit as a category axis's dates print (below): short (`%b` for months, `%b %-d` for days, `%-I %p` for hours, `%Y` for years), and the first label kept, and any whose year (an hour's day) is not the last kept label's, long, naming it too: `Sep 2025`, `Oct`, `Nov`, `Dec`, `Jan 2026` (PLAN 2.81). Each tick is keyed by its date written whole, in the step's long format. Any other x is a category axis: a band per category.
 - **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
 - **Legend.** One entry per series, or per slice of a donut, when there are two or more, in `charts.legend.role` (else the axis's role) and its color. `legend` places it. `auto`, the default, is the theme's `charts.legend.place`, else `direct`; but bars grouped side by side have no end to stand a name by, so an `auto` that would be `direct` is `top` for them.
