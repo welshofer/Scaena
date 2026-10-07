@@ -1001,7 +1001,7 @@ A caret stands between characters as a reader counts them: grapheme clusters, so
 `cell` is the box the node's placement names now, before its inset, offset, alignment, and size: what a drag moves. `snaps` lists how a dropped box snaps here. With `--snap HOW --to X,Y,W,H`, the cell as a drag left it lands, and `snapped` says where (`cell`) and gives the patch that puts the node there (`patch`): `place` ops (§7.3), made in the state inspected, for `patch` or `deck_patch` to apply. With `--fork`, the ops keep the placement to that state (`place`'s `fork`).
 - **`move`** keeps the cells it spans, from the track nearest the box's corner, inside the grid.
 - **`resize`** takes each edge to the nearest track's.
-- **`slot`** goes into the slot, or area, the box covers most.
+- **`slot`** goes into the slot, or area, the box covers most, or, covering none, the nearest. The whole `canvas` and `grid` take only a box that covers half or more of one, a photo across the slide: a box dropped in a margin, outside every slot of the layout, goes into the nearest of them.
 - **`free`** places it where it was dropped, in whole canvas units.
 - **`order`** puts it among a stack's children where the box's middle falls, and writes the `index` of each child whose place changes.
 
