@@ -5,7 +5,8 @@
 //
 //   node web/edit-deck.mjs     (after `just site`; from the repository's root)
 //
-// - The theme picker re-themes the deck in Daybreak, and back in the theme it had.
+// - The theme picker re-themes the deck in Daybreak, where each contrast error the storm slide's
+//   photo makes is fixed in one click and undone, and back in the theme it had.
 // - In the strip: a slide moved with Alt+→, one renamed with F2, one deleted with Delete, and the
 //   delete undone with ⌘Z.
 // - A text clicked on the canvas takes another role and another color from the inspector.
@@ -143,6 +144,31 @@ try {
     await page.selectOption("#theme", "ships:Daybreak");
     await changed(before);
     check(/daybreak/i.test((await source()).split("\n").find((l) => l.startsWith("deck ")) ?? ""), `the deck is in Daybreak: ${await status()}`);
+    // In Daybreak the storm slide sets its title and note dark on its dark photo: each contrast
+    // error offers the theme's color that reads there, taken in one click (PLAN 2.82), and undone.
+    await show("storm");
+    const themed = await source();
+    for (const node of ["storm-title", "storm-note"]) {
+      await until(`a contrast error on ${node}`, (n) => window.scaena.canvas.marks().some((m) => m.node === n && m.severity === "error"), node, 60000);
+      await page.locator(`#marks [data-mark="${node}"]`).click();
+      await until(`${node}'s findings open`, () => document.querySelector("#marked").matches(":popover-open"));
+      const fixes = await page.$$eval("#marked [data-fix]", (bs) => bs.map((b) => ({ i: b.dataset.fix, change: b.nextElementSibling?.textContent ?? "" })));
+      const recolor = fixes.find((f) => f.change.includes("color: surface"));
+      if (!check(Boolean(recolor), `${node}'s contrast error offers the theme's surface color: ${JSON.stringify(fixes)}`)) continue;
+      const at = await mark();
+      await page.locator(`#marked [data-fix="${recolor.i}"]`).click();
+      await changed(at);
+      const clear = (n) => !window.scaena.canvas.marks().some((m) => m.node === n && m.severity === "error");
+      await until(`${node} reading, its fix taken`, clear, node, 60000);
+      check(await page.evaluate(clear, node), `one click, and ${node} reads: no error on it`);
+    }
+    for (const _ of ["storm-note", "storm-title"]) {
+      const at = await mark();
+      await page.locator("#overlay").focus();
+      await page.keyboard.press("Control+z");
+      await changed(at);
+    }
+    check(await back(themed), "and two undos take both fixes back");
     await until(`${was} in the theme picker`, (w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was);
     const again = await mark();
     await page.selectOption("#theme", was);

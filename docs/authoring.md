@@ -418,6 +418,8 @@ state long slide:revenue
   title "Pro drove the growth this year, and Enterprise is next in every region" fit:shrink
 ```
 
+**Text that does not read.** Lint says E110 for body text under 4.5:1 against what lies behind it, or E111 for display text under 3:1, with the colors it measured. Its fix chooses the theme's color that reads best there, as the inspector's color does, written where the text's color lives. Lint offers it only where the text reads in that color in every state and format the choice reaches. Re-themed in Daybreak, the trails deck's storm slide sets dark text on a dark photo; the fix sets it in `surface`.
+
 **Motion, and a self-running deck.** `transition` names how long the cue takes; `choreo` brings an object in with a preset, after a delay; `hold` moves on by itself after the cue, for a kiosk or a video. Once any state holds, the deck runs on its own, so a state with neither a cue nor a hold would show for 0 ms. Lint W323 names each one, here `cover` and `mix`, with a hold that fits its reading.
 
 ```scn
