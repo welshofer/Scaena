@@ -1187,6 +1187,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [ ] 4.2 Shared links with permissions; comments on states/beats.
 - [ ] 4.3 Hosted render for link previews (first server-side rendering — reuse the CLI).
 
+## Deck generation (unscheduled)
+
+Not before Jay schedules it: until then Scaena's focus is editing and rendering. Its starting notes are kept privately, beside the roadmap. The spine stays the source of truth: generation writes nothing onto states that the spine does not hold.
+
 ---
 
 ## Cross-cutting tracks (run alongside phases)
