@@ -176,7 +176,13 @@ try {
   await step("presenter", () => presenter ?? player, async () => {
     await player.keyboard.press("Home");
     await rests(player, 0);
-    [presenter] = await Promise.all([context.waitForEvent("page", { timeout: 30000 }), player.click("#present")]);
+    // The presenter view opens as a window of its own, on a click on Presenter once the player
+    // has it ready; a slow machine takes a while to show it.
+    const present = player.locator("#present");
+    await present.waitFor({ state: "visible", timeout: 30000 });
+    const opening = context.waitForEvent("page", { timeout: 120000 });
+    await present.click();
+    presenter = await opening;
     watch(presenter, "presenter");
     const follows = (i) => `${i + 1} / ${states.length} · ${states[i]}`;
     const followed = (i) => until(presenter, `the presenter view follows to ${states[i]}`, (w) => window.scaena?.follows?.() === w, follows(i), 120000);
@@ -210,9 +216,11 @@ try {
     await presenter.keyboard.press("Home");
     await goes(player, 0, "the presenter view's Home");
     check(true, "its End and Home go to the last and the first, as the player's do");
-    // The player steered by its own keys: the presenter view follows it there.
+    // The presenter view follows the player where the player goes by itself.
+    // The player steered by its own ▶: a click lands where it is pressed, while a key goes
+    // where the window's focus is, which the presenter view's window may hold.
     await player.bringToFront();
-    await player.keyboard.press("ArrowRight");
+    await player.click("#on");
     await goes(player, 1);
     await followed(1);
     check((await presenter.textContent("#notes")) === notesOf(states[1]) && (await presenter.textContent("#nextName")) === `Next: ${states[2]}`, `it follows the player to ${states[1]}: its notes, and ${states[2]} next`);
