@@ -123,7 +123,7 @@ Rules:
 
 ```jsonc
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "meta":   { "title": "...", "author": "...", "created": "...", "lang": "en-US" },
   "canvas": { "width": 1920, "height": 1080, "unit": "cu" },   // canvas units; 1 cu = 1 px at 1080p
   "formats": ["16:9", "9:16"],                               // the formats it is laid out in too (§3.4)
@@ -361,6 +361,7 @@ A chart is a declarative spec compiled to **marks**; it never stores pixels.
                                        // deferred (not v1, not scheduled): waffle | heatmap
   "orient": "horizontal",              // bar | stackedBar: bars across, categories down the side (PLAN 1.29)
   "interval": { "low": "p10", "high": "p90" },  // range: the fields of each value's interval (PLAN 1.30)
+  "facet": { "field": "region", "columns": 3 },  // small multiples: a panel for each region (PLAN 1.31)
   "data": "@q3",                       // data source ref, optionally through a transform pipeline (§3.10)
   "dataTransform": [ { "filter": "region == 'NA'" }, { "sort": "-revenue" }, { "limit": 8 } ],
   "x": { "field": "quarter", "type": "ordinal" },
@@ -420,6 +421,12 @@ Rules:
   - Bars across have no column past their ends to name their series in: `auto` places their legend `top`, and `direct` is an error.
   - Annotations turn with the bars. A `y` rule runs up the plot, its words beside its top; an `x` rule runs across through its category's middle, its words over it, clear of the marks and words behind them. A band of values runs up the plot from top to foot, one of categories across it. A callout's leader runs on from its bar's value end, past the value, to its words, which stand past every mark and word in their row, the middle of their cap height level with the leader.
   - In motion they move as bars that stand up, turned: a bar grows from the baseline across, a stack opens across, a window of categories scrolls down the chart, and bars that regroup do so in two stages: into a stack, lengths and then thicknesses; out of one, thicknesses and then lengths. A change of `orient` cross-fades the chart.
+- **Small multiples** (`facet`, PLAN 1.31; deck format 0.16). `"facet": { "field": "region" }` draws the chart once for each value of `region`, in the order each first appears in the data the chart reads, a panel each on a grid. A `field` the data lacks is E103.
+  - The grid has `columns` panels to a row, else the count whose panels come nearest 3:2 with the fewest cells left empty: three panels stand in a row rather than in a square with a hole. Panels stand two space units apart each way, with no frames.
+  - Each panel is named by its value over its top-left, in `charts.title.role`, else the axis's role; a date prints as it does alone.
+  - Every panel draws on one value axis, the union of the axes the panels would draw alone, so a panel's marks stand as high as another's do for the same value. Where the chart shows its value axis, the first column alone prints its labels; every panel draws its gridlines. The first row's last panel alone draws the legend.
+  - A datum's key need be unique in its panel only.
+  - In motion, panels pair by their value: a panel on both sides moves and resizes to its new place, its marks moving as a chart's do, and one on one side only enters or leaves as a chart does. Each panel clips at its sides. A chart with a facet and one without cross-fade.
 - **Continuous x.** `line`, `area`, and `scatter` run along a continuous x when `x.type` is `quantitative` or `temporal`; a scatter always does, so its x column must hold numbers or dates. A number axis widens to round values as the value axis does, so no datum sits on the plot's edge. A date axis spans the data and ticks on calendar boundaries, at the step nearest a `charts.tickCount`th of the span as d3's time scale picks it: 1, 3, 6, or 12 hours; 1 or 2 days; weeks (Sundays); 1, 3, or 6 months; or 1, 2, 5, 10, 25, or 100 years. Its ticks print in `x.format`, else by the step's unit as a category axis's dates print (below): short (`%b` for months, `%b %-d` for days, `%-I %p` for hours, `%Y` for years), and the first label kept, and any whose year (an hour's day) is not the last kept label's, long, naming it too: `Sep 2025`, `Oct`, `Nov`, `Dec`, `Jan 2026` (PLAN 2.81). Each tick is keyed by its date written whole, in the step's long format. Any other x is a category axis: a band per category.
 - **Color.** By series, in `tokens.data.categorical` order, cycling. A `color` field of text with no `series` groups the data as a series would. A donut colors its slices by category. A series or category keeps its color from state to state: colors go in the order each first appears in the chart's data across the cue list, so one that leaves does not recolor the rest. A `color` field of numbers shades each mark along `tokens.data.sequential` from the data's minimum to its maximum, or along `tokens.data.diverging` around zero with `color.scale: "diverging"`, mixed in Oklab between stops. Otherwise every mark is the first categorical color.
 - **Legend.** One entry per series, or per slice of a donut, when there are two or more, in `charts.legend.role` (else the axis's role) and its color. `legend` places it. `auto`, the default, is the theme's `charts.legend.place`, else `direct`; but bars grouped side by side have no end to stand a name by, so an `auto` that would be `direct` is `top` for them.

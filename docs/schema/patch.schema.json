@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.15.json",
+  "$id": "https://scaena.dev/schema/patch-0.16.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -777,6 +777,10 @@
           "description": "A `range`'s interval about each value (PLAN 1.30): the fields that hold its low and high ends. Any other kind is E106.",
           "$ref": "#/$defs/Interval"
         },
+        "facet": {
+          "description": "Small multiples (PLAN 1.31): a panel for each value of a field, on one shared scale, each named by its value.",
+          "$ref": "#/$defs/Facet"
+        },
         "projected": {
           "description": "Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).",
           "$ref": "#/$defs/Projected"
@@ -1402,6 +1406,23 @@
         "high": { "description": "The field of its high end.", "type": "string" }
       }
     },
+    "Facet": {
+      "description": "How a chart splits into small multiples (SPEC §3.7, PLAN 1.31).",
+      "type": "object",
+      "required": ["field"],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "The field whose values split the data, a panel each, in the order they first appear.",
+          "type": "string"
+        },
+        "columns": {
+          "description": "How many panels stand in a row; unset, the count that makes each panel nearest 3:2.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "Projected": {
       "description": "Which of a line's or an area's rows are projected: a forecast, or an estimate (SPEC §3.7). The rows whose `field` holds `value`, or a true one when no value is given. The line runs dashed from the last actual point through them, the area under them is lighter, and their value labels say they are estimates.",
       "type": "object",
@@ -1712,6 +1733,7 @@
         "color": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "sizeEncoding": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "interval": { "anyOf": [{ "$ref": "#/$defs/IntervalDelta" }, { "type": "null" }] },
+        "facet": { "anyOf": [{ "$ref": "#/$defs/FacetDelta" }, { "type": "null" }] },
         "projected": { "anyOf": [{ "$ref": "#/$defs/ProjectedDelta" }, { "type": "null" }] },
         "key": { "type": ["string", "null"] },
         "labels": { "anyOf": [{ "$ref": "#/$defs/ChartLabelsDelta" }, { "type": "null" }] },
@@ -1919,6 +1941,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "low": { "type": ["string", "null"] }, "high": { "type": ["string", "null"] } }
+    },
+    "FacetDelta": {
+      "description": "`Facet` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": { "type": ["string", "null"] },
+        "columns": { "anyOf": [{ "minimum": 1, "type": "integer" }, { "type": "null" }] }
+      }
     },
     "ProjectedDelta": {
       "description": "`Projected` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",

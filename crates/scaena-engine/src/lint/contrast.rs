@@ -171,9 +171,12 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, BTreeSet<String>
             Content::Table { cell, table } => {
                 table.header.iter().chain(&table.cells).map(|c| (&c.text, at(cell, c.origin), 1.0, None)).collect()
             }
-            Content::Chart { cell, chart } => {
-                chart.texts().map(|(part, l)| (&l.text, at(cell, l.origin), l.opacity, Some(part))).collect()
-            }
+            // Each panel of small multiples in its own cell (PLAN 1.31).
+            Content::Chart { cell, chart } => (chart.each(*cell).into_iter())
+                .flat_map(|(_, cell, c)| {
+                    c.texts().map(move |(part, l)| (&l.text, at(&cell, l.origin), l.opacity, Some(part)))
+                })
+                .collect(),
             _ => continue,
         };
         match node.content {

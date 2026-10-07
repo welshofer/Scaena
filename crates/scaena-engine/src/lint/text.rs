@@ -87,7 +87,10 @@ impl Rule for E100Overflow {
             }
             for node in &state.scene.nodes {
                 if let Content::Chart { cell, chart } = &node.content {
-                    out.extend(cut(cx, state, &node.id, cell, chart));
+                    // Each panel of small multiples within its own (PLAN 1.31).
+                    let cuts =
+                        chart.each(*cell).into_iter().filter_map(|(_, cell, c)| cut(cx, state, &node.id, &cell, c));
+                    out.extend(cuts.take(1));
                 }
                 if let Content::Table { table, .. } = &node.content
                     && let Some(why) = &table.overflow
@@ -233,7 +236,9 @@ fn layouts(content: &Content) -> Vec<&TextLayout> {
     match content {
         Content::Text(placed) => vec![&placed.text],
         Content::Table { table, .. } => table.header.iter().chain(&table.cells).map(|c| &c.text).collect(),
-        Content::Chart { chart, .. } => chart.texts().map(|(_, l)| &l.text).collect(),
+        Content::Chart { chart, cell } => {
+            chart.each(*cell).into_iter().flat_map(|(.., c)| c.texts().map(|(_, l)| &l.text)).collect()
+        }
         _ => vec![],
     }
 }
@@ -473,52 +478,59 @@ impl Rule for W310LabelCollision {
         let mut out = Vec::new();
         for state in cx.states {
             for node in &state.scene.nodes {
-                let Content::Chart { chart, .. } = &node.content else { continue };
-                for (a, b) in &chart.covers {
-                    out.push(
-                        cx.finding(
-                            self.code(),
-                            self.severity(),
-                            state,
-                            format!("chart `{}`: the value label of `{a}` covers the mark of `{b}`", node.id),
-                        )
-                        .at(format!("{}/labels", cx.node_path(&node.id)))
-                        .node(node.id.clone())
-                        .measure(json!({ "marks": [a, b] }))
-                        .hint("Set `labels.collide` to `hide`, show fewer labels (`labels.show`), or give the chart more room."),
-                    );
-                }
-                for (a, b) in &chart.collisions {
-                    out.push(
-                        cx.finding(
-                            self.code(),
-                            self.severity(),
-                            state,
-                            format!("chart `{}`: the value labels of `{a}` and `{b}` overlap", node.id),
-                        )
-                        .at(format!("{}/labels", cx.node_path(&node.id)))
-                        .node(node.id.clone())
-                        .measure(json!({ "marks": [a, b] }))
-                        .hint("Set `labels.collide` to `hide` or `nudge`, show fewer labels (`labels.show`), or give the chart more room."),
-                    );
-                }
-                for (a, b) in &chart.crowded {
-                    out.push(
-                        cx.finding(
-                            self.code(),
-                            self.severity(),
-                            state,
-                            format!("chart `{}`: the category labels `{a}` and `{b}` overlap", node.id),
-                        )
-                        .at(format!("{}/x", cx.node_path(&node.id)))
-                        .node(node.id.clone())
-                        .measure(json!({ "categories": [a, b] }))
-                        .hint(match chart.horizontal {
-                            // Names down the side crowd where the bands are thin.
-                            true => "Give the chart more height, or fewer categories.",
-                            false => "Give the chart more width, or shorter categories.",
-                        }),
-                    );
+                let Content::Chart { chart, cell } = &node.content else { continue };
+                // Each panel of small multiples, named by its facet's value (PLAN 1.31).
+                for (panel, _, chart) in chart.each(*cell) {
+                    let id = match panel {
+                        Some(panel) => format!("{}` (panel `{panel}`)", node.id),
+                        None => format!("{}`", node.id),
+                    };
+                    for (a, b) in &chart.covers {
+                        out.push(
+                            cx.finding(
+                                self.code(),
+                                self.severity(),
+                                state,
+                                format!("chart `{id}: the value label of `{a}` covers the mark of `{b}`"),
+                            )
+                            .at(format!("{}/labels", cx.node_path(&node.id)))
+                            .node(node.id.clone())
+                            .measure(json!({ "marks": [a, b] }))
+                            .hint("Set `labels.collide` to `hide`, show fewer labels (`labels.show`), or give the chart more room."),
+                        );
+                    }
+                    for (a, b) in &chart.collisions {
+                        out.push(
+                            cx.finding(
+                                self.code(),
+                                self.severity(),
+                                state,
+                                format!("chart `{id}: the value labels of `{a}` and `{b}` overlap"),
+                            )
+                            .at(format!("{}/labels", cx.node_path(&node.id)))
+                            .node(node.id.clone())
+                            .measure(json!({ "marks": [a, b] }))
+                            .hint("Set `labels.collide` to `hide` or `nudge`, show fewer labels (`labels.show`), or give the chart more room."),
+                        );
+                    }
+                    for (a, b) in &chart.crowded {
+                        out.push(
+                            cx.finding(
+                                self.code(),
+                                self.severity(),
+                                state,
+                                format!("chart `{id}: the category labels `{a}` and `{b}` overlap"),
+                            )
+                            .at(format!("{}/x", cx.node_path(&node.id)))
+                            .node(node.id.clone())
+                            .measure(json!({ "categories": [a, b] }))
+                            .hint(match chart.horizontal {
+                                // Names down the side crowd where the bands are thin.
+                                true => "Give the chart more height, or fewer categories.",
+                                false => "Give the chart more width, or shorter categories.",
+                            }),
+                        );
+                    }
                 }
             }
         }
@@ -557,13 +569,14 @@ impl Rule for W312ChartTextSize {
         let mut small: BTreeMap<String, Small> = BTreeMap::new();
         for state in cx.states {
             for node in &state.scene.nodes {
-                let Content::Chart { chart, .. } = &node.content else { continue };
+                let Content::Chart { chart, cell } = &node.content else { continue };
                 // As drawn: a chart scaled down sets its text smaller; one flattened sets none.
                 let scale = scaena_core::pose::stretch(&state.scene.posed(&node.id, true))[1] as f32;
                 if scale <= 0.0 {
                     continue;
                 }
-                for (part, label) in chart.texts() {
+                let panels = chart.each(*cell);
+                for (part, label) in panels.iter().flat_map(|(.., c)| c.texts()) {
                     let size = label.text.runs.iter().map(|r| r.size).fold(f32::INFINITY, f32::min) * scale;
                     if size >= floor - 1.0e-3 {
                         continue;

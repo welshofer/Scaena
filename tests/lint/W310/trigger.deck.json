@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W310 trigger: side-by-side bars of one height, their labels on each other in a narrow chart.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

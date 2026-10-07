@@ -340,7 +340,7 @@ Line by line:
   - `-claim` takes the subtitle off;
   - `title "Pro drove the growth" role:headline … at:in(header)` is the same `title`, so its words morph and it moves to its new slot;
   - `rev chart:bar …` enters, and `choreo rev enter:grow` grows its bars in.
-- **`state mix slide:revenue`** is a build on the same slide. `rev kind:stackedBar` turns the same bars, matched by key, into stacks. `rev orient:horizontal` would run them across instead, the quarters down the side: the way a ranking, or categories with long names, reads best. `rev kind:slope`, its quarters filtered to two, would compare the first with the last, each product a line that says its change.
+- **`state mix slide:revenue`** is a build on the same slide. `rev kind:stackedBar` turns the same bars, matched by key, into stacks. `rev orient:horizontal` would run them across instead, the quarters down the side: the way a ranking, or categories with long names, reads best. `rev kind:slope`, its quarters filtered to two, would compare the first with the last, each product a line that says its change. `rev facet:{field: product}` would draw a panel for each product instead, on one scale.
 
 What the props mean is in SPEC §3: the objects in §3.3, layout in §3.4, type in §3.5, charts in §3.7, and motion in §3.9. `docs/examples/revenue.deck.scn` is a fuller deck, and `docs/examples/trails.deck.json` (decompile it to read it as source) is fifteen slides that use most of what a deck can hold.
 

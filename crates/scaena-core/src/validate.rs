@@ -1096,7 +1096,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             // What reads a field: a chart's channels, or a table's columns, each with the
             // key its path starts at, the rest of the path, and its name in a message.
             let readers: Vec<(&str, String, String, &Map<String, Value>)> = match node.node_type {
-                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding", "projected"]
+                NodeType::Chart => ["x", "y", "series", "color", "sizeEncoding", "projected", "facet"]
                     .into_iter()
                     .filter_map(|c| {
                         props.get(c).and_then(Value::as_object).map(|e| (c, String::new(), c.to_string(), e))
@@ -1253,7 +1253,9 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             let key = key.filter(|_| kind != "slope");
             // A datum's key is its `key` field, else its x, joined with its series (without one,
             // a color field of text) unless that is the key; a donut's are its categories. A row
-            // whose `y` is null is a gap, with no key.
+            // whose `y` is null is a gap, with no key. Small multiples key each panel's data
+            // apart (PLAN 1.31).
+            let panel = field("facet").and_then(|f| table.column(f));
             let group = match (field("series"), field("color")) {
                 (Some(f), _) => table.column(f).map(Some),
                 (None, Some(f)) => table.column(f).map(|c| (table.types[c] != ColumnType::Number).then_some(c)),
@@ -1264,9 +1266,15 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                 // The series a key joins: none on a donut, nor when it is the key column.
                 let joins = |key_col: Option<usize>| group.filter(|&g| kind != "donut" && Some(g) != key_col);
                 let keys = |base: usize, series: Option<usize>| {
-                    repeats(table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| match series {
-                        Some(s) => format!("{}\u{1f}{}", row[base].label(), row[s].label()),
-                        None => row[base].label(),
+                    repeats(table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| {
+                        let key = match series {
+                            Some(s) => format!("{}\u{1f}{}", row[base].label(), row[s].label()),
+                            None => row[base].label(),
+                        };
+                        match panel {
+                            Some(p) => format!("{}\u{1e}{key}", row[p].label()),
+                            None => key,
+                        }
                     }))
                 };
                 let by = |base: usize, series: Option<usize>| match series {
@@ -1380,7 +1388,9 @@ fn repeats(keys: impl Iterator<Item = String>) -> Vec<String> {
 /// Keys that repeat as a finding names them, a key's parts joined as the chart compiler
 /// prints them: "key `Q1` repeats", or "keys `Q1 · Core`, `Q2 · Core` repeat".
 fn keys_repeat(keys: &[String]) -> String {
-    let named: Vec<String> = keys.iter().take(8).map(|k| format!("`{}`", k.replace('\u{1f}', " · "))).collect();
+    // A panel of small multiples names its key's panel first: `Core: Q1`.
+    let named: Vec<String> =
+        keys.iter().take(8).map(|k| format!("`{}`", k.replace('\u{1e}', ": ").replace('\u{1f}', " · "))).collect();
     match keys {
         [_] => format!("key {} repeats", named[0]),
         _ => format!("keys {}{} repeat", named.join(", "), if keys.len() > 8 { ", …" } else { "" }),

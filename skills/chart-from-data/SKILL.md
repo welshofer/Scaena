@@ -38,6 +38,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - Change over time: `line`, one or more series, named at their ends.
    - Two states compared across many items (2020 against 2025, before against after): `slope`, its `x` filtered to the two states (`{ "filter": "year in ['2020', '2025']" }`). Each line says its change at its end.
    - A gap between two groups in each category (women's and men's pay by role): `range` with a `series` of the groups, a dumbbell. An estimate with its margin: `range` with `interval: { "low": "lo", "high": "hi" }`.
+   - The same chart for each of several groups, compared on one scale: any kind with `"facet": { "field": "region" }`, small multiples, a panel each, rather than many lines tangled in one plot.
    - Parts of a whole over time: `stackedBar`, or `area` when time is continuous.
    - A relationship between two measures: `scatter` (`x.type: quantitative`).
    - A few values to compare closely: `dot`.

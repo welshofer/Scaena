@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W202 trigger: a display line that sets in three lines, where the role allows two.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "I400 clean: state b changes the text.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

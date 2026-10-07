@@ -271,8 +271,13 @@ impl Rule for W313ChartSquashed {
             for node in &state.scene.nodes {
                 let Content::Chart { cell, chart } = &node.content else { continue };
                 // As drawn: a chart scaled down squashes its plot; one flattened draws none.
+                // Small multiples by their smallest panel's (PLAN 1.31).
                 let [along, across] = pose::stretch(&state.scene.posed(&node.id, true)).map(|k| k as f32);
-                let [w, h] = [chart.plot[2] * along, chart.plot[3] * across];
+                let plot = (chart.each(*cell).into_iter())
+                    .map(|(.., c)| [c.plot[2], c.plot[3]])
+                    .min_by(|a, b| a[0].min(a[1]).total_cmp(&b[0].min(b[1])))
+                    .unwrap_or([chart.plot[2], chart.plot[3]]);
+                let [w, h] = [plot[0] * along, plot[1] * across];
                 if w.min(h) >= floor || w.min(h) <= 0.0 || node.opacity <= 0.0 {
                     continue;
                 }

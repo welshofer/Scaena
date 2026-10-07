@@ -299,6 +299,7 @@ pub(in crate::charts) fn layout(parts: Parts) -> Result<ChartLayout, EngineError
             })
             .collect(),
         highlights: Vec::new(),
+        panels: Vec::new(),
     };
 
     // The value axis: each tick's label under the plot, centered on it but inside the plot's

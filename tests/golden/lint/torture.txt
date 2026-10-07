@@ -170,6 +170,7 @@ W421 - forecast-next - /states/48
 W421 - photos - /states/51
 W421 - across-next - /states/55
 W421 - slopes-next - /states/57
+W421 - multiples-next - /states/59
 I402 - - marks-dot /overrides/marks-dot
 I402 - - gp-linear /overrides/gp-linear
 I402 - - gp-conic /overrides/gp-conic

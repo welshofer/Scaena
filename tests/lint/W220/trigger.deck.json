@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W220 trigger: one paragraph starts at the left, the other is centered.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

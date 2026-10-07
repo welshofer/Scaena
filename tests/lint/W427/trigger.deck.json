@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W427 trigger: the headline quotes Pro's Q4 revenue, which data/sales.csv now gives as 19, and still reads 14; so does the beat's claim, whose state shows the headline.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

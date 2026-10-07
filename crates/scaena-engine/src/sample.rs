@@ -32,8 +32,8 @@
 
 use crate::EngineError;
 use crate::charts::{
-    AxisTick, ChartKind, ChartLayout, Gap, Label, LegendEntry, Mark, Note, Numerals, RoundRect, Rule, SeriesPath,
-    Shape, ValueLabel, lerp,
+    AxisTick, ChartKind, ChartLayout, Gap, Label, LegendEntry, Mark, Note, Numerals, Panel, RoundRect, Rule,
+    SeriesPath, Shape, ValueLabel, lerp,
 };
 use crate::images::ImageNode;
 use crate::render::PlacedText;
@@ -228,30 +228,7 @@ impl SceneNode {
                 layer(Some(&self.id), [cell[0], cell[1]], opacity, ops)
             }
             Content::Chart { cell, chart } => {
-                let mut ops: Vec<Op> =
-                    chart.notes.iter().filter_map(|n| n.band).map(|(rect, color)| band_op(rect, color, 1.0)).collect();
-                let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
-                ops.extend(rules.map(|r| rule_op(r, 1.0)));
-                if let Some(rule) = &chart.baseline {
-                    ops.push(rule_op(rule, 1.0));
-                }
-                let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
-                let mut plot: Vec<Op> = chart.paths.iter().flat_map(|s| path_ops(s, &shapes, s.color, 1.0)).collect();
-                plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
-                for note in &chart.notes {
-                    plot.extend(note.rule.as_ref().and_then(|r| broken_rule_op(r, &spans(&note.gaps), 1.0)));
-                }
-                let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
-                for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
-                    plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
-                }
-                ops.extend(plot_layer(chart.clip, [-cell[1], dl.viewport[1]], plot));
-                for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
-                    ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
-                }
-                for e in &chart.legend {
-                    ops.extend(legend_ops(dl, e.swatch, e.color, &e.label, e.label.origin, 1.0, e.label.opacity));
-                }
+                let ops = chart_ops(dl, chart, [-cell[1], dl.viewport[1]]);
                 chart_layer(&self.id, [cell[0], cell[1]], cell[2], dl.viewport[1], opacity, ops)
             }
         }
@@ -387,6 +364,8 @@ struct ChartPlan {
     legend: Vec<Pair>,
     /// Annotations by kind, axis, and place.
     notes: Vec<Pair>,
+    /// Small multiples' panels by their facet's value, each with its own plan (PLAN 1.31).
+    panels: Vec<(Pair, ChartPlan)>,
 }
 
 /// A keyed chart part on either side and, for a part on one side only, the nearest
@@ -642,7 +621,9 @@ impl Transition {
                         Track::Table { from: i, to: j, plan: Box::new(TablePlan::new(x, y)) }
                     }
                     (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. })
-                        if x.kind.morphs_to(y.kind) && x.horizontal == y.horizontal =>
+                        if x.kind.morphs_to(y.kind)
+                            && x.horizontal == y.horizontal
+                            && x.panels.is_empty() == y.panels.is_empty() =>
                     {
                         let (enter, exit) = (look_of(&b.id, &entering), look_of(&b.id, &leaving));
                         Track::Chart {
@@ -1512,6 +1493,15 @@ impl ChartPlan {
             x_grid: pair(a.map_or(&[][..], |c| &c.x_grid), b.map_or(&[][..], |c| &c.x_grid), |t| &t.key),
             legend: pair(legend_of(a), legend_of(b), |e| &e.key),
             notes: pair(notes_of(a), notes_of(b), |n| &n.key),
+            panels: {
+                let (pa, pb) = (panels_of(a), panels_of(b));
+                (pair(pa, pb, |p| &p.key).into_iter())
+                    .map(|(i, j)| {
+                        let (x, y) = (i.map(|i| &pa[i].chart), j.map(|j| &pb[j].chart));
+                        ((i, j), ChartPlan::new(x, y, enter, exit))
+                    })
+                    .collect()
+            },
         }
     }
 
@@ -1796,6 +1786,21 @@ impl ChartPlan {
                 (None, None) => {}
             }
         }
+        // Small multiples (PLAN 1.31): each panel samples as a chart of its own, where it
+        // stands, moving there from where it stood and clipping at its sides as a chart does;
+        // one on one side only enters or leaves as a chart does.
+        let (pa, pb) = (panels_of(a), panels_of(b));
+        for &((i, j), ref plan) in &self.panels {
+            let (x, y) = (i.map(|i| &pa[i]), j.map(|j| &pb[j]));
+            let (at, size) = match (x, y) {
+                (Some(x), Some(y)) => (lerp2(x.at, y.at, p), lerp2(x.size, y.size, p)),
+                (Some(only), None) | (None, Some(only)) => (only.at, only.size),
+                (None, None) => continue,
+            };
+            let clip = [clip_y[0] - at[1], clip_y[1]];
+            let panel = plan.sample(dl, x.map(|x| &x.chart), y.map(|y| &y.chart), p, t_ms, cues, clip);
+            ops.push(panel_layer(at, size[0], clip, panel));
+        }
         ops
     }
 }
@@ -1931,8 +1936,62 @@ fn legend_of(c: Option<&ChartLayout>) -> &[LegendEntry] {
     c.map_or(&[], |c| &c.legend)
 }
 
+fn panels_of(c: Option<&ChartLayout>) -> &[Panel] {
+    c.map_or(&[], |c| &c.panels)
+}
+
 fn notes_of(c: Option<&ChartLayout>) -> &[Note] {
     c.map_or(&[], |c| &c.notes)
+}
+
+/// A chart's ops at rest, in its cell: annotation bands, gridlines, the baseline; in the plot,
+/// lines and areas, marks, annotations' rules, category and value labels; value-axis labels,
+/// titles, and the legend. A faceted chart's panels draw where each stands (PLAN 1.31).
+/// `clip_y` is the plot clip's top and height.
+fn chart_ops(dl: &mut DisplayList, chart: &ChartLayout, clip_y: [f32; 2]) -> Vec<Op> {
+    let mut ops: Vec<Op> =
+        chart.notes.iter().filter_map(|n| n.band).map(|(rect, color)| band_op(rect, color, 1.0)).collect();
+    let rules = chart.y_axis.iter().chain(&chart.x_grid).filter_map(|t| t.rule.as_ref());
+    ops.extend(rules.map(|r| rule_op(r, 1.0)));
+    if let Some(rule) = &chart.baseline {
+        ops.push(rule_op(rule, 1.0));
+    }
+    let shapes: Vec<(&str, Shape)> = chart.marks.iter().map(|m| (m.key.as_str(), m.shape)).collect();
+    let mut plot: Vec<Op> = chart.paths.iter().flat_map(|s| path_ops(s, &shapes, s.color, 1.0)).collect();
+    plot.extend(chart.marks.iter().filter_map(|m| mark_op(m.shape, m.color, 1.0)));
+    for note in &chart.notes {
+        plot.extend(note.rule.as_ref().and_then(|r| broken_rule_op(r, &spans(&note.gaps), 1.0)));
+    }
+    let notes = chart.notes.iter().filter_map(|n| n.label.as_ref());
+    for label in chart.ticks.iter().chain(&chart.labels).chain(notes) {
+        plot.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
+    }
+    ops.extend(plot_layer(chart.clip, clip_y, plot));
+    for label in chart.y_axis.iter().filter_map(|t| t.label.as_ref()).chain(&chart.titles) {
+        ops.push(layer(None, label.origin, label.opacity, text_ops(dl, &label.text)));
+    }
+    for e in &chart.legend {
+        ops.extend(legend_ops(dl, e.swatch, e.color, &e.label, e.label.origin, 1.0, e.label.opacity));
+    }
+    for panel in &chart.panels {
+        let clip = [clip_y[0] - panel.at[1], clip_y[1]];
+        ops.push(panel_layer(panel.at, panel.size[0], clip, chart_ops(dl, &panel.chart, clip)));
+    }
+    ops
+}
+
+/// A panel of small multiples at `at` in its chart, `width` across, clipped at its sides as
+/// a chart is at its cell's (PLAN 1.31). `clip_y` is the clip's top and height.
+fn panel_layer(at: Point, width: f32, clip_y: [f32; 2], ops: Vec<Op>) -> Op {
+    Op::Layer {
+        node: None,
+        cell: None,
+        transform: [1.0, 0.0, 0.0, 1.0, at[0], at[1]],
+        opacity: 1.0,
+        blend: Blend::Normal,
+        clip: Some(Path::rect([0.0, clip_y[0], width, clip_y[1]])),
+        ops,
+    }
 }
 
 /// The plot's ops: in a layer clipped across `span`, the plot's sides (and the room a
@@ -2663,6 +2722,7 @@ mod tests {
             places: Default::default(),
             categories: Vec::new(),
             highlights: Vec::new(),
+            panels: Vec::new(),
         }
     }
 
