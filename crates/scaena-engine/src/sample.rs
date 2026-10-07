@@ -641,7 +641,9 @@ impl Transition {
                     (Content::Table { table: x, .. }, Content::Table { table: y, .. }) => {
                         Track::Table { from: i, to: j, plan: Box::new(TablePlan::new(x, y)) }
                     }
-                    (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. }) if x.kind.morphs_to(y.kind) => {
+                    (Content::Chart { chart: x, .. }, Content::Chart { chart: y, .. })
+                        if x.kind.morphs_to(y.kind) && x.horizontal == y.horizontal =>
+                    {
                         let (enter, exit) = (look_of(&b.id, &entering), look_of(&b.id, &leaving));
                         Track::Chart {
                             from: Some(i),
@@ -1879,10 +1881,13 @@ fn restack(
         let bars = matches!(shapes[top].1, Shape::Bar(_));
         let mut next: Option<f32> = None;
         for (i, key) in at.iter().copied().zip(&order) {
-            // A bar's stack rises from its foot, or for values below zero falls from it.
+            // A bar's stack rises from its foot, or for values below zero falls from it; a
+            // stack across runs right from its foot, or left.
             let rising = stack_of(b, key).or(stack_of(a, key)).is_some_and(|s| s.to < s.from);
             let shape = shapes[i].1;
             let (from, extent) = match shape {
+                Shape::Bar(r) if r.across && rising => (r.x + r.w, -r.w),
+                Shape::Bar(r) if r.across => (r.x, r.w),
                 Shape::Bar(r) if rising => (r.y + r.h, -r.h),
                 Shape::Bar(r) => (r.y, r.h),
                 Shape::Span { top, base, .. } => (base, top - base),
@@ -1893,6 +1898,7 @@ fn restack(
             next = Some(from + extent);
             now += extent.abs();
             shapes[i].1 = match shape {
+                Shape::Bar(r) if r.across => Shape::Bar(RoundRect { x: from.min(from + extent), w: extent.abs(), ..r }),
                 Shape::Bar(r) => Shape::Bar(RoundRect { y: from.min(from + extent), h: extent.abs(), ..r }),
                 Shape::Span { x, .. } => Shape::Span { x, top: from + extent, base: from },
                 Shape::Arc { cx, cy, inner, outer, .. } => {
@@ -1964,17 +1970,26 @@ fn lerp_rule(a: &Rule, b: &Rule, p: f32) -> Rule {
 }
 
 /// `rule`, a gridline at `value`, where that value sits on chart `c`'s scale, across its
-/// plot; where it is when there is no `c`.
+/// plot (up it, where its bars run across); where it is when there is no `c`.
 fn rule_on(rule: &Rule, c: Option<&ChartLayout>, value: f64) -> Rule {
     let Some(c) = c else { return rule.clone() };
-    let y = c.y_scale.map(value);
-    Rule { from: [c.plot[0], y], to: [c.plot[0] + c.plot[2], y], ..rule.clone() }
+    let at = c.y_scale.map(value);
+    let [left, top, width, height] = c.plot;
+    match c.horizontal {
+        true => Rule { from: [at, top], to: [at, top + height], ..rule.clone() },
+        false => Rule { from: [left, at], to: [left + width, at], ..rule.clone() },
+    }
 }
 
 /// Where `label`, beside the tick at `value` on chart `own`, sits beside that value on
 /// chart `other`: moved as far as the value moves and as the gutter's edge moves.
 fn label_on(label: &Label, own: Option<&ChartLayout>, other: Option<&ChartLayout>, value: f64) -> Point {
     match (own, other) {
+        // Under a plot whose bars run across: along with the value, and down with its foot.
+        (Some(own), Some(other)) if own.horizontal => [
+            label.origin[0] + (other.y_scale.map(value) - own.y_scale.map(value)),
+            label.origin[1] + (other.plot[1] + other.plot[3] - own.plot[1] - own.plot[3]),
+        ],
         (Some(own), Some(other)) => [
             label.origin[0] + (other.plot[0] - own.plot[0]),
             label.origin[1] + (other.y_scale.map(value) - own.y_scale.map(value)),
@@ -2083,13 +2098,16 @@ fn rides(pairs: Vec<Pair>) -> Vec<Keyed> {
 fn regrouped(a: RoundRect, b: RoundRect, p: f32, heights_first: bool) -> RoundRect {
     let (first, second) = ((2.0 * p).min(1.0), (2.0 * p - 1.0).max(0.0));
     let (ph, pw) = if heights_first { (first, second) } else { (second, first) };
+    // A bar's value runs up it, or along a bar across, and its width the other way.
+    let (px, py) = if b.across { (ph, pw) } else { (pw, ph) };
     RoundRect {
-        x: lerp(a.x, b.x, pw),
-        w: lerp(a.w, b.w, pw),
-        y: lerp(a.y, b.y, ph),
-        h: lerp(a.h, b.h, ph),
+        x: lerp(a.x, b.x, px),
+        w: lerp(a.w, b.w, px),
+        y: lerp(a.y, b.y, py),
+        h: lerp(a.h, b.h, py),
         top_radius: lerp(a.top_radius, b.top_radius, ph),
         bottom_radius: lerp(a.bottom_radius, b.bottom_radius, ph),
+        across: b.across,
     }
 }
 
@@ -2107,7 +2125,7 @@ fn ends(
     exit: Option<MarkLook>,
 ) -> Option<(Shape, Shape)> {
     let (ma, mb) = (marks_of(a), marks_of(b));
-    let dx = k.ride.map_or(0.0, |(ri, rj)| mb[rj].shape.center_x() - ma[ri].shape.center_x());
+    let dx = k.ride.map_or(0.0, |(ri, rj)| mb[rj].shape.along() - ma[ri].shape.along());
     let grows = |look: Option<MarkLook>| look.is_none_or(|l| l.grow);
     match k.pair {
         (Some(i), Some(j)) => Shape::lerp(ma[i].shape, mb[j].shape, 0.0).map(|_| (ma[i].shape, mb[j].shape)),
@@ -2617,6 +2635,7 @@ mod tests {
     fn chart(kind: ChartKind, marks: Vec<Mark>, paths: Vec<SeriesPath>) -> ChartLayout {
         ChartLayout {
             kind,
+            horizontal: false,
             base: 100.0,
             baseline: None,
             marks,
@@ -2650,7 +2669,7 @@ mod tests {
 
     /// A segment of stack `s` at `x` from `from` up to `to` (canvas y, so `to < from`).
     fn segment(key: &str, x: f32, from: f32, to: f32) -> Mark {
-        let r = RoundRect { x, y: to, w: 20.0, h: from - to, top_radius: 0.0, bottom_radius: 0.0 };
+        let r = RoundRect { x, y: to, w: 20.0, h: from - to, top_radius: 0.0, bottom_radius: 0.0, across: false };
         mark(key, Shape::Bar(r), Some(("s", from, to)))
     }
 
@@ -2820,8 +2839,9 @@ mod tests {
 
     #[test]
     fn bars_regroup_in_two_stages() {
-        let side = RoundRect { x: 0.0, y: 60.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0 };
-        let stacked = RoundRect { x: 0.0, y: 20.0, w: 30.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0 };
+        let side = RoundRect { x: 0.0, y: 60.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0, across: false };
+        let stacked =
+            RoundRect { x: 0.0, y: 20.0, w: 30.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0, across: false };
         // Into a stack: heights first, then widths.
         let quarter = regrouped(side, stacked, 0.25, true);
         assert_eq!((quarter.y, quarter.w, quarter.top_radius), (40.0, 10.0, 1.0));
@@ -2832,6 +2852,79 @@ mod tests {
         assert_eq!((quarter.y, quarter.w), (20.0, 20.0));
         assert_eq!(regrouped(stacked, side, 1.0, false), side);
         assert_eq!(regrouped(side, stacked, 0.0, true), side);
+    }
+
+    #[test]
+    fn bars_across_regroup_in_two_stages_along_their_values_first() {
+        // A bar across (PLAN 1.29): its value runs along x, so "heights" are its x and its
+        // width, and "widths" its y and its height.
+        let side = RoundRect { x: 0.0, y: 10.0, w: 40.0, h: 10.0, top_radius: 2.0, bottom_radius: 0.0, across: true };
+        let stacked =
+            RoundRect { x: 40.0, y: 0.0, w: 40.0, h: 30.0, top_radius: 0.0, bottom_radius: 0.0, across: true };
+        let quarter = regrouped(side, stacked, 0.25, true);
+        assert_eq!((quarter.x, quarter.w, quarter.y, quarter.h, quarter.top_radius), (20.0, 40.0, 10.0, 10.0, 1.0));
+        let three = regrouped(side, stacked, 0.75, true);
+        assert_eq!((three.x, three.y, three.h), (40.0, 5.0, 20.0));
+        assert!(three.across);
+        assert_eq!(regrouped(stacked, side, 1.0, false), side);
+    }
+
+    /// A chart whose bars run across from a baseline at x 50.
+    fn across(kind: ChartKind, marks: Vec<Mark>) -> ChartLayout {
+        ChartLayout { horizontal: true, base: 50.0, ..chart(kind, marks, Vec::new()) }
+    }
+
+    /// A bar across `key` at `y`, from x `from` to `to`.
+    fn bar_across(key: &str, y: f32, from: f32, to: f32) -> Mark {
+        let r = RoundRect {
+            x: from.min(to),
+            y,
+            w: (to - from).abs(),
+            h: 10.0,
+            top_radius: 0.0,
+            bottom_radius: 0.0,
+            across: true,
+        };
+        mark(key, Shape::Bar(r), None)
+    }
+
+    #[test]
+    fn a_bar_across_grows_from_its_baseline_and_a_window_of_them_scrolls_down() {
+        let one = across(ChartKind::Bar, vec![bar_across("q1", 0.0, 50.0, 90.0)]);
+        // In from the baseline across, and out onto it.
+        let grows = at(None, Some(&one), 0.0);
+        assert!(matches!(grows[0].1, Shape::Bar(r) if r.x == 50.0 && r.w == 0.0 && r.y == 0.0), "{grows:?}");
+        let shrinks = at(Some(&one), None, 1.0);
+        assert!(matches!(shrinks[0].1, Shape::Bar(r) if r.x == 50.0 && r.w == 0.0), "{shrinks:?}");
+        // A window that advances a period: the categories move up a band, and the new one
+        // comes in from under the last, riding with it.
+        let before =
+            across(ChartKind::Bar, vec![bar_across("q1", 0.0, 50.0, 70.0), bar_across("q2", 20.0, 50.0, 80.0)]);
+        let after = across(ChartKind::Bar, vec![bar_across("q2", 0.0, 50.0, 80.0), bar_across("q3", 20.0, 50.0, 95.0)]);
+        let start: Vec<(String, Shape)> = at(Some(&before), Some(&after), 0.0);
+        let q3 = start.iter().find(|(k, _)| k == "q3").unwrap().1;
+        assert!(matches!(q3, Shape::Bar(r) if r.y == 40.0 && r.w == 0.0 && r.x == 50.0), "{q3:?}");
+        let q1 = at(Some(&before), Some(&after), 1.0).into_iter().find(|(k, _)| k == "q1").unwrap().1;
+        assert!(matches!(q1, Shape::Bar(r) if r.y == -20.0 && r.w == 0.0), "{q1:?}");
+    }
+
+    #[test]
+    fn a_staggered_stack_across_builds_rightward_member_on_member() {
+        let segment = |key: &str, from: f32, to: f32| {
+            let Mark { shape, .. } = bar_across(key, 10.0, from, to);
+            mark(key, shape, Some(("s", from, to)))
+        };
+        let stack = across(
+            ChartKind::StackedBar,
+            vec![segment("a", 50.0, 70.0), segment("b", 70.0, 80.0), segment("c", 80.0, 110.0)],
+        );
+        let (bars, _) = staggered(&stack, &[1.0, 0.5, 0.0]);
+        let span = |s: Shape| match s {
+            Shape::Bar(r) => (r.x, r.x + r.w),
+            other => panic!("{other:?}"),
+        };
+        let spans: Vec<(f32, f32)> = bars.iter().map(|(_, s)| span(*s)).collect();
+        assert_eq!(spans, [(50.0, 70.0), (70.0, 75.0), (75.0, 75.0)]);
     }
 
     fn look(grow: bool) -> MarkLook {
@@ -2846,7 +2939,8 @@ mod tests {
         assert!(MarkLook::of(&grow).unwrap().grow, "a cue that scales grows its marks from their foot");
         assert_eq!(MarkLook::of(&Motion::Emphasis(Look::REST)), None);
         let bar = |key: &str| {
-            let r = RoundRect { x: 10.0, y: 60.0, w: 20.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0 };
+            let r =
+                RoundRect { x: 10.0, y: 60.0, w: 20.0, h: 40.0, top_radius: 0.0, bottom_radius: 0.0, across: false };
             mark(key, Shape::Bar(r), None)
         };
         let before = chart(ChartKind::Bar, vec![bar("q1"), bar("q2")], Vec::new());
@@ -2858,7 +2952,7 @@ mod tests {
     #[test]
     fn a_cue_that_does_not_scale_its_marks_keeps_them_whole() {
         let bar = |key: &str, h: f32| {
-            let r = RoundRect { x: 10.0, y: 100.0 - h, w: 20.0, h, top_radius: 0.0, bottom_radius: 0.0 };
+            let r = RoundRect { x: 10.0, y: 100.0 - h, w: 20.0, h, top_radius: 0.0, bottom_radius: 0.0, across: false };
             mark(key, Shape::Bar(r), None)
         };
         let after = chart(ChartKind::Bar, vec![bar("q1", 40.0)], Vec::new());

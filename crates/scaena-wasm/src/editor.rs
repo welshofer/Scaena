@@ -39,7 +39,9 @@ pub(crate) struct Laid {
 /// what a finding in that state can be about, or owe something to.
 fn nodes(deck: &Deck) -> BTreeMap<String, BTreeSet<String>> {
     let states = resolve_states(deck).unwrap_or_default();
-    states.into_iter().map(|s| (s.state_id, s.nodes.into_keys().chain(s.exited).collect())).collect()
+    scaena_core::sort::map(
+        states.into_iter().map(|s| (s.state_id, scaena_core::sort::set(s.nodes.into_keys().chain(s.exited)))),
+    )
 }
 
 /// The files a page handed the session, by their paths in the bundle, as validation reads

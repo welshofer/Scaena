@@ -504,8 +504,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
   PR #41 (chart pass 3) moves a dot's value under its dot, breaks a rule where it would cross text, and raises a callout's text past a rule. It leans a bar's value off a taller neighbor as 1.27 does. *(Found by 1.27. With #41 landed, five of the six findings left the golden: `k-dot` in both formats, `n-lines`, and `n-bars` in `annotations` and `annotations-next`. Done: the last, `st-line` in 9:16, and 1.28's `fc-line` in `forecast-next`, which showed the same, were first values short of room. The plot took their room out of the chart's whole width, not out of the plot the series' names left beside it, so in a narrow plot the side clamped each value and pushed it in over its own line. The room is now taken from the plot the right side leaves, again until it holds, and each first value ends at its point. Both findings left the golden, and no E111 in it is a chart's. A test in `charts.rs` fails without the change.)*
 
-### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay schedules)
-*Not gate-1 work until Jay schedules them. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
+### 1H Chart forms the style guide asks for (proposed 2026-10-02; Jay scheduled them 2026-10-07)
+*Not gate-1 work. Jay scheduled them on 2026-10-07, to be done in order. 1.30 would lift PLAN 1.9's deferral of `slope` and `range`.*
 - [x] 1.28 Forecasts and estimates read as such. A line's or an area's rows can be marked projected (a field the encoding names). The line runs dashed from the last actual point, and its end value says it is an estimate. SPEC §3.7; schema; a torture case. *(The guide: "distinguish actual and forecast".)*
   *(Done: a chart's `projected` names a field, and the value that marks a projected row, or none for a true boolean (deck format 0.10). SPEC §3.7 says how it draws.*
     - *A line runs dashed from its last actual point, three line widths on and two off, with square ends. An area fills at half strength under the same stretch.*
@@ -513,7 +513,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - *In a transition, a projected label cross-fades where a value alone counts, and a row that turns actual does so halfway.*
     - *Validation: E103 for a field the data lacks, for a value its column cannot hold, and for no value on a column that is not boolean; E106 for `projected` on another kind of chart.*
     - *Torture cases 46 and 47 (`forecast`, `forecast-next@0.5`), four engine tests, and a validation test.)*
-- [ ] 1.29 Horizontal bars: `bar` and `stackedBar` take `orient: horizontal`, with categories down the side and their names read across, for rankings and long names. SPEC §3.7; schema; a torture case.
+- [x] 1.29 Horizontal bars: `bar` and `stackedBar` take `orient: horizontal`, with categories down the side and their names read across, for rankings and long names. SPEC §3.7; schema; a torture case.
+  *(Done: a `bar`'s or a `stackedBar`'s `orient` is `vertical`, the default, or `horizontal` (deck format 0.14); on any other kind it is E106. SPEC §3.7 says how bars across draw (`scaena_engine::charts::compile::across`).*
+    - *Each category's name stands right-aligned in a gutter at the plot's left, level with its band. A value stands a space past its bar's free end, and a stack's total past its last segment. The value axis prints under the plot, and a legend that would be `direct` goes `top`.*
+    - *Annotations turn with the bars: a `y` rule runs up the plot and breaks around the words it would cross, an `x` rule and a band of categories run across, and a callout's leader runs on past its bar's value. A callout dropped on the canvas reads its category down and its value across (`marks::callout_at`).*
+    - *In motion they move as bars that stand up, turned: a bar grows across from the baseline and a stack opens across. Bars that regroup go lengths first into a stack and thicknesses first out of one. A change of `orient` cross-fades the chart.*
+    - *The inspector offers `orient` on a bar chart only. The chart skill and `docs/authoring.md` say when to reach for it: a ranking, or long names.*
+    - *Torture cases 53 and 54 (`across`, `across-next@0.25` and `@0.75`): a ranking with a goal rule, sorted between states, and stacks across that come apart into their series' bars on a value axis that rescales. Nine engine tests (`charts.rs`, `sample.rs`, `charts/mod.rs`), a marks test, a validation test, and the choices test's `orient`. The editor's module is 2,911.80 kB gzipped, as Vite reports it: 20.5 kB more, the most any task has added, which leaves 88 kB under SPEC §15's 3 MB. Of the 57 kB it grows uncompressed, `across::layout` is 35 kB: the chart compiler is built at opt-level 3 with the engine, which samples every frame.)*
 - [ ] 1.30 `slope` (two states, both ends labeled, the change said) and `range` (a dumbbell between two values, or a point with its interval) join the v1 kinds in SPEC §3.7 and the schema enum, with data motion by key; torture cases.
 - [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
 
@@ -1132,6 +1138,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [x] 2.90 A quoted figure's words follow it beyond claims: where the figure shows, a state's notes, a beat's notes, and a node's description that say the old figure as a word are set again with it, and W427 finds and fixes them (Jay, 2026-10-07: from the 2.72 gaps).
     - Done. `scaena_core::quotes::stale` gives each stale figure the words that say it (`Said`: where each is written, the words set again, and what they are): each beat's claim and notes whose states show the figure, each such state's notes, and the `alt` of each node those states show, in its own props, a state's delta, or the overrides. "Where the figure shows" is now the states whose text carries the quote, not every state that shows the node: a slide that shows the title without the figure keeps its notes. `requote` sets them all in the same change as the figure; W427 says which words hold the old figure ("rev's description says $19.4…") and fixes each. A claim still follows only word for word, as before.
     - Tests: `crates/scaena-ops/tests/data.rs`'s `notes_and_descriptions_that_say_a_figure_follow_it` (a data edit sets the slide's notes, the beat's notes, and the chart's description again, and leaves a slide's notes where the figure does not show), with the claim's test as it was.
+- [x] 2.91 Room in the editor's module for the chart forms (1.29–1.31): it was 2,891 kB gzipped by Vite, 109 kB under SPEC §15's 3 MB, and each new chart form adds to it (the parent session, 2026-10-07).
+    - Done. 2,891.27 kB to 2,811.36 kB gzipped by Vite (8,380.51 kB to 8,129.75 kB raw). `twiggy`, on the module built with its names, found what to cut.
+        - Layout's crates build for size in the WASM profile: taffy, parley, harfrust, fontique, and the icu crates whose tables they read. They run as a deck is laid out, never as a frame samples it (SPEC §5): 68 KB of the cut, by `gzip -9`.
+        - A map or a set built from an iterator goes through `scaena_core::sort::{map, try_map, set}`, which insert each item. `collect` into a `BTreeMap` sorts first, and compiled that sort for each element type and caller: 10 KB of the cut. The chart compiler's are left for the chart forms' own pass.
+    - Timed in headless Chromium, with the CPU painter and no helper workers, on the trails deck:
+        - Without a shader, a state paints in 7.69 ms on average. The two runs before the change read 8.12 and 7.96 ms.
+        - The shader states paint as before: cover in 42.1 ms against 42.3, storm in 24.0 against 26.9, and next in 229.6 against 244.8.
+        - B1 starts cold in 217 ms, against 218 before (the median of 9 runs).
+    - Measured and not taken:
+        - `scaena-core` at `z` is 252 KB smaller, but the shader states' CPU references paint 3.4–4× slower: cover in 143 ms, next in 1,012 ms.
+        - `scaena-engine` at `z` is 156 KB smaller, but every frame without a shader paints 7% slower: 8.6 ms against 8.0, in two runs of each.
+        - Neither is worth it while gate 2's first criterion, frames a second in a real machine's browsers, is still to be read.
+        - `SemanticOp`'s deserializer, at 117 KB the largest function, is an internally tagged enum: serde buffers each op whichever deserializer reads it, so it stays as it is.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
@@ -1198,7 +1217,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Text parity across painters | Phase 0 task 0.9 | glyph positions in the display list; painters never shape; fallback to `harfrust` + own line breaker |
 | `parley` line-breaking quality (`pretty`/`balance`) | 0.4 | own Knuth–Plass pass over parley's clusters if needed |
 | WebGPU availability/quality | 0.8 | CPU painter fallback; measure Firefox |
-| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; the editor's 2.99 MB at 2.55, then 2.65 MB with the patterns handed over; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; the hyphenation patterns handed to the editor's module as a text needs them, compiled in natively and in the player's, the same breaks on every target (done, ADR-0015). `wasm-opt -Oz` grew the gzip size, so it is off. |
+| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; the editor's 2.99 MB at 2.55, then 2.65 MB with the patterns handed over, and 2.81 MB by Vite at 2.91 with layout's crates built for size; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; the hyphenation patterns handed to the editor's module as a text needs them, compiled in natively and in the player's, the same breaks on every target (done, ADR-0015). `wasm-opt -Oz` grew the gzip size, so it is off. |
 | Loro API friction with rich text/tree | 1.23 | Automerge fallback (ADR-0002) |
 | Chart grammar scope creep | 1.9 | fixed kind list; everything else is annotations or deferred |
 | Agent output quality | 1.15–1.19 | lint + render loop; roles not pixels; skills |

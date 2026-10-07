@@ -1,5 +1,5 @@
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "_comment": "E100 trigger: a display title that needs three lines in a one-row header.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

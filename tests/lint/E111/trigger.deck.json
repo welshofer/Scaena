@@ -1,5 +1,5 @@
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "_comment": "E111 trigger: display text in the theme's line color, on its dark surface.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

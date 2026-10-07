@@ -50,7 +50,7 @@ apps/mac/              SwiftUI client                                           
 
 - Rust 2024 edition, stable toolchain. `cargo clippy --all-targets -- -D warnings` is clean. `cargo fmt` (rustfmt.toml: 120 cols).
 - Crates depend downward only: `cli`/`mcp`/`serve → ops → export/paint/engine/store → core`. `core` has no heavy dependencies. An operation lives in `scaena-ops` and returns a typed result; the CLI and the MCP server only parse, call, and print or return it (ADR-0009).
-- Stable sorts in the crates the browser's modules carry (core, engine, ops, store, wasm) go through `scaena_core::sort`: `slice::sort_by` compiles a whole sort for each call site, some 10 KB of WASM, and the editor's module is held to SPEC §15's 3 MB. `crates/scaena-wasm/tests/sorts.rs` holds them to it.
+- Stable sorts in the crates the browser's modules carry (core, engine, ops, store, wasm) go through `scaena_core::sort`: `slice::sort_by` compiles a whole sort for each call site, some 10 KB of WASM, and the editor's module is held to SPEC §15's 3 MB. `crates/scaena-wasm/tests/sorts.rs` holds them to it. A map or a set built from an iterator goes through `sort::map`, `sort::try_map`, or `sort::set`: `collect` into a `BTreeMap` sorts first, and compiles that sort for each type and caller (PLAN 2.91).
 - Errors: `thiserror` in libraries, `anyhow` only in `scaena-cli`. Unimplemented paths return `NotImplemented("… — PLAN x.y")`, never `todo!()`, so the CLI exits 3 with a pointer instead of panicking.
 - A deck, theme, bundle file, or tool call the engine cannot serve is an error that says why, never a panic or a hang: in the browser either stops the editor's worker. `crates/scaena-wasm/tests/edits.rs` makes random edits to sources, decks, patches, and themes, and random calls to the assistant's tools, in `just check`. A damaged font's glyphs are checked before a painter sees them, and a raster holds at most `scaena_paint::MAX_PIXELS` (PLAN 2.23–2.26).
 - Every lint rule: a struct implementing `Rule` with a stable code from SPEC §7.5, plus fixtures under `tests/lint/<CODE>/trigger.deck.json` and `tests/lint/<CODE>/clean.deck.json`.
@@ -93,7 +93,7 @@ Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per e
 - **A narrative repair.** A fresh agent repaired a narrative lint finding on the authorability deck.
 - **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
 
-Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.29–1.31, as Jay schedules them. 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates, and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
+Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.30–1.31, in order (Jay scheduled the chart forms on 2026-10-07). 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates; 1.29, where a `bar` or a `stackedBar` with `orient: horizontal` runs its bars across, its categories named down the side (`scaena_engine::charts::compile::across`); and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
 
 ## Phase 2
 

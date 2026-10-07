@@ -1677,3 +1677,202 @@ fn a_rules_text_moves_along_it_clear_of_the_bars() {
         );
     }
 }
+
+// --- bars across (PLAN 1.29) ---------------------------------------------------------------
+
+/// A chart of `kind` over `revenue()`, by product, its bars across, with `extra` props.
+fn across(kind: &str, extra: Value) -> ChartLayout {
+    let mut extra = extra;
+    extra["orient"] = json!("horizontal");
+    by_series(kind, extra)
+}
+
+fn shape_of(layout: &ChartLayout, key: &str) -> Shape {
+    layout.marks.iter().find(|m| m.key == key).unwrap_or_else(|| panic!("no mark {key}")).shape
+}
+
+/// The torture theme's space unit.
+const UNIT: f32 = 8.0;
+
+#[test]
+fn bars_across_name_their_categories_down_the_side_and_run_from_the_baseline() {
+    let layout = across("bar", json!({ "labels": { "show": "all" } }));
+    assert!(layout.horizontal);
+    let [left, top, width, height] = layout.plot;
+    // Every bar runs across from the baseline at zero, at the plot's left.
+    assert!((layout.base - left).abs() < 1e-3);
+    for m in &layout.marks {
+        let b = bar(&m.shape);
+        assert!(b.across && (b.x - layout.base).abs() < 1e-3 && b.w > 0.0, "{}: {b:?}", m.key);
+        assert!(b.x + b.w <= left + width + 1e-3);
+    }
+    // Within Q1: Core, Cloud, and Edge one under another, as thick as one another, and a
+    // value twice another's runs twice as far.
+    let q1: Vec<_> =
+        ["Core", "Cloud", "Edge"].iter().map(|p| bar(&shape_of(&layout, &format!("Q1\u{1f}{p}")))).collect();
+    assert!(q1[0].y + q1[0].h < q1[1].y && q1[1].y + q1[1].h < q1[2].y, "{q1:?}");
+    assert!((q1[0].h - q1[2].h).abs() < 1e-4);
+    let (core, cloud) = (bar(&shape_of(&layout, "Q1\u{1f}Core")), bar(&shape_of(&layout, "Q1\u{1f}Cloud")));
+    assert!((core.w - 2.0 * cloud.w).abs() < 1e-3, "12 runs twice as far as 6");
+    // The names stand down the side in data order, right-aligned a space before the plot,
+    // the middle of each one's cap height level with its band's middle.
+    assert_eq!(layout.ticks.iter().map(|t| t.key.as_str()).collect::<Vec<_>>(), ["Q1", "Q2", "Q3", "Q4"]);
+    let ends: Vec<f32> = layout.ticks.iter().map(|t| t.origin[0] + t.text.width).collect();
+    assert!(ends.iter().all(|&e| (e - ends[0]).abs() < 1e-3 && (left - UNIT - e).abs() < 1e-3), "{ends:?}");
+    let band = height / 4.0;
+    for (i, t) in layout.ticks.iter().enumerate() {
+        let (a, b) = cap_box(t);
+        assert!((0.5 * (a + b) - (top + (i as f32 + 0.5) * band)).abs() < 0.5, "{}", t.key);
+    }
+    // Each value a space past its bar's end, level with its middle, inside the chart.
+    assert_eq!(layout.labels.len(), 12);
+    for l in &layout.labels {
+        let b = bar(&shape_of(&layout, &l.key));
+        let (a, c) = cap_box(l);
+        assert!((l.origin[0] - (b.x + b.w + UNIT)).abs() < 1e-3, "{}", l.key);
+        assert!((0.5 * (a + c) - (b.y + 0.5 * b.h)).abs() < 0.5, "{}", l.key);
+        assert!(l.origin[0] + l.text.width <= 1600.0 + 1e-3);
+    }
+    // No column past the bars' ends to name the series in: a key over the plot.
+    assert!(layout.legend.iter().all(|e| e.swatch.w > 0.0 && e.swatch.y + e.swatch.h < top));
+    // The baseline runs down the plot, and nothing is clipped.
+    let rule = layout.baseline.as_ref().unwrap();
+    assert!(rule.from[0] == rule.to[0] && rule.from[1] == top && rule.to[1] == top + height);
+    assert!(layout.clip.is_none());
+    // Each category's band runs down the chart, where an annotation dragged there stands.
+    assert_eq!(layout.categories[1].1, [top + band, top + 2.0 * band]);
+}
+
+#[test]
+fn stacked_bars_across_pile_up_rightward_and_label_their_totals_past_them() {
+    let layout = across(
+        "stackedBar",
+        json!({ "labels": { "show": "all" }, "axes": { "y": { "show": true, "gridlines": true } } }),
+    );
+    assert_eq!(layout.y_scale.domain, [0.0, 60.0], "the longest stack, 48, widens to 60");
+    let [left, top, width, height] = layout.plot;
+    assert_eq!(layout.y_scale.range, [left, left + width], "values run across the plot");
+    for q in ["Q1", "Q2", "Q3", "Q4"] {
+        let seg = |p: &str| bar(&shape_of(&layout, &format!("{q}\u{1f}{p}")));
+        let (core, cloud, edge) = (seg("Core"), seg("Cloud"), seg("Edge"));
+        assert!((core.x + core.w - cloud.x).abs() < 1e-3 && (cloud.x + cloud.w - edge.x).abs() < 1e-3, "{q}");
+        assert!((core.x - layout.base).abs() < 1e-3 && (core.y - edge.y).abs() < 1e-3);
+        let place = layout.marks.iter().find(|m| m.key == format!("{q}\u{1f}Cloud")).unwrap().stack.clone().unwrap();
+        assert_eq!((place.key, place.from, place.to), (format!("{q}\u{1f}+"), cloud.x, cloud.x + cloud.w));
+        // Only the outermost segment is rounded, at its right end.
+        assert!(edge.top_radius > 0.0 && core.top_radius == 0.0 && cloud.top_radius == 0.0);
+    }
+    assert_eq!(texts(&layout.labels), ["21", "28", "36", "48"]);
+    for l in &layout.labels {
+        let edge = bar(&shape_of(&layout, &l.key));
+        assert!(l.origin[0] > edge.x + edge.w, "{} past its stack", l.key);
+    }
+    // The value axis runs under the plot: each tick's label under it, centered on its tick,
+    // and a gridline up the plot at each but the baseline's.
+    assert!(!layout.y_axis.is_empty());
+    for tick in &layout.y_axis {
+        let x = layout.y_scale.map(tick.value);
+        let label = tick.label.as_ref().unwrap();
+        assert!(label.origin[1] >= top + height, "{} under the plot", tick.key);
+        let (x0, x1) = (label.origin[0], label.origin[0] + label.text.width);
+        assert!((0.5 * (x0 + x1) - x).abs() < 1e-3 || x0 == left || (x1 - (left + width)).abs() < 1e-3, "{}", tick.key);
+        match &tick.rule {
+            Some(r) => assert!(r.from == [x, top] && r.to == [x, top + height], "{r:?}"),
+            None => assert_eq!(tick.value, 0.0, "the baseline rules zero"),
+        }
+    }
+    // A `direct` legend has no column past the ends to stand in.
+    let e = try_compile(&series_deck("stackedBar", json!({ "orient": "horizontal", "legend": "direct" }))).unwrap_err();
+    assert!(e.contains("no ends"), "{e}");
+}
+
+#[test]
+fn a_bar_across_below_zero_runs_left_and_its_value_stands_before_it() {
+    let rows = json!([{ "k": "North", "v": 5 }, { "k": "South-southwest", "v": -3 }, { "k": "East", "v": 8 }]);
+    let chart = json!({ "type": "chart", "kind": "bar", "orient": "horizontal", "data": "@q", "x": { "field": "k" },
+                        "y": { "field": "v" } });
+    let layout = compile(&deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart));
+    let south = bar(&shape_of(&layout, "South-southwest"));
+    assert!((south.x + south.w - layout.base).abs() < 1e-3 && south.w > 0.0, "left from the baseline");
+    assert!(south.bottom_radius > 0.0 && south.top_radius == 0.0, "rounded at its free end, the left");
+    let value = layout.labels.iter().find(|l| l.key == "South-southwest").unwrap();
+    assert!((value.origin[0] + value.text.width - (south.x - UNIT)).abs() < 1e-3, "a space before its end");
+    // The names keep clear of it, in their gutter.
+    let names = layout.ticks.iter().map(|t| t.origin[0] + t.text.width).fold(0.0_f32, f32::max);
+    assert!(names + UNIT <= value.origin[0] + 1e-3, "{names} {:?}", value.origin);
+}
+
+#[test]
+fn annotations_across_turn_with_the_bars() {
+    let layout = across(
+        "bar",
+        json!({ "annotations": [
+            { "kind": "rule", "at": { "y": 10 }, "text": "Target: 10" },
+            { "kind": "rule", "at": { "x": "Q2" }, "text": "Launch" },
+            { "kind": "band", "at": { "y": [4, 8] } },
+            { "kind": "callout", "at": { "x": "Q4", "series": "Core" }, "text": "Best" },
+            { "kind": "highlight", "at": { "series": "Cloud" } }
+        ] }),
+    );
+    let [left, top, width, height] = layout.plot;
+    let band = height / 4.0;
+    let x10 = layout.y_scale.map(10.0);
+    // A rule at a value runs up the plot, its words beside its top.
+    let target = &layout.notes[0];
+    assert_eq!(target.rule.as_ref().map(|r| (r.from, r.to)), Some(([x10, top], [x10, top + height])));
+    assert!(target.label.as_ref().unwrap().origin[0] > x10);
+    // A rule at a category runs across the plot through the category's middle.
+    let launch = &layout.notes[1];
+    let y = top + 1.5 * band;
+    assert_eq!(launch.rule.as_ref().map(|r| (r.from, r.to)), Some(([left, y], [left + width, y])));
+    // A band of values covers the plot from top to foot between them.
+    let (rect, _) = layout.notes[2].band.unwrap();
+    let (x4, x8) = (layout.y_scale.map(4.0), layout.y_scale.map(8.0));
+    assert!((rect[0] - x4).abs() < 1e-3 && (rect[2] - (x8 - x4)).abs() < 1e-3 && rect[1] == top && rect[3] == height);
+    // A callout's leader runs on past its bar's value to its words, level with the bar.
+    let best = &layout.notes[3];
+    let core = bar(&shape_of(&layout, "Q4\u{1f}Core"));
+    let leader = best.rule.as_ref().unwrap();
+    let middle = core.y + 0.5 * core.h;
+    assert!(leader.from[1] == middle && leader.to[1] == middle && leader.to[0] > leader.from[0]);
+    let value = layout.labels.iter().find(|l| l.key == "Q4\u{1f}Core").map(|l| l.origin[0] + l.text.width);
+    assert!(leader.from[0] >= value.unwrap_or(core.x + core.w), "past its value");
+    let words = best.label.as_ref().unwrap();
+    assert!(words.origin[0] > leader.to[0] && words.origin[0] + words.text.width <= 1600.0 + 1e-3);
+    let (a, b) = cap_box(words);
+    assert!((0.5 * (a + b) - middle).abs() < 0.5, "level with the leader");
+    // A highlight picks out its series and dims the rest, as on bars that stand up.
+    assert_eq!(
+        layout.highlights,
+        [(4, vec!["Q1\u{1f}Cloud".into(), "Q2\u{1f}Cloud".into(), "Q3\u{1f}Cloud".into(), "Q4\u{1f}Cloud".into()])]
+    );
+}
+
+#[test]
+fn bars_that_turn_between_states_cross_fade_and_bars_that_regroup_across_morph() {
+    let mut d = series_deck("bar", json!({ "orient": "horizontal" }));
+    let mut next: Value = serde_json::to_value(&d.states[0]).unwrap();
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["id"] = json!("stacked");
+    next["props"]["c"] = json!({ "kind": "stackedBar" });
+    d.states.push(serde_json::from_value(next.clone()).unwrap());
+    next["id"] = json!("up");
+    next["props"]["c"] = json!({ "kind": "stackedBar", "orient": "vertical" });
+    d.states.push(serde_json::from_value(next).unwrap());
+    let [grouped, stacked, up] = <[ChartLayout; 3]>::try_from(scenes(&d)).unwrap();
+    assert!(grouped.horizontal && stacked.horizontal && !up.horizontal);
+    // How many layers draw the chart half way: one where it morphs, two where it fades.
+    let layers = |state: &str| {
+        let mut n = 0;
+        walk(&frame(&d, state, 200.0).ops, &mut |op| {
+            if let scaena_core::displaylist::Op::Layer { node: Some(id), .. } = op
+                && id == "c"
+            {
+                n += 1;
+            }
+        });
+        n
+    };
+    assert_eq!(layers("stacked"), 1, "grouped bars across regroup into stacks across, mark by mark");
+    assert_eq!(layers("up"), 2, "bars that stand up from bars across cross-fade");
+}

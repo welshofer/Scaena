@@ -34,6 +34,7 @@ The defaults draw as Tufte would, so leave them alone unless the slide needs som
    - The headline is the claim, and the chart is its evidence (`semantic: evidence`).
 3. **Choose the kind by the question:**
    - Comparing categories: `bar`, grouped by `series` when there are several.
+   - A ranking, or categories with long names: `bar` or `stackedBar` with `"orient": "horizontal"`, the bars across and the names down the side, read across. Sort the rows first (`{ "sort": "-revenue" }`), so the ranking reads from the top.
    - Change over time: `line`, one or more series, named at their ends.
    - Parts of a whole over time: `stackedBar`, or `area` when time is continuous.
    - A relationship between two measures: `scatter` (`x.type: quantitative`).

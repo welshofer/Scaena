@@ -72,7 +72,7 @@ impl TextRole {
             leading: r.leading as f32,
             tracking: r.tracking.unwrap_or(0.0) as f32,
             opsz: r.opsz.map(|v| v as f32),
-            axes: r.axes.iter().flatten().map(|(k, v)| (k.clone(), *v as f32)).collect(),
+            axes: scaena_core::sort::map(r.axes.iter().flatten().map(|(k, v)| (k.clone(), *v as f32))),
             features: features(r.features.as_ref()).map_err(|e| EngineError::Theme(format!("role `{name}`: {e}")))?,
             wrap: r.wrap.map_or(Wrap::Greedy, Wrap::from),
             text_box: r.text_box.map_or(TextBox::Line, TextBox::from),
@@ -94,18 +94,15 @@ impl TextRole {
 
 /// OpenType feature settings as the shaper takes them: 0 off, 1 on, or an index.
 pub fn features(f: Option<&IndexMap<String, FeatureValue>>) -> Result<BTreeMap<String, u16>, String> {
-    f.into_iter()
-        .flatten()
-        .map(|(tag, v)| {
-            let n = match *v {
-                FeatureValue::Switch(on) => u16::from(on),
-                FeatureValue::Alternate(i) => {
-                    u16::try_from(i).map_err(|_| format!("feature `{tag}`: {i} is not an alternate's index"))?
-                }
-            };
-            Ok((tag.clone(), n))
-        })
-        .collect()
+    scaena_core::sort::try_map(f.into_iter().flatten().map(|(tag, v)| {
+        let n = match *v {
+            FeatureValue::Switch(on) => u16::from(on),
+            FeatureValue::Alternate(i) => {
+                u16::try_from(i).map_err(|_| format!("feature `{tag}`: {i} is not an alternate's index"))?
+            }
+        };
+        Ok((tag.clone(), n))
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]

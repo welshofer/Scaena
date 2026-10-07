@@ -244,9 +244,12 @@ impl Scene {
             return mark_notes(chart, key).map(|m| m.callout);
         }
         let middle = |[a, b]: [f32; 2]| (a + b) / 2.0;
+        // Where its bars run across, the categories stand down the chart and the values run
+        // along x (PLAN 1.29).
+        let (along, across) = if chart.horizontal { (p[1], p[0]) } else { (p[0], p[1]) };
         let x = match chart.categories.is_empty() {
             false => (chart.categories.iter())
-                .min_by(|a, b| (middle(a.1) - p[0]).abs().total_cmp(&(middle(b.1) - p[0]).abs()))
+                .min_by(|a, b| (middle(a.1) - along).abs().total_cmp(&(middle(b.1) - along).abs()))
                 .map(|(x, _)| x.clone())?,
             true => (chart.marks.iter())
                 .filter_map(|m| Some(((m.shape.center_x() - p[0]).abs(), &chart.places.get(&m.key)?.x)))
@@ -258,7 +261,7 @@ impl Scene {
             return None;
         }
         let step = scale::tick_step(d0.min(d1), d0.max(d1), 5) / 10.0;
-        let value = chart.y_scale.invert(p[1]).clamp(d0.min(d1), d0.max(d1));
+        let value = chart.y_scale.invert(across).clamp(d0.min(d1), d0.max(d1));
         Some(AnnotationAt { x: one(x), y: one(Scalar::Number(round_to(value, step))), series: None })
     }
 }
@@ -421,10 +424,26 @@ mod tests {
 
     #[test]
     fn a_point_holds_a_bar_a_dot_or_a_slice() {
-        let bar = Shape::Bar(RoundRect { x: 10.0, y: 20.0, w: 30.0, h: 100.0, top_radius: 0.0, bottom_radius: 0.0 });
+        let bar = Shape::Bar(RoundRect {
+            x: 10.0,
+            y: 20.0,
+            w: 30.0,
+            h: 100.0,
+            top_radius: 0.0,
+            bottom_radius: 0.0,
+            across: false,
+        });
         assert!(holds(bar, [10.0, 20.0]) && holds(bar, [40.0, 120.0]) && !holds(bar, [41.0, 60.0]));
         // A bar at 0 is a hairline: pointed at within SLOP of it.
-        let flat = Shape::Bar(RoundRect { x: 10.0, y: 120.0, w: 30.0, h: 0.0, top_radius: 0.0, bottom_radius: 0.0 });
+        let flat = Shape::Bar(RoundRect {
+            x: 10.0,
+            y: 120.0,
+            w: 30.0,
+            h: 0.0,
+            top_radius: 0.0,
+            bottom_radius: 0.0,
+            across: false,
+        });
         assert!(holds(flat, [20.0, 114.0]) && !holds(flat, [20.0, 113.0]));
         let dot = Shape::Dot { x: 100.0, y: 100.0, r: 2.0 };
         assert!(holds(dot, [104.0, 104.0]) && !holds(dot, [105.0, 105.0]), "a small dot within SLOP");

@@ -329,6 +329,11 @@ node! {
     /// A data-bound chart (SPEC §3.7): a declarative spec compiled to marks.
     ChartNode {
         pub kind: ChartKind,
+        /// Which way a `bar`'s or a `stackedBar`'s bars run (PLAN 1.29): up from the
+        /// baseline, the default, or across it, the categories down the side and their names
+        /// read across. Any other kind is E106.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub orient: Option<ChartOrient>,
         /// A data source, `@name`.
         #[schemars(regex(pattern = r"^@[a-z][a-z0-9_-]*$"))]
         pub data: String,
@@ -422,6 +427,16 @@ pub enum ChartKind {
     Scatter,
     Dot,
     Donut,
+}
+
+/// Which way a chart's bars run (SPEC §3.7, PLAN 1.29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartOrient {
+    /// Up from the baseline, the categories along the foot.
+    Vertical,
+    /// Across from the baseline, the categories down the side.
+    Horizontal,
 }
 
 /// The chart's axes (PLAN 1.9 draws them).

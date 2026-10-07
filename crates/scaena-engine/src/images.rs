@@ -222,7 +222,7 @@ impl ImageNode {
         }
         let [x, y, w, h] = dst;
         let r = self.radius.min(w.min(h) / 2.0);
-        let clip = RoundRect { x, y, w, h, top_radius: r, bottom_radius: r }.path();
+        let clip = RoundRect::rounded(x, y, w, h, r).path();
         vec![Op::Layer {
             node: None,
             cell: None,

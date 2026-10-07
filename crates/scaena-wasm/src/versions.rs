@@ -40,7 +40,7 @@ fn deck(held: &Held) -> Result<Deck, Error> {
 }
 
 fn bytes(files: &BTreeMap<String, String>) -> BTreeMap<String, Vec<u8>> {
-    files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())).collect()
+    scaena_core::sort::map(files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())))
 }
 
 impl Session {
@@ -75,7 +75,7 @@ impl Session {
             None => {
                 let named = scaena_store::kept_paths(&self.deck);
                 let now = named.iter().filter_map(|path| Some((path.to_string(), self.files.get(*path)?.clone())));
-                (self.deck.clone(), now.collect())
+                (self.deck.clone(), scaena_core::sort::map(now))
             }
         };
         let (states, fields) = compare(&earlier, &later).map_err(|e| Error::Ops(e.to_string()))?;
