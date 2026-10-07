@@ -329,6 +329,16 @@ pub struct State {
 }
 
 impl Deck {
+    /// The formats the deck lays out anew (ADR-0020): each it lists but its own canvas's
+    /// shape, which a node's own props lay out. A node's layout is kept in these alone.
+    pub fn anew(&self) -> Vec<&str> {
+        let own = [self.canvas.width, self.canvas.height];
+        (self.formats.iter())
+            .filter(|f| model::Format::parse(f).is_some_and(|f| f.canvas(own) != own))
+            .map(String::as_str)
+            .collect()
+    }
+
     /// The image files the deck's image nodes name (`src`), in their defaults, their
     /// states, and their overrides: sorted, each once.
     pub fn image_files(&self) -> Vec<String> {
