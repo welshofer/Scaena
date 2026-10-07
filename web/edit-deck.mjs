@@ -50,11 +50,29 @@ try {
   /** Where the editor is: its source, and how many edits it has compiled and linted. */
   const mark = () => page.evaluate(() => ({ source: window.scaena.source(), trips: window.scaena.trips().length }));
   /** Once the source is not what it was at `before` and the editor has compiled and linted it. */
-  const changed = async (before, timeout = 60000) => {
-    await page.waitForFunction(
+  /** Wait for `fn(arg)` to hold in the page. One that runs out says what it waited for, and the
+   * state shown, the nodes the canvas has boxes for, and the status line then (as the first-deck
+   * walk's). */
+  const until = async (what, fn, arg = null, timeout = 30000) => {
+    try {
+      await page.waitForFunction(fn, arg, { timeout, polling: 50 });
+    } catch {
+      const where = await page
+        .evaluate(() => ({
+          shown: window.scaena.canvas.boxed(),
+          nodes: window.scaena.canvas.boxes().map((b) => b.node),
+          status: document.querySelector("#status").textContent,
+        }))
+        .catch(() => ({}));
+      throw new Error(`${what}: not within ${timeout / 1000} s · ${where.shown} shown · boxes ${where.nodes} · ${where.status}`);
+    }
+  };
+  const changed = async (before, what = "the edit compiled", timeout = 60000) => {
+    await until(
+      what,
       (b) => window.scaena.source() !== b.source && window.scaena.trips().length > b.trips && !window.scaena.canvas.typed()?.sending,
       before,
-      { timeout, polling: 50 },
+      timeout,
     );
     await page.waitForTimeout(200);
   };
@@ -77,14 +95,14 @@ try {
       [x, y],
     );
   const middleOf = async (node) => {
-    await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), node, { timeout: 30000 });
+    await until(`${node} on the canvas`, (n) => window.scaena.canvas.boxes().some((b) => b.node === n), node);
     const [x, y, w, h] = (await boxes()).find((b) => b.node === node).rect;
     return client([x + w / 2, y + h / 2]);
   };
   /** Show state `id`, as a click on its card in the strip does. */
   const show = async (id) => {
     await page.locator(`#strip li[data-state="${id}"]`).click();
-    await page.waitForFunction((s) => window.scaena.canvas.boxed() === s, id, { timeout: 30000 });
+    await until(`state ${id} shown`, (s) => window.scaena.canvas.boxed() === s, id);
     await page.waitForTimeout(300);
   };
   /** The canvas as painted, to tell whether it changed. */
@@ -108,7 +126,7 @@ try {
   let original = "";
   await step("open", async () => {
     await page.goto(editor);
-    await page.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.trips().length > 0, null, { timeout: 120000 });
+    await page.waitForFunction(() => window.scaena?.last()?.valid && window.scaena.trips().length > 0, null, { timeout: 120000, polling: 50 });
     original = await source();
     const ids = await states();
     check(ids.length === 15 && ids[0] === "cover", `the editor opens the site's demo deck: ${ids.length} states`);
@@ -116,13 +134,13 @@ try {
 
   // 1. The theme picker: Daybreak, then the theme the deck had.
   await step("theme-daybreak", async () => {
-    await page.waitForFunction(() => [...document.querySelectorAll("#theme option")].some((o) => o.value === "ships:Daybreak"), null, { timeout: 30000 });
+    await until("Daybreak in the theme picker", () => [...document.querySelectorAll("#theme option")].some((o) => o.value === "ships:Daybreak"));
     const was = await page.$eval("#theme", (s) => s.value);
     const before = await mark();
     await page.selectOption("#theme", "ships:Daybreak");
     await changed(before);
     check(/daybreak/i.test((await source()).split("\n").find((l) => l.startsWith("deck ")) ?? ""), `the deck is in Daybreak: ${await status()}`);
-    await page.waitForFunction((w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was, { timeout: 30000 });
+    await until(`${was} in the theme picker`, (w) => [...document.querySelectorAll("#theme option")].some((o) => o.value === w), was);
     const again = await mark();
     await page.selectOption("#theme", was);
     await changed(again);
@@ -166,14 +184,14 @@ try {
     await show("promise");
     const [x, y] = await middleOf("promise-sub");
     await page.mouse.click(x, y);
-    await page.waitForFunction(() => window.scaena.canvas.selected() === "promise-sub", null, { timeout: 30000 });
-    await page.waitForSelector("#look-role", { timeout: 30000 });
+    await until("promise-sub selected", () => window.scaena.canvas.selected() === "promise-sub");
+    await until("the inspector's roles", () => document.querySelectorAll("#look-role option").length > 1);
     const roles = await page.$$eval("#look-role option", (o) => o.map((x) => x.value).filter(Boolean));
     let at = await mark();
     await page.selectOption("#look-role", "headline");
     await changed(at);
     check(/promise-sub[^\n]*role:headline/.test(await source()), `the inspector sets its role: headline, of ${roles.join(", ")}`);
-    await page.waitForSelector("#look-style-color", { timeout: 30000 });
+    await until("the inspector's colors", () => document.querySelectorAll("#look-style-color option").length > 1);
     // Another color than the one it has.
     const colors = await page.$$eval("#look-style-color option", (o) => o.filter((x) => x.value && !x.selected).map((x) => x.value));
     const color = colors.find((c) => c === "accent-2") ?? colors[0];
@@ -191,30 +209,33 @@ try {
     await page.waitForTimeout(500);
     const was = await painted();
     await page.click("#tab-data");
-    await page.waitForSelector("#data select[data-source]", { timeout: 30000 });
+    await until("the Data tab's sources", () => [...document.querySelectorAll("#data select[data-source] option")].some((o) => o.value === "miles"));
     await page.selectOption("#data select[data-source]", "miles");
-    await page.waitForFunction(() => document.querySelector("#data [data-where]")?.textContent.includes("trails-miles"), null, { timeout: 30000 });
+    // The rows, not the table: the table is in the page before the worker's rows come.
+    await until("miles' rows in the Data tab", () => document.querySelector("#data [data-where]")?.textContent.includes("trails-miles") && document.querySelector('#data input[data-row="0"]'));
     const columns = await page.$$eval("#data thead th", (th) => th.map((t) => t.textContent));
     const number = columns.findIndex((c, i) => i > 0 && c.endsWith("number")) - 1;
     const cell = page.locator(`#data input[data-row="0"][data-col="${number}"]`);
     const held = await cell.inputValue();
-    const at = await mark();
     // A small change: the bar grows and its annotation stays clear of it.
     const set = Math.round((Number(held) + 0.4) * 10) / 10;
     await cell.fill(String(set));
     await cell.press("Enter");
-    await page.waitForFunction(() => /set/.test(document.querySelector("#status").textContent), null, { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(1500);
-    const now = await painted();
+    await until("the cell set", () => / of row 0 set/.test(document.querySelector("#status").textContent));
+    // The chart drawn again: the canvas as painted is not what it was.
+    let now = await painted();
+    for (let i = 0; i < 40 && differ(was, now) <= 100; i++) {
+      await page.waitForTimeout(250);
+      now = await painted();
+    }
     check(differ(was, now) > 100, `a cell set (${columns[number + 1]} of row 0: ${held} → ${set}) draws the chart again: ${differ(was, now)} pixels changed · ${await status()}`);
-    void at;
   });
 
   // 5. A figure quoted from the Data tab into the title's characters.
   await step("quote", async () => {
     const [x, y] = await middleOf("miles-title");
     await page.mouse.dblclick(x, y);
-    await page.waitForFunction(() => window.scaena.canvas.typing() === "miles-title", null, { timeout: 30000 });
+    await until("typing in miles-title", () => window.scaena.canvas.typing() === "miles-title");
     // "June to September beat the plan": the first word, by the keys.
     await page.keyboard.press("Home");
     for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
@@ -241,7 +262,7 @@ try {
     const find = page.locator('#find input[name="find"]');
     await find.waitFor({ timeout: 10000 });
     await find.fill("Alpine");
-    await page.waitForFunction(() => /\d/.test(document.querySelector("#find output").textContent), null, { timeout: 30000 }).catch(() => {});
+    await until("find's count", () => /\d+ match/.test(document.querySelector("#find output").textContent));
     const said = await page.textContent("#find output");
     const count = Number(said.match(/(\d+) match/)?.[1] ?? 0);
     const before = ((await source()).match(/Summit/g) ?? []).length;

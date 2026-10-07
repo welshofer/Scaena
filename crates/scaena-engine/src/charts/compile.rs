@@ -688,9 +688,17 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
         if temporal { (a, b) } else { scale::nice(a, b, tick_count, [true, true]) }
     });
+    // A time axis's ticks step by a unit of the calendar, which its labels thin by (below).
+    let mut tick_unit = None;
     let x_ticks: Vec<(f64, String)> = match x_extent {
         Some((a, b)) if temporal => {
             let (ticks, interval) = scale::time_ticks(DateTime(a as i64), DateTime(b as i64), tick_count);
+            tick_unit = Some(match interval {
+                scale::Interval::Hours(_) => DateUnit::Times,
+                scale::Interval::Days(_) => DateUnit::Days,
+                scale::Interval::Months(_) => DateUnit::Months,
+                scale::Interval::Years(_) => DateUnit::Years,
+            });
             let f = match &x_format {
                 Some(CategoryFormat::Date(f)) => f.clone(),
                 _ => DateFormat::parse(interval.format()).expect("interval formats parse"),
@@ -1457,14 +1465,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             .map(|w| (w[0].0, w[1].0))
             .collect()
     };
-    // Where an ordered axis's labels (dates, numbers) come within a space of each other,
-    // it keeps every k-th from the first, at the smallest stride that clears them. A
-    // text axis keeps every category, and reports those that overlap (W310).
+    // Where an ordered axis's labels (dates, numbers), or a continuous x's ticks, come within
+    // a space of each other, it keeps every k-th from the first, at the smallest stride that
+    // clears them: by the dates' unit, or the time ticks'. A text axis keeps every category,
+    // and reports those that overlap (W310).
     let n = x_texts.len();
     let ordered = matches!(table.types[xc], ColumnType::Date | ColumnType::Number);
+    let unit = if x_scale.is_some() { tick_unit } else { date_labels.as_ref().map(|d| d.unit) };
     let kept = match (&x_scale, ordered) {
-        (Some(_), _) => pick(1),
-        (None, true) => (strides(date_labels.as_ref().map(|d| d.unit)).take_while(|&k| k < n))
+        (Some(_), _) | (None, true) => (strides(unit).take_while(|&k| k < n))
             .map(&pick)
             .find(|kept| crowded(kept, gap).is_empty())
             .unwrap_or_else(|| pick(n.max(1))),
