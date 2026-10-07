@@ -165,6 +165,32 @@ fn a_crowded_axis_of_dates_keeps_every_kth_label_on_the_calendar() {
     assert!(narrow.crowded.is_empty());
 }
 
+/// The ticks of a continuous x keep apart as a crowded ordered axis's labels do: every k-th
+/// from the first, at the smallest stride that clears them. The first-deck walk's chart: six
+/// months on a time axis in half a slide's width, where the first and last ticks, held inside
+/// the plot, ran into their neighbors (`Apr 2026May 2026`).
+#[test]
+fn a_crowded_time_axis_keeps_every_kth_tick_label() {
+    let visits = [1200, 1850, 2900, 3400, 3100, 2200];
+    let rows: Vec<Value> = (4..=9).zip(visits).map(|(m, v)| json!({ "m": format!("2026-{m:02}"), "v": v })).collect();
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q",
+                        "x": { "field": "m", "type": "temporal" }, "y": { "field": "v" } });
+    let d = deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), json!({ "m": "%Y-%m" }), chart);
+    let space = 8.0; // the torture theme's space unit
+    let apart = |layout: &ChartLayout| {
+        (layout.ticks.windows(2)).all(|w| w[0].origin[0] + w[0].text.width + space <= w[1].origin[0] + 1e-3)
+    };
+    // Wide enough, every month.
+    let wide = compile_sized(&themed(json!({})), &d, [1600.0, 700.0]).unwrap();
+    assert_eq!(texts(&wide.ticks).len(), 6, "{:?}", texts(&wide.ticks));
+    assert!(apart(&wide), "{:?}", wide.ticks.iter().map(|t| (t.origin[0], t.text.width)).collect::<Vec<_>>());
+    // Narrow, every other month from the first, a space or more apart; the gridlines stay at
+    // every tick.
+    let narrow = compile_sized(&themed(json!({})), &d, [640.0, 400.0]).unwrap();
+    assert_eq!(texts(&narrow.ticks), ["Apr 2026", "Jun 2026", "Aug 2026"]);
+    assert!(apart(&narrow), "{:?}", narrow.ticks.iter().map(|t| (t.origin[0], t.text.width)).collect::<Vec<_>>());
+}
+
 #[test]
 fn an_axis_of_text_keeps_every_category_and_says_which_overlap() {
     let rows = json!([
