@@ -2,11 +2,11 @@
 
 Phase 2's exit criteria (PLAN, "Exit criteria (gate 2)"), each with its evidence so far.
 
-**Two of the four are met in headless Chromium. The other two need Jay:**
-- the first needs a real machine's browsers, held to the bar Jay set on 2026-10-04;
-- the fourth needs his own key.
+**Three of the four are met:**
+- the second and the third in headless Chromium;
+- the fourth by Jay, with his own key, on the published site (2026-10-07).
 
-The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. The site is deployed (PLAN 2.7), so the first can be run there. Every Phase 2 task is done (2.90 was the last), so these two are all the gate waits on.
+**The first needs a real machine's browsers,** held to the bar Jay set on 2026-10-04. The gate log stays open until it is run: about ten minutes a browser, on the site (PLAN 2.7).
 
 ## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox: needs a real machine
 
@@ -89,7 +89,19 @@ A USB stick is a disk, so copying the file to one and opening it there is the sa
 scaena export docs/examples/trails.deck.json --format html --out /Volumes/STICK/trails.html
 ```
 
-## 4. The assistant, with a user's own key, performs the Phase 1 agent loop in the browser: needs Jay's key
+## 4. The assistant, with a user's own key, performs the Phase 1 agent loop in the browser: met
+
+**Met on 2026-10-07.** Jay ran it on the published site, in Safari, with his own key: Anthropic, `claude-haiku-5-5`. He asked an empty Dusk deck, made with New, the question below, word for word. The assistant:
+1. read the deck (`deck_read`, `deck_inspect`: no nodes, one state);
+2. read the theme's layouts and type roles (`resource_read`, twice);
+3. put the headline in the `full` layout's `header` slot, a patch lint refused: E100, the headline sets in two lines and the slot holds one;
+4. took lint's fix, `fit: shrink`, and patched again;
+5. linted the deck, which found nothing;
+6. rendered the state at 1920 × 1080, and showed it in its answer.
+
+All three things below held. It took 61,057 tokens in and 1,893 out.
+
+What the run found after it: a drag of the headline up off its slot landed it in the whole canvas, flush in the corner. A box in a margin now goes into the nearest of the layout's slots (PLAN 2.31).
 
 `web/assistant.mjs` runs PLAN 1.19's loop through the editor against a scripted server for each wire format: Anthropic, OpenAI, and Gemini.
 - **The loop:** a headline too long for its slot, the E100, its fix, a clean lint, and a render.

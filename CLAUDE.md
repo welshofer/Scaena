@@ -104,9 +104,9 @@ The web player is `web/` (PLAN 2.1, SPEC §9.2). The page hands its canvas to a 
 Gate 2 is open. `docs/gate-2.md` holds the evidence:
 - Criteria 2 and 3, the editor's round trip and a single file offline, are met in headless Chromium.
 - Criterion 1 waits on a real machine's browsers, held to the bar Jay set: 60 fps on WebGPU; on the CPU fallback, 60 where a cue draws no shader and 30 where it draws one. The player's frame meter (`?fps`) reads it, and `just fps` holds each cue to the bar.
-- Criterion 4, the assistant's loop, waits on Jay's own key.
+- Criterion 4, the assistant's loop, is met: Jay ran it with his own key on the published site (2026-10-07).
 
-The steps for both are in the doc.
+The steps for criterion 1 are in the doc.
 
 ## Working with Jay
 
