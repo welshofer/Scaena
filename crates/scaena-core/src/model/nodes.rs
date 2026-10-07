@@ -61,6 +61,48 @@ pub enum Padding {
     Sides(#[schemars(length(min = 2, max = 4))] Vec<Length>),
 }
 
+/// A node's layout in one of the deck's formats (SPEC §3.4, ADR-0020): where it goes, how big,
+/// how it is turned, a container's tracks and spacing, and a text's lines. Each property takes
+/// the place of the node's own of the same name in that format; a property its type does not
+/// have is E106, as anywhere on the node.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FormatLayout {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<Placement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<Size>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<Align>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<Transform>,
+    /// A stack's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<Axis>,
+    /// A stack's or a grid's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap: Option<Length>,
+    /// A stack's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribute: Option<Distribute>,
+    /// A container's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<Padding>,
+    /// A grid's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cols: Option<Tracks>,
+    /// A grid's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Tracks>,
+    /// A grid's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub areas: Option<Vec<String>>,
+    /// A text's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub max_lines: Option<u32>,
+}
+
 /// The properties every node type has, followed by the type's own: one struct per type.
 /// (`#[serde(flatten)]` would lose `deny_unknown_fields`, so the shared fields are
 /// written out by this macro instead.)
@@ -116,6 +158,12 @@ macro_rules! node {
             pub emphasis: Option<PresetRef>,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             pub anim: Option<AnimTracks>,
+            /// How it lays out in another of the deck's formats, by format (SPEC §3.4,
+            /// ADR-0020): each property there takes the place of the node's own of the same
+            /// name when the deck lays out in that format.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[schemars(extend("propertyNames" = {"$ref": "#/$defs/Format"}))]
+            pub formats: Option<IndexMap<String, FormatLayout>>,
             #[serde(rename = "_comment", default, skip_serializing_if = "Option::is_none")]
             pub comment: Option<String>,
             $($body)*

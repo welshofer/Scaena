@@ -114,3 +114,21 @@ fn a_format_the_theme_says_nothing_about_keeps_the_grid_and_slots() {
     assert!(figure[0] > claim[0] && (figure[1] - claim[1]).abs() < 100.0, "{claim:?} {figure:?}");
     assert_eq!(claim[0], 96.0);
 }
+
+/// A node's layout in a format (ADR-0020) takes the place of its own there, and only there.
+#[test]
+fn a_node_lays_out_anew_in_a_format_and_as_it_was_in_the_rest() {
+    let mut plain = Fx::new(json!(["9:16"]));
+    let mut fx = Fx::new(json!(["9:16"]));
+    let anew = json!({ "9:16": { "at": { "col": [11, 12], "row": 8 }, "transform": { "rotate": 45 } } });
+    fx.deck.nodes.get_mut("mark").unwrap().props.insert("formats".into(), anew);
+    // On the deck's own canvas, as it was.
+    assert_eq!(fx.frame(None).unwrap(), plain.frame(None).unwrap());
+    // In 9:16, in the last columns of the last row, and turned.
+    let tall = fx.frame(Some("9:16")).unwrap();
+    let mark = at(&tall, "mark");
+    assert!(mark[0] > 800.0 && mark[1] > 1500.0, "{mark:?}");
+    assert_ne!(tall, plain.frame(Some("9:16")).unwrap());
+    // What else the slide holds stays where it was.
+    assert_eq!(at(&tall, "claim"), at(&plain.frame(Some("9:16")).unwrap(), "claim"));
+}

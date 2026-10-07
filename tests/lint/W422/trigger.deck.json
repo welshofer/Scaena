@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W422 trigger: the evidence in display, the claim in body.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

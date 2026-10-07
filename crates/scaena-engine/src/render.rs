@@ -54,8 +54,9 @@ pub struct FrameRequest<'a> {
 }
 
 /// The deck and theme as they lay out in `format` (SPEC §3.4): the deck on that format's
-/// canvas, and the theme with that format's grid and slots. `None`, or a format of the
-/// deck's own shape, is the deck as it is. A format the deck does not list is an error.
+/// canvas, each node with its layout there (`formats`, ADR-0020) in place of its own, and the
+/// theme with that format's grid and slots. `None`, or a format of the deck's own shape, is
+/// the deck as it is. A format the deck does not list is an error.
 pub fn project<'d>(
     deck: &'d Deck,
     theme: &'d Theme,
@@ -81,6 +82,14 @@ pub fn project<'d>(
     }
     let mut projected = deck.clone();
     (projected.canvas.width, projected.canvas.height) = (canvas[0], canvas[1]);
+    // Each node's layout in this format takes the place of its own; a state's delta still
+    // sets what it sets.
+    for node in projected.nodes.values_mut() {
+        let there = node.props.get("formats").and_then(|f| f.get(name)).and_then(|l| l.as_object()).cloned();
+        for (prop, value) in there.into_iter().flatten() {
+            node.props.insert(prop, value);
+        }
+    }
     Ok((Cow::Owned(projected), Cow::Owned(theme.in_format(format))))
 }
 

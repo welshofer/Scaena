@@ -1646,3 +1646,34 @@ fn a_forecast_that_comes_true_turns_solid_halfway() {
     assert_eq!(estimates.len(), 2, "{estimates:?}");
     assert!(estimates.iter().all(|o| (o - 0.5).abs() < 1e-3), "{estimates:?}");
 }
+
+/// A rule's text over it stands where no mark is behind it (PLAN 2.84): at the plot's start
+/// where it can, else along the rule past the bars that rise through it.
+#[test]
+fn a_rules_text_moves_along_it_clear_of_the_bars() {
+    let mut deck = bars(Value::Null, Value::Null);
+    let chart = deck.nodes.get_mut("c").unwrap();
+    chart.props.insert("annotations".into(), json!([{ "kind": "rule", "at": { "y": 10 }, "text": "Target" }]));
+    let layout = compile_sized(&themed(json!({})), &deck, [900.0, 500.0]).unwrap();
+    let [left, ..] = layout.plot;
+    let label = layout.notes[0].label.as_ref().unwrap();
+    let first = &label.text.lines[0];
+    let (x0, x1) = (label.origin[0], label.origin[0] + label.text.width);
+    let (y0, y1) = (label.origin[1] + first.baseline - first.ascent, label.origin[1] + first.baseline);
+    let bars: Vec<[f32; 4]> = (layout.marks.iter())
+        .filter_map(|m| match m.shape {
+            charts::Shape::Bar(r) => Some([r.x, r.top(), r.x + r.w, r.bottom()]),
+            _ => None,
+        })
+        .collect();
+    // The first bar, 12, rises past the rule at 10 where the text would start.
+    assert!(bars[0][0] < left + label.text.width && bars[0][1] < y1, "{bars:?}");
+    assert!(x0 > left, "the text moves on from the plot's start: {x0} {left}");
+    for b in &bars {
+        assert!(
+            x1 <= b[0] || b[2] <= x0 || b[1] >= y1 || b[3] <= y0,
+            "the text {:?} is over a bar {b:?}",
+            [x0, y0, x1, y1]
+        );
+    }
+}
