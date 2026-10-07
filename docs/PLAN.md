@@ -1081,6 +1081,21 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - `Found.node` is optional now, and the MCP tool's schema is blessed with `kind` and `beat`.
       - Tests: `crates/scaena-core/src/patch/find.rs`, `crates/scaena-cli/tests/find.rs`, the WASM session's, `web/find.mjs`, and `web/edit-deck.mjs`.
 
+- [x] 2.84 The demo deck in 9:16: trails lists `9:16` and lints clean there, its 16:9 as it was.
+    - Done. Trails could not be laid out well in 9:16 by slots alone. Its process slide is a grid of four steps across, and a container's tracks were the same in every format. So a node may now say how it lays out in each of the deck's formats (ADR-0020, deck format 0.13, SPEC §3.4):
+      - `formats: {"9:16": {…}}` sets its `at`, `size`, `align`, and `transform` there, a container's `axis`, `gap`, `distribute`, `padding`, `cols`, `rows`, and `areas`, and a text's `maxLines`;
+      - `scaena_engine::project` puts each in place of the node's own when it lays the deck out in that format;
+      - validation finds a format the deck does not lay out in, or a cell past its grid (E102), and what the type does not take, or `formats` in a delta or the overrides (E106);
+      - a node placed anew in each format is not W302.
+
+      In 9:16, trails stacks its process steps with an arrow down between each, puts the change slide's before over its after, and gives the budget table the full width. Its titles keep their cells, and its quote takes a fourth line.
+
+      Its plan line's label said "Plan: 6.7 miles a month". In 9:16 the bars stand too close for that to sit clear of them (E111), so it says "Plan: 6.7" in both formats: the caption gives the units. A rule's label now also moves along the rule, past the marks that rise through it, where its start is not clear (`charts::compile`).
+
+      Tests: `crates/scaena-core/tests/validate.rs`, `crates/scaena-engine/tests/formats.rs` and `charts.rs`, the W302 clean fixture, and the edit-deck walk, which shows the deck in 9:16.
+
+      The editor writes only a node's own layout: a drag in 9:16 moves it in 16:9 too. Writing the format's layout where a node has one is a follow-up.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

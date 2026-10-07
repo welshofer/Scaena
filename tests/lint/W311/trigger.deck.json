@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W311 trigger: a mesh behind the whole canvas, under a bar chart.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
