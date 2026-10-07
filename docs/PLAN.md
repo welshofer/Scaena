@@ -1063,6 +1063,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
       What the walk raised that is no bug went to Jay as a product question: a role set in capitals copies from the PDF in capitals, while the live region reads the text as written ("ANNUAL MEETING" against "Annual meeting").
 
+- [x] 2.83 Find and replace in all of a deck's words: each node's description (`alt`), each state's notes, and each beat's claim and notes, beside its texts; in `scaena find`, `deck_find`, and the editor's ⌘F.
+    - Done. `scaena_core::patch::find` gives what each match is in (`kind`: `text`, `alt`, `notes`, or `claim`), with its node or its beat and the pointer to where it is written:
+      - a description, as a text is: the node's own, a state's delta, or the deck's overrides;
+      - a state's notes, in the state;
+      - a beat's claim and notes, in the spine, in the states it spans (a beat no state shows, in none).
+
+      Replace All is still one patch: a `replace_text` for each match in a text, and a JSON Patch `replace` of other words where they are written.
+      - The CLI says what each match is in ("beat doubled's claim", "rev's description").
+      - The editor's ⌘F shows each match's state, selects a description's node, and says where each match is.
+      - In the demo deck, ⌘F now finds all seven "Alpine": four in texts, and three in notes, claims, and descriptions, which it missed before. The edit-deck walk holds it.
+      - `Found.node` is optional now, and the MCP tool's schema is blessed with `kind` and `beat`.
+      - Tests: `crates/scaena-core/src/patch/find.rs`, `crates/scaena-cli/tests/find.rs`, the WASM session's, `web/find.mjs`, and `web/edit-deck.mjs`.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

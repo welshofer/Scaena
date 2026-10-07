@@ -95,7 +95,12 @@ export interface Query {
  * states that show it from there. `matches` are `[from, to]` in characters (Unicode scalar
  * values), as `replace_text` counts them. */
 export interface Found {
-  node: string;
+  /** What the words are (PLAN 2.83): a text, a node's description, notes, or a beat's claim. */
+  kind: "text" | "alt" | "notes" | "claim";
+  /** The text's node, or the node the description describes; none for notes or a claim. */
+  node?: string;
+  /** The beat, for its claim or its notes. */
+  beat?: string;
   /** The first state that shows it, where a replacement is made. */
   state: string;
   states: string[];

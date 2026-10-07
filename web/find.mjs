@@ -1,15 +1,18 @@
-// PLAN 2.47 check: find and replace across the deck's texts, in headless Chromium (serve.mjs), the
-// CPU painting, on the revenue example.
+// PLAN 2.47, 2.83 check: find and replace across the deck's words, in headless Chromium (serve.mjs),
+// the CPU painting, on the revenue example.
 //
 //   node web/find.mjs     (after `just web`; from the repository's root)
 //
 // - ⌘F on the canvas opens the find bar; what is typed is found in every state's texts, once for
-//   each place a text is written: the title's own, `revenue`'s delta, and the note's own.
-// - Enter goes to the next match, Shift+Enter to the one before: its state shown, its node
-//   selected, its characters marked on the canvas.
+//   each place a text is written: the title's own, `revenue`'s delta, and the note's own; and in
+//   the beat's claim and the chart's description (PLAN 2.83).
+// - Enter goes to the next match, Shift+Enter to the one before: its state shown; in a text, its
+//   node selected, its characters marked on the canvas; a description's node selected; and the
+//   status says where each is.
 // - Replace replaces the match shown, one patch, where its text lives, and shows the next after
 //   what it put in, which the query may still find; one undo takes it back.
-// - Replace All replaces every match in one patch, one step to undo.
+// - Replace All replaces every match in one patch, one step to undo: the claim and the
+//   description with the texts.
 // - Match case and Whole words, as asked; Escape closes the bar and takes the mark away.
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
@@ -52,14 +55,17 @@ try {
   await page.waitForFunction(() => !document.querySelector("#find").hidden, null, { timeout: 10000 }).catch(() => {});
   check(await page.evaluate(() => !document.querySelector("#find").hidden && document.activeElement?.getAttribute("name") === "find"), "⌘F opens the find bar, its field focused");
 
-  // Found once for each place a text is written: the title's own, `revenue`'s, and the note's.
+  // Found once for each place a text is written: the title's own, `revenue`'s, and the note's; and
+  // the beat's claim and the chart's description, where they are written.
   await page.keyboard.type("rev");
-  check(await saying("3 matches"), `“rev” is 3 matches: ${await says()}`);
-  const found = await page.evaluate(() => window.scaena.find.found().map((f) => `${f.node} ${f.lives}`));
+  check(await saying("5 matches"), `“rev” is 5 matches: ${await says()}`);
+  const found = await page.evaluate(() => window.scaena.find.found().map((f) => `${f.kind} ${f.lives}`));
   check(
-    found.join(" | ") === "title /nodes/title/text | title /states/1/props/title/text | note /nodes/note/text",
+    found.join(" | ") ===
+      "text /nodes/title/text | claim /spine/sections/1/beats/0/claim | text /states/1/props/title/text | alt /nodes/rev/alt | text /nodes/note/text",
     `each where it is written: ${found.join(" | ")}`,
   );
+  const status = () => page.evaluate(() => document.querySelector("#status").textContent);
 
   // Enter goes to each match in turn: its state, its node, its characters marked.
   await page.keyboard.press("Enter");
@@ -67,11 +73,21 @@ try {
   await page.waitForFunction(() => document.querySelectorAll("#overlay svg rect.found").length > 0, null, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "intro" && (await selected()) === "title" && (await marks()) > 0, `the first in intro's title, marked: ${await shownState()}, ${await selected()}, ${await marks()}`);
   await page.keyboard.press("Enter");
-  check(await saying("2 of 3"), `Enter again: ${await says()}`);
+  check(await saying("2 of 5"), `Enter again: ${await says()}`);
   await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()][0] === "revenue", null, { timeout: 30000 }).catch(() => {});
-  check((await shownState()) === "revenue" && (await selected()) === "title", `the second in revenue's title: ${await shownState()}, ${await selected()}`);
-  await page.keyboard.press("Shift+Enter");
-  check(await saying("1 of 3"), `Shift+Enter goes back: ${await says()}`);
+  check((await shownState()) === "revenue" && (await status()).startsWith("beat doubled's claim in revenue"), `the second in the beat's claim, its state shown: ${await shownState()} · ${await status()}`);
+  await page.keyboard.press("Enter");
+  check(await saying("3 of 5"), `Enter again: ${await says()}`);
+  await page.waitForFunction(() => document.querySelectorAll("#overlay svg rect.found").length > 0, null, { timeout: 30000 }).catch(() => {});
+  check((await shownState()) === "revenue" && (await selected()) === "title", `the third in revenue's title: ${await shownState()}, ${await selected()}`);
+  await page.keyboard.press("Enter");
+  check(await saying("4 of 5"), `Enter again: ${await says()}`);
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "rev", null, { timeout: 30000 }).catch(() => {});
+  check((await selected()) === "rev" && (await status()).startsWith("rev's description in revenue"), `the fourth in the chart's description, the chart selected: ${await selected()} · ${await status()}`);
+  for (const k of [3, 2, 1]) {
+    await page.keyboard.press("Shift+Enter");
+    check(await saying(`${k} of 5`), `Shift+Enter goes back: ${await says()}`);
+  }
   check(await page.evaluate(() => document.activeElement?.getAttribute("name") === "find"), "and the find field keeps the keys");
 
   // Replace: the match shown, one patch, where its text lives; then the next after what was put in
@@ -81,7 +97,7 @@ try {
   await page.locator('#find [data-find="replace"]').click();
   await settled(n);
   check((await source()).includes("Q3 REView") && !(await source()).includes("REVenue"), "Replace changes the match shown, and only it");
-  check(await saying("2 of 3"), `the next shown after it, not the one put in: ${await says()}`);
+  check(await saying("2 of 5"), `the next shown after it, not the one put in: ${await says()}`);
   await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()][0] === "revenue", null, { timeout: 30000 }).catch(() => {});
   check((await shownState()) === "revenue", `in its state: ${await shownState()}`);
   await page.locator("#overlay").focus();
@@ -94,18 +110,17 @@ try {
   await page.keyboard.press("Control+f");
   await page.locator('#find input[name="find"]').fill("Revenue");
   await page.locator('#find input[name="words"]').check();
-  check(await saying("2 matches"), `“Revenue”, whole words: ${await says()}`);
+  check(await saying("4 matches"), `“Revenue”, whole words: ${await says()}`);
   await page.locator('#find input[name="replace"]').fill("Income");
   n = await trips();
   await page.locator('#find [data-find="all"]').click();
   await settled(n);
-  // The slides' texts, that is; the spine's claims and scripts are no text a slide shows.
   const all = await source();
   check(
     all.includes('title "Income doubled"') && all.includes('"Income in $M.') && !all.includes('title "Revenue doubled"') && !all.includes('"Revenue in $M.'),
     "Replace All replaces every match",
   );
-  check(all.includes('beat doubled "Revenue doubled year over year'), "and leaves the spine's claims as they were");
+  check(all.includes('beat doubled "Income doubled year over year') && all.includes("Quarterly Income by product"), "the beat's claim and the chart's description with them");
   check(await saying("no match"), `and none is left: ${await says()}`);
   check((await trips()) === n + 1, "in one patch");
   check(await page.evaluate(() => window.scaena.last().valid), "the deck validates");
@@ -115,14 +130,14 @@ try {
   await settled(n);
   check((await source()) === original, "one undo takes all of it back");
 
-  // Case apart: none of the deck's texts says “revenue” in lower case.
+  // Case apart: only the chart's description says “revenue” in lower case.
   await page.keyboard.press("Control+f");
   await page.locator('#find input[name="words"]').uncheck();
   await page.locator('#find input[name="find"]').fill("revenue");
   await page.locator('#find input[name="case"]').check();
-  check(await saying("no match"), `“revenue”, case apart: ${await says()}`);
+  check(await saying("1 match"), `“revenue”, case apart: ${await says()}`);
   await page.locator('#find input[name="case"]').uncheck();
-  check(await saying("2 matches"), `and alike: ${await says()}`);
+  check(await saying("4 matches"), `and alike: ${await says()}`);
 
   // Escape closes the bar, and the mark goes.
   await page.keyboard.press("Enter");

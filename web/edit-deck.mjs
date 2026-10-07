@@ -266,13 +266,16 @@ try {
     const said = await page.textContent("#find output");
     const count = Number(said.match(/(\d+) match/)?.[1] ?? 0);
     const before = ((await source()).match(/Summit/g) ?? []).length;
+    const alpine = ((await source()).match(/Alpine/g) ?? []).length;
     // A word of the same length: what fits now fits after.
     await page.fill('#find input[name="replace"]', "Summit");
     const at = await mark();
     await page.click('#find [data-find="all"]');
     await changed(at);
     const after = await source();
-    check(count > 1 && (after.match(/Summit/g) ?? []).length - before === count, `⌘F finds "Alpine" in the deck's texts (${said}), and Replace All replaces all ${count}`);
+    // Every "Alpine" the deck says, in its texts, its notes, its claims, and its descriptions
+    // (PLAN 2.83), and none left.
+    check(count === alpine && (after.match(/Summit/g) ?? []).length - before === count && !/Alpine/.test(after), `⌘F finds "Alpine" everywhere the deck says it (${said}, of ${alpine} in the source), and Replace All replaces all ${count}`);
     await page.click('#find [data-find="close"]');
   });
 
