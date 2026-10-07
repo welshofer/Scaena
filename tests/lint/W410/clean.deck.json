@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "W410 clean: the image described.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

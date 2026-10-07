@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -655,6 +655,231 @@
       },
       "parse": {
         "year": "%Y"
+      }
+    },
+    "growth": {
+      "source": {
+        "inline": [
+          {
+            "region": "North America",
+            "year": "2020",
+            "rev": 120
+          },
+          {
+            "region": "North America",
+            "year": "2024",
+            "rev": 150
+          },
+          {
+            "region": "North America",
+            "year": "2025",
+            "rev": 162
+          },
+          {
+            "region": "Europe",
+            "year": "2020",
+            "rev": 140
+          },
+          {
+            "region": "Europe",
+            "year": "2024",
+            "rev": 128
+          },
+          {
+            "region": "Europe",
+            "year": "2025",
+            "rev": 121
+          },
+          {
+            "region": "Asia Pacific",
+            "year": "2020",
+            "rev": 60
+          },
+          {
+            "region": "Asia Pacific",
+            "year": "2024",
+            "rev": 135
+          },
+          {
+            "region": "Asia Pacific",
+            "year": "2025",
+            "rev": 168
+          },
+          {
+            "region": "Latin America",
+            "year": "2020",
+            "rev": 40
+          },
+          {
+            "region": "Latin America",
+            "year": "2024",
+            "rev": 52
+          },
+          {
+            "region": "Latin America",
+            "year": "2025",
+            "rev": 49
+          }
+        ]
+      },
+      "schema": {
+        "rev": "number"
+      }
+    },
+    "pay": {
+      "source": {
+        "inline": [
+          {
+            "role": "Engineering",
+            "group": "Women",
+            "pay": 98
+          },
+          {
+            "role": "Engineering",
+            "group": "Men",
+            "pay": 112
+          },
+          {
+            "role": "Design",
+            "group": "Women",
+            "pay": 84
+          },
+          {
+            "role": "Design",
+            "group": "Men",
+            "pay": 88
+          },
+          {
+            "role": "Sales",
+            "group": "Women",
+            "pay": 71
+          },
+          {
+            "role": "Sales",
+            "group": "Men",
+            "pay": 85
+          },
+          {
+            "role": "Support",
+            "group": "Women",
+            "pay": 52
+          },
+          {
+            "role": "Support",
+            "group": "Men",
+            "pay": 54
+          }
+        ]
+      },
+      "schema": {
+        "pay": "number"
+      }
+    },
+    "pay-next": {
+      "source": {
+        "inline": [
+          {
+            "role": "Engineering",
+            "group": "Women",
+            "pay": 104
+          },
+          {
+            "role": "Engineering",
+            "group": "Men",
+            "pay": 113
+          },
+          {
+            "role": "Design",
+            "group": "Women",
+            "pay": 90
+          },
+          {
+            "role": "Design",
+            "group": "Men",
+            "pay": 87
+          },
+          {
+            "role": "Sales",
+            "group": "Women",
+            "pay": 76
+          },
+          {
+            "role": "Sales",
+            "group": "Men",
+            "pay": 86
+          },
+          {
+            "role": "Support",
+            "group": "Women",
+            "pay": 55
+          },
+          {
+            "role": "Support",
+            "group": "Men",
+            "pay": 58
+          }
+        ]
+      },
+      "schema": {
+        "pay": "number"
+      }
+    },
+    "poll": {
+      "source": {
+        "inline": [
+          {
+            "option": "Yes",
+            "est": 0.42,
+            "lo": 0.38,
+            "hi": 0.46
+          },
+          {
+            "option": "No",
+            "est": 0.35,
+            "lo": 0.31,
+            "hi": 0.39
+          },
+          {
+            "option": "Undecided",
+            "est": 0.23,
+            "lo": 0.2,
+            "hi": 0.26
+          }
+        ]
+      },
+      "schema": {
+        "est": "number",
+        "lo": "number",
+        "hi": "number"
+      }
+    },
+    "poll-next": {
+      "source": {
+        "inline": [
+          {
+            "option": "Yes",
+            "est": 0.44,
+            "lo": 0.42,
+            "hi": 0.46
+          },
+          {
+            "option": "No",
+            "est": 0.33,
+            "lo": 0.31,
+            "hi": 0.35
+          },
+          {
+            "option": "Undecided",
+            "est": 0.23,
+            "lo": 0.21,
+            "hi": 0.25
+          }
+        ]
+      },
+      "schema": {
+        "est": "number",
+        "lo": "number",
+        "hi": "number"
       }
     }
   },
@@ -4097,6 +4322,143 @@
       },
       "alt": "Revenue by quarter across, stacked by product, totals past each stack.",
       "semantic": "evidence"
+    },
+    "sl-growth": {
+      "type": "chart",
+      "kind": "slope",
+      "data": "@growth",
+      "dataTransform": [
+        {
+          "filter": "year in ['2020', '2024']"
+        }
+      ],
+      "x": {
+        "field": "year"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "region"
+      },
+      "at": {
+        "col": [
+          1,
+          5
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "formats": {
+        "9:16": {
+          "at": {
+            "col": [
+              1,
+              12
+            ],
+            "row": [
+              2,
+              4
+            ]
+          }
+        }
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "series": "Asia Pacific"
+          }
+        }
+      ],
+      "alt": "Revenue by region, 2020 against 2024: Asia Pacific from $60 to $135, North America from $120 to $150, Europe down from $140 to $128, Latin America from $40 to $52.",
+      "semantic": "evidence"
+    },
+    "rg-pay": {
+      "type": "chart",
+      "kind": "range",
+      "data": "@pay",
+      "x": {
+        "field": "role"
+      },
+      "y": {
+        "field": "pay",
+        "format": "$,.0f"
+      },
+      "series": {
+        "field": "group"
+      },
+      "at": {
+        "col": [
+          6,
+          9
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "formats": {
+        "9:16": {
+          "at": {
+            "col": [
+              1,
+              12
+            ],
+            "row": [
+              5,
+              6
+            ]
+          }
+        }
+      },
+      "alt": "Pay by role, women's against men's, in thousands: Engineering $98 and $112, Design $84 and $88, Sales $71 and $85, Support $52 and $54.",
+      "semantic": "evidence"
+    },
+    "rg-poll": {
+      "type": "chart",
+      "kind": "range",
+      "data": "@poll",
+      "x": {
+        "field": "option"
+      },
+      "y": {
+        "field": "est",
+        "format": ".0%"
+      },
+      "interval": {
+        "low": "lo",
+        "high": "hi"
+      },
+      "at": {
+        "col": [
+          10,
+          12
+        ],
+        "row": [
+          2,
+          8
+        ]
+      },
+      "formats": {
+        "9:16": {
+          "at": {
+            "col": [
+              1,
+              12
+            ],
+            "row": [
+              7,
+              8
+            ]
+          }
+        }
+      },
+      "alt": "A poll with its margins: Yes 42% (38 to 46), No 35% (31 to 39), Undecided 23% (20 to 26).",
+      "semantic": "evidence"
     }
   },
   "states": [
@@ -5208,6 +5570,52 @@
         }
       },
       "notes": "Pass in the transition (frames @0.25 and @0.75): left, the regions sort by growth, each bar sliding down or up the chart to its new place with its name and its value, Asia Pacific to the top and Europe to the foot; the goal rule stays. Right, the stacks come apart in two stages, as bars that stand up regroup: first the widths, each segment thinning to its place in its quarter's band while it stays where it stood in its stack, then the lengths, each sliding back to the baseline beside the others, so no two cross. The value axis rescales from $0–$60 to $0–$30, its ticks moving and fading. Each stack's total counts down to its Edge segment's own value, riding that bar, as Core's and Cloud's values count in past their bars; the key stays over the plot."
+    },
+    {
+      "id": "slopes",
+      "name": "Slopes and ranges",
+      "slide": "slopes",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "55 · Slopes and ranges · recorded"
+        },
+        "sl-growth": {},
+        "rg-pay": {},
+        "rg-poll": {}
+      },
+      "notes": "Pass: three charts of the forms PLAN 1.30 adds. Left, a slope: each region a line from its 2020 revenue at the plot's left side to its 2024 revenue at its right, each first value a space before its point and each second value a space past it, level with it, saying the change (“$135 (+$75)”); the regions named past the second values, each level with its own, and Asia Pacific, highlighted, in the signal color while the rest dim. Middle, a dumbbell: each role's women's and men's pay as dots joined by a stroke from the lower to the higher, the lower value under its dot and the higher over its, the groups named beside the last role's dots. Right, a poll's estimates each with its interval, a stroke in its color from its low end to its high, its value over the interval's top."
+    },
+    {
+      "id": "slopes-next",
+      "name": "Slopes and ranges: they move",
+      "slide": "slopes",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "56 · Slopes and ranges: they move · recorded"
+        },
+        "sl-growth": {
+          "dataTransform": [
+            {
+              "filter": "year in ['2020', '2025']"
+            }
+          ]
+        },
+        "rg-pay": {
+          "data": "@pay-next",
+          "alt": "Pay by role a year on, women's against men's, in thousands: Engineering $104 and $113, Design $90 and $87, Sales $76 and $86, Support $55 and $58."
+        },
+        "rg-poll": {
+          "data": "@poll-next",
+          "alt": "The poll with more answers in, its margins narrower: Yes 44% (42 to 46), No 33% (31 to 35), Undecided 23% (21 to 25)."
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): left, the slope moves to 2025, so its lines tilt, keyed by region and side, rather than scrolling: each second point slides to its 2025 value, “2024” fading into “2025” under it, and each second value, which says its change, cross-fades. Middle, each dumbbell's dots slide to their new values by key, the stroke between them following; in Design women's pay passes men's, so its lower value moves to the other dot. Right, each interval narrows about its estimate, its value riding the interval's top."
     }
   ],
   "overrides": {

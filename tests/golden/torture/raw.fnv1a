@@ -54,6 +54,8 @@ lists 265d46529afd378e
 links df27d635c22facab
 across 88a8bcdd0f5291e9
 across-next 24b7c3b329dacfa7
+slopes 62df41cb3d116409
+slopes-next fa23d243c563c11c
 chart@0.25 c57d0c5bfb85510c
 chart@0.5 f93bf112d16ad430
 chart-next@0.25 00f0d618ab353049
@@ -75,6 +77,7 @@ forecast-next@0.5 9c21fff1543ffdde
 transforms-next@0.25 fcd236f4ce904c41
 across-next@0.25 341bdca56ecfd166
 across-next@0.75 eaa97d18471c14e0
+slopes-next@0.5 fc6b3a56e5b23e98
 formats~9x16 bd611fea23e3eb49
 containers~9x16 472f03e08896b8a3
 chart-next@0.5~9x16 4734404826e3ceb7

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "W321 trigger: an entrance that waits two seconds; the theme's maxBuild is 1.5 s.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

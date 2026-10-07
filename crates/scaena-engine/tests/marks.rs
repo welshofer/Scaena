@@ -364,3 +364,38 @@ fn a_callout_dropped_on_bars_across_reads_its_category_down_and_its_value_across
     let unit = scaena_engine::scale::tick_step(c.y_scale.domain[0], c.y_scale.domain[1], 5) / 10.0;
     assert!((v - c.y_scale.invert(p[0])).abs() <= unit / 2.0 + 1e-9, "{v} for {}", c.y_scale.invert(p[0]));
 }
+
+#[test]
+fn a_ranges_interval_and_its_value_are_its_points_to_click_and_no_marks_of_their_own() {
+    // A poll's estimates with their intervals (PLAN 1.30).
+    let mut d = serde_json::to_value(deck(json!({
+        "c": { "type": "chart", "kind": "range", "data": "@p", "x": { "field": "option" }, "y": { "field": "est" },
+               "interval": { "low": "lo", "high": "hi" }, "at": { "col": [1, 12], "row": [2, 8] } }
+    })))
+    .unwrap();
+    d["data"]["p"] = json!({
+        "source": { "inline": [
+            { "option": "A", "est": 42, "lo": 38, "hi": 46 },
+            { "option": "B", "est": 35, "lo": 31, "hi": 39 }
+        ] },
+        "schema": { "est": "number", "lo": "number", "hi": "number" }
+    });
+    let scene = at_rest(&serde_json::from_value(d).unwrap());
+    let (cell, c) = chart(&scene, "c");
+    let point = |key: &str| {
+        let [x, y] = c.marks.iter().find(|m| m.key == key).unwrap().shape.point();
+        [cell[0] + x, cell[1] + y]
+    };
+    // The interval's top, and the value over it: each A's, the row it was made from.
+    let value = c.labels.iter().find(|l| l.key == "A\u{1f}high").unwrap();
+    let baseline = value.origin[1] + value.text.lines[0].baseline;
+    let on_value = [cell[0] + value.origin[0] + 0.5 * value.text.width, cell[1] + baseline - 4.0];
+    for at in [point("A\u{1f}high"), on_value] {
+        let m = scene.mark_at(at).unwrap_or_else(|| panic!("a mark at {at:?}"));
+        assert_eq!(named(&m), ("c", "p", "A", [0].as_slice()), "at {at:?}");
+    }
+    // The keys reach the values alone.
+    let (marks, _) = scene.marks_in("c").unwrap();
+    assert_eq!(marks.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["A", "B"]);
+    assert_eq!(scene.marks_of("p", &[1]).iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["B"]);
+}

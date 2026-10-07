@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.14.json",
+  "$id": "https://scaena.dev/schema/deck-0.15.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.14(\\.[0-9]+)?$"
+      "pattern": "^0\\.15(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -451,6 +451,10 @@
         "series": { "$ref": "#/$defs/Encoding" },
         "color": { "$ref": "#/$defs/Encoding" },
         "sizeEncoding": { "$ref": "#/$defs/Encoding" },
+        "interval": {
+          "description": "A `range`'s interval about each value (PLAN 1.30): the fields that hold its low and high ends. Any other kind is E106.",
+          "$ref": "#/$defs/Interval"
+        },
         "projected": {
           "description": "Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).",
           "$ref": "#/$defs/Projected"
@@ -1023,9 +1027,9 @@
       ]
     },
     "ChartKind": {
-      "description": "v1 chart kinds (SPEC §3.7); slope, waffle, range, and heatmap are deferred.",
+      "description": "v1 chart kinds (SPEC §3.7); waffle and heatmap are deferred. A `slope` compares two states, a line a series from the first to the second, both ends labeled and the change said; a `range` spans the value axis at each category, a dumbbell between its series or each value with its `interval` (PLAN 1.30).",
       "type": "string",
-      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut"]
+      "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut", "slope", "range"]
     },
     "ChartOrient": {
       "description": "Which way a chart's bars run (SPEC §3.7, PLAN 1.29).",
@@ -1066,6 +1070,16 @@
       "anyOf": [{ "$ref": "#/$defs/SortDirection" }, { "type": "string" }]
     },
     "SortDirection": { "type": "string", "enum": ["ascending", "descending"] },
+    "Interval": {
+      "description": "The fields that hold each value's interval on a `range` (SPEC §3.7, PLAN 1.30).",
+      "type": "object",
+      "required": ["low", "high"],
+      "additionalProperties": false,
+      "properties": {
+        "low": { "description": "The field of its low end.", "type": "string" },
+        "high": { "description": "The field of its high end.", "type": "string" }
+      }
+    },
     "Projected": {
       "description": "Which of a line's or an area's rows are projected: a forecast, or an estimate (SPEC §3.7). The rows whose `field` holds `value`, or a true one when no value is given. The line runs dashed from the last actual point through them, the area under them is lighter, and their value labels say they are estimates.",
       "type": "object",
@@ -1375,6 +1389,7 @@
         "series": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "color": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
         "sizeEncoding": { "anyOf": [{ "$ref": "#/$defs/EncodingDelta" }, { "type": "null" }] },
+        "interval": { "anyOf": [{ "$ref": "#/$defs/IntervalDelta" }, { "type": "null" }] },
         "projected": { "anyOf": [{ "$ref": "#/$defs/ProjectedDelta" }, { "type": "null" }] },
         "key": { "type": ["string", "null"] },
         "labels": { "anyOf": [{ "$ref": "#/$defs/ChartLabelsDelta" }, { "type": "null" }] },
@@ -1576,6 +1591,12 @@
         "sort": { "anyOf": [{ "$ref": "#/$defs/Sort" }, { "type": "null" }] },
         "title": { "type": ["string", "null"] }
       }
+    },
+    "IntervalDelta": {
+      "description": "`Interval` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "low": { "type": ["string", "null"] }, "high": { "type": ["string", "null"] } }
     },
     "ProjectedDelta": {
       "description": "`Projected` in a state's delta: it merges one level into the tracked value, so every key is optional and null deletes one (SPEC §2.2).",

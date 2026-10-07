@@ -2145,11 +2145,13 @@ fn ends(
 /// - A member of a stack opens with no extent where it stands among the stack's members
 ///   there, so a stack never gaps and a donut sweeps open from twelve o'clock.
 /// - A bar flattens onto the baseline, and a point of a line drops onto it. A dot of a
-///   scatter or a dot plot closes where it is.
+///   scatter, a dot plot, or a range closes where it is.
 fn entry(m: &Mark, a: Option<&ChartLayout>, b: Option<&ChartLayout>, entering: bool, dx: f32) -> Shape {
     let (own, other) = if entering { (b, a) } else { (a, b) };
     let foot = other.or(own).map_or(0.0, |c| c.base);
-    let series = own.and_then(|c| c.paths.iter().find(|s| s.marks.contains(&m.key)));
+    // A range's dots, joined or with their intervals, open where they stand (PLAN 1.30).
+    let series =
+        (own.filter(|c| c.kind != ChartKind::Range)).and_then(|c| c.paths.iter().find(|s| s.marks.contains(&m.key)));
     if let (Some(series), Some(o)) = (series, other)
         && let Some(path) = o.paths.iter().find(|p| p.key == series.key)
     {
@@ -2428,8 +2430,10 @@ fn path_ops(series: &SeriesPath, shapes: &[(&str, Shape)], color: Color, alpha: 
             path,
             paint: Paint::Solid(fade(color, alpha)),
             width,
-            // A dash ends square, where a whole line ends round.
-            cap: if projected { Cap::Butt } else { Cap::Round },
+            // A dash ends square, where a whole line ends round. An interval ends flat, where
+            // its values do: vello's GPU and CPU painters shade a round end that stops partway
+            // down a pixel too far apart for SPEC §13.5.
+            cap: if projected || series.flat { Cap::Butt } else { Cap::Round },
             join: Join::Round,
             miter_limit: 4.0,
             dash: if projected { series.dash.to_vec() } else { Vec::new() },
@@ -2794,6 +2798,7 @@ mod tests {
             projected: Vec::new(),
             dash: [6.0, 4.0],
             fade: 0.5,
+            flat: false,
         };
         let before =
             chart(ChartKind::Line, vec![dot("q1", 0.0, 80.0), dot("q2", 100.0, 40.0)], vec![path(&["q1", "q2"])]);
@@ -2826,6 +2831,33 @@ mod tests {
             chart(ChartKind::Scatter, vec![mark("p", Shape::Dot { x: 30.0, y: 20.0, r: 8.0 }, None)], Vec::new());
         assert_eq!(at(None, Some(&dots), 0.0)[0].1, Shape::Dot { x: 30.0, y: 20.0, r: 0.0 });
         assert_eq!(at(Some(&dots), None, 1.0)[0].1, Shape::Dot { x: 30.0, y: 20.0, r: 0.0 });
+    }
+
+    #[test]
+    fn a_ranges_new_dots_open_where_they_stand() {
+        // A dumbbell for Design, and Sales joining it (PLAN 1.30): Sales's dots open where
+        // they stand, not on the stroke of the category beside them, and not from the foot.
+        let dot = |key: &str, x: f32, y: f32| mark(key, Shape::Dot { x, y, r: 6.0 }, None);
+        let path = |key: &str, keys: &[&str]| SeriesPath {
+            key: key.into(),
+            color: Color([0, 0, 0, 255]),
+            stroke: Some(2.0),
+            marks: keys.iter().map(|k| k.to_string()).collect(),
+            projected: Vec::new(),
+            dash: [6.0, 4.0],
+            fade: 0.5,
+            flat: false,
+        };
+        let design = [dot("d\u{1f}w", 50.0, 60.0), dot("d\u{1f}m", 50.0, 40.0)];
+        let one = chart(ChartKind::Range, design.to_vec(), vec![path("d", &["d\u{1f}w", "d\u{1f}m"])]);
+        let mut both = design.to_vec();
+        both.extend([dot("s\u{1f}w", 150.0, 80.0), dot("s\u{1f}m", 150.0, 30.0)]);
+        let paths = vec![path("d", &["d\u{1f}w", "d\u{1f}m"]), path("s", &["s\u{1f}w", "s\u{1f}m"])];
+        let two = chart(ChartKind::Range, both, paths);
+        let start = at(Some(&one), Some(&two), 0.0);
+        let opening = |k: &str| start.iter().find(|(key, _)| key == k).unwrap().1;
+        assert_eq!(opening("s\u{1f}w"), Shape::Dot { x: 150.0, y: 80.0, r: 0.0 });
+        assert_eq!(opening("s\u{1f}m"), Shape::Dot { x: 150.0, y: 30.0, r: 0.0 });
     }
 
     #[test]
@@ -3040,6 +3072,7 @@ mod tests {
             projected: Vec::new(),
             dash: [6.0, 4.0],
             fade: 0.5,
+            flat: false,
         };
         let lines = chart(
             ChartKind::Line,

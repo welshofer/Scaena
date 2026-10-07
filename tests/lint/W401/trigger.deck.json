@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "W401 trigger: state b belongs to no beat.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -17,7 +17,7 @@ use crate::tracking::{Snapshot, resolve_states};
 use crate::transform;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 
 /// Validate `deck` and return every problem as an E-finding.
@@ -865,12 +865,15 @@ fn annotations(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
 
 /// E106: what a chart of some kinds alone takes (SPEC §3.7). `projected` marks the rows of a
 /// line or an area, and a chart of another kind draws nothing projected; `orient` turns a
-/// `bar`'s or a `stackedBar`'s bars, and another kind has none. Each finding points at what
-/// set it in the state.
+/// `bar`'s or a `stackedBar`'s bars, and another kind has none; `interval` gives a `range`'s
+/// values their intervals. A `range` spans each category's series or each value's
+/// interval, so one with neither draws nothing. Each finding points at what set it in the
+/// state.
 fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
-    const ONLY: [(&str, &[&str], &str); 2] = [
+    const ONLY: [(&str, &[&str], &str); 3] = [
         ("projected", &["line", "area"], "marks the rows of a line or an area; a `{kind}` chart draws none"),
         ("orient", &["bar", "stackedBar"], "turns a bar chart's bars; a `{kind}` chart has none"),
+        ("interval", &["range"], "gives a range's values their intervals; a `{kind}` chart has none"),
     ];
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -889,6 +892,22 @@ fn projections(deck: &Deck, snapshots: &[Snapshot]) -> Vec<Finding> {
                     None => format!("/nodes/{}/{prop}", esc(id)),
                 };
                 let message = format!("`{prop}` {}", says.replace("{kind}", kind));
+                if seen.insert(path.clone()) {
+                    out.push(
+                        Finding::new("E106", Severity::Error, message)
+                            .at(path)
+                            .state(state.id.clone())
+                            .node(id.clone()),
+                    );
+                }
+            }
+            if kind == "range" && ["series", "color", "interval"].iter().all(|p| props.get(*p).is_none()) {
+                let path = match state.props.get(id).and_then(|d| d.get("kind")) {
+                    Some(_) => format!("/states/{i}/props/{}/kind", esc(id)),
+                    None => format!("/nodes/{}/kind", esc(id)),
+                };
+                let message = "a `range` spans each category's series, or each value's interval: give it a \
+                               `series` or an `interval`";
                 if seen.insert(path.clone()) {
                     out.push(
                         Finding::new("E106", Severity::Error, message)
@@ -1172,6 +1191,21 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     found("E103", here("projected", rest), message);
                 }
             }
+            // A range's interval: each end a column of numbers (PLAN 1.30).
+            for (end, field) in (props.get("interval").and_then(Value::as_object).into_iter())
+                .flat_map(|i| ["low", "high"].map(|end| (end, i.get(end).and_then(Value::as_str))))
+            {
+                let Some(field) = field else { continue };
+                let message = match column(field) {
+                    None => missing(field),
+                    Some(ColumnType::Number) => continue,
+                    Some(kind) => format!(
+                        "`interval.{end}` reads `{field}` as numbers, but {read} types it {}; declare it `number` in the source's schema",
+                        article(kind.name())
+                    ),
+                };
+                found("E103", here("interval", &format!("/{end}")), message);
+            }
             // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A
             // column that is not there was reported above.
             let remedy = if key.is_some() { "key it by a field" } else { "give it a `key` field" };
@@ -1200,6 +1234,23 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
             let field = |c: &str| props.get(c).and_then(|e| e.get("field")).and_then(Value::as_str);
             let kind = props.get("kind").and_then(Value::as_str).unwrap_or_default();
             let x = field("x").and_then(|f| table.column(f));
+            // A slope compares two states: its x holds two among the rows it draws (PLAN 1.30).
+            if kind == "slope"
+                && let (Some(x), Some(y)) = (x, field("y").and_then(|f| table.column(f)))
+            {
+                let states: BTreeSet<String> =
+                    table.rows.iter().filter(|row| row[y] != Datum::Null).map(|row| row[x].label()).collect();
+                if states.len() != 2 {
+                    let message = format!(
+                        "a slope compares two states, and `{}` has {} in {read}: filter it to two",
+                        table.columns[x],
+                        states.len()
+                    );
+                    found("E103", here("x", "/field"), message);
+                }
+            }
+            // A slope keys its marks by series and state, not by a `key` field.
+            let key = key.filter(|_| kind != "slope");
             // A datum's key is its `key` field, else its x, joined with its series (without one,
             // a color field of text) unless that is the key; a donut's are its categories. A row
             // whose `y` is null is a gap, with no key.

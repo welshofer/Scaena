@@ -15,7 +15,7 @@
 //! annotation drawn at a point says which of the chart's `annotations` it is, for the editor
 //! to annotate a chart from its marks, move a callout, and take an annotation away.
 
-use crate::charts::{ChartKind, ChartLayout, Label, MarkPlace, Note, Rule, Shape};
+use crate::charts::{ChartKind, ChartLayout, Label, MarkPlace, Note, Rule, Shape, datum_key};
 use crate::geometry::{SLOP, reaches};
 use crate::sample::{Content, Scene};
 use crate::scale;
@@ -195,7 +195,11 @@ impl Scene {
     pub fn marks_in(&self, node: &str) -> Option<(Vec<DataMark>, Vec<NoteMark>)> {
         let drawn = self.nodes.iter().find(|n| n.id == node)?;
         let Content::Chart { cell, chart } = &drawn.content else { return None };
-        let marks = chart.marks.iter().map(|m| self.chart_mark(node, *cell, chart, &m.key, m.shape)).collect();
+        // A range's interval ends are no marks of their own: their point is.
+        let marks = (chart.marks.iter())
+            .filter(|m| datum_key(&m.key) == m.key)
+            .map(|m| self.chart_mark(node, *cell, chart, &m.key, m.shape))
+            .collect();
         let mut notes: Vec<&Note> = chart.notes.iter().collect();
         scaena_core::sort::by(&mut notes, |a, b| a.index.cmp(&b.index));
         Some((marks, notes.into_iter().map(|n| self.note_mark(node, *cell, n)).collect()))
@@ -335,7 +339,7 @@ fn near(rule: &Rule, p: [f32; 2]) -> bool {
 /// runs through nearest it, within [`REACH`]; else the mark whose value label it is on.
 fn chart_key(chart: &ChartLayout, p: [f32; 2]) -> Option<&str> {
     if let Some(m) = chart.marks.iter().rev().find(|m| holds(m.shape, p)) {
-        return Some(&m.key);
+        return Some(datum_key(&m.key));
     }
     let nearest = |how: &dyn Fn(Shape) -> Option<f32>| {
         (chart.marks.iter())
@@ -357,8 +361,10 @@ fn chart_key(chart: &ChartLayout, p: [f32; 2]) -> Option<&str> {
         }
         _ => None,
     };
-    (nearest(&column)).or_else(|| nearest(&point)).or_else(|| {
-        chart.labels.iter().rev().find(|l| l.value.is_some() && inside(label_box(l), p)).map(|l| l.key.as_str())
+    // A range's interval ends, and the value that rides its top, are their point's.
+    (nearest(&column)).or_else(|| nearest(&point)).map(datum_key).or_else(|| {
+        let label = chart.labels.iter().rev().find(|l| l.value.is_some() && inside(label_box(l), p));
+        label.map(|l| datum_key(&l.key))
     })
 }
 

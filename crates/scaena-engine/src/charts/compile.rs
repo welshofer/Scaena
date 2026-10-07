@@ -34,6 +34,8 @@ impl Kind {
             Some("scatter") => Kind::Scatter,
             Some("dot") => Kind::Dot,
             Some("donut") => Kind::Donut,
+            Some("slope") => Kind::Slope,
+            Some("range") => Kind::Range,
             other => return Err(EngineError::Layout(format!("unknown chart kind {other:?}"))),
         })
     }
@@ -59,6 +61,8 @@ struct Row {
     /// Its x, when that is a date.
     date: Option<DateTime>,
     y: f64,
+    /// A range's interval about its value (PLAN 1.30): its low end and its high.
+    span: Option<[f64; 2]>,
     /// Its series, if the chart has one.
     series: Option<String>,
     /// What a numeric color encoding reads.
@@ -238,6 +242,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let setting = |name: &str, key: &str| axes.and_then(|a| a.get(name)).and_then(|a| a.get(key));
     let flag = |name: &str, key: &str, default: bool| setting(name, key).and_then(Value::as_bool).unwrap_or(default);
     let donut = kind == Kind::Donut;
+    let (slope, range) = (kind == Kind::Slope, kind == Kind::Range);
     // Annotations, each standing where its kind can.
     let notes: Vec<Annotation> = match props.get("annotations") {
         None | Some(Value::Null) => Vec::new(),
@@ -297,7 +302,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let series_col = field(series_enc).map(col).transpose()?;
     let color_col = field(color_enc).map(col).transpose()?;
     let size_col = field(size_enc).map(col).transpose()?;
-    let key_col = props.get("key").and_then(Value::as_str).map(col).transpose()?;
+    // A slope keys its marks by series and end (below), not by a `key` field.
+    let key_col = props.get("key").and_then(Value::as_str).filter(|_| !slope).map(col).transpose()?;
+    // A range's interval about each value: the columns of its low and high ends.
+    let interval = encoding("interval").filter(|_| range);
+    let ends_of = |end: &str| interval.and_then(|i| i.get(end)).and_then(Value::as_str).map(col).transpose();
+    let (low_col, high_col) = (ends_of("low")?, ends_of("high")?);
     // A line's or an area's rows that are a forecast or an estimate.
     let projected = encoding("projected").filter(|_| matches!(kind, Kind::Line | Kind::Area));
     let projected_col = field(projected).map(col).transpose()?;
@@ -338,12 +348,25 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
         let shade = color_col.filter(|_| shaded).and_then(|c| number(&row[c]));
         let size = size_col.and_then(|c| number(&row[c]));
+        // An interval with an end missing is none: the value stands alone.
+        let end = |c: Option<usize>| -> Result<Option<f64>, EngineError> {
+            match c.map(|c| (c, &row[c])) {
+                None | Some((_, Datum::Null)) => Ok(None),
+                Some((_, Datum::Number(n))) => Ok(Some(*n)),
+                Some((c, _)) => Err(EngineError::Data(format!("`{}` must be a number in every row", table.columns[c]))),
+            }
+        };
+        let span = match (end(low_col)?, end(high_col)?) {
+            (Some(lo), Some(hi)) => Some([lo, hi]),
+            _ => None,
+        };
         rows.push(Row {
             category,
             label,
             x: continuous.then(|| number(&row[xc])).flatten(),
             date: date(&row[xc]),
             y: v,
+            span,
             series,
             shade,
             size,
@@ -373,6 +396,27 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         {
             series.push(s.clone());
         }
+    }
+    // A slope compares two states, a line a series from the first to the second; each of
+    // its marks is keyed by its series and its end, so a slope moved to another pair of
+    // states tilts its lines (PLAN 1.30).
+    if slope {
+        if categories.len() != 2 {
+            return Err(EngineError::Data(format!(
+                "a slope compares two states, and `{x_field}` has {}: filter it to two",
+                categories.len()
+            )));
+        }
+        for r in &mut rows {
+            let end = usize::from(r.category != categories[0].0);
+            r.key = format!("{}\u{1f}{end}", r.series.as_deref().unwrap_or_default());
+        }
+    }
+    if range && interval.is_none() && series.is_empty() {
+        return Err(EngineError::Layout(
+            "a range spans each category's series, or each value's interval: give it a `series` or an `interval`"
+                .into(),
+        ));
     }
 
     // Theme: chart styles, all tokens.
@@ -573,7 +617,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let chosen = show != "auto";
     let show = match show {
         "auto" => match kind {
-            Kind::Bar | Kind::StackedBar | Kind::Dot | Kind::Donut => "all",
+            Kind::Bar | Kind::StackedBar | Kind::Dot | Kind::Donut | Kind::Slope | Kind::Range => "all",
             Kind::Line => "ends",
             Kind::Area | Kind::Scatter => "none",
         },
@@ -627,6 +671,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             .collect(),
         _ => Vec::new(),
     };
+    // A slope's second value says the change from its first, signed: `31 (+19)`.
+    let change = |r: &Row| -> Option<f64> {
+        let first = rows.iter().find(|o| o.series == r.series && o.category == categories[0].0)?;
+        (slope && r.category != categories[0].0).then_some(r.y - first.y)
+    };
+    let signed = value_format.signed();
     let mut values: Vec<Option<TextLayout>> = Vec::with_capacity(rows.len());
     for (i, r) in rows.iter().enumerate() {
         let shown = labelled(i);
@@ -637,6 +687,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let mut text = typeset_minus(value_format.format(v, locale), minus);
         if r.projected {
             text = format!("{text}\u{a0}{note}");
+        }
+        if let Some(by) = change(r) {
+            text = format!("{text} ({})", typeset_minus(signed.format(by, locale), minus));
         }
         values.push(if shown { Some(set(text, &label_role)?) } else { None });
     }
@@ -660,7 +713,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             (lo.min(neg), hi.max(pos))
         })
     } else {
-        rows.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r.y), hi.max(r.y)))
+        // A range's intervals reach past its values.
+        rows.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| {
+            let [a, b] = r.span.unwrap_or([r.y, r.y]);
+            (lo.min(r.y).min(a.min(b)), hi.max(r.y).max(a.max(b)))
+        })
     };
     // An annotation's value is on the axis: a rule at a target the data has not reached
     // widens it as the data would.
@@ -905,10 +962,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     };
     // Beside the plot, a gutter as wide as the widest value-axis label.
     let gutter = tick_labels.iter().filter_map(|(.., l)| l.as_ref()).map(|l| l.width + gap).fold(0.0_f32, f32::max);
-    // Where a line's row stands in its series: at its first point (`true`) or its last.
+    // Where a line's row stands in its series: at its first point (`true`) or its last. A
+    // slope's stands at its first state or its second.
     let end_of = |i: usize| -> Option<bool> {
-        if kind != Kind::Line {
-            return None;
+        match kind {
+            Kind::Slope => return Some(rows[i].category == categories[0].0),
+            Kind::Line => {}
+            _ => return None,
         }
         let same = |o: &Row| o.series == rows[i].series;
         match (rows[..i].iter().any(same), rows[i + 1..].iter().any(same)) {
@@ -921,19 +981,22 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // plot leaves each the room it needs past its side: its width, less what its point
     // stands `f` of the plot's width in from that side (on a category axis half a band;
     // on a continuous one, what the axis widened past the data). That is the room `g`
-    // with `width <= g + f × (the plot that g leaves)`.
+    // with `width <= g + f × (the plot that g leaves)`. A slope's points stand on the
+    // plot's sides, each value a space past its point.
     let ends: Vec<(bool, f32, f32)> = (rows.iter().zip(&values).enumerate())
         .filter_map(|(i, (r, text))| {
             let first = end_of(i)?;
             let at = match x_extent {
                 Some((a, b)) if b > a => ((r.x? - a) / (b - a)) as f32,
                 Some(_) => 0.5,
+                None if slope => f32::from(u8::from(!first)),
                 None => {
                     let c = categories.iter().position(|(k, _)| *k == r.category)?;
                     (c as f32 + 0.5) / categories.len() as f32
                 }
             };
-            Some((first, text.as_ref()?.width, if first { at } else { 1.0 - at }))
+            let width = text.as_ref()?.width + if slope { point_radius + gap } else { 0.0 };
+            Some((first, width, if first { at } else { 1.0 - at }))
         })
         .collect();
     let pad = |first: bool, plot: f32| {
@@ -953,6 +1016,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // the value label that begins at its last point.
     let lead = match kind {
         Kind::Line => values.iter().flatten().map(|t| t.width + gap).fold(gap, f32::max),
+        // A slope's past its second values, which stand a space past their points.
+        Kind::Slope => (values.iter().enumerate())
+            .filter(|&(i, _)| end_of(i) == Some(false))
+            .filter_map(|(_, t)| t.as_ref())
+            .map(|t| point_radius + t.width + 2.0 * gap)
+            .fold(gap, f32::max),
         _ => gap,
     };
     // Names at the ends stand past the value there, so their gutter has its room.
@@ -975,6 +1044,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         let last = rows.iter().filter_map(|r| r.x).fold(f64::NEG_INFINITY, f64::max);
                         if b > a && last.is_finite() { ((b - last) / (b - a)) as f32 } else { 0.0 }
                     }
+                    None if slope => 0.0,
                     None => {
                         let k = if matches!(kind, Kind::Bar | Kind::StackedBar) { 0.5 * bar_gap } else { 0.5 };
                         k / categories.len().max(1) as f32
@@ -982,7 +1052,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 };
                 let f = f.clamp(0.0, 0.9);
                 let edge = match kind {
-                    Kind::Dot => dot_radius,
+                    Kind::Dot | Kind::Range => dot_radius,
                     Kind::Scatter if rows.iter().any(|r| r.size.is_some()) => 2.5 * dot_radius,
                     Kind::Scatter => dot_radius,
                     _ => 0.0,
@@ -1035,10 +1105,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         })
         .fold(0.0_f32, f32::max);
     // Above the plot: the value axis's title, the legend, then room for value labels
-    // over the tallest mark or half a tick label's cap over the top gridline, and for
-    // annotations over them.
-    let top =
-        title_y + legend_top + (if label_room > 0.0 { label_room + gap } else { 0.0 }).max(0.5 * tick_cap) + note_room;
+    // over the tallest mark (a slope's stand level with its points, half their cap height
+    // over them) or half a tick label's cap over the top gridline, and for annotations
+    // over them.
+    let over = match kind {
+        Kind::Slope => 0.5 * label_room,
+        _ if label_room > 0.0 => label_room + gap,
+        _ => 0.0,
+    };
+    let top = title_y + legend_top + over.max(0.5 * tick_cap) + note_room;
     let mut bottom = size[1];
     if x_show {
         bottom = bottom - gap - x_texts.iter().map(|(_, t)| below_cap(t)).fold(0.0_f32, f32::max);
@@ -1047,6 +1122,15 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     if legend_place == "bottom" {
         bottom -= legend_height;
     }
+    // Under the plot, over the category labels: room for a slope's lowest values, half
+    // their cap height under their points, and for the values a dumbbell sets under its
+    // lowest dots.
+    let foot = bottom;
+    bottom -= match kind {
+        Kind::Slope => 0.5 * label_room,
+        Kind::Range if interval.is_none() && label_room > 0.0 => dot_radius + gap + label_room,
+        _ => 0.0,
+    };
     if bottom - top <= 0.0 || right - left <= 0.0 {
         return Err(EngineError::Layout(format!("chart cell {}×{} cu leaves no room to plot", size[0], size[1])));
     }
@@ -1058,12 +1142,26 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let band = (right - left) / categories.len() as f32;
     let x_scale =
         x_extent.map(|(a, b)| LinearScale { domain: [a, if b > a { b } else { a + 1.0 }], range: [left, right] });
+    // A slope's two states stand on the plot's sides. A range's intervals of several series
+    // stand side by side in their category's band, as grouped bars do.
+    let slots = if range && interval.is_some() { series.len().max(1) } else { 1 };
     let center_of = |r: &Row| -> f32 {
         match (&x_scale, r.x) {
             (Some(s), Some(x)) => s.map(x),
             _ => {
                 let i = categories.iter().position(|(k, _)| *k == r.category).unwrap_or(0);
-                left + (i as f32 + 0.5) * band
+                if slope {
+                    return if i == 0 { left } else { right };
+                }
+                let center = left + (i as f32 + 0.5) * band;
+                match (slots, &r.series) {
+                    (1, _) | (_, None) => center,
+                    (n, Some(s)) => {
+                        let w = band * (1.0 - bar_gap);
+                        let k = series.iter().position(|x| x == s).unwrap_or(0);
+                        center - 0.5 * w + (k as f32 + 0.5) * w / n as f32
+                    }
+                }
             }
         }
     };
@@ -1220,8 +1318,14 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 (origin_y + first.baseline - r.bottom(), origin_y)
             }
             Shape::Bar(r) => (-gap, r.top() - gap - first.baseline),
+            // Under a dot, its cap height a space under the dot.
+            Shape::Dot { .. } if below => {
+                let offset = gap + cap(&text);
+                let at = ValueLabel { value: v, below: true, offset, align: 0.5, drop: 0.0, beside: 0.0 };
+                (offset, at.anchor(shape)[1] - first.baseline)
+            }
             _ => {
-                let at = ValueLabel { value: v, below: false, offset: -gap, align: 0.5, drop: 0.0 };
+                let at = ValueLabel { value: v, below: false, offset: -gap, align: 0.5, drop: 0.0, beside: 0.0 };
                 (-gap, at.anchor(shape)[1] - first.baseline)
             }
         };
@@ -1231,7 +1335,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let (from, to) = if side == 0.5 { (left, right) } else { (left - room[0], right + room[1]) };
         let x0 = (cx - side * text.width).clamp(from, (to - text.width).max(from));
         let align = if x0 == cx - side * text.width { side } else { (cx - x0) / text.width.max(f32::EPSILON) };
-        let value = ValueLabel { value: v, below, offset, align, drop: 0.0 };
+        let value = ValueLabel { value: v, below, offset, align, drop: 0.0, beside: 0.0 };
         out.labels.push(Label::new(key, [x0, origin_y], text, Some(value)));
     };
     match kind {
@@ -1294,10 +1398,13 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
         }
-        Kind::Line | Kind::Area | Kind::Dot | Kind::Scatter => {
+        Kind::Line | Kind::Area | Kind::Dot | Kind::Scatter | Kind::Slope | Kind::Range => {
             let stack_areas = kind == Kind::Area && !series.is_empty();
             let mut stacks: Vec<f64> = vec![0.0; categories.len()];
             let size_max = rows.iter().filter_map(|r| r.size).fold(0.0_f64, f64::max);
+            // A range's interval ends: marks of no datum, after the data's own, that the
+            // interval's stroke runs between and its point's value rides.
+            let mut interval_ends: Vec<Mark> = Vec::new();
             for (i, (r, value)) in rows.iter().zip(values).enumerate() {
                 let x = center_of(r);
                 let mut place = None;
@@ -1323,25 +1430,101 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         };
                         Shape::Dot { x, y: to_y(r.y), r: r_ }
                     }
-                    Kind::Dot => Shape::Dot { x, y: to_y(r.y), r: dot_radius },
+                    Kind::Dot | Kind::Range => Shape::Dot { x, y: to_y(r.y), r: dot_radius },
                     _ => Shape::Dot { x, y: to_y(r.y), r: point_radius },
                 };
-                // A line's first value ends at its point and its last begins there, away
-                // from the line, which leaves the one and comes to the other.
-                let side = match end_of(i) {
-                    Some(true) => 1.0,
-                    Some(false) => 0.0,
-                    None => 0.5,
-                };
-                label_at(&mut out, value, &r.key, &shape, x, r.y, false, side);
-                if r.projected
-                    && let Some(label) = out.labels.last_mut().filter(|l| l.key == r.key)
-                {
-                    label.noted = true;
+                if slope {
+                    // A slope's first value ends a space before its point and its second
+                    // begins a space past it, the middle of its cap height level with the
+                    // point. The second says the change, so it cross-fades.
+                    if let Some(text) = value {
+                        let first = end_of(i) == Some(true);
+                        let beside = if first { -(point_radius + gap) } else { point_radius + gap };
+                        let align = if first { 1.0 } else { 0.0 };
+                        let at = ValueLabel {
+                            value: r.y,
+                            below: false,
+                            offset: point_radius,
+                            align,
+                            drop: 0.5 * cap(&text),
+                            beside,
+                        };
+                        let [ax, baseline] = at.anchor(&shape);
+                        let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
+                        let mut label = Label::new(r.key.clone(), origin, text, Some(at));
+                        label.noted = change(r).is_some();
+                        out.labels.push(label);
+                    }
+                } else if let (true, Some([a, b])) = (range, r.span) {
+                    // A point with its interval: the interval's ends, and the point's value
+                    // over the interval's top, riding it.
+                    let (low, high) = (format!("{}\u{1f}low", r.key), format!("{}\u{1f}high", r.key));
+                    let low_end = Shape::Dot { x, y: to_y(a.min(b)), r: 0.0 };
+                    let high_end = Shape::Dot { x, y: to_y(a.max(b)), r: 0.0 };
+                    let color = color_of(r);
+                    interval_ends.push(Mark { key: low.clone(), shape: low_end, color, stack: None });
+                    interval_ends.push(Mark { key: high.clone(), shape: high_end, color, stack: None });
+                    match a.max(b) >= r.y {
+                        true => label_at(&mut out, value, &high, &high_end, x, r.y, false, 0.5),
+                        false => label_at(&mut out, value, &r.key, &shape, x, r.y, false, 0.5),
+                    }
+                    out.paths.push(SeriesPath {
+                        key: format!("{}\u{1f}interval", r.key),
+                        color,
+                        stroke: Some(line_width),
+                        // From end to end, so each ends flat: a path through the point
+                        // turned back at an end, round where it joined.
+                        marks: vec![low, high],
+                        projected: Vec::new(),
+                        dash,
+                        fade,
+                        flat: true,
+                    });
+                } else {
+                    // A line's first value ends at its point and its last begins there,
+                    // away from the line, which leaves the one and comes to the other. A
+                    // dumbbell's lowest value stands under its dot.
+                    let side = match end_of(i) {
+                        Some(true) => 1.0,
+                        Some(false) => 0.0,
+                        None => 0.5,
+                    };
+                    let below = range && interval.is_none() && {
+                        let same = (rows.iter().enumerate()).filter(|(_, o)| o.category == r.category);
+                        let lowest = same.clone().min_by(|a, b| a.1.y.total_cmp(&b.1.y)).map(|(j, _)| j);
+                        lowest == Some(i) && same.count() > 1
+                    };
+                    label_at(&mut out, value, &r.key, &shape, x, r.y, below, side);
+                    if r.projected
+                        && let Some(label) = out.labels.last_mut().filter(|l| l.key == r.key)
+                    {
+                        label.noted = true;
+                    }
                 }
                 out.marks.push(Mark { key: r.key.clone(), shape, color: color_of(r), stack: place });
             }
-            if matches!(kind, Kind::Line | Kind::Area) {
+            out.marks.extend(interval_ends);
+            // A dumbbell: each category's dots joined from the lowest to the highest.
+            if range && interval.is_none() {
+                for (category, _) in &categories {
+                    let mut members: Vec<&Row> = rows.iter().filter(|r| r.category == *category).collect();
+                    if members.len() < 2 {
+                        continue;
+                    }
+                    scaena_core::sort::by(&mut members, |a, b| a.y.total_cmp(&b.y));
+                    out.paths.push(SeriesPath {
+                        key: format!("{category}\u{1f}range"),
+                        color: axis_color,
+                        stroke: Some(line_width),
+                        marks: members.iter().map(|r| r.key.clone()).collect(),
+                        projected: Vec::new(),
+                        dash,
+                        fade,
+                        flat: false,
+                    });
+                }
+            }
+            if matches!(kind, Kind::Line | Kind::Area | Kind::Slope) {
                 let groups: Vec<Option<String>> =
                     if series.is_empty() { vec![None] } else { series.iter().cloned().map(Some).collect() };
                 for s in groups {
@@ -1350,11 +1533,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                     out.paths.push(SeriesPath {
                         key: s.unwrap_or_default(),
                         color: color_of(first),
-                        stroke: (kind == Kind::Line).then_some(line_width),
+                        stroke: (kind != Kind::Area).then_some(line_width),
                         marks: members.iter().map(|r| r.key.clone()).collect(),
                         projected: members.iter().filter(|r| r.projected).map(|r| r.key.clone()).collect(),
                         dash,
                         fade,
+                        flat: false,
                     });
                 }
             }
@@ -1448,6 +1632,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         offset: offset(cos, &text),
                         align,
                         drop: 0.5 * cap(&text),
+                        beside: 0.0,
                     };
                     let [ax, baseline] = value.anchor(&shape);
                     let origin = [ax - align * text.width, baseline - text.lines[0].baseline];
@@ -1461,6 +1646,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                         offset: offset(cos, &text),
                         align,
                         drop: 0.5 * cap(&text),
+                        beside: 0.0,
                     };
                     let [ax, baseline] = at.anchor(&shape);
                     let y = match stands {
@@ -1500,7 +1686,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         // stack's side, or a line's or an area's last point, where its end value begins,
         // and which `lead` already clears.
         let reach = |shape: &Shape| match *shape {
-            Shape::Dot { x, r, .. } if matches!(kind, Kind::Dot | Kind::Scatter) => x + r,
+            Shape::Dot { x, r, .. } if matches!(kind, Kind::Dot | Kind::Scatter | Kind::Range) => x + r,
             Shape::Bar(b) => b.x + b.w,
             other => other.center_x(),
         };
@@ -1525,7 +1711,10 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             names.push((key.clone(), color));
             placed.push(Label::new(key, origin, text, None));
         }
-        nudge(&mut placed, 0.25 * gap);
+        // A slope's names stand level with its second values, which nudge apart (below).
+        if !slope {
+            nudge(&mut placed, 0.25 * gap);
+        }
         let (high, low) =
             (placed.iter().map(ink)).fold((f32::INFINITY, f32::NEG_INFINITY), |(h, l), b| (h.min(b[1]), l.max(b[3])));
         let shift = if high < 0.0 {
@@ -1554,9 +1743,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // its band or tick but inside the plot's sides.
     let center = |i: usize| match &x_scale {
         Some(s) => x_ticks.get(i).map_or(left, |(v, _)| s.map(*v)),
+        None if slope => [left, right][i.min(1)],
         None => left + (i as f32 + 0.5) * band,
     };
-    let at = |i: usize, text: &TextLayout| (center(i) - 0.5 * text.width).clamp(left, (right - text.width).max(left));
+    // A slope's states are named under their points, inside the chart rather than the plot.
+    let (start, end) = if slope { (0.0, size[0]) } else { (left, right) };
+    let at = |i: usize, text: &TextLayout| (center(i) - 0.5 * text.width).clamp(start, (end - text.width).max(start));
     // The labels at a stride of `k` from the first, each long where its year (a time's
     // day) is not the last one kept's.
     let pick = |k: usize| -> Vec<(usize, bool)> {
@@ -1612,7 +1804,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             Some(text) => text,
             None => short,
         };
-        let origin = [at(i, &text), y_scale.range[0] + gap - text.trimmed(TextBox::Cap).0];
+        let origin = [at(i, &text), foot + gap - text.trimmed(TextBox::Cap).0];
         out.ticks.push(Label::new(key, origin, text, None));
     }
     // A value label does not cover another mark. A dot's that would goes under its dot;
@@ -1620,7 +1812,8 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // edge; one that still would hides, unless the chart asked for its values, which
     // reports it (W310).
     let apart = 0.25 * gap;
-    let collide = labels.and_then(|l| l.get("collide")).and_then(Value::as_str);
+    // A slope's values nudge apart unless the chart says otherwise: each one is read.
+    let collide = labels.and_then(|l| l.get("collide")).and_then(Value::as_str).or(slope.then_some("nudge"));
     let boxes: Vec<(String, Shape, [f32; 4])> = (out.marks.iter())
         .filter_map(|m| match m.shape {
             Shape::Dot { x, y, r } if r > 0.0 => Some((m.key.clone(), m.shape, [x - r, y - r, x + r, y + r])),
@@ -1629,7 +1822,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         })
         .collect();
     let covered = |l: &Label| -> Option<String> {
-        (boxes.iter()).find(|(k, _, b)| *k != l.key && near(ink(l), *b, apart)).map(|(k, ..)| k.clone())
+        (boxes.iter())
+            .find(|(k, _, b)| datum_key(k) != datum_key(&l.key) && near(ink(l), *b, apart))
+            .map(|(k, ..)| k.clone())
     };
     let mut covering: Vec<(String, String)> = Vec::new();
     for l in &mut out.labels {
@@ -1637,6 +1832,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         let own = boxes.iter().find(|(k, ..)| *k == l.key).map(|(_, s, _)| *s);
         if let (Some(Shape::Dot { y, r, .. }), Some(v)) = (own, l.value)
             && !v.below
+            && v.beside == 0.0
         {
             let mut under = l.clone();
             let first = &under.text.lines[0];
@@ -1685,6 +1881,24 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         Some("nudge") => nudge(&mut out.labels, apart),
         Some(other) => return Err(EngineError::Layout(format!("labels.collide `{other}`: expected hide or nudge"))),
     }
+    // A slope's names stand level with its second values as they were nudged apart, and
+    // apart from one another.
+    if slope && at_ends {
+        let mut names: Vec<Label> = out.legend.iter().map(|e| e.label.clone()).collect();
+        for (e, name) in out.legend.iter().zip(&mut names) {
+            let second = |r: &&Row| r.series.as_deref() == Some(e.key.as_str()) && r.category == categories[1].0;
+            let Some(l) = rows.iter().find(second).and_then(|r| out.labels.iter().find(|l| l.key == r.key)) else {
+                continue;
+            };
+            let middle = l.origin[1] + l.text.lines[0].baseline - 0.5 * cap(&l.text);
+            name.origin[1] = middle + 0.5 * cap(&name.text) - name.text.lines[0].baseline;
+        }
+        nudge(&mut names, apart);
+        for (e, name) in out.legend.iter_mut().zip(names) {
+            e.swatch.y += name.origin[1] - e.label.origin[1];
+            e.label.origin[1] = name.origin[1];
+        }
+    }
 
     // Annotations. An x is a category's band (its start, middle, and end), or a point
     // along a continuous x.
@@ -1703,6 +1917,11 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 let i = categories.iter().position(|(k, _)| *k == label).ok_or_else(|| {
                     EngineError::Data(format!("an annotation stands at `{label}`, no category of `{x_field}`"))
                 })?;
+                // A slope's states stand on the plot's sides.
+                if slope {
+                    let x = if i == 0 { left } else { right };
+                    return Ok([x, x, x]);
+                }
                 let start = left + i as f32 * band;
                 Ok([start, start + 0.5 * band, start + band])
             }
@@ -1980,14 +2199,16 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
             rows.iter().filter(|r| highlights.iter().any(|h| picks(h, r))).map(|r| r.key.as_str()).collect();
         let dim = |Color([r, g, b, a]): Color| Color([r, g, b, (f32::from(a) * dimmed).round() as u8]);
         let words = (1.0 + dimmed) / 2.0;
+        // A range's interval ends are lit with their point.
+        let lit_key = |k: &str| lit.contains(&datum_key(k));
         for m in &mut out.marks {
-            m.color = if lit.contains(&m.key.as_str()) { signal } else { dim(m.color) };
+            m.color = if lit_key(&m.key) { signal } else { dim(m.color) };
         }
-        for l in out.labels.iter_mut().filter(|l| !lit.contains(&l.key.as_str())) {
+        for l in out.labels.iter_mut().filter(|l| !lit_key(&l.key)) {
             l.opacity = words;
         }
         for p in &mut out.paths {
-            let picked = p.marks.iter().filter(|k| lit.contains(&k.as_str())).count();
+            let picked = p.marks.iter().filter(|k| lit_key(k)).count();
             if picked == 0 {
                 p.color = dim(p.color);
             } else if picked == p.marks.len() {
@@ -2013,6 +2234,12 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         }
     }
     Ok(out)
+}
+
+/// The datum a mark or a label is of: a range's interval ends, and the value that rides
+/// its top, are their point's (PLAN 1.30).
+pub(crate) fn datum_key(key: &str) -> &str {
+    key.strip_suffix("\u{1f}low").or_else(|| key.strip_suffix("\u{1f}high")).unwrap_or(key)
 }
 
 /// The gap `rule` leaves where it crosses text `key` (its box), `pad` clear of the text

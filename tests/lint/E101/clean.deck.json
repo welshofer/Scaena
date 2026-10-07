@@ -1,5 +1,5 @@
 {
-  "scaena": "0.14",
+  "scaena": "0.15",
   "_comment": "E101 clean: the same paragraphs in two slots; then the chart in the figure's main, rows 2–5, clear of its caption; then the stack of cards and the source note in two slots.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

@@ -93,7 +93,7 @@ Gate 1 is met and logged (2026-10-03). `docs/gate-1.md` holds the evidence per e
 - **A narrative repair.** A fresh agent repaired a narrative lint finding on the authorability deck.
 - **What the runs found.** Eight problems are fixed, and the rest are PLAN 1.33–1.36.
 
-Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.30–1.31, in order (Jay scheduled the chart forms on 2026-10-07). 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates; 1.29, where a `bar` or a `stackedBar` with `orient: horizontal` runs its bars across, its categories named down the side (`scaena_engine::charts::compile::across`); and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
+Phase 2 may start at PLAN 2.1. Phase 1's open tasks continue: 1.31, the last of the chart forms Jay scheduled on 2026-10-07. 1.9 is done (Jay approved the chart defaults), and so are 1.28, where a chart's `projected` rows run dashed and say they are estimates; 1.29, where a `bar` or a `stackedBar` with `orient: horizontal` runs its bars across, its categories named down the side (`scaena_engine::charts::compile::across`); 1.30, where `slope` compares two states, a line a series that says its change, and `range` draws a dumbbell between a category's series or each value with its `interval`; and 1.32: no chart text in the torture deck has a mark, a line, or a rule across it.
 
 ## Phase 2
 

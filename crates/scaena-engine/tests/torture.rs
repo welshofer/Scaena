@@ -34,7 +34,7 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// Case 47 adds a forecast a year on (PLAN 1.28): a year turning actual, the dash ending
 /// there from halfway. Case 49 adds transforms that move (PLAN 2.51): turns, a lean, a
 /// scale from a corner, and a frame turning what it holds, each part on its own.
-const MORPH: [(&str, f64); 21] = [
+const MORPH: [(&str, f64); 22] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -56,6 +56,7 @@ const MORPH: [(&str, f64); 21] = [
     ("transforms-next", 0.25),
     ("across-next", 0.25),
     ("across-next", 0.75),
+    ("slopes-next", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and

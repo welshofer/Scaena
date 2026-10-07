@@ -188,6 +188,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("series/field", Columns),
             ("color/field", Columns),
             ("sizeEncoding/field", Columns),
+            ("interval/low", Columns),
+            ("interval/high", Columns),
             ("key", Columns),
             ("labels/show", Schema(false)),
             ("labels/role", Names(V::TextRole, false)),
@@ -225,8 +227,13 @@ pub fn choices(
         _ => None,
     };
     let fields = own(node_type).iter().chain(&EVERY).filter_map(|&(prop, source)| {
-        // A bar chart's bars turn (PLAN 1.29); no other kind has bars to (E106).
-        if prop == "orient" && !matches!(shown.get("kind").and_then(Value::as_str), Some("bar" | "stackedBar")) {
+        // A bar chart's bars turn (PLAN 1.29), and a range's values have intervals (PLAN
+        // 1.30); no other kind has either (E106).
+        let kind = shown.get("kind").and_then(Value::as_str);
+        if prop == "orient" && !matches!(kind, Some("bar" | "stackedBar")) {
+            return None;
+        }
+        if prop.starts_with("interval/") && kind != Some("range") {
             return None;
         }
         let takes = match source {
