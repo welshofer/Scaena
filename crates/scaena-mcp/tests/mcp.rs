@@ -220,17 +220,18 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;
     assert!(read["scn"].as_str().unwrap().contains("Revenue doubled"));
 
-    // Found across the deck's texts, and replaced where each is written (PLAN 2.47): the title
-    // in `revenue`'s delta. The spine's claim is no text on a slide, and stays.
+    // Found across the deck's words, and replaced where each is written (PLAN 2.47, 2.83): the
+    // beat's claim in the spine, and the title in `revenue`'s delta.
     let found = ok(&client, "deck_find", json!({ "bundle": bundle, "find": "doubled" })).await;
-    assert_eq!(found["matches"], 1, "{found:#}");
-    assert_eq!(found["found"][0]["lives"], "/states/1/props/title/text", "{found:#}");
+    assert_eq!(found["matches"], 2, "{found:#}");
+    assert_eq!(found["found"][0]["lives"], "/spine/sections/0/beats/1/claim", "{found:#}");
+    assert_eq!(found["found"][1]["lives"], "/states/1/props/title/text", "{found:#}");
     let replaced = ok(&client, "deck_find", json!({ "bundle": bundle, "find": "doubled", "replace": "grew" })).await;
     assert_eq!(replaced["replaced"]["applied"], true, "{replaced:#}");
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;
     assert!(read["scn"].as_str().unwrap().contains("Revenue grew"), "{}", read["scn"]);
     let spine = ok(&client, "spine_read", json!({ "bundle": bundle })).await;
-    assert_eq!(spine["spine"]["sections"][0]["beats"][1]["claim"], "Revenue doubled.");
+    assert_eq!(spine["spine"]["sections"][0]["beats"][1]["claim"], "Revenue grew.");
 
     // The data, edited in place (PLAN 2.55): the source read as a sheet, a cell set, and the
     // chart reads it so: 2025-Q4's sum is 20.2 + 6.1 + 4.4.

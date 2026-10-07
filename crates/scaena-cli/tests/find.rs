@@ -1,6 +1,7 @@
-//! `scaena find` end to end (PLAN 2.47): each text the deck shows that holds what is sought,
-//! once for each place it is written, and every match replaced in one patch, written where
-//! each text lives. On a copy of the example bundle, never the example itself.
+//! `scaena find` end to end (PLAN 2.47, 2.83): each of the deck's words that hold what is sought
+//! (its texts, a node's description, a beat's claim), once for each place they are written, and
+//! every match replaced in one patch, written where each lives. On a copy of the example bundle,
+//! never the example itself.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -45,61 +46,80 @@ fn each_text_is_found_where_it_is_written_and_replaced_there_in_one_patch() {
     let path = example("replace");
     let original = std::fs::read_to_string(&path).unwrap();
 
-    // `revenue`'s title, in its own delta, and the note, in its own props: each once.
+    // The beat's claim, `revenue`'s title in its own delta, the chart's description, and the
+    // note in its own props: each once, where it is written.
     let (code, found) = find(&path, &["revenue"]);
     assert_eq!(code, 0, "{found}");
-    assert_eq!(found["matches"], 2, "{found}");
+    assert_eq!(found["matches"], 4, "{found}");
     let places: Vec<(&str, &str, &str)> = found["found"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|f| (f["node"].as_str().unwrap(), f["lives"].as_str().unwrap(), f["state"].as_str().unwrap()))
+        .map(|f| (f["kind"].as_str().unwrap(), f["lives"].as_str().unwrap(), f["state"].as_str().unwrap()))
         .collect();
     assert_eq!(
         places,
-        [("title", "/states/1/props/title/text", "revenue"), ("note", "/nodes/note/text", "revenue")],
+        [
+            ("claim", "/spine/sections/1/beats/0/claim", "revenue"),
+            ("text", "/states/1/props/title/text", "revenue"),
+            ("alt", "/nodes/rev/alt", "revenue"),
+            ("text", "/nodes/note/text", "revenue"),
+        ],
         "{found}"
     );
-    assert_eq!(found["found"][1]["text"], "Revenue in $M. Enterprise recognized on delivery.");
-    assert_eq!(found["found"][1]["matches"][0], serde_json::json!([0, 7]));
+    assert_eq!(found["found"][0]["beat"], "doubled", "{found}");
+    assert_eq!(found["found"][2]["node"], "rev", "{found}");
+    assert_eq!(found["found"][3]["text"], "Revenue in $M. Enterprise recognized on delivery.");
+    assert_eq!(found["found"][3]["matches"][0], serde_json::json!([0, 7]));
     assert!(
-        found["found"][1]["states"].as_array().unwrap().len() > 1,
+        found["found"][3]["states"].as_array().unwrap().len() > 1,
         "the note shows in more than one state: {found}"
     );
     assert!(found.get("replaced").is_none(), "nothing replaced without --replace");
 
     // Case apart, and whole words only, as asked.
-    assert_eq!(find(&path, &["revenue", "--case"]).1["matches"], 0);
+    assert_eq!(find(&path, &["revenue", "--case"]).1["matches"], 1, "the chart's description");
     assert_eq!(find(&path, &["Rev", "--words"]).1["matches"], 0);
-    assert_eq!(find(&path, &["Rev"]).1["matches"], 3, "Revenue, Revenue, and Review");
+    assert_eq!(
+        find(&path, &["Rev"]).1["matches"],
+        5,
+        "Review, and Revenue in the claim, the title, the description, and the note"
+    );
 
     // A dry run says what replacing would do, and writes nothing.
     let (code, dry) = find(&path, &["revenue", "--replace", "Income", "--dry-run"]);
     assert_eq!(code, 0, "{dry}");
     assert_eq!(dry["replaced"]["applied"], false, "{dry}");
-    assert_eq!(dry["replaced"]["patch"].as_array().unwrap().len(), 2, "{dry}");
+    assert_eq!(dry["replaced"]["patch"].as_array().unwrap().len(), 4, "{dry}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
 
-    // Replaced, each where it is written: the title in `revenue`'s delta, the note in its own.
+    // Replaced, each where it is written: the title in `revenue`'s delta, the note in its own, the
+    // claim in its beat, and the description in the chart's own props.
     let (code, replaced) = find(&path, &["revenue", "--replace", "Income"]);
     assert_eq!(code, 0, "{replaced}");
     assert_eq!(replaced["replaced"]["applied"], true, "{replaced}");
     assert_eq!(
         replaced["replaced"]["states"].as_array().unwrap().len(),
-        found["found"][1]["states"].as_array().unwrap().len()
+        found["found"][3]["states"].as_array().unwrap().len()
     );
     let after = deck(&path);
     assert_eq!(after["states"][1]["props"]["title"]["text"], "Income doubled");
     assert_eq!(after["nodes"]["note"]["text"], "Income in $M. Enterprise recognized on delivery.");
     assert_eq!(after["nodes"]["title"]["text"], "Q3 Review", "a text with no match is as it was");
+    assert_eq!(after["spine"]["sections"][1]["beats"][0]["claim"], "Income doubled year over year, and Pro drove it.");
+    assert_eq!(after["nodes"]["rev"]["alt"], "Quarterly Income by product, Q4 2025 through Q3 2026.");
     assert_eq!(find(&path, &["revenue"]).1["matches"], 0, "nothing is left to find");
     assert_eq!(scaena(&["validate", path.to_str().unwrap()]).status.code(), Some(0));
 
     // Said in words without --json.
     let out = scaena(&["find", path.to_str().unwrap(), "income"]);
     let said = String::from_utf8_lossy(&out.stdout);
-    assert!(said.starts_with("2 matches in 2 texts"), "{said}");
+    assert!(said.starts_with("4 matches in 4 places"), "{said}");
     assert!(said.contains("note in revenue") && said.contains("(/nodes/note/text)"), "{said}");
+    assert!(
+        said.contains("beat doubled's claim in revenue") && said.contains("rev's description in revenue"),
+        "{said}"
+    );
 }
 
 #[test]
