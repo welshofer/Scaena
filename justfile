@@ -212,6 +212,7 @@ web-smoke: site
     node web/new.mjs
     node web/first-deck.mjs
     node web/edit-deck.mjs
+    node web/present-deck.mjs
     node web/site.mjs
     node web/offline.mjs
     node web/a11y.mjs
