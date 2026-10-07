@@ -57,7 +57,7 @@ try {
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
-    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=${deck}`);
+    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${deck}`);
     await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
     await page.click("#tab-versions");
     await page.waitForFunction(() => window.scaena.versions.listed() === null || window.scaena.versions.listed().length > 0, null, { timeout: 60000 });

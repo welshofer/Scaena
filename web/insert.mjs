@@ -8,8 +8,8 @@
 //   shapes, and the theme's two shader presets; once a PNG is dropped into the bundle, the image.
 // - A kicker inserted where the canvas was last pressed, in the template's `kicker` slot, which
 //   nothing fills in `revenue`, fills it, and enters in `revenue`, selected: one patch, one undo.
-// - A headline inserted over the chart, whose slot is filled, takes the grid's cells about the
-//   point pressed.
+// - A headline inserted over the chart, whose slot is filled, takes the grid's cells in the room
+//   nearest the point pressed, clear of the chart (PLAN 2.79).
 // - Delete takes a node just inserted out of the deck again, and the source is as it was. On the
 //   title in `mix`, it takes the title out of `mix` alone (`-title`): `close` shows it again by its
 //   own delta.
@@ -121,14 +121,17 @@ try {
   await page.keyboard.press("Control+z");
   check(await back(original), "one undo takes the insert back");
 
-  // A headline over the chart, whose slot is filled: it takes the grid's cells about the point.
+  // A headline pressed over the chart, whose slot is filled: the chart is there, so it takes the
+  // grid's cells in the room nearest the point, clear of what lint judges it against (PLAN 2.79).
   const at = [1400, 300];
   await press(at);
   await page.selectOption("#insert", { label: "headline" });
   check(await reads("headline text role:headline"), "the headline is inserted into the source");
   check((await source()).includes('headline text role:headline "Headline" at:col('), "on the grid's cells");
   const cell = await box("headline");
-  check(Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3], `about the point pressed: ${cell}`);
+  const overlaps = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.code === "E101" && f.message.includes("`headline`")).map((f) => f.message));
+  const on = Boolean(cell) && cell[0] <= at[0] && at[0] <= cell[0] + cell[2] && cell[1] <= at[1] && at[1] <= cell[1] + cell[3];
+  check(Boolean(cell) && !on && overlaps.length === 0, `off the chart, in the room nearest the point: ${cell} · ${overlaps.join("; ") || "no overlap lint finds"}`);
 
   // Inserted, then deleted: nothing is left behind.
   await page.waitForFunction(() => window.scaena.canvas.selected() === "headline", null, { timeout: 30000 }).catch(() => {});

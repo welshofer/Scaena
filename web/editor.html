@@ -17,11 +17,17 @@
         --info: #9cc4e4;
       }
       body { margin: 0; background: var(--surface); color: var(--ink); font: 14px system-ui, sans-serif; }
-      main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); height: 100vh; }
-      #source { display: grid; grid-template-rows: minmax(0, 1fr) auto; border-right: 1px solid var(--line); min-height: 0; }
+      /* The canvas first (PLAN 2.80): the source a pane at the left that folds away, the work in the
+         middle, and the tabs at the right. Folded, the middle takes the source's room. */
+      main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(340px, 1.2fr); height: 100vh; }
+      main.folded { grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); }
+      main.folded #source { display: none; }
+      #source { display: grid; grid-template-rows: minmax(0, 1fr); border-right: 1px solid var(--line); min-height: 0; }
+      #source-toggle[aria-pressed="true"] { border-color: var(--info); }
       #code { min-height: 0; overflow: hidden; }
       #code .cm-editor { height: 100%; }
-      #problems { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
+      #problems { max-height: 22vh; flex: none; overflow: auto; border-top: 1px solid var(--line); background: var(--panel); margin: 0; padding: 4px 0; list-style: none; }
+      #problems:empty { display: none; }
       #problems li { padding: 2px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #problems li:has(button) { padding: 0; }
       #problems li button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 2px 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
@@ -32,7 +38,8 @@
       #problems .warning .code { color: var(--warning); }
       #problems .info .code { color: var(--info); }
       #problems .where { color: var(--muted); margin-left: 0.5em; }
-      aside { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+      #work, #panel { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+      #panel { border-left: 1px solid var(--line); }
       button, select, .button { font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
       button:hover, .button:hover { border-color: var(--muted); }
       a.button { text-decoration: none; }
@@ -114,7 +121,7 @@
         position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0;
         resize: none; overflow: hidden; white-space: pre; pointer-events: none; caret-color: transparent;
       }
-      aside p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      #work p, #panel p { margin: 0; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
       /* What a press on the cue's ruler shows is the state in its cue, not at rest: the canvas's
          outlines, which are where things rest, step back. */
       #preview.scrubbing #overlay svg, #preview.scrubbing #marks { visibility: hidden; }
@@ -237,7 +244,7 @@
       #look .arrange-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
       #look .arrange-buttons button { font-size: 12px; padding: 2px 6px; }
       #look .fields > label { color: var(--muted); font-size: 13px; }
-      #look .control { display: flex; gap: 4px; align-items: center; min-width: 0; }
+      #look .control { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
       #look select { min-width: 0; max-width: 100%; }
       #look input[type="number"] { width: 6em; font: inherit; font-size: 13px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
       #look input[type="color"] { width: 2em; height: 1.6em; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
@@ -254,7 +261,7 @@
       #look .reads button { font-size: 12px; padding: 0 5px; }
       #look .reads .kind { color: var(--muted); }
       .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-      #tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+      #tabs { display: flex; flex-wrap: wrap; flex: none; gap: 0 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
       /* The layers (PLAN 2.50): the state shown's nodes, topmost first, nested as they are held;
          those it does not show dimmed. */
       #layers ul { margin: 0; padding: 0; list-style: none; }
@@ -404,12 +411,12 @@
   </head>
   <body>
     <main>
-      <section id="source">
+      <section id="source" aria-label="The deck's source">
         <div id="code"></div>
-        <ul id="problems" aria-label="Problems"></ul>
       </section>
-      <aside>
+      <div id="work">
         <nav id="bundle" aria-label="Bundle">
+          <button type="button" id="source-toggle" aria-controls="source" aria-pressed="false" title="The deck's source as .scn, beside the canvas (⌘\)">Source</button>
           <button id="new-deck" title="A new deck from a theme that ships">New…</button>
           <button id="open-folder" hidden>Open folder…</button>
           <label class="button">Open .scaena…<input id="open-file" type="file" accept=".scaena" hidden /></label>
@@ -487,6 +494,9 @@
           <span id="status" role="status">loading…</span>
           <span id="offline" class="offline" hidden title="The site keeps every file it needs in this browser: it opens, plays, and edits with no network">Works offline</span>
         </p>
+        <ul id="problems" aria-label="Problems"></ul>
+      </div>
+      <aside id="panel">
         <nav id="tabs" role="tablist">
           <button role="tab" id="tab-inspector" aria-selected="true" aria-controls="inspector">Inspector</button>
           <button role="tab" id="tab-layers" aria-selected="false" aria-controls="layers">Layers</button>

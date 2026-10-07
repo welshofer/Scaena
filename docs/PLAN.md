@@ -1051,6 +1051,25 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [x] 2.81 A time axis names the year only where it changes, as a category axis of dates does (Jay, 2026-10-07: as the 2.76 walk recommended).
     - Done. A continuous time axis with no `x.format` prints its ticks short by the unit their step is (`Apr`, `Jun`) and long on the first label kept and where the year changes among those kept (`Apr 2026`, `Jan 2027`), as `DateLabels` prints a category axis's dates, now made for a unit (`DateLabels::by`); the thinning of 2.76's #166 picks long or short as it keeps every k-th. Each tick keeps its key, the date written whole, so transitions and gridlines match as they did. `a_time_axis_ticks_on_calendar_boundaries` holds a year's quarters (`Jan 2024`, `Apr`, `Jul`, `Oct`) and a new year's crossing (`Sep 2025` … `Jan 2026`, `Feb`); no golden draws a time axis.
 
+- [x] 2.78 A deck presented as a person presents one: the site's demo deck played, presented, and taken as its audience takes it, by the pages' keys, pointer, touch, and buttons alone, and what the walk finds fixed.
+    - Done. `web/present-deck.mjs` runs in `just web-smoke` and CI's wasm job, and screenshots each step into `target/present-deck/`. On the trails deck it:
+      - plays the player by →, Space, ←, End, and Home; a click, and a swipe each way; a tap and a swipe on a touch screen; the scrubber, by a click and by End; and the state picker;
+      - lets a held state go on by itself, and goes fullscreen and back;
+      - with less motion asked for, checks that going on cuts to the state at rest;
+      - opens the presenter view: its notes, the next state, and its clock; its keys and buttons steer the player, and it follows the player back;
+      - exports one HTML file from Export…, opens it from disk with the network off, and plays and reads every state in its live region;
+      - exports a PDF from Export…: a page for each slide, each page's text copying as the slide's texts read, and its outline the spine's sections. `web/pdf.mjs` reads it with Node's zlib alone, so `web/` takes no new dependency.
+
+      It found one bug, fixed with a test:
+      - **The presenter view's Home and End did nothing.** It steered the player on and back only. Now its Home and End go to the first state and the last, as the player's do (`web/player.mjs`).
+
+      What the walk raised that is no bug went to Jay as a product question: a role set in capitals copies from the PDF in capitals, while the live region reads the text as written ("ANNUAL MEETING" against "Annual meeting").
+
+- [x] 2.79 Insert and a drop find room, and a dropped picture is named after its file (Jay, 2026-10-07: as the 2.76 walk recommended).
+    - Done. Content inserted or dropped where its box would overlap what lint E101 judges it against goes to the place on the grid clear of it whose middle is nearest the pointer, and stays at the pointer where none is: `Scene::crowded` gives what stacks at `z` 0 at the root, text by its lines as set, less decorations (E101's own ink box, now `SceneNode::ink`), and `scaena_ops::inspect::inserting` takes the clear place. Shapes and shaders still land at the pointer: lint never calls them overlapping. A picture dropped from the desktop takes its file's name as its id (`Trail Head.jpg` is `trail-head`), its file still named by its SHA-256 (`Player.inserting`'s `named`). Checked by the WASM session's insert test (free ground, the chart in `revenue`'s middle, a named drop) and `web/image.mjs` (a PNG dropped on a text lands clear of its words, named `ridge`), and `web/insert.mjs` (a headline pressed on the chart goes to the room above it). The editor's module is 2,858.57 kB gzipped, 2.8 kB more.
+- [x] 2.80 The canvas first: the editor's source a pane that folds away (Jay, 2026-10-07: as the 2.76 walk recommended).
+    - Done. The editor is three columns: the source at the left, the canvas with its controls, cue, strip, and findings in the middle (`#work`), and the tabs at the right (`#panel`). The source opens folded, the canvas taking its room: at 1600 × 1000 the preview goes from about 640 px across to about 1220. `?source=open` or `folded` asks for it, else the browser keeps the last choice (`localStorage` `scaena.source`); the Source button, ⌘\, and the command palette open and fold it, and a finding that stands in the source opens it there. The findings list moved out of the source into the middle, so it stays in view folded. The first-deck walk checks the canvas-first opening and the fold; the walks that type into the source open it by the address.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
