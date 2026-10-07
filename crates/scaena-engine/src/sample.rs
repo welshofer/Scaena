@@ -197,6 +197,24 @@ impl Scene {
 }
 
 impl SceneNode {
+    /// What the node draws, as a box: text by its lines as set, a chart, a table, or an image
+    /// by its cell; a shape or a shader, nothing. What lint E101 judges, and what an insert
+    /// keeps clear of (PLAN 2.79).
+    pub fn ink(&self) -> Option<Rect> {
+        match &self.content {
+            Content::Text(placed) => {
+                let t = &placed.text;
+                let left = t.lines.iter().map(|l| l.x - l.hang).fold(f32::INFINITY, f32::min);
+                let right = t.lines.iter().map(|l| l.x + l.width + l.hang_end).fold(f32::NEG_INFINITY, f32::max);
+                (left.is_finite() && right > left)
+                    .then(|| [placed.origin[0] + left, placed.origin[1], right - left, t.height])
+            }
+            Content::Chart { cell, .. } | Content::Table { cell, .. } => Some(*cell),
+            Content::Image(image) => Some(image.rect),
+            Content::Shape(_) | Content::Shader(_) => None,
+        }
+    }
+
     /// This node's layer at `opacity`, its shader `time` seconds into the global
     /// timeline.
     fn draw(&self, dl: &mut DisplayList, opacity: f32, time: f64) -> Op {

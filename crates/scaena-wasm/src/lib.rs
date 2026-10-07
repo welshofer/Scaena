@@ -984,11 +984,29 @@ impl Session {
 
     /// The patch that inserts what [`Session::inserts`] offers `n`th in `state`, the box it
     /// starts as about `at` (canvas units, in the format shown), snapped to the theme's grid
-    /// as a drop snaps; or into the slot it fills (PLAN 2.34). Its id is new to the deck.
+    /// as a drop snaps; or into the slot it fills (PLAN 2.34). Content that would overlap what
+    /// draws there goes to the room on the grid nearest `at` (PLAN 2.79). Its id is new to the
+    /// deck, made from `named`, a dropped file's name, where there is one: `Trailhead.jpg` is
+    /// `trailhead`.
     #[cfg(feature = "editor")]
-    pub fn inserting(&mut self, state: &str, n: usize, at: [f32; 2]) -> Result<scaena_ops::inspect::Added, Error> {
-        let (insert, room) = self.room(state, n)?;
-        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at).map_err(|e| Error::Deck(e.to_string()))
+    pub fn inserting(
+        &mut self,
+        state: &str,
+        n: usize,
+        at: [f32; 2],
+        named: Option<&str>,
+    ) -> Result<scaena_ops::inspect::Added, Error> {
+        let (insert, room) = self.room(state, n, named)?;
+        // What lint E101 would judge it against: a decoration lies anywhere.
+        let snaps = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
+        let decorations: Vec<String> = (snaps.iter().find(|s| s.state_id == state).into_iter())
+            .flat_map(|s| &s.nodes)
+            .filter(|(_, props)| props.get("semantic").and_then(serde_json::Value::as_str) == Some("decoration"))
+            .map(|(id, _)| id.clone())
+            .collect();
+        let crowded = self.at_rest(state)?.crowded(|id| decorations.iter().any(|d| d == id));
+        scaena_ops::inspect::inserting(&self.deck, &room, &insert, state, at, &crowded)
+            .map_err(|e| Error::Deck(e.to_string()))
     }
 
     /// The patch that draws what [`Session::inserts`] offers `n`th in `state`, in the box a drag
@@ -1003,23 +1021,27 @@ impl Session {
         drag: [[f32; 2]; 2],
         free: bool,
     ) -> Result<scaena_ops::inspect::Added, Error> {
-        let (insert, room) = self.room(state, n)?;
+        let (insert, room) = self.room(state, n, None)?;
         scaena_ops::inspect::drawing(&self.deck, &room, &insert, state, drag, free)
             .map_err(|e| Error::Deck(e.to_string()))
     }
 
     /// What is offered `n`th, and where it may go in `state` under an id new to the deck, the
-    /// box it starts as its cell.
+    /// box it starts as its cell: the id made from `named`, a file's name less its extension,
+    /// where there is one, else the one offered.
     #[cfg(feature = "editor")]
     fn room(
         &mut self,
         state: &str,
         n: usize,
+        named: Option<&str>,
     ) -> Result<(scaena_core::inserts::Insert, scaena_engine::geometry::Targets), Error> {
-        use scaena_core::inserts::{Start, fresh};
+        use scaena_core::inserts::{Start, fresh, slug};
         let offered = self.inserts().into_iter().nth(n);
         let insert = offered.ok_or_else(|| Error::Ops(format!("nothing is offered at {n}")))?;
-        let id = fresh(&self.deck, &insert.id);
+        let kind = insert.node["type"].as_str().unwrap_or("node");
+        let stem = named.map(|name| std::path::Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or(name));
+        let id = fresh(&self.deck, &stem.map_or_else(|| insert.id.clone(), |stem| slug(stem, kind)));
         let share = match insert.start {
             Start::Box { w, h } => [w, h],
             Start::Slot(_) => [1.0, 1.0],
@@ -1963,9 +1985,17 @@ impl Player {
     }
 
     /// The patch that inserts what `inserts` offers `n`th in `state`, about `x`, `y` (canvas
-    /// units), as JSON: `{ id, cell, patch }` (PLAN 2.34).
-    pub fn inserting(&mut self, state: &str, n: usize, x: f32, y: f32) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.inserting(state, n, [x, y]).map_err(js)?).map_err(js)
+    /// units), or in the room nearest it where that is taken (PLAN 2.79), as JSON: `{ id, cell,
+    /// patch }` (PLAN 2.34). `named`, a dropped file's name, names it.
+    pub fn inserting(
+        &mut self,
+        state: &str,
+        n: usize,
+        x: f32,
+        y: f32,
+        named: Option<String>,
+    ) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.inserting(state, n, [x, y], named.as_deref()).map_err(js)?).map_err(js)
     }
 
     /// The patch that draws what `inserts` offers `n`th in `state`, in the box a drag from `x0`,
@@ -3361,13 +3391,24 @@ mod tests {
             s.boxes(state).unwrap().into_iter().find(|b| b.node == node).map(|b| b.rect)
         };
 
-        // A headline about the middle of the canvas, in `revenue`.
-        let added = s.inserting("revenue", n("Text · headline"), [960.0, 540.0]).unwrap();
+        // On free ground, a headline lands where the pointer is: under `close`'s title.
+        let free = s.inserting("close", n("Text · headline"), [960.0, 900.0], None).unwrap();
+        assert!(within(free.cell, [960.0, 900.0]), "{:?}", free.cell);
+
+        // On the chart in the middle of `revenue`, it goes to the room on the grid nearest the
+        // pointer, clear of what draws there as lint E101 judges it (PLAN 2.79).
+        let crowded = s.at_rest("revenue").unwrap().crowded(|_| false);
+        let added = s.inserting("revenue", n("Text · headline"), [960.0, 540.0], None).unwrap();
         assert_eq!(added.id, "headline");
         let ops: Vec<&str> = added.patch.iter().map(|op| op["op"].as_str().unwrap()).collect();
         assert_eq!(ops, ["add_node", "place"]);
         assert_eq!(added.patch[0]["state"], "revenue", "it enters in the state shown");
-        assert!(within(added.cell, [960.0, 540.0]), "{:?}", added.cell);
+        let apart = |c: [f32; 4], o: [f32; 4]| {
+            (c[0] + c[2]).min(o[0] + o[2]) - c[0].max(o[0]) <= 2.0
+                || (c[1] + c[3]).min(o[1] + o[3]) - c[1].max(o[1]) <= 2.0
+        };
+        assert!(crowded.iter().all(|o| apart(added.cell, *o)), "{:?} clear of {crowded:?}", added.cell);
+        assert!(!within(added.cell, [960.0, 540.0]), "off the chart: {:?}", added.cell);
         s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
         assert_eq!(stands(&mut s, "revenue", "headline"), Some(added.cell));
         assert_eq!(stands(&mut s, "intro", "headline"), None, "nor before it");
@@ -3392,22 +3433,39 @@ mod tests {
         let slots = s.targets("close", "title").unwrap().slots.clone();
         let (_, sub) = slots.iter().find(|(name, _)| name == "subtitle").unwrap();
         let middle = [sub[0] + sub[2] / 2.0, sub[1] + sub[3] / 2.0];
-        let lede = s.inserting("close", n("Text · lede"), middle).unwrap();
+        let lede = s.inserting("close", n("Text · lede"), middle, None).unwrap();
         assert_eq!(lede.cell, *sub);
         assert_eq!(lede.patch[1]["at"], serde_json::json!({ "in": "subtitle" }), "{:?}", lede.patch);
         // Where a slot is filled, it takes the grid's cells: `title` fills `close`'s title slot.
         let (_, title) = slots.iter().find(|(name, _)| name == "title").unwrap();
-        let over =
-            s.inserting("close", n("Text · lede"), [title[0] + title[2] / 2.0, title[1] + title[3] / 2.0]).unwrap();
+        let over = s
+            .inserting("close", n("Text · lede"), [title[0] + title[2] / 2.0, title[1] + title[3] / 2.0], None)
+            .unwrap();
         assert!(over.patch[1]["at"].get("in").is_none(), "{:?}", over.patch);
 
         // A shader preset fills the canvas, under what is there.
-        let shader = s.inserting("revenue", n("Shader · texture"), [10.0, 10.0]).unwrap();
+        let shader = s.inserting("revenue", n("Shader · texture"), [10.0, 10.0], None).unwrap();
         assert_eq!(shader.cell, [0.0, 0.0, 1920.0, 1080.0]);
         assert_eq!(shader.patch[0]["node"]["z"], -1);
         s.tool("deck_patch", serde_json::json!({ "ops": shader.patch }), by).unwrap();
         let topmost = s.hit("revenue", [960.0, 540.0]).unwrap();
         assert_ne!(topmost.first().map(|h| h.node.as_str()), Some("texture"), "it draws under the rest");
+
+        // A photo dropped from the desktop is named after its file; its file keeps the name its
+        // bytes give it (PLAN 2.79).
+        let photo = std::fs::read("../../docs/examples/agent-run/dusk.jpg").unwrap();
+        let path = Player::place("Trail Head.jpg", &photo);
+        s.add_file(&path, photo);
+        let offered = s.inserts();
+        let image = offered.iter().position(|i| i.node["src"] == path.as_str()).expect("the photo offered");
+        let dropped = s.inserting("close", image, [960.0, 900.0], Some("Trail Head.jpg")).unwrap();
+        assert_eq!(dropped.id, "trail-head");
+        assert_eq!(dropped.patch[0]["node"]["src"], path.as_str());
+        assert_eq!(
+            s.inserting("close", image, [960.0, 900.0], None).unwrap().id,
+            offered[image].id,
+            "a click names it as offered"
+        );
     }
 
     /// A drag draws what is offered over the cells it covers, each edge on the nearest track's as
@@ -3500,7 +3558,7 @@ mod tests {
 
         // A headline inserted in `revenue`, deleted there: no state shows it, so it goes.
         let n = s.inserts().iter().position(|i| i.label == "Text · headline").unwrap();
-        let added = s.inserting("revenue", n, [960.0, 540.0]).unwrap();
+        let added = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
         s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by).unwrap();
         let delete = s.deleting("revenue", "headline", false).unwrap();
         assert_eq!(ops(&delete), [r#"remove_node "headline""#]);
@@ -3948,7 +4006,7 @@ mod tests {
         let offered = s.inserts();
         let n = offered.iter().position(|i| i.label == "Chart · q3").expect("a chart of each source");
         assert!(offered.iter().any(|i| i.label == "Table · q3"));
-        let added = s.inserting("revenue", n, [960.0, 540.0]).unwrap();
+        let added = s.inserting("revenue", n, [960.0, 540.0], None).unwrap();
         assert_eq!(added.id, "q3-chart");
         applied(&mut s, json!(added.patch));
         assert_eq!(field(&s, "series/field").value, Some(json!("product")));
@@ -3999,7 +4057,8 @@ mod tests {
         assert!(offered.iter().any(|i| i.node["type"] == "chart"), "a chart of a data source (PLAN 2.41)");
         assert!(offered.iter().any(|i| i.node["type"] == "table"), "and a table");
         for (n, insert) in offered.iter().enumerate() {
-            let added = s.inserting("axes", n, [700.0, 400.0]).unwrap_or_else(|e| panic!("{}: {e}", insert.label));
+            let added =
+                s.inserting("axes", n, [700.0, 400.0], None).unwrap_or_else(|e| panic!("{}: {e}", insert.label));
             let made = s.typed(&serde_json::json!(added.patch), None);
             assert!(made.unwrap_or_else(|e| panic!("{}: {e}", insert.label)), "{}: the deck took it", insert.label);
             assert!(s.deck.nodes.contains_key(&added.id), "{}", insert.label);

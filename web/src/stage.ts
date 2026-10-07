@@ -638,8 +638,8 @@ export class Stage {
 
   /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
-  inserting(source: string, state: string, n: number, at: [number, number], format?: string): Promise<Added> {
-    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format }).then(({ added }) => added);
+  inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string): Promise<Added> {
+    return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named }).then(({ added }) => added);
   }
 
   /** The patch that draws what `inserts` offers `n`th, entering in `state`, in the box a drag
