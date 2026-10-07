@@ -21,7 +21,7 @@ Five facts frame the choice:
    - The cell is written by `format`: a number format for a number column, a date format for a date column. Without one it is written as a chart writes a category.
 2. **The run's `text` is the figure as last set.** The engine draws `text`; nothing in a frame reads data for a quote. A quote is a pointer, and the deck still says what it shows.
 3. **Every write sets the figures again.** After a patch or a data edit, `scaena-ops` works out each quote's value from the bundle as the write leaves it, and writes each figure that differs into the same change. The patch the operation reports includes these edits.
-   - A beat's `claim` is written in the same change, where it holds the old figure as a word and its states show the text.
+   - A beat's `claim` is written in the same change, where it holds the old figure as a word and its states show the text. The old figure is one the same quote gave: words a patch first makes a quote were no figure, and a claim that says them keeps them (PLAN 2.77).
    - A quote set by `style_text` is filled in this way too: the op names the quote, and the write sets its figure.
 4. **Lint W427 flags a figure the data no longer gives.** That happens when a file changed on disk, or `deck.json` was edited by hand. It flags the quoted run, and each claim of a beat that shows it and holds the old figure. Each finding comes with the patch that sets the figure, which `lint --fix` applies.
 5. **Bad references are validation errors:**

@@ -348,6 +348,10 @@ jobs:
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
       - run: node web/site.mjs
+      # A deck edited as a person edits one, the site's demo deck by the editor's buttons, menus,
+      # keys, and drops alone: re-themed, rearranged, restyled, its data and words changed,
+      # rehearsed, presented, and exported (PLAN 2.77). It reads the site built above.
+      - run: node web/edit-deck.mjs
       # The site installed, then used with no network: its service worker keeps every file (PLAN 2.73).
       - run: node web/offline.mjs
       # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
@@ -367,6 +371,7 @@ jobs:
             target/wasm-smoke/
             target/web-smoke/
             target/first-deck/
+            target/edit-deck/
           if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest

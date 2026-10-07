@@ -13,6 +13,8 @@
 // - + Slide adds an empty slide after `revenue`'s slide, after `mix`, in its layout. Alt with an
 //   arrow key moves it, and so does a drag; Delete removes it, and the source is as it was.
 // - F2 renames a state; a state another builds on is not removed, and the status says why.
+// - The state shown, renamed and taken away, leaves no error on the page, and ⌘Z and ⇧⌘Z with the
+//   strip focused undo and redo (PLAN 2.77).
 // Exits 1 on any failure.
 import { launch, serve } from "./serve.mjs";
 
@@ -195,6 +197,28 @@ try {
   check(await says("not made"), `revenue, which mix builds on, stays: ${await status()}`);
   check(await holds(["intro", "revenue", "mix", "close"]), "the strip as it was");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // The state shown, renamed then taken away, from the strip: what the canvas was asking of it
+  // lets go, with no error on the page; and ⌘Z with the strip focused undoes each (PLAN 2.77).
+  await item("close").click();
+  check(await shows(3), "close shown");
+  await page.keyboard.press("F2");
+  await page.keyboard.press("Control+a");
+  await page.keyboard.type("end");
+  await page.keyboard.press("Enter");
+  check(await holds(["intro", "revenue", "mix", "end"]), `the state shown renamed: ${await order()}`);
+  await item("end").focus();
+  await page.keyboard.press("Delete");
+  check(await holds(["intro", "revenue", "mix"]), `and taken away: ${await order()}`);
+  await page.waitForTimeout(1500);
+  check(!failures.some((f) => f.includes("unknown state")), "the page asks nothing of the state it took away");
+  await item("mix").focus();
+  await page.keyboard.press("Control+z");
+  check(await holds(["intro", "revenue", "mix", "end"]), `⌘Z in the strip puts it back: ${await order()}`);
+  await page.keyboard.press("Control+z");
+  check(await back(original), "and again, the name it had");
+  await page.keyboard.press("Control+Shift+z");
+  check(await holds(["intro", "revenue", "mix", "end"]), `⇧⌘Z in the strip makes the rename again: ${await order()}`);
 } finally {
   await browser.close();
   await server.close();

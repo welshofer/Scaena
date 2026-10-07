@@ -799,6 +799,21 @@ async function edit(source: Source) {
     apply: made,
     say,
   });
+  // ⌘Z, ⇧⌘Z, and ⌘Y where nothing on the page takes them itself (PLAN 2.77): the strip, the layers,
+  // the inspector's choices, a button. A field keeps its own typing's undo; the source, the canvas,
+  // the text typed in, the Data tab, and the Files tab answer them first.
+  document.addEventListener("keydown", (e) => {
+    if (e.defaultPrevented || !(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key !== "z" && key !== "y") return;
+    const at = e.target instanceof Element ? e.target : null;
+    if (at?.closest('input, textarea, [contenteditable="true"], .cm-editor, #overlay, #data, #files')) return;
+    e.preventDefault();
+    if (assisting) return say("the assistant is working on the deck: undo once it is done");
+    if (key === "y" || e.shiftKey) {
+      if (redo(view)) forceLinting(view);
+    } else if (undo(view)) forceLinting(view);
+  });
   /** What may be inserted (PLAN 2.34), grouped by type, as the deck offers it: asked again after
    * each edit, since the theme and the bundle's images change. */
   const inserter = $<HTMLSelectElement>("#insert");

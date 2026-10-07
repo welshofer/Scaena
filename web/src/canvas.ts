@@ -622,7 +622,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (!shown) return;
     const [was, format] = [size, editor.format()];
     const ruling = ruled ? stage.grid(format).catch(() => undefined) : undefined;
-    ({ boxes, size } = await stage.boxes(shown.state, format));
+    // A state renamed or taken away while its boxes were asked for (PLAN 2.77): the edit that did it
+    // asks again, for the state shown now.
+    try {
+      ({ boxes, size } = await stage.boxes(shown.state, format));
+    } catch (e) {
+      if (/^unknown state /.test(said(e))) return;
+      throw e;
+    }
     if (ruling) grid = await ruling;
     boxed = shown.state;
     // Another format, laid out again, or another canvas: the preview shows all of it again.

@@ -1029,6 +1029,26 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [x] 2.76 A first deck as a person makes one: the editor walked from New to a deck that plays and exports, by its buttons, menus, keys, and drops alone, and what the walk finds fixed.
     - *Done. `web/first-deck.mjs`, in `just web-smoke` and CI's wasm job, makes a title slide and a bulleted slide, drops a CSV and a photo on the slide, adds a motion, lints, saves, plays, exports a PDF and one HTML file, downloads the `.scaena`, and opens it again, screenshotting each step into `target/first-deck/`. On `main` at 4e14980 it found the two drops a person tries first doing nothing: a photo dropped on the slide only took an image's place, and no gesture made a data file a data source. Now a picture dropped elsewhere on the canvas is inserted there, and a CSV or JSON file becomes a data source as `data_attach` declares it (`Player.attaching`, SPEC §9.2), with a chart of it where it was dropped. The same file dropped again is the source that reads it, and other rows under a name the bundle holds go beside it (`data/visits-2.csv`), where a drop on the source replaces the file. In CI it found a state shown from the strip just after an edit on the canvas taken back about 150 ms later: the lint of the edited source takes the patch's own result, which names the state shown when the patch was made, and took a move since for none. Now the result keeps how many states had been shown when it was made, and a state shown since stays (`web/strip.mjs`). The editor's module is 2,856.21 kB gzipped, 6.9 kB more.*
 
+- [x] 2.77 A deck edited as a person edits one: the site's demo deck walked in the editor by its buttons, menus, keys, and drops alone, and what the walk finds fixed.
+    - Done. `web/edit-deck.mjs` runs in `just web-smoke` and CI's wasm job, and screenshots each step into `target/edit-deck/`. It walks the trails deck:
+      - re-themes it in Daybreak and back;
+      - in the strip, moves a slide, renames one, deletes one, and undoes the delete;
+      - gives a text another role and color from the inspector;
+      - sets a cell in the Data tab, and the chart is drawn again;
+      - quotes a figure into a title;
+      - replaces a word across the deck with ⌘F;
+      - checks the formats;
+      - rehearses two slides and keeps their times;
+      - presents, with the presenter view steering the player;
+      - exports a PDF and downloads the `.scaena`.
+
+      It found three bugs, each fixed with a test:
+      - **⌘Z was dead outside the source, the canvas, the text typed in, and the Data and Files tabs.** With the strip focused, a deleted slide could not be undone. ⌘Z, ⇧⌘Z, and ⌘Y now undo and redo wherever nothing else takes them, a field keeping its own typing (`web/strip.mjs`).
+      - **Renaming or deleting the state shown threw "unknown state" on the page.** The canvas's refresh asked for that state's boxes as it went. It now lets the answer go, and the edit's own refresh asks again (`web/strip.mjs`).
+      - **Quoting a cell over words rewrote a beat's claim that said those words** (ADR-0019). A claim now follows only a figure the same quote gave before (`crates/scaena-core/tests/patch.rs`).
+
+      What the walk raised that is no bug went to Jay as product questions: find and replace searches only texts, not notes, claims, or descriptions; and the trails deck lists no formats, so the site's demo shows no 9:16. The editor's engine module is 2,855.76 kB gzipped, as Vite reports it.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
