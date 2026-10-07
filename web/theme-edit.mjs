@@ -38,7 +38,7 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
-  await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/${bundle}/deck.json`);
+  await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/${bundle}/deck.json`);
   await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
   // The revenue state, its chart and its headline on the theme's paper.
   await page.selectOption("#state", "revenue");
