@@ -376,14 +376,7 @@ impl Rule for W302Fixed {
             return vec![];
         }
         // The formats the deck lays out anew: each one but its own canvas's shape.
-        let own = [cx.deck.canvas.width, cx.deck.canvas.height];
-        let others: Vec<&str> = cx
-            .deck
-            .formats
-            .iter()
-            .filter(|f| crate::model::Format::parse(f).is_some_and(|f| f.canvas(own) != own))
-            .map(String::as_str)
-            .collect();
+        let others = cx.deck.anew();
         let mut seen = BTreeSet::new();
         let mut out = Vec::new();
         for (i, snap) in cx.snapshots.iter().enumerate() {

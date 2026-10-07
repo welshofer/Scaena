@@ -1107,6 +1107,13 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - The editor's menus offer "Place anew in this format" for a node with no layout of its own in the format shown; it copies the node's placement there.
     - Tests: `crates/scaena-core/tests/patch.rs`, the WASM session's drag in 9:16 (`a_drag_in_a_format_moves_its_node_there_alone`), and the edit-deck walk, which moves the trails title in 9:16 and finds it where it stood in 16:9, and places the budget's note anew in 9:16.
 
+- [x] 2.86 A copy stands clear of its node in each of the deck's formats, and a paste brings no layout the deck cannot show.
+    - Done (ADR-0020). Probing what 2.84 and 2.85 left beside them found two faults:
+      - **⌘D put the copy on its node in every format but the one shown.** The copy took the node's layouts in its formats with it, and was placed only in the format shown. Now `Session::duplicating` places it in each format the node lays out in: the one shown, the deck's own canvas, and each with a layout of its own there, each clear of the rest where there is room. In trails, `budget-why` duplicated in 9:16 went beside itself there and onto itself in 16:9; now it stands clear in both.
+      - **A paste kept the placements the clip had in its formats.** Pasted into its own deck in 9:16, the copy landed on the node it came from; pasted into a deck that lists no 9:16, it brought a layout the deck refuses. Now a pasted node keeps a layout only for a format the deck lays out anew, less its placement there, so it goes where it is pasted in each (`scaena_ops::inspect::copied_layouts`). A node held by a container is held by the container's copy in its formats' layouts too.
+    - `Deck::anew` names the formats a deck lays out anew, for W302 and the copies.
+    - Tests: the WASM session's `a_copy_stands_clear_of_its_node_in_every_format`, and the edit-deck walk, which presses ⌘D in 9:16 and finds the copy clear there and on the deck's own canvas.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

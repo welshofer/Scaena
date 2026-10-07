@@ -1055,9 +1055,38 @@ impl Session {
     }
 
     /// The patch that copies `node`, as `state` shows it, with what it holds there, beside it
-    /// under an id new to the deck, clear of the rest where there is room (PLAN 2.34).
+    /// under an id new to the deck, clear of the rest where there is room (PLAN 2.34): in the
+    /// format shown, and in each other the node lays out in, its own canvas and each format
+    /// where it has a layout of its own (ADR-0020), so the copy stands on it in none.
     #[cfg(feature = "editor")]
     pub fn duplicating(&mut self, state: &str, node: &str) -> Result<scaena_ops::inspect::Added, Error> {
+        let mut added = self.duplicating_here(state, node)?;
+        let shown = self.format.clone();
+        let anew: Vec<Option<String>> = (self.deck.nodes.get(node))
+            .and_then(|n| n.props.get("formats"))
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|f| f.keys())
+            .filter(|f| self.deck.anew().contains(&f.as_str()) && Some(*f) != shown.as_ref())
+            .map(|f| Some(f.clone()))
+            .collect();
+        let elsewhere = shown.is_some().then_some(None).into_iter().chain(anew);
+        let there = || -> Result<(), Error> {
+            for format in elsewhere {
+                self.set_format(format.as_deref())?;
+                let placed = self.duplicating_here(state, node)?.patch.into_iter();
+                added.patch.extend(placed.filter(|op| op["op"] == "place" && op["node"] == added.id.as_str()));
+            }
+            Ok(())
+        };
+        let done = there();
+        self.set_format(shown.as_deref())?;
+        done.map(|()| added)
+    }
+
+    /// [`Session::duplicating`] in the format shown alone.
+    #[cfg(feature = "editor")]
+    fn duplicating_here(&mut self, state: &str, node: &str) -> Result<scaena_ops::inspect::Added, Error> {
         let mut found = self.targets(state, node)?.clone();
         found.node = scaena_core::inserts::fresh(&self.deck, node);
         let boxes = self.boxes(state)?;
@@ -2959,12 +2988,8 @@ mod tests {
         assert!(s.targets("containers", "title").is_err());
     }
 
-    /// In a format where a node lays out anew, a drag writes its layout there, and the deck's
-    /// own canvas keeps it where it stood (ADR-0020, PLAN 2.85).
-    #[cfg(feature = "editor")]
-    #[test]
-    fn a_drag_in_a_format_moves_its_node_there_alone() {
-        use scaena_ops::inspect::SnapMode;
+    /// The trails example, the site's demo deck, its files handed over as a page hands them.
+    fn trails() -> Session {
         let dir = "../../docs/examples";
         let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
         let mut s = Session::new(&read("trails.deck.json"), &read("themes/dusk.theme.json")).unwrap();
@@ -2985,6 +3010,52 @@ mod tests {
         for path in s.image_files() {
             s.add_file(&path, std::fs::read(format!("{dir}/{path}")).unwrap());
         }
+        s
+    }
+
+    /// A copy, duplicated in a format or on the deck's own canvas, stands clear of its node in
+    /// each the node lays out in; a paste brings a layout only for a format the deck lays out
+    /// anew, and goes where it is put in each (ADR-0020, PLAN 2.86).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_copy_stands_clear_of_its_node_in_every_format() {
+        let by = || assistant::Caller { author: "user", at: None };
+        let rect =
+            |s: &mut Session, n: &str| s.boxes("budget").unwrap().into_iter().find(|b| b.node == n).unwrap().rect;
+        let apart = |a: [f32; 4], b: [f32; 4]| {
+            a[0] >= b[0] + b[2] || b[0] >= a[0] + a[2] || a[1] >= b[1] + b[3] || b[1] >= a[1] + a[3]
+        };
+        for shown in [Some("9:16"), None] {
+            let mut s = trails();
+            s.set_format(shown).unwrap();
+            let added = s.duplicating("budget", "budget-why").unwrap();
+            s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by()).unwrap();
+            for format in [Some("9:16"), None] {
+                s.set_format(format).unwrap();
+                let (node, copy) = (rect(&mut s, "budget-why"), rect(&mut s, &added.id));
+                assert!(apart(node, copy), "duplicated in {shown:?}, in {format:?}: {node:?} and {copy:?}");
+            }
+        }
+        // Into a deck that lays nothing out anew, the copy brings no layout.
+        let mut s = trails();
+        let clip = s.copying("budget", &["budget-why"]).unwrap();
+        let mut r = revenue();
+        let pasted = r.pasting(&clip, "intro", [400.0, 400.0]).unwrap();
+        assert!(!serde_json::to_string(&pasted.patch).unwrap().contains("formats"), "{:?}", pasted.patch);
+        // Into its own deck, shown in 9:16, it goes where it is put there too.
+        s.set_format(Some("9:16")).unwrap();
+        let pasted = s.pasting(&clip, "budget", [540.0, 300.0]).unwrap();
+        s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by()).unwrap();
+        assert!(rect(&mut s, &pasted.id) != rect(&mut s, "budget-why"));
+    }
+
+    /// In a format where a node lays out anew, a drag writes its layout there, and the deck's
+    /// own canvas keeps it where it stood (ADR-0020, PLAN 2.85).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_in_a_format_moves_its_node_there_alone() {
+        use scaena_ops::inspect::SnapMode;
+        let mut s = trails();
         let own = s.targets("process", "process-title").unwrap().cell;
         s.set_format(Some("9:16")).unwrap();
         let found = s.targets("process", "process-title").unwrap().clone();

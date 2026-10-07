@@ -14,7 +14,8 @@
 // - ⌘F finds a word across the deck, and Replace All replaces every match.
 // - The deck in 9:16 from the format picker: the process slide's steps one above another, and
 //   nothing for lint there (PLAN 2.84). A node moved there moves there alone, and the right-click
-//   menu places another anew there (PLAN 2.85).
+//   menu places another anew there (PLAN 2.85). ⌘D there puts a copy clear of its node in 9:16
+//   and on the deck's own canvas (PLAN 2.86).
 // - Rehearse plays two slides, and Keep makes their times holds.
 // - Play, then the presenter view, which goes on and the player with it.
 // - Export… gives a PDF, and Download the .scaena.
@@ -332,8 +333,27 @@ try {
     const after = await menu("budget-note");
     await page.keyboard.press("Escape");
     check(!after.includes("Place anew in this format") && /budget-note[\s\S]*?formats:\{"9:16"/.test(await source()), `and then has a layout of its own there: ${await status()}`);
+    // ⌘D on a node with a layout of its own in 9:16 puts the copy clear of it in 9:16, and on
+    // the deck's own canvas too (PLAN 2.86).
+    const apart = (a, b) => a[0] >= b[0] + b[2] || b[0] >= a[0] + a[2] || a[1] >= b[1] + b[3] || b[1] >= a[1] + a[3];
+    const [wx, wy] = await middleOf("budget-why");
+    await page.mouse.click(wx, wy);
+    await until("budget-why selected", () => window.scaena.canvas.selected() === "budget-why");
+    const unduplicated = await source();
+    at = await mark();
+    await page.keyboard.press("Control+d");
+    await changed(at, "the copy made");
+    await until("the copy selected", () => window.scaena.canvas.selected()?.startsWith("budget-why-"));
+    const copy = await page.evaluate(() => window.scaena.canvas.selected());
+    const tallApart = apart(await box("budget-why"), await box(copy));
     await page.selectOption("#format", "");
     await until("the deck's own canvas again", () => window.scaena.canvas.size()[0] === 1920);
+    await show("budget");
+    await until("the copy on the deck's own canvas", (c) => window.scaena.canvas.boxes().some((b) => b.node === c), copy);
+    check(tallApart && apart(await box("budget-why"), await box(copy)), `⌘D in 9:16 puts ${copy} clear of budget-why there and on the deck's own canvas`);
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    check(await back(unduplicated), "and ⌘Z takes the copy away");
     await show("process");
     const own = await box("process-title");
     check(JSON.stringify(own) === JSON.stringify(ownTitle), `on the deck's own canvas the title stands where it stood: ${JSON.stringify(own)}`);
