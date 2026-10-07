@@ -14,7 +14,7 @@
 //   same state and time.
 // - A click goes on; a swipe either way goes on or back.
 // - The presenter view follows the player, shows the state's notes (its beat's, where it has
-//   none), and steers it.
+//   none), and steers it: on, back, and with End and Home to the last and the first.
 // - With `?fps`, the frame meter reads a played cue's frames: frames a second, the worst frame,
 //   late frames, and the mean paint (gate 2, criterion 1).
 // Exits 1 on any failure.
@@ -134,6 +134,13 @@ try {
     .waitForFunction((want) => window.scaena.follows() === want, follows(2), { timeout: 15000 })
     .then(() => true, () => false);
   check(followedOn && (await presenter.textContent("#notes")) === notes(2), `and follows it there, with ${states[2]}'s notes`);
+  // Its End and Home, as the player's own: at once, sooner than the holds would go there.
+  await presenter.keyboard.press("End");
+  at = await until(player, (last) => window.scaena.at().index === last, "the presenter view's End", slots.length - 1, 2000);
+  check(at.index === slots.length - 1, `its End steers the player to ${states.at(-1)}`);
+  await presenter.keyboard.press("Home");
+  at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
+  check(at.index === 0, `and its Home to ${states[0]}`);
   await presenter.close();
 
   // Fullscreen: F asks for it.
