@@ -14,7 +14,7 @@
 //!   refused for it. A text keeps a role: one the theme lacks gives way to the role every
 //!   theme has that was nearest it in size where it was copied from.
 
-use crate::inspect::{empty_slot, free_id, held};
+use crate::inspect::{copied_layouts, empty_slot, free_id, held};
 use crate::{Context, OpsError};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -395,6 +395,7 @@ pub fn pasting(
         if let Some(to) = props.get("src").and_then(Value::as_str).and_then(|src| moved.get(src)) {
             props.insert("src".into(), Value::String(to.clone()));
         }
+        copied_layouts(&mut props, deck, &ids, root(id));
         nodes.insert(ids[id].clone(), props);
     }
     let mut overrides: IndexMap<String, Value> =

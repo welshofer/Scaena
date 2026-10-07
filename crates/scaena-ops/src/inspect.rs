@@ -1030,6 +1030,7 @@ pub fn duplicating(
         if let (Some(parent), Some(Value::Object(at))) = (parent.cloned(), props.get_mut("at")) {
             at.insert("parent".into(), Value::String(parent));
         }
+        copied_layouts(&mut props, deck, &ids, false);
         let node_value = serde_json::from_value(Value::Object(props)).context("a copied node")?;
         ops.push(SemanticOp::AddNode { id: copy.clone(), node: node_value, state: Some(state.into()), props: None });
     }
@@ -1059,6 +1060,35 @@ pub fn duplicating(
     ops.extend(target.iter().flat_map(|t| t.ops(Some(state), false)));
     let patch = ops.iter().map(serde_json::to_value).collect::<Result<_, _>>().context("a patch")?;
     Ok(Added { id: found.node.clone(), cell: target.map_or(found.cell, |t| t.cell), patch })
+}
+
+/// A copy's layouts in the deck's formats (ADR-0020), from the props it was copied with: only
+/// those `deck` lays out anew, each held by the copy of what held it there (`ids`). `placed`,
+/// the copy goes where it is put, in every format, so its placements there go too; what else
+/// it lays out by there (a container's tracks, a text's lines) stays.
+pub(crate) fn copied_layouts(
+    props: &mut serde_json::Map<String, Value>,
+    deck: &Deck,
+    ids: &IndexMap<String, String>,
+    placed: bool,
+) {
+    let Some(Value::Object(formats)) = props.get_mut("formats") else { return };
+    let anew = deck.anew();
+    formats.retain(|name, _| anew.contains(&name.as_str()));
+    for layout in formats.values_mut() {
+        let Value::Object(layout) = layout else { continue };
+        if placed {
+            layout.remove("at");
+        } else if let Some(Value::Object(at)) = layout.get_mut("at")
+            && let Some(parent) = at.get("parent").and_then(Value::as_str).and_then(|p| ids.get(p))
+        {
+            at.insert("parent".into(), Value::String(parent.clone()));
+        }
+    }
+    formats.retain(|_, layout| layout.as_object().is_none_or(|l| !l.is_empty()));
+    if formats.is_empty() {
+        props.remove("formats");
+    }
 }
 
 /// The first of `base`, `base-2`, `base-3`, … not in `taken`.

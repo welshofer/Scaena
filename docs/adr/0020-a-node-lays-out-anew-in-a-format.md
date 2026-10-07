@@ -26,5 +26,5 @@ A theme can move a slot per format, but it cannot change a container's axis or t
 - **+** One deck lays out well in several shapes, with each slide's 16:9 layout as it was. The trails deck gains 9:16 without a change to how it looks in 16:9.
 - **+** No change to a deck without `formats` on its nodes: its layouts, its goldens, and its timeline are as they were.
 - **+** The format stays semantic: a format's layout still names slots, cells of that format's grid, and theme tokens.
-- **−** A node's placement now lives in up to two places. The editor writes the one the format shown lays out (PLAN 2.85): `place` with `format` writes the node's layout there where it has one, and its own `at` where it has none, which moves it in every format. "Place anew in this format" gives it one.
+- **−** A node's placement now lives in up to two places. The editor writes the one the format shown lays out (PLAN 2.85): `place` with `format` writes the node's layout there where it has one, and its own `at` where it has none, which moves it in every format. "Place anew in this format" gives it one. A copy, duplicated, is placed in each format the node lays out in; a paste keeps a layout only for a format the deck lays out anew, less its placement (PLAN 2.86).
 - **−** Deck format 0.13: every deck's `scaena` moves from 0.12.
