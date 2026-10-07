@@ -24,22 +24,6 @@ use std::collections::BTreeMap;
 /// hung quotation mark or a descender's tail.
 const SLACK: f32 = 2.0;
 
-/// What a node draws, as a box: text by its lines, the rest by its cell.
-fn ink(node: &SceneNode) -> Option<Rect> {
-    match &node.content {
-        Content::Text(placed) => {
-            let t = &placed.text;
-            let left = t.lines.iter().map(|l| l.x - l.hang).fold(f32::INFINITY, f32::min);
-            let right = t.lines.iter().map(|l| l.x + l.width + l.hang_end).fold(f32::NEG_INFINITY, f32::max);
-            (left.is_finite() && right > left)
-                .then(|| [placed.origin[0] + left, placed.origin[1], right - left, t.height])
-        }
-        Content::Chart { cell, .. } | Content::Table { cell, .. } => Some(*cell),
-        Content::Image(image) => Some(image.rect),
-        Content::Shape(_) | Content::Shader(_) => None,
-    }
-}
-
 fn overlap(a: Rect, b: Rect) -> Option<[f32; 2]> {
     let w = (a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0]);
     let h = (a[1] + a[3]).min(b[1] + b[3]) - a[1].max(b[1]);
@@ -147,7 +131,7 @@ impl Rule for E101Collision {
                     let props = state.snapshot.nodes.get(&n.id);
                     props.and_then(|p| p.get("semantic")).and_then(Value::as_str) != Some("decoration")
                 })
-                .filter_map(|n| Some((n, drawn(&state.scene, &n.id, ink(n)?))))
+                .filter_map(|n| Some((n, drawn(&state.scene, &n.id, n.ink()?))))
                 .collect();
             for (i, (a, ra)) in content.iter().enumerate() {
                 for (b, rb) in &content[i + 1..] {

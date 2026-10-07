@@ -1876,11 +1876,14 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   function insert(n: number, label = "it") {
     return inTurn(() => inserting(n, label));
   }
-  async function inserting(n: number, label: string) {
+  /** Insert what the deck offers `n`th as Insert does, `label` saying what it is; `named`, a
+   * dropped file's name, names it (PLAN 2.79). Content lands about the pointer, or in the room
+   * nearest it where that is taken. */
+  async function inserting(n: number, label: string, named?: string) {
     const shown = editor.shown();
     if (!shown) return editor.say("the canvas waits for a source that compiles");
     try {
-      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format());
+      const added = await stage.inserting(editor.source(), shown.state, n, landing(), editor.format(), named);
       await change(added.patch, "inserting…", `${label} inserted as ${added.id}, in ${shown.state}`, added.id);
     } catch (e) {
       editor.say(`not inserted: ${said(e)}`);
@@ -2242,7 +2245,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
           return void (await change([op], "replacing…", `${top.node} shows ${file.name}, kept as ${path}`, top.node));
         }
         offered = await stage.inserts();
-        await inserted(at, path, file.name);
+        await inserted(at, path, file.name, file.name);
       } catch (e) {
         editor.say(`not added: ${said(e)}`);
       }
@@ -2288,12 +2291,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       await inserted(at, path, path);
     });
   }
-  /** The image of the bundle at `path` inserted at `at`, as Insert inserts it; `label` names it. */
-  async function inserted(at: [number, number], path: string, label: string) {
+  /** The image of the bundle at `path` inserted at `at`, as Insert inserts it; `label` says what
+   * it is, and `named`, the file dropped, names its node. */
+  async function inserted(at: [number, number], path: string, label: string, named?: string) {
     const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
     if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
     pointed = at;
-    await inserting(n, label);
+    await inserting(n, label, named);
   }
   overlay.addEventListener("dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
