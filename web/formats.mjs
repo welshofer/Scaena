@@ -56,11 +56,29 @@ try {
     );
   /** The figure for `format`, as a PNG of what it shows. */
   const figure = (format) => page.locator(`#formats button[data-format="${format}"] canvas`).screenshot();
-  /** Wait until the figures were painted again since `count`, at `state` and at rest. */
+  /** Wait until the figures were painted again since `count`, at `state` and at rest: at the end
+   * of its cue, which the editor may play to show it, its figures painted as it goes. */
   const repainted = (count, state) =>
     page
-      .waitForFunction(([n, s]) => (window.scaena.formats.painted()?.count ?? 0) > n && window.scaena.formats.painted()?.state === s, [count, state], { timeout: 30000 })
+      .waitForFunction(
+        ([n, s]) => {
+          const p = window.scaena.formats.painted();
+          const span = window.scaena.last()?.slots.find((slot) => slot.state === s)?.span ?? 0;
+          return (p?.count ?? 0) > n && p?.state === s && p.t >= span;
+        },
+        [count, state],
+        { timeout: 30000 },
+      )
       .catch(() => {});
+  /** Whether `format`'s figure comes to differ from `before`: the worker's canvas reaches the page
+   * a frame or so after it is painted. */
+  const differs = async (format, before) => {
+    for (let i = 0; i < 20; i++) {
+      if (!(await figure(format)).equals(before)) return true;
+      await page.waitForTimeout(100);
+    }
+    return false;
+  };
 
   // Hidden: the worker is asked to paint none.
   check((await page.locator("#formats").isHidden()) && (await painted()) === undefined, "hidden, the formats are not painted");
@@ -156,7 +174,7 @@ try {
   count = (await painted()).count;
   await page.selectOption("#state", "mix");
   await repainted(count, "mix");
-  check(!(await figure("9:16")).equals(before), "another state shown: the figures follow it");
+  check(await differs("9:16", before), "another state shown: the figures follow it");
 
   // An edit that takes 9:16 out of the deck takes its figure away; putting it back brings it back.
   const source = await page.evaluate(() => window.scaena.source());
