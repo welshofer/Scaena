@@ -161,21 +161,12 @@ try {
     check(waited >= slots[from].hold - 300, `${states[from]} holds ${slots[from].hold} ms, then goes on to ${states[from + 1]} by itself: ${Math.round(waited)} ms`);
   });
 
-  // 5. Fullscreen, by the button, and back by F.
-  await step("fullscreen", () => player, async () => {
-    await player.click("#full");
-    await until(player, "the button makes it fullscreen", () => document.fullscreenElement !== null, null, 5000);
-    await player.locator("#stage").focus().catch(() => {});
-    await player.keyboard.press("f");
-    await until(player, "F leaves fullscreen", () => document.fullscreenElement === null, null, 5000);
-    check(true, "⛶ goes fullscreen, and F comes back");
-  });
-
-  // 6. The presenter view.
+  // 5. The presenter view, before fullscreen.
   let presenter;
   await step("presenter", () => presenter ?? player, async () => {
     await player.keyboard.press("Home");
-    await rests(player, 0);
+    // Home shows the first state and stays there: a state sought does not play on.
+    await goes(player, 0, "Home");
     // The presenter view opens as a window of its own, on a click on Presenter once the player
     // has it ready; a slow machine takes a while to show it.
     const present = player.locator("#present");
@@ -225,6 +216,17 @@ try {
     await snap(presenter, "presenter-view");
   });
   await presenter?.close();
+  // 6. Fullscreen, by the button, and back by F: after the presenter view, whose window a page
+  // leaving fullscreen may not get to open.
+  await step("fullscreen", () => player, async () => {
+    await player.click("#full");
+    await until(player, "the button makes it fullscreen", () => document.fullscreenElement !== null, null, 5000);
+    await player.locator("#stage").focus().catch(() => {});
+    await player.keyboard.press("f");
+    await until(player, "F leaves fullscreen", () => document.fullscreenElement === null, null, 5000);
+    check(true, "⛶ goes fullscreen, and F comes back");
+  });
+
   await player.close();
 
   // 7. Less motion: going on cuts to the state at rest, with no frame inside a cue.
