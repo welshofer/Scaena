@@ -104,7 +104,13 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
     };
     // Each place words are written, matched or not, so every state that shows them is counted.
     let mut places: IndexMap<String, Found> = IndexMap::new();
-    let add = |places: &mut IndexMap<String, Found>, kind, node: Option<&str>, beat, state: &str, lives: String, text: &str| {
+    let add = |places: &mut IndexMap<String, Found>,
+               kind,
+               node: Option<&str>,
+               beat,
+               state: &str,
+               lives: String,
+               text: &str| {
         places.entry(lives.clone()).and_modify(|f| f.states.push(state.to_string())).or_insert_with(|| Found {
             kind,
             node: node.map(str::to_string),
@@ -297,7 +303,9 @@ mod tests {
         let found = find(&deck(), &query("q3")).unwrap();
         let places: Vec<(&str, &str, Vec<&str>)> = found
             .iter()
-            .map(|f| (f.node.as_deref().unwrap_or_default(), f.lives.as_str(), f.states.iter().map(String::as_str).collect()))
+            .map(|f| {
+                (f.node.as_deref().unwrap_or_default(), f.lives.as_str(), f.states.iter().map(String::as_str).collect())
+            })
             .collect();
         assert_eq!(
             places,
@@ -405,7 +413,10 @@ mod tests {
         let mut doc = worded();
         let found = find(&doc, &query("q3")).unwrap();
         let ops = replacing(&found, "Q4");
-        assert!(ops.contains(&json!({ "op": "replace", "path": "/states/1/notes", "value": "Say Q4 slowly." })), "{ops:#?}");
+        assert!(
+            ops.contains(&json!({ "op": "replace", "path": "/states/1/notes", "value": "Say Q4 slowly." })),
+            "{ops:#?}"
+        );
         apply(&mut doc, &ops);
         assert_eq!(doc["nodes"]["box"]["alt"], "A box for Q4");
         assert_eq!(doc["states"][1]["notes"], "Say Q4 slowly.");

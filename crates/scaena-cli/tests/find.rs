@@ -80,7 +80,11 @@ fn each_text_is_found_where_it_is_written_and_replaced_there_in_one_patch() {
     // Case apart, and whole words only, as asked.
     assert_eq!(find(&path, &["revenue", "--case"]).1["matches"], 1, "the chart's description");
     assert_eq!(find(&path, &["Rev", "--words"]).1["matches"], 0);
-    assert_eq!(find(&path, &["Rev"]).1["matches"], 5, "Review, and Revenue in the claim, the title, the description, and the note");
+    assert_eq!(
+        find(&path, &["Rev"]).1["matches"],
+        5,
+        "Review, and Revenue in the claim, the title, the description, and the note"
+    );
 
     // A dry run says what replacing would do, and writes nothing.
     let (code, dry) = find(&path, &["revenue", "--replace", "Income", "--dry-run"]);
@@ -112,7 +116,10 @@ fn each_text_is_found_where_it_is_written_and_replaced_there_in_one_patch() {
     let said = String::from_utf8_lossy(&out.stdout);
     assert!(said.starts_with("4 matches in 4 places"), "{said}");
     assert!(said.contains("note in revenue") && said.contains("(/nodes/note/text)"), "{said}");
-    assert!(said.contains("beat doubled's claim in revenue") && said.contains("rev's description in revenue"), "{said}");
+    assert!(
+        said.contains("beat doubled's claim in revenue") && said.contains("rev's description in revenue"),
+        "{said}"
+    );
 }
 
 #[test]
