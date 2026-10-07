@@ -1072,7 +1072,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       Replace All is still one patch: a `replace_text` for each match in a text, and a JSON Patch `replace` of other words where they are written.
       - The CLI says what each match is in ("beat doubled's claim", "rev's description").
       - The editor's ⌘F shows each match's state, selects a description's node, and says where each match is.
-      - In the demo deck, ⌘F now finds all seven "Alpine": four in texts, and three in notes, claims, and descriptions, which it missed before. The edit-deck walk holds it.
+      - In the demo deck, ⌘F now finds all six "Alpine" in its words: four in texts, and a claim and a chart's description, which it missed before. An annotation that names the data's Alpine series is no word, and stays. The edit-deck walk holds it.
       - `Found.node` is optional now, and the MCP tool's schema is blessed with `kind` and `beat`.
       - Tests: `crates/scaena-core/src/patch/find.rs`, `crates/scaena-cli/tests/find.rs`, the WASM session's, `web/find.mjs`, and `web/edit-deck.mjs`.
 
