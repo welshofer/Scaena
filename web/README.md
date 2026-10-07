@@ -53,7 +53,7 @@ The presenter view follows the player frame by frame. It shows the state's notes
 
 ## Edit with it
 
-`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default (on the site, its demo deck); `painter` works as in the player. Play opens the player on the bundle as last saved, in a new tab. `docs/authoring.md` is the guide to writing a deck in it.
+`/web/dist/editor.html?bundle=…` opens a deck as its canonical `.scn` (SPEC §4), the revenue example by default (on the site, its demo deck); `painter` works as in the player. The canvas comes first (PLAN 2.80): the source is a pane at the left that opens folded, or as `?source=open|folded` asks, or as the browser last left it (`localStorage` `scaena.source`), and Source or ⌘\ opens and folds it; the canvas, its controls, and the findings are the middle, and the tabs the right (`main.folded`, `#source`, `#work`, `#panel` in `editor.html`). Play opens the player on the bundle as last saved, in a new tab. `docs/authoring.md` is the guide to writing a deck in it.
 
 - **Each edit** compiles in the worker as you type. A source that does not compile says where, and the preview keeps the deck it had.
 - **The preview** shows the state the cursor is in, at rest. The state picker moves the cursor to a state's line.
