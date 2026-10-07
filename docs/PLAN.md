@@ -1049,6 +1049,20 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
       What the walk raised that is no bug went to Jay as product questions: find and replace searches only texts, not notes, claims, or descriptions; and the trails deck lists no formats, so the site's demo shows no 9:16. The editor's engine module is 2,855.76 kB gzipped, as Vite reports it.
 
+- [x] 2.78 A deck presented as a person presents one: the site's demo deck played, presented, and taken as its audience takes it, by the pages' keys, pointer, touch, and buttons alone, and what the walk finds fixed.
+    - Done. `web/present-deck.mjs` runs in `just web-smoke` and CI's wasm job, and screenshots each step into `target/present-deck/`. On the trails deck it:
+      - plays the player by →, Space, ←, End, and Home; a click, and a swipe each way; a tap and a swipe on a touch screen; the scrubber, by a click and by End; and the state picker;
+      - lets a held state go on by itself, and goes fullscreen and back;
+      - with less motion asked for, checks that going on cuts to the state at rest;
+      - opens the presenter view: its notes, the next state, and its clock; its keys and buttons steer the player, and it follows the player back;
+      - exports one HTML file from Export…, opens it from disk with the network off, and plays and reads every state in its live region;
+      - exports a PDF from Export…: a page for each slide, each page's text copying as the slide's texts read, and its outline the spine's sections. `web/pdf.mjs` reads it with Node's zlib alone, so `web/` takes no new dependency.
+
+      It found one bug, fixed with a test:
+      - **The presenter view's Home and End did nothing.** It steered the player on and back only. Now its Home and End go to the first state and the last, as the player's do (`web/player.mjs`).
+
+      What the walk raised that is no bug went to Jay as a product question: a role set in capitals copies from the PDF in capitals, while the live region reads the text as written ("ANNUAL MEETING" against "Annual meeting").
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
