@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W302 clean: placed in a slot.",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],

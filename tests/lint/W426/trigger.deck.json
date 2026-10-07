@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W426 trigger: the spine tells the result before the problem, and the states play the problem first.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

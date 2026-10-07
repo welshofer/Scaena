@@ -268,6 +268,7 @@ pub fn validate_bundle(deck_json: &str, files: &dyn BundleFiles) -> Result<Vec<F
             out.extend(quotes(&deck, &doc, files));
         }
         out.extend(override_types(&deck));
+        out.extend(format_types(&deck));
         out.extend(cues(&deck, theme.as_ref()));
         if let Some(theme) = &theme {
             out.extend(theme.undefined_names());
@@ -720,6 +721,64 @@ fn override_types(deck: &Deck) -> Vec<Finding> {
                     .at(format!("/overrides/{}{}", esc(id), v.path))
                     .node(id.clone()),
             );
+        }
+    }
+    out
+}
+
+/// A node's layout in its formats (SPEC §3.4, ADR-0020): E102 for a format the deck does not
+/// lay out in (one it does not list, or its own canvas's shape, which the node's own props lay
+/// out), and E106 for what the node's type does not take there, as its own props would be.
+fn format_types(deck: &Deck) -> Vec<Finding> {
+    let checker = Checker::deck();
+    let defs: HashMap<String, String> = checker.node_types().into_iter().map(|(def, tag)| (tag, def)).collect();
+    let own = [deck.canvas.width, deck.canvas.height];
+    let mut out = Vec::new();
+    // A node's layout in its formats is the node's own: no state, nor the deck's overrides,
+    // changes it.
+    let elsewhere = deck.states.iter().enumerate().flat_map(|(i, state)| {
+        state.props.iter().map(move |(id, delta)| (format!("/states/{i}/props/{}/formats", esc(id)), id, delta, Some(state)))
+    });
+    let overrides = deck.overrides.iter().map(|(id, over)| (format!("/overrides/{}/formats", esc(id)), id, over, None));
+    for (at, id, delta, state) in elsewhere.chain(overrides) {
+        if delta.contains_key("formats") {
+            let message = format!("`{id}`'s layout in its formats is the node's own: set `formats` on the node");
+            let finding = Finding::new("E106", Severity::Error, message).at(at).node(id.clone());
+            out.push(match state {
+                Some(state) => finding.state(state.id.clone()),
+                None => finding,
+            });
+        }
+    }
+    for (id, node) in &deck.nodes {
+        let Some(formats) = node.props.get("formats").and_then(Value::as_object) else { continue };
+        let tag = type_name(node.node_type);
+        for (name, layout) in formats {
+            let at = format!("/nodes/{}/formats/{}", esc(id), esc(name));
+            let laid = Format::parse(name).filter(|f| f.canvas(own) != own && deck.formats.iter().any(|g| g == name));
+            if laid.is_none() {
+                let why = match Format::parse(name).is_some_and(|f| f.canvas(own) == own) {
+                    true => "the deck's own canvas, which the node's own props lay out".to_string(),
+                    false => format!("not one of the deck's formats ({})", deck.formats.join(", ")),
+                };
+                out.push(
+                    Finding::new("E102", Severity::Error, format!("node `{id}` lays out in `{name}`: {why}"))
+                        .at(at.clone())
+                        .node(id.clone()),
+                );
+                continue;
+            }
+            let (Some(def), Some(layout)) = (defs.get(&tag), layout.as_object()) else { continue };
+            let mut resolved = Map::new();
+            resolved.insert("type".into(), Value::from(tag.as_str()));
+            resolved.extend(node.props.iter().filter(|(k, _)| *k != "type" && *k != "formats").map(|(k, v)| (k.clone(), v.clone())));
+            resolved.extend(layout.iter().map(|(k, v)| (k.clone(), v.clone())));
+            for v in checker.check_def(def, &Value::Object(resolved), "") {
+                let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
+                if layout.contains_key(&prop) {
+                    out.push(Finding::new("E106", Severity::Error, v.message).at(format!("{at}{}", v.path)).node(id.clone()));
+                }
+            }
         }
     }
     out
@@ -1352,6 +1411,10 @@ fn grid_cells(deck: &Deck, snapshots: &[Snapshot], theme: Option<&LoadedTheme>) 
                     continue;
                 }
                 for &(format, grid) in &grids {
+                    // A node placed anew in a format (ADR-0020) is checked there below.
+                    if format.is_some_and(|f| placed_in(&deck.nodes[id].props, f).is_some()) {
+                        continue;
+                    }
                     let n = tracks(grid, axis);
                     if b > n && met.insert((path.clone(), n)) {
                         let message = format!("`{id}` is placed in {}, {}", cells(axis, a, b), past(format, axis, n));
@@ -1364,7 +1427,28 @@ fn grid_cells(deck: &Deck, snapshots: &[Snapshot], theme: Option<&LoadedTheme>) 
             }
         }
     }
+    // Each node's cells in a format it is placed anew in, on that format's grid.
+    for (id, node) in &deck.nodes {
+        for &(format, grid) in &grids {
+            let Some(f) = format else { continue };
+            let Some(at) = placed_in(&node.props, f) else { continue };
+            for axis in ["col", "row"] {
+                let Some((a, b)) = at.get(axis).and_then(bounds) else { continue };
+                let n = tracks(grid, axis);
+                if b > n {
+                    let path = format!("/nodes/{}/formats/{}/at/{axis}", esc(id), esc(f.name()));
+                    let message = format!("`{id}` is placed in {}, {}", cells(axis, a, b), past(format, axis, n));
+                    out.push(Finding::new("E102", Severity::Error, message).at(path).node(id.clone()));
+                }
+            }
+        }
+    }
     out
+}
+
+/// Where `props` place their node anew in `format` (ADR-0020), if they do.
+fn placed_in(props: &Props, format: Format) -> Option<&Value> {
+    props.get("formats")?.get(format.name())?.get("at")
 }
 
 /// A grid's columns or rows (`axis`: `col` or `row`); rows default to 6.

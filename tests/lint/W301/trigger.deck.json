@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W301 trigger: a node placed by rect in a state with a layout.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
