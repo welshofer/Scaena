@@ -1068,6 +1068,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [x] 2.80 The canvas first: the editor's source a pane that folds away (Jay, 2026-10-07: as the 2.76 walk recommended).
     - Done. The editor is three columns: the source at the left, the canvas with its controls, cue, strip, and findings in the middle (`#work`), and the tabs at the right (`#panel`). The source opens folded, the canvas taking its room: at 1600 × 1000 the preview goes from about 640 px across to about 1220. `?source=open` or `folded` asks for it, else the browser keeps the last choice (`localStorage` `scaena.source`); the Source button, ⌘\, and the command palette open and fold it, and a finding that stands in the source opens it there. The findings list moved out of the source into the middle, so it stays in view folded. The first-deck walk checks the canvas-first opening and the fold; the walks that type into the source open it by the address.
 
+- [x] 2.83 Find and replace in all of a deck's words: each node's description (`alt`), each state's notes, and each beat's claim and notes, beside its texts; in `scaena find`, `deck_find`, and the editor's ⌘F.
+    - Done. `scaena_core::patch::find` gives what each match is in (`kind`: `text`, `alt`, `notes`, or `claim`), with its node or its beat and the pointer to where it is written:
+      - a description, as a text is: the node's own, a state's delta, or the deck's overrides;
+      - a state's notes, in the state;
+      - a beat's claim and notes, in the spine, in the states it spans (a beat no state shows, in none).
+
+      Replace All is still one patch: a `replace_text` for each match in a text, and a JSON Patch `replace` of other words where they are written.
+      - The CLI says what each match is in ("beat doubled's claim", "rev's description").
+      - The editor's ⌘F shows each match's state, selects a description's node, and says where each match is.
+      - In the demo deck, ⌘F now finds all six "Alpine" in its words: four in texts, and a claim and a chart's description, which it missed before. An annotation that names the data's Alpine series is no word, and stays. The edit-deck walk holds it.
+      - `Found.node` is optional now, and the MCP tool's schema is blessed with `kind` and `beat`.
+      - Tests: `crates/scaena-core/src/patch/find.rs`, `crates/scaena-cli/tests/find.rs`, the WASM session's, `web/find.mjs`, and `web/edit-deck.mjs`.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

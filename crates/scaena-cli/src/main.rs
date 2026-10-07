@@ -305,9 +305,11 @@ enum Cmd {
         #[arg(long, requires = "remove")]
         dry_run: bool,
     },
-    /// Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it,
-    /// once for each place the text is written, and the states that show it. With `--replace`,
-    /// every match is replaced in one patch, a `replace_text` where each text lives.
+    /// Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each
+    /// node's description (`alt`), each state's notes, and each beat's claim and notes, once for
+    /// each place they are written, and the states that show them. With `--replace`, every match
+    /// is replaced in one patch: a `replace_text` where each text lives, and the rest where
+    /// they are written.
     Find {
         bundle: PathBuf,
         /// The characters sought.
@@ -1179,8 +1181,9 @@ fn print_sheet(sheet: &scaena_ops::data::Sheet) {
     }
 }
 
-/// `scaena find` (PLAN 2.47): each text the query matches, once for each place it is written,
-/// with the states that show it and its matches; with `--replace`, every match replaced in
+/// `scaena find` (PLAN 2.47, 2.83): each of the deck's words the query matches (its texts, each
+/// node's description, each state's notes, and each beat's claim and notes), once for each place
+/// they are written, with the states that show them and their matches; with `--replace`, every match replaced in
 /// one patch, reported and written as `patch` reports and writes one, and exiting as it does.
 fn find(
     bundle: &Path,
@@ -1194,16 +1197,26 @@ fn find(
     if json {
         println!("{}", serde_json::to_string_pretty(&searched)?);
     } else {
-        let texts = searched.found.len();
+        let places = searched.found.len();
         println!(
-            "{} {} in {texts} {}",
+            "{} {} in {places} {}",
             searched.matches,
             if searched.matches == 1 { "match" } else { "matches" },
-            if texts == 1 { "text" } else { "texts" }
+            if places == 1 { "place" } else { "places" }
         );
         for f in &searched.found {
+            use scaena_core::patch::Kind;
             let quoted: Vec<String> = f.matches.iter().map(|&[from, to]| format!("{from}..{to}")).collect();
-            println!("  {} in {} ({}): {:?} at {}", f.node, f.states.join(", "), f.lives, f.text, quoted.join(", "));
+            let (node, beat) = (f.node.as_deref().unwrap_or_default(), f.beat.as_deref().unwrap_or_default());
+            let what = match (f.kind, &f.beat) {
+                (Kind::Text, _) => node.to_string(),
+                (Kind::Alt, _) => format!("{node}'s description"),
+                (Kind::Notes, Some(_)) => format!("beat {beat}'s notes"),
+                (Kind::Notes, None) => format!("{}'s notes", f.state),
+                (Kind::Claim, _) => format!("beat {beat}'s claim"),
+            };
+            let shown = if f.states.is_empty() { "no state".to_string() } else { f.states.join(", ") };
+            println!("  {what} in {shown} ({}): {:?} at {}", f.lives, f.text, quoted.join(", "));
         }
         if let Some(p) = &searched.replaced {
             match (p.refused, dry_run) {

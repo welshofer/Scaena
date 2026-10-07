@@ -592,10 +592,12 @@ impl Scaena {
         blocking(move || scaena_ops::patch::patch(&open_by(&a.bundle, author)?, &ops, a.dry_run)).await.map(Json)
     }
 
-    #[tool(description = "Find text across the deck's texts, in every state (PLAN 2.47): each text that holds it, \
-        once for each place the text is written (the node's own, a state's delta, or the deck's overrides), with the \
-        states that show it from there and each match, in characters. With `replace`, every match is replaced in one \
-        patch, a `replace_text` where each text lives, reported as `deck_patch` reports a patch (`replaced`).")]
+    #[tool(description = "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each \
+        node's description (`alt`), each state's notes, and each beat's claim and notes (`kind`), once for each \
+        place they are written (the node's own, a state's delta, the deck's overrides, a state, or a beat), with the \
+        states that show them from there and each match, in characters. With `replace`, every match is replaced in \
+        one patch, a `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are \
+        written, reported as `deck_patch` reports a patch (`replaced`).")]
     async fn deck_find(
         &self,
         Parameters(a): Parameters<DeckFind>,
