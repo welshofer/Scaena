@@ -297,7 +297,7 @@ fn stretches(props: &Props) -> Vec<(String, Option<LinkTarget>)> {
 
 /// The text `ops` draw: their glyph runs' in turn, a line break a space. A hyphen drawn at a
 /// break is not said.
-fn drawn(ops: &[Op]) -> String {
+pub fn drawn(ops: &[Op]) -> String {
     fn walk(ops: &[Op], out: &mut String, line: &mut Option<f32>) {
         for op in ops {
             match op {

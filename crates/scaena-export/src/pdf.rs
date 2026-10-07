@@ -36,8 +36,8 @@ use krilla::paint::{
 };
 use krilla::surface::Surface;
 use krilla::tagging::{
-    Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, TableHeaderScope, Tag, TagGroup, TagKind,
-    TagTree,
+    Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, TableHeaderScope, Tag, TagGroup,
+    TagKind, TagTree,
 };
 use krilla::text::{Font, GlyphId};
 use krilla::{Document, SerializeSettings};
@@ -52,6 +52,7 @@ use scaena_core::reading::{self, Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::Assets;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU16;
@@ -212,10 +213,12 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
     let mut structure: Vec<Vec<Node>> = Vec::with_capacity(pages.len());
     for page in pages {
         let dl = &page.list;
-        let readings = match snapshots.iter().find(|s| s.state_id == page.state) {
-            Some(snap) => reading::readings(deck, snap),
-            None => return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state))),
+        let Some(snap) = snapshots.iter().find(|s| s.state_id == page.state) else {
+            return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state)));
         };
+        let readings = reading::readings(deck, snap);
+        let written: HashMap<String, String> =
+            snap.nodes.iter().filter_map(|(id, props)| Some((id.clone(), as_written(props)?))).collect();
         let [w, h] = dl.viewport.map(|v| v * POINTS_PER_UNIT);
         let page_settings =
             PageSettings::from_wh(w, h).ok_or_else(|| ExportError::Pdf(format!("a {w}×{h} pt page")))?;
@@ -232,6 +235,7 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
             jobs: jobs.into_iter(),
             quality: settings.shader_quality,
             readings: &readings,
+            written: &written,
             page: KRect::from_xywh(0.0, 0.0, w, h),
             photos: &mut photos,
             error: None,
@@ -345,6 +349,9 @@ struct Cx<'a, 's> {
     quality: Option<u8>,
     /// How each node on the page reads, by id.
     readings: &'a HashMap<String, Reading>,
+    /// Each text on the page as written, by its node's id: its `text`, or its runs' texts
+    /// end to end (PLAN 2.88).
+    written: &'a HashMap<String, String>,
     /// The page, in points: what its background covers.
     page: Option<KRect>,
     /// Each photo as the document carries it, by its id and whether it is filtered: made once.
@@ -410,7 +417,8 @@ impl Cx<'_, '_> {
                     out.push(element(Tag::Div.into(), reading, list_nodes(&paras)));
                 }
                 kind @ (Kind::Heading(_) | Kind::Paragraph | Kind::Figure) => {
-                    let id = self.tagged(op, xf);
+                    let written = node.as_deref().and_then(|id| self.written.get(id)).map(String::as_str);
+                    let id = self.spoken(op, xf, written.filter(|_| kind != Kind::Figure));
                     let tag: TagKind = match kind {
                         Kind::Heading(level) => {
                             Tag::Hn(NonZeroU16::new(level.into()).unwrap_or(NonZeroU16::MIN), None).into()
@@ -485,8 +493,24 @@ impl Cx<'_, '_> {
 
     /// `op` drawn as one tagged section of content.
     fn tagged(&mut self, op: &Op, xf: Affine) -> Identifier {
-        let id = self.surface.start_tagged(ContentTag::Other);
-        self.ops(std::slice::from_ref(op), xf);
+        self.spoken(op, xf, None)
+    }
+
+    /// `op` drawn as one tagged section of content, a text's words: where `written`, its
+    /// text as written, differs from what the glyphs show by case alone, a span whose actual
+    /// text is `written` (PLAN 2.88). A copy, a search, or a screen reader then takes "Annual
+    /// meeting" where the page shows ANNUAL MEETING.
+    fn spoken(&mut self, op: &Op, xf: Affine, written: Option<&str>) -> Identifier {
+        let ops = std::slice::from_ref(op);
+        let actual = written.and_then(|w| by_case(&reading::drawn(ops), w));
+        let id = match &actual {
+            Some(actual) => {
+                let span = SpanTag { actual_text: Some(actual), ..SpanTag::empty() };
+                self.surface.start_tagged(ContentTag::Span(span))
+            }
+            None => self.surface.start_tagged(ContentTag::Other),
+        };
+        self.ops(ops, xf);
         self.surface.end_tagged();
         id
     }
@@ -596,7 +620,7 @@ impl Cx<'_, '_> {
                         self.surface.set_stroke(None);
                     }
                 }
-                Op::Glyphs { font: index, size, coords, paint, text, glyphs, clusters } => {
+                Op::Glyphs { font: index, size, coords, paint, text, glyphs, clusters, .. } => {
                     let Some(first) = glyphs.first() else { continue };
                     let font = match self.font(*index, coords) {
                         Ok(font) => font,
@@ -1110,4 +1134,24 @@ fn affine(m: &[f32; 6]) -> Affine {
 fn from_affine(a: Affine) -> Transform {
     let [a, b, c, d, e, f] = a.as_coeffs().map(|v| v as f32);
     Transform::from_row(a, b, c, d, e, f)
+}
+
+/// A text's words as written: its `text`, or its runs' texts end to end. None for a node that
+/// sets no text.
+fn as_written(props: &scaena_core::document::Props) -> Option<String> {
+    if let Some(text) = props.get("text").and_then(Value::as_str) {
+        return Some(text.to_string());
+    }
+    let runs = props.get("runs")?.as_array()?;
+    Some(runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect())
+}
+
+/// `written`, where the text a node's glyphs show (`shown`) says the same words in other
+/// letters' case: capitals, lower case, or title case, as a theme's role sets them. Each is
+/// taken with its spaces and line breaks as single spaces and its soft hyphens left out.
+/// None where they read alike, or say other words (a list's markers, a figure).
+fn by_case(shown: &str, written: &str) -> Option<String> {
+    let plain = |s: &str| s.replace('\u{AD}', "").split_whitespace().collect::<Vec<_>>().join(" ");
+    let (shown, written) = (plain(shown), plain(written));
+    (shown != written && shown.to_uppercase() == written.to_uppercase()).then_some(written)
 }
