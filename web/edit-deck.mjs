@@ -49,7 +49,6 @@ try {
   const source = () => page.evaluate(() => window.scaena.source());
   /** Where the editor is: its source, and how many edits it has compiled and linted. */
   const mark = () => page.evaluate(() => ({ source: window.scaena.source(), trips: window.scaena.trips().length }));
-  /** Once the source is not what it was at `before` and the editor has compiled and linted it. */
   /** Wait for `fn(arg)` to hold in the page. One that runs out says what it waited for, and the
    * state shown, the nodes the canvas has boxes for, and the status line then (as the first-deck
    * walk's). */
@@ -67,6 +66,7 @@ try {
       throw new Error(`${what}: not within ${timeout / 1000} s · ${where.shown} shown · boxes ${where.nodes} · ${where.status}`);
     }
   };
+  /** Once the source is not what it was at `before` and the editor has compiled and linted it. */
   const changed = async (before, what = "the edit compiled", timeout = 60000) => {
     await until(
       what,
