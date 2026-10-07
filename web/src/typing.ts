@@ -375,7 +375,16 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       made = undefined;
       if (open === now) {
         if (!typed.carets) leave();
-        else [carets, read] = [typed.carets, typed.source];
+        else {
+          [carets, read] = [typed.carets, typed.source];
+          // A look that changes the characters (a quote's figure, PLAN 2.72): the area takes the
+          // text, the figure still selected.
+          if (typed.carets.text !== area.value) {
+            const [start, end, length] = [area.selectionStart, area.selectionEnd, area.value.length];
+            area.value = typed.carets.text;
+            area.setSelectionRange(start, Math.max(start, end + area.value.length - length));
+          }
+        }
       }
       const what = words ?? Object.entries(look).map(([k, v]) => (v === null ? `${k} taken away` : `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`)).join(", ");
       around.say(`${now.node}, characters ${chosen.from + 1}–${chosen.to}: ${what}`);

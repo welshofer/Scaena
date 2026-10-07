@@ -91,6 +91,7 @@ import { strip, stripKeys } from "./strip";
 import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
+import { offline } from "./offline";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -514,7 +515,9 @@ async function edit(source: Source) {
     },
     // Focus in the inspector, or in the assistant asked about them, keeps the text typed in and
     // its characters selected (PLAN 2.38, 2.52).
-    keeps: (to) => to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to)),
+    // So does focus in the Data tab, whose Quote quotes a cell in them (PLAN 2.72).
+    keeps: (to) =>
+      to instanceof Node && ($("#look").contains(to) || $("#assistant").contains(to) || $("#data").contains(to) || to === $("#tab-data")),
     zoomed: (zoom) => {
       $("#zoom output").textContent = `${Math.round(zoom * 100)}%`;
     },
@@ -587,6 +590,7 @@ async function edit(source: Source) {
       rowsChosen = rows.length ? { source, rows } : undefined;
       void outlineRows();
     },
+    quote: (quote, what) => board.style({ quote }, what),
   });
   /** The rows chosen in the data, and what they draw in the state shown: outlined on the canvas,
    * and said under the table, while the Data tab is shown (PLAN 2.64). */
@@ -1844,3 +1848,5 @@ controls()
   .then(first)
   .then(edit)
   .catch(failed);
+
+offline();

@@ -121,3 +121,24 @@ fn a_cell_set_to_what_it_holds_writes_nothing() {
     assert!(!same.edited && !same.refused, "{same:?}");
     assert_eq!(same.sheet.rows[0][2], "18.2");
 }
+
+#[test]
+fn a_figure_that_quotes_the_data_is_set_again_with_its_claim() {
+    // ADR-0019, PLAN 2.72: the title, in `revenue`, quotes Pro's Q3 revenue, and the beat that
+    // shows it claims the figure.
+    let dir = revenue("quote");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    deck["states"][1]["props"]["title"]["runs"] = json!([{ "text": "Pro hit " }, { "text": "$19.4", "quote": quote }]);
+    deck["states"][1]["props"]["title"].as_object_mut().unwrap().shift_remove("text");
+    deck["spine"]["sections"][1]["beats"][0]["claim"] = json!("Pro hit $19.4M in Q3.");
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 10, "column": "revenue", "value": 20 }]), false).unwrap();
+    assert!(set.edited, "{set:?}");
+    assert_eq!(set.quoted, ["title"]);
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(deck["states"][1]["props"]["title"]["runs"][1]["text"], json!("$20.0"));
+    assert_eq!(deck["spine"]["sections"][1]["beats"][0]["claim"], json!("Pro hit $20.0M in Q3."));
+    assert!(set.added.iter().all(|f| f.code != "W427"), "{:?}", set.added);
+}

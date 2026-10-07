@@ -194,6 +194,24 @@ impl ImageNode {
         Some([((ix - cx) / cw).clamp(0.0, 1.0), ((iy - cy) / ch).clamp(0.0, 1.0)])
     }
 
+    /// The image as a pointer crops it (PLAN 2.74), canvas units as laid out: where its whole is
+    /// drawn, at the scale and the offset its crop and its fit draw it at, and where the part that
+    /// shows stands; with its `crop` (fractions of the image), its `focal` (fractions of the crop),
+    /// its fit, and its size in pixels.
+    pub fn framing(&self) -> (Rect, Rect, Rect, [f32; 2], &'static str, [u32; 2]) {
+        let (src, dst) = self.placement();
+        let (iw, ih) = (self.info.width as f32, self.info.height as f32);
+        let [sx, sy] = [dst[2] / src[2].max(1e-6), dst[3] / src[3].max(1e-6)];
+        let [x, y] = [self.rect[0] + dst[0], self.rect[1] + dst[1]];
+        let whole = [x - src[0] * sx, y - src[1] * sy, iw * sx, ih * sy];
+        let fit = match self.fit {
+            Fit::Cover => "cover",
+            Fit::Contain => "contain",
+            Fit::Fill => "fill",
+        };
+        (whole, [x, y, dst[2], dst[3]], self.crop, self.focal, fit, [self.info.width, self.info.height])
+    }
+
     /// What the image draws, box-local: the image, clipped to rounded corners if it has
     /// them.
     pub fn ops(&self) -> Vec<Op> {

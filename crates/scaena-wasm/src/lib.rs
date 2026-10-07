@@ -514,6 +514,18 @@ impl Session {
         Ok(self.at_rest(state)?.note_at(point))
     }
 
+    /// Chart `node`'s marks and annotations in `state` at rest, in the format shown (PLAN 2.75):
+    /// what the keys step through. `None` for a node the state does not draw, or one that is no
+    /// chart.
+    #[allow(clippy::type_complexity)]
+    pub fn marks_in(
+        &mut self,
+        state: &str,
+        node: &str,
+    ) -> Result<Option<(Vec<scaena_engine::marks::DataMark>, Vec<scaena_engine::marks::NoteMark>)>, Error> {
+        Ok(self.at_rest(state)?.marks_in(node))
+    }
+
     /// Where a callout of chart `node` dropped at `point` (canvas units) in `state` at rest
     /// would stand, in the format shown (PLAN 2.67): on the mark there, or at the category or
     /// the x nearest across and the value there. `None` for a node that is no chart, or a
@@ -540,6 +552,13 @@ impl Session {
         self.at_rest(state)?;
         let scene = &self.rest.as_ref().expect("laid out above").1;
         Ok(scene.outline(node, &self.theme))
+    }
+
+    /// Image `node`'s framing in `state` at rest, in the format shown (PLAN 2.74): where its whole
+    /// is drawn, the part that shows, its crop, and its focal point. `None` for a node the state
+    /// does not draw, or one that is no image.
+    pub fn framing(&mut self, state: &str, node: &str) -> Result<Option<scaena_engine::geometry::Framing>, Error> {
+        Ok(self.at_rest(state)?.framing(node))
     }
 
     /// The point of image `node` drawn under `point` in `state` at rest, in fractions of the
@@ -1644,6 +1663,20 @@ impl Player {
         serde_json::to_string(&found.map(note_json)).map_err(js)
     }
 
+    /// Chart `node`'s marks and annotations in `state` at rest, as JSON (PLAN 2.75): `{ marks,
+    /// notes }`, each as `markAt` and `noteAt` give one, its marks in data order and its
+    /// annotations in the order it writes them; `null` for a node that is no chart.
+    #[wasm_bindgen(js_name = marksIn)]
+    pub fn marks_in(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        let found = self.0.marks_in(state, node).map_err(js)?.map(|(marks, notes)| {
+            serde_json::json!({
+                "marks": marks.into_iter().map(mark_json).collect::<Vec<_>>(),
+                "notes": notes.into_iter().map(note_json).collect::<Vec<_>>(),
+            })
+        });
+        serde_json::to_string(&found).map_err(js)
+    }
+
     /// Where a callout of chart `node` dropped at `x`, `y` (canvas units) in `state` at rest
     /// would stand, as JSON (PLAN 2.67): an annotation's `at`, on the mark there or at the
     /// category or x nearest across and the value there; `null` for a node that is no chart,
@@ -1669,6 +1702,15 @@ impl Player {
     /// the state does not draw, or one that is no shape.
     pub fn outline(&mut self, state: &str, node: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.0.outline(state, node).map_err(js)?).map_err(js)
+    }
+
+    /// Image `node`'s framing in `state` at rest, as JSON (PLAN 2.74): `{ "node", "rect",
+    /// "transform"?, "whole", "shown", "crop", "focal", "fit", "size" }`, where its whole image and
+    /// the part that shows are drawn in canvas units as laid out, its crop in fractions of the image,
+    /// and its focal point in fractions of the crop; `null` for a node the state does not draw, or
+    /// one that is no image.
+    pub fn framing(&mut self, state: &str, node: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.framing(state, node).map_err(js)?).map_err(js)
     }
 
     /// The point of image `node` drawn under `x`, `y` in `state` at rest, as JSON: `[x, y]`,

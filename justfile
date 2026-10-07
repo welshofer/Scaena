@@ -201,13 +201,17 @@ web-smoke: site
     node web/keys.mjs
     node web/annotate.mjs
     node web/points.mjs
+    node web/crop.mjs
+    node web/bykeys.mjs
     node web/lists.mjs
     node web/links.mjs
     node web/layouts.mjs
+    node web/quotes.mjs
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs
     node web/site.mjs
+    node web/offline.mjs
     node web/a11y.mjs
 
 # Print the Cargo.lock-resolved versions behind ADR-0004's table (`hypher` is a dev-dependency,

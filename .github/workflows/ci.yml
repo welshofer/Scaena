@@ -318,6 +318,11 @@ jobs:
       # A shape's points dragged, added at an edge's middle, and taken away with Delete, and a rect's
       # corner rounded to the theme's radius steps (PLAN 2.68).
       - run: node web/points.mjs
+      # An image's crop and focal point dragged on the canvas, the whole image outlined (PLAN 2.74).
+      - run: node web/crop.mjs
+      # The canvas by keys alone: Tab in reading order, Enter into a container or onto a node's
+      # handles, the arrows moving each, [ and ] turning, and a layout's slots (PLAN 2.75).
+      - run: node web/bykeys.mjs
       # Lists in a text: Enter, Tab, Shift+Tab, ⌘⇧8, and ⌘⇧7 as a word processor's, and the
       # player reading the lists as lists (PLAN 2.69).
       - run: node web/lists.mjs
@@ -327,6 +332,9 @@ jobs:
       # A theme's layouts on the canvas: a slot dragged and resized onto the grid is one theme
       # edit, in each format; a layout copied for the state shown (PLAN 2.71).
       - run: node web/layouts.mjs
+      # Copy that quotes data: a cell of the Data tab quoted in the characters selected, its
+      # figure set again when the cell changes (PLAN 2.72).
+      - run: node web/quotes.mjs
       # The editor records its saves in a bundle's history, by the CRDT's own module (PLAN 2.9).
       - run: node web/history.mjs
       # The pages on a bundle's folder, served by `scaena serve` (PLAN 2.11).
@@ -337,6 +345,8 @@ jobs:
       - run: cd web && VITE_BUNDLE=decks/trails/ npx vite build --outDir ../target/site --emptyOutDir
       - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo run -q -p scaena-cli --locked -- save docs/examples/trails.deck.json --to target/site/decks/trails --keep-fonts
       - run: node web/site.mjs
+      # The site installed, then used with no network: its service worker keeps every file (PLAN 2.73).
+      - run: node web/offline.mjs
       # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
       # as the single file does, less motion cuts, and the keys (PLAN 2.8).
       - run: node web/a11y.mjs

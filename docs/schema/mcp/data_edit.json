@@ -167,6 +167,11 @@
       "refused": {
         "description": "Refused: the edits would have added a validation finding (in `added`).",
         "type": "boolean"
+      },
+      "quoted": {
+        "description": "The texts whose quoted figures the edits set again, by node id, each once (ADR-0019):\nwritten in the deck in the same change, with each claim that held the old figure.",
+        "type": "array",
+        "items": { "type": "string" }
       }
     }
   }

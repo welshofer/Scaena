@@ -685,6 +685,18 @@ pub fn compile(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Co
             }
         }
     }
+    // Each figure a run quotes, set again from the data as the deck now reads it, and each
+    // claim that holds the old one (ADR-0019).
+    if !crate::quotes::quoted(&work).is_empty()
+        && let Ok(deck) = crate::Deck::from_value(&work)
+    {
+        let stale = crate::quotes::stale(&deck, &work, &crate::data::Texts(files));
+        for json in crate::quotes::requote(&stale) {
+            if one(&mut work, &json).is_ok() {
+                patch.push(json);
+            }
+        }
+    }
     Ok(Compiled { doc: work, patch, renamed })
 }
 

@@ -47,7 +47,7 @@ All three run the same engine, and the same checks.
 
 ## The editor: edit, save, see
 
-Serve the site folder and open `editor.html`. The folder is `target/site` from `just site`, or a copy of it. Its `serve.py` serves it on this machine only:
+Serve the site folder and open `editor.html`. Once it has opened, the site works with no network: the page says **Works offline**, and your browser can install it as an app. The folder is `target/site` from `just site`, or a copy of it. Its `serve.py` serves it on this machine only:
 
 ```sh
 cd target/site && python3 serve.py      # then open http://localhost:8080/editor.html
@@ -73,6 +73,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Drag a bar to start it later or sooner, and drag its end to make it longer or shorter. Each change is written where the motion is set, in the state's choreography or on the object itself, and one ⌘Z undoes it. A motion on a spring lasts as long as it takes to settle, so its end stays put.
   - Add a motion picks one of the theme's presets for the object selected: as it comes on, or for emphasis. Objects that leave in this state can be given one as they go.
   - Press or drag along the ruler to see the cue at that moment, and Play to watch it run. Click the slide to edit it at rest again.
+- **By keys alone.** Everything the mouse does on the slide, the keys do too, and `?` lists them. Tab and Shift+Tab select each thing on the slide in reading order, and past the last the focus moves on. Enter goes into a stack or a group, and Escape back out. Enter on a shape, an image, or a chart goes to its handles: its points or corner, its crop and focal point, its bars and annotations. Tab steps through them and the arrows move the one marked, a hundredth at a time, a tenth with Shift. `[` and `]` turn what is selected, and ⌘A selects everything beside it.
 - **Type.** Double-click a text in the preview, or press Enter with it selected, and type where it stands.
   - Your typing goes where the text is set: in the state that sets it, or in the object itself, and the status says in how many states it shows. Double-click with Alt held to keep it to the state shown.
   - A text in several looks (`runs`) keeps them: what you type takes the look of the words around it.
@@ -84,7 +85,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - Each choice is one ⌘Z, and goes where the value is set: in the state that sets it, or in the object itself. The status says in how many states it shows. Tick "only in" to keep it to the state shown.
   - A color or a length you write out yourself, and any text size, is an override: it goes in the deck's `overrides`, holds in every state, and a new theme does not change it. The inspector marks it so. The × beside a value takes it away where it is set, so what is under it shows.
   - A chart shows what it reads: its data, the column on each axis (offered from the columns its data has, numbers for a value), the series, and how it reads them. Choose another source and the chart reads it: where that source lacks an axis's column, the axis reads another of the same kind, a name for a name and a number for a number, and the chart drops whatever else the source has no column for (a series, say). "Only in" makes it a data update: this state reads the new numbers, and the chart moves to them from the state before.
-  - An image shows its fit, its focal point, and its crop. Press Pick, then click the image where its subject is: that point stays in view however the box is shaped, as cover crops it. Escape leaves it as it was. A crop is a part of the image, as fractions of it: x, y, width, and height. Drag an image file from your computer onto an image in the preview to put it in that image's place: it joins the bundle, and one ⌘Z puts the old one back.
+  - An image shows its fit, its focal point, and its crop. Or drag the handles on the image itself: one inside each side crops it from that side, the whole image outlined as you drag, and the round one is its focal point. Press Pick, then click the image where its subject is: that point stays in view however the box is shaped, as cover crops it. Escape leaves it as it was. A crop is a part of the image, as fractions of it: x, y, width, and height. Drag an image file from your computer onto an image in the preview to put it in that image's place: it joins the bundle, and one ⌘Z puts the old one back.
   - Every object offers its description and its part in the story: what a reader hears. A description is what a screen reader says for it: what an image or a chart shows, or, for a text, what to say in place of its words (left empty, its words are read). An object marked decoration is not read at all. Under the choices, the inspector says how the object reads, as the player says it to a screen reader; with nothing selected, it reads the state shown part by part, in order, and a part selects its object. An image with no description is W410: its mark offers Describe it, which opens the inspector on the image, its description ready to type.
 - **Add, copy, delete.** The Insert menu under the preview offers what your theme and bundle have: a text in each of the theme's roles, a rectangle, an ellipse, a line, an arrow, each image in the bundle, a chart and a table of each data source, and each of the theme's shader backgrounds. The chart is made from the columns the data has: a line over dates, bars over names, grouped where a name repeats.
   - Or draw it: press T (a text), R (a rectangle), O (an ellipse), L (a line), or A (an arrow) on the preview, and drag where it goes. It lands on the grid's cells you covered, or with Shift exactly where you dragged; a line runs the way you dragged. A click puts it where you clicked, a text you draw is ready to type into, and Escape stops drawing.
@@ -104,6 +105,7 @@ cd target/site && python3 serve.py      # then open http://localhost:8080/editor
   - **+ Row** adds an empty row after the row you are in, and **− Row** takes that row away.
   - The file keeps every byte you did not change, its quoting and line endings included, as `scaena data` writes it. Undo and Redo, or ⌘Z in a cell you have not changed, put it back as it was. A save records each version in the bundle's history.
   - Click a row's cell and the slide outlines what that row draws: its bar, its point, its slice, its row of a table. The line under the table says which, or that nothing on this slide draws it. With the Data tab open, click a bar on the slide and its row is chosen; double-click a bar to open the Data tab on it. A bar your `dataTransform` sums from several rows chooses them all.
+  - **Quote a figure.** Double-click a text, select the words that should be a figure, then click a cell here and **Quote**: the words become what the cell holds, and when the cell changes, so do they, and so does a claim that says them. Typing over the figure makes it plain words again.
 - **Annotate a chart.** Select a chart, then click one of its bars, points, or slices, and it is outlined. Right-click it to:
   - highlight it, or its whole series;
   - call it out, with words you type over it;
@@ -441,6 +443,13 @@ state ridge layout:art-right
 ```scn
 state sources slide:revenue
   title runs:[{text: "Revenue "}, {text: "doubled", link: {href: "https://example.com/method"}}, {text: " "}, {text: "again", link: {state: cover}}]
+```
+
+**A figure from the data.** A run's `quote` makes its words a value of a data source: a row, found by its values or its index (`-1` is the last), and a column, written by a `format`. Write any text for it: every patch and data edit sets it from the data, and the claim of the beat that shows it with it, where the claim says the figure as a word. If the data file changes some other way, lint says so (W427), and `scaena lint --fix` writes the figure (SPEC §3.5):
+
+```scn
+state pro slide:revenue
+  title runs:[{text: "Pro reached "}, {text: "$19.4", quote: {data: @q3, row: {quarter: "2026-Q3", product: Pro}, column: revenue, format: "$.1f"}}]
 ```
 
 **A list.** A text's paragraphs are its lines, each ended by a line break (`\n`). `list` makes them a list's items, one entry for each: `{kind: bullet}` or `{kind: number}`, deeper with `level`, or `null` for a paragraph that is no item. The theme draws the markers, a bullet or a number for each level, and indents each level its own step, the item's wrapped lines starting under its words (SPEC §3.5):

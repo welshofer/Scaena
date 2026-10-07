@@ -48,6 +48,10 @@ pub struct DataEdited {
     pub errors: usize,
     /// Refused: the edits would have added a validation finding (in `added`).
     pub refused: bool,
+    /// The texts whose quoted figures the edits set again, by node id, each once (ADR-0019):
+    /// written in the deck in the same change, with each claim that held the old figure.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<String>,
 }
 
 /// Make `req.edits` in source `req.source`, all or none, and write the file it is, or the deck
@@ -92,6 +96,22 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
             }
         }
     }
+    // Each figure a run quotes, set again from the data as the edits leave it (ADR-0019).
+    let doc = deck.to_value()?;
+    let stale = scaena_core::quotes::stale(&deck, &doc, &Texts(&view));
+    let mut quoted: Vec<String> = Vec::new();
+    if !stale.is_empty() {
+        let ops: Vec<serde_json::Value> =
+            scaena_core::quotes::requote(&stale).iter().map(serde_json::to_value).collect::<Result<_, _>>()?;
+        let mut doc = doc;
+        scaena_core::patch::apply(&mut doc, &ops).map_err(|e| OpsError::new(e.to_string()))?;
+        deck = Deck::from_value(&doc).map_err(OpsError::new)?;
+        for s in &stale {
+            if !quoted.contains(&s.node) {
+                quoted.push(s.node.clone());
+            }
+        }
+    }
     let read = |deck: &Deck, view: &View| sheet(deck, &Texts(view), name).map_err(OpsError::new);
     let invalid = validate_bundle(&b.deck.to_json()?, &b.files)?;
     // Edits that leave the file and the deck as they were, a cell set to what it held, write
@@ -110,6 +130,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
             removed: vec![],
             errors,
             refused: false,
+            quoted: vec![],
         };
         return Ok((edited, None));
     }
@@ -133,6 +154,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
         removed: removed.into_iter().cloned().collect(),
         errors: errors(&after),
         refused,
+        quoted: if refused { vec![] } else { quoted },
     };
     if refused {
         return Ok((edited, None));

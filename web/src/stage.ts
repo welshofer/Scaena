@@ -27,6 +27,7 @@ import type {
   NodeBox,
   NoteMark,
   Opened,
+  Framing,
   Outline,
   Painter,
   Pasted,
@@ -86,6 +87,8 @@ type Reply = Extract<
       | "noted"
       | "calledOut"
       | "outlined"
+      | "framed"
+      | "markedIn"
       | "linked"
       | "laidOut"
       | "viewed"
@@ -325,6 +328,18 @@ export class Stage {
    * that names no layout. */
   layout(state: string, format?: string): Promise<LayoutSlots | undefined> {
     return this.request<"laidOut">({ type: "layout", id: ++this.asked, state, format }).then(({ layout }) => layout ?? undefined);
+  }
+
+  /** Chart `node`'s marks, in data order, and its annotations, in the order it writes them, in
+   * `state` at rest; none for a node that is no chart (PLAN 2.75). */
+  marksIn(state: string, node: string, format?: string): Promise<{ marks: DataMark[]; notes: NoteMark[] } | undefined> {
+    return this.request<"markedIn">({ type: "marksIn", id: ++this.asked, state, node, format }).then(({ found }) => found ?? undefined);
+  }
+
+  /** Image `node`'s framing in `state` at rest: where its whole and the part that shows are drawn,
+   * its crop, and its focal point; none for a node that is no image, or not drawn there (PLAN 2.74). */
+  framing(state: string, node: string, format?: string): Promise<Framing | undefined> {
+    return this.request<"framed">({ type: "framing", id: ++this.asked, state, node, format }).then(({ framing }) => framing ?? undefined);
   }
 
   /** Shape `node`'s outline in `state` at rest: its points and a rect's corners, with the theme's
@@ -816,6 +831,8 @@ export class Stage {
       case "noted":
       case "calledOut":
       case "outlined":
+      case "framed":
+      case "markedIn":
       case "linked":
       case "laidOut":
       case "viewed":
