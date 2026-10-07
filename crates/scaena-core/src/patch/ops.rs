@@ -55,7 +55,10 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
             let at = d.showing(node, state.as_deref())?;
             set(&d, node, vec![(name, key, value.clone())], at.map(|(i, _)| i))?
         }
-        SemanticOp::Place { node, at, state, fork } => place_node(&d, node, at, state.as_deref(), *fork)?,
+        SemanticOp::Place { node, at, state, fork, format, anew } => match format {
+            Some(f) => place_in_format(&d, node, at, state.as_deref(), *fork, f, *anew)?,
+            None => place_node(&d, node, at, state.as_deref(), *fork)?,
+        },
         SemanticOp::SetText { node, text, state } => {
             let kind = d.kind(node)?;
             if kind != "text" {
@@ -554,6 +557,68 @@ fn place_node(d: &Doc, node: &str, spot: &Spot, state: Option<&str>, fork: bool)
     };
     let at = placed(at, &|key| under.contains_key(key));
     set(d, node, vec![("at".into(), None, at)], Some(j))
+}
+
+/// `place` in `format` (ADR-0020): into the node's own layout there where it has one, or,
+/// `anew`, one made for it; else as [`place_node`] places it. A format the deck does not lay
+/// out anew (its own canvas's shape, or one it does not list) places as without one, and
+/// `anew` there is refused.
+fn place_in_format(
+    d: &Doc,
+    node: &str,
+    spot: &Spot,
+    state: Option<&str>,
+    fork: bool,
+    format: &str,
+    anew: bool,
+) -> Result<Vec<JsonOp>, String> {
+    let own = d.node(node)?.clone();
+    let canvas = |k: &str| d.0.pointer(&format!("/canvas/{k}")).and_then(Value::as_f64).unwrap_or_default();
+    let size = [canvas("width"), canvas("height")];
+    let listed = d.0.get("formats").and_then(Value::as_array).is_some_and(|f| f.iter().any(|f| f == format));
+    let laid = crate::model::Format::parse(format).is_some_and(|f| f.canvas(size) != size) && listed;
+    let entry = own.get("formats").and_then(|f| f.get(format)).and_then(Value::as_object).cloned();
+    match (laid, entry, anew) {
+        (false, _, true) => {
+            Err(format!("`{format}` is not a format the deck lays out anew: a node's layout there would not show"))
+        }
+        (true, entry, anew) if entry.is_some() || anew => {
+            if fork {
+                return Err(format!("`{node}`'s layout in `{format}` is the node's own: it is not kept to a state"));
+            }
+            // Check the placement as the node's own would be: what holds it, and how.
+            place_node(d, node, spot, state, false)?;
+            let mut entry = entry.unwrap_or_default();
+            let mut at = entry
+                .get("at")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_else(|| own.get("at").and_then(Value::as_object).cloned().unwrap_or_default());
+            let spot = match serde_json::to_value(spot).map_err(|e| e.to_string())? {
+                Value::Object(spot) => spot,
+                _ => Map::new(),
+            };
+            at.retain(|k, _| !Spot::KEYS.contains(&k.as_str()));
+            for key in Spot::KEYS {
+                if let Some(value) = spot.get(key) {
+                    at.insert(key.to_string(), value.clone());
+                }
+            }
+            match spot.get("parent") {
+                Some(Value::Null) => drop(at.shift_remove("parent")),
+                Some(into) => drop(at.insert("parent".into(), into.clone())),
+                None => {}
+            }
+            entry.insert("at".into(), Value::Object(at));
+            let mut new = own.clone();
+            let formats = new.entry("formats").or_insert_with(|| Value::Object(Map::new()));
+            if let Value::Object(formats) = formats {
+                formats.insert(format.to_string(), Value::Object(entry));
+            }
+            Ok(diff(&format!("/nodes/{}", esc(node)), &own, &new))
+        }
+        _ => place_node(d, node, spot, state, fork),
+    }
 }
 
 /// `replace_text` (ADR-0013): the characters `from..to` of `node`'s text as `state` shows it
