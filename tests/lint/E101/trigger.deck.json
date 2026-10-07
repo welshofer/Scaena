@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "E101 trigger: two paragraphs in one slot, at the same z; then a chart placed by cells into the footer's row, over its caption, as the example deck's chart was; then a source note over a card in a stack, the stack and the note at the same z, as gate 1's cost cards were.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

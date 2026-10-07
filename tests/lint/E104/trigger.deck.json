@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "E104 trigger: a state tries to turn a text node into a chart, and its overrides to turn it into an image.",
   "canvas": { "width": 1920, "height": 1080 },
   "nodes": {

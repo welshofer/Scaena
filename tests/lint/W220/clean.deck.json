@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W220 clean: both start at the left.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

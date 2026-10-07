@@ -13,7 +13,8 @@
 // - A cell set in the Data tab: the chart that reads it is drawn again, changed.
 // - A figure of the Data tab quoted into a text's characters (PLAN 2.72).
 // - ⌘F finds a word across the deck, and Replace All replaces every match.
-// - The format picker offers the deck's formats: the trails deck lists none.
+// - The deck in 9:16 from the format picker: the process slide's steps one above another, and
+//   nothing for lint there (PLAN 2.84).
 // - Rehearse plays two slides, and Keep makes their times holds.
 // - Play, then the presenter view, which goes on and the player with it.
 // - Export… gives a PDF, and Download the .scaena.
@@ -308,10 +309,24 @@ try {
     await page.click('#find [data-find="close"]');
   });
 
-  // 7. The formats the deck lists.
+  // 7. The deck in 9:16 (PLAN 2.84): its process slide's steps one above another there.
   await step("formats", async () => {
     const offered = await page.$$eval("#format option", (o) => o.map((x) => x.value).filter(Boolean));
-    check(offered.length === 0, `the format picker offers the deck's formats: the trails deck lists ${offered.length ? offered.join(", ") : "none"}, so there is no 9:16 to show`);
+    check(offered.includes("9:16"), `the format picker offers the deck's formats: ${offered.join(", ")}`);
+    await show("process");
+    await page.selectOption("#format", "9:16");
+    await until("the canvas in 9:16", () => {
+      const [w, h] = window.scaena.canvas.size();
+      return w === 1080 && h === 1920 && window.scaena.canvas.boxes().some((b) => b.node === "process-plan");
+    });
+    const box = (node) => page.evaluate((n) => window.scaena.canvas.boxes().find((b) => b.node === n)?.rect, node);
+    const [survey, plan] = [await box("process-survey"), await box("process-plan")];
+    check(Math.abs(survey[0] - plan[0]) < 1 && plan[1] > survey[1] + survey[3] - 1, `in 9:16 the steps stand one above another: ${JSON.stringify([survey, plan])}`);
+    await until("every state linted", () => window.scaena.last()?.whole, null, 60000);
+    const there = await page.evaluate(() => window.scaena.last().findings.filter((f) => f.format === "9:16").map((f) => `${f.code} ${f.message}`));
+    check(!there.length, `lint finds nothing in 9:16${there.length ? `: ${there.join("; ")}` : ""}`);
+    await page.selectOption("#format", "");
+    await until("the deck's own canvas again", () => window.scaena.canvas.size()[0] === 1920);
   });
 
   // 8. Rehearse two slides, and keep their times.

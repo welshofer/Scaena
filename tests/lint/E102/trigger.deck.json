@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "E102 trigger: E102/clean.deck.json with every kind of reference broken once, and a node placed in rows 6–7 of a 6-row grid.",
   "canvas": { "width": 1920, "height": 1080 },
   "theme": "theme.json",

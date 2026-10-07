@@ -1653,13 +1653,33 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         // Where its text goes: its top-left corner.
         let origin: Option<[f32; 2]> = match note.kind {
             AnnotationKind::Rule => match (&note.at.x, &note.at.y) {
-                // Across the plot, its text over the rule at the plot's start, its
-                // descenders clear of it.
+                // Across the plot, its text over the rule, its descenders clear of it: at the
+                // plot's start, or else at the first place along the rule where no mark,
+                // value label, or other annotation's words stand behind it (PLAN 2.84).
                 (_, Some(p)) => {
                     let y = to_y(first_y(p));
                     out_note.rule =
                         Some(Rule { from: [left, y], to: [right, y], width: note_width, color: rule_color });
-                    text.as_ref().map(|t| [left, y - 0.5 * gap - t.lines[0].descent - t.lines[0].baseline])
+                    text.as_ref().map(|t| {
+                        let top = y - 0.5 * gap - t.lines[0].descent - t.lines[0].baseline;
+                        let (a, b) = (top + t.lines[0].baseline - cap(t), y);
+                        let beside = |y0: f32, y1: f32| y0 < b && y1 > a;
+                        let behind: Vec<[f32; 2]> = (out.marks.iter())
+                            .filter_map(|m| match m.shape {
+                                Shape::Bar(r) => beside(r.top(), r.bottom()).then_some([r.x, r.x + r.w]),
+                                Shape::Dot { x, y, r } => beside(y - r, y + r).then_some([x - r, x + r]),
+                                Shape::Span { x, top, .. } => (top < b).then_some([x, x]),
+                                Shape::Arc { .. } => None,
+                            })
+                            .chain(
+                                (out.labels.iter().map(ink))
+                                    .chain(out.notes.iter().filter_map(|n| n.label.as_ref()).map(ink))
+                                    .filter(|q| beside(q[1], q[3]))
+                                    .map(|q| [q[0], q[2]]),
+                            )
+                            .collect();
+                        [clear_along(left, right, t.width, &behind, 0.5 * gap), top]
+                    })
                 }
                 // Up the plot, its text beside the rule's top, after it unless it would
                 // pass the plot's end.
@@ -1901,6 +1921,16 @@ fn text_box(l: &Label) -> [f32; 4] {
 }
 
 /// A label's box: its advance across, and its cap height down to its baseline.
+/// Where along `[left, right]` a span `width` wide starts clear of every interval in `behind`,
+/// `apart` from each: `left` where it can, else the first place after one of them, else
+/// `left` all the same.
+fn clear_along(left: f32, right: f32, width: f32, behind: &[[f32; 2]], apart: f32) -> f32 {
+    let clear = |x: f32| behind.iter().all(|q| x + width + apart <= q[0] || q[1] + apart <= x);
+    let mut after: Vec<f32> = behind.iter().map(|q| q[1] + apart).filter(|&x| x > left).collect();
+    scaena_core::sort::by(&mut after, |a, b| a.total_cmp(b));
+    std::iter::once(left).chain(after).find(|&x| x + width <= right && clear(x)).unwrap_or(left)
+}
+
 fn ink(l: &Label) -> [f32; 4] {
     let first = &l.text.lines[0];
     let baseline = l.origin[1] + first.baseline;

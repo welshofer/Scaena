@@ -362,6 +362,7 @@ impl Rule for W301Rect {
 
 /// W302: a deck laid out in other `formats` that places a node by `rect` or by grid
 /// cells (`col`/`row`): a slot moves with each format's template set, and those do not.
+/// A node that says where it goes in each of those formats (`formats`, ADR-0020) is placed.
 struct W302Fixed;
 impl Rule for W302Fixed {
     fn code(&self) -> &'static str {
@@ -374,11 +375,25 @@ impl Rule for W302Fixed {
         if cx.deck.formats.is_empty() {
             return vec![];
         }
+        // The formats the deck lays out anew: each one but its own canvas's shape.
+        let own = [cx.deck.canvas.width, cx.deck.canvas.height];
+        let others: Vec<&str> = cx
+            .deck
+            .formats
+            .iter()
+            .filter(|f| crate::model::Format::parse(f).is_some_and(|f| f.canvas(own) != own))
+            .map(String::as_str)
+            .collect();
         let mut seen = BTreeSet::new();
         let mut out = Vec::new();
         for (i, snap) in cx.snapshots.iter().enumerate() {
             for (id, props) in &snap.nodes {
                 let Some(at) = props.get("at").and_then(Value::as_object) else { continue };
+                // A node placed anew in each of those formats (ADR-0020) is placed for each.
+                let anew = |f: &&str| props.get("formats").and_then(|l| l.get(*f)).and_then(|l| l.get("at")).is_some();
+                if !others.is_empty() && others.iter().all(anew) {
+                    continue;
+                }
                 let key = if at.contains_key("rect") {
                     "rect"
                 } else if at.contains_key("in") || at.contains_key("parent") {
@@ -404,7 +419,7 @@ impl Rule for W302Fixed {
                         .at(pointer)
                         .state(snap.state_id.clone())
                         .node(id.clone())
-                        .hint("Place it in a slot (`at.in`), and give the slot a place in each format's template set."),
+                        .hint("Place it in a slot (`at.in`), and give the slot a place in each format's template set; or place it in each format (`formats`)."),
                     );
                 }
             }

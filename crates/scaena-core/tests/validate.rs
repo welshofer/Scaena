@@ -382,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.12",
+        "scaena": "0.13",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -426,7 +426,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.12",
+        "scaena": "0.13",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -449,4 +449,37 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
             "E106 /nodes/bars/projected"
         ]
     );
+}
+
+/// A node's layout in its formats (ADR-0020): only in a format the deck lays out anew, only what
+/// its type takes, only on the node, and on that format's grid.
+#[test]
+fn a_nodes_layout_in_a_format_is_checked_where_it_is_written() {
+    let mut deck: serde_json::Value = serde_json::from_str(fixture!("E102", "clean")).unwrap();
+    deck["formats"] = serde_json::json!(["16:9", "9:16"]);
+    let node =
+        |deck: &mut serde_json::Value, id: &str, formats: serde_json::Value| deck["nodes"][id]["formats"] = formats;
+    let codes = |deck: &serde_json::Value| findings(&deck.to_string());
+    // Placed anew in 9:16, as a frame lays out there: clean.
+    let mut clean = deck.clone();
+    node(
+        &mut clean,
+        "title",
+        serde_json::json!({ "9:16": { "at": { "col": [1, 12], "row": [1, 3] }, "maxLines": 3 } }),
+    );
+    node(&mut clean, "stats", serde_json::json!({ "9:16": { "at": { "in": "canvas" }, "padding": "space.2" } }));
+    assert_eq!(codes(&clean), Vec::<String>::new());
+    // The deck's own shape, and a format it does not list.
+    let mut wrong = deck.clone();
+    node(&mut wrong, "title", serde_json::json!({ "16:9": { "maxLines": 2 }, "1:1": { "maxLines": 2 } }));
+    assert_eq!(codes(&wrong), ["E102 /nodes/title/formats/16:9", "E102 /nodes/title/formats/1:1"]);
+    // What a text does not take there, and a cell past the grid there.
+    let mut wrong = deck.clone();
+    node(&mut wrong, "title", serde_json::json!({ "9:16": { "axis": "x", "at": { "col": [1, 13] } } }));
+    assert_eq!(codes(&wrong), ["E102 /nodes/title/formats/9:16/at/col", "E106 /nodes/title/formats/9:16/axis"]);
+    // Only the node holds it: not a state's delta, nor the deck's overrides.
+    let mut wrong = deck.clone();
+    wrong["states"][0]["props"]["title"] = serde_json::json!({ "formats": { "9:16": { "maxLines": 2 } } });
+    wrong["overrides"] = serde_json::json!({ "photo": { "formats": { "9:16": { "align": "center" } } } });
+    assert_eq!(codes(&wrong), ["E106 /overrides/photo/formats", "E106 /states/0/props/title/formats"]);
 }

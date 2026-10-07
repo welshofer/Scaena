@@ -1,5 +1,5 @@
 {
-  "scaena": "0.12",
+  "scaena": "0.13",
   "_comment": "W313 trigger: a bar chart in one row of the theme's six, 128 cu tall: once its labels have their room, its bars have under 120 cu to rise in.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",
