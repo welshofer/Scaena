@@ -6,7 +6,12 @@
 // With no node selected, the state shown (PLAN 2.36, `Player.stateChoices`): its layout, from the
 // theme's layouts with a slot for each node placed in one, written where it lives, so the states
 // that take it from there change with it; its transition's duration, ease, spring, and match; its
-// hold; and its notes. Each is one `set_state` patch.
+// hold; and its notes. Each is one `set_state` patch. Above them, the layouts it may take (PLAN
+// 2.92, `Player.layoutSuggestions`), each drawn small at rest and judged by lint in every format
+// the deck lists, fewest errors first, then fewest warnings: a pointer over one, or the focus on
+// it, shows the state laid out in it on the canvas, nothing made (`Player.preview`), and a click
+// gives the state that layout as the layout field does. Layouts that draw the state alike are one
+// drawing, which names the others; a state that places no node in a slot is offered none.
 //
 // - Each choice is one `choose` patch, by the user, written where the value lives: the state
 //   that sets it, or the node. The status says which states it changes, and it is one step to
@@ -30,7 +35,7 @@
 // a run's role, emphasis, family, weight, italic (PLAN 2.40), and color, each the first
 // character's. Each choice is one `style_text`, written where the text lives; × takes the run's
 // own away, so the text's look shows there. A run takes the theme's names only.
-import type { Arrange, Choices, Edited, Field, Lives, StateChoices } from "./protocol";
+import type { Arrange, Choices, Edited, Field, LayoutSuggestion, Lives, StateChoices } from "./protocol";
 import type { Stage } from "./stage";
 import type { Selected } from "./typing";
 
@@ -90,6 +95,17 @@ const ARRANGE: [string, Arrange, string][] = [
 
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const counted = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+
+/** How high a suggested layout is drawn, in CSS pixels (PLAN 2.92). */
+const PICTURE = 72;
+
+/** The layouts a state may take, as last suggested, each with its picture (PLAN 2.92). */
+interface Suggested {
+  state: string;
+  format: string | undefined;
+  layouts: { suggestion: LayoutSuggestion; picture: ImageData }[];
+}
 
 /** A part of how a state reads (PLAN 2.56): the node it names, what kind of part it is, and what a
  * reader hears of it. */
@@ -152,6 +168,16 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
   let pending: { node: string; prop: string } | undefined;
   /** Readings asked for: only the latest is shown. */
   let read = 0;
+  /** The layouts suggested for the state shown (PLAN 2.92), asked for once edits pause: only the
+   * latest is shown. */
+  let suggested: Suggested | undefined;
+  let suggesting = 0;
+  let soon: ReturnType<typeof setTimeout> | undefined;
+  /** The layout the canvas shows the state laid out in, and the one it is to show: a preview at a
+   * time, the last asked for winning. */
+  let previewed: string | undefined;
+  let previewing: string | undefined;
+  let previews: Promise<void> | undefined;
 
   /** Show what the deck offers for node `next` in the state shown, with `also` selected beside it,
    * or for the state with none. */
@@ -333,12 +359,25 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const keeping = chars ? "" : `<p class="keep"><label><input type="checkbox" data-keep${keep ? " checked" : ""}> ${kept}</label></p>`;
     // How it reads: for one node or the state, never for several or for characters.
     const reading = !chars && nodes.length <= 1 ? `<section class="reads" aria-label="How it reads"></section>` : "";
+    // The layouts the state may take, drawn (PLAN 2.92): where there is more than one.
+    const layout = !chars && !("node" in offered) ? offered.fields.find((f) => f.prop === "layout") : undefined;
+    const choosing = layout?.takes.kind === "name" && layout.takes.names.length > 1;
+    const layouts = choosing ? `<section class="layouts" aria-label="Layouts, best first" hidden></section>` : "";
     into.innerHTML = `
       <h2>${title}</h2>
       ${keeping}
       ${arrange || grouping ? `<div class="arrange">${arrange}${grouping}</div>` : ""}
+      ${layouts}
       <div class="fields">${rows.join("")}</div>
       ${reading}`;
+    // A layout previewed is let go: the canvas shows the state at rest as it is.
+    if (previewing !== undefined || previewed !== undefined) preview(undefined);
+    // The last suggested for the state shown stand: an edit has them judged again once every
+    // state is linted, edits having paused (`linted`). Another state's are asked for now.
+    if (layouts) {
+      if (suggested?.state === now.state && suggested.format === around.format()) fill(suggested);
+      else suggestSoon();
+    }
     const wanted = pending && nodes.length === 1 && nodes[0] === pending.node ? `look-${pending.prop.replace(/\//g, "-")}` : undefined;
     if (wanted) pending = undefined;
     const focus = wanted ?? focused;
@@ -382,6 +421,74 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     box.innerHTML = mine
       ? `<h3>Reads as</h3><p><span class="kind">${html(mine.kind)}</span> ${html(mine.says)}</p>`
       : `<h3>Reads as</h3><p>not read: ${html(why)}</p>`;
+  }
+
+  /** Ask for the layouts the state shown may take (PLAN 2.92), once the inspector has settled on
+   * it: each is laid out, linted in every format, and drawn, which takes the worker a while. */
+  function suggestSoon() {
+    clearTimeout(soon);
+    soon = setTimeout(() => void suggest(), 150);
+  }
+
+  async function suggest() {
+    const now = around.shown();
+    if (!now || !into.querySelector(".layouts")) return;
+    const turn = ++suggesting;
+    const format = around.format();
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const got = await stage.layoutSuggestions(around.source(), now.state, Math.round(PICTURE * ratio), format).catch(() => undefined);
+    if (turn !== suggesting || !got || around.shown()?.state !== now.state) return;
+    const layouts = got.map((suggestion) => ({
+      suggestion,
+      picture: new ImageData(new Uint8ClampedArray(suggestion.pixels), suggestion.width, suggestion.height),
+    }));
+    suggested = { state: now.state, format, layouts };
+    fill(suggested);
+  }
+
+  /** Draw `these` into the inspector's layouts, the one focused keeping the focus. */
+  function fill(these: Suggested) {
+    const box = into.querySelector<HTMLElement>(".layouts");
+    if (!box) return;
+    const focused = box.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.layout : undefined;
+    // One drawing is nothing to choose between.
+    box.hidden = these.layouts.length < 2;
+    const buttons = these.layouts.map(({ suggestion: s }) => {
+      const found = s.errors
+        ? `<span class="error">${counted(s.errors, "error")}</span>${s.warnings ? `, <span class="warning">${counted(s.warnings, "warning")}</span>` : ""}`
+        : s.warnings
+          ? `<span class="warning">${counted(s.warnings, "warning")}</span>`
+          : "nothing found";
+      const reach = s.current ? "the layout it takes now" : keep || s.reach.length <= 1 ? `changes ${these.state}` : `changes ${s.reach.length} states`;
+      // The layouts that draw it so, folded into this one.
+      const alike = s.alike?.length ? `also ${s.alike.join(", ")}` : "";
+      const said = `${s.layout}: ${reach}${alike ? `; ${s.alike!.join(" and ")} ${s.alike!.length === 1 ? "draws" : "draw"} it alike` : ""}`;
+      // An id, so that the focus on one stays there when the inspector is drawn again.
+      return `<button type="button" id="layout-suggested-${html(s.layout)}" data-layout="${html(s.layout)}" aria-pressed="${s.current === true}" title="${html(said)}">
+        <canvas aria-hidden="true" width="${s.width}" height="${s.height}"></canvas><span class="name">${html(s.layout)}</span><span class="verdict">${found}</span>${alike ? `<span class="alike">${html(alike)}</span>` : ""}<span class="sr">, ${html(reach)}</span></button>`;
+    });
+    box.innerHTML = `<h3>Layouts, best first</h3><div class="suggested">${buttons.join("")}</div>`;
+    box.querySelectorAll("canvas").forEach((canvas, i) => canvas.getContext("2d")?.putImageData(these.layouts[i].picture, 0, 0));
+    if (focused !== undefined) box.querySelector<HTMLElement>(`[data-layout="${CSS.escape(focused)}"]`)?.focus();
+  }
+
+  /** Show the state shown laid out in `layout` on the canvas, nothing made, or at rest as it is
+   * with none (PLAN 2.92): a preview at a time, the last asked for winning. */
+  function preview(layout: string | undefined) {
+    previewing = layout;
+    previews ??= (async () => {
+      while (previewed !== previewing) {
+        const want = previewing;
+        const now = around.shown();
+        const s = suggested?.state === now?.state ? suggested?.layouts.find((l) => l.suggestion.layout === want)?.suggestion : undefined;
+        if (now) {
+          const shown = s && !s.current ? stage.preview(now.state, s.patch, around.format()) : stage.rest(now.state, around.format());
+          await shown.catch(() => {});
+        }
+        previewed = want;
+      }
+      previews = undefined;
+    })();
   }
 
   /** Focus `prop`'s field once the inspector shows `node`: now, if it does. */
@@ -436,6 +543,8 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
     if (target.matches("[data-keep]")) {
       keep = (target as HTMLInputElement).checked;
+      // What each layout suggested changes, kept to the state or not.
+      if (suggested && suggested.state === around.shown()?.state) fill(suggested);
       return;
     }
     const prop = target.dataset.prop;
@@ -469,6 +578,28 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     if ((e.target as Element).closest("[data-pick]")) around.pick();
     const reading = (e.target as Element).closest<HTMLElement>("[data-read]");
     if (reading?.dataset.read) around.select(reading.dataset.read);
+    // A layout suggested is chosen as the layout field chooses it (PLAN 2.92), and the layouts are
+    // judged again in the deck it makes.
+    const layout = (e.target as Element).closest<HTMLElement>("[data-layout]");
+    if (layout?.dataset.layout && layout.getAttribute("aria-pressed") !== "true") void choose("layout", layout.dataset.layout).then(suggestSoon);
+  });
+  // A layout suggested, pointed at or focused, shows on the canvas until the pointer or the focus
+  // leaves the layouts (PLAN 2.92).
+  const suggestion = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>(".layouts [data-layout]") : null);
+  const away = (target: EventTarget | null) => !(target instanceof Element && target.closest(".layouts"));
+  into.addEventListener("pointerover", (e) => {
+    const over = suggestion(e.target);
+    if (over) preview(over.dataset.layout);
+  });
+  into.addEventListener("pointerout", (e) => {
+    if (suggestion(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
+  });
+  into.addEventListener("focusin", (e) => {
+    const on = suggestion(e.target);
+    if (on) preview(on.dataset.layout);
+  });
+  into.addEventListener("focusout", (e) => {
+    if (suggestion(e.target) && away(e.relatedTarget) && previewing !== undefined) preview(undefined);
   });
 
   return {
@@ -480,6 +611,21 @@ export function looks(stage: Stage, into: HTMLElement, around: Around) {
     offered: () => offered,
     /** Choices made so far are made: what a test waits for. */
     settled: () => queue,
+    /** Every state is linted, edits having paused: the layouts suggested for the state shown are
+     * judged again, and those of a state not shown are let go (PLAN 2.92). */
+    linted: () => {
+      if (into.querySelector(".layouts")) suggestSoon();
+      else suggested = undefined;
+    },
+    /** The layouts last suggested for the state shown, best first (PLAN 2.92), once they are,
+     * for a test. */
+    suggested: () =>
+      suggested?.state === around.shown()?.state ? suggested?.layouts.map((l) => ({ ...l.suggestion, pixels: undefined })) : undefined,
+    /** The preview asked for is shown: what a test waits for. */
+    previewed: async () => {
+      await previews;
+      return previewed;
+    },
     /** Whether "Only in this state" is checked: what keeps an annotation made on the canvas to
      * the state shown too (PLAN 2.67). */
     keeping: () => keep,

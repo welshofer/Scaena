@@ -21,6 +21,7 @@ pub mod files;
 pub mod find;
 pub mod history;
 pub mod inspect;
+pub mod layouts;
 pub mod lint;
 pub mod patch;
 pub mod read;

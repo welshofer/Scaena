@@ -120,6 +120,13 @@ pub struct Views {
     /// `set_state` writes.
     #[serde(default)]
     pub state_choices: bool,
+    /// The layouts the state inspected may take, best first (PLAN 2.92): each of the theme's
+    /// layouts that `state_choices` offers, with what lint finds in the state laid out in it,
+    /// fewest errors, then fewest warnings, then the theme's order; the states its patch
+    /// changes; and that patch, one `set_state`. Those that draw the state alike, in `format`
+    /// or on the deck's canvas, are one, which names the rest (`alike`).
+    #[serde(default)]
+    pub layouts: bool,
     /// What may be inserted in the state inspected (PLAN 2.34): a text in each of the
     /// theme's roles, each kind of shape, each image in the bundle, a chart and a table of
     /// each data source (PLAN 2.41), and each shader preset, each as `add_node` adds it, with
@@ -241,6 +248,9 @@ pub struct Inspected {
     /// What an inspector offers for the state itself (`state_choices`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_choices: Option<StateChoices>,
+    /// The layouts the state may take, best first (`layouts`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layouts: Option<Vec<crate::layouts::Suggestion>>,
     /// What may be inserted in this state (`inserts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserts: Option<Vec<Insert>>,
@@ -512,6 +522,7 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
         || views.format.is_some()
         || views.choices.is_some()
         || views.state_choices
+        || views.layouts
         || views.inserts
         || views.look.is_some();
     let theme = if themed { Some(crate::theme(b)?) } else { None };
@@ -537,6 +548,11 @@ pub fn inspect(b: &Bundle, state: Option<&str>, views: Views) -> Result<Vec<Insp
         let paths = b.files.list().context("the bundle's files")?;
         let offered = inserts(&b.deck, theme, &paths, &files);
         out.iter_mut().for_each(|i| i.inserts = Some(offered.clone()));
+    }
+    // The layouts a state may take are judged by lint, which reads the bundle's files.
+    if let (true, Some(state)) = (views.layouts, state) {
+        let suggested = crate::layouts::suggest(b, state, views.format.as_deref())?;
+        out.iter_mut().for_each(|i| i.layouts = Some(suggested.clone()));
     }
     Ok(out)
 }
@@ -575,6 +591,9 @@ pub fn inspect_deck(
     }
     if views.inserts && state.is_none() {
         return Err(OpsError::new("`inserts` says what may be inserted in a state: name the state"));
+    }
+    if views.layouts && state.is_none() {
+        return Err(OpsError::new("`layouts` says what layouts a state may take: name the state"));
     }
     if views.look.is_some() && state.is_none() {
         return Err(OpsError::new("`look` picks up a node's look in a state: name the state"));
@@ -673,6 +692,7 @@ pub fn inspect_deck(
             arranged: None,
             choices: None,
             state_choices: None,
+            layouts: None,
             inserts: None,
             layers: None,
             look: None,

@@ -288,6 +288,24 @@ export interface StateChoices {
   fields: Field[];
 }
 
+/** A layout the state shown may take (PLAN 2.92), as `scaena inspect --layouts` judges it: what
+ * lint finds in the state laid out in it, the states the change reaches, and the `set_state` that
+ * makes it (none for the layout it takes now), with its picture at rest, `width` × `height` pixels
+ * of straight-alpha RGBA. */
+export interface LayoutSuggestion {
+  layout: string;
+  current?: boolean;
+  errors: number;
+  warnings: number;
+  /** The layouts that draw the state as this one does, lint judging them alike: left out. */
+  alike?: string[];
+  reach: string[];
+  patch: unknown[];
+  width: number;
+  height: number;
+  pixels: ArrayBuffer;
+}
+
 /** One property an inspector edits. */
 export interface Field {
   /** A property, or one key of an object property (`style/color`): what `choose` names. */
@@ -664,6 +682,12 @@ export type ToWorker =
   /** What an inspector offers for `node` as `state` shows it (PLAN 2.33). */
   | { type: "choices"; id: number; state: string; node: string }
   | { type: "stateChoices"; id: number; state: string }
+  /** The layouts `state` may take, best first, each painted at rest `height` pixels high, in the
+   * deck the editor's `source` compiles to (PLAN 2.92). */
+  | { type: "layoutSuggestions"; id: number; source: string; state: string; height: number; format?: string }
+  /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
+   * it go: a suggested layout pointed at (PLAN 2.92). */
+  | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
   /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
   | { type: "look"; id: number; source: string; state: string; node: string }
   /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
@@ -1175,6 +1199,7 @@ export type FromWorker =
   | { type: "made"; id: number; source: string; edited: Edited }
   | { type: "choices"; id: number; choices: Choices }
   | { type: "stateChoices"; id: number; choices: StateChoices }
+  | { type: "layoutSuggestions"; id: number; suggestions: LayoutSuggestion[] }
   | { type: "look"; id: number; look: Look }
   | { type: "put"; id: number; put: Put }
   | { type: "carets"; id: number; carets: Carets | null }

@@ -11,6 +11,7 @@ use crate::{Error, Session};
 use scaena_core::model::Format;
 use scaena_core::validate::BundleFiles;
 use scaena_core::{Deck, Finding, Severity, resolve_states};
+use scaena_engine::FrameRequest;
 use scaena_ops::compile::{Compiled, compile, line_col};
 use scaena_ops::inspect::{Inspected, Views, inspect_deck};
 use scaena_ops::lint::{layout_rules, lint_with};
@@ -267,6 +268,71 @@ impl Session {
         Ok(Linting { findings: edit.findings.iter().map(at).collect(), laid: linted.laid, whole: only.is_none() })
     }
 
+    /// Begin judging the layouts `state` may take (PLAN 2.92), as `scaena inspect --layouts`
+    /// judges them: how many there are. Each is judged by a [`Session::layouts_step`], so that
+    /// a page's worker answers what else it is asked between them.
+    pub fn layouts_begin(&mut self, state: &str) -> Result<usize, Error> {
+        // Built now: building lets go of what was laid out, a round too.
+        self.build()?;
+        let found = scaena_ops::layouts::candidates(&self.deck, &self.theme, &Handed(&self.files), state)
+            .map_err(|e| Error::Ops(e.message))?;
+        let count = found.len();
+        self.suggesting = Some(Suggesting { state: state.to_string(), left: found.into_iter(), judged: Vec::new() });
+        Ok(count)
+    }
+
+    /// Judge the next layout: the state laid out in it by the session's engine, linted in every
+    /// format, and drawn at rest in the format shown. Whether any is left. Nothing is made, and
+    /// the canvas's own layout of the state is kept; a deck, its files, or the format changed
+    /// since [`Session::layouts_begin`] ends the round, an error.
+    pub fn layouts_step(&mut self) -> Result<bool, Error> {
+        self.build()?;
+        let Session { theme, theme_json, files, data, engine, store, format, suggesting, .. } = self;
+        let round = suggesting.as_mut().ok_or_else(|| Error::Ops("no layouts are being judged".into()))?;
+        let Some(candidate) = round.left.next() else { return Ok(false) };
+        let engine = engine.as_mut().expect("built above");
+        let (made, state) = (&candidate.deck, round.state.as_str());
+        let linted = lint_with(made, &Handed(files), Some(theme_json.as_str()), |theme| {
+            layout_rules(engine, made, theme, data, store, Some(state))
+        })
+        .map_err(|e| Error::Ops(e.message))?;
+        let req = FrameRequest { deck: made, theme, data, state, t_ms: f64::INFINITY, format: format.as_deref() };
+        let drawn = engine.frame(&req)?.display_list;
+        let counted = scaena_ops::layouts::counted(candidate.suggestion, state, &linted.findings);
+        round.judged.push((counted, drawn));
+        Ok(round.left.len() > 0)
+    }
+
+    /// The layouts judged, best first, those drawn alike folded into one, each painted at rest
+    /// `height` pixels high by a CPU painter of its own; the round ends. Any not judged yet is
+    /// judged first.
+    pub fn layouts_end(
+        &mut self,
+        height: u32,
+    ) -> Result<Vec<(scaena_ops::layouts::Suggestion, scaena_paint::Raster)>, Error> {
+        use scaena_paint::Painter;
+        while self.layouts_step()? {}
+        let round = self.suggesting.take().ok_or_else(|| Error::Ops("no layouts are being judged".into()))?;
+        let mut painter = scaena_paint::cpu::CpuPainter::default();
+        let mut painted = Vec::with_capacity(round.judged.len());
+        for (suggestion, list) in scaena_ops::layouts::ranked(round.judged) {
+            let scale = height as f32 / list.viewport[1];
+            painted.push((suggestion, painter.paint(&list, &self.store, scale)?));
+        }
+        Ok(painted)
+    }
+
+    /// The layouts `state` may take, best first, judged and painted in one go
+    /// ([`Session::layouts_begin`], each step, then [`Session::layouts_end`]).
+    pub fn layout_suggestions(
+        &mut self,
+        state: &str,
+        height: u32,
+    ) -> Result<Vec<(scaena_ops::layouts::Suggestion, scaena_paint::Raster)>, Error> {
+        self.layouts_begin(state)?;
+        self.layouts_end(height)
+    }
+
     /// The source compiled last with `patch`, a finding's fix, applied: the fixed deck as
     /// canonical `.scn`. The fix names what it changes by pointer, so it applies to a
     /// later edit too.
@@ -291,6 +357,14 @@ impl Session {
             .map_err(|e| Error::Ops(e.message))?;
         Ok(found.remove(0))
     }
+}
+
+/// A round of the layouts a state may take, judged a step at a time (PLAN 2.92): those left,
+/// and those judged, each with its drawing.
+pub struct Suggesting {
+    state: String,
+    left: std::vec::IntoIter<scaena_ops::layouts::Candidate>,
+    judged: Vec<(scaena_ops::layouts::Suggestion, scaena_core::displaylist::DisplayList)>,
 }
 
 /// The format shown, and every format the deck is laid out in, by the name the format menu gives
@@ -335,6 +409,61 @@ mod tests {
             }
         }
         s
+    }
+
+    /// The layouts a state may take (PLAN 2.92), judged as `scaena inspect --layouts` judges
+    /// them and painted small, with nothing made: the canvas draws the deck as it was.
+    #[test]
+    fn a_states_layouts_come_judged_and_painted_best_first() {
+        let mut s = revenue();
+        let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
+        let suggested = s.layout_suggestions("revenue", 90).unwrap();
+        let judged: Vec<(&str, bool, usize)> =
+            suggested.iter().map(|(x, _)| (x.layout.as_str(), x.current, x.errors)).collect();
+        assert_eq!(judged[0], ("figure", true, 0), "{judged:?}");
+        assert_eq!(judged.len(), 3, "{judged:?}");
+        assert!(judged[1..].iter().all(|&(_, current, errors)| !current && errors > 0), "{judged:?}");
+        // As the bundle's lint judges them, the CLI's.
+        let b = scaena_ops::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+        let cli = scaena_ops::layouts::suggest(&b, "revenue", None).unwrap();
+        assert_eq!(cli, suggested.iter().map(|(x, _)| x.clone()).collect::<Vec<_>>());
+        // Each painted 90 pixels high on the deck's 16:9 canvas, and no two alike.
+        for (i, (x, picture)) in suggested.iter().enumerate() {
+            assert_eq!((picture.width, picture.height), (160, 90), "{}", x.layout);
+            assert!(
+                suggested[..i].iter().all(|(_, other)| other.rgba != picture.rgba),
+                "{} draws as another",
+                x.layout
+            );
+        }
+        // The canvas draws the deck as it was.
+        assert!(s.pixels("revenue", f64::INFINITY, 160).unwrap().rgba == before.rgba);
+    }
+
+    #[test]
+    fn a_round_of_layouts_is_judged_a_step_at_a_time_and_ends_with_an_edit() {
+        let mut s = revenue();
+        let whole = s.layout_suggestions("revenue", 90).unwrap();
+        // A step judges one layout and says whether any is left: what a page's worker answers
+        // between, the same in the end.
+        let count = s.layouts_begin("revenue").unwrap();
+        assert!(count >= whole.len(), "{count} judged for {} suggested", whole.len());
+        let mut left = 0;
+        while s.layouts_step().unwrap() {
+            left += 1;
+        }
+        assert_eq!(left + 1, count);
+        let stepped = s.layouts_end(90).unwrap();
+        assert_eq!(stepped.len(), whole.len());
+        for ((a, x), (b, y)) in stepped.iter().zip(&whole) {
+            assert!(a == b && x.rgba == y.rgba, "{} against {}", a.layout, b.layout);
+        }
+        // An edit between two steps ends the round: what is left was made from the deck before.
+        s.layouts_begin("revenue").unwrap();
+        assert!(s.layouts_step().unwrap());
+        let source = s.source().replace("Same bars, stacked.", "The same bars, stacked.");
+        assert!(s.compile(&source).valid);
+        assert!(s.layouts_step().is_err() && s.layouts_end(90).is_err());
     }
 
     #[test]
