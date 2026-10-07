@@ -7,6 +7,7 @@ import type {
   Arranged,
   Asking,
   AssistantEvent,
+  Attached,
   At,
   DataEdited,
   DataMark,
@@ -79,6 +80,7 @@ type Reply = Extract<
       | "dataEdited"
       | "dataUndone"
       | "dropped"
+      | "attached"
       | "models"
       | "reloaded"
       | "boxes"
@@ -735,6 +737,13 @@ export class Stage {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
   }
 
+  /** A data file dropped on the canvas, into the bundle at `path`, as the source `data` of the
+   * deck `source` compiles to: one it declares already (no `attached`), or one declared as
+   * `data_attach` declares it, by the patch, which `make` applies; empty where it is refused. */
+  attaching(source: string, name: string, bytes: ArrayBuffer): Promise<{ path: string; data: string; attached: Attached | null; patch: unknown[] }> {
+    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes }).then(({ path, data, attached, patch }) => ({ path, data, attached, patch }));
+  }
+
   /** Ask the assistant `asking.text` about the deck `source` says, which must compile and
    * validate (PLAN 2.6). `hear` hears each step; the promise holds the last, `done` or
    * `failed`, and fails if the question could not be asked. */
@@ -823,6 +832,7 @@ export class Stage {
       case "zipped":
       case "exported":
       case "dropped":
+      case "attached":
       case "models":
       case "reloaded":
       case "boxes":

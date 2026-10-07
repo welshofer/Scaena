@@ -187,7 +187,7 @@ pub fn fresh(deck: &Deck, base: &str) -> String {
 
 /// `name` as an id (SPEC §3.2): lowercase, each run of other characters a `-`, starting with
 /// a letter (else `prefix-` first), 64 characters at most.
-fn slug(name: &str, prefix: &str) -> String {
+pub fn slug(name: &str, prefix: &str) -> String {
     let mut out = String::new();
     for c in name.chars().map(|c| c.to_ascii_lowercase()) {
         match c {

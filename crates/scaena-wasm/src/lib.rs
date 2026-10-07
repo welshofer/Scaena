@@ -2234,6 +2234,20 @@ impl Player {
         serde_json::to_string(&serde_json::json!({ "sheet": sheet, "file": file })).map_err(js)
     }
 
+    /// Where a data file `name` dropped on the canvas goes in the bundle: as `place` puts it,
+    /// unless the bundle holds other bytes there, when a number goes before its extension.
+    pub fn placing(&self, name: &str, bytes: &[u8]) -> String {
+        self.0.placing(name, bytes)
+    }
+
+    /// `path`, a data file the bundle holds, as the source a chart of it reads, as JSON:
+    /// `{ path, data, attached, patch }`. A source the deck declares for it already has no
+    /// `attached` and no patch; a new one has what `data_attach` says of it and the patch that
+    /// declares it, which `make` applies, empty where it is refused.
+    pub fn attaching(&self, path: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.attaching(path).map_err(js)?).map_err(js)
+    }
+
     /// `req` (JSON: `{ source, edits }`, as `data_edit` takes them) made by `author` (`user`
     /// without one) at `at` (RFC 3339): validated, as a patch is, but not linted, as for a value
     /// typed in a cell. As JSON, `{ result, wrote }`: what `data_edit` says it did, and whether it
@@ -3620,6 +3634,71 @@ mod tests {
         s.tool("deck_patch", serde_json::json!({ "ops": pasted.patch }), by).unwrap();
         assert!(stands(&mut s, "close", "body").is_some());
         assert!(scaena_ops::clipboard::of_text(&s.deck, &s.theme, " \n").is_err(), "nothing to paste");
+    }
+
+    /// A CSV dropped on the canvas becomes a data source (the first-deck walk): declared as
+    /// `data_attach` declares it, under an id made from its name and new to the deck, each column
+    /// typed. Its patch adds it beside the deck's sources, or makes `data` in a deck with none, and
+    /// Insert then offers a chart of it. A file that does not read is refused, with why.
+    #[test]
+    fn a_data_file_dropped_on_the_canvas_is_attached_as_a_source() {
+        let by = || assistant::Caller { author: "user", at: None };
+        let csv = "month,visits\nApril,1200\nMay,1850\nJune,2900\n";
+
+        // Beside the source the deck has.
+        let mut s = revenue();
+        let path = s.placing("visits.csv", csv.as_bytes());
+        assert_eq!(path, "data/visits.csv");
+        s.add_file(&path, csv.as_bytes().to_vec());
+        let a = s.attaching(&path).unwrap();
+        let attached = a.attached.as_ref().expect("a source new to the deck");
+        assert!(attached.attached, "{attached:?}");
+        assert_eq!((a.data.as_str(), attached.rows), ("visits", 3));
+        assert_eq!(a.patch.len(), 1, "{:?}", a.patch);
+        assert_eq!(a.patch[0]["path"], "/data/visits");
+        assert_eq!(a.patch[0]["value"]["source"], "data/visits.csv");
+        assert_eq!(a.patch[0]["value"]["schema"], serde_json::json!({ "month": "string", "visits": "number" }));
+        assert!(s.inserts().iter().all(|i| i.label != "Chart · visits"), "nothing is declared before the patch");
+        s.tool("deck_patch", serde_json::json!({ "ops": a.patch }), by()).unwrap();
+        assert_eq!(s.deck.data.keys().collect::<Vec<_>>(), ["q3", "visits"]);
+        let chart = s.inserts().into_iter().find(|i| i.label == "Chart · visits").expect("a chart of it");
+        assert_eq!((chart.node["kind"].as_str(), chart.node["data"].as_str()), (Some("bar"), Some("@visits")));
+
+        // The same file again is where it was, and a chart of it reads the source that reads it.
+        assert_eq!(s.placing("visits.csv", csv.as_bytes()), path);
+        let again = s.attaching(&path).unwrap();
+        assert_eq!((again.data.as_str(), again.attached.is_none(), again.patch.len()), ("visits", true, 0));
+        // Other rows under the same name go beside it: `visits` reads the rows it read.
+        let more = "month,visits\nJuly,3400\n";
+        let other = s.placing("visits.csv", more.as_bytes());
+        assert_eq!(other, "data/visits-2.csv");
+        s.add_file(&other, more.as_bytes().to_vec());
+        let b = s.attaching(&other).unwrap();
+        assert_eq!((b.data.as_str(), b.attached.as_ref().map(|a| a.rows)), ("visits-2", Some(1)));
+        assert_eq!(s.files["data/visits.csv"], csv.as_bytes());
+
+        // A new deck has no sources: the patch makes `data`.
+        let examples = std::path::Path::new("../../docs/examples");
+        let fonts: BTreeMap<String, Vec<u8>> = ["Fraunces-VF.ttf", "Inter-VF.ttf", "JetBrainsMono-VF.ttf"]
+            .iter()
+            .chain(&["Fraunces-Italic-VF.ttf", "Inter-Italic-VF.ttf", "JetBrainsMono-Italic-VF.ttf"])
+            .map(|f| (format!("fonts/{f}"), std::fs::read(examples.join("fonts").join(f)).unwrap()))
+            .collect();
+        let dusk = std::fs::read_to_string(examples.join("themes/dusk.theme.json")).unwrap();
+        let mut made = Session::create("dusk.theme.json", &dusk, &fonts, "Trail report").unwrap();
+        made.add_file(&path, csv.as_bytes().to_vec());
+        let a = made.attaching(&path).unwrap();
+        assert_eq!(a.patch[0]["path"], "/data", "{:?}", a.patch);
+        assert_eq!(a.patch[0]["value"]["visits"]["source"], "data/visits.csv");
+        made.tool("deck_patch", serde_json::json!({ "ops": a.patch }), by()).unwrap();
+        assert_eq!(made.deck.data.len(), 1);
+
+        // A file that does not read as rows is refused, with why; one the bundle lacks, too.
+        made.add_file("data/broken.json", b"{ not json".to_vec());
+        let broken = made.attaching("data/broken.json").unwrap_err().to_string();
+        assert!(!broken.is_empty(), "says why");
+        let missing = made.attaching("data/nowhere.csv").unwrap_err().to_string();
+        assert!(missing.contains("data/nowhere.csv"), "{missing}");
     }
 
     /// A paste into a deck whose theme lacks what the copy names takes it out of the copy, and

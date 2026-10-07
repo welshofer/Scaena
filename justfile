@@ -210,6 +210,7 @@ web-smoke: site
     node web/history.mjs
     node web/live.mjs
     node web/new.mjs
+    node web/first-deck.mjs
     node web/site.mjs
     node web/offline.mjs
     node web/a11y.mjs

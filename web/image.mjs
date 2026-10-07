@@ -9,7 +9,8 @@
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
 // - A PNG dropped on the image takes its place: the file joins the bundle, named by its SHA-256,
 //   and the image's `src` is its path. So does a JPEG, as it is (PLAN 2.66), drawn as its EXIF
-//   orientation turns it. Dropped on a text, or neither a PNG nor a JPEG, nothing changes.
+//   orientation turns it. Dropped on a text, it is inserted there, as Insert inserts it (PLAN
+//   2.76), and one undo takes it out. A file neither a picture nor data changes nothing.
 // - Undone, the deck is as it was, and it validates.
 // Exits 1 on any failure.
 import { readFileSync } from "node:fs";
@@ -172,13 +173,19 @@ try {
     const [px, py] = await client(at);
     await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: px, clientY: py });
   };
-  // Not on an image, or neither a PNG nor a JPEG: nothing changes, and the status says why.
+  // On a text, a picture is inserted there, as Insert inserts it (PLAN 2.76); one undo takes it out.
   const label = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "case").rect);
+  n = await trips();
   await drop("ridge.png", [label[0] + label[2] / 2, label[1] + label[3] / 2]);
-  check(await says("drop an image on an image"), `a PNG dropped on a text: ${await status()}`);
+  check(await says("ridge.png inserted as image-"), `a PNG dropped on a text is inserted there: ${await status()}`);
+  await settled(n);
+  check(/\bimage-[0-9a-f]+ image\s+"assets\/[0-9a-f]{64}\.png"/.test(await source()), "a new image of it");
+  await undo();
+  check((await source()) === original, "one undo takes it out");
+  // A file neither a picture nor data: nothing changes, and the status says why.
   await drop("ridge.txt", [x + w / 2, y + h / 2]);
-  check(await says("ridge.txt is neither a PNG nor a JPEG"), `a file that is neither, on the image: ${await status()}`);
-  check((await source()) === original, "and neither changes the deck");
+  check(await says("ridge.txt is neither a picture (PNG, JPEG) nor data (CSV, JSON)"), `a file that is neither, on the image: ${await status()}`);
+  check((await source()) === original, "and it does not change the deck");
   n = await trips();
   await drop("ridge.png", [x + w / 2, y + h / 2]);
   check(await says("image-cover shows ridge.png, kept as assets/"), `a PNG dropped on it takes its place: ${await status()}`);

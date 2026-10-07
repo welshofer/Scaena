@@ -466,6 +466,24 @@ export const BUNDLE_PATH = "application/x-scaena-path";
 /** A file an image node can show, by its name: a PNG or a JPEG (SPEC §3.3, PLAN 2.66). */
 export const PICTURE = /\.(png|jpe?g)$/i;
 
+/** The files a data source reads (SPEC §3.10): a CSV, or JSON, an array of objects. */
+export const DATA = /\.(csv|json)$/i;
+
+/** A data file attached as a source, as `data_attach` says it (`scaena_ops::create::Attached`). */
+export interface Attached {
+  /** Whether the deck takes it: not where it would make the deck invalid (in `added`). */
+  attached: boolean;
+  id: string;
+  /** Its path in the bundle. */
+  source: string;
+  /** Each column's type, as the deck declares it. */
+  schema: Record<string, string>;
+  rows: number;
+  added: Finding[];
+  removed: Finding[];
+  errors: number;
+}
+
 /** A version of the deck (PLAN 2.60, SPEC §8): as it was just after one change its history
  * keeps, numbered from the oldest, and named by its change's id for as long as the history lasts. */
 export interface Version {
@@ -719,6 +737,11 @@ export type ToWorker =
   /** A file dropped on the page, into the bundle: where it goes is what it is, and an image
    * is named by its SHA-256 (`Player.place`). */
   | { type: "drop"; id: number; name: string; bytes: ArrayBuffer }
+  /** A data file dropped on the canvas (PLAN 2.76), into the bundle under its own name, or a
+   * number after it where other bytes have that name (`Player.placing`), as the source a chart
+   * of it reads in the deck `source` compiles to: the one that reads it, or one declared as
+   * `data_attach` declares it, with the patch that declares it. */
+  | { type: "attaching"; id: number; source: string; name: string; bytes: ArrayBuffer }
   /** The deck's data sources, and source `name` as a sheet (PLAN 2.55, `data_edit` with no
    * edits): the first source without it. The deck `source` compiles to names them; it need not
    * validate, since a cell its column does not read is what the sheet shows, to fix. */
@@ -1182,6 +1205,9 @@ export type FromWorker =
   | { type: "exported"; id: number; bytes: ArrayBuffer }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
+  /** The data file at `path`, read by source `data`: one the deck declares already (no
+   * `attached`), or one the patch declares, or refused (`attached`, an empty patch). */
+  | { type: "attached"; id: number; path: string; data: string; attached: Attached | null; patch: unknown[] }
   /** The deck's data sources, and source `name` as a sheet, or why it does not read as one. */
   | { type: "sheet"; id: number; sources: DataSource[]; name?: string; sheet?: Sheet; file?: string; why?: string }
   | { type: "bundleFiles"; id: number; files: BundleFile[] }

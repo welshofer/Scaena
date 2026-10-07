@@ -60,7 +60,7 @@
 //   dropped on, a `choose` of `src`; dropped anywhere else, it is inserted there, as Insert does.
 import { ALT, type Key, MOD, SHIFT } from "./commands";
 import { marks } from "./marks";
-import { BUNDLE_PATH, CLIP, PICTURE } from "./protocol";
+import { BUNDLE_PATH, CLIP, DATA, PICTURE } from "./protocol";
 import type { Added, Arrange, DataMark, Edited, Finding, Framing, Grid, Insert, LayoutSlots, Look, Map6, NodeBox, NoteMark, Outline, Rect, SlotBox, SnapMode, Snapped, Targets } from "./protocol";
 import { pointer } from "./theme-panel";
 import * as notes from "./notes";
@@ -524,8 +524,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** The gesture being made into a patch: the next waits for it, so each is made on the source the
    * one before left, as a key held down repeats. */
   let making: Promise<void> = Promise.resolve();
-  const inTurn = (work: () => Promise<void>) => {
-    const next = making.then(work);
+  const inTurn = (work: () => Promise<unknown>): Promise<void> => {
+    const next = making.then(work).then(() => {});
     making = next.catch(() => {});
     return next;
   };
@@ -1841,9 +1841,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   /** Make `ops`, a node added or taken away, on the source as it stands: one change to undo. Then
    * `next` is selected (several, children of one container, PLAN 2.42; nothing with `null`), and
    * the status says `done`. */
-  async function change(ops: unknown[], doing: string, done: string, next?: string | string[] | null) {
+  async function change(ops: unknown[], doing: string, done: string, next?: string | string[] | null): Promise<boolean> {
     const shown = editor.shown();
-    if (!shown) return;
+    if (!shown) return false;
     editor.say(doing);
     try {
       const { source, edited } = await stage.make(editor.source(), ops, shown.index, editor.format());
@@ -1852,8 +1852,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);
       editor.say(done);
+      return true;
     } catch (e) {
       editor.say(`not made: ${said(e)}`);
+      return false;
     }
   }
 
@@ -2211,26 +2213,57 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
 
-  /** An image file dropped on an image takes its place (PLAN 2.45): the file joins the bundle,
-   * named by its SHA-256 as one dropped on the source is, and the image's `src` is its path, one
-   * `choose` written where `src` lives. */
-  function replace(at: [number, number], file: File) {
+  /** A file dropped on the canvas. A picture dropped on an image takes its place (PLAN 2.45): the
+   * file joins the bundle, named by its SHA-256 as one dropped on the source is, and the image's
+   * `src` is its path, one `choose` written where `src` lives. A picture dropped anywhere else
+   * joins the bundle and is inserted there, as Insert inserts it; a CSV or JSON file joins it as
+   * a data source, declared as `data_attach` declares it, with a chart of it there (the
+   * first-deck walk). */
+  function dropped(at: [number, number], file: File) {
     return inTurn(async () => {
       const shown = editor.shown();
       if (!shown) return editor.say("the canvas waits for a source that compiles");
+      if (DATA.test(file.name)) return attach(at, file);
+      // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
+      if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a picture (PNG, JPEG) nor data (CSV, JSON): nothing was added`);
       const top = (await stage.hit(shown.state, at, editor.format()).catch(() => []))[0];
       const choices = top && (await stage.choices(shown.state, top.node).catch(() => undefined));
-      if (!top || choices?.type !== "image") return editor.say("drop an image on an image to put it in its place; on the source, its path goes where it is dropped");
-      // An image shows a PNG or a JPEG (SPEC §3.3): anything else stays out of the bundle.
-      if (!PICTURE.test(file.name)) return editor.say(`${file.name} is neither a PNG nor a JPEG: ${top.node} is as it was`);
       try {
         const path = await stage.drop(file.name, await file.arrayBuffer());
-        const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
-        await change([op], "replacing…", `${top.node} shows ${file.name}, kept as ${path}`, top.node);
+        if (top && choices?.type === "image") {
+          const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
+          return void (await change([op], "replacing…", `${top.node} shows ${file.name}, kept as ${path}`, top.node));
+        }
+        offered = await stage.inserts();
+        await inserted(at, path, file.name);
       } catch (e) {
-        editor.say(`not replaced: ${said(e)}`);
+        editor.say(`not added: ${said(e)}`);
       }
     });
+  }
+  /** A data file dropped on the canvas joins the bundle as a source, as `data_attach` declares
+   * it, one change; a chart of it goes where it was dropped, as Insert inserts one, another. The
+   * same file again is the source that reads it, and other rows under its name go beside it. */
+  async function attach(at: [number, number], file: File) {
+    try {
+      const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer());
+      let made = `${file.name} is @${data} already`;
+      if (attached) {
+        if (!patch.length) {
+          const why = attached.added.map((f) => `${f.code} ${f.message}`).join("; ");
+          return editor.say(`${file.name} not attached: ${why || "the deck would not validate with it"}`);
+        }
+        made = `${file.name} attached as @${data}, ${attached.rows} rows${path.endsWith(`/${file.name}`) ? "" : `, kept as ${path}`}`;
+        if (!(await change(patch, "attaching…", made, null))) return;
+      }
+      offered = await stage.inserts();
+      const n = offered.findIndex((i) => i.node.type === "chart" && i.node.data === `@${data}`);
+      if (n < 0) return editor.say(`${made}: Insert offers a table of it, since its columns make no chart`);
+      pointed = at;
+      await inserting(n, `a chart of @${data}`);
+    } catch (e) {
+      editor.say(`not attached: ${said(e)}`);
+    }
   }
   /** An image of the bundle dragged from the Files panel (PLAN 2.59): over an image node, it takes
    * that image's place, one `choose` of `src` written where it lives; anywhere else, it is inserted
@@ -2245,11 +2278,15 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         const op = { op: "choose", node: top.node, prop: "src", value: path, state: shown.state };
         return change([op], "replacing…", `${top.node} shows ${path}`, top.node);
       }
-      const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
-      if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
-      pointed = at;
-      await inserting(n, path);
+      await inserted(at, path, path);
     });
+  }
+  /** The image of the bundle at `path` inserted at `at`, as Insert inserts it; `label` names it. */
+  async function inserted(at: [number, number], path: string, label: string) {
+    const n = offered.findIndex((i) => i.node.type === "image" && (i.node as { src?: unknown }).src === path);
+    if (n < 0) return editor.say(`${path} is not an image the deck can insert: a PNG or a JPEG in the bundle`);
+    pointed = at;
+    await inserting(n, label);
   }
   overlay.addEventListener("dragover", (e) => {
     const types = e.dataTransfer?.types ?? [];
@@ -2264,7 +2301,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const file = e.dataTransfer?.files[0];
     if (!file) return;
     e.preventDefault();
-    void replace(point(e), file);
+    void dropped(point(e), file);
   });
 
   /** The group selected taken apart (PLAN 2.43): its children out to its container where they
@@ -3273,9 +3310,10 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     group,
     ungroup,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
-     * Pick does; and an image file dropped on an image, put in its place (PLAN 2.45). */
+     * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
+     * 2.45), else inserted there, and data attached as a source with a chart of it there. */
     pick,
-    replace,
+    dropped,
     /** Arrange what is selected, as the inspector and ⌘] do (PLAN 2.42). */
     arrange,
     /** Insert what the deck offers `n`th, as the Insert menu does; `label` is what the status
