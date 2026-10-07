@@ -1047,7 +1047,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - **Renaming or deleting the state shown threw "unknown state" on the page.** The canvas's refresh asked for that state's boxes as it went. It now lets the answer go, and the edit's own refresh asks again (`web/strip.mjs`).
       - **Quoting a cell over words rewrote a beat's claim that said those words** (ADR-0019). A claim now follows only a figure the same quote gave before (`crates/scaena-core/tests/patch.rs`).
 
-      What the walk raised that is no bug went to Jay as product questions: find and replace searches only texts, not notes, claims, or descriptions; and the trails deck lists no formats, so the site's demo shows no 9:16.*
+      What the walk raised that is no bug went to Jay as product questions: find and replace searches only texts, not notes, claims, or descriptions; and the trails deck lists no formats, so the site's demo shows no 9:16. The editor's engine module is 2,855.76 kB gzipped, as Vite reports it.*
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
