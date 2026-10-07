@@ -264,7 +264,9 @@ impl Engine {
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &snapshots[state_index(&snapshots, req.state)?];
         let scene = self.scene(deck, theme, req.data, snap)?;
-        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)
+        let mut t = crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, None)?;
+        t.format = req.format.map(String::from);
+        Ok(t)
     }
 
     /// Where `node` may go in `req.state` at rest `into` another container, or onto the
@@ -281,7 +283,10 @@ impl Engine {
         let snapshots = scaena_core::resolve_states(deck)?;
         let snap = &snapshots[state_index(&snapshots, req.state)?];
         let scene = self.scene(deck, theme, req.data, snap)?;
-        crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, Some(into))
+        let mut t =
+            crate::geometry::targets(deck, theme, &cascade::with_overrides(deck, snap), &scene, node, Some(into))?;
+        t.format = req.format.map(String::from);
+        Ok(t)
     }
 
     /// Where a node new to `req.state`, named `node`, would go at the root, laid out in

@@ -1100,6 +1100,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
       The editor writes only a node's own layout: a drag in 9:16 moves it in 16:9 too. Writing the format's layout where a node has one is a follow-up.
 
+- [x] 2.85 The editor places a node in the format shown: where the node lays out anew there, a drag, a resize, or an arrow key moves it there alone.
+    - Done (ADR-0020). `place` takes `format` and `anew` (SPEC §7.3):
+      - with `format`, a node that has its own layout there (`formats`) is placed in that layout's `at`, and its own `at` stays, so the deck's own canvas is as it was;
+      - a node with none is placed as before, in its own `at`, in every format;
+      - `anew` gives it a layout of its own there, placed so; refused in a format the deck does not lay out anew, and `fork` is refused with `format` where the layout is the node's own.
+    - The engine's targets carry the format they were asked in (`Targets.format`), so every gesture's `place` ops and `inspect --snap`'s say it, and the editor's patches with them.
+    - The editor's menus offer "Place anew in this format" for a node with no layout of its own in the format shown; it copies the node's placement there.
+    - Tests: `crates/scaena-core/tests/patch.rs`, the WASM session's drag in 9:16 (`a_drag_in_a_format_moves_its_node_there_alone`), and the edit-deck walk, which moves the trails title in 9:16 and finds it where it stood in 16:9, and places the budget's note anew in 9:16.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
