@@ -61,6 +61,22 @@ try {
     await page.waitForTimeout(200);
   };
   const boxes = () => page.evaluate(() => window.scaena.canvas.boxes());
+  /** Wait for `fn(arg)` to hold in the page. One that runs out says what it waited for, and the
+   * state shown, the nodes the canvas has boxes for, and the status line then. */
+  const until = async (what, fn, arg = null, timeout = 30000) => {
+    try {
+      await page.waitForFunction(fn, arg, { timeout, polling: 50 });
+    } catch {
+      const where = await page
+        .evaluate(() => ({
+          shown: window.scaena.shown(),
+          nodes: window.scaena.canvas.boxes().map((b) => b.node),
+          status: document.querySelector("#status").textContent,
+        }))
+        .catch(() => ({}));
+      throw new Error(`${what}: not within ${timeout / 1000} s · state ${where.shown} shown · boxes ${where.nodes} · ${where.status}`);
+    }
+  };
   /** The nodes the state shown shows. */
   const shownNodes = async () => (await boxes()).map((b) => b.node);
   /** The page's point at canvas units `[x, y]`. */
@@ -74,14 +90,14 @@ try {
       [x, y],
     );
   const middleOf = async (node) => {
-    await page.waitForFunction((n) => window.scaena.canvas.boxes().some((b) => b.node === n), node, { timeout: 30000 });
+    await until(`${node} on the canvas`, (n) => window.scaena.canvas.boxes().some((b) => b.node === n), node);
     const [x, y, w, h] = (await boxes()).find((b) => b.node === node).rect;
     return client([x + w / 2, y + h / 2]);
   };
   /** Show the `n`th state, as a click on its card in the strip does. */
   const showState = async (n) => {
     await page.locator("#strip li").nth(n).click();
-    await page.waitForFunction((n) => window.scaena.shown() === n, n, { timeout: 30000 });
+    await until(`state ${n} shown`, (n) => window.scaena.shown() === n, n);
   };
   /** A file dropped on the element `selector` at its point `[x, y]` (the page's), as a drag from
    * the desktop drops it. */
@@ -117,6 +133,7 @@ try {
       await act();
     } catch (e) {
       check(false, `${name}: ${String(e).split("\n")[0]}`);
+      await snap(`${name}-failed`).catch(() => {});
     }
     console.log(`     ${name}: ${((Date.now() - started) / 1000).toFixed(1)} s`);
     await snap(name).catch(() => {});
@@ -223,7 +240,8 @@ try {
 
   await step("data-tab", async () => {
     await page.click("#tab-data");
-    await page.waitForFunction(() => document.querySelector("#data table"), null, { timeout: 30000 }).catch(() => {});
+    // The table is in the page from the start; its rows come when the worker answers.
+    await page.waitForFunction(() => document.querySelectorAll("#data table tbody tr").length > 0, null, { timeout: 30000 }).catch(() => {});
     const rows = await page.evaluate(() => document.querySelectorAll("#data table tbody tr").length);
     const said = await page.evaluate(() => document.querySelector("#data").textContent.replace(/\s+/g, " ").trim().slice(0, 80));
     check(rows === 6 && said.includes("visits"), `the Data tab shows its 6 rows: ${said}`);
@@ -247,7 +265,7 @@ try {
     await showState(0);
     const [x, y] = await middleOf(title);
     await page.mouse.click(x, y);
-    await page.waitForFunction(() => document.querySelectorAll("#cue [data-add] option").length > 1, null, { timeout: 30000 });
+    await until("a motion offered for the title", () => document.querySelectorAll("#cue [data-add] option").length > 1);
     const options = await page.evaluate(() => [...document.querySelectorAll("#cue [data-add] option")].map((o) => [o.value, o.textContent]));
     const enter = options.find(([v]) => v.includes('"enter"'));
     if (!check(Boolean(enter), `the cue offers a motion for the title: ${options.map((o) => o[1]).join(", ")}`)) return;

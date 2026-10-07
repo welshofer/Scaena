@@ -370,6 +370,7 @@ jobs:
             tests/golden/torture/actual/
             target/wasm-smoke/
             target/web-smoke/
+            target/first-deck/
           if-no-files-found: ignore
   schema:
     runs-on: ubuntu-latest

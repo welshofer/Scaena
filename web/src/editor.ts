@@ -346,8 +346,10 @@ async function edit(source: Source) {
   const locked = new Compartment();
   let assisting = false;
   /** The source the assistant's last edit, or the canvas's, made, and what the worker found in
-   * it: the lint of that source takes it as it is, rather than asking the worker again. */
-  let taken: { source: string; edited: Edited } | undefined;
+   * it: the lint of that source takes it as it is, rather than asking the worker again. With it,
+   * how many states had been shown then (`showings`): one shown since is where the lint leaves
+   * the canvas, since what the worker found names the state shown when the edit was made. */
+  let taken: { source: string; edited: Edited; showings: number } | undefined;
   /** The state shown, inspected: each node's placement, which the canvas reads. */
   let inspected: Inspected | undefined;
   /** The node the canvas has selected, and those selected beside it (PLAN 2.42). */
@@ -444,7 +446,7 @@ async function edit(source: Source) {
   };
   /** Take `source`, a patch made on the canvas or in the inspector: one change, one step to undo. */
   const made = (source: string, edited: Edited) => {
-    taken = { source, edited };
+    taken = { source, edited, showings };
     const changes = change(view.state.doc.toString(), source);
     view.dispatch({ changes, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
   };
@@ -480,7 +482,7 @@ async function edit(source: Source) {
     transform: (node) => inspected?.nodes[node]?.transform as { rotate?: number; anchor?: [number, number] } | undefined,
     apply: made,
     typed: (source, edited, joins) => {
-      taken = { source, edited };
+      taken = { source, edited, showings };
       const changes = change(view.state.doc.toString(), source);
       // A burst of typing is one step to undo. CodeMirror's history joins a change to the one
       // before it when both are `input.type.compose`; the burst's first starts a step of its own.
@@ -568,7 +570,7 @@ async function edit(source: Source) {
    * `edited` says, and a change to save. */
   const wrote = (edited: Edited) => {
     const source = view.state.doc.toString();
-    taken = { source, edited };
+    taken = { source, edited, showings };
     edits++;
     tell();
     // The source is as it was, so CodeMirror lints nothing: the edit is shown here.
@@ -656,7 +658,7 @@ async function edit(source: Source) {
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
           wrote(done.edited);
         } else {
-          taken = { source: done.source, edited: done.edited };
+          taken = { source: done.source, edited: done.edited, showings };
           const changes = change(view.state.doc.toString(), done.source);
           view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
         }
@@ -723,7 +725,7 @@ async function edit(source: Source) {
         view.dispatch({ effects, annotations: isolateHistory.of("full") });
         wrote(done.edited);
       } else {
-        taken = { source: done.source, edited: done.edited };
+        taken = { source: done.source, edited: done.edited, showings };
         const changes = change(view.state.doc.toString(), done.source);
         view.dispatch({ changes, effects, userEvent: "input.theme", annotations: isolateHistory.of("full") });
       }
@@ -905,7 +907,8 @@ async function edit(source: Source) {
     const source = view.state.doc.toString();
     const read = version;
     const sent = performance.now();
-    const asked = showings;
+    // An edit's own result was asked for when the edit was made: a state shown since is a move.
+    const asked = taken?.source === source ? taken.showings : showings;
     let edited: Edited;
     if (taken?.source !== source) told = undefined;
     try {
@@ -1298,7 +1301,7 @@ async function edit(source: Source) {
         if (effects.length) view.dispatch({ effects, annotations: isolateHistory.of("full") });
         return wrote(edited);
       }
-      taken = { source, edited };
+      taken = { source, edited, showings };
       view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
     },
     seeing,
