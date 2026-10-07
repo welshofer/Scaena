@@ -65,14 +65,18 @@ export function counted(findings: Finding[]): string {
 /** The worst severity among `findings`. */
 export const worst = (findings: Finding[]): Severity => SEVERITIES.find((s) => findings.some((f) => f.severity === s)) ?? "info";
 
-/** A fix as words: what each of its operations sets, `fit: shrink`. */
+/** A fix as words: what each of its operations sets, `fit: shrink`; an object set whole, what
+ * each of its keys sets (`style: { color: "surface" }` is `color: surface`). */
 export function fixing(fix: unknown[]): string {
+  const sets = (key: string, value: unknown): string[] =>
+    value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
+      ? Object.entries(value).flatMap(([k, v]) => sets(k, v))
+      : [`${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`];
   return fix
-    .map((op) => {
+    .flatMap((op) => {
       const { op: how, path, value } = op as { op?: string; path?: string; value?: unknown };
       const key = (path ?? "").split("/").pop()!.replace(/~1/g, "/").replace(/~0/g, "~");
-      if (how === "remove") return `no ${key}`;
-      return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+      return how === "remove" ? [`no ${key}`] : sets(key, value);
     })
     .join(", ");
 }

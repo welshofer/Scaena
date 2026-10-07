@@ -22,7 +22,7 @@ use crate::sample::{Scene, Timing, Transition};
 use crate::theme::Theme;
 use scaena_core::document::Deck;
 use scaena_core::lint::{Backdrop, Finding, Severity};
-use scaena_core::timeline::{Schedule, Slot};
+use scaena_core::timeline::{Schedule, Slot, Timeline};
 use scaena_core::tracking::Snapshot;
 use std::borrow::Cow;
 
@@ -142,6 +142,11 @@ fn lint_in(
     let mut out = fonts::W230FontLicense::check(deck, engine.fonts());
     let mut formats: Vec<Option<&str>> = vec![None];
     formats.extend(deck.formats.iter().map(|f| Some(f.as_str())));
+    // Each format's timeline, as laid out: where a shader's clock puts each state.
+    let mut timelines: Vec<(Option<&str>, Timeline)> = Vec::new();
+    // Each run of a node's own text that read too faintly, in any format: what a color that
+    // fixes the node must read over (PLAN 2.82).
+    let mut faint = std::collections::BTreeMap::new();
     let result = (|| {
         for format in formats {
             let (d, t) = project(deck, theme, format)?;
@@ -156,7 +161,8 @@ fn lint_in(
                 },
                 None => None,
             };
-            let states = lay_out(engine, &d, &t, data, only)?;
+            let (states, timeline) = lay_out(engine, &d, &t, data, only)?;
+            timelines.push((format, timeline));
             let cx = Cx { deck: &d, theme: &t, format, states: &states };
             for rule in rules() {
                 // Motion is the same in every format but for what layout counts, and so is
@@ -167,12 +173,18 @@ fn lint_in(
                 out.extend(rule.check(&cx));
             }
             if let Some(b) = backdrop.as_deref_mut() {
-                out.extend(contrast::check(&cx, b)?);
+                out.extend(contrast::check(&cx, b, &mut faint)?);
             }
         }
         Ok(())
     })();
     let result = result.and_then(|()| verify(engine, deck, theme, data, &mut out));
+    // Text that reads too faintly, with the color that reads (PLAN 2.82): judged once lint
+    // has found it in every format.
+    let result = result.and_then(|()| match backdrop {
+        Some(b) => contrast::recolor(engine, (deck, theme, data), &timelines, &faint, b, &mut out),
+        None => Ok(()),
+    });
     // Quoted figures are the same in every format: judged once, and each fix is the figure.
     if result.is_ok() && only.is_none() {
         out.extend(w427(deck, data));
@@ -252,14 +264,14 @@ fn verify(
 }
 
 /// Every state of the (projected) deck, or only state `only`, laid out, with its slot and
-/// its cue.
+/// its cue; and the deck's timeline.
 fn lay_out(
     engine: &mut Engine,
     deck: &Deck,
     theme: &Theme,
     data: &DataFiles,
     only: Option<usize>,
-) -> Result<Vec<Laid>, EngineError> {
+) -> Result<(Vec<Laid>, Timeline), EngineError> {
     let snapshots = scaena_core::resolve_states(deck)?;
     let timeline = engine.timeline(deck, theme, data)?;
     let range = only.map_or(0..snapshots.len(), |i| i..i + 1);
@@ -286,5 +298,5 @@ fn lay_out(
             schedule,
         });
     }
-    Ok(out)
+    Ok((out, timeline))
 }

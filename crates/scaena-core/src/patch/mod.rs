@@ -669,30 +669,7 @@ pub struct Compiled {
 /// leave it, and apply them: all or none. `files` is the bundle, from which a `retheme`
 /// and a shader preset read the theme.
 pub fn compile(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Compiled, PatchError> {
-    let mut work = doc.clone();
-    let mut patch = Vec::new();
-    let mut renamed = Vec::new();
-    for (index, raw) in ops.iter().enumerate() {
-        let fail = |message: String| PatchError { index, message };
-        match Op::from_value(raw.clone()).map_err(fail)? {
-            Op::Json(op) => {
-                one(&mut work, &op).map_err(fail)?;
-                patch.push(op);
-            }
-            Op::Semantic(op) => {
-                let name = op.name();
-                let out = ops::compile(&work, &op, files).map_err(|m| fail(format!("`{name}`: {m}")))?;
-                for json in out.ops {
-                    // A semantic op compiles against the deck it applies to: a failure here
-                    // is a bug in the compiler, reported as such.
-                    one(&mut work, &json)
-                        .map_err(|m| fail(format!("`{name}` compiled to {json:?}, which failed: {m}")))?;
-                    patch.push(json);
-                }
-                renamed.extend(out.renamed);
-            }
-        }
-    }
+    let Compiled { doc: mut work, mut patch, renamed } = compile_alone(doc, ops, files)?;
     // Each figure a run quotes, set again from the data as the deck now reads it, and each
     // claim that holds the old one (ADR-0019).
     if !crate::quotes::quoted(&work).is_empty()
@@ -714,6 +691,37 @@ pub fn compile(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Co
         for json in crate::quotes::requote(&stale) {
             if one(&mut work, &json).is_ok() {
                 patch.push(json);
+            }
+        }
+    }
+    Ok(Compiled { doc: work, patch, renamed })
+}
+
+/// `ops` compiled against `doc` and applied as [`compile`] compiles them, but for the figures
+/// runs quote, which this leaves as they are: what an op alone writes, which lint offers as a
+/// fix that changes no text (PLAN 2.82).
+pub fn compile_alone(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Result<Compiled, PatchError> {
+    let mut work = doc.clone();
+    let mut patch = Vec::new();
+    let mut renamed = Vec::new();
+    for (index, raw) in ops.iter().enumerate() {
+        let fail = |message: String| PatchError { index, message };
+        match Op::from_value(raw.clone()).map_err(fail)? {
+            Op::Json(op) => {
+                one(&mut work, &op).map_err(fail)?;
+                patch.push(op);
+            }
+            Op::Semantic(op) => {
+                let name = op.name();
+                let out = ops::compile(&work, &op, files).map_err(|m| fail(format!("`{name}`: {m}")))?;
+                for json in out.ops {
+                    // A semantic op compiles against the deck it applies to: a failure here
+                    // is a bug in the compiler, reported as such.
+                    one(&mut work, &json)
+                        .map_err(|m| fail(format!("`{name}` compiled to {json:?}, which failed: {m}")))?;
+                    patch.push(json);
+                }
+                renamed.extend(out.renamed);
             }
         }
     }
