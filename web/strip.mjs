@@ -6,7 +6,8 @@
 // On the revenue example:
 // - The strip holds the deck's four states in order, each with its cue's length, and a thumbnail
 //   the engine painted at rest, once every state is laid out.
-// - A click on a state shows it; the arrow keys, Home, and End move among them.
+// - A click on a state shows it; the arrow keys, Home, and End move among them. A state clicked
+//   just after an edit on the canvas stays shown once the editor lints the source.
 // - + Step adds `revenue-2` after `revenue`, in its slide: it shows what `revenue` shows, its
 //   thumbnail the same drawing, and it is shown. One undo takes it back.
 // - + Slide adds an empty slide after `revenue`'s slide, after `mix`, in its layout. Alt with an
@@ -109,6 +110,41 @@ try {
   check(await shows(3), "End shows the last");
   await page.keyboard.press("Home");
   check(await shows(0), "Home shows the first");
+
+  // A state shown just after an edit on the canvas stays shown once the editor lints the source.
+  // The lint takes the patch's own result, which names the state shown when it was made: a click
+  // on another state between the two is a move, as it is while the worker compiles.
+  await item("revenue").click();
+  await shows(1);
+  await page.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "note"), null, { timeout: 30000 });
+  const note = await page.evaluate(() => {
+    const [x, y, w, h] = window.scaena.canvas.boxes().find((b) => b.node === "note").rect;
+    const r = document.querySelector("#overlay").getBoundingClientRect();
+    const [cw, ch] = window.scaena.canvas.size();
+    return [r.left + ((x + w / 2) / cw) * r.width, r.top + ((y + h / 2) / ch) * r.height];
+  });
+  await page.mouse.click(note[0], note[1]);
+  await page.waitForFunction(() => window.scaena.canvas.selected() === "note", null, { timeout: 30000 }).catch(() => {});
+  // The moment the Delete is in the source, a click on mix, well inside the lint's 150 ms.
+  const clicked = page.evaluate(
+    (before) =>
+      new Promise((done) => {
+        const poll = () => {
+          if (window.scaena.source() === before) return setTimeout(poll, 0);
+          document.querySelector('#strip li[data-state="mix"]').click();
+          done(window.scaena.shown());
+        };
+        poll();
+      }),
+    original,
+  );
+  await page.keyboard.press("Delete");
+  const then = await clicked;
+  await page.waitForTimeout(1000);
+  const linted = await page.evaluate(() => window.scaena.shown());
+  check(then === 2 && linted === 2 && (await selected()) === "mix", `mix, clicked just after a Delete on revenue, stays shown once the source is linted: ${then} then ${linted}`);
+  await undo();
+  check(await back(original), "one undo takes the Delete back");
 
   // + Step after revenue: in its slide, showing what it shows.
   await item("revenue").click();
