@@ -187,7 +187,7 @@ fn a_crowded_time_axis_keeps_every_kth_tick_label() {
     // Narrow, every other month from the first, a space or more apart; the gridlines stay at
     // every tick.
     let narrow = compile_sized(&themed(json!({})), &d, [640.0, 400.0]).unwrap();
-    assert_eq!(texts(&narrow.ticks), ["Apr 2026", "Jun 2026", "Aug 2026"]);
+    assert_eq!(texts(&narrow.ticks), ["Apr 2026", "Jun", "Aug"]);
     assert!(apart(&narrow), "{:?}", narrow.ticks.iter().map(|t| (t.origin[0], t.text.width)).collect::<Vec<_>>());
 }
 
@@ -846,9 +846,25 @@ fn a_time_axis_ticks_on_calendar_boundaries() {
                         "y": { "field": "v" } });
     let layout = compile(&deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), Value::Null, chart));
     let ticks: Vec<&str> = layout.ticks.iter().map(|t| t.text.text.as_str()).collect();
-    assert_eq!(ticks, ["Jan 2024", "Apr 2024", "Jul 2024", "Oct 2024"]);
+    // The year where a run of it begins: on the first label (PLAN 2.81), as a category axis
+    // of dates prints it. Each tick is keyed by its date written whole.
+    assert_eq!(ticks, ["Jan 2024", "Apr", "Jul", "Oct"]);
+    let keys: Vec<&str> = layout.ticks.iter().map(|t| t.key.as_str()).collect();
+    assert_eq!(keys, ["Jan 2024", "Apr 2024", "Jul 2024", "Oct 2024"]);
     // The first label would hang past the plot's left edge: it starts there instead.
     assert_eq!(layout.ticks[0].origin[0], layout.plot[0]);
+
+    // Across a new year, the year again where it changes.
+    let rows: Vec<Value> = ["2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02"]
+        .iter()
+        .enumerate()
+        .map(|(i, m)| json!({ "m": m, "v": i }))
+        .collect();
+    let chart = json!({ "type": "chart", "kind": "line", "data": "@q", "x": { "field": "m", "type": "temporal" },
+                        "y": { "field": "v" } });
+    let layout = compile(&deck("en-US", json!(rows), json!({ "m": "date", "v": "number" }), Value::Null, chart));
+    let ticks: Vec<&str> = layout.ticks.iter().map(|t| t.text.text.as_str()).collect();
+    assert_eq!(ticks, ["Sep 2025", "Oct", "Nov", "Dec", "Jan 2026", "Feb"]);
 }
 
 /// The chart `c` of each of `deck`'s states, laid out by the engine.

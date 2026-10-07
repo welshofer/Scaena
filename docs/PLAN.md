@@ -1048,6 +1048,8 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - **Quoting a cell over words rewrote a beat's claim that said those words** (ADR-0019). A claim now follows only a figure the same quote gave before (`crates/scaena-core/tests/patch.rs`).
 
       What the walk raised that is no bug went to Jay as product questions: find and replace searches only texts, not notes, claims, or descriptions; and the trails deck lists no formats, so the site's demo shows no 9:16. The editor's engine module is 2,855.76 kB gzipped, as Vite reports it.
+- [x] 2.81 A time axis names the year only where it changes, as a category axis of dates does (Jay, 2026-10-07: as the 2.76 walk recommended).
+    - Done. A continuous time axis with no `x.format` prints its ticks short by the unit their step is (`Apr`, `Jun`) and long on the first label kept and where the year changes among those kept (`Apr 2026`, `Jan 2027`), as `DateLabels` prints a category axis's dates, now made for a unit (`DateLabels::by`); the thinning of 2.76's #166 picks long or short as it keeps every k-th. Each tick keeps its key, the date written whole, so transitions and gridlines match as they did. `a_time_axis_ticks_on_calendar_boundaries` holds a year's quarters (`Jan 2024`, `Apr`, `Jul`, `Oct`) and a new year's crossing (`Sep 2025` … `Jan 2026`, `Feb`); no golden draws a time axis.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
