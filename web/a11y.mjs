@@ -179,7 +179,7 @@ try {
   await keys.close();
 
   // The editor.
-  const editor = await open(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=${revenue}`, () => window.scaena?.last());
+  const editor = await open(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${revenue}`, () => window.scaena?.last());
   await editor.waitForFunction(() => window.scaena.wholes().length > 0, null, { timeout: 60000 }).catch(() => {});
   await audit(editor, "the editor, its inspector");
   // The node selected, its look chosen from the theme (PLAN 2.33).

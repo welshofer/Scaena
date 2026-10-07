@@ -5,6 +5,8 @@
 //
 //   node web/first-deck.mjs     (after `just web`; from the repository's root)
 //
+// - The editor opens with the canvas first, the source folded away; Source opens it beside the
+//   canvas, and ⌘\\ folds it again (PLAN 2.80).
 // - New, from its dialog: a deck in Dusk with one empty state.
 // - A title slide: the state's layout from the inspector, a text from Insert in the title slot,
 //   its words typed where it stands.
@@ -142,6 +144,22 @@ try {
   await step("open", async () => {
     await page.goto(editor);
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+  });
+
+  await step("canvas-first", async () => {
+    // The canvas first (PLAN 2.80): the source folded away, the preview the page's widest part.
+    const opened = await page.evaluate(() => ({
+      folded: document.querySelector("main").classList.contains("folded"),
+      preview: document.querySelector("#preview").getBoundingClientRect().width,
+    }));
+    check(opened.folded && opened.preview > 1600 * 0.6, `the editor opens with the canvas first: the source folded, the preview ${Math.round(opened.preview)} px of 1600`);
+    await page.click("#source-toggle");
+    await until("the source shown", () => document.querySelector(".cm-editor")?.getBoundingClientRect().width > 300);
+    const open = await page.evaluate(() => document.querySelector("#preview").getBoundingClientRect().width);
+    check(open < opened.preview, `Source opens the source beside the canvas: the preview ${Math.round(open)} px`);
+    await page.keyboard.press("Control+\\");
+    await until("the source folded", () => document.querySelector("main").classList.contains("folded"));
+    check(await page.evaluate(() => document.querySelector("#source-toggle").getAttribute("aria-pressed") === "false"), "⌘\\ folds it away again");
   });
 
   await step("new", async () => {

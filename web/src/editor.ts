@@ -431,6 +431,33 @@ async function edit(source: Source) {
     }),
   });
 
+  // The canvas first (PLAN 2.80): the source is a pane that folds away. It opens as the address
+  // asks (`?source=open` or `folded`), else as this browser last left it, else folded.
+  const framed = $("main");
+  const sourceToggle = $<HTMLButtonElement>("#source-toggle");
+  const remembered = (() => {
+    try {
+      return localStorage.getItem("scaena.source");
+    } catch {
+      return null;
+    }
+  })();
+  /** Open the source beside the canvas, or fold it away; `keep` remembers the choice. */
+  const fold = (open: boolean, keep = true) => {
+    framed.classList.toggle("folded", !open);
+    sourceToggle.setAttribute("aria-pressed", String(open));
+    if (open) view.requestMeasure();
+    if (!keep) return;
+    try {
+      localStorage.setItem("scaena.source", open ? "open" : "folded");
+    } catch {
+      // A browser that keeps nothing folds it again next time.
+    }
+  };
+  fold((new URLSearchParams(location.search).get("source") ?? remembered) === "open", false);
+  const folded = () => framed.classList.contains("folded");
+  sourceToggle.onclick = () => fold(folded());
+
   /** What the last gesture on the canvas or choice in the inspector said: it stays in the status,
    * what lint finds after it, until the source is edited by hand. */
   let told: string | undefined;
@@ -1029,9 +1056,10 @@ async function edit(source: Source) {
     made(next, edited);
   }
 
-  /** Where the source writes what `f` is about, the cursor there. */
+  /** Where the source writes what `f` is about, the cursor there: the source opened, if folded. */
   function go(f: Finding) {
     if (!f.at) return;
+    if (folded()) fold(true);
     view.dispatch({ selection: { anchor: f.at.from }, scrollIntoView: true });
     view.focus();
   }
@@ -1546,6 +1574,7 @@ async function edit(source: Source) {
         }),
       ),
       { label: "Save", keys: `${MOD}S`, group: "The editor", run: () => save().catch(failed) },
+      { label: "Show or fold the source", keys: `${MOD}\\`, group: "The editor", run: () => fold(folded()) },
       { label: "Save as…", applies: () => !$("#save-as").hidden, run: () => $("#save-as").click() },
       { label: "Download .scaena", run: () => download().catch(failed) },
       { label: "Export the state shown as a PNG…", applies: () => showing() !== undefined, run: () => openExport("png") },
@@ -1733,6 +1762,11 @@ async function edit(source: Source) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       void save().catch(failed);
+    }
+    // ⌘\\: the source beside the canvas, or folded away (PLAN 2.80).
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "\\") {
+      e.preventDefault();
+      fold(folded());
     }
     // ⌘K: every command, by name (PLAN 2.53); again, it closes.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k" && !e.defaultPrevented) {

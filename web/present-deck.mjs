@@ -67,6 +67,10 @@ try {
    * through the state's hold (`playing`), so at rest is past the cue's span. */
   const rests = (page, index, what = `state ${index} at rest`) =>
     until(page, what, ([i, span]) => window.scaena.at().index === i && window.scaena.at().t >= span, [index, slots[index]?.span ?? 0]);
+  /** Once `page`'s deck shows state `index`, playing or at rest. A page behind another window
+   * may get no frames, so its cue may not play out while the presenter view is in front: the
+   * state it went to is what steering it says. */
+  const goes = (page, index, what = `state ${index}`) => until(page, what, (i) => window.scaena.at().index === i, index);
   const step = async (name, page, act) => {
     const started = Date.now();
     try {
@@ -157,22 +161,19 @@ try {
     check(waited >= slots[from].hold - 300, `${states[from]} holds ${slots[from].hold} ms, then goes on to ${states[from + 1]} by itself: ${Math.round(waited)} ms`);
   });
 
-  // 5. Fullscreen, by the button, and back by F.
-  await step("fullscreen", () => player, async () => {
-    await player.click("#full");
-    await until(player, "the button makes it fullscreen", () => document.fullscreenElement !== null, null, 5000);
-    await player.locator("#stage").focus().catch(() => {});
-    await player.keyboard.press("f");
-    await until(player, "F leaves fullscreen", () => document.fullscreenElement === null, null, 5000);
-    check(true, "⛶ goes fullscreen, and F comes back");
-  });
-
-  // 6. The presenter view.
+  // 5. The presenter view, before fullscreen.
   let presenter;
   await step("presenter", () => presenter ?? player, async () => {
     await player.keyboard.press("Home");
-    await rests(player, 0);
-    [presenter] = await Promise.all([context.waitForEvent("page", { timeout: 30000 }), player.click("#present")]);
+    // Home shows the first state and stays there: a state sought does not play on.
+    await goes(player, 0, "Home");
+    // The presenter view opens as a window of its own, on a click on Presenter once the player
+    // has it ready; a slow machine takes a while to show it.
+    const present = player.locator("#present");
+    await present.waitFor({ state: "visible", timeout: 30000 });
+    const opening = context.waitForEvent("page", { timeout: 120000 });
+    await present.click();
+    presenter = await opening;
     watch(presenter, "presenter");
     const follows = (i) => `${i + 1} / ${states.length} · ${states[i]}`;
     const followed = (i) => until(presenter, `the presenter view follows to ${states[i]}`, (w) => window.scaena?.follows?.() === w, follows(i), 120000);
@@ -182,35 +183,50 @@ try {
     const clock = await presenter.textContent("#clock");
     await until(presenter, "its clock runs", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
     check(true, `its clock runs: ${clock} → ${await presenter.textContent("#clock")}`);
-    // Its keys steer the player, and it follows.
+    // Its keys and buttons steer the player. Going on plays the next state's cue and then its
+    // hold, after which the deck goes on by itself; going back, End, and Home show a state at
+    // rest, where it stays. So each going on starts at rest and goes back at once: the walk
+    // never races the deck's own holds, nor needs the cue to play out, which a player behind the
+    // presenter view's window may get no frames for.
     await presenter.bringToFront();
-    await presenter.keyboard.press("ArrowRight");
-    await rests(player, 1, "the presenter view's → steers the player");
-    await followed(1);
-    await presenter.keyboard.press(" ");
-    await rests(player, 2, "the presenter view's Space steers the player");
-    await presenter.keyboard.press("ArrowLeft");
-    await rests(player, 1, "the presenter view's ← steers the player");
-    check(true, "its →, Space, and ← steer the player");
-    await presenter.click("#on");
-    await rests(player, 2, "its ▶");
-    await presenter.click("#back");
-    await rests(player, 1, "its ◀");
+    const steer = async (act, to, what) => {
+      await act();
+      await goes(player, to, what);
+    };
+    await steer(() => presenter.keyboard.press("ArrowRight"), 1, "the presenter view's → steers the player");
+    await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "the presenter view's ← steers the player");
+    await steer(() => presenter.keyboard.press(" "), 1, "the presenter view's Space steers the player");
+    await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "and back");
+    check(true, "its →, ←, and Space steer the player");
+    await steer(() => presenter.click("#on"), 1, "its ▶");
+    await steer(() => presenter.click("#back"), 0, "its ◀");
     check(true, "its ▶ and ◀ steer the player");
-    await presenter.keyboard.press("End");
-    await rests(player, states.length - 1, "the presenter view's End");
-    await presenter.keyboard.press("Home");
-    await rests(player, 0, "the presenter view's Home");
+    await steer(() => presenter.keyboard.press("End"), states.length - 1, "the presenter view's End");
+    await steer(() => presenter.keyboard.press("Home"), 0, "the presenter view's Home");
     check(true, "its End and Home go to the last and the first, as the player's do");
-    // The player steered by its own keys: the presenter view follows it there.
+    // The presenter view follows the player where the player is taken: a click in the
+    // scrubber's fifth step, which shows that state and stays there. A click lands where it is
+    // pressed, while a key goes where the focus is, which the presenter view's window may hold.
     await player.bringToFront();
-    await player.keyboard.press("ArrowRight");
-    await rests(player, 1);
-    await followed(1);
-    check((await presenter.textContent("#notes")) === notesOf(states[1]) && (await presenter.textContent("#nextName")) === `Next: ${states[2]}`, `it follows the player to ${states[1]}: its notes, and ${states[2]} next`);
+    const bar = await player.locator("#scrub").boundingBox();
+    await player.mouse.click(bar.x + (bar.width * 4.5) / states.length, bar.y + bar.height / 2);
+    await goes(player, 4, "a click on the player's scrubber");
+    await followed(4);
+    check((await presenter.textContent("#notes")) === notesOf(states[4]) && (await presenter.textContent("#nextName")) === `Next: ${states[5]}`, `it follows the player to ${states[4]}: its notes, and ${states[5]} next`);
     await snap(presenter, "presenter-view");
   });
   await presenter?.close();
+  // 6. Fullscreen, by the button, and back by F: after the presenter view, whose window a page
+  // leaving fullscreen may not get to open.
+  await step("fullscreen", () => player, async () => {
+    await player.click("#full");
+    await until(player, "the button makes it fullscreen", () => document.fullscreenElement !== null, null, 5000);
+    await player.locator("#stage").focus().catch(() => {});
+    await player.keyboard.press("f");
+    await until(player, "F leaves fullscreen", () => document.fullscreenElement === null, null, 5000);
+    check(true, "⛶ goes fullscreen, and F comes back");
+  });
+
   await player.close();
 
   // 7. Less motion: going on cuts to the state at rest, with no frame inside a cue.

@@ -31,7 +31,7 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
-  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/fixtures/torture.scaena/deck.json`);
+  await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/tests/fixtures/torture.scaena/deck.json`);
   await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
 
   const source = () => page.evaluate(() => window.scaena.source());
