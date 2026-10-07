@@ -79,6 +79,7 @@ export const canvasKeys = (): Key[] => [
   { keys: "Drag across nothing", label: "Select what the drag encloses", group: "Select" },
   { keys: `${SHIFT}Drag across nothing`, label: "Select what it encloses too", group: "Select" },
   { keys: `${MOD}A`, label: "Select what is selected and all beside it, or all on the canvas", group: "Select" },
+  { keys: "Space, then Tab", label: "Build a selection by keys: Tab keys the next beside it, Space puts it in or takes it out, Escape stops", group: "Select" },
   { keys: "Drag", label: "Move what is selected onto the grid; a handle resizes it", group: "Move and resize" },
   { keys: `${SHIFT}Drag`, label: "Move or resize it off the grid, or back onto it", group: "Move and resize" },
   { keys: `${MOD}Drag`, label: "Off the grid, go where the pointer says, not onto an edge it meets", group: "Move and resize" },
@@ -490,6 +491,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   let selected: string | undefined;
   /** Selected beside it, children of what holds it too (PLAN 2.42). */
   let also: string[] = [];
+  /** The node the keys are on while a selection is made by keys (PLAN 2.89): Tab moves it among
+   * the nodes beside what is selected, and Space puts it in the selection or takes it out. None
+   * while Tab selects one node at a time. */
+  let keyOn: string | undefined;
+  /** Space pressed with nothing dragged since: its release is a tap, which [`keyedToggle`] takes. */
+  let tapped = false;
   /** A drag across empty canvas: where it began, where the pointer is, and whether it adds to
    * what is selected. */
   let marquee: { from: [number, number]; at: [number, number]; adding: boolean } | undefined;
@@ -920,6 +927,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (reshaping && reshaping.state === boxed) parts.push(reshaped(reshaping));
     if (cropping && cropping.state === boxed) parts.push(cropped(cropping, u));
+    // The node the keys are on while a selection is made by keys (PLAN 2.89).
+    const key = box(keyOn);
+    if (key && !drag && !marquee) parts.push(shape(key, [0, 0], "keyed"));
     const over = box(hovered);
     if (over && !chosen().includes(over.node) && !drag && !typed && !marquee && !armed && !turning && !reshaping && !cropping) parts.push(shape(over, [0, 0], "hover"));
     if (sketch) {
@@ -1296,6 +1306,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
    * does not, and the focus goes on. */
   function tabTo(back: boolean): boolean {
     if (!editor.shown()) return false;
+    if (keyOn !== undefined) return keyTo(back);
     const level = selected === undefined ? null : (box(selected)?.parent ?? null);
     const order = readingOrder(level);
     const at = selected === undefined ? (back ? order.length : -1) : order.indexOf(selected);
@@ -1308,6 +1319,45 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     select(order[next]);
     editor.say(`${order[next]} selected, ${next + 1} of ${order.length}${level ? ` in ${level}` : ""} · Enter goes into it or its handles`);
     return true;
+  }
+
+  /** Tab, or with `back` Shift+Tab, while a selection is made by keys (PLAN 2.89): the key goes to
+   * the next node beside what is selected, in reading order, and the selection stays. Past either
+   * end the focus leaves the canvas, the selection as it is. */
+  function keyTo(back: boolean): boolean {
+    const level = keyOn === undefined ? null : (box(keyOn)?.parent ?? null);
+    const order = readingOrder(level);
+    const next = order.indexOf(keyOn!) + (back ? -1 : 1);
+    if (next < 0 || next >= order.length) {
+      keyOn = undefined;
+      draw();
+      editor.say(`${chosen().length} selected: the focus leaves the canvas`);
+      return false;
+    }
+    keyOn = order[next];
+    draw();
+    const inIt = chosen().includes(keyOn);
+    editor.say(`${keyOn}, ${next + 1} of ${order.length}${inIt ? ", selected" : ""} · Space ${inIt ? "takes it out of" : "puts it in"} the selection · Tab the next · Escape stops`);
+    return true;
+  }
+
+  /** Space tapped (PLAN 2.89): the node the keys are on goes into the selection, or out of it; with
+   * one node selected and none keyed, the keys start on it, to build a selection from there. */
+  function keyedToggle() {
+    if (keyOn === undefined) {
+      if (selected === undefined) return editor.say("nothing selected: Tab selects a node, then Space builds a selection from it");
+      keyOn = selected;
+      draw();
+      return editor.say(`${selected} selected · Tab keys the next beside it, and Space puts it in the selection or takes it out`);
+    }
+    const node = keyOn;
+    const was = chosen();
+    if (!was.includes(node) && selected !== undefined && holder(node) !== holder(selected)) select(undefined);
+    toggle(node);
+    keyOn = node;
+    draw();
+    const now = chosen();
+    editor.say(`${node} ${now.includes(node) ? "put in" : "taken out of"} the selection: ${now.length ? now.join(", ") : "nothing"} selected · Tab the next · Escape stops`);
   }
 
   /** A handle the keys work: what it is, and where its mark is drawn. */
@@ -2524,6 +2574,12 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   }
 
   overlay.onpointerdown = async (e) => {
+    // A press is no tap of Space, and the pointer takes over from the keys (PLAN 2.89).
+    tapped = false;
+    if (!spaced && keyOn !== undefined) {
+      keyOn = undefined;
+      draw();
+    }
     // The middle button, or a drag with Space held, pans what is zoomed in (PLAN 2.46).
     if (e.button === 1 || (e.button === 0 && spaced)) {
       e.preventDefault();
@@ -3005,6 +3061,7 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     }
     if (e.key === " " && !mod && !drag) {
       e.preventDefault();
+      if (!e.repeat) tapped = true;
       spaced = true;
       if (zoom() > 1) overlay.classList.add("panning");
       return;
@@ -3123,6 +3180,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       }
     }
     if (e.key === "Escape") {
+      // Stop making a selection by keys: what is selected stays (PLAN 2.89).
+      if (keyOn !== undefined) {
+        e.preventDefault();
+        keyOn = undefined;
+        draw();
+        return editor.say(`${chosen().length ? chosen().join(", ") : "nothing"} selected`);
+      }
       if (carrying) {
         e.preventDefault();
         const c = carrying;
@@ -3209,6 +3273,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     if (e.key !== " ") return;
     spaced = false;
     if (!panning) overlay.classList.remove("panning");
+    // A tap, with no pan and no drag between: the key's node in or out of the selection (PLAN 2.89).
+    if (tapped && !panning && !drag && !slotting && !armed && text.node() === undefined) keyedToggle();
+    tapped = false;
   };
   overlay.addEventListener("blur", () => {
     spaced = false;
