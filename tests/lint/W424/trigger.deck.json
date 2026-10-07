@@ -1,5 +1,5 @@
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "_comment": "W424 trigger: two claims on screen at once.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

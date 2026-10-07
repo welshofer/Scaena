@@ -180,6 +180,7 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
         NodeType::Chart => &[
             ("data", Data),
             ("kind", Schema(false)),
+            ("orient", Schema(false)),
             ("x/field", Columns),
             ("x/type", Schema(false)),
             ("y/field", Columns),
@@ -224,6 +225,10 @@ pub fn choices(
         _ => None,
     };
     let fields = own(node_type).iter().chain(&EVERY).filter_map(|&(prop, source)| {
+        // A bar chart's bars turn (PLAN 1.29); no other kind has bars to (E106).
+        if prop == "orient" && !matches!(shown.get("kind").and_then(Value::as_str), Some("bar" | "stackedBar")) {
+            return None;
+        }
         let takes = match source {
             Data => Takes::Word { words: deck.data.keys().map(|name| format!("@{name}")).collect() },
             Columns => {

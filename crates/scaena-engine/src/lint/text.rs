@@ -513,7 +513,11 @@ impl Rule for W310LabelCollision {
                         .at(format!("{}/x", cx.node_path(&node.id)))
                         .node(node.id.clone())
                         .measure(json!({ "categories": [a, b] }))
-                        .hint("Give the chart more width, or shorter categories."),
+                        .hint(match chart.horizontal {
+                            // Names down the side crowd where the bands are thin.
+                            true => "Give the chart more height, or fewer categories.",
+                            false => "Give the chart more width, or shorter categories.",
+                        }),
                     );
                 }
             }

@@ -132,7 +132,7 @@ jobs:
       # draft; in a full run on Linux, where it installs quickly, SCAENA_REQUIRE_FFMPEG makes a
       # missing one a failure instead.
       - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && echo "SCAENA_REQUIRE_FFMPEG=1" >> "$GITHUB_ENV"
+        run: scripts/apt-install.sh ffmpeg && echo "SCAENA_REQUIRE_FFMPEG=1" >> "$GITHUB_ENV"
       - run: cargo test --workspace --locked --exclude scaena-paint
       # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
       # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
@@ -140,7 +140,7 @@ jobs:
       # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
       # A full run's.
       - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+        run: scripts/apt-install.sh mesa-vulkan-drivers
       - if: needs.changes.outputs.full == 'true'
         run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
         env:
@@ -358,7 +358,7 @@ jobs:
       # What a reader needs: axe-core finds nothing against WCAG 2.1 AA, the live region reads
       # as the single file does, less motion cuts, and the keys (PLAN 2.8).
       - run: node web/a11y.mjs
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: scripts/apt-install.sh mesa-vulkan-drivers
       - run: cargo test -p scaena-paint --features gpu --test parity --locked -- --nocapture
         env:
           SCAENA_REQUIRE_GPU: "1"

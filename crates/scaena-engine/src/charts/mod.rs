@@ -28,6 +28,10 @@ const KAPPA: f32 = 0.552_284_8;
 
 /// A rectangle with one radius for its top corners and one for its bottom corners.
 /// A bar is square on its baseline and rounded at its free end.
+///
+/// A bar `across` (PLAN 1.29) stands on a baseline at its side: its values run along x,
+/// `top_radius` rounds its right end and `bottom_radius` its left, so either way the top
+/// radius is the end a value above zero reaches.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundRect {
     pub x: f32,
@@ -36,9 +40,15 @@ pub struct RoundRect {
     pub h: f32,
     pub top_radius: f32,
     pub bottom_radius: f32,
+    pub across: bool,
 }
 
 impl RoundRect {
+    /// A box with the same radius at each corner, standing up.
+    pub fn rounded(x: f32, y: f32, w: f32, h: f32, radius: f32) -> RoundRect {
+        RoundRect { x, y, w, h, top_radius: radius, bottom_radius: radius, across: false }
+    }
+
     /// The shape `p` of the way from `a` to `b`.
     pub fn lerp(a: RoundRect, b: RoundRect, p: f32) -> RoundRect {
         RoundRect {
@@ -48,18 +58,33 @@ impl RoundRect {
             h: lerp(a.h, b.h, p),
             top_radius: lerp(a.top_radius, b.top_radius, p),
             bottom_radius: lerp(a.bottom_radius, b.bottom_radius, p),
+            across: b.across,
         }
     }
 
-    /// The same bar with no height, on the baseline at `base`: where a new value grows
-    /// from and a removed one shrinks to.
+    /// The same bar with no extent, on the baseline at `base`: where a new value grows
+    /// from and a removed one shrinks to. A bar across flattens onto a baseline across.
     pub fn collapsed(self, base: f32) -> RoundRect {
-        RoundRect { y: base, h: 0.0, top_radius: 0.0, bottom_radius: 0.0, ..self }
+        match self.across {
+            true => RoundRect { x: base, w: 0.0, top_radius: 0.0, bottom_radius: 0.0, ..self },
+            false => RoundRect { y: base, h: 0.0, top_radius: 0.0, bottom_radius: 0.0, ..self },
+        }
     }
 
-    /// The same bar moved `dx` across.
-    pub fn shifted(self, dx: f32) -> RoundRect {
-        RoundRect { x: self.x + dx, ..self }
+    /// The same bar moved `d` along its category axis: across, or down for a bar across.
+    pub fn shifted(self, d: f32) -> RoundRect {
+        match self.across {
+            true => RoundRect { y: self.y + d, ..self },
+            false => RoundRect { x: self.x + d, ..self },
+        }
+    }
+
+    /// Where it stands along its category axis: its middle across, or down for a bar across.
+    pub fn along(&self) -> f32 {
+        match self.across {
+            true => self.y + 0.5 * self.h,
+            false => self.center_x(),
+        }
     }
 
     pub fn top(&self) -> f32 {
@@ -77,11 +102,32 @@ impl RoundRect {
     /// Clockwise from the top edge; rounded corners are cubic quarter circles, and a
     /// corner with no radius is a plain corner.
     pub fn path(&self) -> Path {
-        let RoundRect { x, y, w, h, top_radius: t, bottom_radius: b } = *self;
+        let RoundRect { x, y, w, h, top_radius: t, bottom_radius: b, across } = *self;
         if t <= 0.0 && b <= 0.0 {
             return Path::rect([x, y, w, h]);
         }
         let (x1, y1, kt, kb) = (x + w, y + h, KAPPA * t, KAPPA * b);
+        if across {
+            // The right end rounded by `t`, the left by `b`.
+            let mut els = vec![PathEl::MoveTo([x + b, y]), PathEl::LineTo([x1 - t, y])];
+            if t > 0.0 {
+                els.push(PathEl::CurveTo([x1 - t + kt, y], [x1, y + t - kt], [x1, y + t]));
+            }
+            els.push(PathEl::LineTo([x1, y1 - t]));
+            if t > 0.0 {
+                els.push(PathEl::CurveTo([x1, y1 - t + kt], [x1 - t + kt, y1], [x1 - t, y1]));
+            }
+            els.push(PathEl::LineTo([x + b, y1]));
+            if b > 0.0 {
+                els.push(PathEl::CurveTo([x + b - kb, y1], [x, y1 - b + kb], [x, y1 - b]));
+            }
+            els.push(PathEl::LineTo([x, y + b]));
+            if b > 0.0 {
+                els.push(PathEl::CurveTo([x, y + b - kb], [x + b - kb, y], [x + b, y]));
+            }
+            els.push(PathEl::Close);
+            return Path(els);
+        }
         let mut els = vec![PathEl::MoveTo([x + t, y]), PathEl::LineTo([x1 - t, y])];
         if t > 0.0 {
             els.push(PathEl::CurveTo([x1 - t + kt, y], [x1, y + t - kt], [x1, y + t]));
@@ -181,6 +227,9 @@ impl Shape {
     /// `beside` stands (a mark of the same stack), or where it is.
     pub fn opened_at(self, at: f32, beside: Option<Shape>) -> Shape {
         match (self, beside) {
+            (Shape::Bar(r), Some(Shape::Bar(s))) if r.across => {
+                Shape::Bar(RoundRect { y: s.y, h: s.h, ..r.collapsed(at) })
+            }
             (Shape::Bar(r), Some(Shape::Bar(s))) => Shape::Bar(RoundRect { x: s.x, w: s.w, ..r.collapsed(at) }),
             (Shape::Bar(r), _) => Shape::Bar(r.collapsed(at)),
             (Shape::Span { .. }, Some(Shape::Span { x, .. })) => Shape::Span { x, top: at, base: at },
@@ -203,13 +252,22 @@ impl Shape {
         }
     }
 
-    /// The same mark moved `dx` across; a slice stays where it is.
+    /// The same mark moved `dx` along its category axis (down, for a bar across); a slice
+    /// stays where it is.
     pub fn shifted(self, dx: f32) -> Shape {
         match self {
             Shape::Bar(r) => Shape::Bar(r.shifted(dx)),
             Shape::Dot { x, y, r } => Shape::Dot { x: x + dx, y, r },
             Shape::Span { x, top, base } => Shape::Span { x: x + dx, top, base },
             Shape::Arc { .. } => self,
+        }
+    }
+
+    /// Where it stands along the category axis: its middle across, or down for a bar across.
+    pub fn along(&self) -> f32 {
+        match *self {
+            Shape::Bar(r) => r.along(),
+            _ => self.center_x(),
         }
     }
 
@@ -224,6 +282,7 @@ impl Shape {
     /// The point a line or an area runs through: a dot's center, a span's top.
     pub fn point(&self) -> Point {
         match *self {
+            Shape::Bar(r) if r.across => [r.x + r.w, r.y + 0.5 * r.h],
             Shape::Bar(r) => [r.center_x(), r.top()],
             Shape::Dot { x, y, .. } => [x, y],
             Shape::Span { x, top, .. } => [x, top],
@@ -465,10 +524,11 @@ pub struct Gap {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ValueLabel {
     pub value: f64,
-    /// Under the mark (a negative bar) rather than over it.
+    /// Under the mark (a negative bar) rather than over it; past a bar across's left end
+    /// rather than its right.
     pub below: bool,
-    /// From the mark's free end to the label's baseline; for a slice, from its outer
-    /// edge out along its middle.
+    /// From the mark's free end to the label's baseline; for a bar across, from its free
+    /// end along x to the anchor; for a slice, from its outer edge out along its middle.
     pub offset: f32,
     /// How much of the label's width falls before its anchor: ½ centers it, 0 starts it
     /// there, 1 ends it there.
@@ -482,6 +542,11 @@ impl ValueLabel {
     /// The label's anchor (center, baseline) on `shape`.
     pub fn anchor(&self, shape: &Shape) -> [f32; 2] {
         match *shape {
+            // Past a bar across's end, at its middle down.
+            Shape::Bar(r) if r.across => {
+                let end = if self.below { r.x } else { r.x + r.w };
+                [end + self.offset, r.y + 0.5 * r.h + self.drop]
+            }
             Shape::Bar(r) => {
                 let end = if self.below { r.bottom() } else { r.top() };
                 [r.center_x(), end + self.offset + self.drop]
@@ -693,7 +758,12 @@ impl CategoryFormat {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartLayout {
     pub kind: ChartKind,
-    /// The baseline's y: where a new value grows from and a removed one shrinks to.
+    /// Its bars run across (`orient: horizontal`, PLAN 1.29): its values run along x, its
+    /// categories down the side, and `y_scale`, `base`, and `categories` measure across
+    /// for values and down for categories.
+    pub horizontal: bool,
+    /// The baseline's y, or its x where the bars run across: where a new value grows from
+    /// and a removed one shrinks to.
     pub base: f32,
     pub baseline: Option<Rule>,
     pub marks: Vec<Mark>,
@@ -705,7 +775,8 @@ pub struct ChartLayout {
     pub numerals: Option<Numerals>,
     /// Lines and areas through the marks, under them.
     pub paths: Vec<SeriesPath>,
-    /// Values to heights: where a tick of another snapshot's axis sits in this one.
+    /// Values to heights (to x, where the bars run across): where a tick of another
+    /// snapshot's axis sits in this one.
     pub y_scale: LinearScale,
     /// The plot's box, `[x, y, w, h]` relative to the chart.
     pub plot: [f32; 4],
@@ -741,9 +812,9 @@ pub struct ChartLayout {
     pub rows: BTreeMap<String, Vec<usize>>,
     /// What an annotation names each mark by, by the mark's key (PLAN 2.67).
     pub places: BTreeMap<String, MarkPlace>,
-    /// Along a categorical x, each category as an annotation names it, with its band across,
-    /// `[start, end]` relative to the chart, in order (PLAN 2.67); none along a continuous x,
-    /// and none for a donut.
+    /// Along a categorical x, each category as an annotation names it, with its band across
+    /// (down, where the bars run across), `[start, end]` relative to the chart, in order
+    /// (PLAN 2.67); none along a continuous x, and none for a donut.
     pub categories: Vec<(Scalar, [f32; 2])>,
     /// Each highlight, by its place among the chart's `annotations`, with the keys of the
     /// marks it picks out (PLAN 2.67).
@@ -854,7 +925,7 @@ mod tests {
 
     #[test]
     fn bars_round_their_free_end_and_collapse_onto_the_baseline() {
-        let bar = RoundRect { x: 0.0, y: 0.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0 };
+        let bar = RoundRect { x: 0.0, y: 0.0, w: 10.0, h: 40.0, top_radius: 2.0, bottom_radius: 0.0, across: false };
         let path = bar.path();
         assert_eq!(path.0.len(), 8, "{path:?}");
         assert!(path.0.contains(&PathEl::LineTo([10.0, 40.0])) && path.0.contains(&PathEl::LineTo([0.0, 40.0])));
@@ -866,5 +937,28 @@ mod tests {
         let flat = bar.collapsed(40.0);
         assert_eq!((flat.y, flat.h, flat.top_radius), (40.0, 0.0, 0.0));
         assert_eq!(flat.path(), Path::rect([0.0, 40.0, 10.0, 0.0]));
+    }
+
+    #[test]
+    fn bars_across_round_their_right_end_and_collapse_onto_a_baseline_across() {
+        // A bar across (PLAN 1.29) on a baseline at x 0, its value reaching x 40.
+        let bar = RoundRect { x: 0.0, y: 0.0, w: 40.0, h: 10.0, top_radius: 2.0, bottom_radius: 0.0, across: true };
+        let path = bar.path();
+        assert_eq!(path.0.len(), 8, "{path:?}");
+        assert_eq!(path.0[0], PathEl::MoveTo([0.0, 0.0]), "square on its foot");
+        assert_eq!(
+            path.0[2],
+            PathEl::CurveTo([38.0 + KAPPA * 2.0, 0.0], [40.0, 2.0 - KAPPA * 2.0], [40.0, 2.0]),
+            "a quarter circle at its free end"
+        );
+        assert!(path.0.contains(&PathEl::LineTo([40.0, 8.0])) && path.0.contains(&PathEl::LineTo([0.0, 10.0])));
+        let flat = bar.collapsed(0.0);
+        assert_eq!((flat.x, flat.w, flat.y, flat.h, flat.top_radius), (0.0, 0.0, 0.0, 10.0, 0.0));
+        // It moves along its category axis, down the chart, and a value rides past its end.
+        assert_eq!((bar.shifted(5.0).y, bar.along(), Shape::Bar(bar).along()), (5.0, 5.0, 5.0));
+        let value = ValueLabel { value: 3.0, below: false, offset: 8.0, align: 0.0, drop: 4.0 };
+        assert_eq!(value.anchor(&Shape::Bar(bar)), [48.0, 9.0]);
+        let left = ValueLabel { below: true, offset: -8.0, align: 1.0, ..value };
+        assert_eq!(left.anchor(&Shape::Bar(bar)), [-8.0, 9.0]);
     }
 }

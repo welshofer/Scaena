@@ -1,5 +1,5 @@
 {
-  "scaena": "0.13",
+  "scaena": "0.14",
   "_comment": "W230 clean: the theme's two fonts alone, whose licenses (the SIL Open Font License) allow embedding them as installable.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

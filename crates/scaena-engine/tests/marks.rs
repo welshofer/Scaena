@@ -334,3 +334,33 @@ fn a_callout_dropped_stands_on_the_mark_there_or_at_the_value_there() {
     // Not a chart: nowhere.
     assert!(scene.callout_at("nothing", p).is_none());
 }
+
+#[test]
+fn a_callout_dropped_on_bars_across_reads_its_category_down_and_its_value_across() {
+    use scaena_core::model::values::{AnnotationAt, Place, Scalar};
+    // The annotated chart with its bars across (PLAN 1.29).
+    let mut d = serde_json::to_value(annotated()).unwrap();
+    d["nodes"]["c"]["orient"] = json!("horizontal");
+    let scene = at_rest(&serde_json::from_value(d).unwrap());
+    let (cell, c) = chart(&scene, "c");
+    assert!(c.horizontal);
+    let one = |v: Scalar| Some(Place::One(v));
+    // On Europe's 2024 bar, at its middle: on it.
+    let scaena_engine::charts::Shape::Bar(bar) = c.marks.iter().find(|m| m.key == "2024\u{1f}EU").unwrap().shape else {
+        panic!("bars")
+    };
+    let middle = [cell[0] + bar.x + 0.5 * bar.w, cell[1] + bar.y + 0.5 * bar.h];
+    assert_eq!(
+        scene.callout_at("c", middle),
+        Some(AnnotationAt { x: one(Scalar::Number(2024.0)), y: None, series: one(Scalar::Text("EU".into())) })
+    );
+    // Off the bars, beside the plot's end in 2024's band: at 2024, and the value across.
+    let [left, _, width, _] = c.plot;
+    let band = c.categories.iter().find(|(x, _)| *x == Scalar::Number(2024.0)).unwrap().1;
+    let p = [left + width - 2.0, band[0] + 1.0];
+    let at = scene.callout_at("c", [cell[0] + p[0], cell[1] + p[1]]).unwrap();
+    assert_eq!((&at.x, &at.series), (&one(Scalar::Number(2024.0)), &None));
+    let Some(Place::One(Scalar::Number(v))) = at.y else { panic!("{at:?}") };
+    let unit = scaena_engine::scale::tick_step(c.y_scale.domain[0], c.y_scale.domain[1], 5) / 10.0;
+    assert!((v - c.y_scale.invert(p[0])).abs() <= unit / 2.0 + 1e-9, "{v} for {}", c.y_scale.invert(p[0]));
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/patch-0.13.json",
+  "$id": "https://scaena.dev/schema/patch-0.14.json",
   "title": "Scaena patch",
   "description": "A patch (SPEC §7.3): RFC 6902 ops and semantic ops, applied in order, all or none.",
   "type": "array",
@@ -758,6 +758,10 @@
       "properties": {
         "type": { "type": "string", "const": "chart" },
         "kind": { "$ref": "#/$defs/ChartKind" },
+        "orient": {
+          "description": "Which way a `bar`'s or a `stackedBar`'s bars run (PLAN 1.29): up from the baseline, the default, or across it, the categories down the side and their names read across. Any other kind is E106.",
+          "$ref": "#/$defs/ChartOrient"
+        },
         "data": { "description": "A data source, `@name`.", "type": "string", "pattern": "^@[a-z][a-z0-9_-]*$" },
         "dataTransform": {
           "description": "Steps run in order before the chart reads its data: filter, derive, sort, limit, aggregate, fold, pivot (SPEC §3.10; expressions in docs/spec/expr.md).",
@@ -1345,6 +1349,21 @@
       "type": "string",
       "enum": ["bar", "stackedBar", "line", "area", "scatter", "dot", "donut"]
     },
+    "ChartOrient": {
+      "description": "Which way a chart's bars run (SPEC §3.7, PLAN 1.29).",
+      "oneOf": [
+        {
+          "description": "Up from the baseline, the categories along the foot.",
+          "type": "string",
+          "const": "vertical"
+        },
+        {
+          "description": "Across from the baseline, the categories down the side.",
+          "type": "string",
+          "const": "horizontal"
+        }
+      ]
+    },
     "Encoding": {
       "description": "One chart channel bound to a data field.",
       "type": "object",
@@ -1665,6 +1684,7 @@
           ]
         },
         "crop": { "anyOf": [{ "$ref": "#/$defs/Rect" }, { "type": "null" }] },
+        "orient": { "anyOf": [{ "$ref": "#/$defs/ChartOrient" }, { "type": "null" }] },
         "data": { "anyOf": [{ "pattern": "^@[a-z][a-z0-9_-]*$", "type": "string" }, { "type": "null" }] },
         "dataTransform": {
           "anyOf": [

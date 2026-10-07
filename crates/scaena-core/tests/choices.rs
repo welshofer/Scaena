@@ -145,6 +145,7 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
         [
             "data",
             "kind",
+            "orient",
             "x/field",
             "x/type",
             "y/field",
@@ -168,6 +169,11 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
         takes => panic!("{prop}: {takes:?}"),
     };
     assert_eq!(words("data"), ["@q3"]);
+    // A bar chart's bars turn (PLAN 1.29); a chart of another kind has none to turn.
+    assert_eq!(words("orient"), ["vertical", "horizontal"]);
+    let mut lines = example();
+    lines["nodes"]["rev"]["kind"] = json!("line");
+    assert!(offered(&lines, "revenue", "rev").fields.iter().all(|f| f.prop != "orient"));
     assert_eq!(
         (field(&rev, "data").value.clone(), field(&rev, "data").lives.clone()),
         (Some(json!("@q3")), Some(Where::Node))

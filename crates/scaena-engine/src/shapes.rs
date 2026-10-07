@@ -295,7 +295,7 @@ impl ShapeNode {
         let [_, _, w, h] = self.rect;
         let at = |[x, y]: [f32; 2]| [x * w, y * h];
         let (path, closed) = match &self.geometry {
-            Geometry::Rect(r) => (RoundRect { x: 0.0, y: 0.0, w, h, top_radius: *r, bottom_radius: *r }.path(), true),
+            Geometry::Rect(r) => (RoundRect::rounded(0.0, 0.0, w, h, *r).path(), true),
             Geometry::Ellipse => {
                 let ellipse = kurbo::Ellipse::new(
                     (f64::from(w) / 2.0, f64::from(h) / 2.0),
