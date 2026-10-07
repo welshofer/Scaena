@@ -384,7 +384,9 @@ mod tests {
     #[test]
     fn notes_claims_and_descriptions_are_found_where_they_are_written() {
         let found = find(&worded(), &query("q3")).unwrap();
-        let places: Vec<(Kind, Option<&str>, Option<&str>, &str, &str)> = found
+        // What each is in, its node, its beat, the state it is made in, and where it is written.
+        type Place<'a> = (Kind, Option<&'a str>, Option<&'a str>, &'a str, &'a str);
+        let places: Vec<Place> = found
             .iter()
             .map(|f| (f.kind, f.node.as_deref(), f.beat.as_deref(), f.state.as_str(), f.lives.as_str()))
             .collect();
