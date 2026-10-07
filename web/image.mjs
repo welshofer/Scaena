@@ -9,8 +9,9 @@
 // - Its crop and its fit, chosen in the inspector, are each one patch; a crop is kept inside the image.
 // - A PNG dropped on the image takes its place: the file joins the bundle, named by its SHA-256,
 //   and the image's `src` is its path. So does a JPEG, as it is (PLAN 2.66), drawn as its EXIF
-//   orientation turns it. Dropped on a text, it is inserted there, as Insert inserts it (PLAN
-//   2.76), and one undo takes it out. A file neither a picture nor data changes nothing.
+//   orientation turns it. Dropped on a text, it is inserted as Insert inserts it (PLAN 2.76),
+//   in the room nearest the text and named after its file (PLAN 2.79), and one undo takes it
+//   out. A file neither a picture nor data changes nothing.
 // - Undone, the deck is as it was, and it validates.
 // Exits 1 on any failure.
 import { readFileSync } from "node:fs";
@@ -173,13 +174,20 @@ try {
     const [px, py] = await client(at);
     await page.dispatchEvent("#overlay", "drop", { dataTransfer: transfer, clientX: px, clientY: py });
   };
-  // On a text, a picture is inserted there, as Insert inserts it (PLAN 2.76); one undo takes it out.
+  // On a text, a picture is inserted as Insert inserts it (PLAN 2.76), in the room nearest the
+  // text, named after its file (PLAN 2.79); one undo takes it out.
   const label = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "case").rect);
   n = await trips();
   await drop("ridge.png", [label[0] + label[2] / 2, label[1] + label[3] / 2]);
-  check(await says("ridge.png inserted as image-"), `a PNG dropped on a text is inserted there: ${await status()}`);
+  check(await says("ridge.png inserted as ridge,"), `a PNG dropped on a text is inserted, named after its file: ${await status()}`);
   await settled(n);
-  check(/\bimage-[0-9a-f]+ image\s+"assets\/[0-9a-f]{64}\.png"/.test(await source()), "a new image of it");
+  check(/\bridge image\s+"assets\/[0-9a-f]{64}\.png"/.test(await source()), "a new image of it, its file named by its SHA-256");
+  // Clear of the text's words, as lint judges an overlap (E101): a text collides by its lines. The
+  // state is full of images, so no place on the grid is clear of them, and it overlaps those.
+  const overlaps = await page.evaluate(() =>
+    window.scaena.last().findings.filter((f) => f.code === "E101" && f.message.includes("`ridge`") && f.message.includes("`case`")).map((f) => f.message),
+  );
+  check(overlaps.length === 0, `clear of the text it was dropped on: ${overlaps.join("; ") || "no overlap of the two lint finds"}`);
   await undo();
   check((await source()) === original, "one undo takes it out");
   // A file neither a picture nor data: nothing changes, and the status says why.
