@@ -199,7 +199,8 @@ try {
   check((await status(torture)).includes("`body` in its place"), "and what took its place");
   await press(torture, [1500, 300]);
   check(await paste(torture, { [CLIP]: chart.clip }), "and the chart");
-  check(await reads(torture, "rev chart"), "the chart comes in");
+  // Its own declaration: the torture deck's `mx-rev chart` (PLAN 1.31) holds "rev chart" too.
+  check(await reads(torture, "node rev chart"), "the chart comes in");
   check((await source(torture)).includes("data/q3-revenue.csv"), "declaring its source, on the file it brought");
   await torture.waitForFunction(() => window.scaena.canvas.boxes().some((b) => b.node === "rev" && b.draws), null, { timeout: 30000 }).catch(() => {});
   check(Boolean(await box(torture, "rev")), "and it draws, its rows read");
