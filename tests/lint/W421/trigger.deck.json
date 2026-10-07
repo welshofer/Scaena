@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W421 trigger: the slide ends showing evidence and no claim.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

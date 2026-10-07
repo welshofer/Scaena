@@ -103,9 +103,10 @@ impl Scene {
         let at = self.laid_out(&node.id, point)?;
         match &node.content {
             Content::Chart { cell, chart } => {
+                let (cell, chart) = panel_at(chart, *cell, at);
                 let key = chart_key(chart, [at[0] - cell[0], at[1] - cell[1]])?;
                 let mark = chart.marks.iter().find(|m| m.key == key)?;
-                Some(self.chart_mark(&node.id, *cell, chart, &mark.key, mark.shape))
+                Some(self.chart_mark(&node.id, cell, chart, &mark.key, mark.shape))
             }
             Content::Table { cell, table } => {
                 let local = [at[0] - cell[0], at[1] - cell[1]];
@@ -124,8 +125,10 @@ impl Scene {
         for node in self.nodes.iter().filter(|n| self.tree.contains_key(&n.id) && n.opacity > 0.0) {
             match &node.content {
                 Content::Chart { cell, chart } if chart.source == source => {
-                    for m in chart.marks.iter().filter(|m| made(chart.rows.get(&m.key))) {
-                        out.push(self.chart_mark(&node.id, *cell, chart, &m.key, m.shape));
+                    for (_, cell, chart) in chart.each(*cell) {
+                        for m in chart.marks.iter().filter(|m| made(chart.rows.get(&m.key))) {
+                            out.push(self.chart_mark(&node.id, cell, chart, &m.key, m.shape));
+                        }
                     }
                 }
                 Content::Table { cell, table } if table.source == source => {
@@ -185,8 +188,9 @@ impl Scene {
         let node = self.nodes.iter().find(|n| n.id == top.node)?;
         let Content::Chart { cell, chart } = &node.content else { return None };
         let at = self.laid_out(&node.id, point)?;
+        let (cell, chart) = panel_at(chart, *cell, at);
         let note = note_at(chart, [at[0] - cell[0], at[1] - cell[1]])?;
-        Some(self.note_mark(&node.id, *cell, note))
+        Some(self.note_mark(&node.id, cell, note))
     }
 
     /// Chart `node`'s marks and annotations, as a pointer finds each (PLAN 2.75): its marks in data
@@ -195,14 +199,21 @@ impl Scene {
     pub fn marks_in(&self, node: &str) -> Option<(Vec<DataMark>, Vec<NoteMark>)> {
         let drawn = self.nodes.iter().find(|n| n.id == node)?;
         let Content::Chart { cell, chart } = &drawn.content else { return None };
-        // A range's interval ends are no marks of their own: their point is.
-        let marks = (chart.marks.iter())
-            .filter(|m| datum_key(&m.key) == m.key)
-            .map(|m| self.chart_mark(node, *cell, chart, &m.key, m.shape))
+        // A range's interval ends are no marks of their own: their point is. Small multiples'
+        // marks go panel by panel, and their annotations, which every panel draws, are the
+        // first panel's (PLAN 1.31).
+        let panels = chart.each(*cell);
+        let marks = (panels.iter())
+            .flat_map(|&(_, cell, chart)| {
+                (chart.marks.iter())
+                    .filter(|m| datum_key(&m.key) == m.key)
+                    .map(move |m| self.chart_mark(node, cell, chart, &m.key, m.shape))
+            })
             .collect();
+        let (_, cell, chart) = panels[0];
         let mut notes: Vec<&Note> = chart.notes.iter().collect();
         scaena_core::sort::by(&mut notes, |a, b| a.index.cmp(&b.index));
-        Some((marks, notes.into_iter().map(|n| self.note_mark(node, *cell, n)).collect()))
+        Some((marks, notes.into_iter().map(|n| self.note_mark(node, cell, n)).collect()))
     }
 
     fn note_mark(&self, node: &str, cell: Rect, note: &Note) -> NoteMark {
@@ -243,6 +254,7 @@ impl Scene {
             return None;
         }
         let at = self.laid_out(node, point)?;
+        let (cell, chart) = panel_at(chart, *cell, at);
         let p = [at[0] - cell[0], at[1] - cell[1]];
         if let Some(key) = chart_key(chart, p) {
             return mark_notes(chart, key).map(|m| m.callout);
@@ -332,6 +344,14 @@ fn near(rule: &Rule, p: [f32; 2]) -> bool {
     let t = if length > 0.0 { (((p[0] - ax) * dx + (p[1] - ay) * dy) / length).clamp(0.0, 1.0) } else { 0.0 };
     let (cx, cy) = (ax + t * dx, ay + t * dy);
     (p[0] - cx).hypot(p[1] - cy) <= SLOP.max(rule.width / 2.0)
+}
+
+/// The chart in `cell` that `at` (canvas units) falls in: small multiples' panel there, else
+/// the first (PLAN 1.31); any other chart itself.
+fn panel_at(chart: &ChartLayout, cell: Rect, at: [f32; 2]) -> (Rect, &ChartLayout) {
+    let panels = chart.each(cell);
+    let found = panels.iter().find(|(_, cell, _)| inside(*cell, at)).or(panels.first());
+    found.map_or((cell, chart), |&(_, cell, chart)| (cell, chart))
 }
 
 /// The key of `chart`'s mark at `p`, relative to the chart: the topmost bar, dot, or slice that

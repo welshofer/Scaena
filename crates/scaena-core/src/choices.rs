@@ -190,6 +190,7 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("sizeEncoding/field", Columns),
             ("interval/low", Columns),
             ("interval/high", Columns),
+            ("facet/field", Columns),
             ("key", Columns),
             ("labels/show", Schema(false)),
             ("labels/role", Names(V::TextRole, false)),

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "_comment": "W313 clean: the same chart over two rows, 280 cu tall.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

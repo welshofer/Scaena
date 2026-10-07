@@ -8,7 +8,7 @@ use super::{
     Rule, SeriesPath, Shape, Stack, ValueLabel, typeset_minus,
 };
 use crate::EngineError;
-use crate::data::{self, ColumnType, Datum};
+use crate::data::{self, ColumnType, Datum, Rows, Table};
 use crate::scale::{self, LinearScale};
 use crate::text::{TextLayout, TextSpec};
 use crate::theme::{Numeric, TextBox};
@@ -223,6 +223,177 @@ pub fn color_keys(deck: &scaena_core::Deck, files: &data::DataFiles, props: &Pro
 
 /// Compile a chart node's resolved props for a cell `size` wide and high.
 pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
+    match props.get("facet").and_then(Value::as_object) {
+        Some(facet) => facets(cx, props, facet, size),
+        None => compile_in(cx, props, size, None),
+    }
+}
+
+/// Small multiples (SPEC §3.7, PLAN 1.31): a panel for each value of `facet.field`, in the
+/// order each first appears, on a grid of `facet.columns` (else the count whose panels are
+/// nearest 3:2 with the fewest cells left empty), two space units apart each way. Each panel is the chart over its
+/// value's rows, on one value axis for all: the union of the axes the panels would draw
+/// alone. Each is named by its value over its top-left, with no frame. The first column
+/// alone shows the value axis, where the chart shows it, and the first row's last panel
+/// alone its legend.
+fn facets(cx: &mut Ctx, props: &Props, facet: &Map<String, Value>, size: [f32; 2]) -> Result<ChartLayout, EngineError> {
+    let kind = Kind::parse(props.get("kind"))?;
+    let field = facet.get("field").and_then(Value::as_str);
+    let field = field.ok_or_else(|| EngineError::Layout("`facet` has no `field`".into()))?;
+    let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
+    let source = source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?;
+    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+    let c = table.column(field).ok_or_else(|| EngineError::Data(format!("no column `{field}` to facet by")))?;
+    let mut values: Vec<(String, Datum)> = Vec::new();
+    for row in &table.rows {
+        let label = row[c].label();
+        if !values.iter().any(|(v, _)| *v == label) {
+            values.push((label, row[c].clone()));
+        }
+    }
+    if values.is_empty() {
+        return Err(EngineError::Data("chart data has no rows".into()));
+    }
+    // Each panel's rows, and the rows of the source each came from, read once for both passes.
+    let subsets: Vec<(Table, Rows)> = (values.iter())
+        .map(|(value, _)| {
+            let (rows, came) = (table.rows.iter().zip(&from))
+                .filter(|(row, _)| row[c].label() == *value)
+                .map(|(row, came)| (row.clone(), came.clone()))
+                .unzip();
+            (Table { columns: table.columns.clone(), types: table.types.clone(), rows }, came)
+        })
+        .collect();
+    // Each panel's name, in the charts' title role (else the axis's), a date as it prints
+    // alone.
+    let theme = cx.theme;
+    let charts = theme.charts.as_ref();
+    let axis = charts.and_then(|c| c.axis.as_ref()).and_then(|a| a.role.as_deref()).unwrap_or("label");
+    let role = (charts.and_then(|c| c.title.as_ref()).and_then(|t| t.role.as_deref())).unwrap_or(axis);
+    let role = theme.text_role(role)?;
+    let locale = Locale::of(cx.deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
+    let gap = theme.tokens.space.unit as f32;
+    let names: Vec<TextLayout> = (values.iter())
+        .map(|(label, datum)| {
+            let text = match datum {
+                Datum::Date(t) => DateLabels::of(&[*t]).map_or_else(|| label.clone(), |d| d.whole(*t, locale)),
+                _ => label.clone(),
+            };
+            cx.text.layout(cx.fonts, theme, &TextSpec::plain(role.clone(), text), f32::INFINITY)
+        })
+        .collect::<Result<_, _>>()?;
+    let named = names.iter().map(|t| t.height).fold(0.0_f32, f32::max) + 0.5 * gap;
+    // The grid: each panel's chart `w` × `h`, under its name.
+    let n = values.len();
+    let between = 2.0 * gap;
+    let grid = |columns: usize| {
+        let rows = n.div_ceil(columns);
+        let w = (size[0] - (columns - 1) as f32 * between) / columns as f32;
+        let h = (size[1] - (rows - 1) as f32 * between) / rows as f32 - named;
+        (w, h)
+    };
+    // Unset, the grid whose panels are nearest 3:2, less for each cell it leaves empty: three
+    // panels stand in a row rather than a square with a hole.
+    let columns = match facet.get("columns").and_then(Value::as_u64) {
+        Some(columns) => (columns as usize).clamp(1, n),
+        None => {
+            let off = |columns: usize| match grid(columns) {
+                (w, h) if w > 0.0 && h > 0.0 => {
+                    let empty = (columns * n.div_ceil(columns) - n) as f32 / n as f32;
+                    (w / h / 1.5).ln().abs() + 1.5 * empty
+                }
+                _ => f32::INFINITY,
+            };
+            (1..=n).min_by(|&a, &b| off(a).total_cmp(&off(b))).unwrap_or(1)
+        }
+    };
+    let (w, h) = grid(columns);
+    if w <= 0.0 || h <= 0.0 {
+        return Err(EngineError::Layout(format!(
+            "chart cell {}×{} cu leaves no room for {n} panels",
+            size[0], size[1]
+        )));
+    }
+    // A panel's props: the chart's, less its facet; the value axis in the first column, the
+    // legend in the first row's last panel; and the shared axis, once it is known.
+    let legend_at = columns.min(n) - 1;
+    let panel = |i: usize, domain: Option<[f64; 2]>| -> Props {
+        let mut p = props.clone();
+        p.shift_remove("facet");
+        if i != legend_at {
+            p.insert("legend".into(), Value::from("none"));
+        }
+        if !i.is_multiple_of(columns) {
+            let axes = p.entry("axes".into()).or_insert(Value::Null);
+            if !axes.is_object() {
+                *axes = Value::Object(Map::new());
+            }
+            let y = &mut axes["y"];
+            if !y.is_object() {
+                *y = Value::Object(Map::new());
+            }
+            y["show"] = Value::Bool(false);
+        }
+        if let Some([lo, hi]) = domain {
+            let y = p.entry("y".into()).or_insert(Value::Null);
+            if y.is_object() {
+                y["domain"] = serde_json::json!([lo, hi]);
+            }
+        }
+        p
+    };
+    let mut domain = [f64::INFINITY, f64::NEG_INFINITY];
+    for (i, rows) in subsets.iter().enumerate() {
+        let alone = compile_in(cx, &panel(i, None), [w, h], Some(rows))?;
+        let [a, b] = alone.y_scale.domain;
+        domain = [domain[0].min(a.min(b)), domain[1].max(a.max(b))];
+    }
+    let mut panels = Vec::with_capacity(n);
+    for (i, (((value, _), name), rows)) in values.iter().zip(names).zip(&subsets).enumerate() {
+        let mut chart = compile_in(cx, &panel(i, Some(domain)), [w, h], Some(rows))?;
+        chart.titles.push(Label::new("facet", [0.0, -named], name, None));
+        let at = [(i % columns) as f32 * (w + between), (i / columns) as f32 * (h + named + between) + named];
+        panels.push(super::Panel { key: value.clone(), at, size: [w, h], chart });
+    }
+    let horizontal = panels.first().is_some_and(|p| p.chart.horizontal);
+    Ok(ChartLayout {
+        kind,
+        horizontal,
+        base: 0.0,
+        baseline: None,
+        marks: Vec::new(),
+        ticks: Vec::new(),
+        labels: Vec::new(),
+        numerals: None,
+        paths: Vec::new(),
+        y_scale: LinearScale { domain, range: [size[1], 0.0] },
+        plot: [0.0, 0.0, size[0], size[1]],
+        clip: None,
+        y_axis: Vec::new(),
+        titles: Vec::new(),
+        legend: Vec::new(),
+        x_grid: Vec::new(),
+        collisions: Vec::new(),
+        crowded: Vec::new(),
+        covers: Vec::new(),
+        notes: Vec::new(),
+        source: source.to_string(),
+        rows: Default::default(),
+        places: Default::default(),
+        categories: Vec::new(),
+        highlights: Vec::new(),
+        panels,
+    })
+}
+
+/// A chart's layout: of all of its data's rows, or, a panel of small multiples, of those
+/// `given`, its value's, each with the rows of the source it came from (PLAN 1.31).
+fn compile_in(
+    cx: &mut Ctx,
+    props: &Props,
+    size: [f32; 2],
+    given: Option<&(Table, Rows)>,
+) -> Result<ChartLayout, EngineError> {
     let kind = Kind::parse(props.get("kind"))?;
     // A bar chart's bars run up from the baseline, or across it (PLAN 1.29); validation
     // reports `orient` on any other kind (E106), which draws as it would without it.
@@ -270,7 +441,14 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // Data.
     let source = props.get("data").and_then(Value::as_str).and_then(|d| d.strip_prefix('@'));
     let source = source.ok_or_else(|| EngineError::Layout("chart has no `data`".into()))?;
-    let (table, from) = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+    let loaded;
+    let (table, from) = match given {
+        Some((table, from)) => (table, from),
+        None => {
+            loaded = data::traced(data::load(cx.deck, cx.data, source)?, props.get("dataTransform"))?;
+            (&loaded.0, &loaded.1)
+        }
+    };
     let col = |name: &str| table.column(name).ok_or_else(|| EngineError::Data(format!("no column `{name}`")));
     let (x_field, y_field) = (field(Some(x)).unwrap_or_default(), field(Some(y)).unwrap_or_default());
     let (xc, yc) = (col(x_field)?, col(y_field)?);
@@ -317,7 +495,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     let group_col = series_col.or(color_col.filter(|_| !shaded));
     let mut rows: Vec<Row> = Vec::with_capacity(table.rows.len());
     let mut seen = BTreeSet::new();
-    for (row, came) in table.rows.iter().zip(&from) {
+    for (row, came) in table.rows.iter().zip(from) {
         let v = match &row[yc] {
             Datum::Number(v) => *v,
             // A missing value is a gap, not a zero.
@@ -1213,6 +1391,7 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 .collect(),
         },
         highlights: Vec::new(),
+        panels: Vec::new(),
     };
     for (v, key, label) in tick_labels {
         let y = to_y(v);

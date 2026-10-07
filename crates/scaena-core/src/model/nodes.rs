@@ -355,6 +355,10 @@ node! {
         /// and high ends. Any other kind is E106.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub interval: Option<Interval>,
+        /// Small multiples (PLAN 1.31): a panel for each value of a field, on one shared
+        /// scale, each named by its value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub facet: Option<Facet>,
         /// Which of a line's or an area's rows are a forecast or an estimate (PLAN 1.28).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub projected: Option<Projected>,
@@ -436,6 +440,18 @@ pub enum ChartKind {
     Donut,
     Slope,
     Range,
+}
+
+/// How a chart splits into small multiples (SPEC §3.7, PLAN 1.31).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Facet {
+    /// The field whose values split the data, a panel each, in the order they first appear.
+    pub field: String,
+    /// How many panels stand in a row; unset, the count that makes each panel nearest 3:2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub columns: Option<u32>,
 }
 
 /// The fields that hold each value's interval on a `range` (SPEC §3.7, PLAN 1.30).

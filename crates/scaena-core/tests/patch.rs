@@ -318,7 +318,7 @@ fn an_op_that_would_not_do_what_it_says_is_refused() {
 #[test]
 fn set_text_takes_runs_away_and_null_takes_a_property_away() {
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "t": { "type": "text", "runs": [{ "text": "Hello" }], "fit": "shrink", "at": { "in": "canvas" } } },
         "states": [{ "id": "a", "props": { "t": {} } }, { "id": "b" }],
     });
@@ -458,7 +458,7 @@ fn place_forks_a_placement_into_its_state() {
         .unwrap_err();
     assert!(e.to_string().contains("`fork`"), "{e}");
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": { "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } } },
         "overrides": { "u": { "at": { "rect": [10, 10, 300, 100] } } },
         "states": [{ "id": "a", "props": { "u": {} } }],
@@ -471,7 +471,7 @@ fn place_forks_a_placement_into_its_state() {
 #[test]
 fn place_follows_a_node_out_and_back_and_into_its_overrides() {
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "text": "Hi", "at": { "in": "grid", "align": "center" } },
             "u": { "type": "text", "text": "Yo", "at": { "col": [1, 4] } },
@@ -519,7 +519,7 @@ fn place_follows_a_node_out_and_back_and_into_its_overrides() {
 #[test]
 fn place_says_what_places_a_node() {
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "in": "grid" } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -569,7 +569,7 @@ fn place_says_what_places_a_node() {
 #[test]
 fn place_moves_a_node_into_another_container_or_onto_the_canvas() {
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "row": { "type": "stack", "axis": "x", "at": { "col": [1, 6], "row": [1, 3] } },
             "a": { "type": "text", "text": "A", "at": { "parent": "row" } },
@@ -785,7 +785,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 
     // A role, a color the theme names, and emphasis; characters, not bytes, counted.
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "high" }, { "text": "!" }] },
@@ -869,7 +869,7 @@ fn style_text_gives_characters_a_look_where_the_text_lives() {
 #[test]
 fn replace_text_keeps_runs_and_their_looks() {
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "at": { "in": "title" },
                    "runs": [{ "text": "Hello " }, { "text": "wörld", "emphasis": "strong" }, { "text": "!" }] },
@@ -1483,7 +1483,7 @@ fn annotate_writes_a_charts_annotations_where_they_live() {
 fn list_marks_a_texts_paragraphs_and_replace_text_keeps_them_in_step() {
     // ADR-0018, PLAN 2.69: `t`'s three paragraphs, its list on the node; `b` forks its text.
     let doc = json!({
-        "scaena": "0.15", "canvas": { "width": 1920, "height": 1080 },
+        "scaena": "0.16", "canvas": { "width": 1920, "height": 1080 },
         "nodes": {
             "t": { "type": "text", "role": "body", "text": "One\nTwo\nThree", "at": { "in": "body" } },
         },

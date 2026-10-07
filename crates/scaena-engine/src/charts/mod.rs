@@ -831,6 +831,21 @@ pub struct ChartLayout {
     /// Each highlight, by its place among the chart's `annotations`, with the keys of the
     /// marks it picks out (PLAN 2.67).
     pub highlights: Vec<(usize, Vec<String>)>,
+    /// Small multiples (PLAN 1.31): each panel, keyed by its facet's value, and where its
+    /// chart's cell stands in this one's. A chart with panels draws them alone.
+    pub panels: Vec<Panel>,
+}
+
+/// One panel of small multiples (SPEC §3.7, PLAN 1.31): the chart over one value of its
+/// facet, named by it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Panel {
+    /// The facet's value it shows.
+    pub key: String,
+    /// Where its chart's cell stands in the faceted chart's, and its size.
+    pub at: [f32; 2],
+    pub size: [f32; 2],
+    pub chart: ChartLayout,
 }
 
 /// What an annotation names a mark by (SPEC §3.7, PLAN 2.67): its x as an annotation writes
@@ -874,6 +889,17 @@ impl ChartText {
 }
 
 impl ChartLayout {
+    /// Each chart this one draws in `cell`, with its own cell: itself, or each of its panels
+    /// by its facet's value (PLAN 1.31).
+    pub fn each(&self, cell: [f32; 4]) -> Vec<(Option<&str>, [f32; 4], &ChartLayout)> {
+        match self.panels.is_empty() {
+            true => vec![(None, cell, self)],
+            false => (self.panels.iter())
+                .map(|p| (Some(p.key.as_str()), [cell[0] + p.at[0], cell[1] + p.at[1], p.size[0], p.size[1]], &p.chart))
+                .collect(),
+        }
+    }
+
     /// Every text the chart sets, with what it is for, in the order it paints them.
     pub fn texts(&self) -> impl Iterator<Item = (ChartText, &Label)> {
         let ticks = self.ticks.iter().map(|l| (ChartText::Tick, l));

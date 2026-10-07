@@ -382,7 +382,7 @@ fn a_deck_that_is_not_json_is_an_error_not_a_finding() {
 fn e103_two_rows_one_mark() {
     // A mark is known by its key, else its category, with its series beside it.
     let deck = serde_json::json!({
-        "scaena": "0.15",
+        "scaena": "0.16",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -426,7 +426,7 @@ fn what_marks_a_row_projected_is_a_column_that_can_hold_it() {
     let props: serde_json::Map<String, serde_json::Value> =
         nodes.keys().map(|k| (k.clone(), serde_json::json!({}))).collect();
     let deck = serde_json::json!({
-        "scaena": "0.15",
+        "scaena": "0.16",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -464,7 +464,7 @@ fn only_a_bar_charts_bars_turn() {
         c
     };
     let deck = serde_json::json!({
-        "scaena": "0.15",
+        "scaena": "0.16",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -490,7 +490,7 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
     // range's, each end a column of numbers (E106, E103); a range with no series, color, or
     // interval spans nothing (E106).
     let deck = serde_json::json!({
-        "scaena": "0.15",
+        "scaena": "0.16",
         "canvas": { "width": 1920, "height": 1080 },
         "theme": "theme.json",
         "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
@@ -527,6 +527,37 @@ fn a_slope_compares_two_states_and_a_range_spans_something() {
             "E106 /nodes/nothing/kind"
         ]
     );
+}
+
+#[test]
+fn small_multiples_facet_by_a_field_of_their_data() {
+    // PLAN 1.31: `facet.field` is a column of what the chart reads (E103); `columns` is at
+    // least one (the schema's E106).
+    let chart = |facet: serde_json::Value| {
+        serde_json::json!({ "type": "chart", "kind": "line", "data": "@r", "x": { "field": "y" },
+            "y": { "field": "v" }, "facet": facet, "alt": "", "at": { "in": "main" } })
+    };
+    let deck = serde_json::json!({
+        "scaena": "0.16",
+        "canvas": { "width": 1920, "height": 1080 },
+        "theme": "theme.json",
+        "fonts": [{ "family": "Display", "file": "fonts/Display.ttf" }, { "family": "Body", "file": "fonts/Body.ttf" }],
+        "data": { "r": { "source": { "inline": [{ "y": "2025", "s": "A", "v": 1 }, { "y": "2025", "s": "B", "v": 2 }] },
+                         "schema": { "v": "number" } } },
+        "nodes": {
+            // Its x repeats across its panels, never within one.
+            "by": chart(serde_json::json!({ "field": "s", "columns": 2 })),
+            "gone": chart(serde_json::json!({ "field": "nothing" })),
+            "none": chart(serde_json::json!({ "field": "s", "columns": 0 }))
+        },
+        "states": [{ "id": "a", "layout": "full", "props": { "by": {}, "gone": {}, "none": {} } }]
+    });
+    let found = findings(&deck.to_string());
+    assert!(found.contains(&"E103 /nodes/gone/facet/field".to_string()), "{found:?}");
+    assert!(found.iter().any(|f| f.starts_with("E106 /nodes/none/facet")), "{found:?}");
+    assert!(!found.iter().any(|f| f.contains("/nodes/by/")), "{found:?}");
+    // A field the data lacks keys nothing apart: the year repeats.
+    assert!(found.contains(&"E103 /nodes/gone/x/field".to_string()), "{found:?}");
 }
 
 /// A node's layout in its formats (ADR-0020): only in a format the deck lays out anew, only what

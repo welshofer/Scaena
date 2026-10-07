@@ -2073,3 +2073,88 @@ fn a_range_draws_each_value_with_its_interval_and_its_value_over_it() {
     let err = try_compile(&range_deck(poll(), alone)).unwrap_err();
     assert!(err.contains("give it a `series` or an `interval`"), "{err}");
 }
+
+// --- small multiples (PLAN 1.31) ----------------------------------------------------------
+
+#[test]
+fn small_multiples_stand_a_panel_each_on_one_scale_named_by_its_value() {
+    let layout = by_series("line", json!({ "facet": { "field": "product" }, "axes": { "y": { "show": true } } }));
+    let keys: Vec<&str> = layout.panels.iter().map(|p| p.key.as_str()).collect();
+    assert_eq!(keys, ["Core", "Cloud", "Edge"], "a panel for each product, in the order each first appears");
+    assert!(layout.marks.is_empty() && layout.labels.is_empty(), "a faceted chart draws its panels alone");
+    // Three panels in a 1600 × 700 cell stand in one row, two space units apart.
+    let ats: Vec<[f32; 2]> = layout.panels.iter().map(|p| p.at).collect();
+    assert!(ats.iter().all(|at| at[1] == ats[0][1]), "{ats:?}");
+    for w in layout.panels.windows(2) {
+        assert!((w[1].at[0] - (w[0].at[0] + w[0].size[0]) - 2.0 * UNIT).abs() < 0.01, "two space units apart");
+    }
+    // One scale: every panel's value axis spans the same values, the union of each one's.
+    let domain = layout.panels[0].chart.y_scale.domain;
+    assert!(
+        layout
+            .panels
+            .iter()
+            .all(|p| p.chart.y_scale.domain == domain && p.chart.y_scale.range == layout.panels[0].chart.y_scale.range)
+    );
+    assert!(domain[0] <= 3.0 && domain[1] >= 22.0, "{domain:?}");
+    // Each named by its value over its top-left; the value axis's labels in the first
+    // column alone.
+    for p in &layout.panels {
+        let name = p.chart.titles.iter().find(|t| t.key == "facet").unwrap();
+        assert_eq!(name.text.text, p.key);
+        assert!(name.origin[1] < 0.0 && name.origin[0] == 0.0, "{}: over its chart's top-left", p.key);
+    }
+    let labelled: Vec<bool> = layout.panels.iter().map(|p| p.chart.y_axis.iter().any(|t| t.label.is_some())).collect();
+    assert_eq!(labelled, [true, false, false]);
+    // A panel's marks are its value's rows: Edge's are the source's 8th to 11th.
+    let edge = &layout.panels[2].chart;
+    let rows: Vec<&Vec<usize>> = edge.marks.iter().filter_map(|m| edge.rows.get(&m.key)).collect();
+    assert_eq!(rows, [&vec![8], &vec![9], &vec![10], &vec![11]]);
+}
+
+#[test]
+fn small_multiples_take_the_columns_they_are_given_and_name_their_series_once() {
+    let one = by_series("line", json!({ "facet": { "field": "q", "columns": 2 } }));
+    let rows: Vec<f32> = one.panels.iter().map(|p| p.at[1]).collect();
+    assert_eq!(one.panels.len(), 4);
+    assert!(rows[0] == rows[1] && rows[2] == rows[3] && rows[2] > rows[0], "two by two: {rows:?}");
+    // Each quarter's panel draws every product; only the first row's last panel names them.
+    let named: Vec<usize> = one.panels.iter().map(|p| p.chart.legend.len()).collect();
+    assert_eq!(named, [0, 3, 0, 0]);
+    let err = by_series_err("line", json!({ "facet": { "field": "nothing" } }));
+    assert!(err.contains("no column `nothing` to facet by"), "{err}");
+}
+
+#[test]
+fn small_multiples_move_panel_by_panel_and_a_new_one_draws_in() {
+    // Core and Cloud, then Edge joins: the panels pair by their value, so Core's and Cloud's
+    // move to their new places while Edge's draws in; a faceted chart and a plain one
+    // cross-fade.
+    let mut d = series_deck(
+        "line",
+        json!({ "facet": { "field": "product" }, "dataTransform": [{ "filter": "product != 'Edge'" }] }),
+    );
+    let mut next: Value = serde_json::to_value(&d.states[0]).unwrap();
+    next["transition"] = json!({ "duration": 400, "ease": "linear" });
+    next["id"] = json!("all");
+    next["props"]["c"] = json!({ "dataTransform": null });
+    d.states.push(serde_json::from_value(next.clone()).unwrap());
+    next["id"] = json!("plain");
+    next["props"]["c"] = json!({ "facet": null });
+    d.states.push(serde_json::from_value(next).unwrap());
+    let [two, three, plain] = <[ChartLayout; 3]>::try_from(scenes(&d)).unwrap();
+    assert_eq!((two.panels.len(), three.panels.len(), plain.panels.len()), (2, 3, 0));
+    let layers = |state: &str, t: f64| {
+        let mut n = 0;
+        walk(&frame(&d, state, t).ops, &mut |op| {
+            if let scaena_core::displaylist::Op::Layer { node: Some(id), .. } = op
+                && id == "c"
+            {
+                n += 1;
+            }
+        });
+        n
+    };
+    assert_eq!(layers("all", 200.0), 1, "panels move inside one chart");
+    assert_eq!(layers("plain", 200.0), 2, "a faceted chart and a plain one cross-fade");
+}

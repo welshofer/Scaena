@@ -534,7 +534,15 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
       - *a slope with a highlight, a dumbbell, and intervals;*
       - *then the slope moved to 2025, the dumbbell's values moving, Design's women's pay passing men's, and the intervals narrowing.*
     - *Tests: five engine tests (`charts.rs`), a sampler test, a marks test, a validation test, and the choices test's interval. The editor's module is 2,921.43 kB gzipped, as Vite reports it: 9.6 kB more than after 1.29, which leaves 79 kB under SPEC §15's 3 MB.)*
-- [ ] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
+- [x] 1.31 Small multiples: a chart facets by a field into a grid of panels on one shared scale, each named directly, with no frames. SPEC §3.7; schema; a torture case.
+  *(Done: a chart's `facet: { field, columns? }` draws it once for each value of the field, a panel each (deck format 0.16). SPEC §3.7 says how.*
+    - *The grid has `columns` to a row, else the count nearest 3:2 panels with the fewest cells left empty. Panels stand two space units apart, with no frames, each named over its top-left.*
+    - *Every panel compiles as the chart over its value's rows (`compile_in`) on one value axis: the union of the axes the panels would draw alone. The first column alone prints the value axis's labels, and the first row's last panel alone draws the legend.*
+    - *A datum's key need be unique within its panel (validation keys a panel's data apart), and a facet field the data lacks is E103.*
+    - *`ChartLayout::panels` holds the panels. The sampler pairs them by value: a panel on both sides moves and resizes to its place, and one on one side only enters or leaves as a chart does. Each clips at its sides. A faceted chart and a plain one cross-fade.*
+    - *Lint, the marks the editor picks, and the keys read every panel through `ChartLayout::each`: a click in a panel names that panel's mark and rows, and W310 names the panel.*
+    - *Torture cases 57 and 58 (`multiples`, `multiples-next@0.5`): two panels, then Edge joining as a third while each window advances a quarter.*
+    - *Tests: three engine tests, a marks test, a validation test, and the choices test's `facet/field`. The editor's module is 2,933.02 kB gzipped, as Vite reports it: 11.6 kB more than after 1.30, and 41.8 kB for the three chart forms, which leaves 67 kB under SPEC §15's 3 MB. Phase 1's task list is done.)*
 
 ### 1I What gate 1's agent runs found (2026-10-03)
 *From `docs/examples/agent-run.md`, Findings. The runs found eight problems that are fixed (#53–#58); these are the rest.*

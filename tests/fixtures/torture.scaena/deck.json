@@ -1,5 +1,5 @@
 {
-  "scaena": "0.15",
+  "scaena": "0.16",
   "meta": {
     "title": "Typography torture deck",
     "author": "Scaena",
@@ -4459,6 +4459,31 @@
       },
       "alt": "A poll with its margins: Yes 42% (38 to 46), No 35% (31 to 39), Undecided 23% (20 to 26).",
       "semantic": "evidence"
+    },
+    "mx-rev": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@rev",
+      "dataTransform": [
+        {
+          "filter": "product != 'Edge'"
+        }
+      ],
+      "x": {
+        "field": "q"
+      },
+      "y": {
+        "field": "rev",
+        "format": "$,.0f"
+      },
+      "facet": {
+        "field": "product"
+      },
+      "at": {
+        "in": "main"
+      },
+      "alt": "Revenue by quarter, a panel for each product on one scale: Core from $12 to $22, Cloud from $6 to $19.",
+      "semantic": "evidence"
     }
   },
   "states": [
@@ -5616,6 +5641,40 @@
         }
       },
       "notes": "Pass in the transition (frame @0.5): left, the slope moves to 2025, so its lines tilt, keyed by region and side, rather than scrolling: each second point slides to its 2025 value, “2024” fading into “2025” under it, and each second value, which says its change, cross-fades. Middle, each dumbbell's dots slide to their new values by key, the stroke between them following; in Design women's pay passes men's, so its lower value moves to the other dot. Right, each interval narrows about its estimate, its value riding the interval's top."
+    },
+    {
+      "id": "multiples",
+      "name": "Small multiples",
+      "slide": "multiples",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "57 · Small multiples · recorded"
+        },
+        "mx-rev": {}
+      },
+      "notes": "Pass: one line chart faceted by product (PLAN 1.31), a panel each for Core and Cloud side by side, two space units apart, with no frames. Each is named over its top-left, Core and Cloud, and both run on one value axis, so Cloud's line stands as far below Core's as its revenue is less: each panel's values, $12 to $22 and $6 to $19, are read on the same scale. Each panel names its quarters under its plot."
+    },
+    {
+      "id": "multiples-next",
+      "name": "Small multiples: they move",
+      "slide": "multiples",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "case": {
+          "text": "58 · Small multiples: they move · recorded"
+        },
+        "mx-rev": {
+          "data": "@rev-next",
+          "dataTransform": null,
+          "alt": "Revenue a quarter on, a panel for each product on one scale: Core from $15 to $24, Cloud from $9 to $21, Edge from $4 to $8."
+        }
+      },
+      "notes": "Pass in the transition (frame @0.5): Edge joins as a third panel, so the grid goes from two columns to three. Core's and Cloud's panels move and narrow to their places, each line sliding a quarter on as its window advances, Q1 leaving on the left and Q5 coming in on the right, while Edge's panel draws in where it stands. The shared value axis widens with the data."
     }
   ],
   "overrides": {

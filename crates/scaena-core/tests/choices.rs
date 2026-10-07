@@ -153,6 +153,7 @@ fn a_chart_offers_what_it_reads_from_the_columns_it_has() {
             "series/field",
             "color/field",
             "sizeEncoding/field",
+            "facet/field",
             "key",
             "labels/show",
             "labels/role",

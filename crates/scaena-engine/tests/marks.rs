@@ -399,3 +399,25 @@ fn a_ranges_interval_and_its_value_are_its_points_to_click_and_no_marks_of_their
     assert_eq!(marks.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["A", "B"]);
     assert_eq!(scene.marks_of("p", &[1]).iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), ["B"]);
 }
+
+#[test]
+fn a_point_in_a_panel_of_small_multiples_names_that_panels_mark_and_rows() {
+    // Revenue by year, a panel for each region (PLAN 1.31): the bar under the point is the
+    // panel's, made from that region's row.
+    let scene = at_rest(&deck(json!({
+        "c": { "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "year", "type": "ordinal" },
+               "y": { "field": "revenue" }, "facet": { "field": "region" }, "at": { "col": [1, 12], "row": [2, 8] } }
+    })));
+    let (cell, c) = chart(&scene, "c");
+    assert_eq!(c.panels.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), ["NA", "EU", "APAC"]);
+    // EU's 2025 bar: the source's row 3.
+    let eu = &c.panels[1];
+    let bar = eu.chart.marks.iter().find(|m| m.key == "2025").unwrap();
+    let [x, y] = bar.shape.point();
+    let m = scene.mark_at([cell[0] + eu.at[0] + x, cell[1] + eu.at[1] + y + 4.0]).unwrap();
+    assert_eq!(named(&m), ("c", "q", "2025", [3].as_slice()));
+    // The keys reach every panel's marks, panel by panel; a row is outlined in its panel.
+    let (marks, _) = scene.marks_in("c").unwrap();
+    assert_eq!(marks.iter().map(|m| m.rows.clone()).collect::<Vec<_>>(), [vec![0], vec![2], vec![1], vec![3], vec![4]]);
+    assert_eq!(scene.marks_of("q", &[4]).len(), 1);
+}
