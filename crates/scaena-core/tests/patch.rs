@@ -1649,3 +1649,32 @@ fn a_quote_sets_its_figure_from_the_data_and_every_patch_sets_it_again() {
     );
     assert_eq!(sum["states"][1]["props"]["title"]["runs"][1]["text"], json!("$57.6"));
 }
+
+/// `place` in a format (ADR-0020): into the node's own layout there where it has one, or one
+/// made for it with `anew`; else as without the format.
+#[test]
+fn place_in_a_format_writes_the_nodes_layout_there() {
+    let at = |doc: &Value, node: &str| doc["nodes"][node]["at"].clone();
+    // No layout of its own in 9:16: placed as without the format, in every format.
+    let c = patch(&example(), json!([{ "op": "place", "node": "note", "at": { "in": "kicker" }, "format": "9:16" }]))
+        .unwrap();
+    assert_eq!(rfc(&c), json!([{ "op": "add", "path": "/nodes/note/at/in", "value": "kicker" }]));
+    // Anew: its own layout in 9:16, its own placement elsewhere as it was.
+    let anew = json!([{ "op": "place", "node": "note", "at": { "col": [1, 12], "row": [10, 12] }, "format": "9:16", "anew": true }]);
+    let c = patch(&example(), anew).unwrap();
+    assert_eq!(c.doc["nodes"]["note"]["formats"], json!({ "9:16": { "at": { "col": [1, 12], "row": [10, 12] } } }));
+    assert_eq!(at(&c.doc, "note"), at(&example(), "note"));
+    assert_eq!(errors(&c.doc), Vec::<String>::new());
+    // Then a move in 9:16 moves it there alone.
+    let moved =
+        patch(&c.doc, json!([{ "op": "place", "node": "note", "at": { "in": "kicker" }, "format": "9:16" }])).unwrap();
+    assert_eq!(moved.doc["nodes"]["note"]["formats"]["9:16"]["at"], json!({ "in": "kicker" }));
+    assert_eq!(at(&moved.doc, "note"), at(&example(), "note"));
+    // Not kept to a state, and not anew in the deck's own shape.
+    let forked = json!([{ "op": "place", "node": "note", "state": "mix", "at": { "in": "kicker" }, "format": "9:16", "fork": true }]);
+    let err = patch(&c.doc, forked).unwrap_err().to_string();
+    assert!(err.contains("is the node's own"), "{err}");
+    let own = json!([{ "op": "place", "node": "note", "at": { "in": "kicker" }, "format": "16:9", "anew": true }]);
+    let err = patch(&example(), own).unwrap_err().to_string();
+    assert!(err.contains("not a format the deck lays out anew"), "{err}");
+}

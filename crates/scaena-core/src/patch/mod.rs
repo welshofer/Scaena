@@ -233,6 +233,14 @@ pub enum SemanticOp {
         /// place the node, in every state.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fork: bool,
+        /// The format shown (ADR-0020): where the node has its own layout there (`formats`),
+        /// the placement is that layout's `at`, the node's own elsewhere as it was. Where it
+        /// has none, the placement is the node's own, as without it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<String>,
+        /// With `format`: give the node a layout of its own there, if it has none, placed so.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        anew: bool,
     },
     /// A text node's `text`, in a state or in its defaults. `runs` there go, so the text
     /// is what shows.

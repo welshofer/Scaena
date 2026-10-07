@@ -178,6 +178,14 @@
               "description": "Write it into `state`'s own props, wherever the placement lives now: the node goes there in that state, and in the states that track it as they take the rest of its props, and stays where it was in the others. Refused where the deck's `overrides` place the node, in every state.",
               "type": "boolean"
             },
+            "format": {
+              "description": "The format shown (ADR-0020): where the node has its own layout there (`formats`), the placement is that layout's `at`, the node's own elsewhere as it was. Where it has none, the placement is the node's own, as without it.",
+              "type": "string"
+            },
+            "anew": {
+              "description": "With `format`: give the node a layout of its own there, if it has none, placed so.",
+              "type": "boolean"
+            },
             "op": { "type": "string", "const": "place" }
           }
         },

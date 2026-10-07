@@ -1368,6 +1368,29 @@ async function edit(source: Source) {
   const ready = () => showing() !== undefined && board.typing() === undefined;
   /** What the canvas has selected, where it takes a gesture. */
   const picked = () => (ready() ? board.chosen() : []);
+  /** Whether `node` has a layout of its own in the format shown (ADR-0020). */
+  const anewIn = (node: string) => {
+    const formats = inspected?.nodes[node]?.formats as Record<string, unknown> | undefined;
+    return !!format() && !!formats?.[format()!];
+  };
+  /** Give `node` a layout of its own in the format shown, where it stands now: one `place`
+   * with `anew`, one step to undo. */
+  const placeAnew = async (node: string) => {
+    const [f, now] = [format(), showing()];
+    if (!f || !now) return;
+    const at = (inspected?.nodes[node]?.at as Record<string, unknown> | undefined) ?? {};
+    const keys = ["col", "row", "in", "rect", "area", "index", "parent"].filter((k) => k in at);
+    // A node with no placement fills the grid's margin box: the slot `grid`.
+    const spot = keys.length ? Object.fromEntries(keys.map((k) => [k, at[k]])) : { in: "grid" };
+    try {
+      const op = { op: "place", node, at: spot, format: f, anew: true };
+      const { source, edited } = await stage.make(view.state.doc.toString(), [op], now.index, f);
+      made(source, edited);
+      say(`${node} placed anew in ${f}: a move there moves it there alone · ⌘Z undoes it`);
+    } catch (e) {
+      say(`not placed anew: ${said(e)}`);
+    }
+  };
   const typeOf = (node: string) => layering.type(node, showing()?.state ?? "");
   /** Show the tab `id` under the preview, as a click on it does. */
   const tab = (id: "inspector" | "layers" | "data" | "theming" | "files" | "versions" | "assistant") => {
@@ -1405,6 +1428,9 @@ async function edit(source: Source) {
       { label: "Type in it", keys: "Enter", group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => press("Enter") },
       { label: "Bulleted list", keys: `${MOD}${SHIFT}8`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("bullet") },
       { label: "Numbered list", keys: `${MOD}${SHIFT}7`, group: "Type", where: ["node"], applies: () => one() && typeOf(picked()[0]) === "text", run: () => board.list("number") },
+      // In another of the deck's formats, a node placed there anew (ADR-0020): from then on a
+      // move there moves it there alone.
+      { label: "Place anew in this format", where: ["node"], applies: () => one() && !!format() && !anewIn(picked()[0]), run: () => placeAnew(picked()[0]) },
       pressing("Duplicate", `${MOD}D`, "d", mod(), "Edit"),
       { label: "Copy", keys: `${MOD}C`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("copy") },
       { label: "Cut", keys: `${MOD}X`, group: "Edit", where: ["node", "layer"], applies: any, run: () => clip("cut") },

@@ -676,7 +676,7 @@ fn moving(
             let flow = boxes.iter().filter(|b| b.parent.as_deref() == Some(parent.as_str()) && b.node != node);
             let last = flow.filter_map(|b| index(&b.node)).max();
             let spot = Spot { index: Some(last.map_or(0, |i| i as u32 + 1)), ..Spot::default() };
-            Target { cell: stands, spots: vec![(node.to_string(), spot)] }
+            Target { cell: stands, spots: vec![(node.to_string(), spot)], format: targets.format.clone() }
         }
         By::Frame { .. } => {
             let w = targets.within;

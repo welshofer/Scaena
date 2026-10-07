@@ -330,6 +330,9 @@ pub struct Targets {
     pub flow: Vec<(String, Rect, u32)>,
     /// What a `rect` is measured in: the canvas, a frame's padding box; or the container.
     pub within: Rect,
+    /// The format it was laid out in (ADR-0020): a placement there goes into the node's own
+    /// layout in it, where it has one. `None`, the deck's own canvas.
+    pub format: Option<String>,
 }
 
 /// How a box dropped by a drag snaps (ADR-0013).
@@ -354,17 +357,22 @@ pub enum Snap {
 pub struct Target {
     pub cell: Rect,
     pub spots: Vec<(String, Spot)>,
+    /// The format it lands in, as its [`Targets`] were laid out.
+    pub format: Option<String>,
 }
 
 impl Target {
     /// The patch that puts the node there, made in `state`: a `place` per spot, each
-    /// written where that placement lives (SPEC §7.3), or, to `fork` them, kept to `state`.
+    /// written where that placement lives (SPEC §7.3), or, to `fork` them, kept to `state`;
+    /// in the format it lands in, into a node's own layout there where it has one (ADR-0020).
     pub fn ops(&self, state: Option<&str>, fork: bool) -> Vec<SemanticOp> {
         let place = |(node, spot): &(String, Spot)| SemanticOp::Place {
             node: node.clone(),
             at: spot.clone(),
             state: state.map(String::from),
             fork,
+            format: self.format.clone(),
+            anew: false,
         };
         self.spots.iter().map(place).collect()
     }
@@ -376,7 +384,9 @@ impl Targets {
     /// `Move`, `Resize`, and `Slot` in a stack or a frame, `Free` in a stack or a grid
     /// container.
     pub fn snap(&self, how: Snap, cell: Rect) -> Option<Target> {
-        let one = |spot: Spot, cell: Rect| Some(Target { cell, spots: vec![(self.node.clone(), spot)] });
+        let one = |spot: Spot, cell: Rect| {
+            Some(Target { cell, spots: vec![(self.node.clone(), spot)], format: self.format.clone() })
+        };
         match (how, &self.by) {
             (Snap::Move | Snap::Resize, By::Grid | By::Cells { .. }) => {
                 let (cols, rows) = (&self.columns, &self.rows);
@@ -430,7 +440,7 @@ impl Targets {
         let (c, r) = (stands(cols, cell[0], cell[2]), stands(rows, cell[1], cell[3]));
         let rect = [cols[c.0][0], rows[r.0][0], cols[c.1][1] - cols[c.0][0], rows[r.1][1] - rows[r.0][0]];
         let spot = Spot { col: Some(range(c)), row: Some(range(r)), ..Spot::default() };
-        Some(Target { cell: rect, spots: vec![(self.node.clone(), spot)] })
+        Some(Target { cell: rect, spots: vec![(self.node.clone(), spot)], format: self.format.clone() })
     }
 
     /// The node `k`th among the other children of its stack, in the order the stack lays
@@ -460,7 +470,7 @@ impl Targets {
         };
         let w = self.within;
         let line = if *across { [at, w[1], 0.0, w[3]] } else { [w[0], at, w[2], 0.0] };
-        Some(Target { cell: line, spots })
+        Some(Target { cell: line, spots, format: self.format.clone() })
     }
 }
 
@@ -496,6 +506,7 @@ pub(crate) fn targets(
         slots: Vec::new(),
         flow: Vec::new(),
         within: canvas,
+        format: None,
     };
     let held_by = into.unwrap_or(place.parent.as_deref());
     let parent = held_by.filter(|p| deck.nodes[*p].node_type != NodeType::Group);
@@ -590,6 +601,7 @@ pub(crate) fn room(
         slots: slots(theme, &grid, template)?,
         flow: Vec::new(),
         within: [0.0, 0.0, scene.canvas[0], scene.canvas[1]],
+        format: None,
     })
 }
 

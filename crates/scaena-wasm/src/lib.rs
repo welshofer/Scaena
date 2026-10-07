@@ -2959,6 +2959,48 @@ mod tests {
         assert!(s.targets("containers", "title").is_err());
     }
 
+    /// In a format where a node lays out anew, a drag writes its layout there, and the deck's
+    /// own canvas keeps it where it stood (ADR-0020, PLAN 2.85).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_drag_in_a_format_moves_its_node_there_alone() {
+        use scaena_ops::inspect::SnapMode;
+        let dir = "../../docs/examples";
+        let read = |p: &str| std::fs::read_to_string(format!("{dir}/{p}")).unwrap();
+        let mut s = Session::new(&read("trails.deck.json"), &read("themes/dusk.theme.json")).unwrap();
+        for f in [
+            "Fraunces-VF.ttf",
+            "Inter-VF.ttf",
+            "JetBrainsMono-VF.ttf",
+            "Fraunces-Italic-VF.ttf",
+            "Inter-Italic-VF.ttf",
+            "JetBrainsMono-Italic-VF.ttf",
+        ] {
+            s.add_file(&format!("fonts/{f}"), std::fs::read(format!("{dir}/fonts/{f}")).unwrap());
+        }
+        for name in ["budget", "funding", "hours", "miles", "segments", "work"] {
+            let path = format!("data/trails-{name}.csv");
+            s.add_file(&path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        for path in s.image_files() {
+            s.add_file(&path, std::fs::read(format!("{dir}/{path}")).unwrap());
+        }
+        let own = s.targets("process", "process-title").unwrap().cell;
+        s.set_format(Some("9:16")).unwrap();
+        let found = s.targets("process", "process-title").unwrap().clone();
+        let (cell, pitch) = (found.cell, found.rows[1][0] - found.rows[0][0]);
+        let snapped = s
+            .snap("process", "process-title", SnapMode::Move, [cell[0], cell[1] + 1.1 * pitch, cell[2], cell[3]], false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(snapped.patch[0]["format"], "9:16", "{:?}", snapped.patch);
+        let by = assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": snapped.patch }), by).unwrap();
+        assert!(s.targets("process", "process-title").unwrap().cell[1] > cell[1], "moved down in 9:16");
+        s.set_format(None).unwrap();
+        assert_eq!(s.targets("process", "process-title").unwrap().cell, own, "and where it stood in its own");
+    }
+
     /// Guides (PLAN 2.57): the theme's grid in the format shown, and where a box a drag moves
     /// meets what else draws. Off the grid, a box within reach of another's edge goes onto it,
     /// and its patch puts it there; on the grid, it lands on the tracks alone. Several moved
