@@ -331,7 +331,7 @@ impl Typeset {
             row_rules: Vec::new(),
             overflow: None,
             source,
-            rows: keys.iter().cloned().zip(from).collect(),
+            rows: scaena_core::sort::map(keys.iter().cloned().zip(from)),
             bands: Vec::with_capacity(keys.len()),
         };
         let mut y = 0.0_f32;

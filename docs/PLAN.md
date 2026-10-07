@@ -1135,6 +1135,19 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 - [x] 2.89 A selection made by keys alone (WCAG 2.1.1): a key puts the node the keys are on in the selection, or takes it out (Jay, 2026-10-07: from the 2.75 gaps).
     - Done. Space keys the node selected; then Tab and Shift+Tab move the key among the nodes beside it in reading order, outlined and the selection unchanged, and Space puts the node keyed in the selection or takes it out, as Shift+click does (`keyOn`, `keyTo`, `keyedToggle` in `web/src/canvas.ts`). Escape stops, the selection staying; a press of the pointer ends it too. Space toggles on a tap only: held with a drag, it pans as before. The keys sheet lists it.
     - Tests: `web/bykeys.mjs` builds a selection of three on the revenue example, takes one out, and stops (35 checks).
+- [x] 2.91 Room in the editor's module for the chart forms (1.29–1.31): it was 2,891 kB gzipped by Vite, 109 kB under SPEC §15's 3 MB, and each new chart form adds to it (the parent session, 2026-10-07).
+    - Done. 2,891.27 kB to 2,811.36 kB gzipped by Vite (8,380.51 kB to 8,129.75 kB raw). `twiggy`, on the module built with its names, found what to cut.
+        - Layout's crates build for size in the WASM profile: taffy, parley, harfrust, fontique, and the icu crates whose tables they read. They run as a deck is laid out, never as a frame samples it (SPEC §5): 68 KB of the cut, by `gzip -9`.
+        - A map or a set built from an iterator goes through `scaena_core::sort::{map, try_map, set}`, which insert each item. `collect` into a `BTreeMap` sorts first, and compiled that sort for each element type and caller: 10 KB of the cut. The chart compiler's are left for the chart forms' own pass.
+    - Timed in headless Chromium, with the CPU painter and no helper workers, on the trails deck:
+        - Without a shader, a state paints in 7.69 ms on average. The two runs before the change read 8.12 and 7.96 ms.
+        - The shader states paint as before: cover in 42.1 ms against 42.3, storm in 24.0 against 26.9, and next in 229.6 against 244.8.
+        - B1 starts cold in 217 ms, against 218 before (the median of 9 runs).
+    - Measured and not taken:
+        - `scaena-core` at `z` is 252 KB smaller, but the shader states' CPU references paint 3.4–4× slower: cover in 143 ms, next in 1,012 ms.
+        - `scaena-engine` at `z` is 156 KB smaller, but every frame without a shader paints 7% slower: 8.6 ms against 8.0, in two runs of each.
+        - Neither is worth it while gate 2's first criterion, frames a second in a real machine's browsers, is still to be read.
+        - `SemanticOp`'s deserializer, at 117 KB the largest function, is an internally tagged enum: serde buffers each op whichever deserializer reads it, so it stays as it is.
 
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
@@ -1201,7 +1214,7 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 | Text parity across painters | Phase 0 task 0.9 | glyph positions in the display list; painters never shape; fallback to `harfrust` + own line breaker |
 | `parley` line-breaking quality (`pretty`/`balance`) | 0.4 | own Knuth–Plass pass over parley's clusters if needed |
 | WebGPU availability/quality | 0.8 | CPU painter fallback; measure Firefox |
-| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; the editor's 2.99 MB at 2.55, then 2.65 MB with the patterns handed over; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; the hyphenation patterns handed to the editor's module as a text needs them, compiled in natively and in the player's, the same breaks on every target (done, ADR-0015). `wasm-opt -Oz` grew the gzip size, so it is off. |
+| WASM size | 0.8 (measured 1.04 MB gzip with vello; 1.66 MB at 1.8, 0.36 MB of it hyphenation patterns; the editor's 2.99 MB at 2.55, then 2.65 MB with the patterns handed over, and 2.81 MB by Vite at 2.91 with layout's crates built for size; budget 3.0) | feature-gate painters; opt-level `s`/`z` (−12–16%); lazy-load shaders; the hyphenation patterns handed to the editor's module as a text needs them, compiled in natively and in the player's, the same breaks on every target (done, ADR-0015). `wasm-opt -Oz` grew the gzip size, so it is off. |
 | Loro API friction with rich text/tree | 1.23 | Automerge fallback (ADR-0002) |
 | Chart grammar scope creep | 1.9 | fixed kind list; everything else is annotations or deferred |
 | Agent output quality | 1.15–1.19 | lint + render loop; roles not pixels; skills |

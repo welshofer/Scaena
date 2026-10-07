@@ -19,7 +19,6 @@ use scaena_paint::Raster;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// The tools a page's assistant has, by their MCP names.
 pub const TOOLS: &[&str] = &[
@@ -426,12 +425,13 @@ impl Session {
     /// source's undo takes the assistant's edits too, and never a file's (SPEC §8.2).
     pub(crate) fn write(&mut self, w: Option<Write>, by: Caller) -> Result<bool, Error> {
         let Some(w) = w else { return Ok(false) };
-        let kept: BTreeSet<&str> = scaena_store::kept_paths(&w.deck).into_iter().collect();
-        let data: BTreeSet<&str> = w.deck.data.values().filter_map(|source| source.source.as_str()).collect();
-        let texts: BTreeMap<String, String> = (w.files.iter())
-            .filter(|(path, _)| kept.contains(path.as_str()))
-            .map(|(path, bytes)| (path.clone(), String::from_utf8_lossy(bytes).into_owned()))
-            .collect();
+        let kept = scaena_core::sort::set(scaena_store::kept_paths(&w.deck));
+        let data = scaena_core::sort::set(w.deck.data.values().filter_map(|source| source.source.as_str()));
+        let texts = scaena_core::sort::map(
+            (w.files.iter())
+                .filter(|(path, _)| kept.contains(path.as_str()))
+                .map(|(path, bytes)| (path.clone(), String::from_utf8_lossy(bytes).into_owned())),
+        );
         self.keep(&w.deck, &texts, &w.why, by)?;
         for (path, bytes) in w.files {
             if let Some(before) = self.files.get(&path).filter(|before| texts.contains_key(&path) && **before != bytes)

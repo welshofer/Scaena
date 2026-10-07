@@ -811,19 +811,17 @@ fn text_spec(deck: &Deck, theme: &Theme, props: &Props, slot_role: Option<&str>)
         .get("features")
         .and_then(Value::as_object)
         .map(|f| {
-            f.iter()
-                .map(|(k, v)| {
-                    let value = v.as_bool().map(u16::from).or_else(|| v.as_u64().and_then(|n| u16::try_from(n).ok()));
-                    value.map(|v| (k.clone(), v)).ok_or_else(|| EngineError::Layout(format!("feature `{k}`: {v}")))
-                })
-                .collect::<Result<_, _>>()
+            scaena_core::sort::try_map(f.iter().map(|(k, v)| {
+                let value = v.as_bool().map(u16::from).or_else(|| v.as_u64().and_then(|n| u16::try_from(n).ok()));
+                value.map(|v| (k.clone(), v)).ok_or_else(|| EngineError::Layout(format!("feature `{k}`: {v}")))
+            }))
         })
         .transpose()?
         .unwrap_or_default();
     let axes = props
         .get("axes")
         .and_then(Value::as_object)
-        .map(|a| a.iter().filter_map(|(k, v)| Some((k.clone(), v.as_f64()? as f32))).collect())
+        .map(|a| scaena_core::sort::map(a.iter().filter_map(|(k, v)| Some((k.clone(), v.as_f64()? as f32)))))
         .unwrap_or_default();
     Ok(TextSpec {
         spans,

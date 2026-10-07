@@ -341,8 +341,8 @@ pub fn restored(
     deck: Deck,
     held: BTreeMap<String, Vec<u8>>,
 ) -> Result<(Restored, Option<Write>), OpsError> {
-    let files: BTreeMap<String, Vec<u8>> =
-        held.into_iter().filter(|(path, bytes)| b.files.read(path).ok().as_ref() != Some(bytes)).collect();
+    let mut files = held;
+    files.retain(|path, bytes| b.files.read(path).ok().as_ref() != Some(bytes));
     let mut view = View::of(b);
     for (path, bytes) in &files {
         view = view.with(path.clone(), bytes.clone());
