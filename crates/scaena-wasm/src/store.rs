@@ -287,7 +287,9 @@ impl Session {
 /// theme), by their paths, as text: each as `bytes` gives it, where it does (ADR-0014, ADR-0016).
 pub(crate) fn kept_texts<'a>(deck: &Deck, bytes: impl Fn(&str) -> Option<&'a Vec<u8>>) -> BTreeMap<String, String> {
     let paths = scaena_store::kept_paths(deck).into_iter();
-    paths.filter_map(|path| Some((path.to_string(), String::from_utf8_lossy(bytes(path)?).into_owned()))).collect()
+    scaena_core::sort::map(
+        paths.filter_map(|path| Some((path.to_string(), String::from_utf8_lossy(bytes(path)?).into_owned()))),
+    )
 }
 
 /// `deck`'s change by `author`, at `at`, saying nothing yet.

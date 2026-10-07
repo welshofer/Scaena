@@ -6,8 +6,13 @@
 //! that calls the comparator through `dyn`, so a call site adds its comparator and the
 //! permutation applied in place. A stable sort's result is fixed by its comparator, ties kept in
 //! the order they came, so for any total order these give what `sort_by` gives.
+//!
+//! `collect` into a `BTreeMap` or a `BTreeSet` sorts what it is given stably first, and compiles
+//! that sort for each element type and caller too. [`map`], [`try_map`], and [`set`] insert each
+//! instead, and keep what `collect` keeps: the last value given for a key.
 
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// `v` in the order `cmp` gives, stably: what `v.sort_by(cmp)` makes of it.
 pub fn by<T>(v: &mut [T], mut cmp: impl FnMut(&T, &T) -> Ordering) {
@@ -27,6 +32,35 @@ pub fn by_key<T, K: Ord>(v: &mut [T], mut key: impl FnMut(&T) -> K) {
 /// `v` in its own order, stably: what `v.sort()` makes of it.
 pub fn sort<T: Ord>(v: &mut [T]) {
     by(v, T::cmp);
+}
+
+/// `pairs` as a map: what `collect::<BTreeMap<_, _>>()` makes of them, with no sort compiled.
+pub fn map<K: Ord, V>(pairs: impl IntoIterator<Item = (K, V)>) -> BTreeMap<K, V> {
+    let mut out = BTreeMap::new();
+    for (k, v) in pairs {
+        out.insert(k, v);
+    }
+    out
+}
+
+/// `pairs` as a map, or the first error among them: what `collect::<Result<BTreeMap<_, _>, _>>()`
+/// makes of them, with no sort compiled.
+pub fn try_map<K: Ord, V, E>(pairs: impl IntoIterator<Item = Result<(K, V), E>>) -> Result<BTreeMap<K, V>, E> {
+    let mut out = BTreeMap::new();
+    for pair in pairs {
+        let (k, v) = pair?;
+        out.insert(k, v);
+    }
+    Ok(out)
+}
+
+/// `items` as a set: what `collect::<BTreeSet<_>>()` makes of them, with no sort compiled.
+pub fn set<T: Ord>(items: impl IntoIterator<Item = T>) -> BTreeSet<T> {
+    let mut out = BTreeSet::new();
+    for item in items {
+        out.insert(item);
+    }
+    out
 }
 
 /// The indices `0..n` in the order `cmp` gives them, ties in the order they come: a bottom-up
@@ -101,6 +135,17 @@ mod tests {
             theirs.sort_by_key(|&(k, _)| std::cmp::Reverse(k));
             assert_eq!(ours, theirs, "{n} keys in 0..{range}, reversed");
         }
+    }
+
+    /// A map or a set built by inserting is the one `collect` builds, the last value for a key kept.
+    #[test]
+    fn maps_and_sets_are_the_ones_collect_builds() {
+        let pairs: Vec<(u64, usize)> = keys(300, 17, 8).into_iter().zip(0..).collect();
+        assert_eq!(map(pairs.clone()), pairs.iter().copied().collect::<BTreeMap<_, _>>());
+        assert_eq!(set(pairs.iter().map(|p| p.0)), pairs.iter().map(|p| p.0).collect::<BTreeSet<_>>());
+        let ok: Result<BTreeMap<u64, usize>, ()> = try_map(pairs.iter().map(|&p| Ok(p)));
+        assert_eq!(ok, Ok(map(pairs.clone())));
+        assert_eq!(try_map(pairs.iter().map(|&(k, v)| if v == 5 { Err(v) } else { Ok((k, v)) })), Err(5));
     }
 
     /// What does not copy moves by swaps, and comes out whole.

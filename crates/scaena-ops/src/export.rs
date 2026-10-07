@@ -314,8 +314,8 @@ pub fn standalone_with(
         read.push((state.clone(), scaena_core::reading::html(&b.deck, snap, &list)));
         progress.step();
     }
-    let files: BTreeMap<String, Vec<u8>> =
-        (saved()?.into_iter()).filter(|(path, _)| path != "manifest.json" && !path.starts_with("history/")).collect();
+    let mut files = saved()?;
+    files.retain(|path, _| path != "manifest.json" && !path.starts_with("history/"));
     let standalone = Standalone { deck: &b.deck, name, files: &files, states: &read };
     let html = scaena_export::html::html(page, &standalone).map_err(|e| OpsError::new(e.to_string()))?;
     Ok((html, pages))

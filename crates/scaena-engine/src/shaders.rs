@@ -112,12 +112,10 @@ impl ShaderNode {
         let [x, y, w, h] = [0, 1, 2, 3].map(|k| a.rect[k] + (b.rect[k] - a.rect[k]) * geo);
         let palette = a.palette.iter().zip(&b.palette).map(|(u, v)| crate::sample::mix(*u, *v, p)).collect();
         // Clamped to the two values, so rounding never carries a param out of its range.
-        let params = (a.params.keys().chain(b.params.keys()))
-            .map(|k| {
-                let (u, v) = (a.param(k), b.param(k));
-                (k.clone(), (u + (v - u) * p).clamp(u.min(v), u.max(v)))
-            })
-            .collect();
+        let params = scaena_core::sort::map((a.params.keys().chain(b.params.keys())).map(|k| {
+            let (u, v) = (a.param(k), b.param(k));
+            (k.clone(), (u + (v - u) * p).clamp(u.min(v), u.max(v)))
+        }));
         ShaderNode { kind: b.kind, seed: b.seed, palette, params, rect: [x, y, w.max(0.0), h.max(0.0)] }
     }
 

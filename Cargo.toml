@@ -158,6 +158,26 @@ inherits = "release"
 opt-level = "z"
 [profile.wasm.package.scaena-store]
 opt-level = "z"
+# Layout, shaping, and the Unicode tables they read run as a deck is laid out, never as a frame
+# samples it (SPEC §5): built for size, 68 KB less gzipped (PLAN 2.91).
+[profile.wasm.package.taffy]
+opt-level = "z"
+[profile.wasm.package.parley]
+opt-level = "z"
+[profile.wasm.package.harfrust]
+opt-level = "z"
+[profile.wasm.package.fontique]
+opt-level = "z"
+[profile.wasm.package.icu_segmenter]
+opt-level = "z"
+[profile.wasm.package.icu_properties]
+opt-level = "z"
+[profile.wasm.package.icu_normalizer]
+opt-level = "z"
+[profile.wasm.package.icu_collections]
+opt-level = "z"
+[profile.wasm.package.icu_locale_core]
+opt-level = "z"
 # What links the module: Cargo strips its symbols only where its own override says so.
 [profile.wasm.package.scaena-wasm]
 opt-level = "z"

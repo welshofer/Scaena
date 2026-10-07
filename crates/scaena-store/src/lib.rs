@@ -172,8 +172,9 @@ impl Bundle {
     /// A bundle held in memory: `files`, by their paths inside it, with its deck at
     /// `deck.json` (PLAN 2.4). A path outside the bundle is refused.
     pub fn in_memory(files: BTreeMap<String, Vec<u8>>) -> Result<Bundle, StoreError> {
-        let files: BTreeMap<String, Vec<u8>> =
-            files.into_iter().map(|(rel, bytes)| Ok((normal(&rel)?, bytes))).collect::<Result<_, StoreError>>()?;
+        let files = scaena_core::sort::try_map(
+            files.into_iter().map(|(rel, bytes)| Ok::<_, StoreError>((normal(&rel)?, bytes))),
+        )?;
         let files = Files::Zip(Arc::new(files));
         let deck_file = "deck.json".to_string();
         let text = String::from_utf8_lossy(&files.read(&deck_file)?).into_owned();
