@@ -727,8 +727,9 @@ export type ToWorker =
   /** Save the bundle with the deck `source` compiles to as `scaena save` does (SPEC §3.1),
    * fonts kept whole, where it is kept; one kept nowhere goes into the browser's storage under
    * its name (`name-2`, … where that is taken). A source that does not compile, or a deck
-   * that does not validate, is not saved. The session goes on from the save (PLAN 2.4). */
-  | { type: "save"; id: number; source: string }
+   * that does not validate, is not saved. The session goes on from the save (PLAN 2.4). With
+   * `keep`, a bundle that keeps no history begins one with this save (PLAN 2.87). */
+  | { type: "save"; id: number; source: string; keep?: boolean }
   /** Save as (PLAN 2.12): the bundle saved as `save` saves it, but `to` a place of its own,
    * where it is kept from then on. */
   | { type: "saveAs"; id: number; source: string; to: SaveTo }

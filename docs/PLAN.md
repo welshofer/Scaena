@@ -1114,6 +1114,11 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - `Deck::anew` names the formats a deck lays out anew, for W302 and the copies.
     - Tests: the WASM session's `a_copy_stands_clear_of_its_node_in_every_format`, and the edit-deck walk, which presses ⌘D in 9:16 and finds the copy clear there and on the deck's own canvas.
 
+- [x] 2.87 A history begun in the browser: the Versions tab offers Keep a history, which saves the bundle as its history's first version, as `scaena save --history` does.
+    - Done. Probing the editor's design tools found that a deck made or opened in the browser could never keep a history: the Versions tab said to run `scaena save --history`, which a person on the site cannot do. Now, where the bundle keeps none, the tab offers **Keep a history**. It saves the bundle where it is kept, or into the browser's storage, and that save begins the history (`Player.keepHistory`, `Session::save`): the deck as saved and the files it is drawn from are its first version, `user`'s `history begins`, as the CLI's is, and each save after records the edits since.
+    - `scaena-history`'s `record`, handed an empty history, begins one with the first change it is given (`scaena_history::recorded`).
+    - Tests: the WASM session's `a_page_begins_a_history_with_a_save` (no history unless asked; begun with the deck and its data file; the next save records on it), and `web/versions.mjs`, which presses Keep a history on the revenue example opened from its URL and finds one version, `history begins` by `user`.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).

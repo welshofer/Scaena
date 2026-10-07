@@ -157,6 +157,10 @@ pub struct Session {
     /// next save takes out where the bundle is kept.
     #[cfg(feature = "editor")]
     removed: std::collections::BTreeSet<String>,
+    /// Whether the next save begins a history, where the bundle keeps none (PLAN 2.87): as
+    /// `scaena save --history` begins one.
+    #[cfg(feature = "editor")]
+    begins: bool,
     /// A version from the bundle's history, shown read-only (PLAN 2.60): a session of its own.
     #[cfg(feature = "editor")]
     viewing: Option<Box<Session>>,
@@ -244,6 +248,8 @@ impl Session {
             held: BTreeMap::new(),
             #[cfg(feature = "editor")]
             removed: Default::default(),
+            #[cfg(feature = "editor")]
+            begins: false,
             #[cfg(feature = "editor")]
             viewing: None,
         })
@@ -2182,6 +2188,20 @@ impl Player {
             history.as_ref().map(|h| move |held: &[u8], changes: &str| h.record(held, changes).map_err(|e| said(&e)));
         let record = record.as_ref().map(|r| r as &store::Recorder);
         self.0.save(now, subset, record).map(SavedBundle).map_err(js)
+    }
+
+    /// Begin a history with the next save, where the bundle keeps none (PLAN 2.87): it holds
+    /// the deck as saved, and the files it is drawn from, as its first version, and each save
+    /// after records the edits since, as `scaena save --history` begins one.
+    #[wasm_bindgen(js_name = keepHistory)]
+    pub fn keep_history(&mut self) {
+        self.0.begins = true;
+    }
+
+    /// Whether the bundle keeps a history, or the next save begins one.
+    #[wasm_bindgen(js_name = keepsHistory)]
+    pub fn keeps_history(&self) -> bool {
+        self.0.begins || self.0.files.contains_key(scaena_store::HISTORY)
     }
 
     /// Go on from `saved`, once the page has written it where it keeps the bundle: its

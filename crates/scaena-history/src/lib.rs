@@ -7,7 +7,8 @@
 //! (`Player.save`): the page's edits, as the user's, and its assistant's, as its agent's. The
 //! engine's module leaves the CRDT out: it would add a third again to it (SPEC §15).
 
-use scaena_store::crdt::{DeckDoc, Recorded};
+use scaena_core::Deck;
+use scaena_store::crdt::{DeckDoc, Edit, Recorded};
 use wasm_bindgen::prelude::*;
 
 /// `history`, what a bundle's `history/deck.loro` holds, with `changes` recorded in it: the
@@ -20,11 +21,24 @@ pub fn record(history: &[u8], changes: &str) -> Result<Vec<u8>, JsError> {
     recorded(history, changes).map_err(|e| JsError::new(&e))
 }
 
-/// [`record`], for a caller in Rust.
+/// [`record`], for a caller in Rust. An empty `history` is begun by the first change: its deck,
+/// and the files it is drawn from, are the history's first version (PLAN 2.87), as `scaena save
+/// --history` begins one.
 pub fn recorded(history: &[u8], changes: &str) -> Result<Vec<u8>, String> {
     let changes: Vec<Recorded> = serde_json::from_str(changes).map_err(|e| format!("the changes to record: {e}"))?;
-    let doc = DeckDoc::load(history).map_err(|e| e.to_string())?;
-    doc.record(&changes).map_err(|e| e.to_string())?;
+    let (doc, rest) = match history {
+        [] => {
+            let (first, rest) = changes.split_first().ok_or("a history begins with a change: none was given")?;
+            let deck = Deck::from_json(&first.deck).map_err(|e| format!("the deck to begin with: {e}"))?;
+            let files: Vec<(String, Vec<u8>)> =
+                first.files.iter().map(|(path, text)| (path.clone(), text.clone().into_bytes())).collect();
+            let edit =
+                Edit { message: first.message.as_deref(), timestamp: first.timestamp, ..Edit::by(&first.author) };
+            (DeckDoc::begin(&deck, &files, &edit).map_err(|e| e.to_string())?, rest)
+        }
+        held => (DeckDoc::load(held).map_err(|e| e.to_string())?, &changes[..]),
+    };
+    doc.record(rest).map_err(|e| e.to_string())?;
     doc.save().map_err(|e| e.to_string())
 }
 
