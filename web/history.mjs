@@ -99,7 +99,7 @@ try {
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
-    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`);
+    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${bundle}`);
     await page.waitForFunction(() => window.scaena?.last() || document.querySelector("#status")?.textContent.startsWith("error"), null, { timeout: 120000 });
     const loaded = () => asked.some((u) => /\/scaena_history_bg-[^/]+\.wasm$/.test(u));
     return { context, page, loaded };
