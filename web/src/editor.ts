@@ -794,9 +794,10 @@ async function edit(source: Source) {
     select: (node) => board.select(node),
     states: () => last?.states.map(([id]) => id) ?? [],
   });
-  /** Find and replace across the deck's texts, in every state (PLAN 2.47): a bar above the
-   * preview. Each match shows its state, its node selected and its characters marked; each
-   * replacement is a patch, written where each text lives. */
+  /** Find and replace across the deck's words, in every state (PLAN 2.47, 2.83): a bar above the
+   * preview. Each match shows its state, and in a text its node selected and its characters
+   * marked, or the node a description describes; each replacement is a patch, written where the
+   * words live. */
   finding = finder(stage, $("#find"), {
     shown: showing,
     states: () => last?.states.map(([id]) => id) ?? [],

@@ -3318,9 +3318,9 @@ mod tests {
         s
     }
 
-    /// Find and replace across the deck's texts (PLAN 2.47): each text once for each place
-    /// it is written; one match replaced alone, where its text lives; and every match by the
-    /// assistant's `deck_find`, one patch.
+    /// Find and replace across the deck's words (PLAN 2.47, 2.83): each text, and the beat's
+    /// claim and the chart's description, once for each place it is written; one match replaced
+    /// alone, where its text lives; and every match by the assistant's `deck_find`, one patch.
     #[cfg(feature = "editor")]
     #[test]
     fn find_and_replace_write_each_text_where_it_lives() {
@@ -3329,25 +3329,27 @@ mod tests {
         let query = Query { find: "rev".into(), ..Query::default() };
         let found = s.find(&query).unwrap();
         let places: Vec<(&str, &str, usize)> =
-            found.iter().map(|f| (f.node.as_str(), f.lives.as_str(), f.matches.len())).collect();
+            found.iter().map(|f| (f.node.as_deref().unwrap_or_default(), f.lives.as_str(), f.matches.len())).collect();
         assert_eq!(
             places,
             [
                 ("title", "/nodes/title/text", 1),
+                ("", "/spine/sections/1/beats/0/claim", 1),
                 ("title", "/states/1/props/title/text", 1),
+                ("rev", "/nodes/rev/alt", 1),
                 ("note", "/nodes/note/text", 1),
             ],
-            "Review, Revenue doubled, and Revenue in $M"
+            "Review, the claim's Revenue, Revenue doubled, the description's revenue, and Revenue in $M"
         );
-        // One match, alone: the second text's first.
-        let one = s.replacing(&query, "Inc", Some([1, 0])).unwrap();
+        // One match, alone: the third place's first.
+        let one = s.replacing(&query, "Inc", Some([2, 0])).unwrap();
         assert_eq!(
             one,
             [
                 serde_json::json!({ "op": "replace_text", "node": "title", "from": 0, "to": 3, "text": "Inc", "state": "revenue" })
             ]
         );
-        assert!(s.replacing(&query, "Inc", Some([1, 1])).is_err(), "no such match");
+        assert!(s.replacing(&query, "Inc", Some([2, 1])).is_err(), "no such match");
         assert!(s.replacing(&query, "Inc", Some([9, 0])).is_err(), "no such text");
         let by = assistant::Caller { author: "user", at: None };
         s.tool("deck_patch", serde_json::json!({ "ops": one }), by).unwrap();
@@ -3356,7 +3358,7 @@ mod tests {
         let called = s.tool("deck_find", serde_json::json!({ "find": "rev", "replace": "REV" }), by).unwrap();
         let result: serde_json::Value = serde_json::from_str(&called.result).unwrap();
         assert!(called.edited, "{result}");
-        assert_eq!(result["matches"], 2, "{result}");
+        assert_eq!(result["matches"], 4, "{result}");
         assert_eq!(result["replaced"]["applied"], true, "{result}");
         assert!(s.source().contains("Q3 REView"), "{}", s.source());
         assert!(

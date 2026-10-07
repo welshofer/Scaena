@@ -54,7 +54,7 @@ Cut until each slide says its one thing.
      ```json
      [{ "op": "replace_text", "node": "miles-title", "state": "miles", "from": 0, "to": 12, "text": "Crews rebuilt" }]
      ```
-   - A word that recurs across the deck ("revenue" in five headlines and a note) changes in one go: `scaena find <bundle> revenue --words` lists each text that holds it, once for each place it is written, and `--replace income` replaces every match in one patch, each where its text lives, runs keeping their looks (`deck_find`). Without `--case`, case is ignored, so check that each match is one you mean.
+   - A word that recurs across the deck ("revenue" in five headlines and a note) changes in one go: `scaena find <bundle> revenue --words` lists each text that holds it, once for each place it is written, and each description, note, and claim that says it too, and `--replace income` replaces every match in one patch, each where it is written, runs keeping their looks (`deck_find`). Without `--case`, case is ignored, so check that each match is one you mean.
    - Run it with `--dry-run` first. The lint delta (`added`, `removed`) shows what changed. `errors` counts what remains, including a finding that only changed its figures, which the delta counts as the same.
    - `applied` says whether the deck was written. Exit 1 means it was refused, or errors remain.
 7. **Check.**

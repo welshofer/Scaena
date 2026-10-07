@@ -1,11 +1,13 @@
-// Find and replace across the deck's texts, in every state (PLAN 2.47, ADR-0013): a bar above the
-// preview, opened by ⌘F (Ctrl+F) anywhere but the source, or by Find. The page finds nothing
-// itself: the engine says which texts hold what is sought, once for each place each is written
-// (the node's own, a state's delta, or the deck's overrides), with the states that show it, and
-// makes the patch that replaces it, a `replace_text` where each text lives.
+// Find and replace across the deck's words, in every state (PLAN 2.47, 2.83, ADR-0013): a bar above
+// the preview, opened by ⌘F (Ctrl+F) anywhere but the source, or by Find. The page finds nothing
+// itself: the engine says which of the deck's words hold what is sought (its texts, each node's
+// description, each state's notes, and each beat's claim and notes), once for each place each is
+// written (the node's own, a state's delta, the deck's overrides, a state, or a beat), with the
+// states that show it, and makes the patch that replaces it, where each is written.
 //
-// - Enter, or ↓, goes to the next match, Shift+Enter, or ↑, to the one before: its state shown, its
-//   node selected, and its characters marked on the canvas.
+// - Enter, or ↓, goes to the next match, Shift+Enter, or ↑, to the one before: its state shown, and
+//   in a text its node selected and its characters marked on the canvas; the status says where
+//   each match is.
 // - Replace replaces the match shown, then goes on to the next after what it put in; Replace All
 //   replaces every match in one patch, one step to undo, and says how many, in how many texts.
 // - Match case and Whole words, as asked. Escape, or ×, closes the bar.
@@ -34,8 +36,8 @@ export interface FindEditor {
   apply(source: string, edited: Edited): void;
   say(text: string): void;
   /** Show `state`, then mark characters `from`..`to` (UTF-16) of `node`'s text there, and select
-   * it. */
-  reveal(state: string, node: string, from: number, to: number): Promise<void>;
+   * it; with no characters, select `node` alone; with no node, show the state alone. */
+  reveal(state: string, node?: string, from?: number, to?: number): Promise<void>;
   /** Take the mark away. */
   unmark(): void;
 }
@@ -44,6 +46,17 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** UTF-16 offset of character `chars` (Unicode scalar values, as the engine counts) in `text`. */
 const utf16 = (text: string, chars: number) => [...text].slice(0, chars).join("").length;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** Where words `f` are, as the status says it. */
+export const where = (f: Found) =>
+  f.kind === "alt"
+    ? `${f.node}'s description`
+    : f.kind === "claim"
+      ? `beat ${f.beat}'s claim`
+      : f.kind === "notes"
+        ? f.beat
+          ? `beat ${f.beat}'s notes`
+          : `${f.state}'s notes`
+        : (f.node ?? "");
 
 export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
   const field = bar.querySelector<HTMLInputElement>('input[name="find"]')!;
@@ -91,9 +104,10 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     const [i, k] = matches[at];
     const f = found[i];
     const [from, to] = f.matches[k];
-    await editor.reveal(f.state, f.node, utf16(f.text, from), utf16(f.text, to));
+    if (f.kind === "text") await editor.reveal(f.state, f.node, utf16(f.text, from), utf16(f.text, to));
+    else await editor.reveal(f.state, f.kind === "alt" ? f.node : undefined);
     const elsewhere = f.states.length > 1 ? `, and ${plural(f.states.length - 1, "state")} more that show it so` : "";
-    editor.say(`${f.node} in ${f.state}${elsewhere}: “${f.text}”`);
+    editor.say(`${where(f)} in ${f.state}${elsewhere}: “${f.text}”`);
   }
 
   const step = (by: 1 | -1) => show(at === undefined ? (by > 0 ? 0 : -1) : at + by);
@@ -129,22 +143,22 @@ export function finder(stage: Stage, bar: HTMLElement, editor: FindEditor) {
     // A replacement changes only its own text, so the next match is the one after it now, and the
     // deck after the patch shows that one's state.
     const then = found[before[(at + 1) % before.length][0]].state;
-    if (!(await make(ops, `replaced in ${f.node}${reach}`, then))) return;
+    if (!(await make(ops, `replaced in ${where(f)}${reach}`, then))) return;
     await search();
     const matches = all();
     if (!matches.length) return editor.unmark();
     // The text replaced in, if the query still finds it, else the one now where it stood.
-    const same = found.findIndex((g) => g.node === f.node && g.lives === f.lives);
+    const same = found.findIndex((g) => g.lives === f.lives);
     const next = matches.findIndex(([j, m]) => (same < 0 ? j >= i : j > same || (j === same && found[j].matches[m][0] >= past)));
     await show(Math.max(next, 0));
   }
 
   /** Replace every match in one patch. */
   async function replaceAll() {
-    const [n, texts] = [total(), found.length];
+    const [n, places] = [total(), found.length];
     if (!n) return;
     const ops = await stage.replacing(editor.source(), query(), replacement.value).catch(() => []);
-    if (!(await make(ops, `replaced ${plural(n, "match", "matches")} in ${plural(texts, "text")}, one step to undo`))) return;
+    if (!(await make(ops, `replaced ${plural(n, "match", "matches")} in ${plural(places, "place")}, one step to undo`))) return;
     at = undefined;
     await search();
     editor.unmark();
