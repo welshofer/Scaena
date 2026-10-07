@@ -223,7 +223,8 @@ try {
 
   await step("data-tab", async () => {
     await page.click("#tab-data");
-    await page.waitForFunction(() => document.querySelector("#data table"), null, { timeout: 30000 }).catch(() => {});
+    // The table is in the page from the start; its rows come when the worker answers.
+    await page.waitForFunction(() => document.querySelectorAll("#data table tbody tr").length > 0, null, { timeout: 30000 }).catch(() => {});
     const rows = await page.evaluate(() => document.querySelectorAll("#data table tbody tr").length);
     const said = await page.evaluate(() => document.querySelector("#data").textContent.replace(/\s+/g, " ").trim().slice(0, 80));
     check(rows === 6 && said.includes("visits"), `the Data tab shows its 6 rows: ${said}`);
