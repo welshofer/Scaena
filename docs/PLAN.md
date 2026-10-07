@@ -1126,6 +1126,10 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
     - `web/pdf.mjs` reads a span's actual text in place of its glyphs, as a PDF reader does, so the present-deck walk now holds each page's text to its slide's as written, case and all.
     - Tests: `crates/scaena-ops/tests/pdf.rs`'s `text_in_capitals_reads_as_written`, and the present-deck walk.
 
+- [x] 2.89 A selection made by keys alone (WCAG 2.1.1): a key puts the node the keys are on in the selection, or takes it out (Jay, 2026-10-07: from the 2.75 gaps).
+    - Done. Space keys the node selected; then Tab and Shift+Tab move the key among the nodes beside it in reading order, outlined and the selection unchanged, and Space puts the node keyed in the selection or takes it out, as Shift+click does (`keyOn`, `keyTo`, `keyedToggle` in `web/src/canvas.ts`). Escape stops, the selection staying; a press of the pointer ends it too. Space toggles on a tap only: held with a drag, it pans as before. The keys sheet lists it.
+    - Tests: `web/bykeys.mjs` builds a selection of three on the revenue example, takes one out, and stops (35 checks).
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
