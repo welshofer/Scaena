@@ -21,7 +21,7 @@ import { readFile } from "node:fs/promises";
 import { launch, serve } from "./serve.mjs";
 
 const server = await serve();
-const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
+const url = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=${bundle}`;
 const failures = [];
 const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);

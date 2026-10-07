@@ -35,7 +35,8 @@ export interface Play {
 }
 
 type Follow = { type: "at"; format?: string } & At;
-type Steer = { type: "on" } | { type: "back" } | { type: "hello" };
+/** What the presenter view asks of the player: on, back, the first or the last state, or where it is. */
+type Steer = { type: "on" | "back" | "first" | "last" | "hello" };
 
 /** Play the bundle at `deck`: the player, or, at `?view=presenter`, its presenter view. */
 export function start(deck: Source, how: Play): Promise<void> {
@@ -233,6 +234,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   channel.onmessage = ({ data }: MessageEvent<Steer>) => {
     if (data.type === "on") on();
     else if (data.type === "back") back();
+    else if (data.type === "first") go(0);
+    else if (data.type === "last") go(slots.length - 1);
     else if (data.type === "hello") report(stage.at);
   };
 
@@ -328,7 +331,14 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
   ]);
   let { states, notes } = now.opened;
   const steer = (message: Steer) => channel.postMessage(message);
-  keys({ on: () => steer({ type: "on" }), back: () => steer({ type: "back" }), full: fullscreen });
+  // The player's own keys, Home and End among them, steer it from here.
+  keys({
+    on: () => steer({ type: "on" }),
+    back: () => steer({ type: "back" }),
+    first: () => steer({ type: "first" }),
+    last: () => steer({ type: "last" }),
+    full: fullscreen,
+  });
   $("#on").onclick = () => steer({ type: "on" });
   $("#back").onclick = () => steer({ type: "back" });
   const opened = performance.now();
