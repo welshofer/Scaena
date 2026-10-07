@@ -737,7 +737,10 @@ fn format_types(deck: &Deck) -> Vec<Finding> {
     // A node's layout in its formats is the node's own: no state, nor the deck's overrides,
     // changes it.
     let elsewhere = deck.states.iter().enumerate().flat_map(|(i, state)| {
-        state.props.iter().map(move |(id, delta)| (format!("/states/{i}/props/{}/formats", esc(id)), id, delta, Some(state)))
+        state
+            .props
+            .iter()
+            .map(move |(id, delta)| (format!("/states/{i}/props/{}/formats", esc(id)), id, delta, Some(state)))
     });
     let overrides = deck.overrides.iter().map(|(id, over)| (format!("/overrides/{}/formats", esc(id)), id, over, None));
     for (at, id, delta, state) in elsewhere.chain(overrides) {
@@ -771,12 +774,16 @@ fn format_types(deck: &Deck) -> Vec<Finding> {
             let (Some(def), Some(layout)) = (defs.get(&tag), layout.as_object()) else { continue };
             let mut resolved = Map::new();
             resolved.insert("type".into(), Value::from(tag.as_str()));
-            resolved.extend(node.props.iter().filter(|(k, _)| *k != "type" && *k != "formats").map(|(k, v)| (k.clone(), v.clone())));
+            resolved.extend(
+                node.props.iter().filter(|(k, _)| *k != "type" && *k != "formats").map(|(k, v)| (k.clone(), v.clone())),
+            );
             resolved.extend(layout.iter().map(|(k, v)| (k.clone(), v.clone())));
             for v in checker.check_def(def, &Value::Object(resolved), "") {
                 let Some(prop) = tokens(&v.path).into_iter().next() else { continue };
                 if layout.contains_key(&prop) {
-                    out.push(Finding::new("E106", Severity::Error, v.message).at(format!("{at}{}", v.path)).node(id.clone()));
+                    out.push(
+                        Finding::new("E106", Severity::Error, v.message).at(format!("{at}{}", v.path)).node(id.clone()),
+                    );
                 }
             }
         }

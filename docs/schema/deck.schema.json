@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scaena.dev/schema/deck-0.12.json",
+  "$id": "https://scaena.dev/schema/deck-0.13.json",
   "title": "Scaena deck document",
   "description": "Canonical deck.json. A deck is a scene graph (nodes) plus an ordered cue list (states) over a narrative spine, rendered against a theme. See docs/SPEC.md §3.",
   "type": "object",
@@ -10,7 +10,7 @@
     "scaena": {
       "description": "Format version (semver, major.minor[.patch]).",
       "type": "string",
-      "pattern": "^0\\.12(\\.[0-9]+)?$"
+      "pattern": "^0\\.13(\\.[0-9]+)?$"
     },
     "meta": { "$ref": "#/$defs/Meta" },
     "canvas": { "$ref": "#/$defs/Canvas" },
@@ -327,6 +327,12 @@
         "exit": { "$ref": "#/$defs/PresetRef" },
         "emphasis": { "$ref": "#/$defs/PresetRef" },
         "anim": { "$ref": "#/$defs/AnimTracks" },
+        "formats": {
+          "description": "How it lays out in another of the deck's formats, by format (SPEC §3.4, ADR-0020): each property there takes the place of the node's own of the same name when the deck lays out in that format.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Format" },
+          "additionalProperties": { "$ref": "#/$defs/FormatLayout" }
+        },
         "_comment": { "type": "string" }
       }
     },
@@ -846,6 +852,38 @@
         "spring": { "$ref": "#/$defs/Spring" }
       }
     },
+    "FormatLayout": {
+      "description": "A node's layout in one of the deck's formats (SPEC §3.4, ADR-0020): where it goes, how big, how it is turned, a container's tracks and spacing, and a text's lines. Each property takes the place of the node's own of the same name in that format; a property its type does not have is E106, as anywhere on the node.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "at": { "$ref": "#/$defs/Placement" },
+        "size": { "$ref": "#/$defs/Size" },
+        "align": { "$ref": "#/$defs/Align" },
+        "transform": { "$ref": "#/$defs/Transform" },
+        "axis": { "description": "A stack's.", "$ref": "#/$defs/Axis" },
+        "gap": { "description": "A stack's or a grid's.", "$ref": "#/$defs/Length" },
+        "distribute": { "description": "A stack's.", "$ref": "#/$defs/Distribute" },
+        "padding": { "description": "A container's.", "$ref": "#/$defs/Padding" },
+        "cols": { "description": "A grid's.", "$ref": "#/$defs/Tracks" },
+        "rows": { "description": "A grid's.", "$ref": "#/$defs/Tracks" },
+        "areas": { "description": "A grid's.", "type": "array", "items": { "type": "string" } },
+        "maxLines": { "description": "A text's.", "type": "integer", "minimum": 1 }
+      }
+    },
+    "Axis": { "type": "string", "enum": ["x", "y"] },
+    "Distribute": { "type": "string", "enum": ["start", "center", "end", "between", "around", "evenly"] },
+    "Padding": {
+      "description": "One length for every side, or 2–4 lengths CSS-style.",
+      "anyOf": [
+        { "$ref": "#/$defs/Length" },
+        { "type": "array", "items": { "$ref": "#/$defs/Length" }, "minItems": 2, "maxItems": 4 }
+      ]
+    },
+    "Tracks": {
+      "description": "A count of equal tracks, or each track's size.",
+      "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "array", "items": { "$ref": "#/$defs/SizeValue" } }]
+    },
     "TextStyle": {
       "description": "What a text node, or a run, changes about its role's look (SPEC §3.6): the role's own properties, by name; each replaces the role's. `family` names a theme family and `color` a theme color token or role. A literal color, and any `size`, is a pixel value: theme-legal only in `overrides` (lint W300 elsewhere).",
       "type": "object",
@@ -1143,19 +1181,6 @@
       "description": "A shader parameter: a number, or a name its kind lists (a gradient's `shape`).",
       "anyOf": [{ "type": "number" }, { "type": "string" }]
     },
-    "Axis": { "type": "string", "enum": ["x", "y"] },
-    "Distribute": { "type": "string", "enum": ["start", "center", "end", "between", "around", "evenly"] },
-    "Padding": {
-      "description": "One length for every side, or 2–4 lengths CSS-style.",
-      "anyOf": [
-        { "$ref": "#/$defs/Length" },
-        { "type": "array", "items": { "$ref": "#/$defs/Length" }, "minItems": 2, "maxItems": 4 }
-      ]
-    },
-    "Tracks": {
-      "description": "A count of equal tracks, or each track's size.",
-      "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "array", "items": { "$ref": "#/$defs/SizeValue" } }]
-    },
     "State": {
       "description": "One cue.",
       "type": "object",
@@ -1238,6 +1263,16 @@
         "exit": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
         "emphasis": { "anyOf": [{ "$ref": "#/$defs/PresetRefDelta" }, { "type": "null" }] },
         "anim": { "anyOf": [{ "$ref": "#/$defs/AnimTracksDelta" }, { "type": "null" }] },
+        "formats": {
+          "anyOf": [
+            {
+              "additionalProperties": { "anyOf": [{ "$ref": "#/$defs/FormatLayout" }, { "type": "null" }] },
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/Format" }
+            },
+            { "type": "null" }
+          ]
+        },
         "_comment": { "type": ["string", "null"] },
         "role": { "type": ["string", "null"] },
         "style": { "anyOf": [{ "$ref": "#/$defs/TextStyleDelta" }, { "type": "null" }] },

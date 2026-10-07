@@ -330,7 +330,7 @@ state mix slide:revenue
 ```
 
 Line by line:
-- **The header.** `deck "Q3 Review" theme:… canvas:1920x1080` names the theme and the canvas in canvas units, which the painters scale to any size. Add `formats:[9:16, 1:1]` to lay the deck out again in other shapes.
+- **The header.** `deck "Q3 Review" theme:… canvas:1920x1080` names the theme and the canvas in canvas units, which the painters scale to any size. Add `formats:[9:16, 1:1]` to lay the deck out again in other shapes. A node placed in a slot moves with the slot; one that needs to stand elsewhere in a format says so on the node, `formats:{"9:16": {at: col(1-12) row(3-12), cols: 1}}`: where it goes, how big, how it is turned, a container's tracks and spacing, and a text's lines there, its own everywhere else.
 - **Fonts and data.** `font` lists each of the theme's font families, with its file in the bundle, and each family's italic face (`style:italic`), which text in italic is set in. `data q3 "…"` declares a data source and its columns' types. A chart reads it as `@q3`.
 - **The spine.** `section` and `beat` say what each part claims, and which states make the claim. The PDF, the video's chapters, and the narrative lint read them.
 - **`state cover layout:title`** is the first click, on the theme's `title` layout.

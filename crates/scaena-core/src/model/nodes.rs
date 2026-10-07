@@ -62,7 +62,7 @@ pub enum Padding {
 }
 
 /// A node's layout in one of the deck's formats (SPEC §3.4, ADR-0020): where it goes, how big,
-/// whether it shows, a container's tracks and spacing, and a text's lines. Each property takes
+/// how it is turned, a container's tracks and spacing, and a text's lines. Each property takes
 /// the place of the node's own of the same name in that format; a property its type does not
 /// have is E106, as anywhere on the node.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -74,8 +74,6 @@ pub struct FormatLayout {
     pub size: Option<Size>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<Align>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub visible: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transform: Option<Transform>,
     /// A stack's.

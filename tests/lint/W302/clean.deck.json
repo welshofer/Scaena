@@ -1,14 +1,15 @@
 {
   "scaena": "0.13",
-  "_comment": "W302 clean: placed in a slot.",
+  "_comment": "W302 clean: placed in a slot; or by cells, and in 9:16 placed anew (ADR-0020).",
   "canvas": {"width": 1920, "height": 1080},
   "formats": ["9:16"],
   "theme": "theme.json",
   "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
   "nodes": {
-    "t": {"type": "text", "role": "body", "text": "Slot", "at": {"in": "main"}}
+    "t": {"type": "text", "role": "body", "text": "Slot", "at": {"in": "main"}},
+    "u": {"type": "text", "role": "body", "text": "Cells", "at": {"col": [1, 6], "row": [3, 4]}, "formats": {"9:16": {"at": {"col": [1, 12], "row": [3, 4]}}}}
   },
   "states": [
-    {"id": "a", "layout": "full", "props": {"t": {}}}
+    {"id": "a", "layout": "full", "props": {"t": {}, "u": {}}}
   ]
 }
