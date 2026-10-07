@@ -298,6 +298,40 @@ fn errors_exit_1_and_a_fix_is_kept_only_where_it_works() {
 }
 
 #[test]
+fn a_contrast_fix_chooses_the_color_that_reads_wherever_the_choice_reaches() {
+    // A caption in the line color on the dark surface: the theme's color that reads best there
+    // is chosen where the text's color lives, its own props (PLAN 2.82), and it then reads.
+    let dir = fixture("recolor", "E110", "trigger");
+    let (_, found) = lint(&dir);
+    let e110 = found.iter().find(|f| f["code"] == "E110").unwrap();
+    assert_eq!(e110["fix"], serde_json::json!([{ "op": "add", "path": "/nodes/t/style/color", "value": "onSurface" }]));
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((&v["fixed"][0]["code"], &v["findings"]), (&"E110".into(), &serde_json::json!([])), "{v:#}");
+    // The text over a light panel in `a` and on the dark surface in `b`, its color its own:
+    // a choice reaches both, and no color of the theme reads on both, so none is offered.
+    let panel = serde_json::json!({ "type": "shape", "kind": "rect", "fill": "onSurface", "at": { "rect": [100, 100, 1000, 400] } });
+    let text = serde_json::json!({
+        "type": "text", "role": "caption", "text": "Hard to read", "style": { "color": "line" },
+        "at": { "rect": [200, 200, 800, 120] }
+    });
+    let mut two = deck(serde_json::json!({}), serde_json::json!({ "panel": panel, "t": text }));
+    two["states"] = serde_json::json!([
+        { "id": "a", "layout": "full", "props": { "panel": {}, "t": {} } },
+        { "id": "b", "remove": ["panel"] }
+    ]);
+    let (_, found) = lint(&bundle("recolor-both", &two, |_| {}));
+    let bad = contrast(&found);
+    assert_eq!((bad.len(), &bad[0]["state"]), (1, &"b".into()), "{found:#?}");
+    assert!(bad[0].get("fix").is_none(), "nothing reads on the panel and the surface both: {:#?}", bad[0]);
+    // With `b`'s color set in its own delta, the choice reaches `b` alone, and is written there.
+    two["states"][1]["props"] = serde_json::json!({ "t": { "style": { "color": "line" } } });
+    let (_, found) = lint(&bundle("recolor-b", &two, |_| {}));
+    let fix = serde_json::json!([{ "op": "add", "path": "/states/1/props/t/style/color", "value": "onSurface" }]);
+    assert_eq!(contrast(&found)[0]["fix"], fix, "{found:#?}");
+}
+
+#[test]
 fn lint_fix_applies_what_lint_offers_and_lints_again() {
     let dir = fixture("fix", "E100", "trigger");
     let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
