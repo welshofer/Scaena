@@ -6,7 +6,7 @@ Phase 2's exit criteria (PLAN, "Exit criteria (gate 2)"), each with its evidence
 - the first needs a real machine's browsers, held to the bar Jay set on 2026-10-04;
 - the fourth needs his own key.
 
-The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. The site is deployed (PLAN 2.7), so the first can be run there. Phase 2's open tasks, 2.72–2.75, are none of the four.
+The gate log stays open until both are run. Each section below gives the steps, about ten minutes each. The site is deployed (PLAN 2.7), so the first can be run there. Every Phase 2 task is done (2.90 was the last), so these two are all the gate waits on.
 
 ## 1. A Phase 1 deck plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox: needs a real machine
 

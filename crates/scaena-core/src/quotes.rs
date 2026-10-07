@@ -1,7 +1,8 @@
 //! Copy that quotes data (SPEC §3.5, ADR-0019, PLAN 2.72): a run's `quote` names a cell of a
 //! data source, and its `text` is the figure as last set. [`value`] reads what the data gives
-//! now; [`stale`] finds each figure that differs, with each claim that holds the old one, and
-//! [`requote`] is the patch that sets them again, which every write through `scaena-ops` makes.
+//! now; [`stale`] finds each figure that differs, with the words that hold the old one where the
+//! text shows (beats' claims and notes, states' notes, nodes' descriptions), and [`requote`] is
+//! the patch that sets them again, which every write through `scaena-ops` makes.
 
 use crate::Deck;
 use crate::data::{self, DataError, Datum, SourceFiles};
@@ -185,8 +186,8 @@ pub fn quoted(doc: &Value) -> Vec<Quoted<'_>> {
     out
 }
 
-/// A quoted figure the data no longer gives: the run, its text, and the figure now, with each
-/// beat's claim that holds the old figure as a word and shows the text, written again.
+/// A quoted figure the data no longer gives: the run, its text, and the figure now, with the
+/// words that hold the old figure as a word where the text shows, written again.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stale {
     pub node: String,
@@ -194,8 +195,23 @@ pub struct Stale {
     pub path: String,
     pub was: String,
     pub now: String,
-    /// Each claim: its pointer, and the claim with the figure set again.
-    pub claims: Vec<(String, String)>,
+    /// Each word that says the figure: the claim and the notes of each beat whose states show the
+    /// text (ADR-0019), and (PLAN 2.90) the notes of each state that shows it and the description
+    /// (`alt`) of each node shown with it, wherever each is written.
+    pub words: Vec<Said>,
+}
+
+/// Words that say a quoted figure, written again with the figure as the data now gives it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Said {
+    /// Pointer to the words: `/spine/sections/0/beats/1/claim`, `/states/2/notes`,
+    /// `/nodes/rev/alt`.
+    pub path: String,
+    /// The words with the figure set again.
+    pub text: String,
+    /// What they are, as a person reads it: `beat doubled's claim`, `revenue's notes`, `rev's
+    /// description`.
+    pub what: String,
 }
 
 /// Each quoted figure in `deck` (`doc`, as JSON) that its data, `files`, no longer gives. A
@@ -216,39 +232,79 @@ pub fn stale(deck: &Deck, doc: &Value, files: &dyn SourceFiles) -> Vec<Stale> {
         if now == was {
             continue;
         }
-        // The claims of the beats whose states show the text.
-        let mut claims = Vec::new();
+        // The words where the text shows: each beat's claim and notes, each state's notes, and
+        // the description of each node shown with it.
+        let says = |props: &crate::document::Props| {
+            let runs = props.get("runs").and_then(Value::as_array);
+            runs.is_some_and(|runs| runs.iter().any(|r| r.get("quote") == q.run.get("quote")))
+        };
+        let showing: Vec<&str> =
+            (snapshots.iter()).filter(|s| s.nodes.get(q.node).is_some_and(says)).map(|s| s.state_id.as_str()).collect();
+        let mut words = Vec::new();
+        let mut say = |path: String, written: Option<&str>, what: String| {
+            if let Some(text) = written.and_then(|w| replaced(w, was, &now)) {
+                words.push(Said { path, text, what });
+            }
+        };
         for (si, section) in deck.spine.iter().flat_map(|s| s.sections.iter()).enumerate() {
             for (bi, beat) in section.beats.iter().enumerate() {
-                let shows = snapshots.iter().any(|s| beat.states.contains(&s.state_id) && s.nodes.contains_key(q.node));
-                if !shows {
+                if !beat.states.iter().any(|s| showing.contains(&s.as_str())) {
                     continue;
                 }
-                if let Some(claim) = replaced(&beat.claim, was, &now) {
-                    claims.push((format!("/spine/sections/{si}/beats/{bi}/claim"), claim));
-                }
+                let at = format!("/spine/sections/{si}/beats/{bi}");
+                say(format!("{at}/claim"), Some(&beat.claim), format!("beat {}'s claim", beat.id));
+                say(format!("{at}/notes"), beat.notes.as_deref(), format!("beat {}'s notes", beat.id));
             }
         }
-        out.push(Stale { node: q.node.to_string(), path: q.path, was: was.to_string(), now, claims });
+        let esc = |s: &str| s.replace('~', "~0").replace('/', "~1");
+        let mut shown: Vec<&str> = Vec::new();
+        for (i, state) in doc.get("states").and_then(Value::as_array).into_iter().flatten().enumerate() {
+            let Some(id) = state.get("id").and_then(Value::as_str) else { continue };
+            if !showing.contains(&id) {
+                continue;
+            }
+            say(format!("/states/{i}/notes"), state.get("notes").and_then(Value::as_str), format!("{id}'s notes"));
+            let snap = snapshots.iter().find(|s| s.state_id == id);
+            for node in snap.into_iter().flat_map(|s| s.nodes.keys()) {
+                if !shown.contains(&node.as_str()) {
+                    shown.push(node);
+                }
+                let delta = state.get("props").and_then(|p| p.get(node));
+                let path = format!("/states/{i}/props/{}/alt", esc(node));
+                say(path, alt(delta), format!("{node}'s description in {id}"));
+            }
+        }
+        for node in shown {
+            let own = doc.get("nodes").and_then(|n| n.get(node));
+            say(format!("/nodes/{}/alt", esc(node)), alt(own), format!("{node}'s description"));
+            let over = doc.get("overrides").and_then(|o| o.get(node));
+            say(format!("/overrides/{}/alt", esc(node)), alt(over), format!("{node}'s description"));
+        }
+        out.push(Stale { node: q.node.to_string(), path: q.path, was: was.to_string(), now, words });
     }
     out
 }
 
-/// The patch that sets each figure `stale` found again, and each claim with it.
+/// A node's description where `props` (its own, a state's delta, or its overrides) write one.
+fn alt(props: Option<&Value>) -> Option<&str> {
+    props.and_then(|p| p.get("alt")).and_then(Value::as_str)
+}
+
+/// The patch that sets each figure `stale` found again, and each word that says it with it.
 pub fn requote(stale: &[Stale]) -> Vec<JsonOp> {
     let mut ops = Vec::new();
-    let mut claims: Vec<(String, String)> = Vec::new();
+    let mut words: Vec<(String, String)> = Vec::new();
     for s in stale {
         ops.push(JsonOp::Replace { path: format!("{}/text", s.path), value: Value::String(s.now.clone()) });
-        for (path, claim) in &s.claims {
+        for said in &s.words {
             // Two figures in one claim: the second rewrites what the first left.
-            match claims.iter_mut().find(|(p, _)| p == path) {
+            match words.iter_mut().find(|(p, _)| *p == said.path) {
                 Some((_, so_far)) => *so_far = replaced(so_far, &s.was, &s.now).unwrap_or(so_far.clone()),
-                None => claims.push((path.clone(), claim.clone())),
+                None => words.push((said.path.clone(), said.text.clone())),
             }
         }
     }
-    ops.extend(claims.into_iter().map(|(path, claim)| JsonOp::Replace { path, value: Value::String(claim) }));
+    ops.extend(words.into_iter().map(|(path, text)| JsonOp::Replace { path, value: Value::String(text) }));
     ops
 }
 

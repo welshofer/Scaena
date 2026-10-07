@@ -142,3 +142,28 @@ fn a_figure_that_quotes_the_data_is_set_again_with_its_claim() {
     assert_eq!(deck["spine"]["sections"][1]["beats"][0]["claim"], json!("Pro hit $20.0M in Q3."));
     assert!(set.added.iter().all(|f| f.code != "W427"), "{:?}", set.added);
 }
+
+#[test]
+fn notes_and_descriptions_that_say_a_figure_follow_it() {
+    // PLAN 2.90: where the quoted figure shows (`revenue`), its notes, the beat's notes, and the
+    // chart's description say $19.4M too, and follow it; `intro`, where the title shows no figure,
+    // keeps its notes.
+    let dir = revenue("quote-words");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    deck["states"][1]["props"]["title"]["runs"] = json!([{ "text": "Pro hit " }, { "text": "$19.4", "quote": quote }]);
+    deck["states"][1]["props"]["title"].as_object_mut().unwrap().shift_remove("text");
+    deck["states"][1]["notes"] = json!("Pause on $19.4M: Pro's best quarter.");
+    deck["states"][0]["notes"] = json!("Last year Pro was nowhere near $19.4M.");
+    deck["spine"]["sections"][1]["beats"][0]["notes"] = json!("Say $19.4M slowly.");
+    deck["nodes"]["rev"]["alt"] = json!("Quarterly revenue by product; Pro leads at $19.4M in Q3.");
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 10, "column": "revenue", "value": 20 }]), false).unwrap();
+    assert!(set.edited, "{set:?}");
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(deck["states"][1]["notes"], json!("Pause on $20.0M: Pro's best quarter."));
+    assert_eq!(deck["spine"]["sections"][1]["beats"][0]["notes"], json!("Say $20.0M slowly."));
+    assert_eq!(deck["nodes"]["rev"]["alt"], json!("Quarterly revenue by product; Pro leads at $20.0M in Q3."));
+    assert_eq!(deck["states"][0]["notes"], json!("Last year Pro was nowhere near $19.4M."), "intro shows no figure");
+}

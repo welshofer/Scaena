@@ -447,7 +447,7 @@ state sources slide:revenue
   title runs:[{text: "Revenue "}, {text: "doubled", link: {href: "https://example.com/method"}}, {text: " "}, {text: "again", link: {state: cover}}]
 ```
 
-**A figure from the data.** A run's `quote` makes its words a value of a data source: a row, found by its values or its index (`-1` is the last), and a column, written by a `format`. Write any text for it: every patch and data edit sets it from the data, and the claim of the beat that shows it with it, where the claim says the figure as a word. If the data file changes some other way, lint says so (W427), and `scaena lint --fix` writes the figure (SPEC §3.5):
+**A figure from the data.** A run's `quote` makes its words a value of a data source: a row, found by its values or its index (`-1` is the last), and a column, written by a `format`. Write any text for it: every patch and data edit sets it from the data, and, where they say the figure as a word, the claim and notes of the beat that shows it, the notes of the slide that shows it, and the descriptions of what is shown with it. If the data file changes some other way, lint says so (W427), and `scaena lint --fix` writes the figure (SPEC §3.5):
 
 ```scn
 state pro slide:revenue

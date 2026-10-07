@@ -194,8 +194,9 @@ fn lint_in(
 }
 
 /// W427 (ADR-0019): each figure a run quotes that its data no longer gives, a file changed
-/// behind the deck's back, with the patch that sets it again; and each claim of a beat that
-/// shows the text and holds the old figure, with the claim written again.
+/// behind the deck's back, with the patch that sets it again; and each word that holds the old
+/// figure where the text shows (a beat's claim or notes, a state's notes, a node's description),
+/// written again (PLAN 2.90).
 fn w427(deck: &Deck, data: &DataFiles) -> Vec<Finding> {
     let Ok(doc) = serde_json::to_value(deck) else { return Vec::new() };
     let mut out = Vec::new();
@@ -211,15 +212,18 @@ fn w427(deck: &Deck, data: &DataFiles) -> Vec<Finding> {
             .node(s.node.clone())
             .fix(vec![serde_json::json!({ "op": "replace", "path": text, "value": s.now })]),
         );
-        for (path, claim) in &s.claims {
+        for said in &s.words {
             out.push(
                 Finding::new(
                     "W427",
                     Severity::Warning,
-                    format!("a claim says {}, which `{}` quotes, where its data now gives {}", s.was, s.node, s.now),
+                    format!(
+                        "{} says {}, which `{}` quotes, where its data now gives {}",
+                        said.what, s.was, s.node, s.now
+                    ),
                 )
-                .at(path.clone())
-                .fix(vec![serde_json::json!({ "op": "replace", "path": path, "value": claim })]),
+                .at(said.path.clone())
+                .fix(vec![serde_json::json!({ "op": "replace", "path": said.path, "value": said.text })]),
             );
         }
     }
