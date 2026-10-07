@@ -128,6 +128,13 @@ impl DateLabels {
             })
             .max()?;
         let minutes = dates.iter().any(|t| t.civil().minute != 0);
+        Some(DateLabels::by(unit, minutes))
+    }
+
+    /// How dates `unit` apart print, with `minutes` where any has them: short, and long where
+    /// a label begins a run of the unit above. A time axis's ticks print so too, by the unit
+    /// their step is (PLAN 2.81).
+    fn by(unit: DateUnit, minutes: bool) -> DateLabels {
         let (short, long) = match unit {
             DateUnit::Years => ("%Y", None),
             DateUnit::Months => ("%b", Some("%b %Y")),
@@ -136,7 +143,7 @@ impl DateLabels {
             DateUnit::Times => ("%-I %p", Some("%b %-d, %-I %p")),
         };
         let parse = |f: &str| DateFormat::parse(f).expect("date label formats parse");
-        Some(DateLabels { unit, short: parse(short), long: long.map(parse) })
+        DateLabels { unit, short: parse(short), long: long.map(parse) }
     }
 
     /// How `t` prints alone.
@@ -689,19 +696,27 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
         if temporal { (a, b) } else { scale::nice(a, b, tick_count, [true, true]) }
     });
     // A time axis's ticks step by a unit of the calendar, which its labels thin by (below).
+    // With no `x.format`, each prints by that unit as a category axis's dates do (PLAN 2.81):
+    // short, and long where it begins a run of its year among the labels kept. A tick is keyed
+    // by its date written whole, which no other tick shares.
     let mut tick_unit = None;
+    let mut time_labels: Option<(DateLabels, Vec<DateTime>)> = None;
     let x_ticks: Vec<(f64, String)> = match x_extent {
         Some((a, b)) if temporal => {
             let (ticks, interval) = scale::time_ticks(DateTime(a as i64), DateTime(b as i64), tick_count);
-            tick_unit = Some(match interval {
+            let unit = match interval {
                 scale::Interval::Hours(_) => DateUnit::Times,
                 scale::Interval::Days(_) => DateUnit::Days,
                 scale::Interval::Months(_) => DateUnit::Months,
                 scale::Interval::Years(_) => DateUnit::Years,
-            });
+            };
+            tick_unit = Some(unit);
             let f = match &x_format {
                 Some(CategoryFormat::Date(f)) => f.clone(),
-                _ => DateFormat::parse(interval.format()).expect("interval formats parse"),
+                _ => {
+                    time_labels = Some((DateLabels::by(unit, false), ticks.clone()));
+                    DateFormat::parse(interval.format()).expect("interval formats parse")
+                }
             };
             ticks.into_iter().map(|t| (t.0 as f64, f.format(t, locale))).collect()
         }
@@ -718,8 +733,9 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
     // Under a band, a date with no format prints short (`Feb`), or long (`Jan 2026`) where
     // it begins a run of its year among the labels the axis keeps, which depends on how
     // crowded they are (below): so each is set both ways where it could begin one.
-    let periods: Vec<Option<i64>> = match &date_labels {
-        Some(d) if !continuous => category_dates.iter().map(|t| t.map(|t| d.period(t))).collect(),
+    let periods: Vec<Option<i64>> = match (&date_labels, &time_labels) {
+        (Some(d), _) if !continuous => category_dates.iter().map(|t| t.map(|t| d.period(t))).collect(),
+        (_, Some((d, dates))) if continuous => dates.iter().map(|t| Some(d.period(*t))).collect(),
         _ => Vec::new(),
     };
     let one_period = periods.iter().flatten().collect::<BTreeSet<_>>().len() <= 1;
@@ -734,13 +750,28 @@ pub fn compile(cx: &mut Ctx, props: &Props, size: [f32; 2]) -> Result<ChartLayou
                 Ok((k.clone(), set(text, &tick_role)?))
             })
             .collect::<Result<_, EngineError>>()?,
-        (true, true) => x_ticks
-            .iter()
-            .map(|(_, t)| Ok((t.clone(), set(t.clone(), &tick_role)?)))
+        (true, true) => (x_ticks.iter().enumerate())
+            .map(|(i, (_, key))| {
+                let text = match &time_labels {
+                    Some((d, dates)) => d.short.format(dates[i], locale),
+                    None => key.clone(),
+                };
+                Ok((key.clone(), set(text, &tick_role)?))
+            })
             .collect::<Result<_, EngineError>>()?,
     };
-    let x_longs: Vec<Option<TextLayout>> = match (&date_labels, x_show && !continuous) {
-        (Some(DateLabels { long: Some(long), .. }), true) => (category_dates.iter().enumerate())
+    // Each date set long too where it could begin a run of its year: under a band, or at a tick.
+    let dates: Vec<Option<DateTime>> = match (&time_labels, continuous) {
+        (Some((_, dates)), true) => dates.iter().copied().map(Some).collect(),
+        _ => category_dates.clone(),
+    };
+    let long = match (&date_labels, &time_labels, continuous) {
+        (Some(DateLabels { long: Some(long), .. }), _, false) => Some(long),
+        (_, Some((DateLabels { long: Some(long), .. }, _)), true) => Some(long),
+        _ => None,
+    };
+    let x_longs: Vec<Option<TextLayout>> = match (long, x_show) {
+        (Some(long), true) => (dates.iter().enumerate())
             .map(|(i, t)| match t {
                 Some(t) if i == 0 || !one_period => set(long.format(*t, locale), &tick_role).map(Some),
                 _ => Ok(None),
