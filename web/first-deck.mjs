@@ -10,6 +10,7 @@
 //   its words typed where it stands.
 // - + Slide, then a body text typed as three lines and made a bulleted list with ⌘⇧8.
 // - A CSV dropped on the slide becomes the deck's data source, and a chart of it lands there; the
+//   same file again is another chart of it, not a second source, and one undo takes it out; the
 //   Data tab shows its rows.
 // - + Slide, and a photo dropped on it is put there.
 // - A motion from the cue's menu on the title.
@@ -198,6 +199,26 @@ try {
     check(/^data visits "data\/visits\.csv"/m.test(text), `a CSV dropped on the slide becomes the deck's data source @visits: ${await status()}`);
     const chart = (await shownNodes()).find((n) => !nodes.includes(n));
     check(chart === "visits-chart" && /visits-chart chart:line data:@visits/.test(text), `and a chart of it lands where it was dropped: ${chart}`);
+  });
+
+  await step("data-again", async () => {
+    // The same CSV dropped again is the source that reads it: another chart of @visits, and no
+    // second source. One undo takes the chart out.
+    const before = await mark();
+    const nodes = await shownNodes();
+    await dropFile("#overlay", await client([400, 800]), "visits.csv", "text/csv", Buffer.from(csv));
+    await changed(before);
+    const text = await source();
+    const chart = (await shownNodes()).find((n) => !nodes.includes(n));
+    check(
+      (text.match(/^data /gm) ?? []).length === 1 && new RegExp(`^\\s*${chart} chart:line data:@visits`, "m").test(text),
+      `the same CSV again is another chart of @visits, not a second source: ${chart} · ${await status()}`,
+    );
+    const again = await mark();
+    await page.locator("#overlay").focus();
+    await page.keyboard.press("Control+z");
+    await changed(again);
+    check((await source()) === before.source, `one undo takes the chart out: ${await status()}`);
   });
 
   await step("data-tab", async () => {

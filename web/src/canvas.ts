@@ -2242,22 +2242,25 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     });
   }
   /** A data file dropped on the canvas joins the bundle as a source, as `data_attach` declares
-   * it, one change; a chart of it goes where it was dropped, as Insert inserts one, another. */
+   * it, one change; a chart of it goes where it was dropped, as Insert inserts one, another. The
+   * same file again is the source that reads it, and other rows under its name go beside it. */
   async function attach(at: [number, number], file: File) {
     try {
-      const path = await stage.drop(file.name, await file.arrayBuffer());
-      const { attached, patch } = await stage.attaching(editor.source(), path);
-      if (!patch.length) {
-        const why = attached.added.map((f) => `${f.code} ${f.message}`).join("; ");
-        return editor.say(`${file.name} not attached: ${why || "the deck would not validate with it"}`);
+      const { path, data, attached, patch } = await stage.attaching(editor.source(), file.name, await file.arrayBuffer());
+      let made = `${file.name} is @${data} already`;
+      if (attached) {
+        if (!patch.length) {
+          const why = attached.added.map((f) => `${f.code} ${f.message}`).join("; ");
+          return editor.say(`${file.name} not attached: ${why || "the deck would not validate with it"}`);
+        }
+        made = `${file.name} attached as @${data}, ${attached.rows} rows${path.endsWith(`/${file.name}`) ? "" : `, kept as ${path}`}`;
+        if (!(await change(patch, "attaching…", made, null))) return;
       }
-      const made = `${file.name} attached as @${attached.id}, ${attached.rows} rows`;
-      if (!(await change(patch, "attaching…", made, null))) return;
       offered = await stage.inserts();
-      const n = offered.findIndex((i) => i.node.type === "chart" && i.node.data === `@${attached.id}`);
+      const n = offered.findIndex((i) => i.node.type === "chart" && i.node.data === `@${data}`);
       if (n < 0) return editor.say(`${made}: Insert offers a table of it, since its columns make no chart`);
       pointed = at;
-      await inserting(n, `a chart of @${attached.id}`);
+      await inserting(n, `a chart of @${data}`);
     } catch (e) {
       editor.say(`not attached: ${said(e)}`);
     }

@@ -737,11 +737,11 @@ export class Stage {
     return this.request<"dropped">({ type: "drop", id: ++this.asked, name, bytes }).then(({ path }) => path);
   }
 
-  /** `path`, a data file the bundle holds, declared as a source of the deck `source` compiles to,
-   * as `data_attach` declares it: what it says, and the patch that declares it, which `make`
-   * applies; the patch is empty where it is refused. */
-  attaching(source: string, path: string): Promise<{ attached: Attached; patch: unknown[] }> {
-    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, path }).then(({ attached, patch }) => ({ attached, patch }));
+  /** A data file dropped on the canvas, into the bundle at `path`, as the source `data` of the
+   * deck `source` compiles to: one it declares already (no `attached`), or one declared as
+   * `data_attach` declares it, by the patch, which `make` applies; empty where it is refused. */
+  attaching(source: string, name: string, bytes: ArrayBuffer): Promise<{ path: string; data: string; attached: Attached | null; patch: unknown[] }> {
+    return this.request<"attached">({ type: "attaching", id: ++this.asked, source, name, bytes }).then(({ path, data, attached, patch }) => ({ path, data, attached, patch }));
   }
 
   /** Ask the assistant `asking.text` about the deck `source` says, which must compile and

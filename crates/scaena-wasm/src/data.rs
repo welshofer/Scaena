@@ -13,12 +13,16 @@ use scaena_ops::lint::Why;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// A data file the bundle holds, declared as a source (the first-deck walk): what `data_attach`
-/// says of it, and the patch that declares it, which the page applies as it applies any edit on
-/// the canvas, one change and one undo. The patch is empty where the declaration is refused.
+/// A data file dropped on the canvas (PLAN 2.76): where it is in the bundle, the source a chart
+/// of it reads (its `data` less the `@`), and, where that source is new, what `data_attach` says
+/// of it and the patch that declares it, which the page applies as it applies any edit on the
+/// canvas, one change and one undo. A source the deck declares already for the file has neither;
+/// a declaration refused has an empty patch.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Attaching {
-    pub attached: Attached,
+    pub path: String,
+    pub data: String,
+    pub attached: Option<Attached>,
     pub patch: Vec<Value>,
 }
 
@@ -58,13 +62,32 @@ impl Session {
         Ok(())
     }
 
-    /// `path`, a data file the bundle holds (a CSV or JSON file dropped on the canvas), declared
-    /// as a source as `data_attach` declares it: under an id made from its name and new to the
-    /// deck's sources, each column typed as narrowly as its values allow. Nothing is written
-    /// here: the page applies the patch.
+    /// Where a data file dropped on the canvas goes (PLAN 2.76): where `place` puts it, under
+    /// `data/` by its own name, unless the bundle holds other bytes there; then `-2`, `-3`, …
+    /// before its extension, so no source the deck declares reads other rows than it did.
+    pub fn placing(&self, name: &str, bytes: &[u8]) -> String {
+        let first = scaena_store::place(name, bytes);
+        let (stem, ext) = match first.rsplit_once('.') {
+            Some((stem, ext)) if !stem.ends_with('/') => (stem.to_string(), format!(".{ext}")),
+            _ => (first.clone(), String::new()),
+        };
+        (1..)
+            .map(|n| if n == 1 { first.clone() } else { format!("{stem}-{n}{ext}") })
+            .find(|path| self.files.get(path).is_none_or(|held| held[..] == *bytes))
+            .expect("some number is free")
+    }
+
+    /// `path`, a data file the bundle holds (a CSV or JSON file dropped on the canvas), as the
+    /// source a chart of it reads: the one the deck declares for it, or one declared as
+    /// `data_attach` declares it, under an id made from its name and new to the deck's sources,
+    /// each column typed as narrowly as its values allow. Nothing is written here: the page
+    /// applies the patch.
     pub fn attaching(&self, path: &str) -> Result<Attaching, Error> {
         let bytes =
             (self.files.get(path).cloned()).ok_or_else(|| Error::Ops(format!("the bundle holds no `{path}`")))?;
+        if let Some(id) = self.deck.data.iter().find(|(_, d)| d.source.as_str() == Some(path)).map(|(id, _)| id) {
+            return Ok(Attaching { path: path.into(), data: id.clone(), attached: None, patch: vec![] });
+        }
         let stem = std::path::Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("data");
         let base = scaena_core::inserts::slug(stem, "data");
         let id = (1..)
@@ -79,11 +102,11 @@ impl Session {
             None => vec![],
             // A deck with no data source has no `data` to add one to.
             Some(source) if self.deck.data.is_empty() => {
-                vec![json!({ "op": "add", "path": "/data", "value": { id: source } })]
+                vec![json!({ "op": "add", "path": "/data", "value": { id.clone(): source } })]
             }
             Some(source) => vec![json!({ "op": "add", "path": format!("/data/{id}"), "value": source })],
         };
-        Ok(Attaching { attached, patch })
+        Ok(Attaching { path: path.into(), data: id, attached: Some(attached), patch })
     }
 
     /// The deck's data sources, in its order, each with the file it is: none for rows written
