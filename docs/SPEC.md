@@ -1344,7 +1344,7 @@ Player: keyboard/remote navigation, state scrubber, presenter view in a second w
 
 #### 9.2.3 The editor
 
-Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in CodeMirror 6, with a `.scn` mode, and the preview as a canvas that edits by patches (PLAN 2.31).
+Editor v1 (PLAN 2.3, `web/editor.html`): the deck as canonical `.scn` (§4) in CodeMirror 6, with a `.scn` mode, and the preview as a canvas that edits by patches (PLAN 2.31). The canvas comes first (PLAN 2.80): the page is the source at the left, the canvas with its controls and findings in the middle, and the inspector's tabs at the right, and the source folds away, the canvas taking its room. It opens folded, or as the address asks (`?source=open`), or as the browser last left it; Source and ⌘\ open and fold it, and a finding that stands in the source opens it there.
 
 - **Each edit** compiles in the worker as it is typed (`scaena-ops`' compile, ADR-0009). A source that does not compile says where, and the preview keeps the deck it had. A deck that validates is shown from then on.
 - **The preview** shows the state the cursor is in, at rest: the last state whose `state` line starts at or before it.

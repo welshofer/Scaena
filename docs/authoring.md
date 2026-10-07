@@ -53,7 +53,7 @@ Serve the site folder and open `editor.html`. Once it has opened, the site works
 cd target/site && python3 serve.py      # then open http://localhost:8080/editor.html
 ```
 
-- **Edit.** The deck is on the left, as `.scn`.
+- **Edit.** The slide comes first: the editor opens with the canvas in the middle and the inspector at the right. **Source** (or ⌘\) opens the deck at the left, as `.scn`, and folds it away again; the editor remembers which you left it.
   - Each keystroke compiles. Source that does not compile says where, and the preview keeps the last deck that did.
   - The state picker jumps to a state's line.
   - The format picker shows the deck in each of its `formats`.
