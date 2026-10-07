@@ -192,38 +192,36 @@ try {
     const clock = await presenter.textContent("#clock");
     await until(presenter, "its clock runs", (c) => document.querySelector("#clock").textContent !== c, clock, 5000);
     check(true, `its clock runs: ${clock} → ${await presenter.textContent("#clock")}`);
-    // Its keys steer the player, and it follows. Each going on starts at rest: during a cue,
-    // on finishes the cue instead, and a player behind the presenter view's window may get no
-    // frames to finish it by. Going back, End, and Home come to rest at once.
+    // Its keys and buttons steer the player. Going on plays the next state's cue and then its
+    // hold, after which the deck goes on by itself; going back, End, and Home show a state at
+    // rest, where it stays. So each going on starts at rest and goes back at once: the walk
+    // never races the deck's own holds, nor needs the cue to play out, which a player behind the
+    // presenter view's window may get no frames for.
     await presenter.bringToFront();
-    await presenter.keyboard.press("ArrowRight");
-    await goes(player, 1, "the presenter view's → steers the player");
-    await followed(1);
-    await presenter.keyboard.press("ArrowLeft");
-    await goes(player, 0, "the presenter view's ← steers the player");
-    await presenter.keyboard.press(" ");
-    await goes(player, 1, "the presenter view's Space steers the player");
-    await presenter.keyboard.press("ArrowLeft");
-    await goes(player, 0, "and back");
+    const steer = async (act, to, what) => {
+      await act();
+      await goes(player, to, what);
+    };
+    await steer(() => presenter.keyboard.press("ArrowRight"), 1, "the presenter view's → steers the player");
+    await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "the presenter view's ← steers the player");
+    await steer(() => presenter.keyboard.press(" "), 1, "the presenter view's Space steers the player");
+    await steer(() => presenter.keyboard.press("ArrowLeft"), 0, "and back");
     check(true, "its →, ←, and Space steer the player");
-    await presenter.click("#on");
-    await goes(player, 1, "its ▶");
-    await presenter.click("#back");
-    await goes(player, 0, "its ◀");
+    await steer(() => presenter.click("#on"), 1, "its ▶");
+    await steer(() => presenter.click("#back"), 0, "its ◀");
     check(true, "its ▶ and ◀ steer the player");
-    await presenter.keyboard.press("End");
-    await goes(player, states.length - 1, "the presenter view's End");
-    await presenter.keyboard.press("Home");
-    await goes(player, 0, "the presenter view's Home");
+    await steer(() => presenter.keyboard.press("End"), states.length - 1, "the presenter view's End");
+    await steer(() => presenter.keyboard.press("Home"), 0, "the presenter view's Home");
     check(true, "its End and Home go to the last and the first, as the player's do");
-    // The presenter view follows the player where the player goes by itself.
-    // The player steered by its own ▶: a click lands where it is pressed, while a key goes
-    // where the window's focus is, which the presenter view's window may hold.
+    // The presenter view follows the player where the player is taken: a click in the
+    // scrubber's fifth step, which shows that state and stays there. A click lands where it is
+    // pressed, while a key goes where the focus is, which the presenter view's window may hold.
     await player.bringToFront();
-    await player.click("#on");
-    await goes(player, 1);
-    await followed(1);
-    check((await presenter.textContent("#notes")) === notesOf(states[1]) && (await presenter.textContent("#nextName")) === `Next: ${states[2]}`, `it follows the player to ${states[1]}: its notes, and ${states[2]} next`);
+    const bar = await player.locator("#scrub").boundingBox();
+    await player.mouse.click(bar.x + (bar.width * 4.5) / states.length, bar.y + bar.height / 2);
+    await goes(player, 4, "a click on the player's scrubber");
+    await followed(4);
+    check((await presenter.textContent("#notes")) === notesOf(states[4]) && (await presenter.textContent("#nextName")) === `Next: ${states[5]}`, `it follows the player to ${states[4]}: its notes, and ${states[5]} next`);
     await snap(presenter, "presenter-view");
   });
   await presenter?.close();
