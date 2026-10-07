@@ -831,7 +831,10 @@ pub struct Added {
 /// node entering there, then `place`. A text or an image fills the template's slot under `at`
 /// (canvas units) where no node of the state's is placed in it; anything else, or a text where
 /// the slot is filled, takes the box it starts as, about `at`, snapped to the theme's grid as a
-/// drop snaps; a shader fills the slot it names. `room` is the engine's for the new node in
+/// drop snaps; a shader fills the slot it names. What draws content (a text, an image, a chart,
+/// a table) and would overlap what is `crowded` there (`Scene::crowded`, what lint E101 judges
+/// it against) goes instead to the place on the grid clear of it whose middle is nearest `at`,
+/// and stays about `at` where none is (PLAN 2.79). `room` is the engine's for the new node in
 /// `deck` (`Engine::room`), its cell the box `insert` starts as.
 pub fn inserting(
     deck: &Deck,
@@ -839,16 +842,22 @@ pub fn inserting(
     insert: &Insert,
     state: &str,
     at: [f32; 2],
+    crowded: &[[f32; 4]],
 ) -> Result<Added, OpsError> {
     let target = match &insert.start {
         Start::Box { .. } => {
-            let content = matches!(insert.node["type"].as_str(), Some("text" | "image"));
+            let kind = insert.node["type"].as_str();
+            let content = matches!(kind, Some("text" | "image"));
             let empty = if content { empty_slot(deck, room, state, at)? } else { None };
             match empty {
                 Some(rect) => room.snap(Snap::Slot, rect),
                 None => {
                     let [_, _, w, h] = room.cell;
-                    room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h])
+                    let about = room.snap(Snap::Move, [at[0] - w / 2.0, at[1] - h / 2.0, w, h]);
+                    match kind {
+                        Some("text" | "image" | "chart" | "table") => roomy(room, about, crowded, at),
+                        _ => about,
+                    }
                 }
             }
         }
@@ -859,6 +868,40 @@ pub fn inserting(
         }
     };
     added(room, insert.node.clone(), state, target)
+}
+
+/// `about`, where it is clear of `crowded`; else the place on `room`'s grid for a box its size,
+/// clear of it, whose middle is nearest `at`; else `about`, where there is none (PLAN 2.79). Two
+/// boxes are clear of each other as lint E101 has them: overlapping by 2 cu or less either way.
+fn roomy(
+    room: &scaena_engine::geometry::Targets,
+    about: Option<scaena_engine::geometry::Target>,
+    crowded: &[[f32; 4]],
+    at: [f32; 2],
+) -> Option<scaena_engine::geometry::Target> {
+    let about = about?;
+    let clear = |c: &[f32; 4]| {
+        crowded.iter().all(|o| {
+            let w = (c[0] + c[2]).min(o[0] + o[2]) - c[0].max(o[0]);
+            let h = (c[1] + c[3]).min(o[1] + o[3]) - c[1].max(o[1]);
+            w <= 2.0 || h <= 2.0
+        })
+    };
+    if clear(&about.cell) {
+        return Some(about);
+    }
+    let [_, _, w, h] = about.cell;
+    let far = |t: &scaena_engine::geometry::Target| {
+        let [x, y, w, h] = t.cell;
+        let (dx, dy) = (x + w / 2.0 - at[0], y + h / 2.0 - at[1]);
+        dx * dx + dy * dy
+    };
+    let places = room.columns.iter().flat_map(|c| room.rows.iter().map(move |r| [c[0], r[0], w, h]));
+    places
+        .filter_map(|p| room.snap(Snap::Move, p))
+        .filter(|t| clear(&t.cell))
+        .min_by(|a, b| far(a).total_cmp(&far(b)))
+        .or(Some(about))
 }
 
 /// The patch that draws `insert` in `state` as `room`'s node (PLAN 2.48): `add_node`, the node
@@ -877,7 +920,7 @@ pub fn drawing(
     free: bool,
 ) -> Result<Added, OpsError> {
     if matches!(insert.start, Start::Slot(_)) {
-        return inserting(deck, room, insert, state, from);
+        return inserting(deck, room, insert, state, from, &[]);
     }
     let drawn = [from[0].min(to[0]), from[1].min(to[1]), (to[0] - from[0]).abs(), (to[1] - from[1]).abs()];
     let target = room.snap(if free { Snap::Free } else { Snap::Resize }, drawn);

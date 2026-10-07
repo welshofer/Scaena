@@ -252,7 +252,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "inserting":
         current(data.source);
         layOut(data.format);
-        return post({ type: "adding", id: data.id, added: JSON.parse(player.inserting(data.state, data.n, ...data.at)) as Added });
+        return post({ type: "adding", id: data.id, added: JSON.parse(player.inserting(data.state, data.n, ...data.at, data.named)) as Added });
       case "drawing":
         current(data.source);
         layOut(data.format);

@@ -1063,6 +1063,9 @@ Checkboxes are the live task list. Claude Code: when you finish a task, tick it,
 
       What the walk raised that is no bug went to Jay as a product question: a role set in capitals copies from the PDF in capitals, while the live region reads the text as written ("ANNUAL MEETING" against "Annual meeting").
 
+- [x] 2.79 Insert and a drop find room, and a dropped picture is named after its file (Jay, 2026-10-07: as the 2.76 walk recommended).
+    - Done. Content inserted or dropped where its box would overlap what lint E101 judges it against goes to the place on the grid clear of it whose middle is nearest the pointer, and stays at the pointer where none is: `Scene::crowded` gives what stacks at `z` 0 at the root, text by its lines as set, less decorations (E101's own ink box, now `SceneNode::ink`), and `scaena_ops::inspect::inserting` takes the clear place. Shapes and shaders still land at the pointer: lint never calls them overlapping. A picture dropped from the desktop takes its file's name as its id (`Trail Head.jpg` is `trail-head`), its file still named by its SHA-256 (`Player.inserting`'s `named`). Checked by the WASM session's insert test (free ground, the chart in `revenue`'s middle, a named drop) and `web/image.mjs` (a PNG dropped on a text lands clear of its words, named `ridge`), and `web/insert.mjs` (a headline pressed on the chart goes to the room above it). The editor's module is 2,858.57 kB gzipped, 2.8 kB more.
+
 ### Exit criteria (gate 2)
 *(Evidence so far, and the runs that close it: `docs/gate-2.md`.)*
 1. A deck authored in Phase 1 plays at 60 fps on WebGPU in Chrome and Safari 26+, and on the CPU fallback in Firefox at 60 fps where a cue draws no shader and 30 where it draws one (the bar Jay set on 2026-10-04: `docs/gate-2.md`).
