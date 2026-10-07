@@ -1591,6 +1591,11 @@ fn a_quote_sets_its_figure_from_the_data_and_every_patch_sets_it_again() {
     let doc = patch(&example(), json!([op])).unwrap().doc;
     let runs = &doc["states"][1]["props"]["title"]["runs"];
     assert_eq!(runs, &json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote }]));
+    // Words first made a quote were no figure: the claim that says them is left as it is (PLAN 2.77).
+    let mut said = example();
+    said["spine"]["sections"][1]["beats"][0]["claim"] = json!("Revenue doubled year over year.");
+    let quoted = patch(&said, json!([op])).unwrap().doc;
+    assert_eq!(quoted["spine"]["sections"][1]["beats"][0]["claim"], json!("Revenue doubled year over year."));
     assert_eq!(errors(&doc), Vec::<String>::new());
 
     // Typed beside it, words of their own; typed into it, the figure is words.
