@@ -144,6 +144,9 @@ fn lint_in(
     formats.extend(deck.formats.iter().map(|f| Some(f.as_str())));
     // Each format's timeline, as laid out: where a shader's clock puts each state.
     let mut timelines: Vec<(Option<&str>, Timeline)> = Vec::new();
+    // Each run of a node's own text that read too faintly, in any format: what a color that
+    // fixes the node must read over (PLAN 2.82).
+    let mut faint = std::collections::BTreeMap::new();
     let result = (|| {
         for format in formats {
             let (d, t) = project(deck, theme, format)?;
@@ -170,7 +173,7 @@ fn lint_in(
                 out.extend(rule.check(&cx));
             }
             if let Some(b) = backdrop.as_deref_mut() {
-                out.extend(contrast::check(&cx, b)?);
+                out.extend(contrast::check(&cx, b, &mut faint)?);
             }
         }
         Ok(())
@@ -179,7 +182,7 @@ fn lint_in(
     // Text that reads too faintly, with the color that reads (PLAN 2.82): judged once lint
     // has found it in every format.
     let result = result.and_then(|()| match backdrop {
-        Some(b) => contrast::recolor(engine, (deck, theme, data), &timelines, b, &mut out),
+        Some(b) => contrast::recolor(engine, (deck, theme, data), &timelines, &faint, b, &mut out),
         None => Ok(()),
     });
     // Quoted figures are the same in every format: judged once, and each fix is the figure.

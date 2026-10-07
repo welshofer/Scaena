@@ -319,6 +319,15 @@ fn read(ratios: &Ratios, under: &[([u8; 3], u64)]) -> Option<(f64, [u8; 3])> {
     seen.last().map(|&(r, _, bg)| (r, bg))
 }
 
+/// Whether text reads over what lies `under` it at `needs`: as [`read`] judges it, without
+/// sorting. Its contrast at the `SPARE` quantile is below `needs` exactly where more than
+/// `SPARE` of its glyphs' coverage lies over colors it reads below `needs` on.
+fn reads(ratios: &Ratios, under: &[([u8; 3], u64)], needs: f64) -> bool {
+    let total: u64 = under.iter().map(|&(_, cover)| cover).sum();
+    let below: u64 = under.iter().filter(|&&(bg, _)| ratios.over(bg) < needs).map(|&(_, cover)| cover).sum();
+    below as f64 <= total as f64 * SPARE
+}
+
 /// When `state`'s text is judged, ms on the global timeline: at rest, and where a shader
 /// draws, at the end of the state's hold too, where it has moved most.
 fn times(state: &Laid) -> Vec<f64> {
@@ -382,8 +391,22 @@ struct Worst {
     states: Vec<String>,
 }
 
-/// E110 and E111 over every state of the deck as laid out in this format.
-pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, EngineError> {
+/// A run of a node's own text that read too faintly, as lint read it: what lies under its
+/// glyphs, the opacity its color is laid on at, and what it needs. A color that fixes the node
+/// reads over this at the least (PLAN 2.82).
+pub(super) struct Faint {
+    under: Vec<([u8; 3], u64)>,
+    opacity: f64,
+    needs: f64,
+}
+
+/// E110 and E111 over every state of the deck as laid out in this format; and into `faint`,
+/// each run of a node's own text that fails, by its node.
+pub fn check(
+    cx: &Cx,
+    backdrop: &mut dyn Backdrop,
+    faint: &mut BTreeMap<String, Vec<Faint>>,
+) -> Result<Vec<Finding>, EngineError> {
     let scale = SIDE / cx.deck.canvas.width.min(cx.deck.canvas.height) as f32;
     // Each node (each kind of a chart's text) once per format: its worst state, and
     // every state it fails in.
@@ -405,12 +428,17 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
                 let alpha = run.alpha.clamp(0.0, 1.0);
                 let key = [run.color[0], run.color[1], run.color[2], alpha].map(f64::to_bits);
                 let ratios = tables.entry(key).or_insert_with(|| Ratios::new(run.color, alpha));
-                let Some((r, bg)) = read(ratios, &under(run.rect, &px, ink, scale)) else { continue };
+                let under = under(run.rect, &px, ink, scale);
+                let Some((r, bg)) = read(ratios, &under) else { continue };
                 let needs = if run.display { 3.0 } else { 4.5 };
                 if r >= needs {
                     continue;
                 }
                 failed.insert(&run.subject);
+                if run.subject.1.is_none() {
+                    let reading = Faint { under, opacity: run.opacity, needs };
+                    faint.entry(run.subject.0.clone()).or_default().push(reading);
+                }
                 let reading = Worst {
                     ratio: r,
                     said: run.said.clone(),
@@ -470,6 +498,9 @@ pub fn check(cx: &Cx, backdrop: &mut dyn Backdrop) -> Result<Vec<Finding>, Engin
         .collect())
 }
 
+/// A color of the theme, under the name an inspector offers it by.
+type Named = (String, Color);
+
 /// A bundle with no files: a `choose` of a color reads none.
 struct Nothing;
 
@@ -504,6 +535,7 @@ pub(super) fn recolor(
     engine: &mut Engine,
     (deck, theme, data): (&Deck, &Theme, &DataFiles),
     timelines: &[(Option<&str>, Timeline)],
+    faint: &BTreeMap<String, Vec<Faint>>,
     backdrop: &mut dyn Backdrop,
     findings: &mut [Finding],
 ) -> Result<(), EngineError> {
@@ -526,9 +558,46 @@ pub(super) fn recolor(
     if nodes.is_empty() {
         return Ok(());
     }
-    let doc = serde_json::to_value(deck).map_err(|e| EngineError::Layout(e.to_string()))?;
+    // The deck's JSON, which a choice compiles against, made once a color passes the screen.
+    let mut doc: Option<Value> = None;
+    // The theme's colors, each once, in the order an inspector offers them: its roles, then
+    // its tokens.
+    let mut colors: Vec<Named> = Vec::new();
+    for name in theme.names(Vocabulary::Color) {
+        if let Ok(color) = theme.color(&name)
+            && !colors.iter().any(|(_, c)| *c == color)
+        {
+            colors.push((name, color));
+        }
+    }
+    let mut tables: BTreeMap<[u64; 4], Ratios> = BTreeMap::new();
     for (node, state) in nodes {
-        let Some(fix) = recolored(engine, (deck, &doc, theme, data), timelines, backdrop, &node, &state) else {
+        // A color fixes the node only where its runs that failed read in it, were each to take
+        // it: those colors alone are judged where the choice reaches, which lays states out and
+        // paints them. Text over a shader's whole gradient reads in none, and costs no more.
+        let failed = faint.get(&node).map_or(&[][..], Vec::as_slice);
+        let reading: Vec<&Named> = colors
+            .iter()
+            .filter(|(_, color)| {
+                let [r, g, b, a] = color.0.map(|v| f64::from(v) / 255.0);
+                failed.iter().all(|run| {
+                    let alpha = (a * run.opacity).clamp(0.0, 1.0);
+                    let key = [r, g, b, alpha].map(f64::to_bits);
+                    let ratios = tables.entry(key).or_insert_with(|| Ratios::new([r, g, b], alpha));
+                    alpha <= 0.0 || reads(ratios, &run.under, run.needs)
+                })
+            })
+            .collect();
+        if failed.is_empty() || reading.is_empty() {
+            continue;
+        }
+        let doc = match &mut doc {
+            Some(doc) => doc,
+            none => none.insert(serde_json::to_value(deck).map_err(|e| EngineError::Layout(e.to_string()))?),
+        };
+        let Some(fix) =
+            recolored(engine, (deck, doc, theme, data), timelines, (&colors, &reading), backdrop, &node, &state)
+        else {
             continue;
         };
         let about = |f: &&mut Finding| matches!(f.code.as_str(), "E110" | "E111") && f.node.as_deref() == Some(&node);
@@ -546,6 +615,7 @@ fn recolored(
     engine: &mut Engine,
     (deck, doc, theme, data): (&Deck, &Value, &Theme, &DataFiles),
     timelines: &[(Option<&str>, Timeline)],
+    (colors, reading): (&[Named], &[&Named]),
     backdrop: &mut dyn Backdrop,
     node: &str,
     state: &str,
@@ -554,16 +624,6 @@ fn recolored(
         let op = json!({ "op": "choose", "node": node, "state": state, "prop": "style/color", "value": name });
         scaena_core::patch::compile_alone(doc, &[op], &Nothing).ok()
     };
-    // The theme's colors, each once, in the order an inspector offers them: its roles, then
-    // its tokens.
-    let mut colors: Vec<(String, Color)> = Vec::new();
-    for name in theme.names(Vocabulary::Color) {
-        if let Ok(color) = theme.color(&name)
-            && !colors.iter().any(|(_, c)| *c == color)
-        {
-            colors.push((name, color));
-        }
-    }
     let snaps = scaena_core::resolve_states(deck).ok()?;
     let index = snaps.iter().position(|s| s.state_id == state)?;
     // The node's runs as `state` sets them now. A color none of them has, chosen, changes the
@@ -639,7 +699,7 @@ fn recolored(
     // The color whose worst reading is best, among those every run reads in; the first such.
     let mut tables: BTreeMap<[u64; 4], Ratios> = BTreeMap::new();
     let mut best: Option<(f64, &str)> = None;
-    'colors: for (name, color) in &colors {
+    'colors: for &(name, color) in reading {
         let [r, g, b, a] = color.0.map(|v| f64::from(v) / 255.0);
         let mut worst = f64::INFINITY;
         for run in &runs {
@@ -688,6 +748,41 @@ fn rested(deck: &Deck, snaps: &[Snapshot], index: usize, scene: crate::sample::S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `reads` says what `read` says, without sorting: text reads at `needs` exactly where its
+    /// contrast at the `SPARE` quantile does. Over colors drawn from a fixed sequence, each
+    /// covered from a sliver to a whole pixel, for text light, dark, and between, at each bar.
+    #[test]
+    fn reads_is_read_at_the_bar() {
+        let mut seed = 0x2545_f491_u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        // How many times it read, and how many it did not: the test holds both.
+        let mut verdicts = [0, 0];
+        for (color, alpha) in [([0.95, 0.94, 0.91], 1.0), ([0.06, 0.05, 0.08], 1.0), ([0.5, 0.42, 0.37], 0.8)] {
+            let ratios = Ratios::new(color, alpha);
+            for size in [1, 2, 7, 50, 400] {
+                for _ in 0..40 {
+                    let mut under: BTreeMap<[u8; 3], u64> = BTreeMap::new();
+                    for _ in 0..size {
+                        let v = next();
+                        *under.entry([v as u8, (v >> 8) as u8, (v >> 16) as u8]).or_default() += 1 + (v >> 24) % 255;
+                    }
+                    let under: Vec<([u8; 3], u64)> = under.into_iter().collect();
+                    for needs in [3.0, 4.5] {
+                        let want = read(&ratios, &under).is_none_or(|(r, _)| r >= needs);
+                        assert_eq!(reads(&ratios, &under, needs), want, "{size} colors at {needs}");
+                        verdicts[usize::from(want)] += 1;
+                    }
+                }
+            }
+        }
+        assert!(verdicts.iter().all(|&n| n > 100), "both verdicts, often: {verdicts:?}");
+    }
 
     /// `Ratios` gives what `judge` worked out for each pixel before it, [`ratio`] of the text
     /// blended over the pixel and the pixel, bit for bit: every byte of each channel, beside
