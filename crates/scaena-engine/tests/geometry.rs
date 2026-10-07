@@ -525,3 +525,38 @@ fn a_shapes_outline_is_its_points_and_its_corners() {
     let text = scene.nodes.iter().find(|n| !matches!(n.content, scaena_engine::sample::Content::Shape(_))).unwrap();
     assert!(scene.outline(&text.id, &theme).is_none());
 }
+
+/// An image as a pointer crops it (PLAN 2.74), on the `images` case: where its whole is drawn, at
+/// the scale its crop and fit draw it, holds its crop where the part that shows is drawn, and its
+/// focal point, drawn where it is, is the point of the image there.
+#[test]
+fn an_image_is_framed_as_it_is_drawn() {
+    let scene = at_rest("images", None);
+    let near = |a: Rect, b: Rect| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.05);
+    let crop = |f: &scaena_engine::geometry::Framing| {
+        let [x, y, w, h] = f.whole;
+        [x + f.crop[0] * w, y + f.crop[1] * h, f.crop[2] * w, f.crop[3] * h]
+    };
+    // Filled: the crop is stretched over the box, so what shows is the crop.
+    let fill = scene.framing("image-fill").unwrap();
+    assert_eq!((fill.fit, fill.crop), ("fill", [0.25, 0.0, 0.5, 1.0]));
+    assert!(near(crop(&fill), fill.shown), "{fill:?}");
+    // Contained, uncropped: the whole is what shows, inside the box.
+    let contain = scene.framing("image-contain").unwrap();
+    assert!(near(contain.whole, contain.shown) && inside(contain.rect, contain.shown), "{contain:?}");
+    // Zoomed to an eighth: the whole is eight times the crop each way, and the crop covers the box.
+    let zoom = scene.framing("image-zoom").unwrap();
+    let kept = crop(&zoom);
+    assert!((zoom.whole[2] / kept[2] - 8.0).abs() < 1e-3 && (zoom.whole[3] / kept[3] - 8.0).abs() < 1e-3, "{zoom:?}");
+    assert!(inside(kept, zoom.shown) && near(zoom.shown, zoom.rect), "{zoom:?}");
+    // The focal point where it is drawn is that point of the crop.
+    for node in ["image-zoom", "image-cover", "image-contain"] {
+        let f = scene.framing(node).unwrap();
+        let [x, y, w, h] = crop(&f);
+        let at = [x + f.focal[0] * w, y + f.focal[1] * h];
+        let back = scene.image_point(node, at).unwrap();
+        assert!((back[0] - f.focal[0]).abs() < 0.01 && (back[1] - f.focal[1]).abs() < 0.01, "{node}: {back:?} {f:?}");
+    }
+    // What is no image has no framing.
+    assert!(scene.framing("case").is_none());
+}

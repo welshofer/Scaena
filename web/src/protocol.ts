@@ -176,6 +176,21 @@ export interface NoteMark {
   transform?: [number, number, number, number, number, number];
 }
 
+/** An image as a pointer crops it (PLAN 2.74): where its whole is drawn, at the scale its crop and
+ * fit draw it, and the part that shows, canvas units as laid out (through `transform` where it is
+ * drawn); its crop, fractions of the image; its focal point, fractions of the crop. */
+export interface Framing {
+  node: string;
+  rect: [number, number, number, number];
+  transform?: [number, number, number, number, number, number];
+  whole: [number, number, number, number];
+  shown: [number, number, number, number];
+  crop: [number, number, number, number];
+  focal: [number, number];
+  fit: "cover" | "contain" | "fill";
+  size: [number, number];
+}
+
 /** A shape's outline as a pointer edits it (PLAN 2.68): its kind, its box at rest, its points as
  * fractions of the box, and a rect's corner radius with the theme's radius steps, canvas units. */
 export interface Outline {
@@ -588,6 +603,10 @@ export type ToWorker =
   | { type: "noteAt"; id: number; state: string; point: [number, number]; format?: string }
   /** The layout `state` uses and its slots, in the format shown (PLAN 2.71). */
   | { type: "layout"; id: number; state: string; format?: string }
+  /** Chart `node`'s marks and annotations in `state` at rest (PLAN 2.75). */
+  | { type: "marksIn"; id: number; state: string; node: string; format?: string }
+  /** Image `node`'s framing in `state` at rest (PLAN 2.74). */
+  | { type: "framing"; id: number; state: string; node: string; format?: string }
   /** Shape `node`'s outline in `state` at rest (PLAN 2.68). */
   | { type: "outline"; id: number; state: string; node: string; format?: string }
   /** Where a callout of chart `node` dropped at `point` in `state` at rest would stand (PLAN 2.67). */
@@ -1003,6 +1022,17 @@ export interface DataEdited {
   removed: Finding[];
   errors: number;
   refused: boolean;
+  /** The texts whose quoted figures the edits set again, by node (ADR-0019, PLAN 2.72). */
+  quoted?: string[];
+}
+
+/** A value of a data source a run quotes (ADR-0019, PLAN 2.72). */
+export interface Quote {
+  data: string;
+  dataTransform?: unknown[];
+  row?: number | Record<string, string | number | boolean>;
+  column: string;
+  format?: string;
 }
 
 /** What an edit came to (PLAN 2.3). */
@@ -1118,6 +1148,8 @@ export type FromWorker =
   /** Where the link asked about goes, or none there. */
   | { type: "linked"; id: number; link: LinkTarget | null }
   | { type: "outlined"; id: number; outline: Outline | null }
+  | { type: "framed"; id: number; framing: Framing | null }
+  | { type: "markedIn"; id: number; found: { marks: DataMark[]; notes: NoteMark[] } | null }
   | { type: "laidOut"; id: number; layout: LayoutSlots | null }
   /** The preview is painted through the view asked for. */
   | { type: "viewed"; id: number }

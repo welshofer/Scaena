@@ -25,6 +25,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         ".mjs": "text/javascript",
         ".json": "application/json",
         ".scn": "text/plain; charset=utf-8",
+        ".svg": "image/svg+xml",
+        ".webmanifest": "application/manifest+json",
     }
 
     def __init__(self, *args, **kwargs):

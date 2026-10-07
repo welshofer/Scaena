@@ -882,6 +882,10 @@
         "link": {
           "description": "Where the run goes when it is followed (SPEC §3.5, PLAN 2.70): a web address, or a state of the deck. It is drawn underlined.",
           "$ref": "#/$defs/Link"
+        },
+        "quote": {
+          "description": "The value of a data source the run's text is (SPEC §3.5, ADR-0019, PLAN 2.72): its text is the figure as last set, which every write sets again from the data.",
+          "$ref": "#/$defs/Quote"
         }
       }
     },
@@ -895,6 +899,49 @@
         "state": { "$ref": "#/$defs/Id" }
       },
       "oneOf": [{ "required": ["href"] }, { "required": ["state"] }]
+    },
+    "Quote": {
+      "description": "A value of a data source that a run quotes (ADR-0019): a cell of the source, read as a chart reads it, through its `dataTransform`, written by `format`.",
+      "type": "object",
+      "required": ["data", "column"],
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "description": "The source, as a chart names it: `@` and its id.",
+          "type": "string",
+          "pattern": "^@[a-z][a-z0-9_-]{0,63}$"
+        },
+        "dataTransform": {
+          "description": "Steps the source is read through, as a chart's (SPEC §3.10).",
+          "type": "array",
+          "items": true
+        },
+        "row": {
+          "description": "The row: the one whose columns hold these values, or an index from 0, negative from the end (`-1`, the last). Without one, the table has one row.",
+          "$ref": "#/$defs/QuoteRow"
+        },
+        "column": { "description": "The column whose cell it is.", "type": "string" },
+        "format": {
+          "description": "How the cell is written: a number format for a number, a date format for a date (SPEC §3.7). Without one, as a chart writes a category.",
+          "type": "string"
+        }
+      }
+    },
+    "QuoteRow": {
+      "description": "Which row a quote reads (ADR-0019).",
+      "anyOf": [
+        { "description": "From 0; negative from the end.", "type": "integer" },
+        {
+          "description": "The one row whose columns hold these values.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/QuoteKey" }
+        }
+      ]
+    },
+    "QuoteKey": {
+      "description": "A value a quote's row is found by.",
+      "anyOf": [{ "type": "number" }, { "type": "boolean" }, { "type": "string" }]
     },
     "TextFit": {
       "description": "What a text node does when its text does not fit (SPEC §3.4).",
