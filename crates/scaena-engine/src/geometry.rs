@@ -666,7 +666,10 @@ fn range((a, b): (usize, usize)) -> Range {
 }
 
 /// The named box `cell` covers most, by the share of the two together they have in common;
-/// if it covers none, the one whose middle is nearest its middle.
+/// if it covers none, the one whose middle is nearest its middle. The canvas and the grid are
+/// whole: one is taken only by a box that shares half of it or more, a photo across the slide,
+/// never by a text dragged off its slot into a margin, which takes the nearest of the layout's
+/// own slots instead.
 fn most(slots: &[(String, Rect)], cell: Rect) -> Option<&(String, Rect)> {
     let area = |r: &Rect| r[2].max(0.0) * r[3].max(0.0);
     let shared = |r: &Rect| {
@@ -680,8 +683,15 @@ fn most(slots: &[(String, Rect)], cell: Rect) -> Option<&(String, Rect)> {
         let (dx, dy) = (r[0] + r[2] / 2.0 - cell[0] - cell[2] / 2.0, r[1] + r[3] / 2.0 - cell[1] - cell[3] / 2.0);
         dx * dx + dy * dy
     };
-    let best = slots.iter().rev().max_by(|a, b| shared(&a.1).total_cmp(&shared(&b.1)))?;
-    if shared(&best.1) > 0.0 { Some(best) } else { slots.iter().rev().min_by(|a, b| gap(&a.1).total_cmp(&gap(&b.1))) }
+    let whole = |name: &str| matches!(name, "canvas" | "grid");
+    let takes = |(name, r): &&(String, Rect)| !whole(name) || shared(r) >= 0.5;
+    let best = slots.iter().rev().filter(takes).max_by(|a, b| shared(&a.1).total_cmp(&shared(&b.1)));
+    if let Some(best) = best.filter(|best| shared(&best.1) > 0.0) {
+        return Some(best);
+    }
+    let nearer = |a: &&(String, Rect), b: &&(String, Rect)| gap(&a.1).total_cmp(&gap(&b.1));
+    let own = slots.iter().rev().filter(|(name, _)| !whole(name)).min_by(&nearer);
+    own.or_else(|| slots.iter().rev().min_by(&nearer))
 }
 
 /// Whether `point` falls in `rect`, its edges included, or within [`SLOP`] of it along a

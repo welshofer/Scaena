@@ -320,6 +320,25 @@ fn what_holds_a_node_says_where_it_may_go() {
 }
 
 #[test]
+fn a_box_dropped_in_a_margin_keeps_to_the_layouts_slots() {
+    let (deck, ..) = torture();
+    let t = targets(&deck, "containers", "case", None);
+    let slot = |drop: Rect| {
+        let target = t.snap(Snap::Slot, drop).expect("a slot");
+        serde_json::to_value(&target.spots[0].1).unwrap()["in"].as_str().unwrap().to_string()
+    };
+    // In the margin above the grid, the box shares nothing with the layout's slots, and a little
+    // with the canvas: it goes into the nearest slot, not across the whole slide.
+    let top = t.rows[0][0];
+    let into = slot([t.cell[0], 0.0, t.cell[2], top * 0.8]);
+    assert!(t.slots.iter().any(|(n, _)| *n == into) && !matches!(into.as_str(), "canvas" | "grid"), "{into}");
+    // Across the slide, as a photo is dropped: the canvas.
+    let canvas = t.slots.iter().find(|(n, _)| n == "canvas").unwrap().1;
+    assert_eq!(slot(canvas), "canvas");
+    assert_eq!(slot([canvas[0] - 100.0, canvas[1] - 50.0, canvas[2] * 0.9, canvas[3] * 0.9]), "canvas");
+}
+
+#[test]
 fn a_dropped_box_snaps_and_its_patch_puts_the_node_there() {
     let (deck, ..) = torture();
     let state = "containers";
