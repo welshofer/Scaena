@@ -195,7 +195,10 @@ public final class Typing {
     /// Delete the selection, or else what `unit` holds before the caret (`backward`) or after it.
     public func delete(backward: Bool, by unit: Unit) {
         guard let carets else { return }
-        guard from == to else { return replace(selection, with: "") }
+        guard from == to else {
+            replace(selection, with: "")
+            return
+        }
         let other: Int
         switch (unit, backward) {
         case (.character, true): other = carets.before(head)
