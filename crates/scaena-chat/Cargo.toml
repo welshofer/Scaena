@@ -1,0 +1,16 @@
+[package]
+name = "scaena-chat"
+description = "The assistant's conversation (ADR-0022, PLAN 3.6): each provider's request built from it and its answer read back, and the loop as steps a client drives, the client making each HTTP call."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# What the model reads: the resources it is told of, and the author-deck skill (SPEC §11).
+scaena-resources.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -23,6 +23,11 @@ serde_json.workspace = true
 scaena-paint.workspace = true
 # The themes that ship and their fonts, which a new deck starts from (PLAN 2.12, 3.3).
 scaena-ops = { workspace = true, features = ["shipped"] }
+# The assistant's conversation (PLAN 3.6, ADR-0022), what its model reads, and a frame it drew
+# sent as a PNG in base64.
+scaena-chat.workspace = true
+scaena-resources.workspace = true
+base64.workspace = true
 
 # vello on Metal, painting onto a CAMetalLayer (PLAN 3.2): the Mac's alone.
 [target.'cfg(target_vendor = "apple")'.dependencies]

@@ -1,6 +1,8 @@
 // What the assistant is told before the user's first word (PLAN 2.6, SPEC §11): what Scaena
 // is, what its tools do here, the deck it works on, what it can read, and the author-deck
-// skill, whose prompts come from `skills/` as SPEC §11 says.
+// skill, whose prompts come from `skills/` as SPEC §11 says; and what the editor shows as a
+// question is asked, which begins it.
+import type { Seeing } from "../protocol";
 
 /** A resource the model can read, as `resources/list` names it. */
 export interface Listed {
@@ -39,4 +41,18 @@ ${resources.map((r) => `- ${r.uri}: ${r.name}`).join("\n")}
 ${skills}
 --- scaena://skills/author-deck ---
 ${authorDeck}`;
+}
+
+/** What the editor shows as a question is asked (PLAN 2.52), as the question's first line, in
+ * brackets: the system prompt says how to read it. The conversation keeps it with the question,
+ * so what was selected then stays said. */
+export function seen(seeing: Seeing | undefined): string {
+  if (!seeing) return "";
+  const format = seeing.format ? ` in ${seeing.format}` : "";
+  const nodes = seeing.nodes.length
+    ? `selected: ${seeing.nodes.map((n) => (n.type ? `${n.node} (${n.type})` : n.node)).join(", ")}`
+    : "nothing selected";
+  const c = seeing.characters;
+  const characters = c ? `; in ${c.node}, characters ${c.from} to ${c.to} selected: ${JSON.stringify(c.text)}` : "";
+  return `[In the editor: state ${seeing.state} shown${format}; ${nodes}${characters}.]\n\n`;
 }

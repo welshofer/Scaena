@@ -340,3 +340,187 @@ fn every_misuse_is_an_error_never_a_crash() {
         scaena_session_free(s);
     }
 }
+
+/// A step of the conversation `chat`: its `ok`, or a panic with its error.
+fn step(chat: *mut ScaenaChat, s: *mut ScaenaSession, method: &str, args: Value) -> Value {
+    let answer = stepped(chat, s, method, args);
+    assert!(answer.get("error").is_none(), "{method}: {answer}");
+    answer["ok"].clone()
+}
+
+/// A step of the conversation `chat`, as the envelope it returns.
+fn stepped(chat: *mut ScaenaChat, s: *mut ScaenaSession, method: &str, args: Value) -> Value {
+    let called = unsafe { scaena_chat_call(chat, s, c(method).as_ptr(), c(&args.to_string()).as_ptr()) };
+    serde_json::from_str(&took(called)).unwrap()
+}
+
+fn providers(method: &str, args: Value) -> Value {
+    let answer: Value =
+        serde_json::from_str(&took(unsafe { scaena_providers(c(method).as_ptr(), c(&args.to_string()).as_ptr()) }))
+            .unwrap();
+    assert!(answer.get("error").is_none(), "{method}: {answer}");
+    answer["ok"].clone()
+}
+
+/// An answer of Anthropic's that calls `calls`, each `(id, name, input)`.
+fn calling(calls: &[(&str, &str, Value)]) -> String {
+    let mut content = vec![json!({ "type": "text", "text": "Looking." })];
+    for (id, name, input) in calls {
+        content.push(json!({ "type": "tool_use", "id": id, "name": name, "input": input }));
+    }
+    json!({ "content": content, "stop_reason": "tool_use" }).to_string()
+}
+
+/// The request's body, read back.
+fn body_of(request: &Value) -> Value {
+    serde_json::from_str(request["body"].as_str().unwrap()).unwrap()
+}
+
+#[test]
+fn the_assistant_asks_with_the_users_key_and_runs_each_call_on_the_bundle() {
+    // The providers, outside a conversation: the models a key can use.
+    let listed = providers("list", Value::Null);
+    let ids: Vec<&str> = listed.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["anthropic", "openai", "gemini"]);
+    let models = providers("models", json!({ "provider": "openai", "key": "sk-test" }));
+    assert_eq!(models["url"], "https://api.openai.com/v1/models");
+    assert_eq!(models["headers"]["authorization"], "Bearer sk-test");
+    let read = providers(
+        "readModels",
+        json!({ "provider": "openai", "status": 200, "body": r#"{"data":[{"id":"b"},{"id":"a"}]}"# }),
+    );
+    assert_eq!(read, json!(["a", "b"]));
+
+    let s = open(B1);
+    let mut error = null_mut();
+    let chat = unsafe { scaena_chat_new(c(r#"{"provider":"anthropic","model":"a-model"}"#).as_ptr(), &mut error) };
+    assert!(!chat.is_null(), "a conversation begins: {}", took(error));
+
+    // The question, begun with what the window shows; the model told the deck as it is.
+    let seeing = json!({ "state": "cover", "nodes": [{ "node": "title", "type": "text" }] });
+    step(chat, s, "ask", json!({ "text": "Is the cover clean?", "seeing": seeing }));
+    let request = step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    assert_eq!(request["url"], "https://api.anthropic.com/v1/messages");
+    assert_eq!(request["headers"]["x-api-key"], "sk-test");
+    assert!(request["headers"].get("anthropic-dangerous-direct-browser-access").is_none(), "the Mac is no browser");
+    let body = body_of(&request);
+    let system = body["system"][0]["text"].as_str().unwrap();
+    assert!(system.starts_with("You are the assistant in Scaena's Mac app"), "{system}");
+    assert!(system.contains("The deck: \"B1: the manifesto as a talk\", 40 states (cover, goal, goal-why"), "{system}");
+    assert!(system.contains("--- scaena://skills/author-deck ---"));
+    let question = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(question, "[In the window: state cover shown; selected: title (text).]\n\nIs the cover clean?");
+    let tools: Vec<&str> = body["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(tools.len(), 13, "the page's twelve and resource_read: {tools:?}");
+    assert_eq!(tools.last(), Some(&"resource_read"));
+
+    // The model calls three tools: each runs on the bundle, as the browser runs it.
+    let answer = calling(&[
+        ("t1", "deck_lint", json!({ "state": "cover" })),
+        ("t2", "deck_render", json!({ "state": "cover" })),
+        ("t3", "resource_read", json!({ "uri": "scaena://spec" })),
+    ]);
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
+    assert_eq!(next["next"], "calls", "{next}");
+    assert_eq!(next["text"], "Looking.");
+    let at = "2026-10-08T12:00:00Z";
+    let mut ran = Vec::new();
+    for index in 0..next["calls"].as_array().unwrap().len() {
+        ran.push(step(chat, s, "run", json!({ "index": index, "at": at })));
+    }
+    assert!(stepped(chat, s, "run", json!({ "index": 3 }))["error"]["message"].is_string(), "three calls, not four");
+    assert_eq!(ran[0]["error"], false, "{}", ran[0]);
+    assert!(ran[0]["summary"].as_str().unwrap().contains("found") || ran[0]["summary"] == "nothing found");
+    assert!(ran[1]["png"].as_str().unwrap().starts_with("iVBORw0KGgo"), "deck_render's frame, a PNG in base64");
+    assert!(ran[1]["summary"].as_str().unwrap().starts_with("cover, "), "{}", ran[1]["summary"]);
+    assert!(ran[2]["summary"].as_str().unwrap().ends_with(" characters"), "{}", ran[2]);
+    assert!(ran.iter().all(|r| r["edited"] == false));
+    assert_eq!(step(chat, null_mut(), "next", Value::Null), json!(true), "one round taken of 32");
+
+    // The next request carries each result, the frame as an image.
+    let body = body_of(&step(chat, null_mut(), "request", json!({ "key": "sk-test" })));
+    let results = body["messages"].as_array().unwrap().last().unwrap()["content"].clone();
+    assert_eq!(results.as_array().unwrap().len(), 3, "{results}");
+    assert_eq!(results[1]["tool_use_id"], "t2");
+    assert_eq!(results[1]["content"][1]["type"], "image");
+    let done = json!({ "content": [{ "type": "text", "text": "Clean." }], "stop_reason": "end_turn" });
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": done.to_string() }));
+    assert_eq!(next, json!({ "next": "done", "text": "Clean.", "stop": "end", "usage": null }));
+
+    // An edit the model makes is the agent's, and changes the deck; another model goes on with
+    // the conversation.
+    step(chat, null_mut(), "use", json!({ "provider": "openai", "model": "another" }));
+    let request = step(chat, null_mut(), "request", json!({ "key": "sk-test" }));
+    assert_eq!(request["url"], "https://api.openai.com/v1/chat/completions");
+    let messages = body_of(&request)["messages"].as_array().unwrap().len();
+    assert_eq!(messages, 8, "the system, the question, the calls, a result each, the frame as an image, the answer");
+    step(chat, null_mut(), "use", json!({ "provider": "anthropic", "model": "a-model" }));
+    step(chat, s, "ask", json!({ "text": "Say it louder." }));
+    let inspected = call(s, "inspect", json!({ "state": "cover" }));
+    let node = inspected["looks"].as_object().unwrap().keys().next().unwrap().clone();
+    let op = json!({ "op": "replace_text", "state": "cover", "node": node, "from": 0, "to": 0, "text": "Loudly: " });
+    let answer = calling(&[("t4", "deck_patch", json!({ "ops": [op] }))]);
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
+    let patched = step(chat, s, "run", json!({ "call": next["calls"][0], "at": at }));
+    assert_eq!(patched["edited"], true, "{patched}");
+    assert_eq!(patched["summary"], "applied");
+    assert!(call(s, "source", Value::Null).as_str().unwrap().contains("Loudly: "));
+    step(chat, null_mut(), "next", Value::Null);
+
+    // The user stops it: the call never run is answered as stopped, so every call has an answer.
+    step(chat, s, "ask", json!({ "text": "Two things." }));
+    let answer = calling(&[("t5", "deck_lint", json!({})), ("t6", "deck_render", json!({ "state": "cover" }))]);
+    let next = step(chat, null_mut(), "answer", json!({ "status": 200, "body": answer }));
+    step(chat, s, "run", json!({ "call": next["calls"][0], "at": at }));
+    step(chat, null_mut(), "next", Value::Null);
+    let conversation = step(chat, null_mut(), "conversation", Value::Null);
+    let last = conversation.as_array().unwrap().last().unwrap();
+    assert_eq!(last["role"], "tool");
+    assert_eq!(last["results"][0]["id"], "t5");
+    assert_eq!(last["results"][0]["error"], false);
+    assert_eq!(last["results"][1]["id"], "t6");
+    assert_eq!(last["results"][1]["error"], true);
+    assert!(last["results"][1]["json"].as_str().unwrap().contains("the user stopped the assistant"));
+
+    // A provider's refusal is an error, and the conversation is as it was.
+    let refused = stepped(
+        chat,
+        null_mut(),
+        "answer",
+        json!({ "status": 401, "statusText": "Unauthorized", "body": r#"{"error":{"message":"invalid x-api-key"}}"# }),
+    );
+    assert_eq!(refused["error"]["message"], "401 Unauthorized: invalid x-api-key");
+    let kept = step(chat, null_mut(), "conversation", Value::Null);
+    assert_eq!(kept, conversation);
+
+    // Misuse is an error, never a crash.
+    assert!(stepped(chat, null_mut(), "next", Value::Null)["error"]["message"].is_string(), "no calls wait");
+    assert!(stepped(chat, null_mut(), "ask", json!({ "text": "Hi" }))["error"]["message"].is_string(), "no session");
+    assert!(stepped(chat, s, "dance", Value::Null)["error"]["message"].is_string());
+    let mut error = null_mut();
+    let none = unsafe { scaena_chat_new(c(r#"{"provider":"acme","model":"m"}"#).as_ptr(), &mut error) };
+    assert!(none.is_null());
+    assert!(took(error).contains("anthropic, openai, or gemini"));
+    step(chat, null_mut(), "forget", Value::Null);
+    assert_eq!(step(chat, null_mut(), "conversation", Value::Null), json!([]));
+    unsafe {
+        scaena_chat_free(chat);
+        scaena_chat_free(null_mut());
+        scaena_session_free(s);
+    }
+}
+
+#[test]
+fn an_assistants_theme_edit_is_written_back_by_an_undo() {
+    let s = open(B1);
+    let held = call(s, "themeText", Value::Null);
+    let before = held["text"].as_str().unwrap().to_string();
+    let edited =
+        tool(s, "theme_edit", json!({ "ops": [{ "op": "replace", "path": "/description", "value": "Louder" }] }));
+    assert!(edited.get("error").is_none(), "{edited}");
+    let after = call(s, "themeText", Value::Null)["text"].as_str().unwrap().to_string();
+    assert_ne!(after, before, "the theme was edited");
+    call(s, "writeFiles", json!({ "files": [{ "path": held["theme"].as_str().unwrap(), "text": before }] }));
+    assert_eq!(call(s, "themeText", Value::Null)["text"].as_str().unwrap(), before);
+    unsafe { scaena_session_free(s) };
+}
