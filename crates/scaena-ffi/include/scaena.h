@@ -153,7 +153,15 @@ char *scaena_drop(struct ScaenaSession *session,
 // `align`, `spread`, `order`, `before`, `after`, `into`); and `grouping {state, nodes}`, the
 // patch that puts them in a new group, `{id, patch}`. States (PLAN 3.14): `addingState {state,
 // what}`, the patch that adds a state after it, a `step` of its slide or a `slide` of its own,
-// `{id, patch}`.
+// `{id, patch}`. The panels (PLAN 3.15), each edit by the user at `at` (RFC 3339) where given:
+// `shippedThemes`; `retheme {path | ships, at?}`, the deck in a theme the bundle holds or one
+// that ships, as `theme --apply` says it; `themeEdit {ops | photo, dryRun?, at?}`, `{edited,
+// files}`, the theme file written before and after for the undo; `bundleFiles` and `removeFile
+// {path}`; `dataSources`, `dataSheet {name}`, `dataEdit {source, edits, at?}`, `{result,
+// wrote}`, and `dataUndo {redo?, at?}`, the file an edit wrote or a removal took out put back or
+// written again; and, from the bundle's history, `versions`, `viewVersion {version}`, its
+// states, `compareVersions {from, to?}`, and `restoreVersion {version, at?}`, `{restored,
+// files}`.
 //
 // # Safety
 // `session` is a live handle; `method` a NUL-terminated string; `args` one, or null.
@@ -309,8 +317,8 @@ void scaena_surface_free(struct ScaenaSurface *surface);
 // The deck exported as `format` (PLAN 3.8), the bytes `scaena export` writes for it: `pdf`, a page
 // for each slide at its last state, as the browser's PDF module draws it from the pages the
 // session lays out; or `png`, `args` `{state, width}`, the state at rest painted by the CPU
-// painter that wide, as the editor's PNG export paints it. Null bytes where it cannot be made,
-// `*error` then saying why.
+// painter that wide, as the editor's PNG export paints it; or `version`, the same of the version
+// `viewVersion` shows (PLAN 3.15). Null bytes where it cannot be made, `*error` then saying why.
 //
 // # Safety
 // `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`

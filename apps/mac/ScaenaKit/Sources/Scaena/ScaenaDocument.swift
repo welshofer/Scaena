@@ -131,6 +131,37 @@ final class ScaenaDocument: ReferenceFileDocument {
         keep(before, files: files, undo: undo)
     }
 
+    /// An edit a panel makes on the session beside the source (PLAN 3.15): the theme edited or
+    /// another taken, a version restored, rows written inline. The deck is read again, and the
+    /// edit is one step to undo, which makes the source as it was and writes back the files `edit`
+    /// gives as they were.
+    func beside(_ edit: () throws -> [Rewritten], undo: UndoManager?) throws {
+        let before = editor.source
+        let files = try edit()
+        editor.reread()
+        keep(before, files: files, undo: undo)
+    }
+
+    /// A data file a panel writes, or a file it takes out (PLAN 3.15): the deck read again, and
+    /// one step to undo, the session's own, which puts the file back as it was, and the source as
+    /// it was where the edit set a quote of the data again; redone, it is written again.
+    func data(_ edit: () throws -> Void, undo: UndoManager?) throws {
+        let before = editor.source
+        try edit()
+        editor.reread()
+        dataStep(redo: false, undo: undo)
+        if editor.source != before { keep(before, undo: undo) }
+    }
+
+    /// Register the session's data undo, or its redo, as the step to undo; done, the other.
+    private func dataStep(redo: Bool, undo: UndoManager?) {
+        undo?.registerUndo(withTarget: self) { [weak undo] document in
+            _ = try? document.session.dataUndo(redo: redo)
+            document.editor.reread()
+            document.dataStep(redo: !redo, undo: undo)
+        }
+    }
+
     /// Register making the deck `source` again, `files` written back first, as the step to undo;
     /// undone, its redo.
     private func keep(_ source: String, files: [Rewritten] = [], undo: UndoManager?) {

@@ -920,6 +920,149 @@ fn states_and_slides_are_added_moved_and_timed_as_the_browsers_are() {
     unsafe { scaena_session_free(t) };
 }
 
+/// The revenue example as a bundle: its deck, and the fonts, themes, data, and images the examples
+/// share.
+fn revenue() -> *mut ScaenaSession {
+    let examples = Path::new("../../docs/examples");
+    let files = scaena_files_new();
+    let add = |path: &str, bytes: &[u8]| {
+        assert!(unsafe { scaena_files_add(files, c(path).as_ptr(), bytes.as_ptr(), bytes.len()) });
+    };
+    add("deck.json", &std::fs::read(examples.join("revenue.deck.json")).unwrap());
+    for dir in ["fonts", "themes", "data", "assets"] {
+        for (path, bytes) in files_of(&examples.join(dir)) {
+            add(&format!("{dir}/{path}"), &bytes);
+        }
+    }
+    let mut error = null_mut();
+    let session = unsafe { scaena_open(files, &mut error) };
+    assert!(!session.is_null(), "the revenue example opens: {}", took(error));
+    session
+}
+
+/// The theme panel (PLAN 3.15, as the browser's, PLAN 2.39, 2.61): the themes that ship, the deck
+/// put in one, and the theme edited, with the file it wrote for the undo, and a dry run that
+/// writes nothing.
+#[test]
+fn the_theme_is_edited_and_another_taken_as_the_browsers_theme_tab_does() {
+    let shipped = call(revenue(), "shippedThemes", Value::Null);
+    let names: Vec<&str> = shipped.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    assert_eq!(names, ["dusk", "daybreak", "ember"], "{shipped}");
+
+    let s = revenue();
+    let themed = call(s, "retheme", json!({ "ships": "daybreak", "at": "2026-10-08T12:00:00Z" }));
+    assert_eq!(
+        (&themed["applied"], &themed["theme"]),
+        (&json!(true), &json!("themes/daybreak.theme.json")),
+        "{themed}"
+    );
+    assert_eq!(call(s, "themes", Value::Null)["current"], "themes/daybreak.theme.json");
+    let again = answered(s, "retheme", &json!({ "path": "themes/dusk.theme.json" }));
+    assert_eq!(again["ok"]["applied"], true, "{again}");
+    let nowhere = answered(s, "retheme", &json!({ "ships": "noon" }));
+    assert!(nowhere["error"]["message"].as_str().is_some_and(|m| m.contains("ships")), "{nowhere}");
+
+    let paper = json!([{ "op": "replace", "path": "/tokens/color/paper", "value": "#0B0B10" }]);
+    let dry = call(s, "themeEdit", json!({ "ops": paper, "dryRun": true }));
+    assert_eq!((&dry["edited"]["applied"], &dry["files"]), (&json!(false), &json!([])), "{dry}");
+    let edited = call(s, "themeEdit", json!({ "ops": paper }));
+    assert_eq!(edited["edited"]["applied"], true, "{edited}");
+    let file = &edited["files"][0];
+    assert_eq!(file["path"], "themes/dusk.theme.json", "{edited}");
+    assert!(file["after"].as_str().is_some_and(|t| t.contains("#0B0B10")) && file["before"] != file["after"]);
+    let text = call(s, "themeText", Value::Null);
+    assert!(text["text"].as_str().is_some_and(|t| t.contains("#0B0B10")), "{text}");
+    unsafe { scaena_session_free(s) };
+}
+
+/// The data and files panels (PLAN 3.15, as the browser's, PLAN 2.55, 2.59): a source as a sheet,
+/// a cell set, undone and redone; a file nothing names taken out and put back.
+#[test]
+fn data_is_edited_and_files_taken_out_as_the_browsers_panels_do() {
+    let s = open(TORTURE);
+    let sources = call(s, "dataSources", Value::Null);
+    assert!(sources.as_array().unwrap().contains(&json!({ "name": "bars", "file": "data/bars.csv" })), "{sources}");
+    assert!(sources.as_array().unwrap().contains(&json!({ "name": "rev" })), "{sources}");
+    let sheet = call(s, "dataSheet", json!({ "name": "bars" }));
+    assert_eq!(sheet["file"], "data/bars.csv");
+    assert_eq!(sheet["sheet"]["columns"][1]["name"], "value", "{sheet}");
+    assert_eq!(sheet["sheet"]["rows"][0], json!(["2025-Q1", "12"]), "{sheet}");
+
+    let set = json!([{ "op": "set", "row": 0, "column": "value", "value": "99" }]);
+    let edited = call(s, "dataEdit", json!({ "source": "bars", "edits": set, "at": "2026-10-08T12:00:00Z" }));
+    assert_eq!((&edited["result"]["edited"], &edited["wrote"]), (&json!(true), &json!(true)), "{edited}");
+    let first = |s| call(s, "dataSheet", json!({ "name": "bars" }))["sheet"]["rows"][0][1].clone();
+    assert_eq!(first(s), "99");
+    assert_eq!(call(s, "dataUndo", Value::Null), "bars");
+    assert_eq!(first(s), "12");
+    assert_eq!(call(s, "dataUndo", json!({ "redo": true })), "bars");
+    assert_eq!(first(s), "99");
+    let refused = answered(
+        s,
+        "dataEdit",
+        &json!({ "source": "bars", "edits": [{ "op": "set", "row": 0, "column": "value", "value": "lots" }] }),
+    );
+    assert!(refused.get("error").is_some() || refused["ok"]["result"]["edited"] == false, "{refused}");
+
+    // A file nothing names, dropped in, is taken out and put back; one the deck names stays.
+    let csv = b"a,b\n1,2\n";
+    let path = took(unsafe { scaena_drop(s, c("extra.csv").as_ptr(), csv.as_ptr(), csv.len()) });
+    let path = serde_json::from_str::<Value>(&path).unwrap()["ok"].as_str().unwrap().to_string();
+    let listed = |s| call(s, "bundleFiles", Value::Null).as_array().unwrap().iter().any(|f| f["path"] == path.as_str());
+    assert!(listed(s));
+    assert_eq!(call(s, "removeFile", json!({ "path": path })), Value::Null);
+    assert!(!listed(s));
+    assert_eq!(call(s, "dataUndo", Value::Null), path.as_str());
+    assert!(listed(s));
+    let named = answered(s, "removeFile", &json!({ "path": "data/bars.csv" }));
+    assert!(named["error"]["message"].is_string(), "{named}");
+    unsafe { scaena_session_free(s) };
+}
+
+/// The versions panel (PLAN 3.15, as the browser's, PLAN 2.60): two saves keep two versions, read
+/// from the bundle's history; the first shown and drawn, compared with the deck now, and made the
+/// deck again.
+#[test]
+fn versions_are_listed_shown_compared_and_restored_from_the_history() {
+    let s = open(B1);
+    let none = answered(s, "versions", &Value::Null);
+    assert!(none["error"]["message"].as_str().is_some_and(|m| m.contains("no history")), "{none}");
+    call(s, "keepHistory", Value::Null);
+    let save = |s, at: &str| {
+        let mut error = null_mut();
+        let saved = unsafe { scaena_save(s, c(at).as_ptr(), false, &mut error) };
+        assert!(!saved.is_null(), "saved: {}", took(error));
+        assert_eq!(took(unsafe { scaena_adopt(s, saved) }), r#"{"ok":null}"#);
+        unsafe { scaena_saved_free(saved) };
+    };
+    save(s, "2026-10-08T12:00:00Z");
+    let typed =
+        json!([{ "op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " anew" }]);
+    assert_eq!(call(s, "typed", json!({ "ops": typed })), true);
+    save(s, "2026-10-08T12:05:00Z");
+    let versions = call(s, "versions", Value::Null);
+    assert_eq!(versions.as_array().map(Vec::len), Some(2), "{versions}");
+    assert_eq!((&versions[0]["n"], &versions[1]["n"]), (&json!(1), &json!(2)));
+
+    let states = call(s, "viewVersion", json!({ "version": "1" }));
+    assert_eq!(states[0], "cover", "{states}");
+    let mut error = null_mut();
+    let png = bytes_of(unsafe {
+        scaena_export(s, c("version").as_ptr(), c(r#"{"state":"cover","width":320}"#).as_ptr(), &mut error)
+    })
+    .expect("the version drawn");
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+
+    let compared = call(s, "compareVersions", json!({ "from": "1" }));
+    assert!(compared["states"]["cover"].is_object(), "the cover's title changed since: {compared}");
+    let restored = call(s, "restoreVersion", json!({ "version": "1", "at": "2026-10-08T12:10:00Z" }));
+    assert_eq!(restored["restored"]["applied"], true, "{restored}");
+    assert!(!call(s, "source", Value::Null).as_str().unwrap().contains("anew"));
+    let unknown = answered(s, "viewVersion", &json!({ "version": "9" }));
+    assert!(unknown["error"]["message"].as_str().is_some_and(|m| m.contains("no version")), "{unknown}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Bytes the library returned, taken and freed: none where it returned none.
 fn bytes_of(made: ScaenaBytes) -> Option<Vec<u8>> {
     if made.data.is_null() {
