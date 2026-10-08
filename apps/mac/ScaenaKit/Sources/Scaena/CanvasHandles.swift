@@ -1,6 +1,37 @@
 import ScaenaKit
 import SwiftUI
 
+/// How the canvas stands on the view (PLAN 3.16): the part of it shown, from `origin`, canvas units,
+/// at `scale` points to the unit. Zoomed out, the whole canvas from its top left.
+struct Fit {
+    var origin = CGPoint.zero
+    var scale: CGFloat = 1
+
+    /// The part of `canvas` shown in a view `width` points wide: `shown`, or none for the whole.
+    init(shown: CGRect?, canvas: CGSize, width: CGFloat) {
+        let part = shown ?? CGRect(origin: .zero, size: canvas)
+        origin = part.origin
+        scale = width / max(part.width, 1)
+    }
+
+    /// A point on the canvas, where it is on the view.
+    func view(_ p: CGPoint) -> CGPoint { CGPoint(x: (p.x - origin.x) * scale, y: (p.y - origin.y) * scale) }
+
+    /// A point on the view, on the canvas.
+    func canvas(_ p: CGPoint) -> CGPoint {
+        let s = max(scale, 0.0001)
+        return CGPoint(x: p.x / s + origin.x, y: p.y / s + origin.y)
+    }
+
+    /// What draws a path in canvas units on the view.
+    var transform: CGAffineTransform {
+        CGAffineTransform(translationX: -origin.x, y: -origin.y).concatenating(CGAffineTransform(scaleX: scale, y: scale))
+    }
+
+    /// Canvas units to a point on the view, never none: a view not yet laid out has no width.
+    var units: Double { 1 / max(Double(scale), 0.01) }
+}
+
 /// A handle of the node selected, held (PLAN 3.16), as the browser's canvas holds one: what it
 /// changes as the pointer goes, from where the press began.
 struct Holding {
@@ -51,12 +82,11 @@ struct HandleMarks: View {
     let framing: Framing?
     /// The point picked, which Delete takes away.
     let picked: Int?
-    /// View points to a canvas unit.
-    let scale: CGFloat
+    let fit: Fit
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if let turn = box.turnHandle(arm: HandleSpacing.arm / units) {
+            if let turn = box.turnHandle(arm: HandleSpacing.arm * fit.units) {
                 Path { path in
                     path.move(to: view(turn.top))
                     path.addLine(to: view(turn.at))
@@ -73,7 +103,7 @@ struct HandleMarks: View {
                 }
             }
             if let outline, outline.kind == "rect", !outline.radii.isEmpty {
-                dot(outline.corner(clear: HandleSpacing.clear / units), radius: 4.5, fill: .yellow)
+                dot(outline.corner(clear: HandleSpacing.clear * fit.units), radius: 4.5, fill: .yellow)
             }
             if let framing {
                 ForEach(Framing.Side.allCases, id: \.self) { side in
@@ -84,10 +114,7 @@ struct HandleMarks: View {
         }
     }
 
-    /// View points to a canvas unit, never none: a view not yet laid out has no width.
-    private var units: Double { max(Double(scale), 0.01) }
-
-    private func view(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x * scale, y: p.y * scale) }
+    private func view(_ p: CGPoint) -> CGPoint { fit.view(p) }
 
     private func dot(_ at: CGPoint, radius: CGFloat, fill: Color) -> some View {
         Circle()
@@ -105,7 +132,7 @@ struct HandleMarks: View {
             .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Color.accentColor, lineWidth: 1))
             .frame(width: along ? 16 : 5, height: along ? 5 : 16)
             .rotationEffect(.radians(angle(framing.transform)))
-            .position(view(framing.handle(side, inset: HandleSpacing.inset / units)))
+            .position(view(framing.handle(side, inset: HandleSpacing.inset * fit.units)))
     }
 
     /// The focal point: a ring with a cross through it.
@@ -141,8 +168,7 @@ struct HandleHolding: View {
     let box: NodeBox
     let outline: Outline?
     let framing: Framing?
-    /// View points to a canvas unit.
-    let scale: CGFloat
+    let fit: Fit
 
     var body: some View {
         switch holding.handle {
@@ -181,14 +207,14 @@ struct HandleHolding: View {
     private func rounded(_ outline: Outline, _ step: Int) -> some View {
         let radius = outline.radii.indices.contains(step) ? outline.radii[step] : 0
         return Path(roundedRect: outline.rect, cornerRadius: CGFloat(radius))
-            .applying(map(outline.transform).concatenating(CGAffineTransform(scaleX: scale, y: scale)))
+            .applying(map(outline.transform).concatenating(fit.transform))
             .stroke(Color.accentColor, style: Self.dashed)
     }
 
     /// The whole image outlined, what the crop cuts away shaded, the part it keeps, and the focal
     /// point.
     private func cropped(_ framing: Framing) -> some View {
-        let m = map(framing.transform).concatenating(CGAffineTransform(scaleX: scale, y: scale))
+        let m = map(framing.transform).concatenating(fit.transform)
         let kept = framing.kept(holding.crop.count == 4 ? holding.crop : framing.crop)
         let focal = framing.focalPoint(holding.focal)
         return ZStack(alignment: .topLeading) {
@@ -204,7 +230,7 @@ struct HandleHolding: View {
             Circle()
                 .stroke(Color.accentColor, lineWidth: 1.5)
                 .frame(width: 12, height: 12)
-                .position(x: focal.x * scale, y: focal.y * scale)
+                .position(fit.view(focal))
         }
     }
 
@@ -212,9 +238,9 @@ struct HandleHolding: View {
     private func joined(_ points: [CGPoint], closed: Bool) -> Path {
         Path { path in
             guard let first = points.first else { return }
-            path.move(to: CGPoint(x: first.x * scale, y: first.y * scale))
+            path.move(to: fit.view(first))
             for p in points.dropFirst() {
-                path.addLine(to: CGPoint(x: p.x * scale, y: p.y * scale))
+                path.addLine(to: fit.view(p))
             }
             if closed { path.closeSubpath() }
         }
@@ -230,47 +256,52 @@ struct HandleHolding: View {
 
 /// The theme's grid in the format shown over the canvas (PLAN 3.16, as the browser's, PLAN 2.57):
 /// its columns and rows as bands, the gutters between them, the margins around them dashed, and the
-/// baseline grid's lines. It takes no press.
+/// baseline grid's lines, through the part of the canvas shown. It takes no press.
 struct GridOverlay: View {
     let editor: DeckEditor
+    /// The part of the canvas shown, where it is zoomed in.
+    let shown: CGRect?
     @State private var grid: GridLines?
 
     var body: some View {
         GeometryReader { geometry in
             if let grid, grid.canvas.width > 0 {
-                ruled(grid, scale: geometry.size.width / grid.canvas.width)
+                ruled(grid, fit: Fit(shown: shown, canvas: grid.canvas, width: geometry.size.width))
             }
         }
         .allowsHitTesting(false)
         .task(id: editor.revision) { grid = try? editor.session.grid() }
     }
 
-    private func ruled(_ grid: GridLines, scale: CGFloat) -> some View {
-        let left = CGFloat(grid.columns.first?.lowerBound ?? 0) * scale
-        let right = CGFloat(grid.columns.last?.upperBound ?? Double(grid.canvas.width)) * scale
-        let top = CGFloat(grid.rows.first?.lowerBound ?? 0) * scale
-        let bottom = CGFloat(grid.rows.last?.upperBound ?? Double(grid.canvas.height)) * scale
+    private func ruled(_ grid: GridLines, fit: Fit) -> some View {
+        let left = CGFloat(grid.columns.first?.lowerBound ?? 0)
+        let right = CGFloat(grid.columns.last?.upperBound ?? Double(grid.canvas.width))
+        let top = CGFloat(grid.rows.first?.lowerBound ?? 0)
+        let bottom = CGFloat(grid.rows.last?.upperBound ?? Double(grid.canvas.height))
         let pink = Color(red: 1, green: 0.36, blue: 0.66)
         return ZStack(alignment: .topLeading) {
             Path { path in
                 for c in grid.columns {
-                    let (a, b) = (CGFloat(c.lowerBound) * scale, CGFloat(c.upperBound) * scale)
+                    let (a, b) = (CGFloat(c.lowerBound), CGFloat(c.upperBound))
                     path.addRect(CGRect(x: a, y: top, width: max(0, b - a), height: max(0, bottom - top)))
                 }
                 for r in grid.rows {
-                    let (a, b) = (CGFloat(r.lowerBound) * scale, CGFloat(r.upperBound) * scale)
+                    let (a, b) = (CGFloat(r.lowerBound), CGFloat(r.upperBound))
                     path.addRect(CGRect(x: left, y: a, width: max(0, right - left), height: max(0, b - a)))
                 }
             }
+            .applying(fit.transform)
             .fill(pink.opacity(0.07))
             Path { path in
                 for y in grid.baselines {
-                    path.move(to: CGPoint(x: left, y: CGFloat(y) * scale))
-                    path.addLine(to: CGPoint(x: right, y: CGFloat(y) * scale))
+                    path.move(to: CGPoint(x: left, y: CGFloat(y)))
+                    path.addLine(to: CGPoint(x: right, y: CGFloat(y)))
                 }
             }
+            .applying(fit.transform)
             .stroke(Color(red: 0.25, green: 0.77, blue: 1).opacity(0.3), lineWidth: 0.5)
             Path(CGRect(x: left, y: top, width: right - left, height: bottom - top))
+                .applying(fit.transform)
                 .stroke(pink.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
     }

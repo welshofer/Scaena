@@ -16,6 +16,12 @@ public final class CanvasKeys: NSView {
     public let typing: Typing
     /// The canvas, in canvas units: what the view's width is in points.
     public var canvas = CGSize(width: 1920, height: 1080)
+    /// The part of the canvas the view shows, canvas units, where it is zoomed in (PLAN 3.16):
+    /// none, the whole canvas.
+    public var shown: CGRect?
+    /// What the canvas does with the Edit menu's Find while no field takes it (PLAN 3.16): the
+    /// deck's find bar opened, or its next or previous match shown.
+    public var finding: (@MainActor (NSTextFinder.Action) -> Void)?
     /// What the canvas does with a command the keys make while no text is typed in: whether it did
     /// anything with it.
     public var command: (@MainActor (Selector) -> Bool)?
@@ -69,10 +75,17 @@ public final class CanvasKeys: NSView {
     }
 
     /// ⌘B, ⌘I, ⌘K, ⌘A, ⌘⇧8, and ⌘⇧7 while typing, as the browser's text typed in answers them
-    /// (PLAN 2.38, 2.40, 2.69, 2.70).
+    /// (PLAN 2.38, 2.40, 2.69, 2.70); and ⌘F, the deck's find bar.
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard typing.typing, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // ⌘F with the canvas focused opens the deck's find bar (PLAN 3.16), whatever the menus hold.
+        if let finding, window?.firstResponder === self, flags == .command,
+            event.charactersIgnoringModifiers?.lowercased() == "f"
+        {
+            finding(.showFindInterface)
+            return true
+        }
+        guard typing.typing, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         if flags == [.command, .shift] {
             // By the keys' places, as Shift makes them other characters: the 8 key and the 7.
             switch event.keyCode {
@@ -119,6 +132,19 @@ public final class CanvasKeys: NSView {
 
     private func clip(_ what: Clipping) {
         clipping?(what)
+    }
+
+    /// The Edit menu's Find, Find Next, and Find Previous: the deck's find bar (PLAN 3.16), as ⌘F
+    /// on the browser's canvas opens it, while a text is typed in too.
+    public override func performTextFinderAction(_ sender: Any?) {
+        let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? NSTextFinder.Action.showFindInterface.rawValue
+        guard let finding, let action = NSTextFinder.Action(rawValue: tag) else { return super.performTextFinderAction(sender) }
+        finding(action)
+    }
+
+    /// The Find panel's older action, as some menus send it.
+    @objc public func performFindPanelAction(_ sender: Any?) {
+        performTextFinderAction(sender)
     }
 
     /// The commands the input system makes of keys: while a text is typed in, deletes, moves, a
@@ -220,7 +246,10 @@ public final class CanvasKeys: NSView {
     }
 
     /// Points on the view to the canvas unit.
-    fileprivate var scale: CGFloat { bounds.width / max(canvas.width, 1) }
+    fileprivate var scale: CGFloat { bounds.width / max(shown?.width ?? canvas.width, 1) }
+
+    /// The canvas point at the view's top left.
+    fileprivate var origin: CGPoint { shown?.origin ?? .zero }
 }
 
 extension CanvasKeys: @preconcurrency NSTextInputClient {
@@ -285,14 +314,15 @@ extension CanvasKeys: @preconcurrency NSTextInputClient {
         actualRange?.pointee = NSRange(location: at, length: 0)
         guard let box = typing.caretBox(at: at), let window else { return .zero }
         let local = NSRect(
-            x: box.minX * scale, y: box.minY * scale, width: max(box.width * scale, 1), height: box.height * scale)
+            x: (box.minX - origin.x) * scale, y: (box.minY - origin.y) * scale, width: max(box.width * scale, 1),
+            height: box.height * scale)
         return window.convertToScreen(convert(local, to: nil))
     }
 
     public func characterIndex(for point: NSPoint) -> Int {
         guard let window, scale > 0 else { return NSNotFound }
         let local = convert(window.convertPoint(fromScreen: point), from: nil)
-        return typing.offset(near: CGPoint(x: local.x / scale, y: local.y / scale))
+        return typing.offset(near: CGPoint(x: local.x / scale + origin.x, y: local.y / scale + origin.y))
     }
 
     public func attributedString() -> NSAttributedString {
@@ -306,17 +336,23 @@ public struct CanvasKeysHost: NSViewRepresentable {
     public let typing: Typing
     /// The canvas, in canvas units.
     public let canvas: CGSize
+    /// The part of it shown, where it is zoomed in.
+    public let shown: CGRect?
     public let command: @MainActor (Selector) -> Bool
     public let clipping: @MainActor (CanvasKeys.Clipping) -> Void
+    public let finding: (@MainActor (NSTextFinder.Action) -> Void)?
 
     public init(
-        typing: Typing, canvas: CGSize, command: @escaping @MainActor (Selector) -> Bool,
-        clipping: @escaping @MainActor (CanvasKeys.Clipping) -> Void
+        typing: Typing, canvas: CGSize, shown: CGRect? = nil, command: @escaping @MainActor (Selector) -> Bool,
+        clipping: @escaping @MainActor (CanvasKeys.Clipping) -> Void,
+        finding: (@MainActor (NSTextFinder.Action) -> Void)? = nil
     ) {
         self.typing = typing
         self.canvas = canvas
+        self.shown = shown
         self.command = command
         self.clipping = clipping
+        self.finding = finding
     }
 
     public func makeNSView(context: Context) -> CanvasKeys {
@@ -327,7 +363,9 @@ public struct CanvasKeysHost: NSViewRepresentable {
 
     public func updateNSView(_ view: CanvasKeys, context: Context) {
         view.canvas = canvas
+        view.shown = shown
         view.command = command
         view.clipping = clipping
+        view.finding = finding
     }
 }

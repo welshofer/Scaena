@@ -28,6 +28,9 @@ struct CanvasSelection: View {
     let state: String
     /// The canvas, in canvas units.
     let size: CGSize
+    /// How close the canvas is shown, and the part of it shown (PLAN 3.16): a pinch, or the wheel
+    /// with ⌘, zooms about the pointer, and the wheel pans what is zoomed in.
+    @Binding var zoom: Zoom
     /// The node selected, and the others selected with it, children of the same container.
     @Binding var node: String?
     @Binding var also: [String]
@@ -41,6 +44,8 @@ struct CanvasSelection: View {
     let delete: (Bool) -> Void
     /// The Edit menu's Copy, Cut, and Paste while no text is typed in (PLAN 3.12).
     let clip: (CanvasKeys.Clipping) -> Void
+    /// The Edit menu's Find, and ⌘F on the canvas: the deck's find bar (PLAN 3.16).
+    let finding: (NSTextFinder.Action) -> Void
     /// Make the patch a drag ended in: one step to undo.
     let make: ([JSONValue]) -> Void
     @State private var boxes: [NodeBox] = []
@@ -128,32 +133,43 @@ struct CanvasSelection: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let scale = geometry.size.width / max(size.width, 1)
+            let fit = Fit(shown: zoom.view, canvas: size, width: geometry.size.width)
             ZStack(alignment: .topLeading) {
                 // Under the rest: the canvas's keys, the text's while one is typed in. It takes no
                 // press.
-                CanvasKeysHost(typing: typing, canvas: size, command: command, clipping: clip)
+                CanvasKeysHost(
+                    typing: typing, canvas: size, shown: zoom.view, command: command, clipping: clip, finding: finding)
                     .allowsHitTesting(false)
+                // The wheel and a pinch over the canvas, read before any view takes them.
+                CanvasWheel(
+                    zoom: { factor, at in zoom.zoom(to: zoom.level * factor, about: fit.canvas(at)) },
+                    pan: { by in
+                        guard zoom.level > 1 else { return false }
+                        zoom.pan(by: CGVector(dx: Double(by.dx) * fit.units, dy: Double(by.dy) * fit.units))
+                        return true
+                    }
+                )
+                .allowsHitTesting(false)
                 Color.clear
                     .contentShape(Rectangle())
-                    .gesture(pressing(scale))
+                    .gesture(pressing(fit))
                 // Nodes off the theme's grid, flagged as lint flags them (W301).
                 ForEach(boxes.filter { placements[$0.node]?.offGrid == true }, id: \.node) { flagged in
-                    outline(flagged.corners, scale: scale)
+                    outline(flagged.corners, fit: fit)
                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .allowsHitTesting(false)
                 }
                 // The others selected with the first, each outlined, moved as the drag moves.
                 ForEach(boxes.filter { also.contains($0.node) }, id: \.node) { other in
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
-                    outline(other.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
+                    outline(other.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
                         .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
                         .allowsHitTesting(false)
                 }
                 if let selected = boxes.first(where: { $0.node == node }) {
                     let by = drag?.edge == nil ? (drag?.by ?? .zero) : .zero
                     let offGrid = placements[selected.node]?.offGrid == true
-                    outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, scale: scale)
+                    outline(selected.corners.map { CGPoint(x: $0.x + by.dx, y: $0.y + by.dy) }, fit: fit)
                         .stroke(offGrid ? Color.orange : Color.accentColor, lineWidth: 1.5)
                         .allowsHitTesting(false)
                     if drag == nil, holding == nil, also.isEmpty, !typing.typing, selected.locked == nil,
@@ -165,29 +181,29 @@ struct CanvasSelection: View {
                                 .fill(Color.white)
                                 .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
                                 .frame(width: 7, height: 7)
-                                .position(x: p.x * scale, y: p.y * scale)
+                                .position(fit.view(p))
                                 .allowsHitTesting(false)
                         }
                         // Its handles over its box's (PLAN 3.16).
                         HandleMarks(
                             box: selected, outline: shaped?.node == selected.node ? shaped : nil,
-                            framing: imaged?.node == selected.node ? imaged : nil, picked: pointPicked, scale: scale
+                            framing: imaged?.node == selected.node ? imaged : nil, picked: pointPicked, fit: fit
                         )
                         .allowsHitTesting(false)
                     }
                     if let holding, holding.node == selected.node {
-                        HandleHolding(holding: holding, box: selected, outline: shaped, framing: imaged, scale: scale)
+                        HandleHolding(holding: holding, box: selected, outline: shaped, framing: imaged, fit: fit)
                             .allowsHitTesting(false)
                     }
                 }
-                landings(scale)
+                landings(fit)
                     .allowsHitTesting(false)
                 if let r = banded {
-                    Path(CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale))
+                    Path(r).applying(fit.transform)
                         .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .allowsHitTesting(false)
                 }
-                typed(scale)
+                typed(fit)
                     .allowsHitTesting(false)
                 if let words = told ?? typing.told ?? said {
                     Text(words)
@@ -222,16 +238,16 @@ struct CanvasSelection: View {
     }
 
     /// Where a drag lands now: each box dashed, with the guides it meets.
-    @ViewBuilder private func landings(_ scale: CGFloat) -> some View {
+    @ViewBuilder private func landings(_ fit: Fit) -> some View {
         let cells = landedCells
         let guides = landedGuides
         ForEach(cells.indices, id: \.self) { i in
             let r = cells[i]
-            Path(CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale))
+            Path(r).applying(fit.transform)
                 .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
         }
         ForEach(guides.indices, id: \.self) { i in
-            line(guides[i][0], guides[i][1], scale: scale).stroke(Color.pink, lineWidth: 1)
+            line(guides[i][0], guides[i][1], fit: fit).stroke(Color.pink, lineWidth: 1)
         }
     }
 
@@ -257,18 +273,18 @@ struct CanvasSelection: View {
 
     /// The caret, or the selection, in the text typed in, where it is drawn, and what an input
     /// method composes there, underlined.
-    @ViewBuilder private func typed(_ scale: CGFloat) -> some View {
+    @ViewBuilder private func typed(_ fit: Fit) -> some View {
         if typing.typing {
             let covered = typing.covered
             ForEach(covered.indices, id: \.self) { i in
-                outline(covered[i], scale: scale).fill(Color.accentColor.opacity(0.3))
+                outline(covered[i], fit: fit).fill(Color.accentColor.opacity(0.3))
             }
             let composing = typing.composing
             ForEach(composing.indices, id: \.self) { i in
-                line(composing[i][3], composing[i][2], scale: scale).stroke(Color.accentColor, lineWidth: 1.5)
+                line(composing[i][3], composing[i][2], fit: fit).stroke(Color.accentColor, lineWidth: 1.5)
             }
             if typing.from == typing.to, let caret = typing.caret, caret.count == 2 {
-                line(caret[0], caret[1], scale: scale).stroke(Color.accentColor, lineWidth: 2)
+                line(caret[0], caret[1], fit: fit).stroke(Color.accentColor, lineWidth: 2)
             }
         }
     }
@@ -361,21 +377,21 @@ struct CanvasSelection: View {
     }
 
     /// A press: a click where it does not move, else a drag of what it pressed.
-    private func pressing(_ scale: CGFloat) -> some Gesture {
+    private func pressing(_ fit: Fit) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
                 let moved = hypot(value.translation.width, value.translation.height)
                 switch press {
                 case nil:
                     // The canvas takes the keyboard, and Insert lands here next.
-                    let at = CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale)
+                    let at = fit.canvas(value.startLocation)
                     typing.focus?()
                     pointed = at
                     said = nil
                     // Typing: a press in the text puts the caret there, one outside it stops typing.
                     let typed = typing.typing
                     if typed {
-                        if typing.holds(at, slop: Self.slop / max(scale, 0.01)) {
+                        if typing.holds(at, slop: Self.slop * fit.units) {
                             press = .typing
                             let clicks = NSApp.currentEvent?.clickCount ?? 1
                             return typing.press(at: at, clicks: clicks, extend: NSEvent.modifierFlags.contains(.shift))
@@ -383,26 +399,26 @@ struct CanvasSelection: View {
                         typing.leave()
                     }
                     // A handle of the node selected, which shows while nothing is typed in.
-                    if !typed, let held = handle(at: at, scale: scale) {
+                    if !typed, let held = handle(at: at, scale: fit.scale) {
                         press = .handling(held)
                         return
                     }
                     press = .pressing
                 case .typing:
-                    typing.drag(to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    typing.drag(to: fit.canvas(value.location))
                 case .pressing where moved >= 3:
-                    begin(at: CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale), scale: scale)
-                    if case .dragging = press { aim(value, scale: scale) }
+                    begin(at: fit.canvas(value.startLocation), scale: fit.scale)
+                    if case .dragging = press { aim(value, scale: fit.scale) }
                 case .dragging:
-                    aim(value, scale: scale)
+                    aim(value, scale: fit.scale)
                 case .banding(let from, _):
-                    press = .banding(from: from, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    press = .banding(from: from, to: fit.canvas(value.location))
                 case .handling(var h):
                     // A click until it goes further than one.
                     guard h.moved || moved >= 3 else { break }
                     h.moved = true
                     h.fork = NSEvent.modifierFlags.contains(.option)
-                    hold(&h, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    hold(&h, to: fit.canvas(value.location))
                     press = .handling(h)
                 default:
                     break
@@ -412,19 +428,19 @@ struct CanvasSelection: View {
                 defer { press = nil }
                 switch press {
                 case .dragging:
-                    aim(value, scale: scale)
+                    aim(value, scale: fit.scale)
                     drop()
                 case .pressing, nil:
-                    pick(CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                    pick(fit.canvas(value.location))
                 case .banding(let from, _):
-                    band(CGRect(from: from, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale)))
+                    band(CGRect(from: from, to: fit.canvas(value.location)))
                 case .typing:
                     // The keys stay with the text, whatever took them as the press ended.
                     typing.focus?()
                 case .handling(var h):
                     if h.moved {
                         h.fork = NSEvent.modifierFlags.contains(.option)
-                        hold(&h, to: CGPoint(x: value.location.x / scale, y: value.location.y / scale))
+                        hold(&h, to: fit.canvas(value.location))
                     }
                     letGo(h)
                 default:
@@ -769,20 +785,20 @@ struct CanvasSelection: View {
     }
 
     /// The line from `a` to `b`, canvas units, as a path on the view.
-    private func line(_ a: CGPoint, _ b: CGPoint, scale: CGFloat) -> Path {
+    private func line(_ a: CGPoint, _ b: CGPoint, fit: Fit) -> Path {
         Path { path in
-            path.move(to: CGPoint(x: a.x * scale, y: a.y * scale))
-            path.addLine(to: CGPoint(x: b.x * scale, y: b.y * scale))
+            path.move(to: fit.view(a))
+            path.addLine(to: fit.view(b))
         }
     }
 
     /// `corners`, canvas units, as a path on the view.
-    private func outline(_ corners: [CGPoint], scale: CGFloat) -> Path {
+    private func outline(_ corners: [CGPoint], fit: Fit) -> Path {
         Path { path in
             guard let first = corners.first else { return }
-            path.move(to: CGPoint(x: first.x * scale, y: first.y * scale))
+            path.move(to: fit.view(first))
             for corner in corners.dropFirst() {
-                path.addLine(to: CGPoint(x: corner.x * scale, y: corner.y * scale))
+                path.addLine(to: fit.view(corner))
             }
             path.closeSubpath()
         }

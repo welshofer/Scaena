@@ -18,6 +18,7 @@ struct ScaenaApp: App {
         }
         .commands {
             NodeCommands()
+            ViewCommands()
         }
         // The assistant's keys, kept in the Keychain (PLAN 3.6).
         Settings {

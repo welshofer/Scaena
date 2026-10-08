@@ -35,6 +35,9 @@ public final class DeckEditor {
     public private(set) var whole = false
     /// The state the window shows: where an edit is linted at once.
     public var shown: String?
+    /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
+    /// for its own canvas.
+    public private(set) var format: String?
 
     /// The source the deck was made from last: what an undo of the next edit makes it again.
     @ObservationIgnored private var made = ""
@@ -119,6 +122,23 @@ public final class DeckEditor {
         drawn += 1
     }
 
+    /// Lay frames out in `format` from now on, one of the deck's formats, or on its own canvas
+    /// where none (PLAN 2.62, 3.16): the canvas, its boxes and targets, and what lint says holds
+    /// there follow it. A gesture there moves a node with a layout of its own there alone (PLAN
+    /// 2.85). One the deck does not list throws why, the format shown as it was.
+    public func show(format: String?) throws {
+        try session.setFormat(format)
+        self.format = format
+        revision += 1
+    }
+
+    /// Paint the canvas through `view`, the part of it shown, canvas units: zoomed in (PLAN 2.46,
+    /// 3.16). None paints the whole canvas.
+    public func look(through view: CGRect?) {
+        try? session.setView(view)
+        drawn += 1
+    }
+
     /// A drag over: every node drawn where it stands, and nothing shown before it is made.
     public func still() {
         try? session.setMoving([])
@@ -182,6 +202,8 @@ public final class DeckEditor {
         made = next
         slots = (try? session.timeline()) ?? slots
         if let shown, !slots.contains(where: { $0.state == shown }) { self.shown = slots.first?.state }
+        // A format the deck no longer lists: the session lays frames out on its own canvas again.
+        if let format, !((try? session.formats()) ?? []).contains(format) { self.format = nil }
         revision += 1
         guard lint else {
             whole = false
