@@ -66,6 +66,16 @@ struct DeckView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Presenting.play(editor, from: shown)
+                } label: {
+                    Label("Play", systemImage: "play.rectangle.fill")
+                }
+                .keyboardShortcut("p", modifiers: [.option, .command])
+                .help("Play the deck from the state shown, on the external display if there is one (⌥⌘P)")
+                .disabled(editor.slots.isEmpty)
+            }
             ToolbarItemGroup {
                 Toggle(isOn: $showsSource) {
                     Label("Source", systemImage: "chevron.left.forwardslash.chevron.right")

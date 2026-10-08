@@ -1643,6 +1643,7 @@ Every gesture the canvas takes has a key (PLAN 2.75, WCAG 2.1.1), which the keys
 - The app is document-based: a deck is a `.scaena` package (`com.scaena.deck`), its files the bundle's (§3.1); a zip opens too and saves as the package. Each save is `scaena save`'s and records the edits since in the bundle's history (§8).
 - SwiftUI owns chrome only: document browser, state list, timeline scrubber, inspector, source pane. **No TextKit/CoreText in the render path.**
 - The window edits as the browser's editor does (§9.2, PLAN 3.4): the deck's `.scn` is what it is made from. A gesture or a choice is a patch, after which the source is the deck's again; a source typed is compiled as it stands; a finding's fix rewrites it. Each is compiled, becomes the deck where it validates, and lints the state shown at once, every state once edits stop, and is one step of the document's undo. What draws where is the engine's (`boxes`, `hit`), as are a state's cue and the inspector's choices. The source pane is chrome: the deck's text is laid out by the engine alone.
+- Presentation (PLAN 3.5): Play fills the external display where there is one, and the presenter's window shows the state as the audience sees it, the next state, its notes, and the time since the deck began. The pace is the player's (§9.2): going on finishes a cue or plays the next, a state that holds goes on by itself, and the last waits.
 - Keychain for keys; Apple Foundation Models for on-device assistant tasks; Share/Quick Look via PDF export.
 
 ### 9.4 Presenter remote (later)
