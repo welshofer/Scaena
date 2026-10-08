@@ -19,6 +19,12 @@ scaena-store.workspace = true
 # Every language's hyphenation patterns compiled in, as natively everywhere (ADR-0015).
 scaena-engine = { workspace = true, features = ["hyphenation"] }
 serde_json.workspace = true
+# A frame's pixels, as the painters give them.
+scaena-paint.workspace = true
+
+# vello on Metal, painting onto a CAMetalLayer (PLAN 3.2): the Mac's alone.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+scaena-paint = { workspace = true, features = ["gpu"] }
 
 [dev-dependencies]
 # Writes `include/scaena.h` from this crate's code, which the `header` test holds it to.

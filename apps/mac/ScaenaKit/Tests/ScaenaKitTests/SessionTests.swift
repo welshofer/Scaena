@@ -1,4 +1,6 @@
 import Foundation
+import Metal
+import QuartzCore
 import ScaenaKit
 import Testing
 
@@ -61,4 +63,27 @@ let b1 = repository.appending(path: "tests/bench/b1.scaena")
     #expect(throws: ScaenaError.self) { try session.frame("no-such-state") }
     #expect(throws: ScaenaError.self) { try ScaenaSession(files: [:]) }
     #expect(throws: ScaenaError.self) { try ScaenaSession(zip: Data("not a zip".utf8)) }
+}
+
+/// What a surface paints on Metal is what the CPU painter paints (gate 3's first criterion):
+/// B1's cover, on a layer no window shows, read back.
+@Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+func aSurfacePaintsOnMetalWhatTheCPUPainterPaints() throws {
+    let session = try ScaenaSession(directory: b1)
+    let layer = CAMetalLayer()
+    layer.drawableSize = CGSize(width: 320, height: 180)
+    let surface = try ScaenaSurface(layer: layer, width: 320, height: 180)
+    #expect(try surface.adapter()["backend"]?.string == "Metal")
+    try surface.paint(session, state: "cover")
+    let gpu = try surface.lastFrame()
+    let cpu = try session.pixels("cover", width: 320)
+    #expect(gpu.width == cpu.width && gpu.height == cpu.height)
+    #expect(gpu.rgba.count == cpu.rgba.count)
+    // The painters differ at anti-aliased edges alone (SPEC §13.5): a channel off by a level or
+    // two there, nothing more on average.
+    var off = 0
+    for (a, b) in zip(gpu.rgba, cpu.rgba) { off += abs(Int(a) - Int(b)) }
+    #expect(Double(off) / Double(max(cpu.rgba.count, 1)) < 1.0)
+    // A surface off by a state paints none, and says why.
+    #expect(throws: ScaenaError.self) { try surface.paint(session, state: "no-such-state") }
 }

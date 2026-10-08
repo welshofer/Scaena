@@ -1576,6 +1576,8 @@ pub mod gpu {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub use native::GpuPainter;
+    #[cfg(all(not(target_arch = "wasm32"), target_vendor = "apple"))]
+    pub use native::LayerPainter;
 
     #[cfg(not(target_arch = "wasm32"))]
     mod native {
@@ -1633,18 +1635,7 @@ pub mod gpu {
                 };
                 let adapter = ready(instance.request_adapter(&options))?
                     .map_err(|e| PaintError::Gpu(format!("no adapter: {e}")))?;
-                // The largest textures and buffers the adapter holds, not wgpu's defaults (8192
-                // pixels a side, 128 MiB a shader's pixels): a raster the CPU painter makes, this
-                // one makes too, where the GPU can.
-                let most = adapter.limits();
-                let required_limits = wgpu::Limits {
-                    max_buffer_size: most.max_buffer_size,
-                    max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
-                    ..wgpu::Limits::default().using_resolution(most)
-                };
-                let descriptor =
-                    wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() };
-                let (device, queue) = ready(adapter.request_device(&descriptor))?.map_err(gpu)?;
+                let (device, queue) = ready(adapter.request_device(&descriptor(&adapter)))?.map_err(gpu)?;
                 Self::with_device(device, queue, adapter.get_info())
             }
 
@@ -1788,13 +1779,15 @@ pub mod gpu {
                 }
             }
 
-            fn render(
+            /// Paint `dl` into the target, made or kept at its size: what both [`GpuPainter`]
+            /// and [`LayerPainter`] draw a frame into, a storage texture.
+            fn draw(
                 &mut self,
                 dl: &DisplayList,
                 fonts: &Assets,
                 scale: f32,
                 images: &[Option<ShaderImage>],
-            ) -> Result<Flight, PaintError> {
+            ) -> Result<wgpu::Extent3d, PaintError> {
                 let scene = scene(dl, fonts, scale, images)?;
                 let (width, height) = raster_size(dl, scale).map(|(w, h)| (u32::from(w), u32::from(h)))?;
                 let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
@@ -1806,7 +1799,10 @@ pub mod gpu {
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         format: wgpu::TextureFormat::Rgba8Unorm,
-                        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                        // Read back, or sampled by the blit onto a layer.
+                        usage: wgpu::TextureUsages::STORAGE_BINDING
+                            | wgpu::TextureUsages::COPY_SRC
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
                         view_formats: &[],
                     });
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1822,7 +1818,24 @@ pub mod gpu {
                 self.renderer
                     .render_to_texture(&self.device, &self.queue, &scene, &target.view, &params)
                     .map_err(gpu)?;
+                Ok(size)
+            }
 
+            fn render(
+                &mut self,
+                dl: &DisplayList,
+                fonts: &Assets,
+                scale: f32,
+                images: &[Option<ShaderImage>],
+            ) -> Result<Flight, PaintError> {
+                let size = self.draw(dl, fonts, scale, images)?;
+                self.read_target(size)
+            }
+
+            /// Queue the target's copy, `size`, into a readback buffer: a frame on its way back.
+            fn read_target(&mut self, size: wgpu::Extent3d) -> Result<Flight, PaintError> {
+                let (width, height) = (size.width, size.height);
+                let target = self.target.as_ref().ok_or_else(|| PaintError::Gpu("no frame painted yet".into()))?;
                 // A texture-to-buffer copy pads each row to 256 bytes. The queue runs in
                 // order, so the next frame paints the target only once this copy is done.
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -1881,6 +1894,138 @@ pub mod gpu {
                     }
                 }
                 Ok(Raster { width, height, rgba })
+            }
+        }
+
+        /// The device a painter asks `adapter` for: the largest textures and buffers it holds,
+        /// not wgpu's defaults (8192 pixels a side, 128 MiB a shader's pixels), so a raster the
+        /// CPU painter makes, this one makes too, where the GPU can.
+        fn descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
+            let most = adapter.limits();
+            let required_limits = wgpu::Limits {
+                max_buffer_size: most.max_buffer_size,
+                max_storage_buffer_binding_size: most.max_storage_buffer_binding_size,
+                ..wgpu::Limits::default().using_resolution(most)
+            };
+            wgpu::DeviceDescriptor { label: Some("scaena"), required_limits, ..Default::default() }
+        }
+
+        /// `vello` on a `CAMetalLayer` (PLAN 3.2, SPEC §9.3): what the Mac's view paints. A frame
+        /// renders into a storage texture as [`GpuPainter`]'s do, then a blit copies it onto the
+        /// layer's next drawable, presented at the display's next refresh (FIFO, so a display
+        /// link at 120 Hz on ProMotion paints at 120). The layer keeps the canvas's aspect: the
+        /// blit fills it.
+        #[cfg(target_vendor = "apple")]
+        pub struct LayerPainter {
+            painter: GpuPainter,
+            surface: wgpu::Surface<'static>,
+            config: wgpu::SurfaceConfiguration,
+            blitter: wgpu::util::TextureBlitter,
+            /// The size of the last frame drawn, which [`LayerPainter::last`] reads back.
+            drawn: Option<wgpu::Extent3d>,
+        }
+
+        #[cfg(target_vendor = "apple")]
+        impl LayerPainter {
+            /// Paint on `layer`, `width` × `height` device pixels, with the adapter that presents
+            /// to it.
+            ///
+            /// # Safety
+            /// `layer` is a live `CAMetalLayer` that outlives the painter.
+            pub unsafe fn new(layer: *mut std::ffi::c_void, width: u32, height: u32) -> Result<Self, PaintError> {
+                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::METAL,
+                    ..wgpu::InstanceDescriptor::new_without_display_handle()
+                });
+                let target = wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer);
+                // SAFETY: the caller gives a live CAMetalLayer that outlives the surface.
+                let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(gpu)?;
+                let options = wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: Some(&surface),
+                    force_fallback_adapter: false,
+                };
+                let adapter = ready(instance.request_adapter(&options))?
+                    .map_err(|e| PaintError::Gpu(format!("no adapter for the layer: {e}")))?;
+                let (device, queue) = ready(adapter.request_device(&descriptor(&adapter)))?.map_err(gpu)?;
+                let caps = surface.get_capabilities(&adapter);
+                // vello writes sRGB-encoded bytes; a format that is not `*Srgb` keeps them.
+                let format = (caps.formats.iter().copied())
+                    .find(|f| matches!(f, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm))
+                    .ok_or_else(|| PaintError::Gpu("the layer offers neither bgra8unorm nor rgba8unorm".into()))?;
+                let alpha_mode = match caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+                    true => wgpu::CompositeAlphaMode::Opaque,
+                    false => caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto),
+                };
+                let config = wgpu::SurfaceConfiguration {
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    format,
+                    width: width.max(1),
+                    height: height.max(1),
+                    present_mode: wgpu::PresentMode::Fifo,
+                    desired_maximum_frame_latency: 2,
+                    alpha_mode,
+                    view_formats: vec![],
+                };
+                surface.configure(&device, &config);
+                let blitter = wgpu::util::TextureBlitter::new(&device, format);
+                let painter = GpuPainter::with_device(device, queue, adapter.get_info())?;
+                Ok(Self { painter, surface, config, blitter, drawn: None })
+            }
+
+            /// Paint at `width` × `height` device pixels from now on: the view's size changed.
+            pub fn resize(&mut self, width: u32, height: u32) {
+                let (width, height) = (width.max(1), height.max(1));
+                if (width, height) != (self.config.width, self.config.height) {
+                    (self.config.width, self.config.height) = (width, height);
+                    self.surface.configure(&self.painter.device, &self.config);
+                }
+            }
+
+            /// Which adapter paints: name, backend, and device type.
+            pub fn adapter(&self) -> &wgpu::AdapterInfo {
+                self.painter.adapter()
+            }
+
+            /// Paint `dl` at the layer's width and present it at the next refresh. False where
+            /// the layer had no drawable to give, hidden or resized meanwhile: the frame is
+            /// skipped, and the next one is painted.
+            pub fn paint(&mut self, dl: &DisplayList, fonts: &Assets) -> Result<bool, PaintError> {
+                let scale = self.config.width as f32 / dl.viewport[0];
+                let jobs = shader_jobs(dl, scale)?;
+                self.painter.holds(dl, scale, &jobs)?;
+                let p = &mut self.painter;
+                let images = p.shaders.prepare(&p.device, &p.queue, &mut p.renderer, &jobs);
+                let drawn = p.draw(dl, fonts, scale, &images);
+                Shaders::release(&mut p.renderer, images);
+                self.drawn = Some(drawn?);
+                let frame = match self.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                        frame
+                    }
+                    wgpu::CurrentSurfaceTexture::Outdated => {
+                        self.surface.configure(&self.painter.device, &self.config);
+                        return Ok(false);
+                    }
+                    wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return Ok(false),
+                    other => return Err(PaintError::Gpu(format!("the layer has no drawable: {other:?}"))),
+                };
+                let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let target = &self.painter.target.as_ref().expect("drawn above").view;
+                let mut encoder =
+                    self.painter.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                self.blitter.copy(&self.painter.device, &mut encoder, target, &view);
+                self.painter.queue.submit([encoder.finish()]);
+                frame.present();
+                Ok(true)
+            }
+
+            /// The last frame painted, read back as the layer was given it: what a test holds to
+            /// the CPU painter's pixels (SPEC §13.5, gate 3's first criterion).
+            pub fn last(&mut self) -> Result<Raster, PaintError> {
+                let size = self.drawn.ok_or_else(|| PaintError::Gpu("no frame painted yet".into()))?;
+                let flight = self.painter.read_target(size)?;
+                self.painter.finish(flight)
             }
         }
 

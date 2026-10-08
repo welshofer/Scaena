@@ -506,6 +506,172 @@ pub unsafe extern "C" fn scaena_saved_free(saved: *mut ScaenaSaved) {
     }
 }
 
+/// Frames painted onto a `CAMetalLayer` by vello on Metal (PLAN 3.2): what the Mac's view
+/// shows. Made by [`scaena_surface_new`], on the Mac alone.
+pub struct ScaenaSurface {
+    #[cfg(target_vendor = "apple")]
+    painter: scaena_paint::gpu::LayerPainter,
+}
+
+/// Paint on `layer`, a `CAMetalLayer`, `width` × `height` device pixels, with the adapter that
+/// presents to it; frames are presented at the display's refresh. The layer keeps the deck's
+/// aspect, and outlives the surface. Null where none can be made, as on any machine but a Mac,
+/// `*error` then saying why.
+///
+/// # Safety
+/// `layer` is a live `CAMetalLayer` that outlives the surface; `error` is null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_new(
+    layer: *mut std::ffi::c_void,
+    width: u32,
+    height: u32,
+    error: *mut *mut c_char,
+) -> *mut ScaenaSurface {
+    let made = guarded(|| {
+        if layer.is_null() {
+            return Err(said("layer is null"));
+        }
+        #[cfg(target_vendor = "apple")]
+        {
+            // SAFETY: the caller gives a live CAMetalLayer that outlives the surface.
+            let painter = unsafe { scaena_paint::gpu::LayerPainter::new(layer, width, height) }.map_err(said)?;
+            Ok(ScaenaSurface { painter })
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = (width, height);
+            Err(said("a layer is painted on the Mac, by Metal: there is none here"))
+        }
+    });
+    match made {
+        Ok(surface) => Box::into_raw(Box::new(surface)),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Paint at `width` × `height` device pixels from now on: the view's size, or its screen's
+/// scale, changed.
+///
+/// # Safety
+/// `surface` is a live handle from [`scaena_surface_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_resize(surface: *mut ScaenaSurface, width: u32, height: u32) -> bool {
+    guarded(|| {
+        let surface = unsafe { handle(surface, "surface") }?;
+        #[cfg(target_vendor = "apple")]
+        surface.painter.resize(width, height);
+        #[cfg(not(target_vendor = "apple"))]
+        let _ = (surface, width, height);
+        Ok(())
+    })
+    .is_ok()
+}
+
+/// Paint `state` at `t_ms` into its cue (infinity: at rest) from `session` onto the layer, as
+/// the canvas shows it (zoomed, where it is), and present it at the next refresh: 1. 0 where the
+/// layer had no drawable to give, hidden or resized meanwhile: the frame is skipped. -1 where
+/// it could not be painted, `*error` then saying why.
+///
+/// # Safety
+/// `surface` and `session` are live handles; `state` a NUL-terminated string; `error` null or
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_paint(
+    surface: *mut ScaenaSurface,
+    session: *mut ScaenaSession,
+    state: *const c_char,
+    t_ms: f64,
+    error: *mut *mut c_char,
+) -> i32 {
+    let painted = guarded(|| {
+        let surface = unsafe { handle(surface, "surface") }?;
+        let session = unsafe { handle(session, "session") }?;
+        let state = unsafe { text(state, "state") }?;
+        let dl = session.0.viewed(state, t_ms).map_err(said)?;
+        #[cfg(target_vendor = "apple")]
+        return surface.painter.paint(&dl, session.0.assets()).map_err(said);
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = (surface, dl);
+            Err(said("a layer is painted on the Mac, by Metal: there is none here"))
+        }
+    });
+    match painted {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            -1
+        }
+    }
+}
+
+/// The last frame the surface painted, read back as the layer was given it: what a test holds
+/// to [`scaena_pixels`] (SPEC §13.5). Null bytes before any frame, `*error` then saying why.
+///
+/// # Safety
+/// `surface` is a live handle; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_pixels(surface: *mut ScaenaSurface, error: *mut *mut c_char) -> ScaenaPixels {
+    let read = guarded(|| {
+        let surface = unsafe { handle(surface, "surface") }?;
+        #[cfg(target_vendor = "apple")]
+        return surface.painter.last().map_err(said);
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = surface;
+            Err::<scaena_paint::Raster, _>(said("a layer is painted on the Mac, by Metal: there is none here"))
+        }
+    });
+    match read {
+        Ok(raster) => ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height },
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
+/// The adapter that paints the surface, as JSON: `{"ok": {"name", "backend", "device"}}`.
+///
+/// # Safety
+/// `surface` is a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_adapter(surface: *mut ScaenaSurface) -> *mut c_char {
+    envelope(guarded(|| {
+        let surface = unsafe { handle(surface, "surface") }?;
+        #[cfg(target_vendor = "apple")]
+        {
+            let info = surface.painter.adapter();
+            Ok(json!({
+                "name": info.name,
+                "backend": format!("{:?}", info.backend),
+                "device": format!("{:?}", info.device_type),
+            }))
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = surface;
+            Err(said("a layer is painted on the Mac, by Metal: there is none here"))
+        }
+    }))
+}
+
+/// Let go of a surface; the layer stays the caller's.
+///
+/// # Safety
+/// `surface` is a live handle from [`scaena_surface_new`], or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
+    if !surface.is_null() {
+        // SAFETY: the caller gives a handle this library made and has not freed.
+        drop(unsafe { Box::from_raw(surface) });
+    }
+}
+
 /// Free a string this library returned.
 ///
 /// # Safety

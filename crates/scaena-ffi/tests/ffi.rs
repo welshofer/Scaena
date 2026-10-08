@@ -216,6 +216,22 @@ fn every_misuse_is_an_error_never_a_crash() {
     assert!(unsafe { scaena_open(files, &mut said) }.is_null(), "a bundle with no deck does not open");
     assert!(!took(said).is_empty());
 
+    // A surface needs a layer, and off the Mac there is none to paint on: an error, said.
+    let mut said = null_mut();
+    assert!(unsafe { scaena_surface_new(null_mut(), 320, 180, &mut said) }.is_null());
+    assert!(took(said).contains("layer is null"));
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let mut not_a_layer = 0_u64;
+        let mut said = null_mut();
+        let surface = unsafe { scaena_surface_new((&raw mut not_a_layer).cast(), 320, 180, &mut said) };
+        assert!(surface.is_null());
+        assert!(took(said).contains("on the Mac"));
+    }
+    let mut said = null_mut();
+    assert_eq!(unsafe { scaena_surface_paint(null_mut(), s, c("cover").as_ptr(), 0.0, &mut said) }, -1);
+    assert!(took(said).contains("surface is null"));
+
     // Freeing nothing is nothing.
     unsafe {
         scaena_string_free(null_mut());
@@ -223,6 +239,7 @@ fn every_misuse_is_an_error_never_a_crash() {
         scaena_session_free(null_mut());
         scaena_saved_free(null_mut());
         scaena_files_free(null_mut());
+        scaena_surface_free(null_mut());
         scaena_session_free(s);
     }
 }

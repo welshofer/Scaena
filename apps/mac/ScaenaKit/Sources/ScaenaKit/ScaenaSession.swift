@@ -30,7 +30,7 @@ public struct ScaenaError: Error, Decodable, Sendable, CustomStringConvertible {
 /// (`scaena-ffi`, ADR-0021). Its calls answer as a page's `Player` does, so a gesture makes the
 /// same patch here as there. Use it from one thread at a time.
 public final class ScaenaSession {
-    private let handle: OpaquePointer
+    let handle: OpaquePointer
 
     /// Open a bundle from its files, each by its path in it (`deck.json`, `fonts/…`), as a page
     /// opens a folder.
@@ -231,7 +231,7 @@ public final class ScaenaSession {
     }
 
     /// The `ok` of the envelope at `answer`, freed, or its `error` thrown.
-    private static func decode<T: Decodable>(_ answer: UnsafeMutablePointer<CChar>?, as type: T.Type) throws -> T {
+    static func decode<T: Decodable>(_ answer: UnsafeMutablePointer<CChar>?, as type: T.Type) throws -> T {
         guard let answer else { throw ScaenaError(message: "the engine said nothing") }
         let data = Data(bytes: answer, count: strlen(answer))
         scaena_string_free(answer)
@@ -242,7 +242,7 @@ public final class ScaenaSession {
     }
 
     /// `bytes` as data, freed, or the error at `error` thrown where there are none.
-    fileprivate static func take(_ bytes: ScaenaBytes, _ error: UnsafeMutablePointer<CChar>?) throws -> Data {
+    static func take(_ bytes: ScaenaBytes, _ error: UnsafeMutablePointer<CChar>?) throws -> Data {
         guard let data = bytes.data else { throw ScaenaError.taking(error) }
         defer { scaena_bytes_free(bytes) }
         return Data(bytes: data, count: bytes.len)
